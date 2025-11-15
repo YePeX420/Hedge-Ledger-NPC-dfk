@@ -7,7 +7,7 @@ import OpenAI from 'openai';
 const {
   DISCORD_TOKEN,
   OPENAI_API_KEY,
-  OPENAI_MODEL = 'gpt-5',
+  OPENAI_MODEL = 'gpt-4o-mini',
   HEDGE_PROMPT_PATH = 'prompt/hedge-ledger.md'
 } = process.env;
 
@@ -26,11 +26,18 @@ try {
 if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_TOKEN');
 if (!OPENAI_API_KEY) throw new Error('Missing OPENAI_API_KEY');
 
+// OpenAI client
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
+// Discord client with DM + member intents
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
-  partials: [Partials.Channel]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent
+  ],
+  partials: [Partials.Channel] // needed for DMs
 });
 
 client.once(Events.ClientReady, (c) => {
@@ -70,6 +77,41 @@ async function askHedge(userMessages, { mode } = {}) {
   return text.length > 1900 ? `${text.slice(0, 1900)}…` : text;
 }
 
+// 🔔 Auto-DM new members with a full onboarding intro
+client.on(Events.GuildMemberAdd, async (member) => {
+  // Ignore bots joining
+  if (member.user.bot) return;
+
+  const username = member.user.username;
+
+  const welcomeText =
+    `📬 **Welcome to the server, ${username}!**\n\n` +
+    `I'm **Hedge Ledger**, the Reluctant Accountant of Serendale — a lazy genius who moonlights as your DFK onboarding guide.\n\n` +
+    `Here’s how you can use me:\n\n` +
+    `**1️⃣ Learn the basics (FREE)**\n` +
+    `• In the server, try: \`/walkthrough topic:getting-started\`\n` +
+    `• You can also ask for: \`quests\`, \`gardens\`, \`summoning\`, \`pets\`, or \`interface\`\n` +
+    `Example: \`/walkthrough topic:gardens\`\n\n` +
+    `**2️⃣ Ask me questions directly**\n` +
+    `• In the server, use: \`/npc message:<your question>\`\n` +
+    `  e.g. \`/npc message: What should a new player focus on?\`\n\n` +
+    `**3️⃣ Get in-character help with DFK systems**\n` +
+    `• Heroes, professions, stamina, quests\n` +
+    `• Gardens and LP basics\n` +
+    `• How to navigate the game UI step-by-step\n\n` +
+    `I keep the intro and walkthroughs free so new adventurers don’t get lost.\n` +
+    `When you’re ready for deeper analytics and optimization, we can talk about “premium ledger access.” 😉\n\n` +
+    `For now, try running **\`/walkthrough topic:getting-started\`** in the server and I’ll walk you through your first steps.`;
+
+  try {
+    await member.send(welcomeText);
+    console.log(`📨 Sent welcome DM to ${username}`);
+  } catch (err) {
+    console.error("Could not DM new member:", err?.message || err);
+  }
+});
+
+// Slash command handler
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (!interaction.isChatInputCommand()) return;
@@ -116,7 +158,7 @@ Return in Hedge Ledger’s structure for /hero.`;
       const userMsg = `Slash Command: /garden yield
 - lp_symbol: ${lp}
 - amount: ${amount}
-Return in Hedge Ledger’s structure for /garden. If APR is unknown, state assumptions clearly and show formula.`;
+Return in Hedge Ledger’s structure for /garden. If APR is unknown, state assumptions clearly and show a simple formula.`;
       const reply = await askHedge([{ role: 'user', content: userMsg }]);
       await interaction.editReply(reply);
       return;
