@@ -1,0 +1,1 @@
+// command registration file
