@@ -32,9 +32,35 @@ const commands = [
   },
   {
     name: 'hero',
-    description: 'Get hero info in Hedge’s voice',
+    description: 'Get LIVE hero data from blockchain',
     options: [
       { name: 'id', description: 'Hero ID', type: 4, required: true } // INTEGER
+    ]
+  },
+  {
+    name: 'market',
+    description: 'Analyze marketplace listings (LIVE blockchain data)',
+    options: [
+      { name: 'class', description: 'Filter by class (e.g., Wizard, Paladin)', type: 3, required: false },
+      { name: 'max_price', description: 'Max price in JEWEL/CRYSTAL', type: 10, required: false },
+      { name: 'limit', description: 'Number of results (default 10)', type: 4, required: false }
+    ]
+  },
+  {
+    name: 'lookup',
+    description: 'Search heroes by criteria (LIVE blockchain data)',
+    options: [
+      { name: 'class', description: 'Hero class', type: 3, required: false },
+      { name: 'profession', description: 'Profession (mining, gardening, etc)', type: 3, required: false },
+      { name: 'for_sale', description: 'Only show heroes for sale', type: 5, required: false }, // BOOLEAN
+      { name: 'min_level', description: 'Minimum level', type: 4, required: false }
+    ]
+  },
+  {
+    name: 'wallet',
+    description: 'View heroes owned by a wallet address (LIVE data)',
+    options: [
+      { name: 'address', description: 'Wallet address (0x...)', type: 3, required: true }
     ]
   },
   {
