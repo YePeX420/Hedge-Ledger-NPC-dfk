@@ -140,6 +140,31 @@ export async function getHeroById(heroId) {
         }
         salePrice
         assistingPrice
+        
+        # Gene data
+        advancedGenes
+        eliteGenes
+        exaltedGenes
+        passive1 {
+          id
+          name
+          tier
+        }
+        passive2 {
+          id
+          name
+          tier
+        }
+        active1 {
+          id
+          name
+          tier
+        }
+        active2 {
+          id
+          name
+          tier
+        }
       }
     }
   `;

@@ -108,10 +108,31 @@ export async function fetchHeroSnapshot(heroId) {
         dexterity
         statBoost1
         statBoost2
-        passive1
-        passive2
-        active1
-        active2
+        
+        # Gene data
+        advancedGenes
+        eliteGenes
+        exaltedGenes
+        passive1 {
+          id
+          name
+          tier
+        }
+        passive2 {
+          id
+          name
+          tier
+        }
+        active1 {
+          id
+          name
+          tier
+        }
+        active2 {
+          id
+          name
+          tier
+        }
       }
     }
   `;
@@ -124,15 +145,11 @@ export async function fetchHeroSnapshot(heroId) {
       throw new Error(`Hero ${heroId} not found`);
     }
 
-    // Parse gene data
+    // Parse gene data (GraphQL now returns gene objects)
     const passive1Gene = parseGeneData(hero.passive1);
     const passive2Gene = parseGeneData(hero.passive2);
     const active1Gene = parseGeneData(hero.active1);
     const active2Gene = parseGeneData(hero.active2);
-
-    // Count advanced/elite/exalted genes
-    const genes = [passive1Gene, passive2Gene, active1Gene, active2Gene];
-    const geneCounts = countGenesByTier(genes);
 
     return {
       heroId: parseInt(hero.id),
@@ -150,9 +167,10 @@ export async function fetchHeroSnapshot(heroId) {
       intelligence: hero.intelligence || 0,
       wisdom: hero.wisdom || 0,
       luck: hero.luck || 0,
-      advancedGenes: geneCounts.advanced,
-      eliteGenes: geneCounts.elite,
-      exaltedGenes: geneCounts.exalted,
+      // Use GraphQL-provided gene counts instead of manual calculation
+      advancedGenes: hero.advancedGenes || 0,
+      eliteGenes: hero.eliteGenes || 0,
+      exaltedGenes: hero.exaltedGenes || 0,
       passive1: passive1Gene,
       passive2: passive2Gene,
       active1: active1Gene,
@@ -166,35 +184,28 @@ export async function fetchHeroSnapshot(heroId) {
 
 /**
  * Parse gene data from GraphQL response
- * @param {string} geneStr - Gene string from GraphQL
- * @returns {Object|null} Parsed gene object
+ * @param {Object|null} geneObj - Gene object from GraphQL { id, name, tier }
+ * @returns {Object|null} Parsed gene object { geneId, name, tier }
  */
-function parseGeneData(geneStr) {
-  if (!geneStr || geneStr === '0' || geneStr === '') {
+function parseGeneData(geneObj) {
+  // GraphQL now returns gene objects with { id, name, tier }
+  if (!geneObj || !geneObj.id) {
     return null;
   }
 
-  // DFK gene format: "geneid_tier_name" or similar
-  // This is a placeholder - actual parsing depends on DFK's gene format
-  // For now, return basic structure
-  return {
-    geneId: geneStr,
-    name: 'Unknown', // Will be enriched from catalog
-    tier: inferGeneTier(geneStr) // Placeholder
+  // GraphQL tier values: 1=basic, 2=advanced, 3=elite, 4=exalted
+  const tierMap = {
+    1: 'basic',
+    2: 'advanced',
+    3: 'elite',
+    4: 'exalted'
   };
-}
 
-/**
- * Infer gene tier from gene ID (placeholder)
- * @param {string} geneId - Gene ID
- * @returns {string} Tier name
- */
-function inferGeneTier(geneId) {
-  // Placeholder - actual logic depends on DFK's gene encoding
-  if (geneId.includes('exalted') || geneId.startsWith('ex')) return 'exalted';
-  if (geneId.includes('elite') || geneId.startsWith('el')) return 'elite';
-  if (geneId.includes('advanced') || geneId.startsWith('ad')) return 'advanced';
-  return 'basic';
+  return {
+    geneId: geneObj.id.toString(),
+    name: geneObj.name || 'Unknown',
+    tier: tierMap[geneObj.tier] || 'basic'
+  };
 }
 
 /**
