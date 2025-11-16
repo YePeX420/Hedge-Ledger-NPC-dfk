@@ -66,7 +66,7 @@ export async function fetchTavernSales(startDate, endDate, realm = null) {
     // Map sales to our schema format
     return data.saleAuctions.map(sale => ({
       heroId: parseInt(sale.tokenId),
-      realm: detectRealm(parseInt(sale.tokenId)),
+      realm: detectRealm(sale.tokenAddress, parseInt(sale.tokenId)),
       saleTimestamp: new Date(parseInt(sale.purchasedAt) * 1000),
       tokenAddress: sale.tokenAddress,
       tokenSymbol: inferTokenSymbol(sale.tokenAddress),
@@ -226,15 +226,52 @@ function countGenesByTier(genes) {
 }
 
 /**
- * Detect realm from hero ID
- * @param {number} heroId - Hero ID
+ * Detect realm from payment token address
+ * @param {string} tokenAddress - Payment token address from sale
+ * @param {number} heroId - Hero ID (fallback if tokenAddress not recognized)
  * @returns {string} Realm code
  */
-function detectRealm(heroId) {
+function detectRealm(tokenAddress, heroId) {
+  // Defensive guard: fallback to heroId if tokenAddress missing
+  if (!tokenAddress) {
+    const id = BigInt(heroId);
+    if (id >= 2000000000000n) return 'metis';
+    if (id >= 1000000000000n) return 'cv';
+    return 'sd';
+  }
+
+  // Token addresses by realm (lowercase for comparison)
+  const REALM_TOKENS = {
+    // Crystalvale (DFK Chain)
+    cv: [
+      '0x04b9da42306b023f3572e106b11d82aad9d32ebb', // CRYSTAL
+      '0x3ad9dfe640e1a9cc1d9b0948620820d975c3803a', // USDC
+    ],
+    // Serendale (Harmony)
+    sd: [
+      '0x72cb10c6bfa5624dd07ef608027e366bd690048f', // JEWEL
+    ],
+    // Serendale 2.0 (Klaytn/Metis)
+    metis: [
+      // Add Klaytn token addresses when known
+    ]
+  };
+
+  // Normalize token address for comparison
+  const normalizedToken = tokenAddress.toLowerCase();
+
+  // Check token address against known realm tokens
+  for (const [realm, tokens] of Object.entries(REALM_TOKENS)) {
+    if (tokens.includes(normalizedToken)) {
+      return realm;
+    }
+  }
+
+  // Fallback to heroId heuristics if token not recognized
   const id = BigInt(heroId);
-  if (id >= 2000000000000n) return 'metis'; // Serendale 2.0 (Klaytn)
-  if (id >= 1000000000000n) return 'cv'; // Crystalvale
-  return 'sd'; // Original Serendale
+  if (id >= 2000000000000n) return 'metis';
+  if (id >= 1000000000000n) return 'cv';
+  return 'sd';
 }
 
 // Note: inferTokenSymbol is now imported from price-feed.js
