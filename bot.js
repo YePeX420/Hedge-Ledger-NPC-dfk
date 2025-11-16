@@ -23,6 +23,34 @@ try {
   process.exit(1);
 }
 
+// Load DeFi Kingdoms knowledge base
+const KNOWLEDGE_FILES = [
+  'knowledge/heroes.md',
+  'knowledge/quests.md',
+  'knowledge/gardens.md',
+  'knowledge/ui-navigation.md'
+];
+
+let DFK_KNOWLEDGE = '\n\n---\n\n# DEFI KINGDOMS KNOWLEDGE BASE\n\n';
+let loadedKnowledgeCount = 0;
+
+for (const file of KNOWLEDGE_FILES) {
+  try {
+    const content = fs.readFileSync(file, 'utf8');
+    DFK_KNOWLEDGE += content + '\n\n';
+    loadedKnowledgeCount++;
+  } catch (e) {
+    console.warn(`⚠️ Could not load knowledge file ${file}:`, e.message);
+  }
+}
+
+if (loadedKnowledgeCount > 0) {
+  HEDGE_PROMPT += DFK_KNOWLEDGE;
+  console.log(`📚 Loaded ${loadedKnowledgeCount}/${KNOWLEDGE_FILES.length} knowledge base files`);
+} else {
+  console.warn('⚠️ No knowledge base files loaded - bot will rely on GPT general knowledge only');
+}
+
 if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_TOKEN');
 if (!OPENAI_API_KEY) throw new Error('Missing OPENAI_API_KEY');
 
