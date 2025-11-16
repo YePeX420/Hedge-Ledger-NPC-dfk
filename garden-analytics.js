@@ -308,10 +308,10 @@ export async function getPoolAnalytics(pid, sharedData = null) {
     // Calculate TVL
     const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked);
     
-    // Calculate 24h fee APR
-    const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.stakedLiquidityUSD);
+    // Calculate 24h fee APR (use total pool TVL including V1+V2)
+    const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD);
     
-    // Calculate emission APR
+    // Calculate emission APR (use only V2 staked amount - only V2 gets CRYSTAL rewards)
     const emissionData = await calculateEmissionAPR(pid, crystalPrice, tvlData.stakedLiquidityUSD);
     
     // Calculate total APR
@@ -382,10 +382,10 @@ export async function getAllPoolAnalytics(limit = 20) {
         // Calculate TVL
         const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked);
         
-        // Calculate 24h fee APR
-        const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.stakedLiquidityUSD);
+        // Calculate 24h fee APR (use total pool TVL including V1+V2)
+        const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD);
         
-        // Calculate emission APR
+        // Calculate emission APR (use only V2 staked amount - only V2 gets CRYSTAL rewards)
         const emissionData = await calculateEmissionAPR(pool.pid, crystalPrice, tvlData.stakedLiquidityUSD);
         
         // Calculate total APR

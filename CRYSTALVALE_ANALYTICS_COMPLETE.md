@@ -185,6 +185,22 @@ This implementation follows your exact specification:
 - Prevents >5% error on large TVL pools (previously had precision drift)
 - <0.1% precision loss after conversion to float for display
 
+**Price Graph Propagation:**
+- Fixed inverted exchange rate formula in BFS price propagation
+- Correct formula: `rate01 = reserve0 / reserve1` (not reserve1 / reserve0)
+- In constant product AMM: token1Price = token0Price × (reserve0 / reserve1)
+- Prevents massive TVL over-valuation (was showing billions instead of thousands)
+
+**V1 vs V2 Staking:**
+- **Total Pool TVL** = All liquidity (V1 + V2 combined)
+  - Used for fee APR calculation (all deposits generate trading fees)
+- **V2 Staked TVL** = Only V2 deposits
+  - Used for emission APR calculation (only V2 gets CRYSTAL rewards)
+- V1 staking is deprecated but still has deposited funds earning fees
+- APR formulas:
+  - Fee APR = (24h fees / Total Pool TVL) × 365 × 100
+  - Emission APR = (24h CRYSTAL rewards / V2 Staked TVL) × 365 × 100
+
 **Shared Data Contract:**
 - Optional `sharedData` parameter in `getPoolAnalytics()`:
   - `allPools` - Pre-fetched pool list
