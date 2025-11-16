@@ -248,3 +248,270 @@ export type InsertTrendData = z.infer<typeof insertTrendDataSchema>;
 export type TrendData = typeof trendData.$inferSelect;
 export type InsertProcessingLog = z.infer<typeof insertProcessingLogSchema>;
 export type ProcessingLog = typeof processingLog.$inferSelect;
+
+// ============================================================================
+// PLAYER ENGAGEMENT & CONVERSION TRACKING SCHEMA
+// ============================================================================
+
+/**
+ * Players - Discord users and their linked wallet addresses
+ */
+export const players = pgTable("players", {
+  id: serial("id").primaryKey(),
+  discordId: text("discord_id").notNull().unique(), // Discord user ID
+  discordUsername: text("discord_username").notNull(),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  
+  // Linked wallets (JSON array of wallet addresses)
+  wallets: json("wallets").$type<string[]>().default(sql`'[]'::json`),
+  primaryWallet: text("primary_wallet"), // Main wallet if user has multiple
+  
+  // Current engagement state
+  engagementState: text("engagement_state").notNull().default('visitor'), // visitor, explorer, participant, player, active, committed
+  stateLastUpdated: timestamp("state_last_updated", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  
+  // Extractor classification
+  extractorScore: numeric("extractor_score", { precision: 10, scale: 2 }).default('0.00').notNull(),
+  extractorClassification: text("extractor_classification").default('normal').notNull(), // normal, extractor_tending, extractor
+  extractorLastUpdated: timestamp("extractor_last_updated", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  
+  // Engagement metrics
+  totalSessions: integer("total_sessions").default(0).notNull(),
+  totalMessages: integer("total_messages").default(0).notNull(),
+  totalMilestones: integer("total_milestones").default(0).notNull(),
+  
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  discordIdIdx: uniqueIndex("players_discord_id_idx").on(table.discordId),
+  primaryWalletIdx: index("players_primary_wallet_idx").on(table.primaryWallet),
+  engagementStateIdx: index("players_engagement_state_idx").on(table.engagementState),
+  extractorClassIdx: index("players_extractor_class_idx").on(table.extractorClassification),
+}));
+
+/**
+ * Interaction sessions - Track conversation sessions with Hedge
+ */
+export const interactionSessions = pgTable("interaction_sessions", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  startedAt: timestamp("started_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  
+  // Session metadata
+  channelType: text("channel_type").notNull(), // 'dm', 'guild_text', 'guild_thread'
+  channelId: text("channel_id"),
+  guildId: text("guild_id"),
+  
+  // Session metrics
+  messageCount: integer("message_count").default(0).notNull(),
+  durationSeconds: integer("duration_seconds"),
+  
+  // Topics discussed (JSON array of topic tags)
+  topics: json("topics").$type<string[]>().default(sql`'[]'::json`),
+  // e.g., ['onboarding', 'heroes', 'gardens', 'quests', 'summoning', 'marketplace', 'yield', 'lore']
+  
+  // Quality indicators
+  commandsUsed: json("commands_used").$type<string[]>().default(sql`'[]'::json`), // ['hero', 'garden', 'market']
+  blockchainQueriesMade: integer("blockchain_queries_made").default(0).notNull(),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  playerIdIdx: index("interaction_sessions_player_id_idx").on(table.playerId),
+  startedAtIdx: index("interaction_sessions_started_at_idx").on(table.startedAt),
+}));
+
+/**
+ * Interaction messages - Individual messages in sessions
+ */
+export const interactionMessages = pgTable("interaction_messages", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull().references(() => interactionSessions.id),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  timestamp: timestamp("timestamp", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  
+  // Message content analysis
+  messageType: text("message_type").notNull(), // 'user_message', 'command', 'bot_response'
+  command: text("command"), // e.g., 'hero', 'garden', 'summon'
+  topic: text("topic"), // Inferred topic: 'onboarding', 'heroes', 'gardens', etc.
+  sentiment: text("sentiment"), // 'positive', 'neutral', 'negative', 'frustrated'
+  
+  // For blockchain queries
+  heroIdQueried: bigint("hero_id_queried", { mode: "number" }),
+  walletQueried: text("wallet_queried"),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdIdx: index("interaction_messages_session_id_idx").on(table.sessionId),
+  playerIdIdx: index("interaction_messages_player_id_idx").on(table.playerId),
+  timestampIdx: index("interaction_messages_timestamp_idx").on(table.timestamp),
+}));
+
+/**
+ * Conversion milestones - Track when users complete key actions
+ */
+export const conversionMilestones = pgTable("conversion_milestones", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  wallet: text("wallet").notNull(),
+  
+  // Milestone details
+  milestoneType: text("milestone_type").notNull(),
+  // e.g., 'wallet_connected', 'first_quest', 'first_hero_purchase', 'first_summon', 
+  // 'first_garden_deposit', 'first_pet_link', 'first_bridge', 'first_level_up'
+  
+  completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
+  
+  // Context about the milestone
+  realm: text("realm"), // 'cv', 'sd', 'metis'
+  heroId: bigint("hero_id", { mode: "number" }),
+  transactionHash: text("transaction_hash"),
+  value: numeric("value", { precision: 30, scale: 18 }), // Transaction value if applicable
+  
+  // Attribution to Hedge
+  daysSinceFirstInteraction: integer("days_since_first_interaction"),
+  relatedSessionId: integer("related_session_id").references(() => interactionSessions.id),
+  hedgeGuidanceProvided: boolean("hedge_guidance_provided").default(false), // Did Hedge explain this feature?
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  playerIdIdx: index("conversion_milestones_player_id_idx").on(table.playerId),
+  walletIdx: index("conversion_milestones_wallet_idx").on(table.wallet),
+  milestoneTypeIdx: index("conversion_milestones_type_idx").on(table.milestoneType),
+  completedAtIdx: index("conversion_milestones_completed_at_idx").on(table.completedAt),
+}));
+
+/**
+ * Wallet activity tracking - On-chain behavior for extractor detection
+ */
+export const walletActivity = pgTable("wallet_activity", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  wallet: text("wallet").notNull(),
+  asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(), // UTC day
+  
+  // Quest activity
+  questsCompleted7d: integer("quests_completed_7d").default(0).notNull(),
+  questsCompleted30d: integer("quests_completed_30d").default(0).notNull(),
+  questsCompleted90d: integer("quests_completed_90d").default(0).notNull(),
+  
+  // Hero activity
+  heroesLeveled7d: integer("heroes_leveled_7d").default(0).notNull(),
+  heroesLeveled30d: integer("heroes_leveled_30d").default(0).notNull(),
+  summonsMade7d: integer("summons_made_7d").default(0).notNull(),
+  summonsMade30d: integer("summons_made_30d").default(0).notNull(),
+  
+  // Marketplace activity
+  heroesPurchased7d: integer("heroes_purchased_7d").default(0).notNull(),
+  heroesPurchased30d: integer("heroes_purchased_30d").default(0).notNull(),
+  heroesSold7d: integer("heroes_sold_7d").default(0).notNull(),
+  heroesSold30d: integer("heroes_sold_30d").default(0).notNull(),
+  floorHeroesBought7d: integer("floor_heroes_bought_7d").default(0).notNull(),
+  floorHeroesFlipped7d: integer("floor_heroes_flipped_7d").default(0).notNull(),
+  
+  // Garden activity
+  gardenDeposits7d: integer("garden_deposits_7d").default(0).notNull(),
+  gardenDeposits30d: integer("garden_deposits_30d").default(0).notNull(),
+  gardenWithdrawals7d: integer("garden_withdrawals_7d").default(0).notNull(),
+  gardenWithdrawals30d: integer("garden_withdrawals_30d").default(0).notNull(),
+  rewardsClaimed7d: integer("rewards_claimed_7d").default(0).notNull(),
+  rewardsSoldImmediately7d: integer("rewards_sold_immediately_7d").default(0).notNull(), // Within 1 hour
+  
+  // Cross-realm activity
+  bridgeTransactions7d: integer("bridge_transactions_7d").default(0).notNull(),
+  bridgeTransactions30d: integer("bridge_transactions_30d").default(0).notNull(),
+  activeRealms: json("active_realms").$type<string[]>().default(sql`'[]'::json`), // ['cv', 'sd', 'metis']
+  
+  // Progression indicators
+  totalHeroLevel: integer("total_hero_level").default(0).notNull(), // Sum of all hero levels
+  totalHeroCount: integer("total_hero_count").default(0).notNull(),
+  petsOwned: integer("pets_owned").default(0).notNull(),
+  petsLinked: integer("pets_linked").default(0).notNull(),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletAsOfDateIdx: uniqueIndex("wallet_activity_wallet_as_of_date_idx").on(table.wallet, table.asOfDate),
+  playerIdIdx: index("wallet_activity_player_id_idx").on(table.playerId),
+  asOfDateIdx: index("wallet_activity_as_of_date_idx").on(table.asOfDate),
+}));
+
+/**
+ * Daily player snapshots - For trending and KPI calculations
+ */
+export const dailyPlayerSnapshots = pgTable("daily_player_snapshots", {
+  id: serial("id").primaryKey(),
+  asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  
+  // State on this day
+  engagementState: text("engagement_state").notNull(),
+  extractorClassification: text("extractor_classification").notNull(),
+  extractorScore: numeric("extractor_score", { precision: 10, scale: 2 }).notNull(),
+  
+  // Cumulative counts at this date
+  totalSessions: integer("total_sessions").notNull(),
+  totalMessages: integer("total_messages").notNull(),
+  totalMilestones: integer("total_milestones").notNull(),
+  
+  // Activity on this day
+  sessionsToday: integer("sessions_today").default(0).notNull(),
+  messagesToday: integer("messages_today").default(0).notNull(),
+  milestonesToday: integer("milestones_today").default(0).notNull(),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  asOfDatePlayerIdx: uniqueIndex("daily_player_snapshots_date_player_idx").on(table.asOfDate, table.playerId),
+  asOfDateIdx: index("daily_player_snapshots_as_of_date_idx").on(table.asOfDate),
+  engagementStateIdx: index("daily_player_snapshots_engagement_idx").on(table.engagementState),
+}));
+
+/**
+ * Extractor signals - Track individual extraction behavior patterns
+ */
+export const extractorSignals = pgTable("extractor_signals", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  wallet: text("wallet").notNull(),
+  detectedAt: timestamp("detected_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  
+  // Signal type and weight
+  signalType: text("signal_type").notNull(),
+  // e.g., 'claim_sell_pattern', 'floor_flip', 'no_progression', 'yield_only_questions', 
+  // 'no_summoning', 'no_leveling', 'quick_cashout'
+  
+  signalWeight: numeric("signal_weight", { precision: 5, scale: 2 }).notNull(), // Weight: 0.00 to 10.00
+  
+  // Evidence
+  evidence: json("evidence"), // Details about what triggered this signal
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  playerIdIdx: index("extractor_signals_player_id_idx").on(table.playerId),
+  walletIdx: index("extractor_signals_wallet_idx").on(table.wallet),
+  detectedAtIdx: index("extractor_signals_detected_at_idx").on(table.detectedAt),
+}));
+
+// Insert schemas
+export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, firstSeenAt: true, updatedAt: true });
+export const insertInteractionSessionSchema = createInsertSchema(interactionSessions).omit({ id: true, createdAt: true });
+export const insertInteractionMessageSchema = createInsertSchema(interactionMessages).omit({ id: true, createdAt: true });
+export const insertConversionMilestoneSchema = createInsertSchema(conversionMilestones).omit({ id: true, createdAt: true });
+export const insertWalletActivitySchema = createInsertSchema(walletActivity).omit({ id: true, createdAt: true });
+export const insertDailyPlayerSnapshotSchema = createInsertSchema(dailyPlayerSnapshots).omit({ id: true, createdAt: true });
+export const insertExtractorSignalSchema = createInsertSchema(extractorSignals).omit({ id: true, createdAt: true });
+
+// Types
+export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
+export type Player = typeof players.$inferSelect;
+export type InsertInteractionSession = z.infer<typeof insertInteractionSessionSchema>;
+export type InteractionSession = typeof interactionSessions.$inferSelect;
+export type InsertInteractionMessage = z.infer<typeof insertInteractionMessageSchema>;
+export type InteractionMessage = typeof interactionMessages.$inferSelect;
+export type InsertConversionMilestone = z.infer<typeof insertConversionMilestoneSchema>;
+export type ConversionMilestone = typeof conversionMilestones.$inferSelect;
+export type InsertWalletActivity = z.infer<typeof insertWalletActivitySchema>;
+export type WalletActivity = typeof walletActivity.$inferSelect;
+export type InsertDailyPlayerSnapshot = z.infer<typeof insertDailyPlayerSnapshotSchema>;
+export type DailyPlayerSnapshot = typeof dailyPlayerSnapshots.$inferSelect;
+export type InsertExtractorSignal = z.infer<typeof insertExtractorSignalSchema>;
+export type ExtractorSignal = typeof extractorSignals.$inferSelect;
