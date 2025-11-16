@@ -152,6 +152,44 @@ client.on('messageCreate', async (message) => {
   try {
     let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
 
+    // 🌱 Detect garden/pool/APR questions
+    const gardenKeywords = /\b(pool|pools|apr|aprs|garden|gardens|yield|liquidity|tvl|staking|lp)\b/gi;
+    const isGardenQuestion = gardenKeywords.test(message.content);
+    
+    if (isGardenQuestion) {
+      // Guide user to use slash command for live analytics
+      const gardenResponse = [
+        "Ah, chasing APRs I see. Smart move.",
+        "",
+        "I can actually pull **live on-chain analytics** for Crystalvale pools now, including:",
+        "• Real 24h fee APR (from Swap events)",
+        "• Emission APR (from CRYSTAL rewards)",
+        "• TVL and volume data",
+        "• Token prices",
+        "",
+        "But you'll need to use slash commands for that. Here's how:",
+        "",
+        "**View all pools:**",
+        "`/garden pool:all realm:dfk`",
+        "",
+        "**Specific pool by PID:**",
+        "`/garden pool:1 realm:dfk`",
+        "",
+        "**Search by name:**",
+        "`/garden pool:CRYSTAL realm:dfk`",
+        "",
+        "**Your harvestable rewards:**",
+        "`/garden wallet:0xYourAddress realm:dfk`",
+        "",
+        "The data comes straight from the blockchain - no guesswork, no external APIs. Takes about 20-60 seconds to scan 24h of events, so be patient.",
+        "",
+        "Go ahead and try it in the server. I'll wait here with my ledger. 📊"
+      ].join('\n');
+      
+      await message.reply(gardenResponse);
+      return;
+    }
+
     // 🔍 Detect hero ID mentions (e.g., "hero #62", "hero 62", "#62")
     const heroIdPattern = /(?:hero\s*#?|#)(\d{1,6})\b/gi;
     const heroMatches = [...message.content.matchAll(heroIdPattern)];

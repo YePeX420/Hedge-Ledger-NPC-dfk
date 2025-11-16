@@ -35,9 +35,10 @@ Node.js backend service with Discord.js integration. No frontend UI - all intera
 - Discord.js client with gateway intents for DMs and guild messages
 - Slash command registration and handling
 - Auto-onboarding system (DMs new members on join)
-- Free-form DM conversation support with auto-detection of hero ID mentions
+- Free-form DM conversation support with intelligent auto-detection:
+  - **Garden/pool questions** - Detects APR/pool/yield keywords and guides users to `/garden` slash command
+  - **Hero ID mentions** - Automatically fetches blockchain data when hero IDs are mentioned (e.g., "What class is hero #62?")
 - Integrates on-chain data module for live blockchain queries
-- Smart DM handler: automatically fetches blockchain data when hero IDs are mentioned (e.g., "What class is hero #62?")
 
 **2. AI Response System**
 - OpenAI GPT-4o-mini integration for conversational responses
