@@ -1,0 +1,74 @@
+I need a Node.js module that fetches CORRECT token prices for my DeFi Kingdoms analytics.
+
+Rules / constraints:
+
+1. Networks:
+   - Crystalvale on DFK Chain (Avalanche subnet).
+   - Metis Influence System (Metis Andromeda, Influence RPC).
+
+2. Do NOT use CoinGecko, CMC, or any centralized API.
+   Prices must be computed ON-CHAIN from UniswapV2-style LP pairs.
+
+3. High-level algorithm for prices:
+
+   a) Build a token graph using LP pairs:
+      - For each LP pair (token0, token1, reserve0, reserve1),
+        define two directed edges:
+        price(token0) / price(token1) = reserve1 / reserve0
+        price(token1) / price(token0) = reserve0 / reserve1
+
+   b) Anchor the graph at a stablecoin per network:
+      - On Crystalvale: USDC.e (fill in the contract address I provide).
+        price(USDC.e) = 1.0
+      - On Metis: USDT/USDC on the Influence DEX (I will provide).
+        price(stable) = 1.0
+
+   c) Use a BFS or Dijkstra-like traversal starting from the stablecoin
+      to compute derived prices for all reachable tokens:
+      - Initialize a map: price[stableToken] = 1.0
+      - For each edge tokenA -> tokenB with rate r:
+          if price[tokenA] is known and price[tokenB] is unknown:
+              price[tokenB] = price[tokenA] * r
+      - Repeat until no new tokens get prices or we hit a max iteration count.
+
+4. Implementation details:
+
+   - Use ethers.js with a JsonRpcProvider.
+   - I will give you:
+       - RPC URL for Crystalvale (DFK Chain).
+       - RPC URL for Metis Influence.
+       - Factory addresses for the DEX on each chain.
+       - ABI for UniswapV2Factory (allPairs, allPairsLength) and UniswapV2Pair.
+   - For each network:
+       - Enumerate all pairs via factory.allPairs().
+       - For each pair:
+           - read token0, token1
+           - read reserves via getReserves()
+           - read decimals for both tokens
+           - normalize reserves to 10^decimals
+           - build the price edges as reserve1/reserve0 and reserve0/reserve1.
+
+5. Exposed API:
+
+   - The module should export an async function:
+       fetchTokenPrices(network) -> { [tokenAddress: string]: number }
+
+     where `network` is "crystalvale" or "metis".
+     The function:
+       - connects to the correct RPC,
+       - builds the pair graph,
+       - anchors at the right stable,
+       - computes price[token] in USD.
+
+6. Edge cases:
+
+   - If a token is not reachable from the stable, leave it undefined
+     or exclude it from the result.
+   - Handle WJEWEL/WETH/WAVAX/WMETIS as just normal ERC20 tokens;
+     they get priced via their pairs vs USDC or vs other tokens
+     that ultimately link back to USDC.
+
+7. I care most about prices being internally consistent for:
+   - CRYSTAL and JEWEL on DFK Chain.
+   - Influence reward token on Metis.
+   - Main LP tokens used by the summoning/questing pools.
