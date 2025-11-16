@@ -231,23 +231,84 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (name === 'garden') {
-      const lp = interaction.options.getString('lp', true);
-      const amount = interaction.options.getNumber('amount') ?? 1000;
-      const userMsg = `Slash Command: /garden yield
-- lp_symbol: ${lp}
-- amount: ${amount}
-
-For now you DO NOT have live APR data.
-If you decide to assume an APR, clearly mark it as an illustrative example (e.g. "If APR were 20%...").
-Explain the generic formula for daily/weekly/monthly yield:
-- APR_decimal = APR_percent / 100
-- daily = amount * APR_decimal / 365
-- weekly = daily * 7
-- monthly = daily * 30
-
-Prefer to ask the user for the real APR instead of inventing concrete numbers.`;
-      const reply = await askHedge([{ role: 'user', content: userMsg }]);
-      await interaction.editReply(reply);
+      const pool = interaction.options.getString('pool');
+      const wallet = interaction.options.getString('wallet');
+      const realm = interaction.options.getString('realm') || 'dfk';
+      
+      // Validate realm
+      if (realm !== 'dfk' && realm !== 'klaytn') {
+        await interaction.editReply(`Invalid realm "${realm}". Use "dfk" or "klaytn".`);
+        return;
+      }
+      
+      try {
+        if (pool && pool.toLowerCase() === 'all') {
+          // Show all pools
+          const pools = await onchain.getGardenPools(realm, 10);
+          if (!pools || pools.length === 0) {
+            await interaction.editReply(`No active pools found for ${realm.toUpperCase()}.`);
+            return;
+          }
+          
+          let poolsList = `🌱 **Garden Pools** (${realm.toUpperCase()})\n\n`;
+          pools.forEach((p, i) => {
+            poolsList += `${i+1}. **${p.pair}** - Allocation: ${p.allocPercent}, Staked: ${parseFloat(p.totalStaked).toFixed(2)} LP\n`;
+          });
+          poolsList += `\nNote: Allocation % shows relative rewards. Higher % = better APR.`;
+          
+          const userMsg = `LIVE GARDEN DATA:\n\n${poolsList}\n\nAnalyze as Hedge. Explain that allocation % determines relative APR.`;
+          const reply = await askHedge([{ role: 'user', content: userMsg }]);
+          await interaction.editReply(reply);
+          return;
+        } else if (pool) {
+          // Look up specific pool by pair name
+          const pools = await onchain.getGardenPools(realm, 20);
+          const matchedPool = pools.find(p => 
+            p.pair.toLowerCase() === pool.toLowerCase() || 
+            p.pair.toLowerCase().includes(pool.toLowerCase())
+          );
+          
+          if (!matchedPool) {
+            await interaction.editReply(`Pool "${pool}" not found in ${realm.toUpperCase()}. Try /garden pool:all to see available pools.`);
+            return;
+          }
+          
+          const poolInfo = onchain.formatGardenSummary(matchedPool);
+          const userMsg = `LIVE POOL DATA:\n\n${poolInfo}\n\nAnalyze as Hedge. Note: allocation % determines relative APR (higher % = better rewards).`;
+          const reply = await askHedge([{ role: 'user', content: userMsg }]);
+          await interaction.editReply(reply);
+          return;
+        } else if (wallet) {
+          // Show user's positions and harvestable rewards
+          const positions = await onchain.getUserGardenPositions(wallet, realm);
+          const rewards = await onchain.getPendingRewards(wallet, realm);
+          
+          if (!positions || positions.length === 0) {
+            await interaction.editReply(`No active garden positions found for this wallet in ${realm.toUpperCase()}.`);
+            return;
+          }
+          
+          let positionsSummary = `👛 **Garden Positions** (${realm.toUpperCase()})\n\n`;
+          positions.forEach((pos, i) => {
+            positionsSummary += `${i+1}. **${pos.pair}**: ${parseFloat(pos.stakedAmount).toFixed(4)} LP → Harvestable: ${parseFloat(pos.pendingRewards).toFixed(4)} ${realm === 'dfk' ? 'CRYSTAL' : 'JADE'}\n`;
+          });
+          positionsSummary += `\n**Total Harvestable:** ${parseFloat(rewards.totalPending).toFixed(4)} ${realm === 'dfk' ? 'CRYSTAL' : 'JADE'}`;
+          
+          const userMsg = `LIVE HARVEST DATA:\n\n${positionsSummary}\n\nAnalyze as Hedge.`;
+          const reply = await askHedge([{ role: 'user', content: userMsg }]);
+          await interaction.editReply(reply);
+          return;
+        } else {
+          // Generic garden info (fallback to knowledge base)
+          const userMsg = `User asked about garden pools. Explain how gardens work in DeFi Kingdoms: staking LP tokens, earning CRYSTAL/JADE, allocation percentages, withdrawal fees, etc. Respond as Hedge.`;
+          const reply = await askHedge([{ role: 'user', content: userMsg }]);
+          await interaction.editReply(reply);
+          return;
+        }
+      } catch (err) {
+        console.error('Garden command error:', err);
+        await interaction.editReply('Garden data unavailable. Try again later or ask about general garden mechanics.');
+      }
       return;
     }
 

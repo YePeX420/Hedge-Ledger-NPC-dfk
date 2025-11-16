@@ -65,10 +65,11 @@ const commands = [
   },
   {
     name: 'garden',
-    description: 'Yield estimates for an LP',
+    description: 'Live garden pool APR, fees, and harvestable rewards',
     options: [
-      { name: 'lp', description: 'LP symbol (e.g., CRYSTAL-AVAX)', type: 3, required: true },
-      { name: 'amount', description: 'Amount in LP or USD (e.g., 1000)', type: 10, required: false } // NUMBER
+      { name: 'pool', description: 'Pool pair (e.g., CRYSTAL-AVAX) or "all"', type: 3, required: false },
+      { name: 'wallet', description: 'Wallet address to check harvestable rewards', type: 3, required: false },
+      { name: 'realm', description: 'dfk or klaytn (default: dfk)', type: 3, required: false }
     ]
   },
   {
