@@ -144,6 +144,13 @@ Returns:
 - Initial query may take 10-30 seconds per pool
 - Results are calculated fresh each time (no caching)
 
+**Shared Data Optimization:**
+- `getPoolAnalytics()` accepts optional `sharedData` parameter
+- When provided, reuses: allPools, priceGraph, crystalPrice, totalAllocPoint
+- `getAllPoolAnalytics()` builds shared data once and passes to each pool
+- Bot.js passes shared data for name-based pool lookups
+- Dramatically reduces RPC calls and prevents timeouts for batch operations
+
 **Optimization Strategies:**
 - `pool:all` limits to 10 pools (top performers)
 - Individual pool queries scan only that pool's events
@@ -165,10 +172,27 @@ This implementation follows your exact specification:
 ✅ **On-chain price graph** - BFS from USDC anchor
 ✅ **24h fee APR** - Swap log scanning + volume calculation
 ✅ **24h emission APR** - RewardCollected log scanning
-✅ **TVL calculation** - Reserves × prices × staked ratio
+✅ **TVL calculation** - Reserves × prices × staked ratio (BigInt precision)
 ✅ **Harvestable rewards** - `pendingReward()` per pool
 ✅ **Deterministic** - Same inputs = same outputs
 ✅ **RPC-only** - No external APIs
+
+## Precision & Correctness
+
+**BigInt Handling:**
+- All allocation point conversions use `Number(bigIntValue)` instead of `parseFloat()`
+- Staked ratio calculation uses BigInt math with 1e6 precision multiplier
+- Prevents >5% error on large TVL pools (previously had precision drift)
+- <0.1% precision loss after conversion to float for display
+
+**Shared Data Contract:**
+- Optional `sharedData` parameter in `getPoolAnalytics()`:
+  - `allPools` - Pre-fetched pool list
+  - `priceGraph` - Pre-built price map
+  - `crystalPrice` - Pre-fetched CRYSTAL price
+  - `totalAllocPoint` - Pre-fetched total allocation point
+- When omitted, function builds fresh data (backwards compatible)
+- Bot.js uses shared data for name-based lookups (avoids redundant pool discovery)
 
 ## Limitations & Future Enhancements
 

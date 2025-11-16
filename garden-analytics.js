@@ -13,6 +13,9 @@ const FEE_RATE = 0.0025; // 0.25% swap fee
 const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
 const stakingContract = new ethers.Contract(LP_STAKING_ADDRESS, lpStakingABI, provider);
 
+// Export for use in bot.js when building shared data
+export { stakingContract };
+
 /**
  * Discover all pools from staking contract
  */
@@ -231,24 +234,34 @@ export async function calculateEmissionAPR(pid, rewardTokenPrice, stakedLiquidit
 }
 
 /**
- * Calculate TVL from reserves and token prices
+ * Calculate TVL from reserves and token prices (using BigInt precision)
  */
 export function calculateTVL(lpDetails, priceGraph, totalStaked) {
   const token0Price = priceGraph.get(lpDetails.token0.address.toLowerCase()) || 0;
   const token1Price = priceGraph.get(lpDetails.token1.address.toLowerCase()) || 0;
   
+  // Convert reserves to USD using high precision
   const reserve0Float = parseFloat(ethers.formatUnits(lpDetails.reserve0, lpDetails.token0.decimals));
   const reserve1Float = parseFloat(ethers.formatUnits(lpDetails.reserve1, lpDetails.token1.decimals));
   
   const totalLiquidityUSD = (reserve0Float * token0Price) + (reserve1Float * token1Price);
   
-  // Calculate staked portion
-  const totalSupplyFloat = parseFloat(ethers.formatUnits(lpDetails.totalSupply, 18));
-  const stakedFloat = parseFloat(ethers.formatUnits(totalStaked, 18));
+  // Calculate staked ratio using BigInt to maintain precision
+  if (lpDetails.totalSupply === 0n) {
+    return { 
+      tvlUSD: totalLiquidityUSD, 
+      stakedLiquidityUSD: 0, 
+      stakedRatio: 0 
+    };
+  }
   
-  if (totalSupplyFloat === 0) return { tvlUSD: 0, stakedLiquidityUSD: 0 };
+  // Use BigInt ratio calculation for high precision
+  // stakedRatio = totalStaked / totalSupply (both in 1e18 units)
+  // Multiply by 1e6 for precision before converting to float
+  const PRECISION = 1_000_000n;
+  const stakedRatioBigInt = (totalStaked * PRECISION) / lpDetails.totalSupply;
+  const stakedRatio = Number(stakedRatioBigInt) / Number(PRECISION);
   
-  const stakedRatio = stakedFloat / totalSupplyFloat;
   const stakedLiquidityUSD = totalLiquidityUSD * stakedRatio;
   
   return {
@@ -259,12 +272,19 @@ export function calculateTVL(lpDetails, priceGraph, totalStaked) {
 }
 
 /**
- * Get comprehensive pool analytics
+ * Get comprehensive pool analytics (with optional shared data for performance)
+ * 
+ * @param {number} pid - Pool ID
+ * @param {object} sharedData - Optional shared computation results to avoid recomputation
+ * @param {Array} sharedData.allPools - Pre-fetched pool list
+ * @param {Map} sharedData.priceGraph - Pre-built price graph
+ * @param {number} sharedData.crystalPrice - Pre-fetched CRYSTAL price
+ * @param {bigint} sharedData.totalAllocPoint - Pre-fetched total allocation point
  */
-export async function getPoolAnalytics(pid) {
+export async function getPoolAnalytics(pid, sharedData = null) {
   try {
-    // Discover all pools to build price graph
-    const allPools = await discoverPools();
+    // Use shared data if provided, otherwise fetch fresh
+    const allPools = sharedData?.allPools || await discoverPools();
     const pool = allPools.find(p => p.pid === pid);
     
     if (!pool) {
@@ -274,12 +294,12 @@ export async function getPoolAnalytics(pid) {
     // Get LP details
     const lpDetails = await getLPTokenDetails(pool.lpToken);
     
-    // Build price graph
-    const priceGraph = await buildPriceGraph(allPools);
+    // Use shared price graph or build new one
+    const priceGraph = sharedData?.priceGraph || await buildPriceGraph(allPools);
     
-    // Get CRYSTAL price (reward token)
+    // Use shared CRYSTAL price or fetch from graph
     const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
-    const crystalPrice = priceGraph.get(CRYSTAL_ADDRESS.toLowerCase()) || 0;
+    const crystalPrice = sharedData?.crystalPrice ?? (priceGraph.get(CRYSTAL_ADDRESS.toLowerCase()) || 0);
     
     // Calculate TVL
     const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked);
@@ -293,8 +313,8 @@ export async function getPoolAnalytics(pid) {
     // Calculate total APR
     const totalAPR = feeData.feeAPR + emissionData.emissionAPR;
     
-    // Calculate allocation percentage (convert BigInt safely)
-    const totalAllocPoint = await stakingContract.getTotalAllocPoint();
+    // Use shared total alloc point or fetch fresh
+    const totalAllocPoint = sharedData?.totalAllocPoint || await stakingContract.getTotalAllocPoint();
     const allocPercent = (Number(pool.allocPoint) / Number(totalAllocPoint)) * 100;
     
     return {

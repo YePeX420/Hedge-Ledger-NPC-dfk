@@ -270,11 +270,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } else if (pool) {
           // Look up specific pool by PID or name
           let pid = parseInt(pool);
+          let sharedData = null;
           
           if (isNaN(pid)) {
-            // Try to find by name
+            // Try to find by name - build shared data for efficiency
             await interaction.editReply(`Searching for pool "${pool}"...`);
+            
+            // Build shared data once for name search + analytics
             const allPools = await analytics.discoverPools();
+            const priceGraph = await analytics.buildPriceGraph(allPools);
+            const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
+            const crystalPrice = priceGraph.get(CRYSTAL_ADDRESS.toLowerCase()) || 0;
+            const totalAllocPoint = await analytics.stakingContract.getTotalAllocPoint();
+            
+            sharedData = { allPools, priceGraph, crystalPrice, totalAllocPoint };
+            
             const lpDetails = await Promise.all(
               allPools.slice(0, 14).map(async p => ({
                 pid: p.pid,
@@ -296,7 +306,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           
           await interaction.editReply(`Calculating analytics for pool ${pid}... (scanning 24h of blocks)`);
           
-          const poolData = await analytics.getPoolAnalytics(pid);
+          // Use shared data if we built it for name search, otherwise getPoolAnalytics will build fresh
+          const poolData = await analytics.getPoolAnalytics(pid, sharedData);
           
           let poolInfo = `📊 **${poolData.pairName}** (PID ${poolData.pid})\n\n`;
           poolInfo += `**APR Breakdown:**\n`;
