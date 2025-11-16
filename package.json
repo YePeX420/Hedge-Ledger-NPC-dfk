@@ -9,10 +9,15 @@
     "register": "node register-commands.js"
   },
   "dependencies": {
+    "@types/pg": "^8.15.6",
     "discord.js": "^14.17.3",
     "dotenv": "^16.4.5",
+    "drizzle-kit": "^0.31.7",
+    "drizzle-orm": "^0.44.7",
+    "drizzle-zod": "^0.8.3",
     "ethers": "^6.15.0",
     "graphql-request": "^7.3.3",
-    "openai": "^4.56.0"
+    "openai": "^4.56.0",
+    "postgres": "^3.4.7"
   }
 }
