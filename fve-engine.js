@@ -3,8 +3,7 @@
 // Learns trait values from actual Tavern sales and provides intrinsic + market fair values
 
 import { GraphQLClient, gql } from 'graphql-request';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import { db } from './server/db.js';
 import { 
   tavernSales, 
   heroSnapshots, 
@@ -13,20 +12,12 @@ import {
   similarityBuckets,
   trendData,
   processingLog
-} from './shared/schema.ts';
+} from './shared/schema.js';
 import { eq, and, gte, lte, inArray, sql, desc } from 'drizzle-orm';
+import { convertToUSD, inferTokenSymbol } from './price-feed.js';
 
 const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
 const client = new GraphQLClient(DFK_GRAPHQL_ENDPOINT);
-
-// Initialize database connection
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error('DATABASE_URL environment variable is required for Fair Value Engine');
-}
-
-const queryClient = postgres(connectionString);
-const db = drizzle(queryClient);
 
 /**
  * Fetch Tavern sales from DFK GraphQL API
@@ -235,20 +226,7 @@ function detectRealm(heroId) {
   return 'sd'; // Original Serendale
 }
 
-/**
- * Infer token symbol from address (placeholder)
- * @param {string} address - Token address
- * @returns {string} Token symbol
- */
-function inferTokenSymbol(address) {
-  // Placeholder - should maintain a mapping of known token addresses
-  const knownTokens = {
-    '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb': 'CRYSTAL', // Crystalvale
-    '0x72Cb10C6bfA5624dD07Ef608027E366bd690048F': 'JEWEL', // Serendale
-  };
-  
-  return knownTokens[address] || 'UNKNOWN';
-}
+// Note: inferTokenSymbol is now imported from price-feed.js
 
 /**
  * Ingest sales data into database
@@ -281,11 +259,25 @@ export async function ingestSales(sales, asOfDate) {
       // Fetch hero snapshot
       const snapshot = await fetchHeroSnapshot(sale.heroId);
 
-      // Insert sale
+      // Convert price to USD using on-chain price feed
+      const priceUsd = await convertToUSD(
+        sale.tokenAddress,
+        sale.priceAmount,
+        18 // Most DFK tokens use 18 decimals
+      );
+
+      // Skip sale if USD conversion failed
+      if (priceUsd === null || !isFinite(priceUsd)) {
+        console.warn(`⚠️ Skipping hero ${sale.heroId} - USD conversion failed`);
+        continue;
+      }
+
+      // Insert sale with USD price
       const [insertedSale] = await db
         .insert(tavernSales)
         .values({
           ...sale,
+          priceUsd: priceUsd.toFixed(2), // Store as decimal with 2 precision
           asOfDate,
           isFloorHero: false, // Will be updated by floor detection
         })
