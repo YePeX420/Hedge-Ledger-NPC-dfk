@@ -259,7 +259,7 @@ export async function ingestSales(sales, asOfDate) {
       // Fetch hero snapshot
       const snapshot = await fetchHeroSnapshot(sale.heroId);
 
-      // Convert price to USD using on-chain price feed
+      // Convert price to USD using on-chain price feed (returns formatted string)
       const priceUsd = await convertToUSD(
         sale.tokenAddress,
         sale.priceAmount,
@@ -267,17 +267,17 @@ export async function ingestSales(sales, asOfDate) {
       );
 
       // Skip sale if USD conversion failed
-      if (priceUsd === null || !isFinite(priceUsd)) {
+      if (priceUsd === null) {
         console.warn(`⚠️ Skipping hero ${sale.heroId} - USD conversion failed`);
         continue;
       }
 
-      // Insert sale with USD price
+      // Insert sale with USD price (already formatted as string with 2 decimals)
       const [insertedSale] = await db
         .insert(tavernSales)
         .values({
           ...sale,
-          priceUsd: priceUsd.toFixed(2), // Store as decimal with 2 precision
+          priceUsd, // Already formatted string from convertToUSD
           asOfDate,
           isFloorHero: false, // Will be updated by floor detection
         })

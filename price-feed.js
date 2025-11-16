@@ -4,6 +4,7 @@
 
 import { buildPriceGraph } from './garden-analytics.js';
 import { ethers } from 'ethers';
+import Decimal from 'decimal.js';
 
 // Token addresses on DFK Chain (Crystalvale)
 const TOKEN_ADDRESSES = {
@@ -99,11 +100,12 @@ export async function getJewelPrice() {
 }
 
 /**
- * Convert token amount to USD using arbitrary precision math
+ * Convert token amount to USD using true arbitrary precision math (supports 256-bit wei)
+ * Uses decimal.js for full precision throughout - returns formatted string to avoid IEEE-754 limits
  * @param {string} tokenAddress - Token contract address
  * @param {string|number|bigint} amount - Token amount (in wei/smallest unit)
  * @param {number} decimals - Token decimals (default: 18)
- * @returns {Promise<number|null>} USD value (or null if conversion fails)
+ * @returns {Promise<string|null>} USD value as string with 2 decimal places (or null if conversion fails)
  */
 export async function convertToUSD(tokenAddress, amount, decimals = 18) {
   try {
@@ -115,46 +117,50 @@ export async function convertToUSD(tokenAddress, amount, decimals = 18) {
       return null;
     }
     
-    // Convert wei to token amount as string (maintains full precision)
-    let tokenAmountStr;
-    try {
-      tokenAmountStr = ethers.formatUnits(amount.toString(), decimals);
-    } catch (err) {
-      console.error(`Error formatting amount ${amount}:`, err.message);
-      return null;
-    }
-    
-    // Use FixedNumber for arbitrary precision multiplication
-    // This avoids IEEE-754 precision loss for large values
-    let tokenAmountFixed;
-    let priceFixed;
-    let usdValueFixed;
+    // Use Decimal.js for arbitrary precision math (supports 256-bit values)
+    let amountDecimal;
+    let divisorDecimal;
+    let tokenAmountDecimal;
+    let priceDecimal;
+    let usdValueDecimal;
     
     try {
-      tokenAmountFixed = ethers.FixedNumber.fromString(tokenAmountStr);
-      priceFixed = ethers.FixedNumber.fromString(price.toString());
-      usdValueFixed = tokenAmountFixed.mul(priceFixed);
+      // Convert wei amount to Decimal (handles 256-bit strings safely)
+      amountDecimal = new Decimal(amount.toString());
+      
+      // Validate amount is non-negative
+      if (amountDecimal.isNegative()) {
+        console.warn(`⚠️ Negative amount: ${amount}`);
+        return null;
+      }
+      
+      // Create divisor for decimal conversion (10^decimals)
+      divisorDecimal = new Decimal(10).pow(decimals);
+      
+      // Divide to get token amount (stays in arbitrary precision)
+      tokenAmountDecimal = amountDecimal.div(divisorDecimal);
+      
+      // Convert price to Decimal
+      priceDecimal = new Decimal(price.toString());
+      
+      // Multiply to get USD value (stays in arbitrary precision)
+      usdValueDecimal = tokenAmountDecimal.mul(priceDecimal);
+      
+      // Validate result is non-negative
+      if (usdValueDecimal.isNegative()) {
+        console.warn(`⚠️ Negative USD value`);
+        return null;
+      }
+      
     } catch (err) {
-      console.error(`Error in fixed-point arithmetic:`, err.message);
+      console.error(`Error in decimal arithmetic:`, err.message);
       return null;
     }
     
-    // Convert to regular number for storage (only at the final step)
-    const usdValue = parseFloat(usdValueFixed.toString());
+    // Return formatted string with 2 decimal places (cents precision)
+    // Stays in arbitrary precision - never converts to IEEE-754 double
+    return usdValueDecimal.toFixed(2);
     
-    // Final sanity checks
-    if (!isFinite(usdValue) || usdValue < 0) {
-      console.warn(`⚠️ Invalid USD value: ${usdValue}`);
-      return null;
-    }
-    
-    // Guard against overflow (larger than JS can safely represent)
-    if (usdValue > Number.MAX_SAFE_INTEGER) {
-      console.warn(`⚠️ USD value too large: $${usdValue} (exceeds MAX_SAFE_INTEGER)`);
-      return null;
-    }
-    
-    return usdValue;
   } catch (error) {
     console.error(`Error converting to USD:`, error.message);
     return null;
