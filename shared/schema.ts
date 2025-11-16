@@ -491,6 +491,130 @@ export const extractorSignals = pgTable("extractor_signals", {
   detectedAtIdx: index("extractor_signals_detected_at_idx").on(table.detectedAt),
 }));
 
+// ============================================================================
+// ECONOMIC MODEL SCHEMA - JEWEL BALANCE & QUERY COSTS
+// ============================================================================
+
+/**
+ * JEWEL balances - Pre-paid credits for AI queries
+ */
+export const jewelBalances = pgTable("jewel_balances", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id).unique(), // One balance per player
+  
+  // Balance tracking
+  balanceJewel: numeric("balance_jewel", { precision: 30, scale: 18 }).notNull().default('0'),
+  
+  // Tier classification (based on lifetime deposits)
+  lifetimeDepositsJewel: numeric("lifetime_deposits_jewel", { precision: 30, scale: 18 }).notNull().default('0'),
+  tier: text("tier").notNull().default('free'), // 'free', 'bronze', 'silver', 'gold', 'whale'
+  
+  // Free tier usage tracking (resets daily)
+  freeGardenAprsUsedToday: integer("free_garden_aprs_used_today").default(0).notNull(),
+  freeSummonUsedToday: integer("free_summon_used_today").default(0).notNull(),
+  freeTierResetDate: timestamp("free_tier_reset_date", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  
+  // Last activity
+  lastQueryAt: timestamp("last_query_at", { withTimezone: true }),
+  lastDepositAt: timestamp("last_deposit_at", { withTimezone: true }),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  playerIdIdx: uniqueIndex("jewel_balances_player_id_idx").on(table.playerId),
+  tierIdx: index("jewel_balances_tier_idx").on(table.tier),
+}));
+
+/**
+ * Deposit requests - Track pending deposits with unique decimal amounts
+ */
+export const depositRequests = pgTable("deposit_requests", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  
+  // Request details
+  requestedAt: timestamp("requested_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  uniqueAmountJewel: numeric("unique_amount_jewel", { precision: 30, scale: 18 }).notNull().unique(), // e.g., 10.123456
+  hedgeWallet: text("hedge_wallet").notNull(), // 0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1
+  
+  // Status tracking
+  status: text("status").notNull().default('pending'), // 'pending', 'completed', 'expired'
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), // 24h expiration
+  
+  // Completion details
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  transactionHash: text("transaction_hash"),
+  actualAmountReceived: numeric("actual_amount_received", { precision: 30, scale: 18 }),
+  senderWallet: text("sender_wallet"),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  playerIdIdx: index("deposit_requests_player_id_idx").on(table.playerId),
+  statusIdx: index("deposit_requests_status_idx").on(table.status),
+  uniqueAmountIdx: uniqueIndex("deposit_requests_unique_amount_idx").on(table.uniqueAmountJewel),
+  expiresAtIdx: index("deposit_requests_expires_at_idx").on(table.expiresAt),
+}));
+
+/**
+ * Query costs - Log every AI query with cost tracking
+ */
+export const queryCosts = pgTable("query_costs", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  
+  // Query details
+  timestamp: timestamp("timestamp", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  queryType: text("query_type").notNull(), // 'hero', 'garden_free', 'garden_premium', 'fve', 'summon', 'knowledge'
+  toolsUsed: json("tools_used").$type<string[]>().default(sql`'[]'::json`), // ['get_hero_info', 'get_garden_pools_premium']
+  
+  // Cost breakdown
+  tokensUsed: integer("tokens_used").notNull(),
+  openaiCostUsd: numeric("openai_cost_usd", { precision: 15, scale: 6 }).notNull(), // Actual OpenAI cost
+  replitCostUsd: numeric("replit_cost_usd", { precision: 15, scale: 6 }).notNull().default('0'), // Hosting overhead
+  totalCostUsd: numeric("total_cost_usd", { precision: 15, scale: 6 }).notNull(),
+  
+  // Pricing and profit
+  priceChargedJewel: numeric("price_charged_jewel", { precision: 30, scale: 18 }).notNull().default('0'), // 0 for free tier
+  jewelPriceUsd: numeric("jewel_price_usd", { precision: 15, scale: 6 }).notNull(), // JEWEL/USD at query time
+  revenueUsd: numeric("revenue_usd", { precision: 15, scale: 6 }).notNull().default('0'),
+  profitUsd: numeric("profit_usd", { precision: 15, scale: 6 }).notNull(), // revenue - totalCost
+  profitMargin: numeric("profit_margin", { precision: 10, scale: 2 }).notNull(), // percentage
+  
+  // Context
+  userMessage: text("user_message"), // Original query (for analysis)
+  freeTierUsed: boolean("free_tier_used").default(false).notNull(),
+  discountApplied: text("discount_applied"), // 'new_player', 'whale_priority', null
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  playerIdIdx: index("query_costs_player_id_idx").on(table.playerId),
+  timestampIdx: index("query_costs_timestamp_idx").on(table.timestamp),
+  queryTypeIdx: index("query_costs_query_type_idx").on(table.queryType),
+  freeTierIdx: index("query_costs_free_tier_idx").on(table.freeTierUsed),
+}));
+
+/**
+ * Pricing config - Dynamic pricing parameters (admin-configurable)
+ */
+export const pricingConfig = pgTable("pricing_config", {
+  id: serial("id").primaryKey(),
+  configKey: text("config_key").notNull().unique(), // 'base_rates', 'discounts', 'surge_pricing'
+  
+  // Config value (JSON)
+  configValue: json("config_value").notNull(),
+  // Examples:
+  // base_rates: {hero: 0.2, garden_basic: 0, garden_premium: 0.15, fve: 0.3, summon: 0.25}
+  // discounts: {new_player_threshold: 100, new_player_discount: 0.5, whale_multiplier: 5}
+  // surge_pricing: {peak_hours: [12,13,14,18,19,20], peak_multiplier: 1.2}
+  
+  description: text("description"),
+  updatedBy: text("updated_by"), // Admin who last updated
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  configKeyIdx: uniqueIndex("pricing_config_key_idx").on(table.configKey),
+}));
+
 // Insert schemas
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, firstSeenAt: true, updatedAt: true });
 export const insertInteractionSessionSchema = createInsertSchema(interactionSessions).omit({ id: true, createdAt: true });
@@ -499,6 +623,10 @@ export const insertConversionMilestoneSchema = createInsertSchema(conversionMile
 export const insertWalletActivitySchema = createInsertSchema(walletActivity).omit({ id: true, createdAt: true });
 export const insertDailyPlayerSnapshotSchema = createInsertSchema(dailyPlayerSnapshots).omit({ id: true, createdAt: true });
 export const insertExtractorSignalSchema = createInsertSchema(extractorSignals).omit({ id: true, createdAt: true });
+export const insertJewelBalanceSchema = createInsertSchema(jewelBalances).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDepositRequestSchema = createInsertSchema(depositRequests).omit({ id: true, createdAt: true });
+export const insertQueryCostSchema = createInsertSchema(queryCosts).omit({ id: true, createdAt: true });
+export const insertPricingConfigSchema = createInsertSchema(pricingConfig).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Types
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
@@ -515,3 +643,11 @@ export type InsertDailyPlayerSnapshot = z.infer<typeof insertDailyPlayerSnapshot
 export type DailyPlayerSnapshot = typeof dailyPlayerSnapshots.$inferSelect;
 export type InsertExtractorSignal = z.infer<typeof insertExtractorSignalSchema>;
 export type ExtractorSignal = typeof extractorSignals.$inferSelect;
+export type InsertJewelBalance = z.infer<typeof insertJewelBalanceSchema>;
+export type JewelBalance = typeof jewelBalances.$inferSelect;
+export type InsertDepositRequest = z.infer<typeof insertDepositRequestSchema>;
+export type DepositRequest = typeof depositRequests.$inferSelect;
+export type InsertQueryCost = z.infer<typeof insertQueryCostSchema>;
+export type QueryCost = typeof queryCosts.$inferSelect;
+export type InsertPricingConfig = z.infer<typeof insertPricingConfigSchema>;
+export type PricingConfig = typeof pricingConfig.$inferSelect;
