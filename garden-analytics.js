@@ -100,14 +100,18 @@ export async function buildPriceGraph(pools) {
     const token0 = details.token0.address.toLowerCase();
     const token1 = details.token1.address.toLowerCase();
     
-    // Calculate exchange rates
+    // Calculate exchange rates (price propagation)
+    // In a constant product AMM: if we know token0 price, token1 price = token0 price * (reserve0 / reserve1)
+    // This is because: 1 token1 = (reserve0 / reserve1) token0
     const reserve0Float = parseFloat(ethers.formatUnits(details.reserve0, details.token0.decimals));
     const reserve1Float = parseFloat(ethers.formatUnits(details.reserve1, details.token1.decimals));
     
     if (reserve0Float === 0 || reserve1Float === 0) continue;
     
-    const rate01 = reserve1Float / reserve0Float; // token0 -> token1
-    const rate10 = reserve0Float / reserve1Float; // token1 -> token0
+    // Price multiplier when propagating from token0 to token1
+    const rate01 = reserve0Float / reserve1Float; // token1Price = token0Price * rate01
+    // Price multiplier when propagating from token1 to token0  
+    const rate10 = reserve1Float / reserve0Float; // token0Price = token1Price * rate10
     
     // Add bidirectional edges
     if (!edges.has(token0)) edges.set(token0, []);
