@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
-import lpStakingABI from './LPStakingDiamond.json' assert { type: 'json' };
-import uniswapPairABI from './UniswapV2Pair.json' assert { type: 'json' };
-import erc20ABI from './ERC20.json' assert { type: 'json' };
+import lpStakingABI from './LPStakingDiamond.json' with { type: 'json' };
+import uniswapPairABI from './UniswapV2Pair.json' with { type: 'json' };
+import erc20ABI from './ERC20.json' with { type: 'json' };
 
 // DFK Chain configuration
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';

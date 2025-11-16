@@ -4,6 +4,7 @@ import fs from 'fs';
 import { Client, GatewayIntentBits, Partials, Events } from 'discord.js';
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
+import * as analytics from './garden-analytics.js';
 
 const {
   DISCORD_TOKEN,
@@ -235,79 +236,139 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const wallet = interaction.options.getString('wallet');
       const realm = interaction.options.getString('realm') || 'dfk';
       
-      // Validate realm
-      if (realm !== 'dfk' && realm !== 'klaytn') {
-        await interaction.editReply(`Invalid realm "${realm}". Use "dfk" or "klaytn".`);
+      // Only Crystalvale (DFK Chain) supports full analytics
+      if (realm === 'klaytn') {
+        await interaction.editReply(`Comprehensive analytics currently only available for Crystalvale (dfk realm). Use realm:dfk for full APR/TVL data.`);
         return;
       }
       
       try {
         if (pool && pool.toLowerCase() === 'all') {
-          // Show all pools
-          const pools = await onchain.getGardenPools(realm, 10);
-          if (!pools || pools.length === 0) {
-            await interaction.editReply(`No active pools found for ${realm.toUpperCase()}.`);
+          // Show all pools with comprehensive analytics
+          await interaction.editReply('Calculating comprehensive pool analytics... (scanning 24h of blocks)');
+          
+          const poolsData = await analytics.getAllPoolAnalytics(10);
+          
+          if (!poolsData || poolsData.length === 0) {
+            await interaction.editReply(`No active pools found for Crystalvale.`);
             return;
           }
           
-          let poolsList = `🌱 **Garden Pools** (${realm.toUpperCase()})\n\n`;
-          pools.forEach((p, i) => {
-            poolsList += `${i+1}. **${p.pair}** - Allocation: ${p.allocPercent}, Staked: ${parseFloat(p.totalStaked).toFixed(2)} LP\n`;
+          let poolsList = `🌱 **Crystalvale Garden Pools - Full Analytics**\n\n`;
+          poolsData.forEach((p, i) => {
+            poolsList += `${i+1}. **${p.pairName}** (PID ${p.pid})\n`;
+            poolsList += `   • Total APR: ${p.totalAPR} (Fee: ${p.feeAPR} + Emission: ${p.emissionAPR})\n`;
+            poolsList += `   • TVL: $${p.stakedLiquidityUSD.toLocaleString('en-US', {maximumFractionDigits: 0})}\n`;
+            poolsList += `   • 24h Volume: $${p.volume24hUSD.toLocaleString('en-US', {maximumFractionDigits: 0})}\n`;
+            poolsList += `   • Allocation: ${p.allocPercent}\n\n`;
           });
-          poolsList += `\nNote: Allocation % shows relative rewards. Higher % = better APR.`;
           
-          const userMsg = `LIVE GARDEN DATA:\n\n${poolsList}\n\nAnalyze as Hedge. Explain that allocation % determines relative APR.`;
+          const userMsg = `COMPREHENSIVE CRYSTALVALE POOL DATA:\n\n${poolsList}\n\nAnalyze as Hedge. Highlight the best APR pools and mention both fee-based and emission-based returns.`;
           const reply = await askHedge([{ role: 'user', content: userMsg }]);
           await interaction.editReply(reply);
           return;
         } else if (pool) {
-          // Look up specific pool by pair name
-          const pools = await onchain.getGardenPools(realm, 20);
-          const matchedPool = pools.find(p => 
-            p.pair.toLowerCase() === pool.toLowerCase() || 
-            p.pair.toLowerCase().includes(pool.toLowerCase())
-          );
+          // Look up specific pool by PID or name
+          let pid = parseInt(pool);
           
-          if (!matchedPool) {
-            await interaction.editReply(`Pool "${pool}" not found in ${realm.toUpperCase()}. Try /garden pool:all to see available pools.`);
-            return;
+          if (isNaN(pid)) {
+            // Try to find by name
+            await interaction.editReply(`Searching for pool "${pool}"...`);
+            const allPools = await analytics.discoverPools();
+            const lpDetails = await Promise.all(
+              allPools.slice(0, 14).map(async p => ({
+                pid: p.pid,
+                details: await analytics.getLPTokenDetails(p.lpToken).catch(() => null)
+              }))
+            );
+            
+            const match = lpDetails.find(p => 
+              p.details && p.details.pairName.toLowerCase().includes(pool.toLowerCase())
+            );
+            
+            if (!match) {
+              await interaction.editReply(`Pool "${pool}" not found. Try using PID number (0-13) or /garden pool:all to see all pools.`);
+              return;
+            }
+            
+            pid = match.pid;
           }
           
-          const poolInfo = onchain.formatGardenSummary(matchedPool);
-          const userMsg = `LIVE POOL DATA:\n\n${poolInfo}\n\nAnalyze as Hedge. Note: allocation % determines relative APR (higher % = better rewards).`;
+          await interaction.editReply(`Calculating analytics for pool ${pid}... (scanning 24h of blocks)`);
+          
+          const poolData = await analytics.getPoolAnalytics(pid);
+          
+          let poolInfo = `📊 **${poolData.pairName}** (PID ${poolData.pid})\n\n`;
+          poolInfo += `**APR Breakdown:**\n`;
+          poolInfo += `• Total APR: ${poolData.totalAPR}\n`;
+          poolInfo += `• Fee APR: ${poolData.feeAPR} (from trading fees)\n`;
+          poolInfo += `• Emission APR: ${poolData.emissionAPR} (from CRYSTAL rewards)\n\n`;
+          poolInfo += `**Liquidity:**\n`;
+          poolInfo += `• Staked TVL: $${poolData.stakedLiquidityUSD.toLocaleString('en-US', {maximumFractionDigits: 0})}\n`;
+          poolInfo += `• Total Pool TVL: $${poolData.tvlUSD.toLocaleString('en-US', {maximumFractionDigits: 0})}\n`;
+          poolInfo += `• Staked Ratio: ${poolData.stakedRatio}\n\n`;
+          poolInfo += `**24h Metrics:**\n`;
+          poolInfo += `• Volume: $${poolData.volume24hUSD.toLocaleString('en-US', {maximumFractionDigits: 0})}\n`;
+          poolInfo += `• Fees Generated: $${poolData.fees24hUSD.toLocaleString('en-US', {maximumFractionDigits: 2})}\n`;
+          poolInfo += `• CRYSTAL Rewards: $${poolData.rewards24hUSD.toLocaleString('en-US', {maximumFractionDigits: 2})}\n\n`;
+          poolInfo += `**Token Prices:**\n`;
+          poolInfo += `• ${poolData.token0.symbol}: $${poolData.tokenPrices[poolData.token0.symbol].toFixed(4)}\n`;
+          poolInfo += `• ${poolData.token1.symbol}: $${poolData.tokenPrices[poolData.token1.symbol].toFixed(4)}\n`;
+          poolInfo += `• CRYSTAL: $${poolData.crystalPrice.toFixed(4)}\n`;
+          
+          const userMsg = `COMPREHENSIVE POOL ANALYTICS:\n\n${poolInfo}\n\nAnalyze as Hedge. Explain the APR breakdown and whether this is a good yield opportunity.`;
           const reply = await askHedge([{ role: 'user', content: userMsg }]);
           await interaction.editReply(reply);
           return;
         } else if (wallet) {
-          // Show user's positions and harvestable rewards
-          const positions = await onchain.getUserGardenPositions(wallet, realm);
-          const rewards = await onchain.getPendingRewards(wallet, realm);
+          // Show user's harvestable rewards
+          await interaction.editReply('Fetching your garden positions...');
           
-          if (!positions || positions.length === 0) {
-            await interaction.editReply(`No active garden positions found for this wallet in ${realm.toUpperCase()}.`);
+          const allPools = await analytics.discoverPools();
+          const userPositions = [];
+          
+          for (const pool of allPools.slice(0, 14)) {
+            const pending = await analytics.getUserPendingRewards(wallet, pool.pid);
+            if (parseFloat(pending) > 0) {
+              const lpDetails = await analytics.getLPTokenDetails(pool.lpToken);
+              userPositions.push({
+                pid: pool.pid,
+                pairName: lpDetails.pairName,
+                pendingCRYSTAL: pending
+              });
+            }
+          }
+          
+          if (userPositions.length === 0) {
+            await interaction.editReply(`No harvestable rewards found for this wallet in Crystalvale.`);
             return;
           }
           
-          let positionsSummary = `👛 **Garden Positions** (${realm.toUpperCase()})\n\n`;
-          positions.forEach((pos, i) => {
-            positionsSummary += `${i+1}. **${pos.pair}**: ${parseFloat(pos.stakedAmount).toFixed(4)} LP → Harvestable: ${parseFloat(pos.pendingRewards).toFixed(4)} ${realm === 'dfk' ? 'CRYSTAL' : 'JADE'}\n`;
-          });
-          positionsSummary += `\n**Total Harvestable:** ${parseFloat(rewards.totalPending).toFixed(4)} ${realm === 'dfk' ? 'CRYSTAL' : 'JADE'}`;
+          let positionsSummary = `👛 **Your Crystalvale Garden Positions**\n\n`;
+          let totalPending = 0;
           
-          const userMsg = `LIVE HARVEST DATA:\n\n${positionsSummary}\n\nAnalyze as Hedge.`;
+          userPositions.forEach((pos, i) => {
+            const amount = parseFloat(pos.pendingCRYSTAL);
+            totalPending += amount;
+            positionsSummary += `${i+1}. **${pos.pairName}** (PID ${pos.pid}): ${amount.toFixed(4)} CRYSTAL\n`;
+          });
+          
+          positionsSummary += `\n**Total Harvestable:** ${totalPending.toFixed(4)} CRYSTAL`;
+          
+          const userMsg = `LIVE HARVEST DATA:\n\n${positionsSummary}\n\nAnalyze as Hedge and advise on harvesting strategy.`;
           const reply = await askHedge([{ role: 'user', content: userMsg }]);
           await interaction.editReply(reply);
           return;
         } else {
-          // Generic garden info (fallback to knowledge base)
-          const userMsg = `User asked about garden pools. Explain how gardens work in DeFi Kingdoms: staking LP tokens, earning CRYSTAL/JADE, allocation percentages, withdrawal fees, etc. Respond as Hedge.`;
+          // Generic garden info
+          const userMsg = `User asked about garden pools. Explain how Crystalvale gardens work: LP staking, fee APR from trading, emission APR from CRYSTAL rewards, and how total APR is calculated. Respond as Hedge.`;
           const reply = await askHedge([{ role: 'user', content: userMsg }]);
           await interaction.editReply(reply);
           return;
         }
       } catch (err) {
-        console.error('Garden command error:', err);
-        await interaction.editReply('Garden data unavailable. Try again later or ask about general garden mechanics.');
+        console.error('Garden analytics error:', err);
+        await interaction.editReply(`Analytics calculation failed: ${err.message}. This requires scanning blockchain logs which can be slow. Try again or contact support.`);
       }
       return;
     }
