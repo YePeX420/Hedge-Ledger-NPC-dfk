@@ -15,14 +15,23 @@ Preferred communication style: Simple, everyday language.
 **November 16, 2025 - Comprehensive Garden Analytics (Crystalvale)**
 - Implemented full on-chain analytics for Crystalvale garden pools
 - Automated pool discovery via smart contract queries (no static lists)
-- 24h fee APR calculation from Swap event logs
-- Emission APR calculation from RewardCollected events
+- 24h fee APR calculation from Swap event logs (denominator: total pool TVL)
+- 24h harvesting APR calculation from RewardCollected events (denominator: V2 TVL only)
+- Gardening quest APR range calculation (worst hero vs best hero boost)
 - On-chain USD price graph using BFS propagation from USDC anchor
-- TVL calculation from reserves + token prices
+- V1/V2/Total TVL breakdown (legacy staking vs current staking)
 - Zero external API dependencies - 100% RPC + smart contract queries
 - `/garden pool:all` shows comprehensive APR data for all pools
-- `/garden pool:<pid>` shows detailed analytics for specific pool
+- `/garden pool:<pid>` shows detailed analytics with hero boost calculations
 - `/garden wallet:<address>` shows harvestable CRYSTAL rewards
+
+**November 16, 2025 - Output Format Updates**
+- Display V1 TVL, V2 TVL, and Total TVL separately (not just combined)
+- Renamed "Fee APR" → "24HR Fee APR" (clarifies 24h calculation window)
+- Renamed "Emission APR" → "24HR Harvesting APR" (matches game terminology)
+- Added "Gardening Quest APR" range showing worst/best hero performance
+- Removed allocation percentage (not requested by users)
+- Fixed critical bug: Fee APR now uses total pool TVL (V1+V2), not just V2
 
 ## System Architecture
 

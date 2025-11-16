@@ -268,10 +268,55 @@ export function calculateTVL(lpDetails, priceGraph, totalStaked) {
   
   const stakedLiquidityUSD = totalLiquidityUSD * stakedRatio;
   
+  // Calculate V1 TVL (legacy staking - still has liquidity but no CRYSTAL rewards)
+  const v1LiquidityUSD = totalLiquidityUSD - stakedLiquidityUSD;
+  
   return {
     tvlUSD: totalLiquidityUSD,
     stakedLiquidityUSD,
+    v1LiquidityUSD,
     stakedRatio
+  };
+}
+
+/**
+ * Calculate gardening quest APR range based on hero stats
+ * Formula (approximate): Boost % = (INT + WIS + Level) × Gardening Skill × Multiplier
+ * Returns additional APR from hero boost (not base emissions)
+ */
+export function calculateGardeningQuestAPR(baseEmissionAPR) {
+  // Worst hero: Level 1, INT=5, WIS=5, Gardening Skill=0 (no profession gene)
+  const worstHero = {
+    level: 1,
+    int: 5,
+    wis: 5,
+    gardeningSkill: 0
+  };
+  
+  // Best hero: Level 100, INT=80, WIS=80, Gardening Skill=10 (maxed Wizard with profession gene)
+  const bestHero = {
+    level: 100,
+    int: 80,
+    wis: 80,
+    gardeningSkill: 10
+  };
+  
+  // Boost multiplier calibrated to give ~0-30% boost range
+  const MULTIPLIER = 0.00012;
+  
+  // Calculate boost percentage for each hero
+  const worstBoost = (worstHero.int + worstHero.wis + worstHero.level) * worstHero.gardeningSkill * MULTIPLIER;
+  const bestBoost = (bestHero.int + bestHero.wis + bestHero.level) * bestHero.gardeningSkill * MULTIPLIER;
+  
+  // Additional APR from gardening quest = base emission APR × boost percentage
+  const worstQuestAPR = baseEmissionAPR * worstBoost;
+  const bestQuestAPR = baseEmissionAPR * bestBoost;
+  
+  return {
+    worstQuestAPR,
+    bestQuestAPR,
+    worstBoost: worstBoost * 100,  // Convert to percentage
+    bestBoost: bestBoost * 100
   };
 }
 
@@ -314,12 +359,11 @@ export async function getPoolAnalytics(pid, sharedData = null) {
     // Calculate emission APR (use only V2 staked amount - only V2 gets CRYSTAL rewards)
     const emissionData = await calculateEmissionAPR(pid, crystalPrice, tvlData.stakedLiquidityUSD);
     
-    // Calculate total APR
-    const totalAPR = feeData.feeAPR + emissionData.emissionAPR;
+    // Calculate gardening quest APR range (additional yield from hero boost)
+    const gardeningQuestData = calculateGardeningQuestAPR(emissionData.emissionAPR);
     
-    // Use shared total alloc point or fetch fresh
-    const totalAllocPoint = sharedData?.totalAllocPoint || await stakingContract.getTotalAllocPoint();
-    const allocPercent = (Number(pool.allocPoint) / Number(totalAllocPoint)) * 100;
+    // Calculate total APR (fees + harvesting + best gardening quest boost)
+    const totalAPR = feeData.feeAPR + emissionData.emissionAPR + gardeningQuestData.bestQuestAPR;
     
     return {
       pid,
@@ -328,13 +372,19 @@ export async function getPoolAnalytics(pid, sharedData = null) {
       token0: lpDetails.token0,
       token1: lpDetails.token1,
       allocPoint: pool.allocPoint.toString(),
-      allocPercent: allocPercent.toFixed(2) + '%',
       totalStaked: ethers.formatUnits(pool.totalStaked, 18),
-      tvlUSD: tvlData.tvlUSD,
-      stakedLiquidityUSD: tvlData.stakedLiquidityUSD,
+      v1TVL: tvlData.v1LiquidityUSD,
+      v2TVL: tvlData.stakedLiquidityUSD,
+      totalTVL: tvlData.tvlUSD,
       stakedRatio: (tvlData.stakedRatio * 100).toFixed(2) + '%',
-      feeAPR: feeData.feeAPR.toFixed(2) + '%',
-      emissionAPR: emissionData.emissionAPR.toFixed(2) + '%',
+      fee24hAPR: feeData.feeAPR.toFixed(2) + '%',
+      harvesting24hAPR: emissionData.emissionAPR.toFixed(2) + '%',
+      gardeningQuestAPR: {
+        worst: gardeningQuestData.worstQuestAPR.toFixed(2) + '%',
+        best: gardeningQuestData.bestQuestAPR.toFixed(2) + '%',
+        worstBoost: gardeningQuestData.worstBoost.toFixed(2) + '%',
+        bestBoost: gardeningQuestData.bestBoost.toFixed(2) + '%'
+      },
       totalAPR: totalAPR.toFixed(2) + '%',
       volume24hUSD: feeData.volume24hUSD,
       fees24hUSD: feeData.fees24hUSD,
@@ -388,11 +438,11 @@ export async function getAllPoolAnalytics(limit = 20) {
         // Calculate emission APR (use only V2 staked amount - only V2 gets CRYSTAL rewards)
         const emissionData = await calculateEmissionAPR(pool.pid, crystalPrice, tvlData.stakedLiquidityUSD);
         
-        // Calculate total APR
-        const totalAPR = feeData.feeAPR + emissionData.emissionAPR;
+        // Calculate gardening quest APR range (additional yield from hero boost)
+        const gardeningQuestData = calculateGardeningQuestAPR(emissionData.emissionAPR);
         
-        // Calculate allocation percentage
-        const allocPercent = (Number(pool.allocPoint) / Number(totalAllocPoint)) * 100;
+        // Calculate total APR (fees + harvesting + best gardening quest boost)
+        const totalAPR = feeData.feeAPR + emissionData.emissionAPR + gardeningQuestData.bestQuestAPR;
         
         results.push({
           pid: pool.pid,
@@ -401,13 +451,19 @@ export async function getAllPoolAnalytics(limit = 20) {
           token0: lpDetails.token0,
           token1: lpDetails.token1,
           allocPoint: pool.allocPoint.toString(),
-          allocPercent: allocPercent.toFixed(2) + '%',
           totalStaked: ethers.formatUnits(pool.totalStaked, 18),
-          tvlUSD: tvlData.tvlUSD,
-          stakedLiquidityUSD: tvlData.stakedLiquidityUSD,
+          v1TVL: tvlData.v1LiquidityUSD,
+          v2TVL: tvlData.stakedLiquidityUSD,
+          totalTVL: tvlData.tvlUSD,
           stakedRatio: (tvlData.stakedRatio * 100).toFixed(2) + '%',
-          feeAPR: feeData.feeAPR.toFixed(2) + '%',
-          emissionAPR: emissionData.emissionAPR.toFixed(2) + '%',
+          fee24hAPR: feeData.feeAPR.toFixed(2) + '%',
+          harvesting24hAPR: emissionData.emissionAPR.toFixed(2) + '%',
+          gardeningQuestAPR: {
+            worst: gardeningQuestData.worstQuestAPR.toFixed(2) + '%',
+            best: gardeningQuestData.bestQuestAPR.toFixed(2) + '%',
+            worstBoost: gardeningQuestData.worstBoost.toFixed(2) + '%',
+            bestBoost: gardeningQuestData.bestBoost.toFixed(2) + '%'
+          },
           totalAPR: totalAPR.toFixed(2) + '%',
           volume24hUSD: feeData.volume24hUSD,
           fees24hUSD: feeData.fees24hUSD,

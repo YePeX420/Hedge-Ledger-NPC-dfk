@@ -29,20 +29,30 @@ Hedge Ledger now provides **comprehensive, on-chain analytics** for Crystalvale 
 - Calculates fee revenue: `volume * 0.25%`
 - Computes annual APR from 24h fees
 
-✅ **24h Emission APR (Actual CRYSTAL Rewards)**
+✅ **24h Harvesting APR (Actual CRYSTAL Rewards)**
 - Scans `RewardCollected` events from LP Staking contract
 - Aggregates actual CRYSTAL emissions per pool
 - Converts to USD using on-chain CRYSTAL price
-- Computes annual APR from 24h emissions
+- Computes annual APR from 24h emissions (denominator: V2 staked TVL only)
+
+✅ **Gardening Quest APR (Hero Boost Rewards)**
+- Calculates additional yield from hero boost on emissions
+- Formula: `Boost% = (INT + WIS + Level) × GardeningSkill × 0.00012`
+- Shows range from worst to best hero:
+  - Worst: Level 1, INT=5, WIS=5, Skill=0 → ~0% boost
+  - Best: Level 100, INT=80, WIS=80, Skill=10 → ~31% boost
+- Quest APR = Harvesting APR × Boost%
 
 ✅ **TVL Calculation**
 - Calculates total pool liquidity from reserves + prices
 - Determines staked portion from `totalSupply` vs `totalStaked`
-- Reports both total TVL and staked TVL
+- Reports V1 TVL (legacy), V2 TVL (current), and Total TVL separately
+- V1 still generates trading fees but no CRYSTAL rewards
+- V2 generates both trading fees and CRYSTAL rewards
 
 ✅ **Total APR**
-- Fee APR + Emission APR = Total APR
-- Shows breakdown of fee-based vs. reward-based returns
+- Fee APR + Harvesting APR + Best Gardening Quest APR = Total APR
+- Shows breakdown: 24h fees, 24h harvesting, hero boost range
 
 ✅ **Harvestable Rewards**
 - Calls `getPendingRewards(pid, wallet)` per pool
@@ -56,9 +66,12 @@ Hedge Ledger now provides **comprehensive, on-chain analytics** for Crystalvale 
 /garden pool:all realm:dfk
 ```
 Returns:
-- Total APR (fee + emission) for each pool
-- TVL and 24h volume
-- Allocation percentage
+- Total APR (fee + harvesting + best hero boost) for each pool
+- 24HR Fee APR (from trading fees)
+- 24HR Harvesting APR (from CRYSTAL emissions)
+- Gardening Quest APR range (worst/best hero)
+- V1 TVL, V2 TVL, Total TVL
+- 24h volume
 - Sorted by highest APR
 
 ### Analyze Specific Pool
@@ -71,10 +84,17 @@ Or by name:
 ```
 
 Returns:
-- APR breakdown (fee vs. emission)
-- Staked TVL and total pool TVL
-- 24h volume and fees generated
-- 24h CRYSTAL rewards distributed
+- APR breakdown:
+  - 24HR Fee APR (from trading fees)
+  - 24HR Harvesting APR (from CRYSTAL emissions)
+  - Gardening Quest APR range (worst/best hero with boost %)
+- TVL breakdown:
+  - V1 TVL (legacy staking)
+  - V2 TVL (current staking)
+  - Total Pool TVL
+- 24h metrics:
+  - Volume and fees generated
+  - CRYSTAL rewards distributed
 - Token prices (both LP tokens + CRYSTAL)
 
 ### Check Harvestable Rewards
@@ -102,9 +122,10 @@ Returns:
 3. `buildPriceGraph()` - BFS price propagation from USDC
 4. `calculate24hFeeAPR()` - Swap log scanning + volume calculation
 5. `calculateEmissionAPR()` - RewardCollected log scanning
-6. `calculateTVL()` - Reserves × prices × staked ratio
-7. `getPoolAnalytics()` - Orchestrates full analysis
-8. `getAllPoolAnalytics()` - Batch analysis with APR sorting
+6. `calculateGardeningQuestAPR()` - Hero boost APR range calculation
+7. `calculateTVL()` - Reserves × prices × staked ratio (V1/V2 breakdown)
+8. `getPoolAnalytics()` - Orchestrates full analysis
+9. `getAllPoolAnalytics()` - Batch analysis with APR sorting
 
 ### Configuration
 
