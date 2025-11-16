@@ -97,6 +97,31 @@ const commands = [
         required: false
       }
     ]
+  },
+  {
+    name: 'summon',
+    description: 'Calculate summoning outcome between two heroes',
+    options: [
+      { name: 'parent1', description: 'Parent 1 Hero ID', type: 4, required: true },
+      { name: 'parent2', description: 'Parent 2 Hero ID', type: 4, required: true }
+    ]
+  },
+  {
+    name: 'findparents',
+    description: 'Find optimal breeding pairs in tavern for desired offspring',
+    options: [
+      { name: 'target_class', description: 'Desired offspring class (e.g., Paladin, Dragoon)', type: 3, required: false },
+      { name: 'target_rarity', description: 'Desired rarity: 0=common, 1=uncommon, 2=rare, 3=legendary, 4=mythic', type: 4, required: false },
+      { name: 'my_hero', description: 'Your hero ID to pair with tavern heroes', type: 4, required: false },
+      { name: 'max_budget', description: 'Max price willing to pay (in wei)', type: 3, required: false }
+    ]
+  },
+  {
+    name: 'genetics',
+    description: 'Analyze hero genetic potential and breeding value',
+    options: [
+      { name: 'hero_id', description: 'Hero ID to analyze', type: 4, required: true }
+    ]
   }
 ];
 
