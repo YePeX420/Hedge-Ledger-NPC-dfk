@@ -149,17 +149,39 @@ client.on('messageCreate', async (message) => {
   if (message.guild) return;
 
   try {
-    const prompt = [
-      {
-        role: 'user',
-        content: `DM from ${message.author.username}: ${message.content}`
-      }
-    ];
+    let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
 
+    // 🔍 Detect hero ID mentions (e.g., "hero #62", "hero 62", "#62")
+    const heroIdPattern = /(?:hero\s*#?|#)(\d{1,6})\b/gi;
+    const heroMatches = [...message.content.matchAll(heroIdPattern)];
+    
+    if (heroMatches.length > 0) {
+      // Extract unique hero IDs
+      const heroIds = [...new Set(heroMatches.map(m => parseInt(m[1])))];
+      
+      // Fetch blockchain data for mentioned heroes (limit to 3 to avoid spam)
+      const heroDataPromises = heroIds.slice(0, 3).map(id => onchain.getHeroById(id));
+      const heroes = await Promise.all(heroDataPromises);
+      
+      // Add hero data to context
+      let heroContext = '\n\n📊 LIVE BLOCKCHAIN DATA:\n';
+      heroes.forEach((hero, idx) => {
+        if (hero) {
+          heroContext += `\n${onchain.formatHeroSummary(hero)}\n`;
+        } else {
+          heroContext += `\nHero #${heroIds[idx]} not found on-chain.\n`;
+        }
+      });
+      
+      enrichedContent += heroContext + '\n\nRespond naturally as Hedge Ledger with this live data.';
+    }
+
+    const prompt = [{ role: 'user', content: enrichedContent }];
     const reply = await askHedge(prompt);
     await message.reply(reply);
   } catch (err) {
     console.error("DM error:", err);
+    await message.reply("*yawns* Something went wrong. Try again later.");
   }
 });
 
@@ -196,9 +218,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (name === 'hero') {
       const id = interaction.options.getInteger('id', true);
-      const userMsg = `Slash Command: /hero info
-- hero_id: ${id}
-Return in Hedge Ledger’s structure for /hero.`;
+      const hero = await onchain.getHeroById(id);
+      if (!hero) {
+        await interaction.editReply(`Hero #${id} not found on-chain. Double-check the ID.`);
+        return;
+      }
+      const heroData = onchain.formatHeroSummary(hero);
+      const userMsg = `Slash Command: /hero - LIVE BLOCKCHAIN DATA\n\n${heroData}\n\nRespond as Hedge Ledger with analysis.`;
       const reply = await askHedge([{ role: 'user', content: userMsg }]);
       await interaction.editReply(reply);
       return;
