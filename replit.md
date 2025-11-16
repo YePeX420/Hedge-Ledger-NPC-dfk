@@ -10,6 +10,15 @@ Hedge Ledger is a Discord bot that serves as an in-character NPC assistant for D
 
 Preferred communication style: Simple, everyday language.
 
+## Recent Changes
+
+**November 16, 2025 - DM Auto-Detection Feature**
+- DM handler now automatically detects hero ID mentions in natural language
+- Fetches live blockchain data when users ask questions like "What class is hero #62?"
+- Supports patterns: `hero #62`, `hero 62`, `#62`, multiple heroes per message
+- Updated `/hero` slash command to use blockchain data instead of generic responses
+- No more "I can't pull live data" - Hedge now analyzes real on-chain hero stats in DMs
+
 ## System Architecture
 
 ### Application Type
@@ -21,8 +30,9 @@ Node.js backend service with Discord.js integration. No frontend UI - all intera
 - Discord.js client with gateway intents for DMs and guild messages
 - Slash command registration and handling
 - Auto-onboarding system (DMs new members on join)
-- Free-form DM conversation support
+- Free-form DM conversation support with auto-detection of hero ID mentions
 - Integrates on-chain data module for live blockchain queries
+- Smart DM handler: automatically fetches blockchain data when hero IDs are mentioned (e.g., "What class is hero #62?")
 
 **2. AI Response System**
 - OpenAI GPT-4o-mini integration for conversational responses
@@ -60,22 +70,29 @@ Seven slash commands registered to Discord API:
 
 ### Data Flow Architecture
 
+**Slash Commands:**
 ```
-User Input (Discord) 
+/hero 62 → bot.js → onchain-data.js → GraphQL API → Format → OpenAI → Reply
+```
+
+**DM with Hero Mention:**
+```
+"What class is hero #62?" 
   ↓
-Discord.js Event Handler
+DM handler detects regex pattern (/(?:hero\s*#?|#)(\d{1,6})\b/gi)
   ↓
-Command Router (slash commands or DM messages)
+Auto-fetch blockchain data (up to 3 heroes)
   ↓
-[If blockchain data needed] → onchain-data.js → DFK GraphQL API
+Enrich AI prompt with live stats
   ↓
-Format data + inject knowledge base
-  ↓
-OpenAI API (GPT-4o-mini)
-  ↓
-Character-filtered response
+OpenAI responds in Hedge's voice with real data
   ↓
 Discord message reply
+```
+
+**Generic DM (no hero mention):**
+```
+"What are the best quests?" → askHedge() → OpenAI → Reply
 ```
 
 ### Environment Configuration
