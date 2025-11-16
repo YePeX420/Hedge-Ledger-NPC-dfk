@@ -1,0 +1,89 @@
+
+I already have a working method for computing pool analytics (APR, volume, fees, emissions, TVL, etc.) for DeFi Kingdoms – Crystalvale and DFK Metis (Influence System).
+I need you to follow this same methodology and focus exclusively on Crystalvale and Metis pools.
+✅ How APR, Fees, Emissions, Prices, and TVL were computed (Follow This Approach)
+You do not need pool names or a static list.
+Everything is discovered and calculated on-chain using the same method we already built:
+1. Discover pools directly from the staking contract (no names needed)
+Use the staking (MasterChef-style) contract:
+• getPoolLength()
+• Loop pid = 0 → poolLength-1
+• For each pid, call getPoolInfo(pid) to get: 
+• lpToken address
+• allocPoint
+• totalStaked
+• reward rate fields (if present)
+This automatically detects all Crystalvale pools and all Metis Influence pools, with no names required.
+2. Identify underlying tokens using the LP contract
+For each lpToken (UniswapV2Pair):
+• token0(), token1()
+• getReserves()
+• totalSupply()
+This gives us exact pool composition and USD value later.
+3. Build token prices using an on-chain pair graph (anchored to USDC or USDT)
+Construct a token graph:
+• Nodes = tokens
+• Edges = LP exchange rates (reserve0/reserve1)
+Anchor the price graph at:
+• Crystalvale → USDC.e
+• Metis → USDT or USDC depending on Influence Subnet availability
+Use BFS to propagate all token prices.
+This yields 100% on-chain USD prices for CRYSTAL, USDC, WJEWEL, AVAX, METIS-tokens, etc.
+4. Compute 24h Fee APR using Swap logs (exact, not estimated)
+For each LP pair, scan the previous 24 hours of blocks:
+• Filter logs for the pair’s address and the Swap event.
+• Decode: 
+• amount0In, amount0Out
+• amount1In, amount1Out
+• Convert amounts → USD using our price graph.
+• Sum the total 24h volume in USD.
+Fee revenue:
+dailyFeesUSD = volume24hUSD * feeRate (usually 0.25% for DFK) 
+Fee APR:
+feeAPR = (dailyFeesUSD / avgStakedLiquidityUSD) * 365 * 100 
+This was accurate even during high-volume periods and requires no external API.
+5. Compute Emission APR using RewardCollected events (Crystalvale + Metis Influence)
+Scan block window for the staking contract’s reward event:
+• Crystalvale → Reward CRYSTAL
+• Metis Influence → Influence reward token
+Aggregate 24h reward emissions per PID:
+rewards24hUSD = rewardAmount * tokenPriceUSD emissionAPR = (rewards24hUSD / avgStakedLiquidityUSD) * 365 * 100 
+This yields true, real APRs based on actual emissions and real token prices.
+6. Harvestable rewards (pending rewards)
+For each PID and user:
+• Call pendingReward(pid, userAddress)
+• Convert to USD using the price graph.
+This gives exact claimable CRYSTAL / Influence rewards.
+✅ What I need from you
+Please implement analytics ONLY for:
+🔷 Crystalvale (DFK Chain – subnet)
+🔶 DFK Metis Influence System
+using the exact 24h backward-looking, log-based, on-chain approach described above.
+Avoid limitations like:
+• “No 24hr fee APR”
+• “No emission APR”
+• “Static pool list”
+• “Pool names required”
+Those are solved by log scanning + on-chain graph pricing + programmatic pool discovery.
+Follow the methodology above exactly.
+⚠️ Don’t use hardcoded pool names or centralized APIs
+Everything should be:
+• RPC
+• Contract calls
+• Log scanning
+• Deterministic
+• On-chain only
+Crystalvale uses DFK Subnet RPC
+Metis Influence uses Metis Influence RPC (Metis Andromeda L2).
+🎯 Summary You Should Follow
+• Discover pools using getPoolLength + getPoolInfo
+• Fetch LP token pair data using token0/token1/reserves/totalSupply
+• Build on-chain USD prices by propagating values through LP graph
+• Compute 24h fee APR via Swap logs
+• Compute 24h emission APR via RewardCollected logs
+• Compute TVL from reserves and token prices
+• Compute harvestable via pendingReward
+• Output everything for Crystalvale and Metis Influence
+✔️ This is exactly how we were doing it.
+You can now replicate it with confidence.
+If you want, I can generate a shorter version, a more technical version, or a system prompt version designed specifically for prompting autonomous agents.
