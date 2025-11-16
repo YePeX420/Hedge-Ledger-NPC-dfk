@@ -77,7 +77,7 @@ async function askHedge(userMessages, { mode } = {}) {
   return text.length > 1900 ? `${text.slice(0, 1900)}…` : text;
 }
 
-// 🔔 Auto-DM new members with a full onboarding intro
+// 🔔 Auto-DM new members with onboarding intro
 client.on(Events.GuildMemberAdd, async (member) => {
   // Ignore bots joining
   if (member.user.bot) return;
@@ -91,7 +91,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
     `**1️⃣ Learn the basics (FREE)**\n` +
     `• In the server, try: \`/walkthrough topic:getting-started\`\n` +
     `• You can also ask for: \`quests\`, \`gardens\`, \`summoning\`, \`pets\`, or \`interface\`\n` +
-    `Example: \`/walkthrough topic:gardens\`\n\n` +
+    `  Example: \`/walkthrough topic:gardens\`\n\n` +
     `**2️⃣ Ask me questions directly**\n` +
     `• In the server, use: \`/npc message:<your question>\`\n` +
     `  e.g. \`/npc message: What should a new player focus on?\`\n\n` +
@@ -108,6 +108,29 @@ client.on(Events.GuildMemberAdd, async (member) => {
     console.log(`📨 Sent welcome DM to ${username}`);
   } catch (err) {
     console.error("Could not DM new member:", err?.message || err);
+  }
+});
+
+// 📨 DM conversation mode (no slash commands in DMs)
+client.on('messageCreate', async (message) => {
+  // Ignore bots (including Hedge himself)
+  if (message.author.bot) return;
+
+  // Only handle DMs (no guild)
+  if (message.guild) return;
+
+  try {
+    const prompt = [
+      {
+        role: 'user',
+        content: `DM from ${message.author.username}: ${message.content}`
+      }
+    ];
+
+    const reply = await askHedge(prompt);
+    await message.reply(reply);
+  } catch (err) {
+    console.error("DM error:", err);
   }
 });
 
@@ -158,7 +181,16 @@ Return in Hedge Ledger’s structure for /hero.`;
       const userMsg = `Slash Command: /garden yield
 - lp_symbol: ${lp}
 - amount: ${amount}
-Return in Hedge Ledger’s structure for /garden. If APR is unknown, state assumptions clearly and show a simple formula.`;
+
+For now you DO NOT have live APR data.
+If you decide to assume an APR, clearly mark it as an illustrative example (e.g. "If APR were 20%...").
+Explain the generic formula for daily/weekly/monthly yield:
+- APR_decimal = APR_percent / 100
+- daily = amount * APR_decimal / 365
+- weekly = daily * 7
+- monthly = daily * 30
+
+Prefer to ask the user for the real APR instead of inventing concrete numbers.`;
       const reply = await askHedge([{ role: 'user', content: userMsg }]);
       await interaction.editReply(reply);
       return;
