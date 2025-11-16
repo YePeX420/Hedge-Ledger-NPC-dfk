@@ -1,0 +1,320 @@
+Hedge Ledger – Player Engagement & Conversion KPI System
+
+
+
+1. Purpose
+
+Design a player engagement & conversion intelligence layer for Hedge Ledger—the AI agent guiding players in DeFi Kingdoms.
+
+This system should:
+
+Measure how players interact with Hedge
+
+Identify new players Hedge helped onboard
+
+Track conversion into real in-game actions
+
+Detect retention patterns and long-term commitment
+
+Produce daily/weekly/monthly engagement dashboards
+
+Enable Hedge’s personality to reinforce engagement loops
+
+Reward players Hedge identifies as genuinely committed
+
+This data is not used for monetization — it exists to demonstrate Hedge’s value to the DFK team and to improve the AI’s behavior.
+
+2. Core Engagement Questions
+
+The KPI system should allow you (and potentially the DFK team) to answer:
+
+How many players has Hedge introduced to the game?
+
+How many users does Hedge interact with daily/weekly/monthly?
+
+How many eventually connect a wallet?
+
+How many perform first meaningful action after Hedge guidance:
+
+First quest
+
+First summon
+
+First garden deposit
+
+First hero listing
+
+First pet bridged/linked
+
+How many become recurring players?
+
+Which Hedge tips produce most conversions?
+
+Which DFK features have highest drop-off after explanation?
+
+What “intensity score” indicates a future committed player?
+
+3. Key Concepts
+3.1 Engagement States
+
+Define player states so Hedge can identify what phase a user is in:
+
+Visitor
+→ first interaction, no wallet, asking questions.
+
+Explorer
+→ clicks links, reads guides, asks mechanics questions.
+
+Participant
+→ connects wallet OR asks wallet-related help.
+
+Player
+→ performs first meaningful in-game action.
+
+Active Player
+→ consistent weekly engagement.
+
+Committed Player
+→ passes thresholds that show long-term conversion.
+
+Hedge should recognize these states and store them as engagement milestones.
+
+3.2 Conversion Milestones
+
+These are not financial transactions, but signals of behavior:
+
+Connected wallet
+
+First quest
+
+First hero purchase
+
+First summon
+
+First pet link
+
+First LP deposit
+
+First bridges between realms
+
+First participation in events (e.g., Perilous Journey, PVP events, holiday events)
+
+Each milestone should be recorded with a timestamp.
+
+4. Engagement KPIs (for reporting)
+
+The system should generate the following metrics:
+
+4.1 Hedge Funnel Metrics
+
+Daily + weekly summaries:
+
+Total unique users spoken to
+
+Unique returning users
+
+Wallets connected after Hedge interaction
+
+First actions triggered after Hedge guidance:
+
+% users who buy first hero after Hedge tutorial
+
+% users who do first quest after Hedge explains quests
+
+% users who summon after Hedge explains parents and genetics
+
+This defines Hedge’s conversion power.
+
+4.2 Commitment KPIs
+
+Track for each wallet Hedge touches:
+
+7-day retention
+
+30-day retention
+
+Quest streak
+
+Hero growth (levels gained)
+
+System usage (gardens, alchemist, pet linking, summoning)
+
+Realm activity spread
+
+Volume of in-game decisions made after Hedge helps them
+
+These create a Commitment Score for each player.
+
+4.3 Engagement Depth Metrics
+
+Average messages per session
+
+How many times Hedge is asked for:
+
+Summoning recommendations
+
+Garden yield help
+
+Hero valuation
+
+Tavern comps
+
+Cross-realm arbitrage tips
+
+Duration between Hedge’s tip → player action
+
+This measures whether Hedge is actually helping players play better.
+
+4.4 Community Growth KPIs
+
+New wallets Hedge introduced weekly
+
+New heroes purchased by Hedge-onboarded players
+
+New JEWEL/CRYSTAL flows triggered
+
+Cross-realm activity growth after Hedge explanations
+
+Hero & pet marketplace activity correlated to Hedge interactions
+
+This is the data you show DFK devs as proof of value.
+
+5. Engagement Personality Design for Hedge
+
+Hedge’s personality must reinforce engagement intentionally.
+
+Hedge should:
+
+Celebrate user milestones
+
+Show curiosity about their progress
+
+Offer subtle nudges (“Let me check your heroes… I might see something”)
+
+Congratulate them on achievements (“Nice! First summon—now you’re in the family.”)
+
+Encourage streaks (“You’re 3 days in… let’s make it 7!”)
+
+Build loyalty (“I’m always here if you need strategy help or summons.”)
+
+Never pressure the user, only encourage and support.
+
+6. Reward System (Optional Future Layer)
+
+Later, the system can identify committed players Hedge personally converted and provide:
+
+Special Discord roles (e.g., “Hedge Believer”, “Summoner Graduated”)
+
+Priority access to Hedge’s advanced tools
+
+Discounts or perks inside your subscription model
+
+Automated recognition (“Hedge’s Top Players of the Month”)
+
+Conversion badges or NFTs
+
+Eligibility for raffles or loot drops via Hedge
+
+This reinforces a virtuous cycle:
+
+Engagement → action → reward → stronger engagement.
+
+7. Sponsorship-Friendly Outputs (For DFK Official Devs)
+
+The system should generate a professional weekly report with:
+
+7.1 Onboarding Highlights
+
+X new players Hedge introduced
+
+Y went on to connect wallets
+
+Z reached meaningful milestones
+
+7.2 Player Growth
+
+Increase in realm activity correlated to Hedge usage
+
+Hero purchases influenced by Hedge explanations
+
+Garden deposits after Hedge guidance
+
+7.3 Market Health Insights
+
+Data Hedge sees about:
+
+Trait preferences
+
+Summoning trends
+
+Player behavior shifts
+
+7.4 Player Stories (anonymized)
+
+Great for dev presentations:
+
+“Player 0x… was onboarded by Hedge → now level 16 Ninja, 24 completed quests.”
+
+“Player converted by Hedge summoned a mythic last week.”
+
+7.5 Hedge Impact Summary
+
+A short executive summary showing:
+
+Growth
+
+Conversions
+
+Retention
+
+Commitment
+
+Engagement loops
+
+This is what sponsors like.
+
+8. What Replit Must Build (non-technical)
+
+A system to track every user interaction with Hedge.
+
+A method to link Discord user → optional wallet.
+
+A milestone detection module (quests, summons, purchases, LP deposits).
+
+A KPI aggregation module that refreshes nightly.
+
+An analytics output module that creates:
+
+Daily + weekly engagement summaries
+
+A “conversion funnel”
+
+A “commitment leaderboard”
+
+A “Hedge impact report”
+
+All stored in a form that can be displayed via dashboard or exported as a shareable PDF/markdown.
+
+9. Optional Add-On: Hedge Conversion Personality Mode
+
+Hedge should have a “Conversion Assistant Mode” that triggers when a new player enters the pipeline.
+
+Behavior in this mode:
+
+More encouraging
+
+More tutorial-driven
+
+More rewarding
+
+More personal
+
+Tracks progress more aggressively
+
+Celebrates more often
+
+Offers nudges tailored to their engagement state
+
+And when a user crosses into committed territory:
+
+“Looks like you’re really becoming a DeFi Adventurer… I’m proud of you.”

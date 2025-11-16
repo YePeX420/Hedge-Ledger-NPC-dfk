@@ -12,26 +12,20 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
-**November 16, 2025 - Comprehensive Garden Analytics (Crystalvale)**
+**November 16, 2025 - Comprehensive Garden Analytics (Crystalvale) - FINAL**
 - Implemented full on-chain analytics for Crystalvale garden pools
-- Automated pool discovery via smart contract queries (no static lists)
+- **Factory Enumeration**: ALL LP pairs from UniswapV2Factory (0x794C...) for accurate token pricing
+- **UTC Day Timeframe**: APRs calculated from previous UTC day (00:00-23:59 yesterday) for consistency
+- **Rapid Renewal**: Best hero APR includes 1.43x frequency multiplier from Rapid Renewal power-up
 - 24h fee APR calculation from Swap event logs (denominator: total pool TVL)
 - 24h harvesting APR calculation from RewardCollected events (denominator: V2 TVL only)
-- Gardening quest APR range calculation (worst hero vs best hero boost)
-- On-chain USD price graph using BFS propagation from USDC anchor
+- Gardening quest APR range: 0% (worst hero) to ~87% (best hero with Rapid Renewal)
+- On-chain USD price graph using BFS propagation from USDC anchor across ALL pairs
 - V1/V2/Total TVL breakdown (legacy staking vs current staking)
 - Zero external API dependencies - 100% RPC + smart contract queries
 - `/garden pool:all` shows comprehensive APR data for all pools
 - `/garden pool:<pid>` shows detailed analytics with hero boost calculations
 - `/garden wallet:<address>` shows harvestable CRYSTAL rewards
-
-**November 16, 2025 - Output Format Updates**
-- Display V1 TVL, V2 TVL, and Total TVL separately (not just combined)
-- Renamed "Fee APR" → "24HR Fee APR" (clarifies 24h calculation window)
-- Renamed "Emission APR" → "24HR Harvesting APR" (matches game terminology)
-- Added "Gardening Quest APR" range showing worst/best hero performance
-- Removed allocation percentage (not requested by users)
-- Fixed critical bug: Fee APR now uses total pool TVL (V1+V2), not just V2
 
 ## System Architecture
 
@@ -76,14 +70,18 @@ Node.js backend service with Discord.js integration. No frontend UI - all intera
 - Direct smart contract integration via ethers.js
 - Connects to DFK Chain RPC (Crystalvale)
 - LP Staking contract: `0xB04e8D6aED037904B77A9F0b08002592925833b7`
+- UniswapV2 Factory: `0x794C07912474351b3134E6D6B3B7b3b4A07cbAAa`
 - Functions:
-  - `discoverPools()` - Auto-discovers pools via `getPoolLength()` / `getPoolInfo()`
+  - `enumerateAllPairs()` - Enumerates ALL LP pairs from factory (not just staked)
+  - `discoverPools()` - Auto-discovers staked pools via `getPoolLength()` / `getPoolInfo()`
   - `getLPTokenDetails()` - Analyzes LP tokens (token0/token1/reserves/totalSupply)
-  - `buildPriceGraph()` - BFS price propagation from USDC anchor
-  - `calculate24hFeeAPR()` - Scans Swap events for volume/fees
-  - `calculateEmissionAPR()` - Scans RewardCollected events for CRYSTAL emissions
-  - `calculateTVL()` - Computes total value locked from reserves + prices
-  - `getPoolAnalytics()` - Full analytics for single pool
+  - `buildPriceGraph()` - BFS price propagation from USDC across ALL pairs
+  - `getPreviousUTCDayBlockRange()` - Binary search for previous UTC day block range
+  - `calculate24hFeeAPR()` - Scans Swap events for volume/fees (previous UTC day)
+  - `calculateEmissionAPR()` - Scans RewardCollected events for CRYSTAL emissions (previous UTC day)
+  - `calculateGardeningQuestAPR()` - Calculates hero boost APR range with Rapid Renewal
+  - `calculateTVL()` - Computes V1/V2/Total TVL from reserves + prices
+  - `getPoolAnalytics()` - Full analytics for single pool with shared data optimization
   - `getAllPoolAnalytics()` - Batch analytics (optimized to avoid redundant RPC calls)
 
 **4. Command System** (`register-commands.js`)

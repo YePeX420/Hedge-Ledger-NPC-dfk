@@ -16,32 +16,40 @@ Hedge Ledger now provides **comprehensive, on-chain analytics** for Crystalvale 
 - Automatically resolves token symbols and decimals
 - Builds full liquidity composition data
 
-✅ **On-Chain USD Price Graph**
-- Builds token price graph using BFS propagation
+✅ **On-Chain USD Price Graph (Factory Enumeration)**
+- Enumerates ALL LP pairs from UniswapV2Factory (0x794C07912474351b3134E6D6B3B7b3b4A07cbAAa)
+- Builds complete token price graph using BFS propagation
 - Anchored to USDC.e (0x3AD9DFE640E1A9Cc1D9B0948620820D975c3803a)
-- Propagates prices through all LP pairs
+- Propagates prices through all LP pairs (not just staked ones)
 - 100% on-chain - no external APIs
+- Ensures accurate pricing for all tokens
 
-✅ **24h Fee APR (Actual, Not Estimated)**
-- Scans last 43,200 blocks (~24 hours at 2sec blocks)
-- Queries `Swap` events from each LP pair
-- Sums volume in USD using on-chain prices
+✅ **24HR Fee APR (Previous UTC Day)**
+- Scans **previous UTC calendar day** (00:00:00 - 23:59:59 yesterday UTC)
+- Uses binary search to find block numbers by timestamp
+- Ensures consistent APR data for all users regardless of query time
+- Queries `Swap` events from each LP pair within that timeframe
+- Sums volume in USD using comprehensive on-chain prices
 - Calculates fee revenue: `volume * 0.25%`
-- Computes annual APR from 24h fees
+- Computes annual APR using **total pool TVL** (V1+V2)
 
-✅ **24h Harvesting APR (Actual CRYSTAL Rewards)**
-- Scans `RewardCollected` events from LP Staking contract
+✅ **24HR Harvesting APR (Previous UTC Day)**
+- Scans `RewardCollected` events from previous UTC day
 - Aggregates actual CRYSTAL emissions per pool
 - Converts to USD using on-chain CRYSTAL price
-- Computes annual APR from 24h emissions (denominator: V2 staked TVL only)
+- Computes annual APR using **V2 staked TVL only** (only V2 receives rewards)
 
-✅ **Gardening Quest APR (Hero Boost Rewards)**
+✅ **Gardening Quest APR (Hero Boost + Rapid Renewal)**
 - Calculates additional yield from hero boost on emissions
 - Formula: `Boost% = (INT + WIS + Level) × GardeningSkill × 0.00012`
 - Shows range from worst to best hero:
-  - Worst: Level 1, INT=5, WIS=5, Skill=0 → ~0% boost
-  - Best: Level 100, INT=80, WIS=80, Skill=10 → ~31% boost
-- Quest APR = Harvesting APR × Boost%
+  - Worst: Level 1, INT=5, WIS=5, Skill=0, No Rapid Renewal → ~0% boost
+  - Best: Level 100, INT=80, WIS=80, Skill=10, **With Rapid Renewal** → ~87% boost
+- Rapid Renewal effect:
+  - Boosts stamina recharge from 2 sec/level → 5 sec/level
+  - For L100 hero: 1000s → 700s per stamina = 1.43x quest frequency
+  - Multiplies per-quest boost (31%) by frequency boost (1.43x)
+- Quest APR = Harvesting APR × Total Boost%
 
 ✅ **TVL Calculation**
 - Calculates total pool liquidity from reserves + prices
@@ -117,15 +125,17 @@ Returns:
 - `LPStakingDiamond.json` - Staking contract ABI
 
 **Key Functions:**
-1. `discoverPools()` - Auto-discovery via contract queries
-2. `getLPTokenDetails()` - LP composition analysis
-3. `buildPriceGraph()` - BFS price propagation from USDC
-4. `calculate24hFeeAPR()` - Swap log scanning + volume calculation
-5. `calculateEmissionAPR()` - RewardCollected log scanning
-6. `calculateGardeningQuestAPR()` - Hero boost APR range calculation
-7. `calculateTVL()` - Reserves × prices × staked ratio (V1/V2 breakdown)
-8. `getPoolAnalytics()` - Orchestrates full analysis
-9. `getAllPoolAnalytics()` - Batch analysis with APR sorting
+1. `enumerateAllPairs()` - Enumerate all LP pairs from factory
+2. `discoverPools()` - Auto-discovery of staked pools via contract queries
+3. `getLPTokenDetails()` - LP composition analysis
+4. `buildPriceGraph()` - BFS price propagation from USDC using ALL pairs
+5. `getPreviousUTCDayBlockRange()` - Calculate block range for previous UTC day
+6. `calculate24hFeeAPR()` - Swap log scanning + volume calculation (UTC day)
+7. `calculateEmissionAPR()` - RewardCollected log scanning (UTC day)
+8. `calculateGardeningQuestAPR()` - Hero boost + Rapid Renewal APR range
+9. `calculateTVL()` - Reserves × prices × staked ratio (V1/V2 breakdown)
+10. `getPoolAnalytics()` - Orchestrates full analysis with shared data
+11. `getAllPoolAnalytics()` - Batch analysis with APR sorting
 
 ### Configuration
 
@@ -133,12 +143,15 @@ Returns:
 
 **Contract Addresses:**
 - LP Staking: `0xB04e8D6aED037904B77A9F0b08002592925833b7`
+- UniswapV2 Factory: `0x794C07912474351b3134E6D6B3B7b3b4A07cbAAa`
 - USDC.e (anchor): `0x3AD9DFE640E1A9Cc1D9B0948620820D975c3803a`
 - CRYSTAL: `0x04b9dA42306B023f3572e106B11D82aAd9D32EBb`
 
 **Constants:**
 - Blocks per day: 43,200 (~2 second blocks)
 - Swap fee rate: 0.25% (standard Uniswap V2)
+- Base stamina recharge: 1200 seconds (20 min)
+- Rapid Renewal boost: 5 sec/level vs 2 sec/level without
 
 ### Data Sources
 

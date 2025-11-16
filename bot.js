@@ -320,12 +320,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
             
             // Build shared data once for name search + analytics
             const allPools = await analytics.discoverPools();
-            const priceGraph = await analytics.buildPriceGraph(allPools);
+            const priceGraph = await analytics.buildPriceGraph();
             const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
             const crystalPrice = priceGraph.get(CRYSTAL_ADDRESS.toLowerCase()) || 0;
             const totalAllocPoint = await analytics.stakingContract.getTotalAllocPoint();
+            const blockRange = await analytics.getPreviousUTCDayBlockRange();
             
-            sharedData = { allPools, priceGraph, crystalPrice, totalAllocPoint };
+            sharedData = { allPools, priceGraph, crystalPrice, totalAllocPoint, blockRange };
             
             const lpDetails = await Promise.all(
               allPools.slice(0, 14).map(async p => ({

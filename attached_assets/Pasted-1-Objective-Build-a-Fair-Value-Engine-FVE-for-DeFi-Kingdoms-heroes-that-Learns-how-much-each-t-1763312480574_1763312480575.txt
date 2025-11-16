@@ -1,0 +1,366 @@
+1. Objective
+
+Build a Fair Value Engine (FVE) for DeFi Kingdoms heroes that:
+
+Learns how much each trait is worth based on actual Tavern sales (demand-driven).
+
+Produces an Intrinsic Fair Value for any hero (based on its traits).
+
+Produces a Market Fair Value based on comparable recent sales.
+
+Updates once per UTC day, using all data up to the end of the previous UTC day.
+
+Completely ignores floor heroes when learning trait weights, because we already know why they were bought (cheapest possible, not trait-driven).
+
+Provides 7d / 30d / 90d trend insights about what traits the market is focusing on.
+
+The engine will later be consumed by other systems (e.g. dashboards, Discord NPC, summoning tools), but this spec is only about the valuation engine and its dataset.
+
+2. Scope
+
+The Fair Value Engine should:
+
+Cover all relevant DFK realms (e.g. Crystalvale, Serendale, Metis).
+
+Work with completed Tavern sales only (not open listings).
+
+Use hero trait snapshots at the time of sale.
+
+Learn and update trait weights using a daily batch process (not in real time).
+
+Be able to explain values in terms of:
+
+Trait contribution (rarity, class, level, summons, profession, genes, etc.).
+
+Market “comps” (similar heroes that recently sold).
+
+Be extendable to incorporate pet bonuses and additional stats later.
+
+It should not handle UI, bots, or front-end logic; it just provides valuation and trend data.
+
+3. Core Concepts
+3.1 Intrinsic Fair Value
+
+An estimate of what a hero “should” be worth based purely on its traits, according to what the market has historically paid for those traits.
+
+Calculated by applying learned trait weights to the hero’s features.
+
+Expressed in USD-equivalent or realm token units (e.g. CRYSTAL, JEWEL), depending on available price feeds.
+
+3.2 Market Fair Value
+
+An estimate based on comparable heroes that actually sold recently:
+
+Heroes with similar realm, rarity, main class, level range, summons range, and profession.
+
+Based on median prices over different windows:
+
+Last 1 day (if enough data)
+
+Last 7 days
+
+Last 30 days
+
+Last 90 days
+
+3.3 Floor Heroes
+
+Heroes bought at or very close to the realm floor price, with traits that suggest they were acquired purely because they were cheap, not because of specific traits.
+
+These sales should be excluded from the learning process for trait weights.
+
+They may still appear in other reporting if needed, but they must not influence the valuation model.
+
+4. Data Sources
+
+The engine needs to work with at least two external data sources:
+
+Tavern sales data
+For each completed sale:
+
+Hero ID
+
+Realm
+
+Timestamp (UTC)
+
+Token and amount paid
+
+Buyer/seller addresses (optional, but useful for sweep detection)
+
+Hero trait data
+For each hero at the time of sale:
+
+Rarity
+
+Main class and subclass
+
+Level
+
+Profession
+
+Summons used and maximum summons
+
+Gene information (see Section 6)
+
+Optional: primary stats (Strength, Agility, Dexterity, Vitality, Intelligence, Wisdom, Luck)
+
+If available, a price feed for tokens to USD is helpful, but not strictly required for v1.
+
+5. Daily Processing Model (UTC)
+
+The system should operate using a daily snapshot model based on UTC:
+
+There is a single daily batch run, ideally just after midnight UTC (for example, 00:05 UTC).
+
+Each run processes all sales up to 23:59:59 UTC of the previous day.
+
+This mirrors how APR snapshots are usually handled: one consistent dataset per UTC day.
+
+Each daily run should:
+
+Ingest new Tavern sales from the last run up to the end of the previous UTC day.
+
+Enrich these sales with a full hero trait snapshot taken as of the sale.
+
+Filter out floor-equivalent heroes from the training dataset (see Section 7).
+
+Recompute trait weights based on all eligible sales from a defined historical window (for example, the last 90 days).
+
+Rebuild Market Fair Value baselines for each similarity bucket (see Section 8).
+
+Generate a trend summary describing key movements in the last 7, 30, and 90 days (see Section 9).
+
+Store all results labeled with an as_of_date corresponding to the previous UTC day.
+
+6. Gene Modeling (Detailed Trait Handling)
+
+The engine should not only count how many advanced/elite/exalted genes a hero has, but also model which specific genes and what kind of abilities they represent.
+
+6.1 Gene Snapshot per Hero
+
+For each hero snapshot, the system should store for at least four ability slots:
+
+Passive 1
+
+Passive 2
+
+Active 1
+
+Active 2
+
+For each slot:
+
+A stable gene identifier (e.g. an ID or code used by DFK).
+
+A human-readable name.
+
+The tier of the gene: basic, advanced, elite, or exalted.
+
+Aggregate counts of advanced, elite, and exalted genes across the hero should still be stored as simpler high-level signals.
+
+6.2 Gene Catalog
+
+The system should maintain a catalog of known genes, containing:
+
+Gene ID
+
+Name
+
+Tier (basic/advanced/elite/exalted)
+
+A set of tags describing its role, such as:
+
+damage
+
+heal
+
+area-of-effect (aoe)
+
+support
+
+debuff
+
+buff
+
+PvP-oriented
+
+PvE-oriented
+
+Whenever a new gene is observed in a hero snapshot and is not yet in the catalog, it should be added with its identity information. Tags can be updated over time as we curate game knowledge.
+
+6.3 Gene Features for the Model
+
+When the engine prepares data to learn trait weights, the genes should contribute several types of features:
+
+Slot-tier features
+For each slot (Passive1, Passive2, Active1, Active2), indicate which tier is present.
+This allows the model to learn, for example, that an exalted gene in Active1 is more valuable than in Passive2.
+
+Gene-tag features
+Using the tags defined in the gene catalog, derive features such as:
+
+Whether the hero has any damage gene.
+
+Whether the hero has any healing gene.
+
+Whether the hero has any aoe gene.
+
+Whether the hero has any support or debuff gene.
+This allows the model to detect that some ability roles are consistently rewarded in pricing.
+
+Top specific genes
+The engine should automatically identify a small set of popular or high-impact genes based on recent sales (for example, the 20–50 most common or most price-relevant genes in the last 90 days).
+For these top genes, the model should include features indicating simply whether the hero has each of them in any slot.
+This allows the engine to learn that certain specific abilities carry a market premium or discount.
+
+This structure lets the Fair Value Engine discover premiums for both gene tiers and specific, in-demand abilities, without exploding into a feature set that is too large.
+
+7. Floor Hero Exclusion (Critical Requirement)
+
+The trait-weight learning process must ignore floor heroes because their price is dominated by the fact that they are the cheapest available option, not by their specific traits.
+
+The system should define floor-equivalent sales using a combination of criteria such as:
+
+Proximity to realm floor price
+Sales that occur within a small percentage above the current floor price for that realm (for example, a few percent above) should be considered floor-equivalent.
+
+Low-quality, low-trait bundles
+Heroes that are:
+
+Common rarity,
+
+With no advanced, elite, or exalted genes,
+
+Low level,
+
+Profession-mismatched
+and sold at a low price are typically floor-style heroes and should be treated as such for exclusion.
+
+Very low USD value
+When token prices move, some very cheap heroes may be picked up that do not reflect demand for traits. Sales below a certain minimum USD-equivalent value can be excluded as not informative for trait valuation.
+
+Sweep patterns
+If the same buyer acquires many heroes in a very short time window, those purchases likely represent a floor sweep (bulk buying of anything cheap). These trades should not be used in the trait-learning dataset.
+
+The implementation details are up to the developer, but the outcome must be:
+
+Floor-equivalent heroes are excluded from the training dataset used to learn trait weights.
+
+They may still exist in the raw data for other reporting, but they do not influence how traits are valued.
+
+8. Similarity Buckets for Market Fair Value
+
+To estimate Market Fair Value, the engine should group heroes into similarity buckets. Each bucket represents “heroes like this one.”
+
+A bucket is defined by at least:
+
+Realm
+
+Rarity
+
+Main class
+
+Level band (for example, level ranges such as 1–4, 5–9, 10–14, etc.)
+
+Summons band (for example, 0 remaining, 1–3, 4–7, 8+)
+
+Profession
+
+For each bucket, the engine should calculate, for each as_of_date:
+
+Median sale price over:
+
+1 day (the current day)
+
+7 days
+
+30 days
+
+90 days
+
+Number of sales in each of those windows (liquidity).
+
+These bucket medians are used as Market Fair Value baselines for heroes that fall into those buckets.
+
+9. Trend Reporting (7d / 30d / 90d)
+
+In addition to valuation, the Fair Value Engine should produce a daily trend report showing how the market is evolving.
+
+This report should:
+
+Highlight, per realm:
+
+Which classes, rarities, professions, summons bands, and key gene-related traits have:
+
+Rising average prices (over 7, 30, 90 days).
+
+Falling average prices.
+
+High or low liquidity.
+
+Use consistent windows:
+
+Last 7 days compared to the prior period.
+
+Last 30 days.
+
+Last 90 days.
+
+Focus especially on:
+
+Traits and genes that show significant positive or negative price trends.
+
+Areas where liquidity is increasing or drying up.
+
+This trend data will be consumed by analytics tools and the Discord NPC to comment on what the market is currently “paying attention to.”
+
+10. Outputs and Usage
+
+For any given hero and date (usually the latest as_of_date), the Fair Value Engine should be able to provide:
+
+Intrinsic Fair Value
+
+The price implied by the learned trait weights, based on the hero’s traits.
+
+Expressed consistently across heroes in the same realm.
+
+Market Fair Value
+
+The price implied by the hero’s similarity bucket (bucket medians).
+
+Potentially multiple numbers: 7d median, 30d median, 90d median.
+
+Fair Value Deltas
+
+Difference between a listing price and Intrinsic Fair Value.
+
+Difference between a listing price and Market Fair Value (for example, 30d median).
+
+These can be expressed as percentages above/below fair value.
+
+Confidence
+
+A qualitative or quantitative measure based on:
+
+How many training samples were available.
+
+How liquid the hero’s bucket is.
+
+The fit quality of the underlying model.
+
+The engine itself should not decide “buy/sell,” but should provide enough information for downstream tools (summoning planners, trading dashboards, NPCs) to make those judgments or recommendations.
+
+11. Design Principles
+
+Daily, deterministic snapshots:
+Everything is anchored to “data up to previous UTC day,” so past values can be reconstructed and backtested.
+
+Demand-driven traits:
+The model does not rely on hard-coded assumptions about which traits are good. It infers trait weights from what people actually pay over time.
+
+Floor-aware but floor-excluding:
+Floor behavior is recognized but excluded from trait-value learning so as not to dilute the signal.
+
+Extensible:
+The design should allow adding more detailed features later (pet bonuses, more stat modeling, realm-specific adjustments) without redesigning the whole system.

@@ -1,20 +1,161 @@
 import { ethers } from 'ethers';
 import lpStakingABI from './LPStakingDiamond.json' with { type: 'json' };
 import uniswapPairABI from './UniswapV2Pair.json' with { type: 'json' };
+import uniswapFactoryABI from './UniswapV2Factory.json' with { type: 'json' };
 import erc20ABI from './ERC20.json' with { type: 'json' };
 
 // DFK Chain configuration
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 const LP_STAKING_ADDRESS = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
+const UNISWAP_V2_FACTORY = '0x794C07912474351b3134E6D6B3B7b3b4A07cbAAa';
 const USDC_ADDRESS = '0x3AD9DFE640E1A9Cc1D9B0948620820D975c3803a'; // USDC.e on DFK Chain
 const BLOCKS_PER_DAY = 43200; // ~2 second blocks
 const FEE_RATE = 0.0025; // 0.25% swap fee
 
 const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
 const stakingContract = new ethers.Contract(LP_STAKING_ADDRESS, lpStakingABI, provider);
+const factoryContract = new ethers.Contract(UNISWAP_V2_FACTORY, uniswapFactoryABI, provider);
 
 // Export for use in bot.js when building shared data
 export { stakingContract };
+
+/**
+ * Find first block whose timestamp is >= targetTimestamp
+ */
+async function findBlockAtOrAfter(targetTimestamp, latestBlock) {
+  let low = 0;
+  let high = latestBlock;
+  let result = latestBlock;
+  
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    try {
+      const block = await provider.getBlock(mid);
+      if (!block) {
+        high = mid - 1;
+        continue;
+      }
+      
+      if (block.timestamp >= targetTimestamp) {
+        result = mid;
+        high = mid - 1; // Continue searching for earlier block
+      } else {
+        low = mid + 1;
+      }
+    } catch (err) {
+      high = mid - 1;
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * Find last block whose timestamp is <= targetTimestamp
+ */
+async function findBlockAtOrBefore(targetTimestamp, latestBlock) {
+  let low = 0;
+  let high = latestBlock;
+  let result = 0;
+  
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    try {
+      const block = await provider.getBlock(mid);
+      if (!block) {
+        high = mid - 1;
+        continue;
+      }
+      
+      if (block.timestamp <= targetTimestamp) {
+        result = mid;
+        low = mid + 1; // Continue searching for later block
+      } else {
+        high = mid - 1;
+      }
+    } catch (err) {
+      high = mid - 1;
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * Get block range for previous UTC day (00:00:00 - 23:59:59 yesterday)
+ */
+export async function getPreviousUTCDayBlockRange() {
+  try {
+    const latestBlock = await provider.getBlockNumber();
+    const latestBlockData = await provider.getBlock(latestBlock);
+    const currentTimestamp = latestBlockData.timestamp;
+    
+    // Get previous UTC day boundaries
+    const currentDate = new Date(currentTimestamp * 1000);
+    const currentUTCDate = new Date(Date.UTC(
+      currentDate.getUTCFullYear(),
+      currentDate.getUTCMonth(),
+      currentDate.getUTCDate()
+    ));
+    
+    // Previous day start: yesterday at 00:00:00 UTC
+    const previousDayStart = new Date(currentUTCDate);
+    previousDayStart.setUTCDate(previousDayStart.getUTCDate() - 1);
+    const startTimestamp = Math.floor(previousDayStart.getTime() / 1000);
+    
+    // Previous day end: yesterday at 23:59:59 UTC
+    const previousDayEnd = new Date(currentUTCDate);
+    previousDayEnd.setUTCSeconds(previousDayEnd.getUTCSeconds() - 1);
+    const endTimestamp = Math.floor(previousDayEnd.getTime() / 1000);
+    
+    // Find corresponding blocks
+    // fromBlock: First block at or after 00:00:00 UTC yesterday
+    // toBlock: Last block at or before 23:59:59 UTC yesterday
+    const fromBlock = await findBlockAtOrAfter(startTimestamp, latestBlock);
+    const toBlock = await findBlockAtOrBefore(endTimestamp, latestBlock);
+    
+    console.log(`Previous UTC day: ${previousDayStart.toISOString()} to ${previousDayEnd.toISOString()}`);
+    console.log(`Block range: ${fromBlock} to ${toBlock} (${toBlock - fromBlock} blocks)`);
+    
+    return { fromBlock, toBlock, startTimestamp, endTimestamp };
+  } catch (err) {
+    console.error('Error calculating UTC day block range:', err.message);
+    // Fallback to rolling 24h
+    const currentBlock = await provider.getBlockNumber();
+    return {
+      fromBlock: currentBlock - BLOCKS_PER_DAY,
+      toBlock: currentBlock,
+      startTimestamp: null,
+      endTimestamp: null
+    };
+  }
+}
+
+/**
+ * Enumerate all LP pairs from UniswapV2Factory
+ */
+export async function enumerateAllPairs() {
+  try {
+    const pairsLength = await factoryContract.allPairsLength();
+    const pairs = [];
+    
+    console.log(`Enumerating ${pairsLength} LP pairs from factory...`);
+    
+    for (let i = 0; i < pairsLength; i++) {
+      try {
+        const pairAddress = await factoryContract.allPairs(i);
+        pairs.push(pairAddress);
+      } catch (err) {
+        console.error(`Error fetching pair ${i}:`, err.message);
+      }
+    }
+    
+    return pairs;
+  } catch (err) {
+    console.error('Error enumerating pairs from factory:', err.message);
+    return [];
+  }
+}
 
 /**
  * Discover all pools from staking contract
@@ -86,39 +227,50 @@ export async function getLPTokenDetails(lpAddress) {
 
 /**
  * Build on-chain price graph using BFS from USDC anchor
+ * Enumerates ALL LP pairs from factory for accurate pricing
  */
-export async function buildPriceGraph(pools) {
+export async function buildPriceGraph() {
   const priceGraph = new Map(); // token address -> USD price
   const edges = new Map(); // token -> [{partner, rate}]
   
   // Set USDC anchor price
   priceGraph.set(USDC_ADDRESS.toLowerCase(), 1.0);
   
-  // Build edges from LP pairs
-  for (const pool of pools) {
-    const details = await getLPTokenDetails(pool.lpToken);
-    const token0 = details.token0.address.toLowerCase();
-    const token1 = details.token1.address.toLowerCase();
-    
-    // Calculate exchange rates (price propagation)
-    // In a constant product AMM: if we know token0 price, token1 price = token0 price * (reserve0 / reserve1)
-    // This is because: 1 token1 = (reserve0 / reserve1) token0
-    const reserve0Float = parseFloat(ethers.formatUnits(details.reserve0, details.token0.decimals));
-    const reserve1Float = parseFloat(ethers.formatUnits(details.reserve1, details.token1.decimals));
-    
-    if (reserve0Float === 0 || reserve1Float === 0) continue;
-    
-    // Price multiplier when propagating from token0 to token1
-    const rate01 = reserve0Float / reserve1Float; // token1Price = token0Price * rate01
-    // Price multiplier when propagating from token1 to token0  
-    const rate10 = reserve1Float / reserve0Float; // token0Price = token1Price * rate10
-    
-    // Add bidirectional edges
-    if (!edges.has(token0)) edges.set(token0, []);
-    if (!edges.has(token1)) edges.set(token1, []);
-    
-    edges.get(token0).push({ partner: token1, rate: rate01 });
-    edges.get(token1).push({ partner: token0, rate: rate10 });
+  // Enumerate all LP pairs from factory
+  const allPairs = await enumerateAllPairs();
+  
+  console.log(`Building price graph from ${allPairs.length} LP pairs...`);
+  
+  // Build edges from ALL LP pairs (not just staked ones)
+  for (const pairAddress of allPairs) {
+    try {
+      const details = await getLPTokenDetails(pairAddress);
+      const token0 = details.token0.address.toLowerCase();
+      const token1 = details.token1.address.toLowerCase();
+      
+      // Calculate exchange rates (price propagation)
+      // In a constant product AMM: if we know token0 price, token1 price = token0 price * (reserve0 / reserve1)
+      // This is because: 1 token1 = (reserve0 / reserve1) token0
+      const reserve0Float = parseFloat(ethers.formatUnits(details.reserve0, details.token0.decimals));
+      const reserve1Float = parseFloat(ethers.formatUnits(details.reserve1, details.token1.decimals));
+      
+      if (reserve0Float === 0 || reserve1Float === 0) continue;
+      
+      // Price multiplier when propagating from token0 to token1
+      const rate01 = reserve0Float / reserve1Float; // token1Price = token0Price * rate01
+      // Price multiplier when propagating from token1 to token0  
+      const rate10 = reserve1Float / reserve0Float; // token0Price = token1Price * rate10
+      
+      // Add bidirectional edges
+      if (!edges.has(token0)) edges.set(token0, []);
+      if (!edges.has(token1)) edges.set(token1, []);
+      
+      edges.get(token0).push({ partner: token1, rate: rate01 });
+      edges.get(token1).push({ partner: token0, rate: rate10 });
+    } catch (err) {
+      // Skip pairs with errors (likely invalid or deprecated pairs)
+      continue;
+    }
   }
   
   // BFS to propagate prices from USDC
@@ -139,24 +291,27 @@ export async function buildPriceGraph(pools) {
     }
   }
   
+  console.log(`Price graph built: ${priceGraph.size} tokens priced`);
+  
   return priceGraph;
 }
 
 /**
- * Calculate 24h fee APR from Swap events
+ * Calculate 24h fee APR from Swap events (previous UTC day)
  */
-export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stakedLiquidity) {
+export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stakedLiquidity, blockRange = null) {
   try {
-    const currentBlock = await provider.getBlockNumber();
-    const fromBlock = currentBlock - BLOCKS_PER_DAY;
+    // Use provided block range (previous UTC day) or calculate fresh
+    const range = blockRange || await getPreviousUTCDayBlockRange();
+    const { fromBlock, toBlock } = range;
     
     const lpContract = new ethers.Contract(lpAddress, uniswapPairABI, provider);
     
-    // Get Swap events from last 24h
+    // Get Swap events from previous UTC day
     const swapEvents = await lpContract.queryFilter(
       lpContract.filters.Swap(),
       fromBlock,
-      currentBlock
+      toBlock
     );
     
     // Calculate total volume in USD
@@ -197,18 +352,19 @@ export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stake
 }
 
 /**
- * Calculate emission APR from RewardCollected events
+ * Calculate emission APR from RewardCollected events (previous UTC day)
  */
-export async function calculateEmissionAPR(pid, rewardTokenPrice, stakedLiquidity) {
+export async function calculateEmissionAPR(pid, rewardTokenPrice, stakedLiquidity, blockRange = null) {
   try {
-    const currentBlock = await provider.getBlockNumber();
-    const fromBlock = currentBlock - BLOCKS_PER_DAY;
+    // Use provided block range (previous UTC day) or calculate fresh
+    const range = blockRange || await getPreviousUTCDayBlockRange();
+    const { fromBlock, toBlock } = range;
     
     // Get RewardCollected events for this pool
     const rewardEvents = await stakingContract.queryFilter(
       stakingContract.filters.RewardCollected(pid),
       fromBlock,
-      currentBlock
+      toBlock
     );
     
     // Sum total rewards
@@ -280,12 +436,13 @@ export function calculateTVL(lpDetails, priceGraph, totalStaked) {
 }
 
 /**
- * Calculate gardening quest APR range based on hero stats
+ * Calculate gardening quest APR range based on hero stats and Rapid Renewal
  * Formula (approximate): Boost % = (INT + WIS + Level) × Gardening Skill × Multiplier
  * Returns additional APR from hero boost (not base emissions)
+ * Best hero calculation includes Rapid Renewal frequency multiplier
  */
 export function calculateGardeningQuestAPR(baseEmissionAPR) {
-  // Worst hero: Level 1, INT=5, WIS=5, Gardening Skill=0 (no profession gene)
+  // Worst hero: Level 1, INT=5, WIS=5, Gardening Skill=0 (no profession gene, no Rapid Renewal)
   const worstHero = {
     level: 1,
     int: 5,
@@ -293,7 +450,7 @@ export function calculateGardeningQuestAPR(baseEmissionAPR) {
     gardeningSkill: 0
   };
   
-  // Best hero: Level 100, INT=80, WIS=80, Gardening Skill=10 (maxed Wizard with profession gene)
+  // Best hero: Level 100, INT=80, WIS=80, Gardening Skill=10 (maxed Wizard with profession gene + Rapid Renewal)
   const bestHero = {
     level: 100,
     int: 80,
@@ -304,19 +461,40 @@ export function calculateGardeningQuestAPR(baseEmissionAPR) {
   // Boost multiplier calibrated to give ~0-30% boost range
   const MULTIPLIER = 0.00012;
   
-  // Calculate boost percentage for each hero
-  const worstBoost = (worstHero.int + worstHero.wis + worstHero.level) * worstHero.gardeningSkill * MULTIPLIER;
-  const bestBoost = (bestHero.int + bestHero.wis + bestHero.level) * bestHero.gardeningSkill * MULTIPLIER;
+  // Calculate per-quest boost percentage for each hero
+  const worstPerQuestBoost = (worstHero.int + worstHero.wis + worstHero.level) * worstHero.gardeningSkill * MULTIPLIER;
+  const bestPerQuestBoost = (bestHero.int + bestHero.wis + bestHero.level) * bestHero.gardeningSkill * MULTIPLIER;
   
-  // Additional APR from gardening quest = base emission APR × boost percentage
-  const worstQuestAPR = baseEmissionAPR * worstBoost;
-  const bestQuestAPR = baseEmissionAPR * bestBoost;
+  // Rapid Renewal frequency multiplier (for best hero only)
+  // Base stamina recharge: 1200 seconds (20 min per stamina)
+  // Level discount without RR: 2 seconds/level
+  // Level discount with RR: 5 seconds/level
+  // For level 100 hero:
+  //   Without RR: 1200 - (100 × 2) = 1000 sec/stamina
+  //   With RR: 1200 - (100 × 5) = 700 sec/stamina
+  //   Frequency increase: 1000/700 = 1.4286x (42.86% more quests/year)
+  const BASE_STAMINA_RECHARGE = 1200; // seconds
+  const DISCOUNT_PER_LEVEL_WITHOUT_RR = 2; // seconds
+  const DISCOUNT_PER_LEVEL_WITH_RR = 5; // seconds
+  
+  const rechargeTimeWithoutRR = BASE_STAMINA_RECHARGE - (bestHero.level * DISCOUNT_PER_LEVEL_WITHOUT_RR);
+  const rechargeTimeWithRR = BASE_STAMINA_RECHARGE - (bestHero.level * DISCOUNT_PER_LEVEL_WITH_RR);
+  const rapidRenewalFrequencyMultiplier = rechargeTimeWithoutRR / rechargeTimeWithRR;
+  
+  // Total boost for best hero = per-quest boost × Rapid Renewal frequency boost
+  // This represents: (1 + perQuestBoost) × rapidRenewalMultiplier - 1
+  const bestTotalBoost = (1 + bestPerQuestBoost) * rapidRenewalFrequencyMultiplier - 1;
+  
+  // Additional APR from gardening quest
+  const worstQuestAPR = baseEmissionAPR * worstPerQuestBoost;
+  const bestQuestAPR = baseEmissionAPR * bestTotalBoost;
   
   return {
     worstQuestAPR,
     bestQuestAPR,
-    worstBoost: worstBoost * 100,  // Convert to percentage
-    bestBoost: bestBoost * 100
+    worstBoost: worstPerQuestBoost * 100,  // Convert to percentage
+    bestBoost: bestTotalBoost * 100,
+    rapidRenewalMultiplier: rapidRenewalFrequencyMultiplier
   };
 }
 
@@ -329,6 +507,7 @@ export function calculateGardeningQuestAPR(baseEmissionAPR) {
  * @param {Map} sharedData.priceGraph - Pre-built price graph
  * @param {number} sharedData.crystalPrice - Pre-fetched CRYSTAL price
  * @param {bigint} sharedData.totalAllocPoint - Pre-fetched total allocation point
+ * @param {object} sharedData.blockRange - Pre-calculated block range for previous UTC day
  */
 export async function getPoolAnalytics(pid, sharedData = null) {
   try {
@@ -344,20 +523,23 @@ export async function getPoolAnalytics(pid, sharedData = null) {
     const lpDetails = await getLPTokenDetails(pool.lpToken);
     
     // Use shared price graph or build new one
-    const priceGraph = sharedData?.priceGraph || await buildPriceGraph(allPools);
+    const priceGraph = sharedData?.priceGraph || await buildPriceGraph();
     
     // Use shared CRYSTAL price or fetch from graph
     const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
     const crystalPrice = sharedData?.crystalPrice ?? (priceGraph.get(CRYSTAL_ADDRESS.toLowerCase()) || 0);
     
+    // Use shared block range or fetch fresh
+    const blockRange = sharedData?.blockRange || await getPreviousUTCDayBlockRange();
+    
     // Calculate TVL
     const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked);
     
     // Calculate 24h fee APR (use total pool TVL including V1+V2)
-    const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD);
+    const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD, blockRange);
     
     // Calculate emission APR (use only V2 staked amount - only V2 gets CRYSTAL rewards)
-    const emissionData = await calculateEmissionAPR(pid, crystalPrice, tvlData.stakedLiquidityUSD);
+    const emissionData = await calculateEmissionAPR(pid, crystalPrice, tvlData.stakedLiquidityUSD, blockRange);
     
     // Calculate gardening quest APR range (additional yield from hero boost)
     const gardeningQuestData = calculateGardeningQuestAPR(emissionData.emissionAPR);
@@ -410,7 +592,7 @@ export async function getAllPoolAnalytics(limit = 20) {
     const allPools = await discoverPools();
     
     // Build price graph ONCE for all pools
-    const priceGraph = await buildPriceGraph(allPools);
+    const priceGraph = await buildPriceGraph();
     
     // Get CRYSTAL price ONCE
     const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
@@ -418,6 +600,9 @@ export async function getAllPoolAnalytics(limit = 20) {
     
     // Get total alloc point ONCE
     const totalAllocPoint = await stakingContract.getTotalAllocPoint();
+    
+    // Get block range for previous UTC day ONCE
+    const blockRange = await getPreviousUTCDayBlockRange();
     
     const results = [];
     
@@ -433,10 +618,10 @@ export async function getAllPoolAnalytics(limit = 20) {
         const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked);
         
         // Calculate 24h fee APR (use total pool TVL including V1+V2)
-        const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD);
+        const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD, blockRange);
         
         // Calculate emission APR (use only V2 staked amount - only V2 gets CRYSTAL rewards)
-        const emissionData = await calculateEmissionAPR(pool.pid, crystalPrice, tvlData.stakedLiquidityUSD);
+        const emissionData = await calculateEmissionAPR(pool.pid, crystalPrice, tvlData.stakedLiquidityUSD, blockRange);
         
         // Calculate gardening quest APR range (additional yield from hero boost)
         const gardeningQuestData = calculateGardeningQuestAPR(emissionData.emissionAPR);

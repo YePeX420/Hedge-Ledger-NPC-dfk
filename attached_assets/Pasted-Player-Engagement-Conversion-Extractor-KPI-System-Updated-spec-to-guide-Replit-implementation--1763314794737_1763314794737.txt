@@ -1,0 +1,477 @@
+Player Engagement, Conversion & Extractor KPI System
+
+(Updated spec to guide Replit implementation)
+
+1. Purpose
+
+Design a Player Engagement & Conversion Intelligence Layer for Hedge Ledger, the AI assistant for DeFi Kingdoms, that:
+
+Tracks how players interact with Hedge over time.
+
+Measures onboarding and conversion into real in-game actions.
+
+Distinguishes between healthy, ecosystem-positive players and extractors (value-drainers).
+
+Produces daily/weekly/monthly KPI reports showing Hedge’s impact.
+
+Powers Hedge’s personality and behavior so it:
+
+Invests more effort into committed, positive players.
+
+Limits support for extractors.
+
+Provides evidence of Hedge’s value to the official DFK devs for potential sponsorship.
+
+This system is about behavior and impact, not financial advice or monetization.
+
+2. Scope
+
+The system should:
+
+Cover activity across all relevant DFK realms (Crystalvale, Serendale, Metis).
+
+Combine Hedge’s interaction data with on-chain / game data for each wallet (where available).
+
+Classify players into engagement states and an independent Extractor score/state.
+
+Track progression and retention over time.
+
+Exclude extractors from “success” metrics used in sponsorship reporting.
+
+Provide structured output that can be used by:
+
+Dashboards
+
+Internal analytics
+
+NPC scripts/personality
+
+Pitch decks and reports
+
+It does not need to implement UI or code-level details; it defines the data and behavior logic.
+
+3. Core Player States
+
+The system should track where a user is in their journey with Hedge and DFK.
+
+3.1 Engagement States
+
+These are progression states based on behavior:
+
+Visitor
+
+First interaction with Hedge.
+
+No known wallet.
+
+Basic questions like “What is DeFi Kingdoms?” or “How do I get started?”.
+
+Explorer
+
+Reads guides, asks about mechanics, lore, classes, gardens, professions.
+
+May click through to docs, tools, or official sites.
+
+Participant
+
+Connects or shares a wallet (or indicates they have one).
+
+Asks game-specific help about their heroes/tokens/gardens.
+
+Player
+
+Takes at least one meaningful in-game action after Hedge interaction:
+
+First quest, first hero purchase, first summon, first deposit in gardens, etc.
+
+Active Player
+
+Repeated in-game actions and repeated Hedge sessions over time (e.g., weekly).
+
+Shows consistent use of game systems.
+
+Committed Player
+
+Strong long-term indicators:
+
+Ongoing quests and leveling
+
+Regular deposits/reinvestments
+
+Multi-realm usage
+
+Increased complexity of questions
+
+Clearly contributing to the game’s ecosystem, not just extracting.
+
+Engagement states should be forward-moving but can adjust based on long-term inactivity.
+
+4. Extractor State (Orthogonal Dimension)
+
+In addition to engagement states, each wallet/user should have a separate, independent classification related to extractor behavior.
+
+4.1 What is an Extractor?
+
+An Extractor is someone whose behavior strongly suggests they are primarily:
+
+Claiming and selling rewards,
+
+Exploiting opportunities for short-term profit,
+
+Providing minimal or no positive long-term contribution to the ecosystem.
+
+Extractors are not banned and should still receive basic answers, but Hedge should not invest heavily in optimizing their yield or strategy.
+
+4.2 Extractor Signals
+
+The system should compute an Extractor Score based on patterns such as:
+
+High-weight signals:
+
+Repeatedly claiming garden/quest rewards and quickly selling to stablecoins or off-ramping.
+
+Buying mostly or only floor heroes and flipping them.
+
+No history of:
+
+Summoning
+
+Leveling heroes
+
+Pet linking
+
+Skill progression
+
+Activity heavily skewed to arbitrage or farming loops.
+
+Medium-weight signals:
+
+Very little interaction with progression systems (no story events, no PvP/PvE participation, no summoning events).
+
+Never asking Hedge questions about growth, lore, or team-building—only about “max yield” or “best ROI right now."
+
+Weak signals:
+
+Very short, transactional Hedge sessions.
+
+Repeated requests for exploit-like tips or “fastest way to cash out.”
+
+The score should place users into categories such as:
+
+Normal / Unknown
+
+Extractor-tending
+
+Extractor
+
+This classification should be adjustable over time (players can “redeem” themselves by shifting behavior).
+
+5. Data Sources
+
+The system should merge at least three streams of information:
+
+Hedge Interaction Data
+
+Unique user IDs (e.g., Discord ID or internal handle).
+
+Conversation timestamps and durations.
+
+Types of questions asked:
+
+Onboarding, mechanics, lore, strategy, yield, trading, etc.
+
+Number of sessions per day/week/month.
+
+Wallet / Game Activity Data (where user links a wallet)
+
+First quest completion date.
+
+First hero purchase, summon, pet link.
+
+Garden deposit/withdraw events.
+
+Reward claim and sell patterns.
+
+Cross-realm actions (bridging, realm usage).
+
+Long-term action history (levels gained, heroes/pets growth).
+
+Meta Data
+
+Realm-level stats (floors, activity levels).
+
+Time windows (7d, 30d, 90d) for trend analysis.
+
+This is conceptual; Replit can decide how to get and join these data streams.
+
+6. Daily/Weekly Processing Model
+
+The KPI system should operate primarily on daily cycles, with weekly and monthly roll-ups.
+
+6.1 Daily (UTC) Tasks
+
+Each day (based on the previous UTC day), the system should:
+
+Update engagement state per user/wallet.
+
+Update Extractor Score per wallet.
+
+Record engagement events (e.g., new session, new type of question).
+
+Detect new conversion milestones (Section 7).
+
+Update retention stats over 7/30/90 day windows.
+
+Produce daily snapshots that can be used for trending over time.
+
+6.2 Weekly/Monthly Roll-Ups
+
+Weekly and monthly aggregations should summarize:
+
+Funnel conversion performance.
+
+Extractor vs. non-extractor breakdown.
+
+Retention and progression of Hedge-converted players.
+
+Impact on game activity metrics.
+
+7. Conversion Milestones
+
+The system should track specific milestones that indicate successful conversion and engagement, especially when they occur after Hedge interaction.
+
+Examples:
+
+Connected or shared a wallet after talking to Hedge.
+
+Completed first quest after guidance.
+
+Completed first hero purchase following a Hedge explanation about Tavern.
+
+Completed first summon following a Hedge explanation about genes/parents.
+
+Joined gardens or liquidity pools after Hedge showed APRs or farming basics.
+
+Linked a pet or bridged to another realm after Hedge guidance.
+
+Participated in a special event or feature that Hedge suggested.
+
+Each milestone should be time-stamped and linked to the user/wallet, with contextual notes like:
+
+“This action occurred within X days of Hedge explaining this feature.”
+
+These milestones form the backbone of conversion KPIs.
+
+8. KPIs to Track
+8.1 Funnel KPIs
+
+For all non-extractor users:
+
+Number of Visitors per period.
+
+Number of Explorers.
+
+Number of Participants (wallet-connected).
+
+Number of Players (first meaningful in-game action).
+
+Number of Active and Committed Players.
+
+Conversion rates between steps:
+
+Visitor → Explorer
+
+Explorer → Participant
+
+Participant → Player
+
+Player → Active
+
+Active → Committed
+
+8.2 Engagement KPIs
+
+For each time window (daily/weekly/monthly):
+
+Unique users interacting with Hedge.
+
+Returning users.
+
+Average session length, messages per session.
+
+Topics of interest distribution:
+
+Onboarding
+
+Classes/professions
+
+Gardens/yield
+
+Summoning and genes
+
+Valuation/Tavern
+
+Lore/events
+
+8.3 Commitment KPIs (For Committed Players)
+
+7-day and 30-day retention rates.
+
+Quests completed over recent periods.
+
+Heroes/levels gained over time.
+
+Number of summons, pet links, and realm crossings.
+
+Ongoing participation in new content.
+
+These metrics show depth of engagement and longevity.
+
+9. Extractor KPIs & Exclusion Rules
+
+The Extractor dimension must be explicitly represented and used to filter metrics.
+
+9.1 Extractor Metrics
+
+Track for extractor and extractor-tending wallets:
+
+Number of wallets identified
+
+Volume and type of extraction actions
+
+Trends over time (growing, shrinking)
+
+Common patterns (e.g., frequent garden claim → immediate sell)
+
+9.2 Exclusion from “Success” Metrics
+
+Extractors should be excluded from:
+
+Conversion funnel performance (we don’t count them as “wins”).
+
+Success stories or sponsorship stats.
+
+Commitment and loyalty reports.
+
+They may still appear in:
+
+Raw activity counts
+
+Risk or health diagnostics for the ecosystem
+
+The key goal: Hedge is optimized for ecosystem builders, not extractors.
+
+10. Hedge Personality & Behavior Rules
+
+The KPI/State system directly informs how Hedge acts.
+
+10.1 For Healthy / Committed Players
+
+Hedge should:
+
+Be warm, encouraging, and enthusiastic.
+
+Celebrate milestones (“Nice, your first summon!”).
+
+Suggest next steps that deepen integration into the game.
+
+Offer meaningful strategy help (summoning combos, gardens, valuation, progression).
+
+Build rapport (“I’ve seen your Ninja grow a lot; good job.”).
+
+Make them feel part of a long-term journey.
+
+10.2 For Early-Stage Users (Visitors / Explorers)
+
+Hedge should:
+
+Be patient, friendly, and clear.
+
+Focus on explaining basic mechanics and core fun loops.
+
+Encourage one simple next step at a time.
+
+Avoid overwhelming them with complex strategies.
+
+10.3 For Extractors or Extractor-Tending Users
+
+Hedge should:
+
+Stay polite but neutral.
+
+Provide only basic factual answers, not deep optimization.
+
+Avoid enabling behaviors that drain the ecosystem (no profit-maximizing loops or exploit-like strategies).
+
+Offer light nudges toward more holistic play:
+
+leveling a hero
+
+participating in events
+
+diversifying actions beyond pure extraction.
+
+Hedge should never be hostile, just less invested in their success compared to committed players.
+
+11. Reward & Recognition Layer (Future)
+
+The KPI system should be designed so that in future phases, Hedge can:
+
+Recognize committed players Hedge helped convert.
+
+Offer them:
+
+Special roles (e.g., “Hedge Graduated”, “Hedge Veteran”).
+
+Priority access to advanced tools and analytics.
+
+Recognition in leaderboards or monthly shout-outs.
+
+Eligibility for perks, events, or rewards that are aligned with the game’s health.
+
+Extractors should not receive these higher-tier benefits unless their behavior changes and they gradually move into more eco-positive patterns.
+
+12. Sponsorship & Dev-Facing Reporting
+
+The system should produce reports that can be shared with official DFK devs, highlighting:
+
+How many new players Hedge is touching and guiding.
+
+How many those players:
+
+Connect wallets
+
+Take first actions
+
+Become active/committed
+
+The quality of these players:
+
+Low extractor share in the “converted” group
+
+Strong retention and progression patterns
+
+Evidence that Hedge:
+
+Educates players
+
+Grows activity
+
+Protects the ecosystem by not optimizing extractors.
+
+These reports should clearly distinguish:
+
+Impact on real players vs. extractors,
+so Hedge is seen as a sustainable, ecosystem-aligned AI partner.
+
+13. Design Principles
+
+Player-first, ecosystem-safe – reward play that builds the world, not drains it.
+
+Data-driven – states and KPIs based on behavior, not vibes.
+
+Daily snapshots – stable, reconstructable history.
+
+Extractor-aware – metrics that matter ignore extractors by design.
+
+Future-proof – ready for additional feature tracking (events, PvP modes, guilds, etc.).
