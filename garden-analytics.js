@@ -293,9 +293,9 @@ export async function getPoolAnalytics(pid) {
     // Calculate total APR
     const totalAPR = feeData.feeAPR + emissionData.emissionAPR;
     
-    // Calculate allocation percentage
+    // Calculate allocation percentage (convert BigInt safely)
     const totalAllocPoint = await stakingContract.getTotalAllocPoint();
-    const allocPercent = (parseFloat(pool.allocPoint) / parseFloat(totalAllocPoint)) * 100;
+    const allocPercent = (Number(pool.allocPoint) / Number(totalAllocPoint)) * 100;
     
     return {
       pid,
@@ -328,25 +328,85 @@ export async function getPoolAnalytics(pid) {
 }
 
 /**
- * Get analytics for all pools
+ * Get analytics for all pools (optimized - builds price graph once)
  */
 export async function getAllPoolAnalytics(limit = 20) {
-  const allPools = await discoverPools();
-  const results = [];
-  
-  for (let i = 0; i < Math.min(allPools.length, limit); i++) {
-    try {
-      const analytics = await getPoolAnalytics(i);
-      results.push(analytics);
-    } catch (err) {
-      console.error(`Failed to get analytics for pool ${i}:`, err.message);
+  try {
+    // Discover all pools ONCE
+    const allPools = await discoverPools();
+    
+    // Build price graph ONCE for all pools
+    const priceGraph = await buildPriceGraph(allPools);
+    
+    // Get CRYSTAL price ONCE
+    const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
+    const crystalPrice = priceGraph.get(CRYSTAL_ADDRESS.toLowerCase()) || 0;
+    
+    // Get total alloc point ONCE
+    const totalAllocPoint = await stakingContract.getTotalAllocPoint();
+    
+    const results = [];
+    
+    // Process each pool with shared data
+    for (let i = 0; i < Math.min(allPools.length, limit); i++) {
+      try {
+        const pool = allPools[i];
+        
+        // Get LP details
+        const lpDetails = await getLPTokenDetails(pool.lpToken);
+        
+        // Calculate TVL
+        const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked);
+        
+        // Calculate 24h fee APR
+        const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.stakedLiquidityUSD);
+        
+        // Calculate emission APR
+        const emissionData = await calculateEmissionAPR(pool.pid, crystalPrice, tvlData.stakedLiquidityUSD);
+        
+        // Calculate total APR
+        const totalAPR = feeData.feeAPR + emissionData.emissionAPR;
+        
+        // Calculate allocation percentage
+        const allocPercent = (Number(pool.allocPoint) / Number(totalAllocPoint)) * 100;
+        
+        results.push({
+          pid: pool.pid,
+          pairName: lpDetails.pairName,
+          lpToken: pool.lpToken,
+          token0: lpDetails.token0,
+          token1: lpDetails.token1,
+          allocPoint: pool.allocPoint.toString(),
+          allocPercent: allocPercent.toFixed(2) + '%',
+          totalStaked: ethers.formatUnits(pool.totalStaked, 18),
+          tvlUSD: tvlData.tvlUSD,
+          stakedLiquidityUSD: tvlData.stakedLiquidityUSD,
+          stakedRatio: (tvlData.stakedRatio * 100).toFixed(2) + '%',
+          feeAPR: feeData.feeAPR.toFixed(2) + '%',
+          emissionAPR: emissionData.emissionAPR.toFixed(2) + '%',
+          totalAPR: totalAPR.toFixed(2) + '%',
+          volume24hUSD: feeData.volume24hUSD,
+          fees24hUSD: feeData.fees24hUSD,
+          rewards24hUSD: emissionData.rewards24hUSD,
+          crystalPrice,
+          tokenPrices: {
+            [lpDetails.token0.symbol]: priceGraph.get(lpDetails.token0.address.toLowerCase()) || 0,
+            [lpDetails.token1.symbol]: priceGraph.get(lpDetails.token1.address.toLowerCase()) || 0
+          }
+        });
+      } catch (err) {
+        console.error(`Failed to get analytics for pool ${i}:`, err.message);
+      }
     }
+    
+    // Sort by total APR descending
+    results.sort((a, b) => parseFloat(b.totalAPR) - parseFloat(a.totalAPR));
+    
+    return results;
+  } catch (err) {
+    console.error('Error in getAllPoolAnalytics:', err);
+    throw err;
   }
-  
-  // Sort by total APR descending
-  results.sort((a, b) => parseFloat(b.totalAPR) - parseFloat(a.totalAPR));
-  
-  return results;
 }
 
 /**

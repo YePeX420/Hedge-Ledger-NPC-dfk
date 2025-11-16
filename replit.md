@@ -12,12 +12,17 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
-**November 16, 2025 - DM Auto-Detection Feature**
-- DM handler now automatically detects hero ID mentions in natural language
-- Fetches live blockchain data when users ask questions like "What class is hero #62?"
-- Supports patterns: `hero #62`, `hero 62`, `#62`, multiple heroes per message
-- Updated `/hero` slash command to use blockchain data instead of generic responses
-- No more "I can't pull live data" - Hedge now analyzes real on-chain hero stats in DMs
+**November 16, 2025 - Comprehensive Garden Analytics (Crystalvale)**
+- Implemented full on-chain analytics for Crystalvale garden pools
+- Automated pool discovery via smart contract queries (no static lists)
+- 24h fee APR calculation from Swap event logs
+- Emission APR calculation from RewardCollected events
+- On-chain USD price graph using BFS propagation from USDC anchor
+- TVL calculation from reserves + token prices
+- Zero external API dependencies - 100% RPC + smart contract queries
+- `/garden pool:all` shows comprehensive APR data for all pools
+- `/garden pool:<pid>` shows detailed analytics for specific pool
+- `/garden wallet:<address>` shows harvestable CRYSTAL rewards
 
 ## System Architecture
 
@@ -44,7 +49,9 @@ Node.js backend service with Discord.js integration. No frontend UI - all intera
   - `ui-navigation.md` - Game UI walkthroughs and navigation guides
 - System prompt + knowledge base loaded at startup and prepended to all AI requests
 
-**3. Blockchain Integration** (`onchain-data.js`)
+**3. Blockchain Integration**
+
+**GraphQL Integration** (`onchain-data.js`):
 - GraphQL client connecting to DeFi Kingdoms public API (`api.defikingdoms.com/graphql`)
 - No authentication required (public endpoint)
 - Functions for querying:
@@ -55,15 +62,29 @@ Node.js backend service with Discord.js integration. No frontend UI - all intera
   - Market statistics
 - Helper utilities for token conversion (wei to JEWEL/CRYSTAL) and hero ID normalization
 
+**Garden Analytics** (`garden-analytics.js`):
+- Direct smart contract integration via ethers.js
+- Connects to DFK Chain RPC (Crystalvale)
+- LP Staking contract: `0xB04e8D6aED037904B77A9F0b08002592925833b7`
+- Functions:
+  - `discoverPools()` - Auto-discovers pools via `getPoolLength()` / `getPoolInfo()`
+  - `getLPTokenDetails()` - Analyzes LP tokens (token0/token1/reserves/totalSupply)
+  - `buildPriceGraph()` - BFS price propagation from USDC anchor
+  - `calculate24hFeeAPR()` - Scans Swap events for volume/fees
+  - `calculateEmissionAPR()` - Scans RewardCollected events for CRYSTAL emissions
+  - `calculateTVL()` - Computes total value locked from reserves + prices
+  - `getPoolAnalytics()` - Full analytics for single pool
+  - `getAllPoolAnalytics()` - Batch analytics (optimized to avoid redundant RPC calls)
+
 **4. Command System** (`register-commands.js`)
-Seven slash commands registered to Discord API:
+Ten slash commands registered to Discord API:
 - `/help` - List all commands
 - `/npc` - Free-form chat with Hedge
 - `/hero` - Get live hero data from blockchain
 - `/market` - Browse marketplace listings
 - `/lookup` - Advanced hero search
 - `/wallet` - Analyze wallet portfolio
-- `/garden` - Yield calculations (legacy, knowledge-based)
+- `/garden` - **Comprehensive pool analytics for Crystalvale** (fee APR, emission APR, TVL, 24h volume)
 - `/quest` - Quest recommendations (knowledge-based)
 - `/stats` - Portfolio summary (legacy)
 - `/walkthrough` - Beginner tutorials (knowledge-based)
@@ -138,6 +159,13 @@ This is a stateless bot design - each interaction is independent. The Drizzle OR
    - Public access (no authentication)
    - Queried via graphql-request v7.3.3
    - Returns live blockchain data for heroes, marketplace, wallets
+
+4. **DFK Chain RPC (Crystalvale)**
+   - Endpoint: `https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc`
+   - Public access (no authentication)
+   - Direct smart contract interaction via ethers.js v6.x
+   - Used for garden pool analytics (APR, TVL, volume, fees, emissions)
+   - Scans event logs for 24h Swap and RewardCollected events
 
 ### Key NPM Packages
 - `discord.js` - Discord bot framework
