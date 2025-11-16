@@ -1,145 +1,247 @@
 # DeFi Kingdoms - Heroes Knowledge Base
+## Official Data from DFK Documentation
+
+## Hero Stats
+
+### 8 Primary Stats
+
+#### Strength (STR)
+- **Use**: Physical attacks, mining power
+- **Primary for**: Warrior, Knight, DarkKnight, Dragoon, Paladin
+- **Combat**: Multiplier for physical attacks and skills
+
+#### Dexterity (DEX)
+- **Use**: Attack damage with certain weapons, foraging, fishing
+- **Primary for**: Archer, Thief, Ninja
+- **Combat**: Lesser defense role, weapon damage modifier
+
+#### Agility (AGI)
+- **Use**: Combat speed, evasion, fishing
+- **Primary for**: Thief, Archer, Ninja, Monk
+- **Combat**: Determines time between actions, evasion
+
+#### Vitality (VIT)
+- **Use**: HP, survivability, gardening
+- **Primary for**: Knight, Paladin
+- **Combat**: Primary stat for HP growth, debuff recovery
+
+#### Endurance (END)
+- **Use**: Defense, stamina, mining
+- **Primary for**: Knight, DarkKnight
+- **Combat**: Defense, debuff resistance
+
+#### Intelligence (INT)
+- **Use**: Magic power, MP growth, foraging
+- **Primary for**: Wizard, Sage, DarkKnight, Ninja
+- **Combat**: Multiplier for skills/magic, magic evasion, MP on level-up
+
+#### Wisdom (WIS)
+- **Use**: Magic damage, MP growth, gardening
+- **Primary for**: Priest, Paladin, Sage, Summoner
+- **Combat**: Magic attacks/skills, magic defense, MP on level-up
+
+#### Luck (LCK)
+- **Use**: Critical hits, rare item drops, fishing
+- **Primary for**: Pirate, Summoner, Dreadknight
+- **Combat**: Critical strike chance, rare quest items, evasion
+
+### Other Key Stats
+
+#### Hit Points (HP)
+- Life total, reaches 0 = exhausted or worse
+- Recovers via rest or potions
+- Primary stat: VIT
+
+#### Mana Points (MP)
+- Used to cast spells and skills
+- Reaches 0 = no spells/skills until mana potion
+- Primary stats: INT, WIS
+
+#### Stamina
+- **Base**: 25 stamina per hero
+- **Regeneration**: 1 stamina every 20 minutes (natural)
+- **Full Recharge**: 500 minutes (~8.3 hours)
+- **Growth**: +1 stamina every even level (2, 4, 6, ...)
+- **Fast Recharge**: Inn (costs JEWEL/CRYSTAL) or stamina potions
+- **Use**: Required for all quests
 
 ## Hero Classes
 
-### Warrior
-- **Primary Stats**: STR, VIT
-- **Best Professions**: Mining, Foraging
-- **Quest Recommendations**: Mining quests for JEWEL extraction, combat-focused quests
-- **Typical Use**: Tank, high HP, good for dangerous quests
+### Class Structure
+DeFi Kingdoms has 15+ hero classes across tiers:
 
-### Knight
-- **Primary Stats**: VIT, END
-- **Best Professions**: Mining
-- **Quest Recommendations**: High-stamina quests, team support
-- **Typical Use**: Endurance specialist, tanking
+#### Basic Classes (8)
+- **Warrior**: STR/VIT - Physical tank, mining specialist
+- **Knight**: VIT/END - Endurance tank, mining
+- **Thief**: AGI/DEX - Speed, foraging/fishing
+- **Archer**: DEX/AGI - Precision, foraging/fishing
+- **Priest**: WIS/INT - Magic support, gardening
+- **Wizard**: INT/WIS - Best gardeners, magic damage
+- **Monk**: STR/AGI - Balanced, versatile
+- **Pirate**: LCK/AGI - Luck specialist, fishing
 
-### Thief
-- **Primary Stats**: AGI, DEX
-- **Best Professions**: Foraging, Fishing
-- **Quest Recommendations**: Speed-based quests, foraging
-- **Typical Use**: Fast quests, good foraging yield
+#### Advanced Classes (4)
+Higher base stat growth (450% vs 400% for basic)
+- **Paladin**: STR/WIS - Hybrid tank, mining + gardening
+- **DarkKnight**: INT/END - Magic tank
+- **Summoner**: WIS/LCK - Support, luck, gardening
+- **Ninja**: AGI/INT - Speed + intelligence
 
-### Archer
-- **Primary Stats**: DEX, AGI
-- **Best Professions**: Foraging, Fishing
-- **Quest Recommendations**: Foraging quests, fishing
-- **Typical Use**: Precision tasks, ranged combat
+#### Elite Classes (2+)
+Highest growth rates
+- **Dragoon**: STR/END - Elite combat, mining
+- **Sage**: INT/LCK - Advanced magic, gardening
+- **Dreadknight**: VIT/LCK - Lucky tank
 
-### Priest
-- **Primary Stats**: WIS, INT
-- **Best Professions**: Gardening, Fishing
-- **Quest Recommendations**: Support quests, low-risk gathering
-- **Typical Use**: Healing, support, gardening
-
-### Wizard
-- **Primary Stats**: INT, WIS
-- **Best Professions**: Gardening
-- **Quest Recommendations**: Magic-based quests, gardening
-- **Typical Use**: High intelligence tasks, best gardeners
-
-### Monk
-- **Primary Stats**: STR, AGI
-- **Best Professions**: Fishing, Foraging
-- **Quest Recommendations**: Balanced quests
-- **Typical Use**: Versatile, meditation bonuses
-
-### Pirate
-- **Primary Stats**: LCK, AGI
-- **Best Professions**: Fishing
-- **Quest Recommendations**: Luck-based quests, treasure hunting
-- **Typical Use**: RNG optimization, fishing specialist
-
-### Paladin
-- **Primary Stats**: STR, WIS
-- **Best Professions**: Mining, Gardening
-- **Quest Recommendations**: Hybrid combat/support
-- **Typical Use**: Balanced tank with utility
-
-### DarkKnight
-- **Primary Stats**: INT, END
-- **Best Professions**: Gardening, Mining
-- **Quest Recommendations**: Dark magic quests
-- **Typical Use**: Magic tank, endurance caster
-
-### Summoner
-- **Primary Stats**: WIS, LCK
-- **Best Professions**: Gardening, Fishing
-- **Quest Recommendations**: Summoning quests, support
-- **Typical Use**: Pet synergy, luck-based rewards
-
-### Ninja
-- **Primary Stats**: AGI, INT
-- **Best Professions**: Foraging, Fishing
-- **Quest Recommendations**: Stealth quests, speed runs
-- **Typical Use**: Fast, high-skill tasks
-
-### Dragoon
-- **Primary Stats**: STR, END
-- **Best Professions**: Mining
-- **Quest Recommendations**: High-difficulty combat
-- **Typical Use**: Elite combat, dragon-related content
-
-### Sage
-- **Primary Stats**: INT, LCK
-- **Best Professions**: Gardening
-- **Quest Recommendations**: Knowledge quests, research
-- **Typical Use**: Advanced gardening, wisdom tasks
-
-### Dreadknight
-- **Primary Stats**: VIT, LCK
-- **Best Professions**: Mining, Foraging
-- **Quest Recommendations**: High-risk, high-reward
-- **Typical Use**: Lucky tanks, rare drop farming
-
-## Hero Stats Explained
-
-- **STR (Strength)**: Mining power, physical damage
-- **AGI (Agility)**: Speed, evasion, foraging
-- **INT (Intelligence)**: Gardening efficiency, magic damage
-- **WIS (Wisdom)**: Gardening yield, mana, support
-- **LCK (Luck)**: Rare drops, critical hits, RNG
-- **VIT (Vitality)**: HP, survivability
-- **END (Endurance)**: Stamina, quest duration
-- **DEX (Dexterity)**: Fishing, precision, accuracy
+**Note**: Gen0 heroes are basic classes only. Advanced/Elite classes come from summoning with specific parent combinations.
 
 ## Professions
 
-### Mining
+Each hero has ONE profession (shown in green on card), but any hero can attempt any profession quest. Matching profession = less stamina used + better rewards.
+
+### 4 Professions
+
+#### Mining
+- **Stats Required**: STR + END
+- **Stamina**: 1 per 10 minutes
+- **Max Heroes**: 1 at a time
+- **Rewards**: Unlocks locked JEWEL/CRYSTAL, gold, rare items
 - **Best Classes**: Warrior, Knight, Paladin, Dragoon, DarkKnight
-- **Yields**: JEWEL, CRYSTAL (depending on realm), locked tokens
-- **Stamina Cost**: Medium-High
-- **Key Stats**: STR, VIT
+- **Key Use**: Early unlock of locked garden rewards
 
-### Gardening
-- **Best Classes**: Wizard, Priest, Sage, Summoner
-- **Yields**: LP token rewards, compounding
-- **Stamina Cost**: Low
-- **Key Stats**: INT, WIS
+#### Gardening
+- **Stats Required**: WIS + VIT
+- **Stamina**: 1 per 10 minutes (12 min total, 10 with profession gene)
+- **Max Heroes**: Up to 2 per garden
+- **Rewards**: Power tokens (JEWEL/CRYSTAL/JADE), plants, runes, green pet eggs
+- **Best Classes**: Wizard, Priest, Paladin, Sage, Summoner
+- **Key Use**: Boost LP staking yields in gardens
 
-### Fishing
-- **Best Classes**: Pirate, Thief, Archer, Monk
-- **Yields**: Fish (for pets), rare items
-- **Stamina Cost**: Low-Medium
-- **Key Stats**: AGI, DEX, LCK
+#### Foraging
+- **Stats Required**: DEX + INT
+- **Stamina**: 5 per attempt (7 if no profession gene)
+- **Duration**: ~20 seconds per attempt
+- **Max Heroes**: Up to 6
+- **Rewards**: Plants, Gaia's Tears, Shvās runes, grey pet eggs
+- **Best Classes**: Thief, Archer, Ninja, Pirate
+- **Key Use**: Gather crafting materials
 
-### Foraging
-- **Best Classes**: Thief, Archer, Ninja
-- **Yields**: Plants, crafting materials
-- **Stamina Cost**: Low-Medium
-- **Key Stats**: AGI, DEX
+#### Fishing
+- **Stats Required**: AGI + LCK
+- **Stamina**: 5 per attempt (7 if no profession gene)
+- **Duration**: ~20 seconds per attempt
+- **Max Heroes**: Up to 6
+- **Rewards**: Fish (for pets), Gaia's Tears, rare items, blue pet eggs (likely)
+- **Best Classes**: Pirate, Thief, Archer, Ninja, Monk
+- **Key Use**: Feed pets, collect rare items
 
-## Hero Rarity Impact
+### Profession Gene Bonus
+If hero's profession gene matches the quest:
+- **28-29% less stamina** used (5 instead of 7 for fishing/foraging)
+- **Better rewards** (higher chance for rare items)
+- **Faster progression** in that profession skill
 
-- **Common**: Base stats, cheapest to summon
-- **Uncommon**: +2-4 stat boost
-- **Rare**: +5-8 stat boost, better genetics
-- **Legendary**: +9-12 stat boost, premium genetics
-- **Mythic**: +13+ stat boost, extremely rare
+### Profession Skill
+- Heroes build skill (0-100+) in each profession over time
+- Higher skill = better rewards
+- Skill 10+ unlocks harder quest tiers with better loot
 
-## Leveling Tips
+## Hero Rarity
+
+5 rarity tiers affect stat growth:
+
+| Rarity | Stat Bonus | Impact |
+|--------|-----------|--------|
+| **Common** | Base | Cheapest, lowest growth |
+| **Uncommon** | +2-4 | Modest boost |
+| **Rare** | +5-8 | Solid mid-tier |
+| **Legendary** | +9-12 | High-end growth |
+| **Mythic** | +13+ | Maximum potential |
+
+**Every 5 levels** (5, 10, 15...), heroes get bonus stats based on rarity.
+
+## Leveling
 
 - Heroes gain XP from quests
-- Leveling improves profession efficiency
-- Max level: 100 (for most content, practical cap varies)
-- Higher level = better yields, lower stamina consumption per output
+- Each level: stats may increase based on growth %
+- Requires **Shvās runes + JEWEL/CRYSTAL** to level up
+- Max level: 100 (practical cap varies by content)
+- Higher level = better profession efficiency, lower stamina per output
+
+## Stat Growth
+
+Each hero has:
+- **Primary Stat Growth** (higher %)
+- **Secondary Stat Growth** (lower %)
+
+Growth % determines chance of stat increase on level-up. Example:
+- 17.25% STR growth = 17.25% chance to gain +1 STR per level
+- Growth values displayed as integers (1725 = 17.25%)
+
+Most heroes gain **7-9 stats per level** on average.
+
+## Summoning
+
+- **Gen0**: Infinite summons, basic classes only
+- **Higher Gen**: Limited summons (11 max typically), can be advanced/elite classes
+- **Costs**: JEWEL/CRYSTAL + tear fees + optional enhancement stones
+- **Genetics**: Child inherits stat/visual genes from parents
+- **Dark Summoning**: Available for some heroes, grants level boosts
+
+## Best Hero Recommendations by Goal
+
+### Best for Mining
+1. **Warrior** - High STR/VIT
+2. **Knight** - High VIT/END
+3. **Paladin** - Balanced STR/END + can garden too
+4. **Dragoon** - Elite STR/END
+
+### Best for Gardening
+1. **Wizard** - Highest INT, best gardener
+2. **Priest** - High WIS, excellent support
+3. **Sage** - Advanced INT + LCK
+4. **Paladin** - Can also mine
+
+### Best for Foraging
+1. **Thief** - High DEX/AGI
+2. **Ninja** - DEX/INT combo
+3. **Archer** - DEX specialist
+
+### Best for Fishing
+1. **Pirate** - Highest LCK/AGI
+2. **Thief** - Fast and lucky
+3. **Ninja** - AGI/INT balance
+
+## GraphQL API Access
+
+Real-time hero data available at: `https://api.defikingdoms.com/graphql`
+
+Query example:
+```graphql
+{
+  hero(id: 12345) {
+    id
+    mainClassStr
+    level
+    strength
+    intelligence
+    mining
+    gardening
+    owner {
+      name
+    }
+  }
+}
+```
+
+## Key Stats for Hero Selection
+
+When buying/evaluating a hero:
+1. **Class + Profession Match**: Paladin with gardening gene = ideal
+2. **Rarity**: Higher = better long-term growth
+3. **Stat Growth %**: Check primary stat growth rates
+4. **Generation**: Gen0 = infinite summons, Higher gen = limited but cheaper
+5. **Level**: Higher level = more expensive but immediately useful
+6. **Summons Remaining**: More summons = more breeding potential
+
+**Tip**: A common advanced class often outperforms a rare basic class long-term due to higher base growth rates.

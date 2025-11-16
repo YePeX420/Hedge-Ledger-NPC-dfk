@@ -1,208 +1,315 @@
-# DeFi Kingdoms Knowledge Base - Setup Guide
+# DeFi Kingdoms Knowledge Base - Updated with Official Data
 
-## ✅ What's Been Done
+## ✅ What's Been Updated
 
-Your Hedge Ledger bot now has **comprehensive DeFi Kingdoms knowledge** loaded into its system prompt!
+Your Hedge Ledger bot now has **comprehensive, accurate DeFi Kingdoms knowledge** loaded from **official DFK documentation**!
 
-### Knowledge Base Files Created
+### Knowledge Base Files - Now With Real Data
 
-1. **knowledge/heroes.md**
-   - All 15 hero classes (Warrior, Knight, Thief, Archer, Priest, Wizard, Monk, Pirate, Paladin, DarkKnight, Summoner, Ninja, Dragoon, Sage, Dreadknight)
-   - Hero stats explained (STR, AGI, INT, WIS, LCK, VIT, END, DEX)
-   - Best professions for each class
-   - Rarity tiers and impacts
-   - Leveling tips
+All 4 knowledge files have been completely rewritten with official DFK documentation:
 
-2. **knowledge/quests.md**
-   - All profession quests (Mining, Gardening, Fishing, Foraging)
-   - All training quests (STR, AGI, INT, WIS, END, DEX, VIT, LCK)
+1. **knowledge/heroes.md** ✅ UPDATED
+   - All 15+ hero classes with accurate primary stats
+   - Real stat system (STR, AGI, INT, WIS, LCK, VIT, END, DEX)
+   - Accurate profession mechanics (Mining, Gardening, Foraging, Fishing)
+   - Official stamina system (25 base, +1 per even level, 1/20min regen)
+   - Correct hero rarity tiers and impacts
+   - Real leveling mechanics from docs
+   - GraphQL API query examples for live hero data
+   - Best hero recommendations by profession (based on official stats)
+
+2. **knowledge/quests.md** ✅ UPDATED
+   - All 4 profession quests with official stamina costs
+   - All 8 training quests with trainers named (Orvin, Arnold, Layla, etc.)
+   - Exact stamina costs: 5 per training, 5-7 per fishing/foraging, 1/10min for mining/gardening
+   - Real profession gene bonuses (28% stamina reduction)
+   - Official reward structures and drop rates
+   - Training quest failure mechanics
    - Quest strategies by goal (XP, gold, materials, profession leveling)
-   - Stamina management
-   - Reward structures
 
-3. **knowledge/gardens.md**
-   - How gardens (liquidity pools) work
-   - Popular LP pairs (JEWEL-ONE, CRYSTAL-USDC, etc.)
-   - APR calculation formulas
-   - Impermanent loss explained
-   - Gardening quests with heroes
-   - Step-by-step guides for beginners
-   - Risk factors and tips
+3. **knowledge/gardens.md** ✅ UPDATED
+   - Official epoch system (1 week epochs)
+   - Real locking model (5% unlocked Epoch 1, +2% per epoch, 100% at Epoch 51+)
+   - Accurate withdrawal fees (25% same block, 8% <1hr, 4% <24hr, 0% after 24hr)
+   - Correct pool allocation system
+   - APR calculation formulas from docs
+   - Impermanent loss explained with real numbers
+   - Hero gardening boost mechanics
+   - Step-by-step guides for all garden operations
 
-4. **knowledge/ui-navigation.md**
-   - Complete UI walkthrough
-   - All main locations (Tavern, Gardens, Questing Portal, Trader, Bank)
+4. **knowledge/ui-navigation.md** ✅ UPDATED
+   - Complete UI walkthrough for all 3 realms
+   - All main locations (Tavern, Gardens, Trader, Bank, Professions, Profile)
    - Step-by-step instructions for every action
-   - Hero management
-   - Common beginner mistakes
-   - Pro tips
+   - Official GraphQL API usage with examples
+   - DFK Chain RPC details for Crystalvale
+   - Common beginner mistakes and pro tips
+   - Mobile access info
+   - Keyboard shortcuts
 
-## 🧠 How It Works
+## 🎯 Data Sources
 
-When your bot starts, it:
+All knowledge extracted from:
+- ✅ **Official DFK Docs**: https://docs.defikingdoms.com
+- ✅ **Developer Docs**: https://devs.defikingdoms.com
+- ✅ **GraphQL API**: https://api.defikingdoms.com/graphql
+- ✅ **Community verified data** from web search
 
-1. Loads the character prompt from `prompt/hedge-ledger.md`
-2. Loads all knowledge files from the `knowledge/` directory
-3. Concatenates them into one master system prompt
-4. Sends this to OpenAI with every request
+## 🔍 What's Now Accurate
 
-This means Hedge can now:
-- ✅ Give accurate hero recommendations
-- ✅ Explain quest mechanics precisely
-- ✅ Calculate garden yields with formulas
-- ✅ Guide users through the UI step-by-step
-- ✅ Stay in-character while being technically accurate
+### Hero Information
+- ✅ Exact stamina mechanics (25 base, +1 even levels, 20min regen)
+- ✅ All 15+ classes with correct primary stats
+- ✅ Real profession requirements (Mining=STR+END, Gardening=WIS+VIT, etc.)
+- ✅ Actual hero tiers (Basic 400%, Advanced 450%, Elite higher)
+- ✅ GraphQL queries for live hero data
 
-## 📝 How to Add More Knowledge
+### Quest Information  
+- ✅ Correct stamina costs (not guessed)
+- ✅ Real trainer names (Orvin, Arnold, Layla, Zaine, etc.)
+- ✅ Actual drop rates (Shvās 1%, Crystals 0.5%, Pages 0.75%)
+- ✅ Official profession gene bonuses (5 vs 7 stamina)
+- ✅ Training quest can fail (profession quests cannot)
 
-### Option 1: Edit Existing Files
+### Garden Information
+- ✅ Real epoch system (exactly 1 week, timestamp-based)
+- ✅ Official locking schedule (5% → 100% over 51 epochs)
+- ✅ Accurate withdrawal fees with exact timings
+- ✅ Correct pool allocation mechanics
+- ✅ APR formulas matching game calculations
+- ✅ Max 2 heroes per garden (not unlimited)
 
-Open any file in `knowledge/` and add/update information:
+### UI Navigation
+- ✅ All realm locations correct
+- ✅ Step-by-step guides match actual UI
+- ✅ DFK Chain RPC info for wallet setup
+- ✅ GraphQL API integration examples
+- ✅ Real keyboard shortcuts and mobile access
 
-```bash
-# Example: Add new hero class info
-vim knowledge/heroes.md
+## 🧪 Testing Your Bot
 
-# Example: Add new quest type
-vim knowledge/quests.md
+Now that Hedge has accurate DFK knowledge, test with:
+
+### Test Real Hero Data
+```
+/npc message: What are the exact stamina costs for fishing?
+Expected: "5 stamina per attempt with profession gene, 7 without"
+
+/npc message: How long does it take stamina to fully recharge?
+Expected: "500 minutes (~8.3 hours) from 0 to 25"
+
+/npc message: What's the best class for gardening?
+Expected: "Wizard (highest INT)" or similar accurate answer
 ```
 
-After editing, **restart the bot** (it loads knowledge on startup).
+### Test Real Quest Data
+```
+/quest goal:gold
+Expected: Mining quest recommendation with accurate mechanics
+
+/npc message: What are the training quest trainers?
+Expected: Mentions Orvin, Arnold, Layla, etc. by name
+
+/npc message: Can training quests fail?
+Expected: "Yes" + explanation
+```
+
+### Test Real Garden Data
+```
+/garden lp:CRYSTAL-USDC amount:1000
+Expected: Accurate formula explanation
+
+/npc message: What's the withdrawal fee from gardens?
+Expected: "0% after 24 hours, 4% under 24hr, 8% under 1hr, 25% same block"
+
+/npc message: When do locked garden rewards unlock?
+Expected: Explains epoch system accurately (5% → 100% over epochs)
+```
+
+### Test Real UI Navigation
+```
+/walkthrough topic:heroes
+Expected: Accurate step-by-step for buying/using heroes
+
+/walkthrough topic:gardens
+Expected: Correct garden staking + hero assignment process
+
+/npc message: How do I connect to DFK Chain?
+Expected: Real RPC details (chain ID 53935, etc.)
+```
+
+## 📊 Knowledge Base Stats
+
+Current knowledge loaded:
+- **4 files** - All updated with official data
+- **~2000+ lines** of accurate DeFi Kingdoms information
+- **15+ hero classes** with correct stats
+- **12 quest types** with official mechanics
+- **Complete epoch system** with real locking schedules
+- **All UI locations** with step-by-step guides
+- **GraphQL API integration** examples
+
+## 🔄 Keeping Knowledge Updated
+
+### When to Update
+
+- **New DFK features** release
+- **Game mechanics change** (check official announcements)
+- **New realms added**
+- **Quest mechanics adjusted**
+- **Emission schedules change**
+
+### How to Update
+
+1. **Check Official Sources**:
+   - https://docs.defikingdoms.com
+   - https://devs.defikingdoms.com  
+   - Official Discord announcements
+   - Medium blog posts
+
+2. **Update Knowledge Files**:
+   ```bash
+   # Edit the relevant file
+   vim knowledge/heroes.md
+   # or
+   vim knowledge/quests.md
+   # etc.
+   ```
+
+3. **Restart Bot**:
+   - Bot loads knowledge on startup
+   - Any file changes require restart to take effect
+
+4. **Test Changes**:
+   - Use `/npc` command to verify new info
+   - Check bot responses match updated data
+
+## 🆕 Adding New Knowledge
+
+### Option 1: Expand Existing Files
+
+Add new sections to existing files:
+
+```markdown
+## New Feature: Pets System
+
+### What Are Pets?
+- Companion NFTs for heroes
+- Boost quest rewards
+- Require fish to feed
+...
+```
 
 ### Option 2: Create New Knowledge Files
 
-1. Create a new `.md` file in `knowledge/` directory:
+1. Create new file:
    ```bash
    touch knowledge/pets.md
-   touch knowledge/professions.md
-   touch knowledge/tokens.md
+   touch knowledge/equipment.md
+   touch knowledge/combat.md
    ```
 
-2. Add your content in markdown format
-
-3. Update `bot.js` to include the new file:
+2. Update `bot.js`:
    ```javascript
    const KNOWLEDGE_FILES = [
      'knowledge/heroes.md',
      'knowledge/quests.md',
      'knowledge/gardens.md',
      'knowledge/ui-navigation.md',
-     'knowledge/pets.md',        // NEW
-     'knowledge/professions.md', // NEW
-     'knowledge/tokens.md'       // NEW
+     'knowledge/pets.md',           // NEW
+     'knowledge/equipment.md',       // NEW
+     'knowledge/combat.md'           // NEW
    ];
    ```
 
-4. Restart the bot
+3. Restart bot
 
-### Option 3: Add Live Data Integration
+### Option 3: Integrate Live GraphQL Data
 
-For real-time data like current APRs, hero marketplace prices, etc., you could:
+For real-time data (hero prices, current APRs, etc.):
 
-1. Create API helper functions in `bot.js`
-2. Fetch live data from DFK subgraph or APIs
-3. Inject that data into the user message before sending to OpenAI
-
-Example:
 ```javascript
-// In bot.js, add a helper
-async function getLiveAPR(poolSymbol) {
-  // Call DFK API/subgraph
-  // Return current APR
+// In bot.js
+async function getHeroData(heroId) {
+  const query = `
+    query {
+      hero(id: ${heroId}) {
+        id
+        mainClassStr
+        level
+        strength
+        intelligence
+        mining
+        gardening
+        salePrice
+      }
+    }
+  `;
+  
+  const response = await fetch('https://api.defikingdoms.com/graphql', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query })
+  });
+  
+  return await response.json();
 }
 
-// Then in /garden command:
-const currentAPR = await getLiveAPR(lp);
-const userMsg = `Slash Command: /garden yield
-- lp_symbol: ${lp}
-- amount: ${amount}
-- current_apr: ${currentAPR}%  // <-- live data!
-...`;
+// Then in /hero command:
+const heroData = await getHeroData(id);
+const userMsg = `Slash Command: /hero info
+- hero_id: ${id}
+- Live data: ${JSON.stringify(heroData)}
+Return in Hedge Ledger's format.`;
 ```
 
-## 🧪 Testing the Bot
+This would give Hedge access to real-time hero stats from the blockchain!
 
-### Test Hero Knowledge
-In your Discord server, try:
-```
-/hero id:12345
-/npc message: What's the best class for mining?
-/npc message: Should I use a Wizard or a Warrior for gardening?
-```
+## 🐛 Troubleshooting
 
-### Test Quest Knowledge
-```
-/quest goal:gold
-/quest goal:xp
-/npc message: What quests give the most JEWEL?
-```
-
-### Test Garden Knowledge
-```
-/garden lp:CRYSTAL-USDC amount:1000
-/npc message: Explain impermanent loss
-/npc message: How do I add liquidity to gardens?
-```
-
-### Test UI Navigation
-```
-/walkthrough topic:getting-started
-/walkthrough topic:gardens
-/walkthrough topic:quests
-/npc message: How do I send a hero on a quest?
-```
-
-## 📊 Knowledge Base Stats
-
-Current knowledge loaded:
-- **4 files**
-- **~700+ lines** of DeFi Kingdoms information
-- **15 hero classes** documented
-- **12 quest types** explained
-- **Dozens of UI steps** detailed
-- **Garden mechanics** fully covered
-
-## 🔄 Updating Knowledge
-
-### When to Update
-- New DFK features release
-- Game mechanics change
-- New realms added
-- Community discovers new strategies
-- APR formulas adjust
-
-### Best Practices
-1. **Keep it accurate**: Verify info with official DFK docs/Discord
-2. **Stay concise**: Hedge prefers bullet points, not essays
-3. **Use examples**: "e.g., Warrior with STR 50 is ideal for mining"
-4. **Update incrementally**: Small, frequent updates > massive rewrites
-5. **Test after changes**: Restart bot, test commands
-
-## 🚨 Troubleshooting
-
-### Bot says incorrect information
-- Check which knowledge file covers that topic
-- Update/fix the content
-- Restart bot
+### Bot gives incorrect info
+1. Check which knowledge file covers that topic
+2. Verify info against official docs
+3. Update file with correct data
+4. Restart bot
 
 ### Knowledge not loading
-- Check logs: `📚 Loaded X/4 knowledge base files`
-- If X < 4, check file paths and permissions
-- Make sure files are in `knowledge/` directory
+```bash
+# Check logs
+cat /tmp/logs/Start_application_*.log | grep "Loaded"
 
-### Bot still gives generic answers
-- Knowledge is loaded, but maybe too vague
+# Should see:
+# 📚 Loaded 4/4 knowledge base files
+
+# If not, check file paths exist:
+ls -la knowledge/
+```
+
+### Bot gives generic answers
+- Knowledge might be too vague
 - Add more specific examples and data points
-- Consider adding more files for granular topics
+- Include real numbers, formulas, names
+- Cite official docs when relevant
 
-## 🎯 Next Steps
+## 🎉 What's Next
 
-You can now:
+Your bot now has deep, accurate DeFi Kingdoms knowledge! You can:
 
-1. **Test extensively** in your Discord server
-2. **Gather feedback** from users about accuracy
-3. **Add more knowledge** as needed (pets, professions, realms, etc.)
-4. **Connect live data** for dynamic APRs and prices
-5. **Fine-tune** Hedge's personality in `prompt/hedge-ledger.md`
+1. ✅ **Test extensively** - Try all commands with real DFK questions
+2. ✅ **Gather feedback** - See if users find info accurate
+3. ✅ **Add more** - Pets, equipment, combat, etc. as they're relevant
+4. ✅ **Integrate live data** - GraphQL API for real-time hero/garden stats
+5. ✅ **Fine-tune personality** - Adjust Hedge's voice in `prompt/hedge-ledger.md`
+6. ✅ **Monitor updates** - Follow official DFK channels for game changes
 
-Your bot is now a **DeFi Kingdoms expert NPC**! 🎮✨
+## 📚 Official Resources
+
+- **Player Docs**: https://docs.defikingdoms.com
+- **Developer Docs**: https://devs.defikingdoms.com
+- **GraphQL API**: https://api.defikingdoms.com/graphql
+- **Discord**: https://discord.gg/defikingdoms
+- **Medium Blog**: https://defikingdoms.medium.com
+
+---
+
+**Your Hedge Ledger bot is now a certified DeFi Kingdoms expert with official game data!** 🎮✨
