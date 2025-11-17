@@ -534,6 +534,7 @@ export const depositRequests = pgTable("deposit_requests", {
   
   // Request details
   requestedAt: timestamp("requested_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  requestedAmountJewel: numeric("requested_amount_jewel", { precision: 30, scale: 18 }).notNull(), // Base amount user requested (e.g., 10)
   uniqueAmountJewel: numeric("unique_amount_jewel", { precision: 30, scale: 18 }).notNull().unique(), // e.g., 10.123456
   hedgeWallet: text("hedge_wallet").notNull(), // 0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1
   
