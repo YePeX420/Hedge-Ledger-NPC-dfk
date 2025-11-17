@@ -474,6 +474,99 @@ Keep it entertaining but helpful. This is free educational content, so be genero
         }
       }
       
+      // 🌿 Garden Optimization (PAID - 25 JEWEL)
+      if (intent.type === 'garden_optimization') {
+        try {
+          // Check if user has a linked wallet
+          if (!playerData || !playerData.wallets || playerData.wallets.length === 0) {
+            await message.reply("I'll need your wallet address to scan for LP positions. Send me your wallet address (starts with 0x) and I'll save it for you.");
+            return;
+          }
+          
+          const walletAddress = playerData.wallets[0];
+          console.log(`🌿 Garden optimization requested for wallet: ${walletAddress}`);
+          
+          // Scan for LP positions
+          await message.reply("*pulls out magnifying glass* Let me check your garden positions...");
+          const { detectWalletLPPositions, formatLPPositionsSummary, generatePoolOptimizations, formatOptimizationReport } = await import('./wallet-lp-detector.js');
+          const positions = await detectWalletLPPositions(walletAddress);
+          
+          if (!positions || positions.length === 0) {
+            await message.reply("No garden LP positions found in your wallet. Make sure you have LP tokens staked in Crystalvale pools, then try again.");
+            return;
+          }
+          
+          // Show summary (NO YIELDS YET - this is the teaser)
+          const summary = formatLPPositionsSummary(positions);
+          
+          // Check if user has 25 JEWEL balance
+          const balanceData = await db.select().from(jewelBalances).where(eq(jewelBalances.playerId, playerData.id)).limit(1);
+          
+          let userBalance = 0;
+          if (balanceData.length > 0) {
+            userBalance = parseFloat(balanceData[0].balanceJewel);
+          }
+          
+          const OPTIMIZATION_COST = 25;
+          
+          if (userBalance >= OPTIMIZATION_COST) {
+            // User has sufficient funds - deduct and run optimization
+            await message.reply(`${summary}\n\n*cracks knuckles* Alright, analyzing your heroes and crunching the numbers... This will take a moment.`);
+            
+            // Atomically deduct 25 JEWEL (prevents concurrent overdraw)
+            const updateResult = await db.update(jewelBalances)
+              .set({ 
+                balanceJewel: sql`${jewelBalances.balanceJewel} - ${OPTIMIZATION_COST}`
+              })
+              .where(and(
+                eq(jewelBalances.playerId, playerData.id),
+                sql`${jewelBalances.balanceJewel} >= ${OPTIMIZATION_COST}`
+              ))
+              .returning();
+            
+            // Verify deduction succeeded (guards against race conditions)
+            if (!updateResult || updateResult.length === 0) {
+              await message.reply("Hmm, looks like you don't have enough JEWEL anymore. Use `/deposit` to add more and try again.");
+              return;
+            }
+            
+            console.log(`💰 Deducted ${OPTIMIZATION_COST} JEWEL from player ${playerData.id} for garden optimization`);
+            
+            // Fetch user's heroes
+            const heroes = await onchain.getHeroesByOwner(walletAddress, 50);
+            console.log(`🦸 Fetched ${heroes.length} heroes for optimization`);
+            
+            // Generate optimization recommendations
+            const optimization = generatePoolOptimizations(positions, heroes);
+            const report = formatOptimizationReport(optimization);
+            
+            // Send optimization report
+            const finalMessage = `## 💎 Garden Optimization Report\n\n${report}\n\n---\n\n*That 25 JEWEL is staying in my ledger forever, by the way.* <:hedge_evil:1439395005499441236>`;
+            
+            await message.reply(finalMessage);
+            console.log(`✅ Delivered garden optimization to player ${playerData.id}`);
+            
+          } else {
+            // Insufficient funds - create deposit request
+            const needed = OPTIMIZATION_COST - userBalance;
+            await message.reply(
+              `${summary}\n\n` +
+              `Want me to analyze your heroes and pets to recommend optimal assignments for maximum yield? ` +
+              `This deep optimization costs **25 JEWEL**.\n\n` +
+              `You currently have ${userBalance.toFixed(2)} JEWEL. You need ${needed.toFixed(2)} more.\n\n` +
+              `Use \`/deposit\` in the server to add JEWEL, then come back and ask me again. ` +
+              `(Spoiler: I never sell JEWEL, so yours stays in my ledger forever <:hedge_evil:1439395005499441236>)`
+            );
+          }
+          
+          return;
+        } catch (err) {
+          console.error('Garden optimization error:', err);
+          await message.reply("*shuffles papers nervously* Something went wrong with the optimization. Try again later.");
+          return;
+        }
+      }
+      
       // 🌱 Auto-fetch garden/pool data (lightweight, fast)
       if (intent.type === 'garden') {
         try {

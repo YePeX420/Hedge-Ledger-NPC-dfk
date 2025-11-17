@@ -174,9 +174,11 @@ export function generatePoolOptimizations(positions, heroes = []) {
       heroRecommendation,
       petRecommendation,
       aprBreakdown: {
-        fee: fee24hAPR,
-        harvesting: harvesting24hAPR,
-        questBoost: `${gardeningQuestAPR.worst} - ${gardeningQuestAPR.best}`
+        fee: fee24hAPR || 'N/A',
+        harvesting: harvesting24hAPR || 'N/A',
+        questBoost: (gardeningQuestAPR?.worst && gardeningQuestAPR?.best) 
+          ? `${gardeningQuestAPR.worst} - ${gardeningQuestAPR.best}` 
+          : 'N/A'
       }
     });
   }

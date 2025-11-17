@@ -2,6 +2,34 @@
 // Intelligent question analysis to determine what data to auto-fetch
 
 /**
+ * Parse garden optimization requests
+ * Examples:
+ * - "Optimize my gardens" → { type: 'garden_optimization' }
+ * - "Analyze my LP positions" → { type: 'garden_optimization' }
+ * - "Garden recommendations" → { type: 'garden_optimization' }
+ */
+export function parseGardenOptimizationIntent(message) {
+  const lowerMsg = message.toLowerCase();
+  
+  // Keywords that indicate optimization requests
+  const optimizationKeywords = /\b(optimize|optimise|optimization|optimisation|analyze|analyse|analysis|recommend|recommendation|best|hero.*assign|pet.*assign|yield.*strateg)\b/i;
+  const gardenKeywords = /\b(garden|gardens|lp|pool|pools|position|positions)\b/i;
+  
+  // Must have both optimization keywords AND garden/LP keywords
+  if (optimizationKeywords.test(message) && gardenKeywords.test(message)) {
+    return { type: 'garden_optimization' };
+  }
+  
+  // Specific phrases
+  const specificPhrases = /\b(garden optimization|lp optimization|pool optimization|optimize.*garden|analyze.*lp|garden.*recommendation)\b/i;
+  if (specificPhrases.test(message)) {
+    return { type: 'garden_optimization' };
+  }
+  
+  return null;
+}
+
+/**
  * Parse garden/pool/APR questions
  * Examples:
  * - "What are current garden APRs?" → { type: 'garden', action: 'all' }
@@ -502,6 +530,10 @@ export function parseIntent(message) {
   // Try wallet first (most specific - requires address + non-garden keywords)
   const walletIntent = parseWalletIntent(message);
   if (walletIntent) return walletIntent;
+  
+  // Check for garden optimization before general garden queries (more specific)
+  const gardenOptIntent = parseGardenOptimizationIntent(message);
+  if (gardenOptIntent) return gardenOptIntent;
   
   // Then garden (includes garden-specific wallet queries like "harvest rewards 0x...")
   const gardenIntent = parseGardenIntent(message);
