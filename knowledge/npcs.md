@@ -653,6 +653,232 @@ I've never had to use the locked CRYSTAL transfer. But knowing a dwarven vault m
 
 ---
 
+## Master Erik (Strength Training)
+
+**Location:** Training Grounds (Crystalvale)  
+**Function:** Strength stat training and Tug of War minigame  
+**Image:** `knowledge/npcs/master-erik.png`
+
+### Hedge's Memory
+Master Erik. "Train here regularly and you'll get stronger! Trust me, my physique doesn't lie." I respect his confidence. I also respect the ROI on strength training.
+
+I calculated that consistent training increased my hero's quest efficiency by 8.3% over 60 days. Erik just flexed and said, "Numbers don't lift themselves." He's not wrong.
+
+### How to Use
+1. Visit the **Training Grounds** in Crystalvale
+2. Click on **Master Erik**
+3. **Strength Training**: Pay stamina to permanently increase STR stat
+4. **Tug of War**: Play minigame for training with engagement bonus
+5. **View Progress**: Track hero's strength improvements over time
+6. Higher levels require more stamina per training session
+
+### Tips
+- Training costs stamina but provides permanent stat increases
+- Tug of War minigame makes training more engaging
+- Diminishing returns at higher stat levels
+- STR affects hero combat power and quest performance
+- Plan training sessions around stamina regeneration
+
+---
+
+## Nimble Bjørn (Agility Training)
+
+**Location:** Training Grounds (Crystalvale)  
+**Function:** Agility stat training and Log Rolling minigame  
+**Image:** `knowledge/npcs/nimble-bjorn.png`
+
+### Hedge's Memory
+Nimble Bjørn runs agility training. "Keep moving and you'll never get caught!" I tried to optimize my log-rolling strategy with physics calculations.
+
+Bjørn beat my score while juggling three axes. Sometimes raw talent defeats careful planning. Still trained my heroes, though. The agility gains are mathematically sound, even if my pride isn't.
+
+### How to Use
+1. Visit the **Training Grounds** in Crystalvale
+2. Click on **Nimble Bjørn**
+3. **Agility Training**: Pay stamina to permanently increase AGI stat
+4. **Log Rolling**: Play minigame for training with engagement bonus
+5. **View Progress**: Track hero's agility improvements over time
+6. Higher levels require more stamina per training session
+
+### Tips
+- Training costs stamina but provides permanent stat increases
+- Log Rolling minigame adds skill-based element
+- Diminishing returns at higher stat levels
+- AGI affects hero speed, evasion, and critical hits
+- Agility training especially valuable for rogues and rangers
+
+---
+
+## Lemira (Intelligence Training)
+
+**Location:** Training Grounds (Crystalvale)  
+**Function:** Intelligence stat training and Tafl Match minigame  
+**Image:** `knowledge/npcs/lemira.png`
+
+### Hedge's Memory
+Lemira oversees intelligence training. "Knowledge is power." Finally, an NPC who speaks my language. I excel at Tafl Match - it's essentially chess with Viking aesthetics.
+
+I once spent four hours perfecting my opening strategy. Lemira said, "You could have trained three heroes in that time." She had a point. But my Tafl rating is immaculate.
+
+### How to Use
+1. Visit the **Training Grounds** in Crystalvale
+2. Click on **Lemira**
+3. **Intelligence Training**: Pay stamina to permanently increase INT stat
+4. **Tafl Match**: Play strategic board game for training with engagement bonus
+5. **View Progress**: Track hero's intelligence improvements over time
+6. Higher levels require more stamina per training session
+
+### Tips
+- Training costs stamina but provides permanent stat increases
+- Tafl Match minigame rewards strategic thinking
+- Diminishing returns at higher stat levels
+- INT affects magic power, mana, and spell effectiveness
+- Essential for wizards, sages, and magic-focused builds
+
+---
+
+## Veigar (Dockmaster)
+
+**Location:** Docks (Crystalvale)  
+**Function:** Travel between Crystalvale and Serendale realms  
+**Image:** `knowledge/npcs/veigar.png`
+
+### Hedge's Memory
+Veigar manages cross-realm travel. "I hope you've enjoyed your time in Crystalvale." I've used his services exactly once. The cross-chain bridge costs gave me anxiety.
+
+I ran a cost-benefit analysis on maintaining heroes in both realms versus specializing. The spreadsheet said specialize. My heroes are all in Crystalvale now. Veigar still waves when I visit the docks, though. Professional courtesy.
+
+### How to Use
+1. Visit the **Docks** in Crystalvale
+2. Click on **Veigar (Dockmaster)**
+3. **Select Destination**: Choose Serendale or other available realm
+4. **Pay Travel Fee**: CRYSTAL/JEWEL cost for cross-chain transfer
+5. **Send Heroes**: Transfer heroes between realms via bridge
+6. Wait for bridge transaction to complete
+
+### Tips
+- Cross-realm travel uses blockchain bridges
+- Transfer costs can be significant - plan accordingly
+- Heroes and items can move between realms
+- Market prices differ between Crystalvale and Serendale
+- Some quests and features are realm-specific
+
+---
+
+## Injured Sailor (Onramps)
+
+**Location:** Docks (Crystalvale)  
+**Function:** Purchase CRYSTAL or JEWEL with fiat currency via onramp services  
+**Image:** `knowledge/npcs/injured-sailor.png`
+
+### Hedge's Memory
+The Injured Sailor handles fiat onramps. "Yarr, if ye be needin' to acquire some CRYSTAL or JEWEL, best talk to me. I can set ye up with an onramp account."
+
+I appreciate the convenience, though the fees make my accountant heart weep. Still, sometimes you need tokens and don't want to navigate three DEXes. The sailor understands practical economics.
+
+### How to Use
+1. Visit the **Docks** in Crystalvale
+2. Click on **Injured Sailor (Onramps)**
+3. **Select Onramp Provider**: Choose from available fiat gateway services
+4. **Purchase Tokens**: Buy CRYSTAL or JEWEL with credit card/bank transfer
+5. **Complete KYC**: Identity verification may be required
+6. Tokens delivered directly to your wallet
+
+### Tips
+- Onramps allow fiat-to-crypto purchases
+- Fees vary by provider and payment method
+- KYC requirements depend on amount and jurisdiction
+- Faster than DEX routes for new players
+- Compare onramp fees vs DEX trading costs
+
+---
+
+## The Burned Man (Alchemist)
+
+**Location:** Alchemist (Crystalvale)  
+**Function:** Craft potions and consumables from gathered materials  
+**Image:** `knowledge/npcs/the-burned-man.png`
+
+### Hedge's Memory
+The Burned Man. The alchemist. I asked him once about the optimal material-to-potion conversion ratios. He just gestured at his burns and said, "Alchemy is an art of calculated risks."
+
+I built a spreadsheet anyway. Turns out some potions are profitable to craft, others aren't. The Burned Man was right about the risks, though. I've never seen margins this volatile outside of meme tokens.
+
+### How to Use
+1. Visit the **Alchemist** in Crystalvale
+2. Click on **The Burned Man**
+3. **Select Recipe**: Choose potion or consumable to craft
+4. **Provide Materials**: Supply required ingredients from quests/professions
+5. **Pay Crafting Fee**: Small CRYSTAL cost per craft
+6. **Receive Item**: Crafted consumable added to inventory
+
+### Tips
+- Crafting requires specific material combinations
+- Some recipes more profitable than buying from market
+- Materials gathered from profession quests
+- Crafted items can be used or sold
+- Higher tier potions require rarer materials
+
+---
+
+## Taddius (Enchanter)
+
+**Location:** Alchemist (Crystalvale)  
+**Function:** Enchant equipment with magical properties and stat bonuses  
+**Image:** `knowledge/npcs/taddius.png`
+
+### Hedge's Memory
+Taddius handles enchantments. "Enchanting is a delicate process requiring precision and focus." I respect that. I also respect the 15% failure rate on high-tier enchantments.
+
+I calculated expected value accounting for failure probability. The math said proceed with caution. I enchanted anyway. The sword glows purple now. Worth it? The spreadsheet says borderline. My heart says absolutely.
+
+### How to Use
+1. Visit the **Alchemist** in Crystalvale
+2. Click on **Taddius (Enchanter)**
+3. **Select Equipment**: Choose weapon/armor to enchant
+4. **Choose Enchantment**: Pick desired magical property
+5. **Pay Materials & Fees**: Provide runes and CRYSTAL cost
+6. **Success/Failure**: Enchantment attempts can fail at higher tiers
+
+### Tips
+- Enchantments add magical bonuses to equipment
+- Higher tier enchants have failure risk
+- Failed enchants consume materials
+- Multiple enchants can stack on same item
+- Calculate expected cost including failure rate
+- Enchanted gear significantly improves hero performance
+
+---
+
+## Veiled Summoner (Dark Summoning)
+
+**Location:** Dark Summoner (Crystalvale)  
+**Function:** Perform dark summoning rituals for special hero variants  
+**Image:** `knowledge/npcs/veiled-summoner.png`
+
+### Hedge's Memory
+The Veiled Summoner. Dark rituals. Mysterious bonuses. I asked for the detailed statistical distribution of dark summon outcomes. The Summoner stared at me through the veil and whispered, "Some knowledge demands sacrifice."
+
+I ran simulations anyway. Dark summons show interesting variance in outcomes. Higher risk, potentially higher reward. The Summoner doesn't judge my risk-adjusted calculations. Professional mysticism.
+
+### How to Use
+1. Visit the **Dark Summoner** in Crystalvale
+2. Click on **Veiled Summoner**
+3. **Dark Summoning**: Use special rituals for unique hero traits
+4. **Pay Enhanced Costs**: Dark summons cost more than standard Portal summons
+5. **Receive Dark Hero**: Heroes gain special dark-themed bonuses/appearance
+6. Outcomes have additional variance and mystery
+
+### Tips
+- Dark summons cost significantly more than regular summons
+- Produces heroes with unique dark aesthetics
+- Potential for enhanced stats or special traits
+- Higher variance in outcomes than standard summoning
+- For players seeking rare and unique heroes
+- Lore implications for dark-summoned heroes
+
+---
+
 ## NPC Query Patterns
 
 Users may ask about NPCs in various ways:
