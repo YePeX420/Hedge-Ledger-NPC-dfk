@@ -135,7 +135,7 @@ async function ensureUserRegistered(discordId, username) {
     console.log(`[ensureUserRegistered] Inserting into players table...`);
     const [newPlayer] = await db.insert(players).values({
       discordId,
-      username
+      discordUsername: username
     }).returning();
     console.log(`[ensureUserRegistered] Player created:`, newPlayer);
     
