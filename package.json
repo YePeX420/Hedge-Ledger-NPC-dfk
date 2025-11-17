@@ -5,8 +5,8 @@
   "main": "bot.js",
   "license": "MIT",
   "scripts": {
-    "dev": "node bot.js",
-    "register": "node register-commands.js"
+    "dev": "tsx bot.js",
+    "register": "tsx register-commands.js"
   },
   "dependencies": {
     "@types/pg": "^8.15.6",

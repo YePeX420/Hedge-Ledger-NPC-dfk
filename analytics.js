@@ -15,7 +15,7 @@
 
 import Decimal from 'decimal.js';
 import { db } from './server/db.js';
-import { queryCosts, players, jewelBalances } from './shared/schema.js';
+import { queryCosts, players, jewelBalances } from './shared/schema.ts';
 import { sql, desc, eq, gte, and } from 'drizzle-orm';
 
 /**

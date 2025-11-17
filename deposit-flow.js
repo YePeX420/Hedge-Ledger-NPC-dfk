@@ -27,7 +27,7 @@
 import { Decimal } from 'decimal.js';
 import crypto from 'crypto';
 import { db } from './server/db.js';
-import { depositRequests } from './shared/schema.js';
+import { depositRequests } from './shared/schema.ts';
 import { eq, and, lt } from 'drizzle-orm';
 
 // Hedge's receiving wallet
@@ -257,6 +257,34 @@ Once you've sent the JEWEL, I'll detect it and credit your account. You'll recei
  * 
  * @returns {object} - { count: number, cancelledIds: array } - Cancellation results
  */
+/**
+ * Request a deposit (wrapper for createDepositRequest with Discord context)
+ * 
+ * @param {string} discordId - Discord user ID
+ * @param {string} username - Discord username
+ * @param {string} baseAmountJewel - Base amount (optional, defaults to 10 JEWEL)
+ * @returns {object} - {discordId, amountJewel, depositAddress, expiresAt}
+ */
+export async function requestDeposit(discordId, username, baseAmountJewel = '10') {
+  // This is a simplified wrapper - in production, you'd look up/create player ID
+  // For now, we'll use a temporary approach that doesn't require player lookup
+  const { Decimal } = await import('decimal.js');
+  const base = new Decimal(baseAmountJewel);
+  
+  // Generate unique amount
+  const uniqueAmount = generateUniqueAmount(base);
+  
+  // Return deposit instructions without storing in DB (for MVP)
+  // TODO: Implement full player lookup + DB storage in next iteration
+  return {
+    discordId,
+    username,
+    amountJewel: uniqueAmount,
+    depositAddress: HEDGE_WALLET,
+    expiresAt: new Date(Date.now() + DEPOSIT_EXPIRY_HOURS * 60 * 60 * 1000)
+  };
+}
+
 export async function cancelExpiredRequests() {
   const now = new Date();
 

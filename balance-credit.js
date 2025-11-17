@@ -17,7 +17,7 @@
 
 import Decimal from 'decimal.js';
 import { db } from './server/db.js';
-import { jewelBalances, depositRequests } from './shared/schema.js';
+import { jewelBalances, depositRequests } from './shared/schema.ts';
 import { eq, and, sql } from 'drizzle-orm';
 
 // Tier thresholds (lifetime deposits)

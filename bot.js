@@ -10,7 +10,7 @@ import { startMonitoring, stopMonitoring } from './transaction-monitor.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { db } from './server/db.js';
-import { jewelBalances, players } from './shared/schema.js';
+import { jewelBalances, players } from './shared/schema.ts';
 import { eq } from 'drizzle-orm';
 
 const {

@@ -20,7 +20,7 @@
 
 import Decimal from 'decimal.js';
 import { db } from './server/db.js';
-import { jewelBalances, queryCosts, players } from './shared/schema.js';
+import { jewelBalances, queryCosts, players } from './shared/schema.ts';
 import { calculateCost, isFreeTierEligible } from './pricing-engine.js';
 import { eq, and, gte, sql } from 'drizzle-orm';
 

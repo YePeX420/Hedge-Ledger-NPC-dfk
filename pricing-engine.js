@@ -21,7 +21,7 @@
 
 import Decimal from 'decimal.js';
 import { db } from './server/db.js';
-import { pricingConfig } from './shared/schema.js';
+import { pricingConfig } from './shared/schema.ts';
 import { eq } from 'drizzle-orm';
 
 // Base rates (JEWEL) with 3x profitability margin
