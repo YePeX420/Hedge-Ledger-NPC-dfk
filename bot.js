@@ -311,6 +311,12 @@ Keep it entertaining but helpful. This is free educational content, so be genero
             }
             poolsSummary += '\n\n';
             
+            // Add best/worst summary (pre-calculated from full dataset in quick-data-fetcher)
+            if (result.bestPool && result.worstPool && result.bestPool !== result.worstPool) {
+              poolsSummary += `📈 **Best**: ${result.bestPool.pairName} (${result.bestPool.totalAPR})\n`;
+              poolsSummary += `📉 **Worst**: ${result.worstPool.pairName} (${result.worstPool.totalAPR})\n\n`;
+            }
+            
             poolsData.slice(0, 5).forEach((pool, i) => {
               poolsSummary += `${i+1}. **${pool.pairName}** - ${pool.fee24hAPR} Fee APR - ${pool.harvesting24hAPR} Distribution APR\n`;
               poolsSummary += `   • Total: ${pool.totalAPR} | TVL: $${pool.totalTVL}\n\n`;

@@ -6,6 +6,12 @@ Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi
 
 ## Recent Changes
 
+**November 17, 2025 - Garden Interaction Improvements**
+- **Deprecated Pool Filter**: Added comprehensive filtering to hide xJEWEL-WJEWEL pool (deprecated in game UI) from all query paths. Filter applied to cached data, live fallbacks, pool search, and individual lookups using pairName/lpTokenSymbol matching.
+- **Best/Worst APR Summary**: Added APR range display to garden overview showing highest and lowest APR pools. Calculated from full filtered dataset (currently 13 active pools) before any slicing to ensure accuracy. Includes edge-case handling for empty/single-pool scenarios.
+- **Performance**: Best/worst calculation adds minimal overhead (one extra sort on full dataset). Live fallback uses 100-pool limit (vs current 14 pools) for future-proofing while maintaining fast response times.
+- **Implementation Note**: Live fallback limit set to 100 pools (DFK Chain currently has 14 pools). If pool count exceeds this in future, update limit or modify getAllPoolAnalytics to accept null for unlimited fetch.
+
 **November 17, 2025 - NPC Navigation System (Beta)**
 - **Visual NPC Guide**: Added interactive NPC knowledge system allowing users to query game NPCs via DMs. System sends NPC images with Hedge's humorous anecdotes and clear usage instructions.
 - **Beta NPCs**: Druid (liquidity management), Seed Box (garden data viewing), Harvest (reward claiming). Each includes location, function, personal story from Hedge, and step-by-step instructions.

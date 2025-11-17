@@ -10,6 +10,19 @@ let cachedPoolList = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 300000; // 5 minutes
 
+// Deprecated pools to filter out from all displays
+const DEPRECATED_POOLS = ['xJEWEL-WJEWEL', 'XJEWEL-WJEWEL'];
+
+/**
+ * Check if pool should be filtered out (deprecated)
+ */
+function isDeprecatedPool(pool) {
+  const pairName = pool.pairName || pool.lpTokenSymbol || '';
+  return DEPRECATED_POOLS.some(deprecated => 
+    pairName.toUpperCase().includes(deprecated.toUpperCase())
+  );
+}
+
 /**
  * Get basic pool list (lightweight - no APR calculations)
  */
@@ -41,7 +54,9 @@ export async function findPoolByName(searchTerm) {
   const cachedResults = searchCachedPools(searchTerm);
   
   if (cachedResults && cachedResults.length > 0) {
-    return cachedResults[0]; // Return first match
+    // Filter out deprecated pools
+    const validResults = cachedResults.filter(pool => !isDeprecatedPool(pool));
+    return validResults[0] || null; // Return first valid match
   }
   
   // Fallback to basic pool list if cache not ready
@@ -49,6 +64,11 @@ export async function findPoolByName(searchTerm) {
   const lowerSearch = searchTerm.toLowerCase();
   
   return pools.find(pool => {
+    // Skip deprecated pools
+    if (isDeprecatedPool(pool)) {
+      return false;
+    }
+    
     // Handle both enriched and basic pool structures safely
     // Only match if the fields exist and are non-empty
     
@@ -130,44 +150,84 @@ export async function getPoolAnalyticsWithTimeout(pid, timeoutMs = 45000) {
 
 /**
  * Get all pools analytics from cache (instant response)
- * @param {number} limit - Max pools to return
- * @returns {Object} Pool analytics with cache metadata
+ * @param {number} limit - Max pools to return in main list
+ * @returns {Object} Pool analytics with cache metadata and best/worst from full dataset
  */
 export async function getAllPoolAnalyticsWithTimeout(limit = 10, timeoutMs = 60000) {
   const cached = getCachedPoolAnalytics();
   
   if (cached) {
-    const pools = cached.data.slice(0, limit);
+    // Filter out deprecated pools from full dataset
+    const filteredPools = cached.data.filter(pool => !isDeprecatedPool(pool));
+    
+    // Calculate best/worst from FULL filtered dataset before slicing
+    const sortedByAPR = [...filteredPools].sort((a, b) => {
+      const aprA = parseFloat(a.totalAPR?.replace('%', '') || '0');
+      const aprB = parseFloat(b.totalAPR?.replace('%', '') || '0');
+      return aprB - aprA; // Sort descending
+    });
+    
+    const bestPool = sortedByAPR[0] || null;
+    const worstPool = sortedByAPR[sortedByAPR.length - 1] || null;
+    
+    // Now slice for display
+    const pools = filteredPools.slice(0, limit);
+    
     return {
       pools,
+      bestPool,
+      worstPool,
       _cached: true,
       _cacheAge: cached.ageMinutes,
       _lastUpdated: cached.lastUpdated,
-      _totalPools: cached.data.length
+      _totalPools: filteredPools.length
     };
   }
   
   // If cache not initialized yet, fall back to live query
   console.log('[QuickData] Cache not initialized, fetching live data...');
   try {
+    // Fetch ALL pools to ensure best/worst calculations are accurate
+    // DFK Chain currently has 14 pools, using 100 as safe upper bound
+    // If pool count ever exceeds this, update or make getAllPoolAnalytics accept null for unlimited
     const liveData = await withTimeout(
-      analytics.getAllPoolAnalytics(limit),
+      analytics.getAllPoolAnalytics(100),
       timeoutMs,
       `All pools analytics timed out after ${timeoutMs}ms`
     );
     
+    // Filter out deprecated pools from full dataset
+    const filteredData = liveData.filter(pool => !isDeprecatedPool(pool));
+    
+    // Calculate best/worst from FULL filtered live dataset
+    const sortedByAPR = [...filteredData].sort((a, b) => {
+      const aprA = parseFloat(a.totalAPR?.replace('%', '') || '0');
+      const aprB = parseFloat(b.totalAPR?.replace('%', '') || '0');
+      return aprB - aprA;
+    });
+    
+    const bestPool = sortedByAPR[0] || null;
+    const worstPool = sortedByAPR[sortedByAPR.length - 1] || null;
+    
+    // Slice for display after calculating best/worst
+    const pools = filteredData.slice(0, limit);
+    
     // Wrap in same structure as cached response
     return {
-      pools: liveData,
+      pools,
+      bestPool,
+      worstPool,
       _cached: false,
       _cacheAge: null,
       _lastUpdated: null,
-      _totalPools: liveData.length
+      _totalPools: filteredData.length
     };
   } catch (error) {
     // Return empty structure on error
     return {
       pools: [],
+      bestPool: null,
+      worstPool: null,
       _cached: false,
       _cacheAge: null,
       _lastUpdated: null,
@@ -187,8 +247,10 @@ export async function searchPoolsQuick(query) {
   const cached = getCachedPoolAnalytics();
   
   if (results && cached) {
+    // Filter out deprecated pools from search results
+    const filteredResults = results.filter(pool => !isDeprecatedPool(pool));
     return {
-      pools: results,
+      pools: filteredResults,
       _cached: true,
       _cacheAge: cached.ageMinutes,
       _lastUpdated: cached.lastUpdated
