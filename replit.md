@@ -22,7 +22,7 @@ The project is a Node.js backend service leveraging Discord.js for bot functiona
     *   **Pool Analytics Cache**: A background system (`pool-cache.js`) refreshes DeFi Kingdoms pool analytics every 20 minutes, storing data in-memory and providing graceful fallbacks.
     *   **Quick Data Fetcher**: Provides an instant response layer for DM queries, leveraging cached data with automatic fallbacks and timeout wrappers.
     *   **Garden Analytics**: Directly interacts with the DFK Chain RPC via `ethers.js` for comprehensive Crystalvale garden pool analytics, including APR calculations, TVL breakdowns, and price graph construction from raw smart contract data, using chunked event log queries.
-    *   **LP Token Detection**: Scans user wallets for LP token holdings using `wallet-lp-detector.js`, matching LP addresses to cached pool data for garden optimization analysis.
+    *   **LP Token Detection**: Scans user wallets for **staked LP token holdings** using `wallet-lp-detector.js`. Queries the LP Staking contract (`0xB04e8D6aED037904B77A9F0b08002592925833b7`) via `userInfo(pid, wallet)` to detect LP tokens deposited in garden pools, matching them to cached pool data for yield optimization analysis.
 *   **Web Dashboard**: An Express server integrated into `bot.js` hosts a static HTML dashboard displaying real-time metrics and an admin user management system.
 *   **Command System**: Eleven slash commands are registered with Discord for core functionalities, including the new `/optimize-gardens` command.
 
