@@ -641,6 +641,18 @@ async function handleWalletCommand(interaction) {
   await interaction.editReply(reply);
 }
 
+// Simple HTTP server on port 5000 for workflow health check
+import http from 'http';
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'ok', service: 'Hedge Ledger Discord Bot' }));
+});
+
+server.listen(5000, '0.0.0.0', () => {
+  console.log('✅ Health check server listening on port 5000');
+});
+
 // Export handlers so they can be called from the main command switch
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { handleMarketCommand, handleLookupCommand, handleWalletCommand };
