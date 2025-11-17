@@ -6,7 +6,9 @@ Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi
 
 ## Recent Changes
 
-**November 17, 2025 - DM Response Bug Fixes**
+**November 17, 2025 - DM Response Formatting Improvements**
+- **Pool Display Format**: Removed PID numbers from all pool listings and details. Pool entries now show clean inline format: "CRYSTAL-WJEWEL - 2.50% Fee APR - 5.21% Distribution APR" for improved readability.
+- **AI Response Quality**: Updated all DM response prompts (garden summary, pool detail, wallet rewards, marketplace, wallet portfolio) to explicitly forbid "What to Consider" sections and slash command references, which don't work in DMs. This ensures concise, actionable responses without confusing suggestions.
 - **Intent Parser**: Fixed bug where "show me pool garden APRs" was incorrectly parsed as searching for a pool named "garden APRs". Added generic keyword filtering to prevent common words (garden, apr, yields, etc.) from being misidentified as pool names.
 - **Field Name Mismatches**: Fixed critical data structure mismatch where bot code was accessing wrong field names from cached pool analytics (lpTokenSymbol→pairName, feeAPR→fee24hAPR, emissionAPR→harvesting24hAPR, tvlUSD→totalTVL). This was causing "undefined" values in DM responses.
 - **Pool Name Search**: Enhanced pool search with fuzzy matching to handle token name variations. "Crystal-Jewel" now correctly finds "CRYSTAL-WJEWEL" pool by normalizing JEWEL/WJEWEL as equivalent.
