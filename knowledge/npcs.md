@@ -879,6 +879,184 @@ I ran simulations anyway. Dark summons show interesting variance in outcomes. Hi
 
 ---
 
+## High Valkyrie (Divine Altar)
+
+**Location:** Divine Altar (Crystalvale)  
+**Function:** Angel/Demon attunement for special hero transformations  
+**Image:** `knowledge/npcs/high-valkyrie.png`
+
+### Hedge's Memory
+The High Valkyrie oversees divine attunement. Angels or demons - a binary choice with permanent consequences. I tried to model the long-term value proposition of each path.
+
+The Valkyrie said, "Some decisions transcend calculation." I disagreed. Then I saw the transformation effects. She was right. Sometimes the aesthetic and lore value exceed the quantifiable benefits. Still documented both paths in my notes, though.
+
+### How to Use
+1. Visit the **Divine Altar** in Crystalvale
+2. Click on **High Valkyrie**
+3. **Choose Attunement**: Select Angel or Demon path for hero
+4. **Pay Costs**: CRYSTAL and material requirements
+5. **Transform Hero**: Permanent visual and stat modifications
+6. **Locked Choice**: Cannot change attunement once selected
+
+### Tips
+- Attunement is PERMANENT and cannot be reversed
+- Angel and Demon paths provide different bonuses
+- Visual transformation significant - choose based on preference
+- Stat bonuses differ between paths
+- Lore implications for hero alignment
+- Consider hero role before selecting attunement
+
+---
+
+## Forester Ivanna (Foraging)
+
+**Location:** Professions (Crystalvale)  
+**Function:** Foraging profession quests and skill training  
+**Image:** `knowledge/npcs/forester-ivanna.png`
+
+### Hedge's Memory
+Forester Ivanna manages foraging. "Nature rewards a patient soul. At every step, you might find life's riches..." I appreciate the philosophy. I also appreciate the material yields.
+
+I've tracked foraging output over 90 days. The variance is high, but average returns justify the stamina investment. Ivanna just smiles when I show her my charts. She knows the forest provides, spreadsheet or not.
+
+### How to Use
+1. Visit the **Professions** area in Crystalvale
+2. Click on **Forester Ivanna**
+3. **Start Foraging**: Begin profession quest (requires stamina)
+4. **Skill Level 0**: Available immediately for new heroes
+5. **Skill Level 10**: Unlock advanced foraging with better yields
+6. **Collect Materials**: Gather plants, herbs, and resources
+7. **Level Up**: Skill increases with successful quests
+
+### Tips
+- Foraging provides crafting materials for Alchemist
+- Skill level affects yield quality and quantity
+- Stamina cost increases with skill level
+- Materials can be sold or used for crafting
+- Patient gameplay rewards long-term players
+- Free to start, no upfront costs
+
+---
+
+## Pickman Khudmire (Mining)
+
+**Location:** Professions (Crystalvale)  
+**Function:** Mining profession quests for CRYSTAL and GOLD extraction  
+**Image:** `knowledge/npcs/pickman-khudmire.png`
+
+### Hedge's Memory
+Pickman Khudmire. "Strike hard and true with pick, and let the earth give way to fortune!" I respect the enthusiasm. I also respect the CRYSTAL-per-stamina ratios.
+
+Mining is remarkably consistent. Unlike foraging's variance, mining delivers predictable returns. I've built a retirement plan around mining yields. Khudmire thinks I'm joking. I'm not. The earth provides, and I've quantified exactly how much.
+
+### How to Use
+1. Visit the **Professions** area in Crystalvale
+2. Click on **Pickman Khudmire**
+3. **Start Mining**: Begin profession quest (requires stamina)
+4. **Skill Level 0**: Available immediately for new heroes
+5. **Skill Level 10**: Unlock advanced mining with enhanced rewards
+6. **Earn CRYSTAL/GOLD**: Direct token rewards plus materials
+7. **Level Up**: Skill increases with successful quests
+
+### Tips
+- Mining generates CRYSTAL and GOLD directly
+- Most consistent profession for token income
+- Skill level affects reward multipliers
+- Stamina cost increases with skill level
+- Excellent passive income source
+- Popular profession for economic optimization
+
+---
+
+## Fisher Mark (Fishing)
+
+**Location:** Professions (Crystalvale)  
+**Function:** Fishing profession quests and aquatic resource gathering  
+**Image:** `knowledge/npcs/fisher-mark.png`
+
+### Hedge's Memory
+Fisher Mark. "The bite is strong today. Can ye feel it?" I can't feel fish bites, but I can track catch rates. I've documented 127 fishing sessions with full statistical analysis.
+
+Mark says I'm overthinking it. He's probably right. But my data shows optimal fishing times, weather correlations, and expected value per stamina point. The fish don't care about my spreadsheet, but my wallet does.
+
+### How to Use
+1. Visit the **Professions** area in Crystalvale
+2. Click on **Fisher Mark**
+3. **Start Fishing**: Begin profession quest (requires stamina)
+4. **Skill Level 0**: Available immediately for new heroes
+5. **Skill Level 10**: Unlock advanced fishing with rare catches
+6. **Catch Fish**: Gather fish and aquatic materials
+7. **Level Up**: Skill increases with successful quests
+
+### Tips
+- Fishing provides food and crafting materials
+- Rare catches possible at higher skill levels
+- Variance higher than mining, lower than foraging
+- Materials used for cooking and alchemy
+- Relaxing profession for casual gameplay
+- Good balance of materials and token rewards
+
+---
+
+## Greenskeeper Sivia (Gardening)
+
+**Location:** Professions (Crystalvale)  
+**Function:** Gardening profession quests and plant cultivation  
+**Image:** `knowledge/npcs/greenskeeper-sivia.png`
+
+### Hedge's Memory
+Greenskeeper Sivia. "A friend of the gardens is a friend of mine. Please, let me show you our ways. Together, we can grow a beautiful field." Her enthusiasm is genuine. Her yields are excellent.
+
+I've compared gardening returns to other professions. Gardening sits in an interesting middle ground - moderate variance, moderate returns, high material diversity. Sivia just wants to grow things. I respect that. The math respects it too.
+
+### How to Use
+1. Visit the **Professions** area in Crystalvale
+2. Click on **Greenskeeper Sivia**
+3. **Start Gardening**: Begin profession quest (requires stamina)
+4. **Skill Level 0**: Available immediately for new heroes
+5. **Skill Level 10**: Unlock advanced gardening with premium yields
+6. **Grow Plants**: Cultivate herbs, vegetables, and materials
+7. **Level Up**: Skill increases with successful quests
+
+### Tips
+- Gardening provides diverse crafting materials
+- Plant varieties used for multiple recipes
+- Skill level affects crop quality
+- Stamina cost increases with skill level
+- Good synergy with Alchemist recipes
+- Balance of economic and crafting value
+
+---
+
+## Caravan Leader (Expeditions)
+
+**Location:** Expeditions (Crystalvale)  
+**Function:** Manage expedition quests and claim rewards  
+**Image:** `knowledge/npcs/caravan-leader.png`
+
+### Hedge's Memory
+The Caravan Leader. "Greetingsssss... human... arrrre you... herrrre... to join... the Ex...pedition...?" The hissing takes getting used to. The expedition rewards don't.
+
+I've calculated expedition ROI factoring in hero costs, time commitment, and reward distributions. Expeditions are high-variance, high-reward ventures. The Caravan Leader doesn't share my risk assessment concerns. Just hisses and points at the reward chest.
+
+### How to Use
+1. Visit the **Expeditions** area in Crystalvale
+2. Click on **Caravan Leader**
+3. **Start Expeditions**: Send heroes on long-duration quests
+4. **Active Expeditions**: View ongoing expedition progress
+5. **Expedition Rewards**: Claim completed expedition loot
+6. Expeditions require hero commitment for extended periods
+
+### Tips
+- Expeditions lock heroes for days or weeks
+- Rewards scale with expedition difficulty and duration
+- Multiple expedition types with different requirements
+- Plan hero availability before committing to expeditions
+- High-reward potential for patient players
+- Check expedition completion times regularly
+
+---
+
 ## NPC Query Patterns
 
 Users may ask about NPCs in various ways:
@@ -889,9 +1067,73 @@ Users may ask about NPCs in various ways:
 - "How do I [action]?" → Map to relevant NPC (e.g., "harvest rewards" → Harvest)
 
 ## Related Actions
+
+### Gardens
 - **Add liquidity** → Druid
 - **Remove liquidity** → Druid  
 - **Check pool APR** → Druid or Seed Box
 - **Harvest rewards** → Harvest
 - **Claim distribution** → Harvest
 - **View gardens** → Seed Box
+
+### Marketplace
+- **Buy/sell heroes** → Ragna (Trader)
+- **Cosmetics/appearance** → Brina (Stylist)
+- **Buy/sell pets** → Hatcher Cliff
+- **Pet treats** → Sheldon
+- **Endurance vials** → Hunter Fior
+- **General items/materials** → Rahim Hassan (Bazaar)
+- **Dexterity vials** → Aoisla
+- **GOLD to CRYSTAL exchange** → Vendor
+- **Game news/announcements** → Crier
+- **Weapons** → Arden
+- **Armor** → Regina
+- **Wisdom vials** → Olga
+
+### Portal & Meditation
+- **Summon heroes** → Zagreb (Portal Master)
+- **Crystal infusion** → Amba
+- **Meditation/gene reroll** → Esoteric Wanderer
+- **Level reset** → Esoteric Wanderer
+
+### Tavern
+- **Hero rental** → Treathor Leafblade (NFT Agent)
+- **Hero catalog/transfer** → Enderdain Barleychaff (Barkeep)
+- **Visages** → Mr. B
+- **Void Hunts/raffles** → Elmer Longbranch
+
+### Jeweler
+- **Stake JEWEL** → Jeweler
+- **cJEWEL rewards** → Jeweler
+- **Governance voting** → Jeweler
+- **Transfer locked CRYSTAL** → Manager Dorarulir Gemmaster
+
+### Training
+- **Strength training** → Master Erik
+- **Tug of War** → Master Erik
+- **Agility training** → Nimble Bjørn
+- **Log Rolling** → Nimble Bjørn
+- **Intelligence training** → Lemira
+- **Tafl Match** → Lemira
+
+### Travel & Onramps
+- **Cross-realm travel** → Veigar (Dockmaster)
+- **Buy crypto with fiat** → Injured Sailor (Onramps)
+
+### Crafting
+- **Craft potions** → The Burned Man (Alchemist)
+- **Enchant equipment** → Taddius (Enchanter)
+
+### Special Services
+- **Dark summoning** → Veiled Summoner
+- **Angel/Demon attunement** → High Valkyrie (Divine Altar)
+
+### Professions
+- **Foraging** → Forester Ivanna
+- **Mining** → Pickman Khudmire
+- **Fishing** → Fisher Mark
+- **Gardening** → Greenskeeper Sivia
+
+### Expeditions
+- **Start expeditions** → Caravan Leader
+- **Expedition rewards** → Caravan Leader
