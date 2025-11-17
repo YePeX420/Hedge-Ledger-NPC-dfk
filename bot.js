@@ -301,7 +301,15 @@ client.on('messageCreate', async (message) => {
     const discordId = message.author.id;
     const username = message.author.username;
     
-    await ensureUserRegistered(discordId, username);
+    console.log(`[messageCreate] Attempting to register user: ${username} (${discordId})`);
+    try {
+      await ensureUserRegistered(discordId, username);
+      console.log(`[messageCreate] Registration completed successfully`);
+    } catch (regError) {
+      // Log registration error but don't block bot response
+      console.error(`[messageCreate] ⚠️  Registration failed but continuing with response:`, regError);
+      console.error(`[messageCreate] Registration error stack:`, regError.stack);
+    }
     
     let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
 
