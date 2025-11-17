@@ -118,6 +118,34 @@ export function getCachedPool(pid) {
 }
 
 /**
+ * Normalize token names for fuzzy matching
+ * @param {string} text - Token name or search query
+ * @returns {string} Normalized text
+ */
+function normalizeTokenName(text) {
+  if (!text) return '';
+  
+  // Convert to lowercase and remove common separators
+  let normalized = text.toLowerCase().replace(/[-\s]/g, '');
+  
+  // Map common variations (e.g., JEWEL and WJEWEL are treated as equivalent)
+  const tokenAliases = {
+    'jewel': 'wjewel',
+    'wjewel': 'wjewel',
+    'xjewel': 'xjewel'  // xJEWEL is different (staked JEWEL)
+  };
+  
+  // Replace known aliases
+  for (const [alias, canonical] of Object.entries(tokenAliases)) {
+    if (normalized.includes(alias)) {
+      normalized = normalized.replace(new RegExp(alias, 'g'), canonical);
+    }
+  }
+  
+  return normalized;
+}
+
+/**
  * Search for pools by name or token symbols (case-insensitive partial match)
  * @param {string} query - Pool name or token symbol query
  * @returns {Array} Matching pools
@@ -127,18 +155,26 @@ export function searchCachedPools(query) {
   if (!cached) return [];
   
   const lowerQuery = query.toLowerCase();
+  const normalizedQuery = normalizeTokenName(query);
+  
   return cached.data.filter(pool => {
-    // Search by pair name (e.g., "CRYSTAL-AVAX")
+    // Exact/substring match on pair name (e.g., "CRYSTAL-AVAX")
     if (pool.pairName && pool.pairName.toLowerCase().includes(lowerQuery)) {
       return true;
     }
     
-    // Search by individual token symbols
+    // Exact/substring match on individual token symbols
     if (pool.token0?.symbol && pool.token0.symbol.toLowerCase().includes(lowerQuery)) {
       return true;
     }
     
     if (pool.token1?.symbol && pool.token1.symbol.toLowerCase().includes(lowerQuery)) {
+      return true;
+    }
+    
+    // Fuzzy match: normalize both query and pool name to handle JEWEL/WJEWEL variations
+    const normalizedPairName = normalizeTokenName(pool.pairName);
+    if (normalizedPairName.includes(normalizedQuery)) {
       return true;
     }
     

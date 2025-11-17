@@ -239,10 +239,10 @@ client.on('messageCreate', async (message) => {
             poolsSummary += '\n\n';
             
             poolsData.slice(0, 5).forEach((pool, i) => {
-              poolsSummary += `${i+1}. **${pool.lpTokenSymbol}** (PID ${pool.pid})\n`;
+              poolsSummary += `${i+1}. **${pool.pairName}** (PID ${pool.pid})\n`;
               poolsSummary += `   • Total APR: ${pool.totalAPR}\n`;
-              poolsSummary += `   • Fee APR: ${pool.feeAPR} | Emission: ${pool.emissionAPR}\n`;
-              poolsSummary += `   • TVL: $${pool.tvlUSD}\n\n`;
+              poolsSummary += `   • Fee APR: ${pool.fee24hAPR} | Emission: ${pool.harvesting24hAPR}\n`;
+              poolsSummary += `   • TVL: $${pool.totalTVL}\n\n`;
             });
             
             if (poolsData.length > 5) {
@@ -271,18 +271,20 @@ client.on('messageCreate', async (message) => {
             
             const cacheAge = poolData._cacheAge || 0;
             
-            let poolDetails = `📊 **${poolData.lpTokenSymbol}** (PID ${poolData.pid})`;
+            let poolDetails = `📊 **${poolData.pairName}** (PID ${poolData.pid})`;
             if (poolData._cached) {
               poolDetails += ` (cached ${cacheAge}m ago)`;
             }
             poolDetails += `\n\n`;
             poolDetails += `**APR Breakdown:**\n`;
             poolDetails += `• Total: ${poolData.totalAPR}\n`;
-            poolDetails += `• Fee APR: ${poolData.feeAPR}\n`;
-            poolDetails += `• Emission APR: ${poolData.emissionAPR}\n`;
-            poolDetails += `• Quest APR: ${poolData.questAPRRange}\n\n`;
-            poolDetails += `**Economics:**\n`;
-            poolDetails += `• TVL: $${poolData.tvlUSD} (V2: $${poolData.v2TvlUSD})\n`;
+            poolDetails += `• Fee APR: ${poolData.fee24hAPR}\n`;
+            poolDetails += `• Emission APR: ${poolData.harvesting24hAPR}\n`;
+            if (poolData.gardeningQuestAPR?.worst && poolData.gardeningQuestAPR?.best) {
+              poolDetails += `• Quest APR: ${poolData.gardeningQuestAPR.worst} - ${poolData.gardeningQuestAPR.best}\n`;
+            }
+            poolDetails += `\n**Economics:**\n`;
+            poolDetails += `• TVL: $${poolData.totalTVL} (V2: $${poolData.v2TVL})\n`;
             poolDetails += `• 24h Volume: $${poolData.volume24hUSD}\n`;
             poolDetails += `• 24h Fees: $${poolData.fees24hUSD}\n`;
             
@@ -299,7 +301,7 @@ client.on('messageCreate', async (message) => {
             for (const poolReward of rewardsData) {
               if (parseFloat(poolReward.rewards) > 0.001) {
                 hasRewards = true;
-                walletSummary += `• **${poolReward.lpTokenSymbol}**: ${parseFloat(poolReward.rewards).toFixed(4)} CRYSTAL\n`;
+                walletSummary += `• **${poolReward.pairName}**: ${parseFloat(poolReward.rewards).toFixed(4)} CRYSTAL\n`;
               }
             }
             

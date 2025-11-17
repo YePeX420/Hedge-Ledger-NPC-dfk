@@ -205,24 +205,57 @@ export async function getWalletRewardsQuick(walletAddress, specificPid = null) {
   if (specificPid !== null) {
     // Just check one pool
     const rewards = await analytics.getUserPendingRewards(walletAddress, specificPid);
-    return [{ pid: specificPid, rewards }];
+    const cachedPool = getCachedPool(specificPid);
+    return [{ 
+      pid: specificPid, 
+      pairName: cachedPool?.pairName || `Pool ${specificPid}`,
+      rewards 
+    }];
   }
   
-  // Check top 5 pools only to avoid long delays
+  // Use cached analytics data which has pool names
+  const cached = getCachedPoolAnalytics();
+  if (cached) {
+    const topPools = cached.data.slice(0, 5);
+    
+    const rewardsPromises = topPools.map(async (pool) => {
+      try {
+        const rewards = await analytics.getUserPendingRewards(walletAddress, pool.pid);
+        return { 
+          pid: pool.pid, 
+          pairName: pool.pairName,
+          rewards 
+        };
+      } catch (err) {
+        console.error(`Error getting rewards for pool ${pool.pid}:`, err.message);
+        return { pid: pool.pid, pairName: pool.pairName, rewards: '0' };
+      }
+    });
+    
+    return Promise.all(rewardsPromises);
+  }
+  
+  // Fallback if cache not ready - check basic pool list and fetch LP details
   const pools = await getPoolList();
   const topPools = pools.slice(0, 5);
   
   const rewardsPromises = topPools.map(async (pool) => {
     try {
-      const rewards = await analytics.getUserPendingRewards(walletAddress, pool.pid);
+      const [rewards, lpDetails] = await Promise.all([
+        analytics.getUserPendingRewards(walletAddress, pool.pid),
+        analytics.getLPTokenDetails(pool.lpToken).catch(() => null)
+      ]);
+      
+      const pairName = lpDetails?.pairName || `Pool ${pool.pid}`;
+      
       return { 
         pid: pool.pid, 
-        lpTokenSymbol: pool.lpTokenSymbol,
+        pairName,
         rewards 
       };
     } catch (err) {
       console.error(`Error getting rewards for pool ${pool.pid}:`, err.message);
-      return { pid: pool.pid, lpTokenSymbol: pool.lpTokenSymbol, rewards: '0' };
+      return { pid: pool.pid, pairName: `Pool ${pool.pid}`, rewards: '0' };
     }
   });
   
