@@ -659,18 +659,92 @@ async function handleWalletCommand(interaction) {
   await interaction.editReply(reply);
 }
 
-// Start the web server for admin dashboard
-import('./server/index.js').then((module) => {
-  console.log('✅ Web dashboard server started on port 5000');
-}).catch((err) => {
-  console.error('❌ Failed to start web server:', err.message);
+// Simple HTTP server on port 5000 for workflow health check + API
+import http from 'http';
+import express from 'express';
+
+// db, players, jewelBalances, depositRequests, queryCosts, desc, sql, eq are already imported at the top
+
+const app = express();
+app.use(express.json());
+app.use(express.static('public'));
+
+// Root route serves the dashboard
+app.get('/', (req, res) => {
+  res.sendFile('index.html', { root: 'public' });
+});
+
+// API Routes for dashboard
+app.get('/api/analytics/overview', async (req, res) => {
+  try {
+    const [playerStats, depositStats, balanceStats, revenueStats] = await Promise.all([
+      db.select({ total: sql`COUNT(*)`, withBalance: sql`COUNT(CASE WHEN EXISTS(SELECT 1 FROM ${jewelBalances} WHERE ${jewelBalances.playerId} = ${players.id}) THEN 1 END)` }).from(players),
+      db.select({ total: sql`COUNT(*)`, completed: sql`SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END)`, totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)` }).from(depositRequests),
+      db.select({ totalBalance: sql`COALESCE(SUM(CAST(${jewelBalances.balanceJewel} AS DECIMAL)), 0)`, activeBalances: sql`COUNT(CASE WHEN CAST(${jewelBalances.balanceJewel} AS DECIMAL) > 0 THEN 1 END)` }).from(jewelBalances),
+      db.select({ totalRevenue: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`, totalProfit: sql`COALESCE(SUM(${queryCosts.profitUsd}), 0)`, totalQueries: sql`COUNT(*)`, paidQueries: sql`SUM(CASE WHEN NOT ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)` }).from(queryCosts)
+    ]);
+    res.json({
+      players: { total: playerStats[0].total, withBalance: playerStats[0].withBalance },
+      deposits: { total: depositStats[0].total, completed: depositStats[0].completed || 0, totalJewel: depositStats[0].totalJewel },
+      balances: { totalBalance: balanceStats[0].totalBalance, activeBalances: balanceStats[0].activeBalances || 0 },
+      revenue: { totalRevenue: revenueStats[0].totalRevenue, totalProfit: revenueStats[0].totalProfit, totalQueries: revenueStats[0].totalQueries, paidQueries: revenueStats[0].paidQueries || 0 }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch overview data' });
+  }
+});
+
+app.get('/api/analytics/players', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+    const playerList = await db.select({ id: players.id, discordId: players.discordId, discordUsername: players.discordUsername, tier: jewelBalances.tier, balance: jewelBalances.balanceJewel, firstSeenAt: players.firstSeenAt }).from(players).leftJoin(jewelBalances, eq(players.id, jewelBalances.playerId)).orderBy(desc(players.firstSeenAt)).limit(limit).offset(offset);
+    res.json(playerList);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch players' });
+  }
+});
+
+app.get('/api/analytics/deposits', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const deposits = await db.select({ id: depositRequests.id, playerId: depositRequests.playerId, discordUsername: players.discordUsername, requestedAmount: depositRequests.requestedAmountJewel, uniqueAmount: depositRequests.uniqueAmountJewel, status: depositRequests.status, transactionHash: depositRequests.transactionHash, requestedAt: depositRequests.requestedAt, completedAt: depositRequests.completedAt }).from(depositRequests).leftJoin(players, eq(depositRequests.playerId, players.id)).orderBy(desc(depositRequests.requestedAt)).limit(limit);
+    res.json(deposits);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch deposits' });
+  }
+});
+
+app.get('/api/analytics/query-breakdown', async (req, res) => {
+  try {
+    const breakdown = await db.select({ queryType: queryCosts.queryType, count: sql`COUNT(*)`, totalRevenue: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`, freeTier: sql`SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)` }).from(queryCosts).groupBy(queryCosts.queryType).orderBy(desc(sql`COUNT(*)`));
+    res.json(breakdown);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch query breakdown' });
+  }
+});
+
+const server = http.createServer(app);
+
+server.on('error', (err) => {
+  console.error('❌ Web server error:', err.message);
+  if (err.code === 'EADDRINUSE') {
+    console.log('Port 5000 already in use - web server disabled');
+  }
+});
+
+server.listen(5000, '0.0.0.0', () => {
+  console.log('✅ Web server listening on port 5000');
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down gracefully...');
   stopMonitoring();
-  process.exit(0);
+  server.close(() => {
+    console.log('✅ Web server closed');
+    process.exit(0);
+  });
 });
 
 // Export handlers so they can be called from the main command switch
