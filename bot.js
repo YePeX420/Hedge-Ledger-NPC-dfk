@@ -339,6 +339,16 @@ client.once(Events.ClientReady, async (c) => {
   } catch (err) {
     console.error('❌ Failed to initialize pool cache:', err);
   }
+  
+  // Initialize cache-ready queue monitor
+  try {
+    console.log('⏳ Initializing cache-ready queue monitor...');
+    const { initializeCacheQueue } = await import('./cache-ready-queue.js');
+    initializeCacheQueue(c);
+    console.log('✅ Cache queue monitor started');
+  } catch (err) {
+    console.error('❌ Failed to initialize cache queue:', err);
+  }
 });
 
 // Generic helper to talk to Hedge
@@ -542,6 +552,23 @@ Keep it entertaining but helpful. This is free educational content, so be genero
           
           const walletAddress = playerData.wallets[0];
           console.log(`🌿 Garden optimization requested for wallet: ${walletAddress}`);
+          
+          // Check if pool cache is ready
+          const { isCacheReady } = await import('./pool-cache.js');
+          if (!isCacheReady()) {
+            console.log(`[CacheQueue] Cache not ready, adding ${message.author.username} to queue`);
+            
+            // Add to waiting queue
+            const { addToWaitingQueue } = await import('./cache-ready-queue.js');
+            addToWaitingQueue(message.author.id, message.author.username, walletAddress);
+            
+            await message.reply(
+              "🌿 *pulls out dusty ledger and blows off cobwebs*\n\n" +
+              "Give me a moment... I'm still warming up the garden analytics system (takes about 2-3 minutes after I wake up).\n\n" +
+              "I'll automatically send you a message once the data is ready and then scan your LP positions. No need to ask again - just wait for my notification!"
+            );
+            return;
+          }
           
           // Scan for LP positions
           await message.reply("*pulls out magnifying glass* Let me check your garden positions...");

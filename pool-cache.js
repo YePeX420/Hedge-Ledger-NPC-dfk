@@ -87,6 +87,14 @@ export async function initializePoolCache() {
 }
 
 /**
+ * Check if cache is ready for queries
+ * @returns {boolean} True if cache has been populated
+ */
+export function isCacheReady() {
+  return cache.data !== null && cache.data.length > 0;
+}
+
+/**
  * Get cached pool analytics data
  * @returns {Object} { data: Array, lastUpdated: Date, ageMinutes: number } or null if not initialized
  */
