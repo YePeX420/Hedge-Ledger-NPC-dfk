@@ -6,10 +6,12 @@ Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi
 
 ## Recent Changes
 
-**November 17, 2025**
-- Fixed intent parser bug where "show me pool garden APRs" was incorrectly parsed as searching for a pool named "garden APRs"
-- Added generic keyword filtering to prevent common words (garden, apr, yields, etc.) from being misidentified as pool names
-- Queries like "pool garden APRs", "show me all pool yields" now correctly trigger the "all pools" intent
+**November 17, 2025 - DM Response Bug Fixes**
+- **Intent Parser**: Fixed bug where "show me pool garden APRs" was incorrectly parsed as searching for a pool named "garden APRs". Added generic keyword filtering to prevent common words (garden, apr, yields, etc.) from being misidentified as pool names.
+- **Field Name Mismatches**: Fixed critical data structure mismatch where bot code was accessing wrong field names from cached pool analytics (lpTokenSymbol→pairName, feeAPR→fee24hAPR, emissionAPR→harvesting24hAPR, tvlUSD→totalTVL). This was causing "undefined" values in DM responses.
+- **Pool Name Search**: Enhanced pool search with fuzzy matching to handle token name variations. "Crystal-Jewel" now correctly finds "CRYSTAL-WJEWEL" pool by normalizing JEWEL/WJEWEL as equivalent.
+- **Wallet Rewards**: Fixed fallback path to fetch real LP token names via getLPTokenDetails instead of showing "Pool <pid>" when cache unavailable.
+- **Quest APR Rendering**: Fixed potential "undefined - undefined" display by checking for valid worst/best values before rendering quest APR line.
 
 ## User Preferences
 
