@@ -34,22 +34,57 @@ export async function getPoolList() {
 }
 
 /**
- * Find pool by name/symbol (fast lookup, no analytics)
+ * Find pool by name/symbol (fast lookup from cache)
  */
 export async function findPoolByName(searchTerm) {
+  // Use cached pool search which has enriched data with symbols
+  const cachedResults = searchCachedPools(searchTerm);
+  
+  if (cachedResults && cachedResults.length > 0) {
+    return cachedResults[0]; // Return first match
+  }
+  
+  // Fallback to basic pool list if cache not ready
   const pools = await getPoolList();
   const lowerSearch = searchTerm.toLowerCase();
   
   return pools.find(pool => {
-    const symbolLower = pool.lpTokenSymbol.toLowerCase();
-    const token0Lower = pool.token0Symbol.toLowerCase();
-    const token1Lower = pool.token1Symbol.toLowerCase();
+    // Handle both enriched and basic pool structures safely
+    // Only match if the fields exist and are non-empty
     
-    return symbolLower.includes(lowerSearch) ||
-           token0Lower.includes(lowerSearch) ||
-           token1Lower.includes(lowerSearch) ||
-           lowerSearch.includes(token0Lower) ||
-           lowerSearch.includes(token1Lower);
+    // Enriched structure fields (from analytics cache)
+    const pairName = pool.pairName?.toLowerCase();
+    const token0SymbolNested = pool.token0?.symbol?.toLowerCase();
+    const token1SymbolNested = pool.token1?.symbol?.toLowerCase();
+    
+    // Basic structure fields (from discoverPools)
+    const lpTokenSymbol = pool.lpTokenSymbol?.toLowerCase();
+    const token0SymbolFlat = pool.token0Symbol?.toLowerCase();
+    const token1SymbolFlat = pool.token1Symbol?.toLowerCase();
+    
+    // Check pair name first (enriched data)
+    if (pairName && pairName.includes(lowerSearch)) {
+      return true;
+    }
+    
+    // Check LP token symbol (basic data)
+    if (lpTokenSymbol && lpTokenSymbol.includes(lowerSearch)) {
+      return true;
+    }
+    
+    // Check token0 symbol (both structures)
+    const token0 = token0SymbolNested || token0SymbolFlat;
+    if (token0 && (token0.includes(lowerSearch) || lowerSearch.includes(token0))) {
+      return true;
+    }
+    
+    // Check token1 symbol (both structures)
+    const token1 = token1SymbolNested || token1SymbolFlat;
+    if (token1 && (token1.includes(lowerSearch) || lowerSearch.includes(token1))) {
+      return true;
+    }
+    
+    return false;
   });
 }
 
