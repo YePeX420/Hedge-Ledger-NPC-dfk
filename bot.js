@@ -115,11 +115,16 @@ function getNPCData(npcKey) {
  * @param {string} username - Discord username
  */
 async function ensureUserRegistered(discordId, username) {
+  console.log(`[ensureUserRegistered] START - User: ${username}, ID: ${discordId}`);
+  
   try {
+    console.log(`[ensureUserRegistered] Checking if user exists...`);
     // Check if player exists
     const existingPlayer = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+    console.log(`[ensureUserRegistered] Query result:`, existingPlayer);
     
     if (existingPlayer.length > 0) {
+      console.log(`[ensureUserRegistered] User already exists, skipping registration`);
       // User already registered
       return existingPlayer[0];
     }
@@ -127,12 +132,15 @@ async function ensureUserRegistered(discordId, username) {
     // Create new player
     console.log(`📝 Registering new user: ${username} (${discordId})`);
     
+    console.log(`[ensureUserRegistered] Inserting into players table...`);
     const [newPlayer] = await db.insert(players).values({
       discordId,
       username
     }).returning();
+    console.log(`[ensureUserRegistered] Player created:`, newPlayer);
     
     // Create initial balance record with 'free' tier
+    console.log(`[ensureUserRegistered] Creating balance record for player ID: ${newPlayer.id}`);
     await db.insert(jewelBalances).values({
       playerId: newPlayer.id,
       balanceJewel: '0',
@@ -142,11 +150,13 @@ async function ensureUserRegistered(discordId, username) {
       freeSummonUsedToday: 0,
       lastFreeResetDate: new Date().toISOString().split('T')[0]
     });
+    console.log(`[ensureUserRegistered] Balance record created`);
     
     console.log(`✅ User registered: ${username} with free tier`);
     return newPlayer;
   } catch (err) {
-    console.error(`❌ Failed to register user ${username}:`, err);
+    console.error(`❌ [ensureUserRegistered] FAILED for ${username}:`, err);
+    console.error(`❌ [ensureUserRegistered] Error stack:`, err.stack);
     throw err;
   }
 }
