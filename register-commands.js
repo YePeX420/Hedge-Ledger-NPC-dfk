@@ -122,6 +122,25 @@ const commands = [
     options: [
       { name: 'hero_id', description: 'Hero ID to analyze', type: 4, required: true }
     ]
+  },
+  {
+    name: 'deposit',
+    description: 'Deposit JEWEL to fund premium queries',
+    options: []
+  },
+  {
+    name: 'balance',
+    description: 'Check your JEWEL balance and spending stats',
+    options: []
+  },
+  {
+    name: 'analytics',
+    description: '[ADMIN] View bot economic analytics',
+    options: [
+      { name: 'type', description: 'summary, breakdown, topspenders, freetier, trend', type: 3, required: true },
+      { name: 'days', description: 'Last N days (for trend)', type: 4, required: false },
+      { name: 'limit', description: 'Top N (for topspenders)', type: 4, required: false }
+    ]
   }
 ];
 

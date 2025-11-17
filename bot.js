@@ -5,6 +5,13 @@ import { Client, GatewayIntentBits, Partials, Events } from 'discord.js';
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
 import * as analytics from './garden-analytics.js';
+import { requestDeposit } from './deposit-flow.js';
+import { startMonitoring, stopMonitoring } from './transaction-monitor.js';
+import { initializePricingConfig } from './pricing-engine.js';
+import { getAnalyticsForDiscord } from './analytics.js';
+import { db } from './server/db.js';
+import { jewelBalances, players } from './shared/schema.js';
+import { eq } from 'drizzle-orm';
 
 const {
   DISCORD_TOKEN,
@@ -70,9 +77,22 @@ const client = new Client({
   partials: [Partials.Channel] // needed for DMs
 });
 
-client.once(Events.ClientReady, (c) => {
+client.once(Events.ClientReady, async (c) => {
   console.log(`🤖 Logged in as ${c.user.tag}`);
   console.log(`🧠 Model: ${OPENAI_MODEL}`);
+  
+  // Initialize economic system
+  try {
+    console.log('💰 Initializing pricing config...');
+    await initializePricingConfig();
+    
+    console.log('📡 Starting transaction monitor...');
+    await startMonitoring();
+    
+    console.log('✅ Economic system initialized');
+  } catch (err) {
+    console.error('❌ Failed to initialize economic system:', err);
+  }
 });
 
 // Generic helper to talk to Hedge
@@ -464,6 +484,77 @@ Give a short, step-by-step guide that a complete beginner can follow.`;
         { mode: 'walkthrough' }
       );
       await interaction.editReply(reply);
+      return;
+    }
+
+    // Economic system commands
+    if (name === 'deposit') {
+      const discordId = interaction.user.id;
+      const username = interaction.user.username;
+      const depositData = await requestDeposit(discordId, username);
+      
+      let response = `💰 **JEWEL Deposit Instructions**\n\n`;
+      response += `Send **EXACTLY** \`${depositData.amountJewel}\` JEWEL to:\n\n`;
+      response += `\`\`\`\n${depositData.depositAddress}\`\`\`\n\n`;
+      response += `⏱️ You have 24 hours to complete this deposit.\n`;
+      response += `📍 Network: DFK Chain (Crystalvale)\n\n`;
+      response += `Once your transaction confirms, your balance will be credited automatically.\n`;
+      response += `Use \`/balance\` to check your balance.`;
+      
+      await interaction.editReply(response);
+      return;
+    }
+    
+    if (name === 'balance') {
+      const discordId = interaction.user.id;
+      
+      // Get player data
+      const player = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+      if (player.length === 0) {
+        await interaction.editReply('No balance found. Use `/deposit` to add JEWEL to your account.');
+        return;
+      }
+      
+      // Get balance data
+      const balance = await db.select().from(jewelBalances).where(eq(jewelBalances.playerId, player[0].id)).limit(1);
+      if (balance.length === 0) {
+        await interaction.editReply('No balance found. Use `/deposit` to add JEWEL to your account.');
+        return;
+      }
+      
+      const b = balance[0];
+      let response = `💎 **Your JEWEL Balance**\n\n`;
+      response += `**Available:** ${parseFloat(b.balanceJewel).toFixed(4)} JEWEL\n`;
+      response += `**Lifetime Deposits:** ${parseFloat(b.lifetimeDepositsJewel).toFixed(4)} JEWEL\n`;
+      response += `**Tier:** ${b.tier}\n\n`;
+      response += `**Free Tier Usage Today:**\n`;
+      response += `• Garden APRs: ${b.freeGardenAprsUsedToday}/1\n`;
+      response += `• Summon Calcs: ${b.freeSummonUsedToday}/1\n\n`;
+      response += `Use \`/deposit\` to add more JEWEL.`;
+      
+      await interaction.editReply(response);
+      return;
+    }
+    
+    if (name === 'analytics') {
+      // Admin only - check if user is bot owner
+      const ADMIN_IDS = (process.env.ADMIN_DISCORD_IDS || '').split(',');
+      if (!ADMIN_IDS.includes(interaction.user.id)) {
+        await interaction.editReply('This command is restricted to admins only.');
+        return;
+      }
+      
+      const type = interaction.options.getString('type', true);
+      const days = interaction.options.getInteger('days') || 7;
+      const limit = interaction.options.getInteger('limit') || 10;
+      
+      try {
+        const embedData = await getAnalyticsForDiscord(type, { days, limit });
+        await interaction.editReply({ embeds: [embedData] });
+      } catch (err) {
+        console.error('Analytics error:', err);
+        await interaction.editReply(`Error generating ${type} analytics: ${err.message}`);
+      }
       return;
     }
 
