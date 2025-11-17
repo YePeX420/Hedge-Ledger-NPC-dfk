@@ -140,9 +140,65 @@ export function parseNPCIntent(message) {
   
   // Direct NPC name mentions
   const npcNames = {
+    // Gardens
     'druid': ['druid'],
     'seed box': ['seed box', 'seedbox', 'seed-box'],
-    'harvest': ['harvest station', 'harvest']
+    'harvest': ['harvest station', 'harvest'],
+    
+    // Marketplace
+    'ragna': ['ragna', 'trader'],
+    'brina': ['brina', 'stylist'],
+    'hatcher cliff': ['hatcher cliff', 'hatcher', 'cliff'],
+    'sheldon': ['sheldon'],
+    'hunter fior': ['hunter fior', 'hunter', 'fior'],
+    'rahim hassan': ['rahim hassan', 'rahim', 'hassan', 'bazaar'],
+    'aoisla': ['aoisla'],
+    'vendor': ['vendor', 'gold arbitrage'],
+    'crier': ['crier', 'news'],
+    'arden': ['arden'],
+    'regina': ['regina'],
+    'olga': ['olga'],
+    
+    // Portal & Meditation
+    'zagreb': ['zagreb', 'portal master'],
+    'amba': ['amba', 'crystal infusion'],
+    'esoteric wanderer': ['esoteric wanderer', 'wanderer'],
+    
+    // Tavern
+    'treathor': ['treathor leafblade', 'treathor', 'nft agent'],
+    'enderdain': ['enderdain barleychaff', 'enderdain', 'barkeep'],
+    'mr. b': ['mr. b', 'mr b', 'mister b', 'visage shop'],
+    'elmer': ['elmer longbranch', 'elmer'],
+    
+    // Jeweler
+    'jeweler': ['jeweler'],
+    'manager dorarulir': ['manager dorarulir', 'dorarulir', 'gemmaster'],
+    
+    // Training
+    'master erik': ['master erik', 'erik'],
+    'nimble bjørn': ['nimble bjørn', 'nimble bjorn', 'bjørn', 'bjorn'],
+    'lemira': ['lemira'],
+    
+    // Docks & Onramps
+    'veigar': ['veigar', 'dockmaster'],
+    'injured sailor': ['injured sailor', 'sailor', 'onramps'],
+    
+    // Alchemy
+    'the burned man': ['the burned man', 'burned man', 'alchemist'],
+    'taddius': ['taddius', 'enchanter'],
+    
+    // Special
+    'veiled summoner': ['veiled summoner', 'dark summoner'],
+    'high valkyrie': ['high valkyrie', 'valkyrie', 'divine altar'],
+    
+    // Professions
+    'forester ivanna': ['forester ivanna', 'forester', 'ivanna'],
+    'pickman khudmire': ['pickman khudmire', 'pickman', 'khudmire'],
+    'fisher mark': ['fisher mark', 'fisher', 'mark'],
+    'greenskeeper sivia': ['greenskeeper sivia', 'greenskeeper', 'sivia'],
+    
+    // Expeditions
+    'caravan leader': ['caravan leader', 'caravan']
   };
   
   // Check for direct NPC questions
@@ -172,6 +228,7 @@ export function parseNPCIntent(message) {
   
   // Action-based mapping (user asking how to do something)
   const actionMappings = {
+    // Gardens
     'druid': [
       /\b(?:add|deposit|provide|give)\s+(?:liquidity|lp|tokens?)\b/i,
       /\b(?:remove|withdraw|take out)\s+(?:liquidity|lp|tokens?)\b/i,
@@ -186,6 +243,172 @@ export function parseNPCIntent(message) {
     'harvest': [
       /\b(?:harvest|claim|collect)\s+(?:rewards?|distribution|emissions?)\b/i,
       /\bget\s+(?:my\s+)?(?:rewards?|jewel|crystal)\b/i
+    ],
+    
+    // Marketplace
+    'ragna': [
+      /\b(?:buy|sell|trade|purchase)\s+(?:hero|heroes)\b/i,
+      /\bhero\s+(?:market|trading|sales?)\b/i
+    ],
+    'brina': [
+      /\b(?:buy|sell)\s+(?:cosmetic|appearance|style|fashion)\b/i,
+      /\bcosmetic\s+items?\b/i
+    ],
+    'hatcher cliff': [
+      /\b(?:buy|sell|hatch|get)\s+(?:pet|pets)\b/i,
+      /\bpet\s+market\b/i
+    ],
+    'sheldon': [
+      /\b(?:buy|get)\s+(?:pet\s+)?treats?\b/i,
+      /\bpet\s+consumables?\b/i
+    ],
+    'hunter fior': [
+      /\b(?:buy|get)\s+(?:endurance|stamina)\s+(?:vial|potion)s?\b/i,
+      /\bendurance\s+(?:boost|vial)s?\b/i
+    ],
+    'rahim hassan': [
+      /\bbazaar\b/i,
+      /\b(?:buy|sell)\s+(?:material|materials|items?|goods)\b/i
+    ],
+    'aoisla': [
+      /\b(?:buy|get)\s+(?:dexterity|dex)\s+(?:vial|potion)s?\b/i,
+      /\bdexterity\s+(?:boost|vial)s?\b/i
+    ],
+    'vendor': [
+      /\b(?:convert|exchange|swap|trade)\s+(?:gold|GOLD)\b/i,
+      /\bgold\s+(?:to|for)\s+crystal\b/i
+    ],
+    'crier': [
+      /\b(?:game|marketplace)\s+(?:news|announcement|update)s?\b/i,
+      /\bwhat'?s\s+new\b/i
+    ],
+    'arden': [
+      /\b(?:buy|sell)\s+(?:weapon|weapons|sword|bow|staff)\b/i,
+      /\bweapon\s+market\b/i
+    ],
+    'regina': [
+      /\b(?:buy|sell)\s+(?:armor|armour|shield|helmet)\b/i,
+      /\barmor\s+market\b/i
+    ],
+    'olga': [
+      /\b(?:buy|get)\s+(?:wisdom|intelligence|int)\s+(?:vial|potion)s?\b/i,
+      /\bwisdom\s+(?:boost|vial)s?\b/i
+    ],
+    
+    // Portal & Meditation
+    'zagreb': [
+      /\b(?:summon|breed|create)\s+(?:hero|heroes)\b/i,
+      /\bhero\s+summon(?:ing)?\b/i
+    ],
+    'amba': [
+      /\b(?:infuse|infusion|enhance|boost)\s+(?:hero|crystal)\b/i,
+      /\bcrystal\s+infusion\b/i
+    ],
+    'esoteric wanderer': [
+      /\b(?:meditate|meditation|reroll|gene)\b/i,
+      /\blevel\s+(?:reset|reroll)\b/i,
+      /\bgene\s+reroll(?:ing)?\b/i
+    ],
+    
+    // Tavern
+    'treathor': [
+      /\b(?:rent|hire|rental)\s+(?:hero|heroes)\b/i,
+      /\bhero\s+(?:for\s+hire|rental)\b/i
+    ],
+    'enderdain': [
+      /\b(?:hero\s+)?catalog\b/i,
+      /\b(?:view|see|check)\s+(?:my\s+)?heroes\b/i,
+      /\btransfer\s+hero(?:es)?\b/i
+    ],
+    'mr. b': [
+      /\b(?:buy|equip)\s+visages?\b/i,
+      /\bvisage\s+shop\b/i
+    ],
+    'elmer': [
+      /\bvoid\s+hunts?\b/i,
+      /\b(?:daily\s+)?raffle\b/i
+    ],
+    
+    // Jeweler
+    'jeweler': [
+      /\b(?:stake|staking)\s+jewel\b/i,
+      /\bcjewel\b/i,
+      /\bgovernance\s+(?:voting|vote)\b/i
+    ],
+    'manager dorarulir': [
+      /\btransfer\s+locked\s+crystal\b/i,
+      /\blocked\s+(?:crystal|token)s?\b/i
+    ],
+    
+    // Training
+    'master erik': [
+      /\b(?:strength|str)\s+training\b/i,
+      /\btug\s+of\s+war\b/i,
+      /\btrain\s+strength\b/i
+    ],
+    'nimble bjørn': [
+      /\b(?:agility|agi)\s+training\b/i,
+      /\blog\s+rolling\b/i,
+      /\btrain\s+agility\b/i
+    ],
+    'lemira': [
+      /\b(?:intelligence|int)\s+training\b/i,
+      /\btafl\s+match\b/i,
+      /\btrain\s+intelligence\b/i
+    ],
+    
+    // Docks & Onramps
+    'veigar': [
+      /\b(?:travel|go|move)\s+(?:to\s+)?(?:serendale|realm|chain)\b/i,
+      /\bcross[- ]?realm\s+travel\b/i
+    ],
+    'injured sailor': [
+      /\b(?:buy|purchase)\s+(?:crypto|crystal|jewel)\s+(?:with\s+)?(?:fiat|cash|card|money)\b/i,
+      /\bonramp\b/i
+    ],
+    
+    // Alchemy
+    'the burned man': [
+      /\b(?:craft|brew|make)\s+(?:potion|elixir|consumable)s?\b/i,
+      /\balchemy\b/i
+    ],
+    'taddius': [
+      /\b(?:enchant|enchanting|enchantment)\b/i,
+      /\benchant\s+(?:weapon|armor|equipment|gear)\b/i
+    ],
+    
+    // Special
+    'veiled summoner': [
+      /\bdark\s+summon(?:ing)?\b/i,
+      /\bdark\s+hero(?:es)?\b/i
+    ],
+    'high valkyrie': [
+      /\b(?:angel|demon)\s+(?:attunement|transformation)\b/i,
+      /\bdivine\s+altar\b/i
+    ],
+    
+    // Professions
+    'forester ivanna': [
+      /\b(?:forage|foraging|gather)\b/i,
+      /\bforest\s+quest\b/i
+    ],
+    'pickman khudmire': [
+      /\b(?:mine|mining)\b/i,
+      /\bmining\s+quest\b/i
+    ],
+    'fisher mark': [
+      /\b(?:fish|fishing)\b/i,
+      /\bfishing\s+quest\b/i
+    ],
+    'greenskeeper sivia': [
+      /\b(?:garden|gardening)\b/i,
+      /\bgardening\s+quest\b/i
+    ],
+    
+    // Expeditions
+    'caravan leader': [
+      /\b(?:expedition|expeditions)\b/i,
+      /\bexpedition\s+(?:quest|rewards?)\b/i
     ]
   };
   
