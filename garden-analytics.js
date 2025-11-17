@@ -297,6 +297,33 @@ export async function buildPriceGraph() {
 }
 
 /**
+ * Helper function to chunk large block ranges into smaller segments
+ * RPC has a 2048-block limit for event queries
+ */
+async function queryEventsInChunks(contract, filter, fromBlock, toBlock, maxChunkSize = 2048) {
+  const allEvents = [];
+  const totalBlocks = toBlock - fromBlock;
+  
+  // If range is within limit, query directly
+  if (totalBlocks <= maxChunkSize) {
+    return await contract.queryFilter(filter, fromBlock, toBlock);
+  }
+  
+  // Otherwise, chunk the queries
+  for (let start = fromBlock; start <= toBlock; start += maxChunkSize) {
+    const end = Math.min(start + maxChunkSize - 1, toBlock);
+    try {
+      const events = await contract.queryFilter(filter, start, end);
+      allEvents.push(...events);
+    } catch (err) {
+      console.error(`Error querying events from ${start} to ${end}:`, err.message);
+    }
+  }
+  
+  return allEvents;
+}
+
+/**
  * Calculate 24h fee APR from Swap events (previous UTC day)
  */
 export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stakedLiquidity, blockRange = null) {
@@ -307,8 +334,9 @@ export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stake
     
     const lpContract = new ethers.Contract(lpAddress, uniswapPairABI, provider);
     
-    // Get Swap events from previous UTC day
-    const swapEvents = await lpContract.queryFilter(
+    // Get Swap events from previous UTC day (chunked to avoid RPC limit)
+    const swapEvents = await queryEventsInChunks(
+      lpContract,
       lpContract.filters.Swap(),
       fromBlock,
       toBlock
@@ -360,8 +388,9 @@ export async function calculateEmissionAPR(pid, rewardTokenPrice, stakedLiquidit
     const range = blockRange || await getPreviousUTCDayBlockRange();
     const { fromBlock, toBlock } = range;
     
-    // Get RewardCollected events for this pool
-    const rewardEvents = await stakingContract.queryFilter(
+    // Get RewardCollected events for this pool (chunked to avoid RPC limit)
+    const rewardEvents = await queryEventsInChunks(
+      stakingContract,
       stakingContract.filters.RewardCollected(pid),
       fromBlock,
       toBlock
@@ -588,31 +617,48 @@ export async function getPoolAnalytics(pid, sharedData = null) {
  */
 export async function getAllPoolAnalytics(limit = 20) {
   try {
-    // Discover all pools ONCE
+    const stageStart = Date.now();
+    
+    // Stage 1: Discover all pools ONCE
+    console.log('[Analytics] Stage 1/5: Discovering pools...');
     const allPools = await discoverPools();
+    const stage1Duration = ((Date.now() - stageStart) / 1000).toFixed(1);
+    console.log(`[Analytics] ✓ Discovered ${allPools.length} pools (${stage1Duration}s)`);
     
-    // Build price graph ONCE for all pools
+    // Stage 2: Build price graph ONCE for all pools
+    console.log('[Analytics] Stage 2/5: Building price graph...');
+    const stage2Start = Date.now();
     const priceGraph = await buildPriceGraph();
+    const stage2Duration = ((Date.now() - stage2Start) / 1000).toFixed(1);
+    console.log(`[Analytics] ✓ Price graph built (${stage2Duration}s)`);
     
-    // Get CRYSTAL price ONCE
+    // Stage 3: Get CRYSTAL price and metadata ONCE
+    console.log('[Analytics] Stage 3/5: Getting token prices...');
     const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
     const crystalPrice = priceGraph.get(CRYSTAL_ADDRESS.toLowerCase()) || 0;
-    
-    // Get total alloc point ONCE
     const totalAllocPoint = await stakingContract.getTotalAllocPoint();
+    console.log(`[Analytics] ✓ Token prices ready`);
     
-    // Get block range for previous UTC day ONCE
+    // Stage 4: Get block range for previous UTC day ONCE
+    console.log('[Analytics] Stage 4/5: Calculating block range...');
     const blockRange = await getPreviousUTCDayBlockRange();
+    console.log(`[Analytics] ✓ Block range calculated`);
     
+    // Stage 5: Process each pool with shared data
+    console.log(`[Analytics] Stage 5/5: Analyzing ${Math.min(allPools.length, limit)} pools...`);
     const results = [];
+    const poolsToProcess = Math.min(allPools.length, limit);
     
-    // Process each pool with shared data
-    for (let i = 0; i < Math.min(allPools.length, limit); i++) {
+    for (let i = 0; i < poolsToProcess; i++) {
       try {
         const pool = allPools[i];
+        const poolStart = Date.now();
         
         // Get LP details
         const lpDetails = await getLPTokenDetails(pool.lpToken);
+        
+        // Progress indicator for each pool
+        console.log(`[Analytics]   Pool ${i + 1}/${poolsToProcess}: ${lpDetails.pairName}`);
         
         // Calculate TVL
         const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked);
@@ -666,6 +712,9 @@ export async function getAllPoolAnalytics(limit = 20) {
     
     // Sort by total APR descending
     results.sort((a, b) => parseFloat(b.totalAPR) - parseFloat(a.totalAPR));
+    
+    const totalDuration = ((Date.now() - stageStart) / 1000).toFixed(1);
+    console.log(`[Analytics] ✓ Completed all stages in ${totalDuration}s - ${results.length} pools ready`);
     
     return results;
   } catch (err) {

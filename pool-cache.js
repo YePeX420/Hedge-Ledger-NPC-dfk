@@ -1,11 +1,14 @@
 import { getAllPoolAnalytics } from './garden-analytics.js';
 
 const REFRESH_INTERVAL_MS = 20 * 60 * 1000; // 20 minutes
+const MAX_TIMING_HISTORY = 10; // Keep last 10 refresh times for averages
 
 let cache = {
   data: null,
   lastUpdated: null,
-  isRefreshing: false
+  isRefreshing: false,
+  timingHistory: [], // Array of refresh durations in seconds
+  stageTiming: null // Last refresh stage breakdown
 };
 
 let refreshInterval = null;
@@ -21,17 +24,39 @@ async function refreshCache() {
 
   try {
     cache.isRefreshing = true;
-    console.log('[PoolCache] Starting cache refresh...');
     const startTime = Date.now();
+    
+    // Show estimate based on historical data
+    if (cache.timingHistory.length > 0) {
+      const avgTime = cache.timingHistory.reduce((a, b) => a + b, 0) / cache.timingHistory.length;
+      console.log(`[PoolCache] Starting cache refresh... (estimated ${avgTime.toFixed(1)}s based on last ${cache.timingHistory.length} runs)`);
+    } else {
+      console.log('[PoolCache] Starting cache refresh...');
+    }
 
     const analytics = await getAllPoolAnalytics();
     
     cache.data = analytics;
     cache.lastUpdated = new Date();
     
-    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`[PoolCache] ✅ Cache refreshed successfully in ${duration}s`);
+    const duration = (Date.now() - startTime) / 1000;
+    
+    // Store timing history
+    cache.timingHistory.push(duration);
+    if (cache.timingHistory.length > MAX_TIMING_HISTORY) {
+      cache.timingHistory.shift(); // Remove oldest
+    }
+    
+    // Calculate average
+    const avgTime = cache.timingHistory.reduce((a, b) => a + b, 0) / cache.timingHistory.length;
+    
+    console.log(`[PoolCache] ✅ Cache refreshed successfully in ${duration.toFixed(1)}s (avg: ${avgTime.toFixed(1)}s)`);
     console.log(`[PoolCache] Cached ${analytics.length} pools. Next refresh in ${REFRESH_INTERVAL_MS / 60000} minutes.`);
+    
+    // Performance alert if significantly slower than average
+    if (cache.timingHistory.length >= 3 && duration > avgTime * 1.5) {
+      console.warn(`[PoolCache] ⚠️ Slow refresh detected: ${duration.toFixed(1)}s (${((duration / avgTime - 1) * 100).toFixed(0)}% slower than avg)`);
+    }
   } catch (error) {
     console.error('[PoolCache] ❌ Failed to refresh cache:', error.message);
     // Keep old cache data if refresh fails
