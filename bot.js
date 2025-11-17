@@ -5,6 +5,8 @@ import { Client, GatewayIntentBits, Partials, Events } from 'discord.js';
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
 import * as analytics from './garden-analytics.js';
+import * as quickData from './quick-data-fetcher.js';
+import { parseIntent, formatIntent } from './intent-parser.js';
 import { requestDeposit } from './deposit-flow.js';
 import { startMonitoring, stopMonitoring } from './transaction-monitor.js';
 import { creditBalance } from './balance-credit.js';
@@ -192,42 +194,183 @@ client.on('messageCreate', async (message) => {
   try {
     let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
 
-    // 🌱 Detect garden/pool/APR questions
-    const gardenKeywords = /\b(pool|pools|apr|aprs|garden|gardens|yield|liquidity|tvl|staking|lp)\b/gi;
-    const isGardenQuestion = gardenKeywords.test(message.content);
+    // 🧠 Parse user intent to detect what data they want
+    const intent = parseIntent(message.content);
     
-    if (isGardenQuestion) {
-      // Guide user to use slash command for live analytics
-      const gardenResponse = [
-        "Ah, chasing APRs I see. Smart move.",
-        "",
-        "I can actually pull **live on-chain analytics** for Crystalvale pools now, including:",
-        "• Real 24h fee APR (from Swap events)",
-        "• Emission APR (from CRYSTAL rewards)",
-        "• TVL and volume data",
-        "• Token prices",
-        "",
-        "But you'll need to use slash commands for that. Here's how:",
-        "",
-        "**View all pools:**",
-        "`/garden pool:all realm:dfk`",
-        "",
-        "**Specific pool by PID:**",
-        "`/garden pool:1 realm:dfk`",
-        "",
-        "**Search by name:**",
-        "`/garden pool:CRYSTAL realm:dfk`",
-        "",
-        "**Your harvestable rewards:**",
-        "`/garden wallet:0xYourAddress realm:dfk`",
-        "",
-        "The data comes straight from the blockchain - no guesswork, no external APIs. Takes about 20-60 seconds to scan 24h of events, so be patient.",
-        "",
-        "Go ahead and try it in the server. I'll wait here with my ledger. 📊"
-      ].join('\n');
+    if (intent) {
+      console.log(`🔍 Intent detected: ${formatIntent(intent)}`);
       
-      await message.reply(gardenResponse);
-      return;
+      // 🌱 Auto-fetch garden/pool data (lightweight, fast)
+      if (intent.type === 'garden') {
+        try {
+          if (intent.action === 'all') {
+            // Fetch all pools with timeout
+            await message.reply("*cracks knuckles* Pulling live Crystalvale data... this'll take 30-45 seconds to scan the blockchain.");
+            const poolsData = await quickData.getAllPoolAnalyticsWithTimeout(8, 50000);
+            
+            if (!poolsData || poolsData.length === 0) {
+              await message.reply("Huh. No pools found or blockchain is being slow. Try `/garden pool:all` in the server for better reliability.");
+              return;
+            }
+            
+            // Format top pools concisely
+            let poolsSummary = '📊 **Live Crystalvale Pool Analytics** (previous UTC day)\n\n';
+            poolsData.slice(0, 5).forEach((pool, i) => {
+              poolsSummary += `${i+1}. **${pool.lpTokenSymbol}** (PID ${pool.pid})\n`;
+              poolsSummary += `   • Total APR: ${pool.totalAPR}\n`;
+              poolsSummary += `   • Fee APR: ${pool.feeAPR} | Emission: ${pool.emissionAPR}\n`;
+              poolsSummary += `   • TVL: $${pool.tvlUSD}\n\n`;
+            });
+            
+            if (poolsData.length > 5) {
+              poolsSummary += `...and ${poolsData.length - 5} more. Use \`/garden pool:all\` for full list.`;
+            }
+            
+            enrichedContent += `\n\n📊 LIVE GARDEN DATA:\n${poolsSummary}\n\nRespond as Hedge Ledger analyzing these APRs.`;
+          } else if (intent.action === 'pool' && intent.pool) {
+            // Fast pool lookup without heavy analytics
+            await message.reply(`*flips through ledger* Looking up ${intent.pool} pool...`);
+            
+            const pool = await quickData.findPoolByName(intent.pool);
+            
+            if (!pool) {
+              await message.reply(`Couldn't find a pool matching "${intent.pool}". Try \`/garden pool:all\` to see all pools.`);
+              return;
+            }
+            
+            // Get detailed analytics for this specific pool only
+            await message.reply(`Found ${pool.lpTokenSymbol}! Scanning blockchain for APR data... ~30-40 seconds...`);
+            const poolData = await quickData.getPoolAnalyticsWithTimeout(pool.pid, 45000);
+            
+            let poolDetails = `📊 **${poolData.lpTokenSymbol}** (PID ${poolData.pid})\n\n`;
+            poolDetails += `**APR Breakdown:**\n`;
+            poolDetails += `• Total: ${poolData.totalAPR}\n`;
+            poolDetails += `• Fee APR: ${poolData.feeAPR}\n`;
+            poolDetails += `• Emission APR: ${poolData.emissionAPR}\n`;
+            poolDetails += `• Quest APR: ${poolData.questAPRRange}\n\n`;
+            poolDetails += `**Economics:**\n`;
+            poolDetails += `• TVL: $${poolData.tvlUSD} (V2: $${poolData.v2TvlUSD})\n`;
+            poolDetails += `• 24h Volume: $${poolData.volume24hUSD}\n`;
+            poolDetails += `• 24h Fees: $${poolData.fees24hUSD}\n`;
+            
+            enrichedContent += `\n\n📊 LIVE POOL DATA:\n${poolDetails}\n\nRespond as Hedge Ledger with analysis.`;
+          } else if (intent.action === 'wallet' && intent.wallet) {
+            // Quick wallet rewards check (top 5 pools only to avoid delays)
+            await message.reply(`*adjusts monocle* Checking your top staked positions... moment...`);
+            
+            const rewardsData = await quickData.getWalletRewardsQuick(intent.wallet);
+            let hasRewards = false;
+            let walletSummary = `📊 **Harvestable Rewards: ${intent.wallet.slice(0, 6)}...${intent.wallet.slice(-4)}**\n`;
+            walletSummary += `(Checking top 5 pools for speed)\n\n`;
+            
+            for (const poolReward of rewardsData) {
+              if (parseFloat(poolReward.rewards) > 0.001) {
+                hasRewards = true;
+                walletSummary += `• **${poolReward.lpTokenSymbol}**: ${parseFloat(poolReward.rewards).toFixed(4)} CRYSTAL\n`;
+              }
+            }
+            
+            if (!hasRewards) {
+              walletSummary += "No pending rewards in top pools. Use \`/garden wallet:<addr>\` for complete scan.";
+            }
+            
+            enrichedContent += `\n\n📊 WALLET REWARDS:\n${walletSummary}\n\nRespond as Hedge Ledger.`;
+          }
+        } catch (err) {
+          console.error('Garden auto-fetch error:', err);
+          if (err.message.includes('timed out')) {
+            await message.reply("*yawns* Blockchain scan took too long. Use the slash command for better reliability: `/garden pool:all realm:dfk`");
+          } else {
+            await message.reply("*yawns* Something broke. Try the slash command: `/garden pool:all realm:dfk`");
+          }
+          return;
+        }
+      }
+      
+      // 🏪 Auto-fetch marketplace data
+      if (intent.type === 'market') {
+        try {
+          await message.reply("*rummages through marketplace listings* Let me see what's for sale...");
+          
+          const heroes = await quickData.getMarketHeroesFiltered({
+            mainClass: intent.class || null,
+            maxPrice: intent.maxPrice || null,
+            sortBy: intent.sortBy || 'price_asc',
+            limit: 10
+          });
+          
+          if (!heroes || heroes.length === 0) {
+            await message.reply("No heroes found matching those criteria. Market might be thin or everyone's HODLing.");
+            return;
+          }
+          
+          let marketSummary = `🏪 **Live Marketplace** (${heroes.length} results`;
+          if (intent.class) marketSummary += `, class: ${intent.class}`;
+          if (intent.maxPrice) marketSummary += `, max: ${intent.maxPrice} JEWEL`;
+          marketSummary += `)\n\n`;
+          
+          heroes.slice(0, 5).forEach((hero, i) => {
+            const price = onchain.weiToToken(hero.salePrice);
+            const rarity = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero.rarity];
+            marketSummary += `${i+1}. **#${hero.normalizedId}** - ${hero.mainClassStr} | ${rarity} | Lvl ${hero.level}\n`;
+            marketSummary += `   → **${price} JEWEL**\n`;
+          });
+          
+          if (heroes.length > 5) {
+            marketSummary += `\n...and ${heroes.length - 5} more listings.`;
+          }
+          
+          enrichedContent += `\n\n🏪 LIVE MARKETPLACE DATA:\n${marketSummary}\n\nRespond as Hedge Ledger with market analysis.`;
+        } catch (err) {
+          console.error('Market auto-fetch error:', err);
+          await message.reply("*yawns* Marketplace lookup failed. Try the slash command: `/market class:<class>`");
+          return;
+        }
+      }
+      
+      // 💼 Auto-fetch wallet/portfolio data
+      if (intent.type === 'wallet') {
+        try {
+          await message.reply(`*adjusts ledger* Analyzing wallet ${intent.address.slice(0, 6)}...${intent.address.slice(-4)}...`);
+          
+          const heroes = await onchain.getHeroesByOwner(intent.address);
+          
+          if (!heroes || heroes.length === 0) {
+            await message.reply(`Wallet ${intent.address.slice(0, 6)}...${intent.address.slice(-4)} has no heroes. Either empty or wrong address.`);
+            return;
+          }
+          
+          // Group by class
+          const classCounts = {};
+          let totalValue = 0;
+          
+          heroes.forEach(hero => {
+            classCounts[hero.mainClassStr] = (classCounts[hero.mainClassStr] || 0) + 1;
+            if (hero.salePrice && hero.salePrice !== '0') {
+              totalValue += parseFloat(onchain.weiToToken(hero.salePrice));
+            }
+          });
+          
+          let walletSummary = `💼 **Wallet Portfolio: ${intent.address.slice(0, 6)}...${intent.address.slice(-4)}**\n\n`;
+          walletSummary += `**Total Heroes:** ${heroes.length}\n\n`;
+          walletSummary += `**By Class:**\n`;
+          Object.entries(classCounts)
+            .sort((a, b) => b[1] - a[1])
+            .forEach(([className, count]) => {
+              walletSummary += `• ${className}: ${count}\n`;
+            });
+          
+          if (totalValue > 0) {
+            walletSummary += `\n**Total Listing Value:** ${totalValue.toFixed(2)} JEWEL`;
+          }
+          
+          enrichedContent += `\n\n💼 LIVE WALLET DATA:\n${walletSummary}\n\nRespond as Hedge Ledger with portfolio analysis.`;
+        } catch (err) {
+          console.error('Wallet auto-fetch error:', err);
+          await message.reply("*yawns* Wallet lookup failed. Try the slash command: `/wallet <address>`");
+          return;
+        }
+      }
     }
 
     // 🔍 Detect hero ID mentions (e.g., "hero #62", "hero 62", "#62")
