@@ -12,14 +12,23 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
-**November 17, 2025 - Economic System Integration - FINAL**
+**November 17, 2025 - Web Analytics Dashboard**
+- Built comprehensive web-based admin dashboard accessible at http://localhost:5000
+- Dashboard displays real-time metrics: total players, JEWEL deposits, revenue, query usage
+- Four API endpoints for analytics: /api/analytics/overview, /players, /deposits, /query-breakdown
+- Simple HTML + vanilla JavaScript frontend (no build step required)
+- Auto-refreshes every 30 seconds to show live data
+- Integrated Express server directly into bot.js for unified deployment
+- Dashboard shows: player tiers, balance details, deposit statuses, query type breakdowns
+
+**November 17, 2025 - Economic System Integration**
 - Fixed transaction monitor ABI issue by adding ERC-20 Transfer event to ERC20.json
 - Wired up balance credit callback - monitor now calls creditBalance() when deposits are matched
 - Enhanced deposit matching with 3-level strategy: exact uniqueAmount, exact requestedAmount, ±1 wei tolerance
 - Added HTTP health check server on port 5000 for workflow compliance
 - Implemented graceful shutdown handling (SIGINT)
 - All economic modules updated to use .ts imports with tsx runtime
-- Commands registered: /deposit (unique JEWEL amounts), /balance (tier/usage), /analytics (admin dashboard)
+- Commands registered: /deposit (unique JEWEL amounts), /balance (tier/usage)
 - Transaction monitor operational in polling mode after 48h catch-up scan
 
 **November 16, 2025 - Comprehensive Garden Analytics (Crystalvale) - FINAL**
@@ -40,7 +49,7 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### Application Type
-Node.js backend service with Discord.js integration. No frontend UI - all interactions happen within Discord's native interface.
+Node.js backend service with Discord.js integration and web-based admin dashboard. User interactions happen within Discord, while admin monitoring happens through the web interface.
 
 ### Core Components
 
@@ -94,7 +103,23 @@ Node.js backend service with Discord.js integration. No frontend UI - all intera
   - `getPoolAnalytics()` - Full analytics for single pool with shared data optimization
   - `getAllPoolAnalytics()` - Batch analytics (optimized to avoid redundant RPC calls)
 
-**4. Command System** (`register-commands.js`)
+**4. Web Dashboard** (`bot.js` + `public/index.html`)
+- Express server integrated directly into bot.js on port 5000
+- Serves static HTML dashboard at root path (`/`)
+- API endpoints for analytics data:
+  - `/api/analytics/overview` - High-level metrics (players, deposits, revenue, queries)
+  - `/api/analytics/players?limit=N` - Player list with tiers and balances
+  - `/api/analytics/deposits?limit=N` - Recent deposits with status
+  - `/api/analytics/query-breakdown` - Query types with revenue data
+- Dashboard features:
+  - Real-time metrics grid (total players, JEWEL deposits, revenue, queries)
+  - Player table showing username, tier, and balance
+  - Deposit history with status badges (completed/pending)
+  - Query breakdown by type with free tier usage and revenue
+  - Auto-refresh every 30 seconds
+- Simple vanilla JavaScript implementation (no build process)
+
+**5. Command System** (`register-commands.js`)
 Ten slash commands registered to Discord API:
 - `/help` - List all commands
 - `/npc` - Free-form chat with Hedge

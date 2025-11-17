@@ -11,8 +11,10 @@ import { creditBalance } from './balance-credit.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { db } from './server/db.js';
-import { jewelBalances, players } from './shared/schema.ts';
-import { eq } from 'drizzle-orm';
+import { jewelBalances, players, depositRequests, queryCosts } from './shared/schema.ts';
+import { eq, desc, sql } from 'drizzle-orm';
+import http from 'http';
+import express from 'express';
 
 const {
   DISCORD_TOKEN,
@@ -660,11 +662,6 @@ async function handleWalletCommand(interaction) {
 }
 
 // Simple HTTP server on port 5000 for workflow health check + API
-import http from 'http';
-import express from 'express';
-
-// db, players, jewelBalances, depositRequests, queryCosts, desc, sql, eq are already imported at the top
-
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
@@ -674,23 +671,29 @@ app.get('/', (req, res) => {
   res.sendFile('index.html', { root: 'public' });
 });
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // API Routes for dashboard
 app.get('/api/analytics/overview', async (req, res) => {
   try {
     const [playerStats, depositStats, balanceStats, revenueStats] = await Promise.all([
-      db.select({ total: sql`COUNT(*)`, withBalance: sql`COUNT(CASE WHEN EXISTS(SELECT 1 FROM ${jewelBalances} WHERE ${jewelBalances.playerId} = ${players.id}) THEN 1 END)` }).from(players),
-      db.select({ total: sql`COUNT(*)`, completed: sql`SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END)`, totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)` }).from(depositRequests),
-      db.select({ totalBalance: sql`COALESCE(SUM(CAST(${jewelBalances.balanceJewel} AS DECIMAL)), 0)`, activeBalances: sql`COUNT(CASE WHEN CAST(${jewelBalances.balanceJewel} AS DECIMAL) > 0 THEN 1 END)` }).from(jewelBalances),
-      db.select({ totalRevenue: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`, totalProfit: sql`COALESCE(SUM(${queryCosts.profitUsd}), 0)`, totalQueries: sql`COUNT(*)`, paidQueries: sql`SUM(CASE WHEN NOT ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)` }).from(queryCosts)
+      db.select({ total: sql`COUNT(*)::int`, withBalance: sql`COUNT(CASE WHEN EXISTS(SELECT 1 FROM ${jewelBalances} WHERE ${jewelBalances.playerId} = ${players.id}) THEN 1 END)::int` }).from(players),
+      db.select({ total: sql`COUNT(*)::int`, completed: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`, totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)` }).from(depositRequests),
+      db.select({ totalBalance: sql`COALESCE(SUM(CAST(${jewelBalances.balanceJewel} AS DECIMAL)), 0)`, activeBalances: sql`COUNT(CASE WHEN CAST(${jewelBalances.balanceJewel} AS DECIMAL) > 0 THEN 1 END)::int` }).from(jewelBalances),
+      db.select({ totalRevenue: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`, totalProfit: sql`COALESCE(SUM(${queryCosts.profitUsd}), 0)`, totalQueries: sql`COUNT(*)::int`, paidQueries: sql`COALESCE(SUM(CASE WHEN NOT ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END), 0)::int` }).from(queryCosts)
     ]);
     res.json({
-      players: { total: playerStats[0].total, withBalance: playerStats[0].withBalance },
-      deposits: { total: depositStats[0].total, completed: depositStats[0].completed || 0, totalJewel: depositStats[0].totalJewel },
-      balances: { totalBalance: balanceStats[0].totalBalance, activeBalances: balanceStats[0].activeBalances || 0 },
-      revenue: { totalRevenue: revenueStats[0].totalRevenue, totalProfit: revenueStats[0].totalProfit, totalQueries: revenueStats[0].totalQueries, paidQueries: revenueStats[0].paidQueries || 0 }
+      players: { total: Number(playerStats[0].total), withBalance: Number(playerStats[0].withBalance) },
+      deposits: { total: Number(depositStats[0].total), completed: Number(depositStats[0].completed), totalJewel: String(depositStats[0].totalJewel) },
+      balances: { totalBalance: String(balanceStats[0].totalBalance), activeBalances: Number(balanceStats[0].activeBalances) },
+      revenue: { totalRevenue: String(revenueStats[0].totalRevenue), totalProfit: String(revenueStats[0].totalProfit), totalQueries: Number(revenueStats[0].totalQueries), paidQueries: Number(revenueStats[0].paidQueries) }
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch overview data' });
+    console.error('[Dashboard] Overview API error:', error);
+    res.status(500).json({ error: 'Failed to fetch overview data', details: error.message });
   }
 });
 
