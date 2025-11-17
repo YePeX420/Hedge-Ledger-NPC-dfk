@@ -376,9 +376,11 @@ client.on('messageCreate', async (message) => {
       if (isNewUser) {
         const walletRequestMessage = 
           `*yawns* Welcome to my ledger, ${username}.\n\n` +
+          `So... are you familiar with DeFi Kingdoms, or are you brand new to Crystalvale? Either way, I can help—navigation guides for beginners, or even advanced queries for the OGs... for the right price, hehehe.\n\n` +
           `If you give me your wallet address, I can provide much better support—optimization strategies tailored to your heroes, help you track onboarding milestones, and even send you rewards as you complete them. ` +
           `Don't worry, I only have view-only rights on-chain with that address. Completely read-only.\n\n` +
-          `If you'd rather not share it, that's fine too. You can still use the free walkthrough guides and basic help. Your choice.`;
+          `If you'd rather not share it, that's fine too. You can still use the free walkthrough guides and basic help. Your choice.\n\n` +
+          `What brings you to my ledger today? Need any help getting started?`;
         
         await message.reply(walletRequestMessage);
         console.log(`💼 Sent wallet request to new user: ${username}`);
