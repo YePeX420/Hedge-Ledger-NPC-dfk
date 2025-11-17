@@ -1611,6 +1611,47 @@ app.patch('/api/admin/users/:id/tier', requireAuth, requireAdmin, async (req, re
   }
 });
 
+// DELETE /api/admin/users/:discordId - Delete a user and all associated data
+app.delete('/api/admin/users/:discordId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { discordId } = req.params;
+    
+    if (!discordId) {
+      return res.status(400).json({ error: 'Discord ID is required' });
+    }
+    
+    // Find the player
+    const player = await db
+      .select({ id: players.id, discordUsername: players.discordUsername })
+      .from(players)
+      .where(eq(players.discordId, discordId))
+      .limit(1);
+    
+    if (player.length === 0) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+    
+    const playerId = player[0].id;
+    const username = player[0].discordUsername;
+    
+    console.log(`[API] Admin deleting user: ${username} (Discord ID: ${discordId}, Player ID: ${playerId})`);
+    
+    // Delete in correct order due to foreign key constraints
+    // 1. Delete balance record
+    await db.delete(jewelBalances).where(eq(jewelBalances.playerId, playerId));
+    console.log(`[API] Deleted balance record for player ${playerId}`);
+    
+    // 2. Delete player record
+    await db.delete(players).where(eq(players.id, playerId));
+    console.log(`[API] Deleted player record for ${username}`);
+    
+    res.json({ success: true, message: `User ${username} deleted successfully` });
+  } catch (error) {
+    console.error('[API] Error deleting user:', error);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
 const server = http.createServer(app);
 
 server.on('error', (err) => {

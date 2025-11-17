@@ -197,6 +197,22 @@
             background: #1e293b;
         }
         
+        .delete-button {
+            background: #7f1d1d;
+            color: #fecaca;
+            border: 1px solid #991b1b;
+            padding: 0.375rem 0.75rem;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .delete-button:hover {
+            background: #991b1b;
+            color: #fff;
+        }
+        
         .loading {
             text-align: center;
             padding: 3rem;
@@ -258,6 +274,7 @@
                         <th>Lifetime Deposits</th>
                         <th>Messages</th>
                         <th>First Seen</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="usersTableBody">
@@ -353,6 +370,37 @@
             }
         }
 
+        async function deleteUser(discordId, username) {
+            if (!confirm(`Are you sure you want to delete user "${username}"?\n\nThis will permanently remove:\n• Player record\n• Balance history\n• All associated data\n\nThis action cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/admin/users/${discordId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.status === 401) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                }
+                
+                // Remove from local data
+                allUsers = allUsers.filter(u => u.discordId !== discordId);
+                filterAndRenderUsers();
+                
+                alert(`User "${username}" has been deleted successfully.`);
+            } catch (error) {
+                console.error('Error deleting user:', error);
+                alert(`Failed to delete user: ${error.message}`);
+            }
+        }
+
         function filterAndRenderUsers() {
             const searchTerm = document.getElementById('searchInput').value.toLowerCase();
             const tierFilter = document.getElementById('tierFilter').value;
@@ -417,6 +465,11 @@
                     <td>${formatBalance(user.lifetimeDeposits)}</td>
                     <td>${user.totalMessages || 0}</td>
                     <td>${formatDate(user.firstSeenAt)}</td>
+                    <td>
+                        <button class="delete-button" onclick="deleteUser('${user.discordId}', '${user.discordUsername || 'Unknown'}')" data-testid="button-delete-${user.discordId}">
+                            Delete
+                        </button>
+                    </td>
                 </tr>
             `).join('');
         }
