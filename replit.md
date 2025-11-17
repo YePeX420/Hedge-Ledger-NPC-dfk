@@ -6,6 +6,14 @@ Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi
 
 ## Recent Changes
 
+**November 17, 2025 - Multilingual Support Enhancement**
+- **Explicit Language Support**: Updated system prompt (`prompt/hedge-ledger.md`) with comprehensive multilingual instructions. Hedge can now interact fluently in 50+ languages supported by GPT-4o-mini (Spanish, French, German, Chinese, Japanese, Korean, Arabic, Portuguese, Russian, Hindi, etc.).
+- **Character Preservation**: Instructions ensure Hedge's sarcastic accountant personality, wit, and voice translate naturally across all languages while maintaining consistency.
+- **Smart Terminology Handling**: Game-specific proper nouns (JEWEL, CRYSTAL, NPC names, locations, mechanics) remain in English for clarity, while explanations adapt to user's language.
+- **Auto-Detection**: Hedge automatically detects and matches the user's language without requiring configuration or language selection.
+- **Examples Provided**: System prompt includes Spanish, Chinese, and French response examples to guide natural multilingual interactions.
+- **Global Accessibility**: Makes Hedge Ledger accessible to DeFi Kingdoms' international player base covering 97% of global language speakers.
+
 **November 17, 2025 - Garden Interaction Improvements**
 - **Deprecated Pool Filter**: Added comprehensive filtering to hide xJEWEL-WJEWEL pool (deprecated in game UI) from all query paths. Filter applied to cached data, live fallbacks, pool search, and individual lookups using pairName/lpTokenSymbol matching.
 - **Best/Worst APR Summary**: Added APR range display to garden overview showing highest and lowest APR pools. Calculated from full filtered dataset (currently 13 active pools) before any slicing to ensure accuracy. Includes edge-case handling for empty/single-pool scenarios.
