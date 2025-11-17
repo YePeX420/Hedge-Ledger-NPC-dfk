@@ -389,8 +389,8 @@ client.on('messageCreate', async (message) => {
       console.error(`[messageCreate] Registration error stack:`, regError.stack);
     }
     
-    // 💼 Check if message contains a wallet address
-    const walletRegex = /0x[a-fA-F0-9]{40}/;
+    // 💼 Check if message contains a wallet address (case-insensitive for 0x prefix)
+    const walletRegex = /0[xX][a-fA-F0-9]{40}/;
     const walletMatch = message.content.match(walletRegex);
     
     if (walletMatch && playerData) {
