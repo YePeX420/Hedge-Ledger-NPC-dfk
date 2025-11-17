@@ -702,8 +702,15 @@ app.get('/api/analytics/players', async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;
     const playerList = await db.select({ id: players.id, discordId: players.discordId, discordUsername: players.discordUsername, tier: jewelBalances.tier, balance: jewelBalances.balanceJewel, firstSeenAt: players.firstSeenAt }).from(players).leftJoin(jewelBalances, eq(players.id, jewelBalances.playerId)).orderBy(desc(players.firstSeenAt)).limit(limit).offset(offset);
-    res.json(playerList);
+    const serialized = playerList.map(p => ({
+      ...p,
+      id: Number(p.id),
+      balance: String(p.balance || '0'),
+      firstSeenAt: p.firstSeenAt?.toISOString()
+    }));
+    res.json(serialized);
   } catch (error) {
+    console.error('[Dashboard] Players API error:', error);
     res.status(500).json({ error: 'Failed to fetch players' });
   }
 });
@@ -712,8 +719,18 @@ app.get('/api/analytics/deposits', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 20;
     const deposits = await db.select({ id: depositRequests.id, playerId: depositRequests.playerId, discordUsername: players.discordUsername, requestedAmount: depositRequests.requestedAmountJewel, uniqueAmount: depositRequests.uniqueAmountJewel, status: depositRequests.status, transactionHash: depositRequests.transactionHash, requestedAt: depositRequests.requestedAt, completedAt: depositRequests.completedAt }).from(depositRequests).leftJoin(players, eq(depositRequests.playerId, players.id)).orderBy(desc(depositRequests.requestedAt)).limit(limit);
-    res.json(deposits);
+    const serialized = deposits.map(d => ({
+      ...d,
+      id: Number(d.id),
+      playerId: Number(d.playerId),
+      requestedAmount: String(d.requestedAmount || '0'),
+      uniqueAmount: String(d.uniqueAmount || '0'),
+      requestedAt: d.requestedAt?.toISOString(),
+      completedAt: d.completedAt?.toISOString()
+    }));
+    res.json(serialized);
   } catch (error) {
+    console.error('[Dashboard] Deposits API error:', error);
     res.status(500).json({ error: 'Failed to fetch deposits' });
   }
 });
@@ -721,8 +738,15 @@ app.get('/api/analytics/deposits', async (req, res) => {
 app.get('/api/analytics/query-breakdown', async (req, res) => {
   try {
     const breakdown = await db.select({ queryType: queryCosts.queryType, count: sql`COUNT(*)`, totalRevenue: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`, freeTier: sql`SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)` }).from(queryCosts).groupBy(queryCosts.queryType).orderBy(desc(sql`COUNT(*)`));
-    res.json(breakdown);
+    const serialized = breakdown.map(q => ({
+      queryType: q.queryType,
+      count: Number(q.count),
+      totalRevenue: String(q.totalRevenue || '0'),
+      freeTier: Number(q.freeTier || 0)
+    }));
+    res.json(serialized);
   } catch (error) {
+    console.error('[Dashboard] Query breakdown API error:', error);
     res.status(500).json({ error: 'Failed to fetch query breakdown' });
   }
 });

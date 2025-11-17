@@ -254,7 +254,7 @@
                 depositsTable.innerHTML = deposits.map(d => `
                     <tr>
                         <td>${d.discordUsername || `Player #${d.playerId}`}</td>
-                        <td>${parseFloat(d.requestedAmount).toFixed(2)} JEWEL</td>
+                        <td>${parseFloat(d.requestedAmountJewel || d.requestedAmount || 0).toFixed(2)} JEWEL</td>
                         <td><span class="badge ${d.status === 'completed' ? 'badge-success' : 'badge-pending'}">${d.status}</span></td>
                     </tr>
                 `).join('') || '<tr><td colspan="3">No deposits yet</td></tr>';
@@ -263,9 +263,9 @@
                 queriesTable.innerHTML = queries.map(q => `
                     <tr>
                         <td>${q.queryType}</td>
-                        <td>${q.count}</td>
-                        <td>${q.freeTier}</td>
-                        <td>$${parseFloat(q.totalRevenue).toFixed(2)}</td>
+                        <td>${parseInt(q.count) || 0}</td>
+                        <td>${parseInt(q.freeTier) || 0}</td>
+                        <td>$${parseFloat(q.totalRevenue || 0).toFixed(2)}</td>
                     </tr>
                 `).join('') || '<tr><td colspan="4">No queries yet</td></tr>';
                 
