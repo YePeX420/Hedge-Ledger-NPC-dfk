@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users, Coins, TrendingUp, Activity } from "lucide-react";
+import { Users, Coins, TrendingUp, Activity, Settings } from "lucide-react";
+import { Link } from "wouter";
 
 interface OverviewData {
   players: {
@@ -87,11 +89,19 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto p-6 space-y-6" data-testid="dashboard-container">
-      <div>
-        <h1 className="text-3xl font-bold" data-testid="dashboard-title">Hedge Ledger Analytics</h1>
-        <p className="text-muted-foreground" data-testid="dashboard-subtitle">
-          Real-time metrics for your DeFi Kingdoms Discord bot
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold" data-testid="dashboard-title">Hedge Ledger Analytics</h1>
+          <p className="text-muted-foreground" data-testid="dashboard-subtitle">
+            Real-time metrics for your DeFi Kingdoms Discord bot
+          </p>
+        </div>
+        <Link href="/users">
+          <Button variant="outline" className="gap-2" data-testid="button-manage-users">
+            <Settings className="h-4 w-4" />
+            Manage Users
+          </Button>
+        </Link>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
