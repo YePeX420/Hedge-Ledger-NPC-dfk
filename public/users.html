@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Management - Hedge Ledger</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 2rem;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .back-button {
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 0.875rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .back-button:hover {
+            background: #293548;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            color: #f1f5f9;
+        }
+        
+        .filters {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .search-box {
+            flex: 1;
+            min-width: 250px;
+            padding: 0.5rem 1rem;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 0.375rem;
+            color: #e2e8f0;
+            font-size: 0.875rem;
+        }
+        
+        .search-box::placeholder {
+            color: #64748b;
+        }
+        
+        .filter-select {
+            padding: 0.5rem 1rem;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 0.375rem;
+            color: #e2e8f0;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        
+        .table-container {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        thead {
+            background: #0f172a;
+        }
+        
+        th {
+            text-align: left;
+            padding: 1rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        tbody tr {
+            border-top: 1px solid #334155;
+        }
+        
+        tbody tr:hover {
+            background: #293548;
+        }
+        
+        td {
+            padding: 1rem;
+            font-size: 0.875rem;
+        }
+        
+        .wallet {
+            font-family: monospace;
+            color: #94a3b8;
+        }
+        
+        .tier-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .tier-free { background: #1e293b; color: #94a3b8; }
+        .tier-bronze { background: #92400e; color: #fbbf24; }
+        .tier-silver { background: #374151; color: #d1d5db; }
+        .tier-gold { background: #713f12; color: #fcd34d; }
+        .tier-whale { background: #1e40af; color: #60a5fa; }
+        
+        .tier-edit {
+            padding: 0.25rem 0.5rem;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 0.25rem;
+            color: #e2e8f0;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        
+        .tier-edit:hover {
+            background: #1e293b;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #64748b;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #64748b;
+        }
+        
+        .error {
+            background: #7f1d1d;
+            color: #fecaca;
+            padding: 1rem;
+            border-radius: 0.375rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <a href="/" class="back-button">← Back to Dashboard</a>
+            <h1>User Management</h1>
+        </header>
+        
+        <div class="filters">
+            <input type="text" id="searchInput" class="search-box" placeholder="Search by username or wallet address...">
+            <select id="tierFilter" class="filter-select">
+                <option value="">All Tiers</option>
+                <option value="free">Free</option>
+                <option value="bronze">Bronze</option>
+                <option value="silver">Silver</option>
+                <option value="gold">Gold</option>
+                <option value="whale">Whale</option>
+            </select>
+        </div>
+        
+        <div id="errorContainer"></div>
+        
+        <div class="table-container">
+            <div id="loadingState" class="loading">Loading users...</div>
+            <div id="emptyState" class="empty-state" style="display: none;">No users found</div>
+            <table id="usersTable" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>Discord User</th>
+                        <th>Wallet Address</th>
+                        <th>Tier</th>
+                        <th>Balance (JEWEL)</th>
+                        <th>Lifetime Deposits</th>
+                        <th>Messages</th>
+                        <th>First Seen</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let allUsers = [];
+        let filteredUsers = [];
+
+        async function fetchUsers() {
+            try {
+                const response = await fetch('/api/admin/users');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                allUsers = data;
+                filterAndRenderUsers();
+            } catch (error) {
+                console.error('Error fetching users:', error);
+                document.getElementById('errorContainer').innerHTML = `
+                    <div class="error">Failed to load users: ${error.message}</div>
+                `;
+                document.getElementById('loadingState').style.display = 'none';
+            }
+        }
+
+        async function updateUserTier(userId, newTier) {
+            try {
+                const response = await fetch(`/api/admin/users/${userId}/tier`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tier: newTier })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                // Update local data
+                const userIndex = allUsers.findIndex(u => u.id === userId);
+                if (userIndex !== -1) {
+                    allUsers[userIndex].tier = newTier;
+                    filterAndRenderUsers();
+                }
+            } catch (error) {
+                console.error('Error updating tier:', error);
+                alert(`Failed to update tier: ${error.message}`);
+            }
+        }
+
+        function filterAndRenderUsers() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const tierFilter = document.getElementById('tierFilter').value;
+
+            filteredUsers = allUsers.filter(user => {
+                const matchesSearch = !searchTerm || 
+                    (user.discordUsername && user.discordUsername.toLowerCase().includes(searchTerm)) ||
+                    (user.walletAddress && user.walletAddress.toLowerCase().includes(searchTerm));
+                
+                const matchesTier = !tierFilter || (user.tier && user.tier === tierFilter);
+                
+                return matchesSearch && matchesTier;
+            });
+
+            renderUsers();
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            return date.toLocaleDateString();
+        }
+
+        function formatBalance(balance) {
+            if (!balance || balance === '0') return '0';
+            const num = parseFloat(balance);
+            if (isNaN(num)) return '0';
+            return num.toFixed(2);
+        }
+
+        function renderUsers() {
+            const loadingState = document.getElementById('loadingState');
+            const emptyState = document.getElementById('emptyState');
+            const table = document.getElementById('usersTable');
+            const tbody = document.getElementById('usersTableBody');
+
+            loadingState.style.display = 'none';
+
+            if (filteredUsers.length === 0) {
+                emptyState.style.display = 'block';
+                table.style.display = 'none';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            table.style.display = 'table';
+
+            tbody.innerHTML = filteredUsers.map(user => `
+                <tr>
+                    <td>${user.discordUsername || '-'}</td>
+                    <td class="wallet">${user.walletAddress ? user.walletAddress.slice(0, 6) + '...' + user.walletAddress.slice(-4) : '-'}</td>
+                    <td>
+                        <select class="tier-edit" onchange="updateUserTier(${user.id}, this.value)" value="${user.tier || 'free'}">
+                            <option value="free" ${(user.tier || 'free') === 'free' ? 'selected' : ''}>Free</option>
+                            <option value="bronze" ${user.tier === 'bronze' ? 'selected' : ''}>Bronze</option>
+                            <option value="silver" ${user.tier === 'silver' ? 'selected' : ''}>Silver</option>
+                            <option value="gold" ${user.tier === 'gold' ? 'selected' : ''}>Gold</option>
+                            <option value="whale" ${user.tier === 'whale' ? 'selected' : ''}>Whale</option>
+                        </select>
+                    </td>
+                    <td>${formatBalance(user.balance)}</td>
+                    <td>${formatBalance(user.lifetimeDeposits)}</td>
+                    <td>${user.totalMessages || 0}</td>
+                    <td>${formatDate(user.firstSeenAt)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Event listeners
+        document.getElementById('searchInput').addEventListener('input', filterAndRenderUsers);
+        document.getElementById('tierFilter').addEventListener('change', filterAndRenderUsers);
+
+        // Initial load
+        fetchUsers();
+    </script>
+</body>
+</html>

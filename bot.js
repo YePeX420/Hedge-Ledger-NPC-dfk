@@ -14,8 +14,8 @@ import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache } from './pool-cache.js';
 import { db } from './server/db.js';
-import { jewelBalances, players, depositRequests, queryCosts } from './shared/schema.ts';
-import { eq, desc, sql } from 'drizzle-orm';
+import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages } from './shared/schema.ts';
+import { eq, desc, sql, inArray } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
 
@@ -919,12 +919,6 @@ async function handleWalletCommand(interaction) {
 // Simple HTTP server on port 5000 for workflow health check + API
 const app = express();
 app.use(express.json());
-app.use(express.static('public'));
-
-// Root route serves the dashboard
-app.get('/', (req, res) => {
-  res.sendFile('index.html', { root: 'public' });
-});
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -1006,6 +1000,220 @@ app.get('/api/analytics/query-breakdown', async (req, res) => {
   }
 });
 
+// Admin API Routes
+
+// GET /api/admin/users - Comprehensive user management list
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    console.log('[API] Fetching users list...');
+    // Fetch all users with their basic info (single query)
+    const userList = await db
+      .select({
+        id: players.id,
+        discordId: players.discordId,
+        discordUsername: players.discordUsername,
+        walletAddress: players.primaryWallet,
+        tier: jewelBalances.tier,
+        balance: jewelBalances.balanceJewel,
+        lifetimeDeposits: jewelBalances.lifetimeDepositsJewel,
+        lastQueryAt: jewelBalances.lastQueryAt,
+        firstSeenAt: players.firstSeenAt,
+        totalMessages: players.totalMessages,
+      })
+      .from(players)
+      .leftJoin(jewelBalances, eq(players.id, jewelBalances.playerId))
+      .orderBy(desc(players.firstSeenAt));
+    
+    console.log('[API] Got', userList.length, 'users');
+    const playerIds = userList.map(u => u.id);
+    
+    // Early return if no players exist
+    if (playerIds.length === 0) {
+      console.log('[API] No users found, returning empty array');
+      return res.json([]);
+    }
+    
+    console.log('[API] Player IDs:', playerIds);
+    
+    // Batch query: Get all query stats grouped by player (single query)
+    const allQueryStats = await db
+      .select({
+        playerId: queryCosts.playerId,
+        totalQueries: sql`COUNT(*)`,
+        totalCost: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
+        totalProfit: sql`COALESCE(SUM(${queryCosts.profitUsd}), 0)`,
+        freeQueries: sql`SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`
+      })
+      .from(queryCosts)
+      .where(inArray(queryCosts.playerId, playerIds))
+      .groupBy(queryCosts.playerId);
+    
+    const queryStatsMap = new Map(allQueryStats.map(s => [s.playerId, s]));
+    
+    // Batch query: Get all deposit stats grouped by player (single query)
+    const allDepositStats = await db
+      .select({
+        playerId: depositRequests.playerId,
+        totalDeposits: sql`COUNT(*)`,
+        completedDeposits: sql`SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END)`,
+        totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
+        totalCrystal: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountCrystal} AS DECIMAL) ELSE 0 END), 0)`
+      })
+      .from(depositRequests)
+      .where(inArray(depositRequests.playerId, playerIds))
+      .groupBy(depositRequests.playerId);
+    
+    const depositStatsMap = new Map(allDepositStats.map(d => [d.playerId, d]));
+    
+    // Batch query: Get recent DM messages for all users (single query)
+    const allMessages = await db
+      .select({
+        playerId: interactionMessages.playerId,
+        content: interactionMessages.content,
+        messageType: interactionMessages.messageType,
+        timestamp: interactionMessages.timestamp
+      })
+      .from(interactionMessages)
+      .innerJoin(interactionSessions, eq(interactionMessages.sessionId, interactionSessions.id))
+      .where(sql`${interactionMessages.playerId} IN (${sql.raw(playerIds.join(','))}) AND ${interactionSessions.channelType} = 'dm'`)
+      .orderBy(desc(interactionMessages.timestamp))
+      .limit(10 * playerIds.length); // Get up to 10 messages per user
+    
+    // Group messages by player
+    const messagesByPlayer = new Map();
+    allMessages.forEach(msg => {
+      if (!messagesByPlayer.has(msg.playerId)) {
+        messagesByPlayer.set(msg.playerId, []);
+      }
+      const playerMsgs = messagesByPlayer.get(msg.playerId);
+      if (playerMsgs.length < 10) {
+        playerMsgs.push(msg);
+      }
+    });
+    
+    // Enrich users with batched data
+    const enrichedUsers = userList.map((user) => {
+      const stats = queryStatsMap.get(user.id) || {
+        totalQueries: 0,
+        totalCost: '0',
+        totalProfit: '0',
+        freeQueries: 0
+      };
+      
+      const deposits = depositStatsMap.get(user.id) || {
+        totalDeposits: 0,
+        completedDeposits: 0,
+        totalJewel: '0',
+        totalCrystal: '0'
+      };
+      
+      // Generate conversation summary
+      const recentMessages = messagesByPlayer.get(user.id) || [];
+      let conversationSummary = 'No recent conversations';
+      if (recentMessages.length > 0) {
+        const userMessages = recentMessages
+          .filter(m => m.messageType === 'user_message')
+          .map(m => m.content)
+          .slice(0, 5);
+        
+        if (userMessages.length > 0) {
+          const topics = new Set();
+          userMessages.forEach(msg => {
+            const lower = msg.toLowerCase();
+            if (lower.includes('hero') || lower.includes('summon')) topics.add('Heroes');
+            if (lower.includes('garden') || lower.includes('pool') || lower.includes('apr')) topics.add('Gardens');
+            if (lower.includes('market') || lower.includes('buy') || lower.includes('sell')) topics.add('Marketplace');
+            if (lower.includes('wallet') || lower.includes('balance')) topics.add('Wallet');
+            if (lower.includes('quest')) topics.add('Questing');
+            if (lower.includes('npc') || lower.includes('druid') || lower.includes('jeweler')) topics.add('NPCs');
+          });
+          
+          conversationSummary = topics.size > 0 
+            ? Array.from(topics).join(', ')
+            : 'General questions';
+        }
+      }
+      
+      return {
+        ...user,
+        id: Number(user.id),
+        queryCount: stats.totalQueries || 0,
+        queryCosts: stats.totalCost || '0',
+        queryProfit: stats.totalProfit || '0',
+        freeQueryCount: stats.freeQueries || 0,
+        depositCount: deposits.totalDeposits || 0,
+        completedDeposits: deposits.completedDeposits || 0,
+        totalJewelProvided: deposits.totalJewel || '0',
+        totalCrystalProvided: deposits.totalCrystal || '0',
+        conversationSummary,
+        userState: user.lastQueryAt ? 'active' : 'inactive',
+        conversionStatus: (deposits.completedDeposits || 0) > 0 ? 'converted' : 'free',
+        firstSeenAt: user.firstSeenAt?.toISOString(),
+        lastQueryAt: user.lastQueryAt?.toISOString()
+      };
+    });
+    
+    res.json(enrichedUsers);
+  } catch (error) {
+    console.error('[API] Error fetching users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// PATCH /api/admin/users/:id/tier - Update user tier manually
+// ⚠️ SECURITY WARNING: This endpoint has NO AUTHENTICATION!
+// In production, you MUST add authentication (API key, Discord OAuth, etc.)
+// Current state: Anyone who can reach this endpoint can modify user tiers
+app.patch('/api/admin/users/:id/tier', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const { tier } = req.body;
+    
+    if (!tier || !['free', 'bronze', 'silver', 'gold', 'whale'].includes(tier)) {
+      return res.status(400).json({ error: 'Invalid tier. Must be one of: free, bronze, silver, gold, whale' });
+    }
+    
+    // Validate that player exists
+    const player = await db
+      .select({ id: players.id })
+      .from(players)
+      .where(eq(players.id, userId))
+      .limit(1);
+    
+    if (player.length === 0) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+    
+    // Check if user has a balance record
+    const existingBalance = await db
+      .select()
+      .from(jewelBalances)
+      .where(eq(jewelBalances.playerId, userId))
+      .limit(1);
+    
+    if (existingBalance.length === 0) {
+      // Create balance record if it doesn't exist
+      await db.insert(jewelBalances).values({
+        playerId: userId,
+        balanceJewel: '0',
+        lifetimeDepositsJewel: '0',
+        tier: tier
+      });
+    } else {
+      // Update existing tier
+      await db
+        .update(jewelBalances)
+        .set({ tier: tier, updatedAt: sql`CURRENT_TIMESTAMP` })
+        .where(eq(jewelBalances.playerId, userId));
+    }
+    
+    res.json({ success: true, tier });
+  } catch (error) {
+    console.error('[API] Error updating tier:', error);
+    res.status(500).json({ error: 'Failed to update tier' });
+  }
+});
+
 const server = http.createServer(app);
 
 server.on('error', (err) => {
@@ -1015,9 +1223,23 @@ server.on('error', (err) => {
   }
 });
 
-server.listen(5000, '0.0.0.0', () => {
-  console.log('✅ Web server listening on port 5000');
-});
+// Set up Vite dev server for React app
+(async () => {
+  try {
+    const { setupVite } = await import('./server/vite.ts');
+    await setupVite(app, server);
+    console.log('✅ Vite dev server integrated');
+  } catch (error) {
+    console.error('❌ Failed to setup Vite:', error.message);
+    console.log('Falling back to static file serving from public/');
+    // Fallback: serve static files from public directory
+    app.use(express.static('public'));
+  }
+  
+  server.listen(5000, '0.0.0.0', () => {
+    console.log('✅ Web server listening on port 5000');
+  });
+})();
 
 // Graceful shutdown
 process.on('SIGINT', () => {
