@@ -201,26 +201,63 @@ export function parseNPCIntent(message) {
     'caravan leader': ['caravan leader', 'caravan']
   };
   
-  // Check for direct NPC questions
+  // Check for direct NPC questions with broader verb coverage
   const npcQuestionPatterns = [
-    /(?:where is|find|locate|show me|tell me about|who is|what is|what does|how do i use|how to use)\s+(?:the\s+)?([^?]+)/i,
-    /\b(druid|seed\s*box|harvest(?:\s+station)?)\b/i
+    // Common question patterns
+    /(?:where is|where can i find|find|locate|show me|tell me about|who is|what is|what does|which npc)\s+(?:the\s+)?([^?]+)/i,
+    /(?:how do i|how to|how can i)\s+(?:use|access|find|get to|reach|visit|talk to)\s+(?:the\s+)?([^?]+)/i,
+    // Action-based with NPC mentioned
+    /(?:how do i|how to|how can i|where do i|where can i)\s+([^?]+?)\s+(?:at|with|using|via|through)\s+(?:the\s+)?([^?]+)/i
   ];
   
   for (const pattern of npcQuestionPatterns) {
     const match = message.match(pattern);
     if (match) {
-      const query = match[1] ? match[1].toLowerCase().trim() : match[0].toLowerCase().trim();
+      // For patterns with 2 capture groups, check the second group (NPC name)
+      const queries = match[2] ? [match[2].toLowerCase().trim()] : [match[1].toLowerCase().trim()];
       
-      // Check if query matches any NPC
-      for (const [npcKey, aliases] of Object.entries(npcNames)) {
-        for (const alias of aliases) {
-          if (query.includes(alias)) {
-            return {
-              type: 'npc',
-              npc: npcKey
-            };
+      // Also check the first capture group if it exists
+      if (match[1] && match[2]) {
+        queries.push(match[1].toLowerCase().trim());
+      }
+      
+      // Check if any query matches any NPC
+      for (const query of queries) {
+        for (const [npcKey, aliases] of Object.entries(npcNames)) {
+          for (const alias of aliases) {
+            if (query.includes(alias)) {
+              return {
+                type: 'npc',
+                npc: npcKey
+              };
+            }
           }
+        }
+      }
+    }
+  }
+  
+  // Final pass: scan entire message for any NPC alias mention
+  // Only for multi-word aliases to avoid false positives with generic single words
+  for (const [npcKey, aliases] of Object.entries(npcNames)) {
+    for (const alias of aliases) {
+      // Determine if this is a single-word alias (potentially generic)
+      const isSingleWord = alias.split(/\s+/).length === 1;
+      const hasNPCContext = /\b(npc|character|at the|visit the|talk to|speak to|see the|meet the)\b/i.test(message);
+      
+      // Create a word-boundary regex for this alias
+      const aliasRegex = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (aliasRegex.test(message)) {
+        // Only return if this seems like a question about the NPC
+        const hasQuestionWord = /\b(where|how|what|who|which|find|use|access|visit|talk|speak|get to|see|meet)\b/i.test(message);
+        
+        // For single-word aliases, ALWAYS require NPC context to avoid false positives
+        // Multi-word aliases only need question word (they're more specific)
+        if (hasQuestionWord && (!isSingleWord || hasNPCContext)) {
+          return {
+            type: 'npc',
+            npc: npcKey
+          };
         }
       }
     }

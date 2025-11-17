@@ -12,13 +12,24 @@ Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi
 - **Performance**: Best/worst calculation adds minimal overhead (one extra sort on full dataset). Live fallback uses 100-pool limit (vs current 14 pools) for future-proofing while maintaining fast response times.
 - **Implementation Note**: Live fallback limit set to 100 pools (DFK Chain currently has 14 pools). If pool count exceeds this in future, update limit or modify getAllPoolAnalytics to accept null for unlimited fetch.
 
-**November 17, 2025 - NPC Navigation System (Beta)**
-- **Visual NPC Guide**: Added interactive NPC knowledge system allowing users to query game NPCs via DMs. System sends NPC images with Hedge's humorous anecdotes and clear usage instructions.
-- **Beta NPCs**: Druid (liquidity management), Seed Box (garden data viewing), Harvest (reward claiming). Each includes location, function, personal story from Hedge, and step-by-step instructions.
-- **Intent Detection**: Enhanced intent parser with NPC query patterns (where/how/what questions) and action-based mapping (e.g., "how do I harvest rewards" → Harvest NPC). Positioned after data queries to prevent conflicts.
-- **Knowledge Base**: Created `knowledge/npcs.md` with structured NPC data and stored pixel art images in `knowledge/npcs/` directory.
-- **Free Content**: NPC navigation queries are FREE educational content, helping new players learn game interface without cost.
-- **Extensible Design**: System designed for easy addition of more NPCs (Tavern, Marketplace, Alchemist, etc.) after beta testing validates approach.
+**November 17, 2025 - Complete NPC Navigation System (37 NPCs)**
+- **Massive Expansion**: Expanded NPC navigation from 3 beta NPCs to complete coverage of all 37 Crystalvale NPCs across 14 game locations. System provides comprehensive visual guides, Hedge's humorous anecdotes, step-by-step instructions, and actionable tips for every game interface.
+- **Coverage by Location**:
+  - **Gardens** (3): Druid, Seed Box, Harvest
+  - **Marketplace** (12): Ragna (Trader), Brina (Stylist), Hatcher Cliff (Pets), Sheldon (Treats), Hunter Fior (Endurance), Rahim Hassan (Bazaar), Aoisla (Dexterity), Vendor (Gold Arbitrage), Crier (News), Arden (Weapons), Regina (Armor), Olga (Wisdom)
+  - **Portal & Meditation** (3): Zagreb (Summoning), Amba (Infusion), Esoteric Wanderer (Meditation)
+  - **Tavern** (4): Treathor (NFT Agent/Rental), Enderdain (Barkeep/Catalog), Mr. B (Visages), Elmer (Void Hunts)
+  - **Jeweler** (2): Jeweler (Staking), Manager Dorarulir (Locked CRYSTAL Transfers)
+  - **Training** (3): Master Erik (Strength), Nimble Bjørn (Agility), Lemira (Intelligence)
+  - **Docks** (2): Veigar (Dockmaster/Travel), Injured Sailor (Onramps)
+  - **Alchemy** (2): The Burned Man (Alchemist), Taddius (Enchanter)
+  - **Special Services** (2): Veiled Summoner (Dark Summoning), High Valkyrie (Divine Altar)
+  - **Professions** (4): Forester Ivanna (Foraging), Pickman Khudmire (Mining), Fisher Mark (Fishing), Greenskeeper Sivia (Gardening)
+  - **Expeditions** (1): Caravan Leader
+- **Enhanced Intent Detection**: Updated `intent-parser.js` with comprehensive NPC name recognition (37+ aliases) and action-based mappings for all game activities (summoning, training, crafting, expeditions, etc.). Users can now ask "how do I summon heroes" or "where is the alchemist" and get instant NPC guidance.
+- **Knowledge Base**: Expanded `knowledge/npcs.md` to 1,140+ lines with structured documentation for all NPCs following consistent format: Location, Function, Image path, Hedge's Memory (humorous anecdote), How to Use (step-by-step), and Tips. Includes comprehensive Related Actions section mapping 50+ game actions to appropriate NPCs.
+- **Privacy-Aware**: Documentation includes privacy-conscious screenshot handling (blurred sensitive data like wallet balances, hidden expedition counts).
+- **Free Educational Content**: All NPC navigation remains FREE, providing new players with comprehensive game interface guidance without cost. This positions Hedge Ledger as the definitive Crystalvale navigation assistant.
 
 **November 17, 2025 - DM Response Formatting Improvements**
 - **Pool Display Format**: Removed PID numbers from all pool listings and details. Pool entries now show clean inline format: "CRYSTAL-WJEWEL - 2.50% Fee APR - 5.21% Distribution APR" for improved readability.
