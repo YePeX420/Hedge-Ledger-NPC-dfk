@@ -16,7 +16,7 @@ import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache } from './pool-cache.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages } from './shared/schema.ts';
-import { eq, desc, sql, inArray } from 'drizzle-orm';
+import { eq, desc, sql, inArray, and } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
 
@@ -1465,8 +1465,7 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     const depositStatsMap = new Map(allDepositStats.map(d => [d.playerId, d]));
     
     // Batch query: Get recent DM messages for all users (single query)
-    // Wrap in try-catch since this is non-critical for user list
-    let messagesByPlayer = new Map();
+    const messagesByPlayer = new Map();
     try {
       const allMessages = await db
         .select({
@@ -1477,7 +1476,10 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
         })
         .from(interactionMessages)
         .innerJoin(interactionSessions, eq(interactionMessages.sessionId, interactionSessions.id))
-        .where(sql`${interactionMessages.playerId} IN (${sql.raw(playerIds.join(','))}) AND ${interactionSessions.channelType} = 'dm'`)
+        .where(and(
+          inArray(interactionMessages.playerId, playerIds),
+          eq(interactionSessions.channelType, 'dm')
+        ))
         .orderBy(desc(interactionMessages.timestamp))
         .limit(10 * playerIds.length); // Get up to 10 messages per user
       
