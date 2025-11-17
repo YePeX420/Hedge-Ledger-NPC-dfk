@@ -334,6 +334,10 @@
             <h2 class="section-title">⚙️ System Controls</h2>
             <p class="section-description">Restart or reset system components</p>
             <div class="button-grid">
+                <button class="debug-button danger" onclick="restartBot()">
+                    <span class="button-icon">🔄</span>
+                    <span class="button-label">Restart Bot (Kill Duplicates)</span>
+                </button>
                 <button class="debug-button danger" onclick="restartMonitor()">
                     <span class="button-icon">📡</span>
                     <span class="button-label">Restart Monitor</span>
@@ -495,6 +499,32 @@
         }
 
         // System Controls
+        async function restartBot() {
+            if (!confirm('⚠️ This will kill ALL bot processes and trigger a clean restart.\n\nThe bot will be offline for 5-10 seconds.\n\nContinue?')) {
+                return;
+            }
+            
+            try {
+                showStatus('system', 'Killing all bot processes...', 'info');
+                const response = await fetch('/api/admin/restart-bot', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('system', '✅ Bot restart initiated - processes killed, auto-restart in progress...', 'success');
+                    showOutput('system', JSON.stringify(result, null, 2));
+                    
+                    // Show a countdown message
+                    setTimeout(() => {
+                        showStatus('system', '⏳ Waiting for bot to restart... (this may take 10-15 seconds)', 'info');
+                    }, 2000);
+                } else {
+                    showStatus('system', '❌ Failed to restart: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('system', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
         async function restartMonitor() {
             if (!confirm('Are you sure you want to restart the transaction monitor? This may cause a brief interruption.')) {
                 return;

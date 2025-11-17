@@ -2,6 +2,8 @@
 import 'dotenv/config';
 import fs from 'fs';
 import crypto from 'crypto';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder } from 'discord.js';
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
@@ -20,6 +22,8 @@ import { jewelBalances, players, depositRequests, queryCosts, interactionSession
 import { eq, desc, sql, inArray, and } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
+
+const execAsync = promisify(exec);
 
 const {
   DISCORD_TOKEN,
@@ -1843,6 +1847,36 @@ app.delete('/api/admin/users/:discordId', requireAuth, requireAdmin, async (req,
   } catch (error) {
     console.error('[API] Error deleting user:', error);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// POST /api/admin/restart-bot - Kill all bot processes to trigger clean restart
+app.post('/api/admin/restart-bot', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    console.log('[Admin] Restart requested - killing all bot processes...');
+    
+    // Send success response BEFORE killing the process
+    res.json({ 
+      success: true, 
+      message: 'Bot restart initiated - all processes will be killed',
+      timestamp: new Date().toISOString(),
+      note: 'Workflow will auto-restart in a few seconds'
+    });
+    
+    // Give the response time to reach the client
+    setTimeout(async () => {
+      try {
+        console.log('[Admin] Executing pkill to kill all bot processes...');
+        // Kill all tsx bot.js processes (this will kill the current process too)
+        await execAsync('pkill -f "tsx bot.js"');
+      } catch (error) {
+        // pkill returns error code 1 if processes were killed, that's actually success
+        console.log('[Admin] Bot processes killed, workflow will auto-restart');
+      }
+    }, 500);
+  } catch (error) {
+    console.error('[Admin] Error initiating restart:', error);
+    res.status(500).json({ error: 'Failed to initiate restart' });
   }
 });
 
