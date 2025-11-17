@@ -4,6 +4,13 @@
 
 Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi Kingdoms players. Embodying "Hedge Ledger, the Reluctant Accountant of Serendale," a sarcastic and brilliant character, the bot provides AI-powered responses to help players with game navigation. It integrates OpenAI's GPT-4o-mini with a comprehensive DeFi Kingdoms knowledge base and live blockchain data from the game's GraphQL API. Its primary purpose is to offer an entertaining, character-driven helper that can answer questions, analyze heroes, browse marketplace listings, and explain game mechanics through Discord.
 
+## Recent Changes
+
+**November 17, 2025**
+- Fixed intent parser bug where "show me pool garden APRs" was incorrectly parsed as searching for a pool named "garden APRs"
+- Added generic keyword filtering to prevent common words (garden, apr, yields, etc.) from being misidentified as pool names
+- Queries like "pool garden APRs", "show me all pool yields" now correctly trigger the "all pools" intent
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
