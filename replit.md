@@ -38,3 +38,21 @@ The project is a Node.js backend service leveraging Discord.js for bot functiona
 3.  **DeFi Kingdoms GraphQL API**: Public endpoint `https://api.defikingdoms.com/graphql`, queried using `graphql-request` (v7.3.3).
 4.  **DFK Chain RPC (Crystalvale)**: Public endpoint `https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc`, accessed directly via `ethers.js` (v6.x) for smart contract interactions and event log scanning.
 5.  **NPM Packages**: Key packages include `discord.js`, `openai`, `graphql-request`, and `dotenv`.
+
+## Infrastructure Setup (Future Reference)
+
+### Self-Hosted RPC Node
+
+The bot currently uses the public DFK Chain RPC endpoint. For improved performance, reliability, and higher rate limits, a dedicated RPC node can be set up using the following resources:
+
+**Setup Resources:**
+- **Avalanche Node Installation**: [https://build.avax.network/docs/nodes/using-install-script/installing-avalanche-go](https://build.avax.network/docs/nodes/using-install-script/installing-avalanche-go)
+- **DFK Subnet Specification**: [https://raw.githubusercontent.com/pokt-foundation/avalanche-subnets/master/dfk.pdf](https://raw.githubusercontent.com/pokt-foundation/avalanche-subnets/master/dfk.pdf)
+
+**Benefits of Self-Hosted RPC:**
+- Lower latency for blockchain queries
+- No rate limiting from public endpoints
+- More reliable uptime and performance
+- Better control over caching and optimization
+
+**Current Status:** Using public RPC endpoint `https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc` with chunked event log queries to respect provider limits.
