@@ -1456,8 +1456,7 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
         playerId: depositRequests.playerId,
         totalDeposits: sql`COUNT(*)::int`,
         completedDeposits: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
-        totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
-        totalCrystal: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountCrystal} AS DECIMAL) ELSE 0 END), 0)`
+        totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`
       })
       .from(depositRequests)
       .where(inArray(depositRequests.playerId, playerIds))
@@ -1503,8 +1502,7 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
       const deposits = depositStatsMap.get(user.id) || {
         totalDeposits: 0,
         completedDeposits: 0,
-        totalJewel: '0',
-        totalCrystal: '0'
+        totalJewel: '0'
       };
       
       // Generate conversation summary
@@ -1544,7 +1542,6 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
         depositCount: deposits.totalDeposits || 0,
         completedDeposits: deposits.completedDeposits || 0,
         totalJewelProvided: deposits.totalJewel || '0',
-        totalCrystalProvided: deposits.totalCrystal || '0',
         conversationSummary,
         userState: user.lastQueryAt ? 'active' : 'inactive',
         conversionStatus: (deposits.completedDeposits || 0) > 0 ? 'converted' : 'free',
