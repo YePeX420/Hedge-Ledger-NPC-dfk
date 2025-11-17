@@ -1,6 +1,7 @@
 // bot.js
 import 'dotenv/config';
 import fs from 'fs';
+import crypto from 'crypto';
 import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder } from 'discord.js';
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
@@ -23,8 +24,18 @@ const {
   DISCORD_TOKEN,
   OPENAI_API_KEY,
   OPENAI_MODEL = 'gpt-4o-mini',
-  HEDGE_PROMPT_PATH = 'prompt/hedge-ledger.md'
+  HEDGE_PROMPT_PATH = 'prompt/hedge-ledger.md',
+  DISCORD_CLIENT_ID,
+  DISCORD_CLIENT_SECRET,
+  DISCORD_GUILD_ID,
+  SESSION_SECRET,
+  REDIRECT_URI = 'http://localhost:5000/auth/discord/callback'
 } = process.env;
+
+// Validate SESSION_SECRET
+if (DISCORD_CLIENT_ID && !SESSION_SECRET) {
+  throw new Error('SESSION_SECRET environment variable is required for OAuth authentication. Generate one with: openssl rand -hex 32');
+}
 
 // Load Hedge Ledger system prompt from file
 let HEDGE_PROMPT = '';
@@ -920,6 +931,216 @@ async function handleWalletCommand(interaction) {
 const app = express();
 app.use(express.json());
 
+// ============================================================
+// SESSION MANAGEMENT (lightweight, no external dependencies)
+// ============================================================
+
+const sessions = new Map();
+
+function parseCookie(cookieHeader, name) {
+  if (!cookieHeader) return null;
+  const cookies = cookieHeader.split(';');
+  for (const cookie of cookies) {
+    const trimmed = cookie.trim();
+    if (trimmed.startsWith(name + '=')) {
+      return trimmed.substring(name.length + 1);
+    }
+  }
+  return null;
+}
+
+function signCookie(data) {
+  if (!SESSION_SECRET) {
+    throw new Error('SESSION_SECRET is required for session signing');
+  }
+  const hmac = crypto.createHmac('sha256', SESSION_SECRET);
+  hmac.update(JSON.stringify(data));
+  const signature = hmac.digest('hex');
+  return `${Buffer.from(JSON.stringify(data)).toString('base64')}.${signature}`;
+}
+
+function verifyCookie(cookie) {
+  if (!cookie) return null;
+  const lastDotIndex = cookie.lastIndexOf('.');
+  if (lastDotIndex === -1) return null;
+  
+  const dataB64 = cookie.substring(0, lastDotIndex);
+  const signature = cookie.substring(lastDotIndex + 1);
+  
+  if (!dataB64 || !signature) return null;
+  
+  try {
+    const data = JSON.parse(Buffer.from(dataB64, 'base64').toString('utf8'));
+    if (!SESSION_SECRET) {
+      throw new Error('SESSION_SECRET is required for session verification');
+    }
+    const hmac = crypto.createHmac('sha256', SESSION_SECRET);
+    hmac.update(JSON.stringify(data));
+    const expectedSignature = hmac.digest('hex');
+    
+    if (signature !== expectedSignature) return null;
+    
+    if (data.expires && Date.now() > data.expires) {
+      return null;
+    }
+    
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ============================================================
+// DISCORD OAUTH2 HELPERS
+// ============================================================
+
+async function exchangeCodeForToken(code) {
+  const params = new URLSearchParams({
+    client_id: DISCORD_CLIENT_ID,
+    client_secret: DISCORD_CLIENT_SECRET,
+    grant_type: 'authorization_code',
+    code: code,
+    redirect_uri: REDIRECT_URI
+  });
+
+  const response = await fetch('https://discord.com/api/oauth2/token', {
+    method: 'POST',
+    body: params,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to exchange code for token');
+  }
+
+  return await response.json();
+}
+
+async function fetchUserGuilds(accessToken) {
+  const response = await fetch('https://discord.com/api/users/@me/guilds', {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch user guilds');
+  }
+
+  return await response.json();
+}
+
+async function fetchUserInfo(accessToken) {
+  const response = await fetch('https://discord.com/api/users/@me', {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch user info');
+  }
+
+  return await response.json();
+}
+
+// ============================================================
+// AUTHENTICATION MIDDLEWARE
+// ============================================================
+
+function requireAuth(req, res, next) {
+  const sessionCookie = parseCookie(req.headers.cookie, 'session');
+  const session = verifyCookie(sessionCookie);
+  
+  if (!session || !session.userId) {
+    return res.status(401).json({ error: 'Authentication required', redirectTo: '/login.html' });
+  }
+  
+  req.user = session;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user || !req.user.isAdmin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
+// ============================================================
+// OAUTH ROUTES
+// ============================================================
+
+app.get('/auth/discord', (req, res) => {
+  if (!DISCORD_CLIENT_ID || !DISCORD_GUILD_ID) {
+    return res.status(500).send('OAuth not configured. Please set DISCORD_CLIENT_ID and DISCORD_GUILD_ID environment variables.');
+  }
+  
+  const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
+  res.redirect(authUrl);
+});
+
+app.get('/auth/discord/callback', async (req, res) => {
+  const { code } = req.query;
+  
+  if (!code) {
+    return res.status(400).send('Authorization code missing');
+  }
+  
+  try {
+    const tokenData = await exchangeCodeForToken(code);
+    const [userInfo, guilds] = await Promise.all([
+      fetchUserInfo(tokenData.access_token),
+      fetchUserGuilds(tokenData.access_token)
+    ]);
+    
+    const isInGuild = guilds.some(g => g.id === DISCORD_GUILD_ID);
+    
+    if (!isInGuild) {
+      return res.status(403).send('Access denied. You must be a member of the Hedge Ledger Discord server.');
+    }
+    
+    const targetGuild = guilds.find(g => g.id === DISCORD_GUILD_ID);
+    const hasAdminPerms = targetGuild && (parseInt(targetGuild.permissions) & 0x8) === 0x8;
+    
+    const sessionData = {
+      userId: userInfo.id,
+      username: userInfo.username,
+      discriminator: userInfo.discriminator,
+      avatar: userInfo.avatar,
+      isAdmin: hasAdminPerms,
+      expires: Date.now() + (7 * 24 * 60 * 60 * 1000)
+    };
+    
+    const sessionCookie = signCookie(sessionData);
+    
+    res.setHeader('Set-Cookie', `session=${sessionCookie}; Path=/; HttpOnly; Max-Age=${7 * 24 * 60 * 60}; SameSite=Lax`);
+    res.redirect('/users.html');
+  } catch (error) {
+    console.error('[OAuth] Error during callback:', error);
+    res.status(500).send('Authentication failed. Please try again.');
+  }
+});
+
+app.get('/auth/logout', (req, res) => {
+  res.setHeader('Set-Cookie', 'session=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax');
+  res.redirect('/login.html');
+});
+
+app.get('/auth/status', (req, res) => {
+  const sessionCookie = parseCookie(req.headers.cookie, 'session');
+  const session = verifyCookie(sessionCookie);
+  
+  if (!session || !session.userId) {
+    return res.json({ authenticated: false });
+  }
+  
+  res.json({
+    authenticated: true,
+    user: {
+      id: session.userId,
+      username: session.username,
+      isAdmin: session.isAdmin
+    }
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -1003,7 +1224,7 @@ app.get('/api/analytics/query-breakdown', async (req, res) => {
 // Admin API Routes
 
 // GET /api/admin/users - Comprehensive user management list
-app.get('/api/admin/users', async (req, res) => {
+app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
   try {
     console.log('[API] Fetching users list...');
     // Fetch all users with their basic info (single query)
@@ -1039,10 +1260,10 @@ app.get('/api/admin/users', async (req, res) => {
     const allQueryStats = await db
       .select({
         playerId: queryCosts.playerId,
-        totalQueries: sql`COUNT(*)`,
-        totalCost: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
-        totalProfit: sql`COALESCE(SUM(${queryCosts.profitUsd}), 0)`,
-        freeQueries: sql`SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`
+        totalQueries: sql<number>`COUNT(*)::int`,
+        totalCost: sql<string>`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
+        totalProfit: sql<string>`COALESCE(SUM(${queryCosts.profitUsd}), 0)`,
+        freeQueries: sql<number>`COALESCE(SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END), 0)::int`
       })
       .from(queryCosts)
       .where(inArray(queryCosts.playerId, playerIds))
@@ -1054,10 +1275,10 @@ app.get('/api/admin/users', async (req, res) => {
     const allDepositStats = await db
       .select({
         playerId: depositRequests.playerId,
-        totalDeposits: sql`COUNT(*)`,
-        completedDeposits: sql`SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END)`,
-        totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
-        totalCrystal: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountCrystal} AS DECIMAL) ELSE 0 END), 0)`
+        totalDeposits: sql<number>`COUNT(*)::int`,
+        completedDeposits: sql<number>`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
+        totalJewel: sql<string>`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
+        totalCrystal: sql<string>`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountCrystal} AS DECIMAL) ELSE 0 END), 0)`
       })
       .from(depositRequests)
       .where(inArray(depositRequests.playerId, playerIds))
@@ -1161,10 +1382,7 @@ app.get('/api/admin/users', async (req, res) => {
 });
 
 // PATCH /api/admin/users/:id/tier - Update user tier manually
-// ⚠️ SECURITY WARNING: This endpoint has NO AUTHENTICATION!
-// In production, you MUST add authentication (API key, Discord OAuth, etc.)
-// Current state: Anyone who can reach this endpoint can modify user tiers
-app.patch('/api/admin/users/:id/tier', async (req, res) => {
+app.patch('/api/admin/users/:id/tier', requireAuth, requireAdmin, async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const { tier } = req.body;
