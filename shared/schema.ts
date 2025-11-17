@@ -492,6 +492,47 @@ export const extractorSignals = pgTable("extractor_signals", {
 }));
 
 // ============================================================================
+// GARDEN OPTIMIZATION SERVICE SCHEMA
+// ============================================================================
+
+/**
+ * Garden optimizations - Tracks pending and completed optimization sessions
+ */
+export const gardenOptimizations = pgTable("garden_optimizations", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  
+  // Status tracking
+  status: text("status").notNull().default('awaiting_payment'), 
+  // 'awaiting_payment', 'payment_verified', 'processing', 'completed', 'failed', 'expired'
+  
+  // Timing
+  requestedAt: timestamp("requested_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), // 2 hours from request
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  
+  // Payment details
+  expectedAmountJewel: numeric("expected_amount_jewel", { precision: 30, scale: 18 }).notNull().default('25'),
+  fromWallet: text("from_wallet").notNull(), // User's wallet address
+  txHash: text("tx_hash"), // Transaction hash once payment verified
+  
+  // Optimization data (stored as JSON)
+  lpSnapshot: json("lp_snapshot"), // Array of LP positions at time of request
+  reportPayload: json("report_payload"), // Full optimization report with before/after yields
+  
+  // Error handling
+  errorMessage: text("error_message"),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  playerIdIdx: index("garden_optimizations_player_id_idx").on(table.playerId),
+  statusIdx: index("garden_optimizations_status_idx").on(table.status),
+  expiresAtIdx: index("garden_optimizations_expires_at_idx").on(table.expiresAt),
+  fromWalletIdx: index("garden_optimizations_from_wallet_idx").on(table.fromWallet),
+}));
+
+// ============================================================================
 // ECONOMIC MODEL SCHEMA - JEWEL BALANCE & QUERY COSTS
 // ============================================================================
 
@@ -625,6 +666,7 @@ export const insertConversionMilestoneSchema = createInsertSchema(conversionMile
 export const insertWalletActivitySchema = createInsertSchema(walletActivity).omit({ id: true, createdAt: true });
 export const insertDailyPlayerSnapshotSchema = createInsertSchema(dailyPlayerSnapshots).omit({ id: true, createdAt: true });
 export const insertExtractorSignalSchema = createInsertSchema(extractorSignals).omit({ id: true, createdAt: true });
+export const insertGardenOptimizationSchema = createInsertSchema(gardenOptimizations).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertJewelBalanceSchema = createInsertSchema(jewelBalances).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertDepositRequestSchema = createInsertSchema(depositRequests).omit({ id: true, createdAt: true });
 export const insertQueryCostSchema = createInsertSchema(queryCosts).omit({ id: true, createdAt: true });
@@ -645,6 +687,8 @@ export type InsertDailyPlayerSnapshot = z.infer<typeof insertDailyPlayerSnapshot
 export type DailyPlayerSnapshot = typeof dailyPlayerSnapshots.$inferSelect;
 export type InsertExtractorSignal = z.infer<typeof insertExtractorSignalSchema>;
 export type ExtractorSignal = typeof extractorSignals.$inferSelect;
+export type InsertGardenOptimization = z.infer<typeof insertGardenOptimizationSchema>;
+export type GardenOptimization = typeof gardenOptimizations.$inferSelect;
 export type InsertJewelBalance = z.infer<typeof insertJewelBalanceSchema>;
 export type JewelBalance = typeof jewelBalances.$inferSelect;
 export type InsertDepositRequest = z.infer<typeof insertDepositRequestSchema>;
