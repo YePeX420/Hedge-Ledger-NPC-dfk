@@ -19,9 +19,9 @@ The project is a Node.js backend service leveraging Discord.js for bot functiona
 3.  **Blockchain Integration**:
     *   **GraphQL Integration**: Utilizes `graphql-request` to connect to the public DeFi Kingdoms GraphQL API for querying hero data, marketplace listings, and wallet analysis.
     *   **Intent Detection**: The `intent-parser.js` module analyzes DM messages to determine user intent, parse parameters, and route queries to appropriate data handlers.
-    *   **Pool Analytics Cache**: A background system (`pool-cache.js`) refreshes DeFi Kingdoms pool analytics every 20 minutes, storing data in-memory for instant responses and graceful fallback to live scans.
+    *   **Pool Analytics Cache**: A background system (`pool-cache.js`) refreshes DeFi Kingdoms pool analytics every 20 minutes, storing data in-memory for instant responses and graceful fallback to live scans. Includes comprehensive progress tracking with 5-stage initialization, pool-by-pool progress indicators, historical timing data (rolling 10-refresh average), and performance alerts for slow refreshes (>50% regression).
     *   **Quick Data Fetcher**: Provides an instant response layer for DM queries, leveraging cached data with automatic fallbacks and timeout wrappers for efficiency.
-    *   **Garden Analytics**: Directly interacts with the DFK Chain RPC via `ethers.js` to provide comprehensive Crystalvale garden pool analytics, including detailed APR calculations (fee, emission, hero boost), TVL breakdowns, and price graph construction from raw smart contract data.
+    *   **Garden Analytics**: Directly interacts with the DFK Chain RPC via `ethers.js` to provide comprehensive Crystalvale garden pool analytics, including detailed APR calculations (fee, emission, hero boost), TVL breakdowns, and price graph construction from raw smart contract data. Uses chunked event log queries (2048-block segments) to respect RPC provider limits when scanning large block ranges.
 4.  **Web Dashboard**: An Express server integrated into `bot.js` hosts a static HTML dashboard displaying real-time metrics such as total players, JEWEL deposits, revenue, and query usage via several API endpoints.
 5.  **Command System**: Ten slash commands are registered with Discord for core functionalities like `/hero`, `/market`, `/wallet`, and `/garden`.
 
