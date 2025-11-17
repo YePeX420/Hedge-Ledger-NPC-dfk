@@ -1,7 +1,7 @@
 // bot.js
 import 'dotenv/config';
 import fs from 'fs';
-import { Client, GatewayIntentBits, Partials, Events } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder } from 'discord.js';
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
 import * as analytics from './garden-analytics.js';
@@ -43,7 +43,8 @@ const KNOWLEDGE_FILES = [
   'knowledge/heroes.md',
   'knowledge/quests.md',
   'knowledge/gardens.md',
-  'knowledge/ui-navigation.md'
+  'knowledge/ui-navigation.md',
+  'knowledge/npcs.md'
 ];
 
 let DFK_KNOWLEDGE = '\n\n---\n\n# DEFI KINGDOMS KNOWLEDGE BASE\n\n';
@@ -64,6 +65,36 @@ if (loadedKnowledgeCount > 0) {
   console.log(`📚 Loaded ${loadedKnowledgeCount}/${KNOWLEDGE_FILES.length} knowledge base files`);
 } else {
   console.warn('⚠️ No knowledge base files loaded - bot will rely on GPT general knowledge only');
+}
+
+/**
+ * Extract NPC data from knowledge base
+ * @param {string} npcKey - NPC identifier (e.g., 'druid', 'seed box', 'harvest')
+ * @returns {object|null} NPC data or null if not found
+ */
+function getNPCData(npcKey) {
+  const npcMap = {
+    'druid': {
+      name: 'Druid',
+      location: 'The Gardens (Crystalvale)',
+      function: 'Manage liquidity pools - add/remove liquidity, view pool statistics',
+      imagePath: 'knowledge/npcs/druid.png'
+    },
+    'seed box': {
+      name: 'Seed Box',
+      location: 'The Gardens (Crystalvale)',
+      function: 'View garden pool data and your LP positions',
+      imagePath: 'knowledge/npcs/seed-box.png'
+    },
+    'harvest': {
+      name: 'Harvest',
+      location: 'The Gardens (Crystalvale)',
+      function: 'Claim your distribution rewards from staked LP tokens',
+      imagePath: 'knowledge/npcs/harvest.png'
+    }
+  };
+  
+  return npcMap[npcKey] || null;
 }
 
 if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_TOKEN');
@@ -209,6 +240,48 @@ client.on('messageCreate', async (message) => {
     
     if (intent) {
       console.log(`🔍 Intent detected: ${formatIntent(intent)}`);
+      
+      // 🎭 NPC navigation/help queries (FREE - educational content)
+      if (intent.type === 'npc') {
+        try {
+          const npcData = getNPCData(intent.npc);
+          
+          if (!npcData) {
+            await message.reply(`Hmm, I don't have information about "${intent.npc}" yet. Try asking about the Druid, Seed Box, or Harvest.`);
+            return;
+          }
+          
+          // Load NPC image
+          const attachment = new AttachmentBuilder(npcData.imagePath, { name: `${intent.npc.replace(/\s+/g, '-')}.png` });
+          
+          // Build prompt with optional action context
+          let npcPrompt = `User asked about the ${npcData.name} NPC.`;
+          if (intent.action) {
+            npcPrompt += ` Specifically, they want to: "${intent.action}".`;
+          }
+          npcPrompt += ` Based on your knowledge base (knowledge/npcs.md), respond with:
+1. A brief, humorous personal anecdote about your experience with this NPC
+2. Clear instructions on how to use it${intent.action ? ' (focus on their specific goal)' : ''}
+3. Its location
+
+Keep it entertaining but helpful. This is free educational content, so be generous with the guidance.`;
+          
+          const prompt = [{ role: 'user', content: npcPrompt }];
+          const reply = await askHedge(prompt);
+          
+          // Send image + response
+          await message.reply({
+            content: reply,
+            files: [attachment]
+          });
+          
+          return;
+        } catch (err) {
+          console.error('NPC query error:', err);
+          await message.reply("*shuffles through papers* Can't find my notes on that NPC. Try again later.");
+          return;
+        }
+      }
       
       // 🌱 Auto-fetch garden/pool data (lightweight, fast)
       if (intent.type === 'garden') {

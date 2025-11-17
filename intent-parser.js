@@ -127,6 +127,84 @@ export function parseMarketIntent(message) {
 }
 
 /**
+ * Parse NPC/navigation questions
+ * Examples:
+ * - "Where is the druid?" → { type: 'npc', npc: 'druid' }
+ * - "How do I use the harvest?" → { type: 'npc', npc: 'harvest' }
+ * - "What does the seed box do?" → { type: 'npc', npc: 'seed box' }
+ * - "How do I add liquidity?" → { type: 'npc', action: 'add liquidity' }
+ * - "How do I harvest rewards?" → { type: 'npc', action: 'harvest rewards' }
+ */
+export function parseNPCIntent(message) {
+  const lowerMsg = message.toLowerCase();
+  
+  // Direct NPC name mentions
+  const npcNames = {
+    'druid': ['druid'],
+    'seed box': ['seed box', 'seedbox', 'seed-box'],
+    'harvest': ['harvest station', 'harvest']
+  };
+  
+  // Check for direct NPC questions
+  const npcQuestionPatterns = [
+    /(?:where is|find|locate|show me|tell me about|who is|what is|what does|how do i use|how to use)\s+(?:the\s+)?([^?]+)/i,
+    /\b(druid|seed\s*box|harvest(?:\s+station)?)\b/i
+  ];
+  
+  for (const pattern of npcQuestionPatterns) {
+    const match = message.match(pattern);
+    if (match) {
+      const query = match[1] ? match[1].toLowerCase().trim() : match[0].toLowerCase().trim();
+      
+      // Check if query matches any NPC
+      for (const [npcKey, aliases] of Object.entries(npcNames)) {
+        for (const alias of aliases) {
+          if (query.includes(alias)) {
+            return {
+              type: 'npc',
+              npc: npcKey
+            };
+          }
+        }
+      }
+    }
+  }
+  
+  // Action-based mapping (user asking how to do something)
+  const actionMappings = {
+    'druid': [
+      /\b(?:add|deposit|provide|give)\s+(?:liquidity|lp|tokens?)\b/i,
+      /\b(?:remove|withdraw|take out)\s+(?:liquidity|lp|tokens?)\b/i,
+      /\bmanage\s+(?:liquidity|pool|lp)\b/i,
+      /\bview\s+(?:pool|pools|garden)\s+(?:stats?|data|info)\b/i
+    ],
+    'seed box': [
+      /\bcheck\s+(?:pool|garden)\s+(?:data|stats?|apr)\b/i,
+      /\bview\s+(?:all\s+)?(?:pools?|gardens?)\b/i,
+      /\bbrowse\s+(?:pools?|gardens?)\b/i
+    ],
+    'harvest': [
+      /\b(?:harvest|claim|collect)\s+(?:rewards?|distribution|emissions?)\b/i,
+      /\bget\s+(?:my\s+)?(?:rewards?|jewel|crystal)\b/i
+    ]
+  };
+  
+  for (const [npcKey, patterns] of Object.entries(actionMappings)) {
+    for (const pattern of patterns) {
+      if (pattern.test(message)) {
+        return {
+          type: 'npc',
+          npc: npcKey,
+          action: message.match(pattern)[0]
+        };
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Parse wallet/portfolio questions
  * Examples:
  * - "What's in wallet 0x123...?" → { type: 'wallet', address: '0x123...' }
@@ -158,19 +236,25 @@ export function parseWalletIntent(message) {
 
 /**
  * Master intent parser - tries all parsers in order
+ * Priority: Data queries first (wallet/garden/market), then NPC help
  */
 export function parseIntent(message) {
   // Try wallet first (most specific - requires address + non-garden keywords)
   const walletIntent = parseWalletIntent(message);
   if (walletIntent) return walletIntent;
   
-  // Then garden (includes garden-specific wallet queries)
+  // Then garden (includes garden-specific wallet queries like "harvest rewards 0x...")
   const gardenIntent = parseGardenIntent(message);
   if (gardenIntent) return gardenIntent;
   
-  // Finally market
+  // Then market
   const marketIntent = parseMarketIntent(message);
   if (marketIntent) return marketIntent;
+  
+  // Finally NPC queries (navigation/help questions)
+  // This runs last to avoid catching "harvest rewards" when user wants wallet data
+  const npcIntent = parseNPCIntent(message);
+  if (npcIntent) return npcIntent;
   
   // No specific intent detected
   return null;
@@ -183,6 +267,11 @@ export function formatIntent(intent) {
   if (!intent) return 'No intent detected';
   
   switch (intent.type) {
+    case 'npc':
+      if (intent.action) {
+        return `NPC: ${intent.npc} (action: ${intent.action})`;
+      }
+      return `NPC: ${intent.npc}`;
     case 'garden':
       if (intent.action === 'all') return 'Garden: Show all pools';
       if (intent.action === 'pool') return `Garden: Pool ${intent.pool}`;
