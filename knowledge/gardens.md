@@ -386,3 +386,135 @@ On Claim:
 ```
 
 **Remember**: Actual yields vary based on pool activity and emissions!
+
+---
+
+## Garden Optimization Service (25 JEWEL)
+
+Hedge Ledger offers personalized hero and pet recommendations to maximize your garden yields. This service analyzes your LP positions and hero roster to provide strategic assignments.
+
+### What You Get
+
+For **25 JEWEL**, Hedge will:
+1. **Scan Your LP Positions**: Auto-detect all garden pools you're participating in
+2. **Analyze Pool Characteristics**: Determine if each pool is fee-dominant, emission-dominant, or balanced
+3. **Recommend Heroes**: Specific stat requirements (INT, WIS, Level) and passive abilities (e.g., Rapid Renewal)
+4. **Recommend Pets**: Trading pets vs gardening pets based on pool yield sources
+5. **Calculate Yield Improvements**: Show potential gains from optimal hero/pet assignments
+6. **Multi-Pool Strategy**: If you have multiple positions, prioritize best heroes across pools
+
+### How It Works
+
+**Step 1: LP Position Scan**
+- Hedge automatically detects LP token balances in your linked wallet
+- Provides a quick summary: pool names and total position value
+- **No yields shown yet** - this is just the teaser
+
+**Step 2: Payment Request**
+- Cost: **25 JEWEL** (one-time fee per analysis)
+- Use `/deposit` to add JEWEL to your balance
+- Payment is required before receiving optimization details
+
+**Step 3: Full Optimization Report**
+- After payment confirmed, Hedge analyzes your positions
+- For each pool, you'll receive:
+  - Pool type classification
+  - Current yield range (worst to best scenario)
+  - Specific hero recommendations with stats
+  - Pet recommendations
+  - Annual return projections
+  - APR breakdown (fee + harvesting + quest boost)
+
+### Pool Types and Recommendations
+
+**Fee-Dominant Pools** (Fee APR > 2x Emission APR)
+- **Characteristic**: Most yield comes from trading fees, not CRYSTAL emissions
+- **Hero Strategy**: Any hero works well (less hero-dependent)
+- **Focus**: Gardening skill for slight boost
+- **Pet Choice**: Trading pets (boost fee collection)
+- **Example**: Stable pairs like USDC-WJEWEL in high-volume periods
+
+**Emission-Dominant Pools** (Emission APR > 2x Fee APR)
+- **Characteristic**: Most yield comes from CRYSTAL emissions, not fees
+- **Hero Strategy**: Prioritize high INT + WIS + Level heroes
+  - Best: Level 100 heroes with INT/WIS 80+
+  - **Critical**: Heroes with **Rapid Renewal** passive provide 1.43x quest frequency boost
+- **Pet Choice**: Gardening pets (boost CRYSTAL emissions)
+- **Example**: High-allocation pools with lower trading volume
+
+**Balanced Pools**
+- **Characteristic**: Roughly equal yield from fees and emissions
+- **Hero Strategy**: Mid-tier heroes (Level 40-60, INT/WIS 40+)
+- **Pet Choice**: Either trading or gardening pets work well
+- **Example**: Popular pairs with moderate volume and allocation
+
+### Hero Boost Formula
+
+Your personal yield boost from gardening quests follows this formula:
+
+```
+Boost% = (INT + WIS + Level) × GardeningSkill × 0.00012
+```
+
+**Rapid Renewal Effect:**
+- Boosts stamina recharge from 2 sec/level → 5 sec/level
+- For L100 hero: 1000s → 700s per stamina
+- **Result**: 1.43x quest frequency boost
+- Multiplies your per-quest boost by frequency boost
+
+**Example:**
+- Level 100 hero, INT=80, WIS=80, Gardening Skill=10
+- Base boost: (100 + 80 + 80) × 10 × 0.00012 = 31.2%
+- With Rapid Renewal: 31.2% × 1.43 = ~44.6% total boost
+
+### Yield Improvement Examples
+
+**Example 1: Single Pool**
+- Pool: USDC-WJEWEL (Fee-Dominant)
+- Your Position: $5,000
+- Current Yield (no hero): 7.67% APR = $383/year
+- Optimized (best hero): 8.40% APR = $420/year
+- **Gain**: $37/year additional
+
+**Example 2: Multiple Pools**
+- Pool 1: KLAY-WJEWEL (Balanced) - $3,000 position
+- Pool 2: AVAX-WJEWEL (Emission-Dominant) - $2,000 position
+- Hedge recommends:
+  - Assign best L100 hero with Rapid Renewal to Pool 2 (highest boost potential)
+  - Assign secondary hero to Pool 1
+  - Total additional yield: $85/year
+
+### How to Request Optimization
+
+**Via Slash Command:**
+```
+/optimize-gardens
+```
+or
+```
+/optimize-gardens wallet:0xYourAddress
+```
+
+**Via DM:**
+Simply message Hedge:
+- "Optimize my gardens"
+- "Analyze my LP positions"
+- "Garden recommendations"
+
+Hedge will auto-detect your LP positions and guide you through the process.
+
+### Important Notes
+
+1. **One Wallet Per Analysis**: 25 JEWEL covers one wallet analysis
+2. **Hedge Never Sells**: Your 25 JEWEL stays in Hedge's ledger forever
+3. **Hero Roster Needed**: For best recommendations, make sure Hedge can see your heroes (via linked wallet or /wallet command)
+4. **Pool Data is Live**: Recommendations are based on current on-chain APR data
+5. **Re-analyze When Conditions Change**: If pool allocations or APRs shift significantly, consider a fresh analysis
+
+### Pro Tips
+
+✅ **Link Your Wallet in DMs**: Streamlines the process for future optimizations  
+✅ **Have Heroes Ready**: The more heroes Hedge can analyze, the better the recommendations  
+✅ **Check Rapid Renewal**: High-value passive for emission-dominant pools  
+✅ **Multi-Pool Priority**: If you have limited top-tier heroes, Hedge will tell you which pool to prioritize  
+✅ **Follow Up**: After assigning heroes, track your actual yields to confirm the boost

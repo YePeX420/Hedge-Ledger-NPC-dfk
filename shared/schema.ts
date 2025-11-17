@@ -537,6 +537,7 @@ export const depositRequests = pgTable("deposit_requests", {
   requestedAmountJewel: numeric("requested_amount_jewel", { precision: 30, scale: 18 }).notNull(), // Base amount user requested (e.g., 10)
   uniqueAmountJewel: numeric("unique_amount_jewel", { precision: 30, scale: 18 }).notNull().unique(), // e.g., 10.123456
   hedgeWallet: text("hedge_wallet").notNull(), // 0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1
+  purpose: text("purpose").default('general'), // 'general', 'garden_optimization', 'fve_analysis', etc.
   
   // Status tracking
   status: text("status").notNull().default('pending'), // 'pending', 'completed', 'expired'

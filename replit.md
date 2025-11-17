@@ -2,7 +2,7 @@
 
 ## Overview
 
-Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi Kingdoms players. Embodying "Hedge Ledger, the Reluctant Accountant of Serendale," a sarcastic and brilliant character, the bot provides AI-powered responses to help players with game navigation. It integrates OpenAI's GPT-4o-mini with a comprehensive DeFi Kingdoms knowledge base and live blockchain data from the game's GraphQL API. Its primary purpose is to offer an entertaining, character-driven helper that can answer questions, analyze heroes, browse marketplace listings, and explain game mechanics through Discord, with a current focus on Crystalvale gameplay. The project aims to be the definitive Crystalvale navigation assistant, providing free, comprehensive game interface guidance to new players.
+Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi Kingdoms players. Embodying "Hedge Ledger, the Reluctant Accountant of Serendale," a sarcastic and brilliant character, the bot provides AI-powered responses to help players with game navigation. It integrates OpenAI's GPT-4o-mini with a comprehensive DeFi Kingdoms knowledge base and live blockchain data from the game's GraphQL API and DFK Chain RPC. Its primary purpose is to offer an entertaining, character-driven helper that can answer questions, analyze heroes, browse marketplace listings, explain game mechanics, and **optimize garden LP yield strategies** through Discord, with a current focus on Crystalvale gameplay. The project aims to be the definitive Crystalvale navigation assistant, providing free comprehensive game interface guidance to new players, plus premium garden optimization services for 25 JEWEL.
 
 ## User Preferences
 
@@ -22,8 +22,9 @@ The project is a Node.js backend service leveraging Discord.js for bot functiona
     *   **Pool Analytics Cache**: A background system (`pool-cache.js`) refreshes DeFi Kingdoms pool analytics every 20 minutes, storing data in-memory and providing graceful fallbacks.
     *   **Quick Data Fetcher**: Provides an instant response layer for DM queries, leveraging cached data with automatic fallbacks and timeout wrappers.
     *   **Garden Analytics**: Directly interacts with the DFK Chain RPC via `ethers.js` for comprehensive Crystalvale garden pool analytics, including APR calculations, TVL breakdowns, and price graph construction from raw smart contract data, using chunked event log queries.
+    *   **LP Token Detection**: Scans user wallets for LP token holdings using `wallet-lp-detector.js`, matching LP addresses to cached pool data for garden optimization analysis.
 *   **Web Dashboard**: An Express server integrated into `bot.js` hosts a static HTML dashboard displaying real-time metrics and an admin user management system.
-*   **Command System**: Ten slash commands are registered with Discord for core functionalities.
+*   **Command System**: Eleven slash commands are registered with Discord for core functionalities, including the new `/optimize-gardens` command.
 
 **Design Decisions:**
 

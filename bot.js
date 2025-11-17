@@ -1001,6 +1001,46 @@ Give a short, step-by-step guide that a complete beginner can follow.`;
       await interaction.editReply(response);
       return;
     }
+
+    if (name === 'optimize-gardens') {
+      const discordId = interaction.user.id;
+      const walletParam = interaction.options.getString('wallet');
+      
+      // Get player data
+      const playerData = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+      if (playerData.length === 0) {
+        await interaction.editReply('You need to register first. Send me a DM to get started!');
+        return;
+      }
+      
+      // Determine wallet address (from command or linked wallet)
+      let walletAddress;
+      if (walletParam) {
+        walletAddress = walletParam;
+      } else if (playerData[0].wallets && playerData[0].wallets.length > 0) {
+        walletAddress = playerData[0].wallets[0];
+      } else {
+        await interaction.editReply('Please provide a wallet address or link one in DMs first.');
+        return;
+      }
+      
+      // Scan for LP positions
+      await interaction.editReply('Scanning your wallet for garden LP positions...');
+      const { detectWalletLPPositions, formatLPPositionsSummary } = await import('./wallet-lp-detector.js');
+      const positions = await detectWalletLPPositions(walletAddress);
+      
+      if (!positions || positions.length === 0) {
+        await interaction.editReply('No garden LP positions found in this wallet. Make sure you have LP tokens staked in Crystalvale pools.');
+        return;
+      }
+      
+      // Show summary and offer optimization
+      const summary = formatLPPositionsSummary(positions);
+      const response = `${summary}\n\nWant me to analyze your heroes and recommend optimal assignments for maximum yield? This costs **25 JEWEL**.\n\nUse \`/deposit\` to add JEWEL, then DM me "optimize my gardens" to get your personalized recommendations.`;
+      
+      await interaction.editReply(response);
+      return;
+    }
     
     if (name === 'analytics') {
       // Admin only - check if user is bot owner

@@ -94,10 +94,11 @@ export function generateUniqueAmount(baseAmount) {
  * 
  * @param {number} playerId - Player's database ID
  * @param {string} baseAmountJewel - Requested deposit amount (MUST BE STRING for precision)
+ * @param {string} purpose - Purpose of deposit ('general', 'garden_optimization', etc.)
  * @returns {object} - Deposit request details
  * @throws {Error} If baseAmountJewel is not a string or invalid
  */
-export async function createDepositRequest(playerId, baseAmountJewel) {
+export async function createDepositRequest(playerId, baseAmountJewel, purpose = 'general') {
   // CRITICAL: Enforce string-only contract to prevent JSON number precision loss
   if (typeof baseAmountJewel !== 'string') {
     throw new Error(
@@ -199,6 +200,7 @@ export async function createDepositRequest(playerId, baseAmountJewel) {
     requestedAmountJewel: requestedAmountPrecise, // Store exact amount for reconciliation
     uniqueAmountJewel: uniqueAmount,
     hedgeWallet: HEDGE_WALLET,
+    purpose,
     status: 'pending',
     expiresAt
   }).returning();

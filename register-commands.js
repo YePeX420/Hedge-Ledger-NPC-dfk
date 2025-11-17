@@ -134,6 +134,13 @@ const commands = [
     options: []
   },
   {
+    name: 'optimize-gardens',
+    description: 'Get hero/pet recommendations for your LP positions (25 JEWEL)',
+    options: [
+      { name: 'wallet', description: 'Wallet address (optional if already linked)', type: 3, required: false }
+    ]
+  },
+  {
     name: 'analytics',
     description: '[ADMIN] View bot economic analytics',
     options: [
