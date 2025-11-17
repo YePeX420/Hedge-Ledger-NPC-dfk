@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Tools - Hedge Ledger</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 2rem;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .user-info {
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+        
+        .back-button {
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 0.875rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .back-button:hover {
+            background: #293548;
+        }
+        
+        .logout-button {
+            background: #7f1d1d;
+            color: #fecaca;
+            border: 1px solid #991b1b;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .logout-button:hover {
+            background: #991b1b;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            color: #f1f5f9;
+        }
+        
+        .section {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .section-title {
+            font-size: 1.25rem;
+            color: #f1f5f9;
+            margin-bottom: 0.5rem;
+        }
+        
+        .section-description {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+        }
+        
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        
+        .debug-button {
+            background: #1e3a5f;
+            color: #93c5fd;
+            border: 1px solid #3b82f6;
+            padding: 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+        }
+        
+        .debug-button:hover:not(:disabled) {
+            background: #1e40af;
+            border-color: #60a5fa;
+        }
+        
+        .debug-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .debug-button.danger {
+            background: #7f1d1d;
+            color: #fecaca;
+            border-color: #991b1b;
+        }
+        
+        .debug-button.danger:hover:not(:disabled) {
+            background: #991b1b;
+            border-color: #dc2626;
+        }
+        
+        .debug-button.success {
+            background: #14532d;
+            color: #bbf7d0;
+            border-color: #16a34a;
+        }
+        
+        .debug-button.success:hover:not(:disabled) {
+            background: #166534;
+            border-color: #22c55e;
+        }
+        
+        .button-icon {
+            font-size: 1.5rem;
+        }
+        
+        .button-label {
+            font-weight: 500;
+        }
+        
+        .output-area {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-top: 1rem;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.813rem;
+            white-space: pre-wrap;
+            color: #94a3b8;
+            display: none;
+        }
+        
+        .output-area.visible {
+            display: block;
+        }
+        
+        .log-entry {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #1e293b;
+        }
+        
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .log-time {
+            color: #64748b;
+            font-size: 0.75rem;
+        }
+        
+        .log-level {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-right: 0.5rem;
+        }
+        
+        .log-level.error {
+            background: #7f1d1d;
+            color: #fecaca;
+        }
+        
+        .log-level.warn {
+            background: #78350f;
+            color: #fed7aa;
+        }
+        
+        .log-level.info {
+            background: #1e3a5f;
+            color: #93c5fd;
+        }
+        
+        .log-message {
+            color: #e2e8f0;
+        }
+        
+        .status-message {
+            padding: 0.75rem;
+            border-radius: 0.375rem;
+            margin-top: 1rem;
+            display: none;
+        }
+        
+        .status-message.visible {
+            display: block;
+        }
+        
+        .status-message.success {
+            background: #14532d;
+            border: 1px solid #16a34a;
+            color: #bbf7d0;
+        }
+        
+        .status-message.error {
+            background: #7f1d1d;
+            border: 1px solid #991b1b;
+            color: #fecaca;
+        }
+        
+        .status-message.info {
+            background: #1e3a5f;
+            border: 1px solid #3b82f6;
+            color: #93c5fd;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <h1>🔧 Debug Tools</h1>
+            </div>
+            <div class="header-right">
+                <span class="user-info" id="userInfo">Loading...</span>
+                <a href="/index.html" class="back-button">← Dashboard</a>
+                <button class="logout-button" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <!-- Cache Management -->
+        <div class="section">
+            <h2 class="section-title">💾 Cache Management</h2>
+            <p class="section-description">Clear or refresh cached data</p>
+            <div class="button-grid">
+                <button class="debug-button" onclick="clearPoolCache()">
+                    <span class="button-icon">🏊</span>
+                    <span class="button-label">Clear Pool Cache</span>
+                </button>
+                <button class="debug-button" onclick="refreshPoolCache()">
+                    <span class="button-icon">🔄</span>
+                    <span class="button-label">Refresh Pool Cache</span>
+                </button>
+            </div>
+            <div id="cacheOutput" class="output-area"></div>
+            <div id="cacheStatus" class="status-message"></div>
+        </div>
+
+        <!-- Flow Testing -->
+        <div class="section">
+            <h2 class="section-title">🧪 Flow Testing</h2>
+            <p class="section-description">Test user flows and message patterns</p>
+            <div class="button-grid">
+                <button class="debug-button" onclick="testWalletDetection()">
+                    <span class="button-icon">💼</span>
+                    <span class="button-label">Test Wallet Detection</span>
+                </button>
+                <button class="debug-button" onclick="testNewUserFlow()">
+                    <span class="button-icon">👋</span>
+                    <span class="button-label">Test New User Flow</span>
+                </button>
+                <button class="debug-button" onclick="testIntentParser()">
+                    <span class="button-icon">🧠</span>
+                    <span class="button-label">Test Intent Parser</span>
+                </button>
+            </div>
+            <div id="flowOutput" class="output-area"></div>
+            <div id="flowStatus" class="status-message"></div>
+        </div>
+
+        <!-- System Controls -->
+        <div class="section">
+            <h2 class="section-title">⚙️ System Controls</h2>
+            <p class="section-description">Restart or reset system components</p>
+            <div class="button-grid">
+                <button class="debug-button danger" onclick="restartMonitor()">
+                    <span class="button-icon">📡</span>
+                    <span class="button-label">Restart Monitor</span>
+                </button>
+                <button class="debug-button success" onclick="checkSystemHealth()">
+                    <span class="button-icon">💚</span>
+                    <span class="button-label">System Health</span>
+                </button>
+            </div>
+            <div id="systemOutput" class="output-area"></div>
+            <div id="systemStatus" class="status-message"></div>
+        </div>
+
+        <!-- Error Logs -->
+        <div class="section">
+            <h2 class="section-title">🐛 Recent Errors</h2>
+            <p class="section-description">View the last 50 errors from system logs</p>
+            <div class="button-grid">
+                <button class="debug-button" onclick="viewRecentErrors()">
+                    <span class="button-icon">📋</span>
+                    <span class="button-label">View Error Logs</span>
+                </button>
+                <button class="debug-button" onclick="viewAllLogs()">
+                    <span class="button-icon">📜</span>
+                    <span class="button-label">View All Logs</span>
+                </button>
+            </div>
+            <div id="errorOutput" class="output-area"></div>
+            <div id="errorStatus" class="status-message"></div>
+        </div>
+    </div>
+
+    <script>
+        // Check authentication on load
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/admin/users');
+                if (response.status === 401 || response.status === 403) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                
+                // Get user info from response headers or a separate endpoint
+                const userInfoEl = document.getElementById('userInfo');
+                userInfoEl.textContent = 'Admin';
+            } catch (error) {
+                console.error('Auth check failed:', error);
+                window.location.href = '/login.html';
+            }
+        }
+
+        function logout() {
+            fetch('/api/auth/logout', { method: 'POST' })
+                .then(() => {
+                    window.location.href = '/login.html';
+                });
+        }
+
+        function showStatus(sectionId, message, type) {
+            const statusEl = document.getElementById(sectionId + 'Status');
+            statusEl.textContent = message;
+            statusEl.className = `status-message visible ${type}`;
+            setTimeout(() => {
+                statusEl.classList.remove('visible');
+            }, 5000);
+        }
+
+        function showOutput(sectionId, content) {
+            const outputEl = document.getElementById(sectionId + 'Output');
+            outputEl.textContent = content;
+            outputEl.classList.add('visible');
+        }
+
+        // Cache Management
+        async function clearPoolCache() {
+            try {
+                showStatus('cache', 'Clearing pool cache...', 'info');
+                const response = await fetch('/api/debug/clear-pool-cache', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('cache', '✅ Pool cache cleared successfully', 'success');
+                    showOutput('cache', JSON.stringify(result, null, 2));
+                } else {
+                    showStatus('cache', '❌ Failed to clear cache: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('cache', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        async function refreshPoolCache() {
+            try {
+                showStatus('cache', 'Refreshing pool cache...', 'info');
+                const response = await fetch('/api/debug/refresh-pool-cache', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('cache', '✅ Pool cache refreshed successfully', 'success');
+                    showOutput('cache', JSON.stringify(result, null, 2));
+                } else {
+                    showStatus('cache', '❌ Failed to refresh cache: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('cache', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // Flow Testing
+        async function testWalletDetection() {
+            try {
+                showStatus('flow', 'Testing wallet detection...', 'info');
+                const response = await fetch('/api/debug/test-wallet-detection', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('flow', '✅ Wallet detection test passed', 'success');
+                    showOutput('flow', JSON.stringify(result.tests, null, 2));
+                } else {
+                    showStatus('flow', '❌ Test failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('flow', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        async function testNewUserFlow() {
+            try {
+                showStatus('flow', 'Testing new user flow...', 'info');
+                const response = await fetch('/api/debug/test-new-user-flow', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('flow', '✅ New user flow test passed', 'success');
+                    showOutput('flow', JSON.stringify(result, null, 2));
+                } else {
+                    showStatus('flow', '❌ Test failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('flow', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        async function testIntentParser() {
+            try {
+                showStatus('flow', 'Testing intent parser...', 'info');
+                const response = await fetch('/api/debug/test-intent-parser', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('flow', '✅ Intent parser test passed', 'success');
+                    showOutput('flow', JSON.stringify(result.tests, null, 2));
+                } else {
+                    showStatus('flow', '❌ Test failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('flow', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // System Controls
+        async function restartMonitor() {
+            if (!confirm('Are you sure you want to restart the transaction monitor? This may cause a brief interruption.')) {
+                return;
+            }
+            
+            try {
+                showStatus('system', 'Restarting transaction monitor...', 'info');
+                const response = await fetch('/api/debug/restart-monitor', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('system', '✅ Transaction monitor restarted', 'success');
+                    showOutput('system', JSON.stringify(result, null, 2));
+                } else {
+                    showStatus('system', '❌ Failed to restart: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('system', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        async function checkSystemHealth() {
+            try {
+                showStatus('system', 'Checking system health...', 'info');
+                const response = await fetch('/api/debug/system-health');
+                const result = await response.json();
+                
+                if (result.healthy) {
+                    showStatus('system', '✅ All systems operational', 'success');
+                } else {
+                    showStatus('system', '⚠️ Some issues detected', 'error');
+                }
+                showOutput('system', JSON.stringify(result, null, 2));
+            } catch (error) {
+                showStatus('system', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // Error Logs
+        async function viewRecentErrors() {
+            try {
+                showStatus('error', 'Fetching recent errors...', 'info');
+                const response = await fetch('/api/debug/recent-errors');
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('error', `✅ Found ${result.errors.length} errors`, 'success');
+                    showOutput('error', result.errors.join('\n\n'));
+                } else {
+                    showStatus('error', '❌ Failed to fetch errors: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('error', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        async function viewAllLogs() {
+            try {
+                showStatus('error', 'Fetching all logs...', 'info');
+                const response = await fetch('/api/debug/all-logs');
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('error', `✅ Found ${result.logs.length} log entries`, 'success');
+                    showOutput('error', result.logs.join('\n'));
+                } else {
+                    showStatus('error', '❌ Failed to fetch logs: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('error', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // Initialize
+        checkAuth();
+    </script>
+</body>
+</html>

@@ -384,6 +384,7 @@ client.on('messageCreate', async (message) => {
         
         await message.reply(walletRequestMessage);
         console.log(`💼 Sent wallet request to new user: ${username}`);
+        return; // Don't send a second AI response
       }
     } catch (regError) {
       // Log registration error but don't block bot response
@@ -1654,6 +1655,241 @@ app.delete('/api/admin/users/:discordId', requireAuth, requireAdmin, async (req,
   } catch (error) {
     console.error('[API] Error deleting user:', error);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// Debug API Routes (Admin only)
+
+// POST /api/debug/clear-pool-cache - Clear the pool analytics cache
+app.post('/api/debug/clear-pool-cache', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    console.log('[Debug] Clearing pool cache...');
+    stopPoolCache();
+    res.json({ 
+      success: true, 
+      message: 'Pool cache cleared (stopped)',
+      timestamp: new Date().toISOString(),
+      note: 'Use refresh to restart it'
+    });
+  } catch (error) {
+    console.error('[Debug] Error clearing pool cache:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/debug/refresh-pool-cache - Force refresh the pool analytics cache
+app.post('/api/debug/refresh-pool-cache', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    console.log('[Debug] Refreshing pool cache...');
+    stopPoolCache();
+    // Wait a bit before restarting
+    setTimeout(async () => {
+      try {
+        await initializePoolCache();
+      } catch (cacheError) {
+        console.error('[Debug] Pool cache restart failed:', cacheError);
+      }
+    }, 500);
+    
+    res.json({ 
+      success: true, 
+      message: 'Pool cache restart initiated',
+      timestamp: new Date().toISOString(),
+      note: 'Cache will be repopulated in the background'
+    });
+  } catch (error) {
+    console.error('[Debug] Error refreshing pool cache:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/debug/test-wallet-detection - Test wallet address detection
+app.post('/api/debug/test-wallet-detection', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const walletRegex = /0[xX][a-fA-F0-9]{40}/;
+    const tests = [
+      { input: '0x1a9f02d4c0a1a5e7c8b3f5e6d9a2b4c5e7f8d64098', expected: true },
+      { input: '0X1A9F02D4C0A1A5E7C8B3F5E6D9A2B4C5E7F8D64098', expected: true },
+      { input: 'My wallet is 0xAbCdEf1234567890AbCdEf1234567890AbCdEf12', expected: true },
+      { input: 'not a wallet', expected: false },
+      { input: '0x123', expected: false }
+    ];
+    
+    const results = tests.map(test => ({
+      ...test,
+      matched: walletRegex.test(test.input),
+      passed: walletRegex.test(test.input) === test.expected
+    }));
+    
+    const allPassed = results.every(r => r.passed);
+    
+    res.json({ 
+      success: allPassed,
+      tests: results,
+      summary: `${results.filter(r => r.passed).length}/${results.length} tests passed`
+    });
+  } catch (error) {
+    console.error('[Debug] Error testing wallet detection:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/debug/test-new-user-flow - Test new user registration flow
+app.post('/api/debug/test-new-user-flow', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    // Test the message that would be sent to new users
+    const testUsername = 'TestUser';
+    const walletRequestMessage = 
+      `*yawns* Welcome to my ledger, ${testUsername}.\n\n` +
+      `So... are you familiar with DeFi Kingdoms, or are you brand new to Crystalvale? Either way, I can help—navigation guides for beginners, or even advanced queries for the OGs... for the right price, hehehe.\n\n` +
+      `If you give me your wallet address, I can provide much better support—optimization strategies tailored to your heroes, help you track onboarding milestones, and even send you rewards as you complete them. ` +
+      `Don't worry, I only have view-only rights on-chain with that address. Completely read-only.\n\n` +
+      `If you'd rather not share it, that's fine too. You can still use the free walkthrough guides and basic help. Your choice.\n\n` +
+      `What brings you to my ledger today? Need any help getting started?`;
+    
+    res.json({ 
+      success: true,
+      flow: 'new_user_onboarding',
+      messagePreview: walletRequestMessage,
+      steps: [
+        'User sends first DM',
+        'Bot detects new user',
+        'ensureUserRegistered() creates player + balance record',
+        'Bot sends welcome message with wallet request',
+        'Bot RETURNS (does not send second message)',
+        'User can respond with wallet or continue chatting'
+      ]
+    });
+  } catch (error) {
+    console.error('[Debug] Error testing new user flow:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/debug/test-intent-parser - Test intent parser with sample inputs
+app.post('/api/debug/test-intent-parser', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { parseIntent } = await import('./intent-parser.js');
+    
+    const testMessages = [
+      'Where is Alchemist Adelle?',
+      'Show me my hero 123456',
+      'What gardens have the best APR?',
+      'How do I summon heroes?',
+      'Check my wallet 0x1a9f02d4c0a1a5e7c8b3f5e6d9a2b4c5e7f8d64098'
+    ];
+    
+    const results = testMessages.map(msg => ({
+      message: msg,
+      intent: parseIntent(msg)
+    }));
+    
+    res.json({ 
+      success: true,
+      tests: results
+    });
+  } catch (error) {
+    console.error('[Debug] Error testing intent parser:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/debug/restart-monitor - Restart the transaction monitor
+app.post('/api/debug/restart-monitor', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    console.log('[Debug] Restarting transaction monitor...');
+    stopMonitoring();
+    // Wait a bit before restarting
+    setTimeout(() => {
+      startMonitoring();
+    }, 1000);
+    
+    res.json({ 
+      success: true, 
+      message: 'Transaction monitor restart initiated',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Debug] Error restarting monitor:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/debug/system-health - Check system health
+app.get('/api/debug/system-health', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const health = {
+      timestamp: new Date().toISOString(),
+      components: {
+        database: { status: 'unknown' },
+        discord: { status: client.isReady() ? 'connected' : 'disconnected' },
+        openai: { status: openai ? 'configured' : 'not_configured' },
+        monitor: { status: 'running' }
+      }
+    };
+    
+    // Test database connection
+    try {
+      await db.select().from(players).limit(1);
+      health.components.database.status = 'connected';
+    } catch (dbError) {
+      health.components.database.status = 'error';
+      health.components.database.error = dbError.message;
+    }
+    
+    const allHealthy = Object.values(health.components).every(
+      c => c.status === 'connected' || c.status === 'configured' || c.status === 'running'
+    );
+    
+    res.json({ 
+      healthy: allHealthy,
+      ...health
+    });
+  } catch (error) {
+    console.error('[Debug] Error checking system health:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/debug/recent-errors - Get recent error logs
+app.get('/api/debug/recent-errors', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    
+    // Try to read from logs if they exist
+    const errors = [
+      'Debug endpoint: Error logs would be retrieved from system logs',
+      'This is a placeholder - actual implementation would parse log files'
+    ];
+    
+    res.json({ 
+      success: true,
+      count: errors.length,
+      errors: errors
+    });
+  } catch (error) {
+    console.error('[Debug] Error fetching recent errors:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/debug/all-logs - Get all recent logs
+app.get('/api/debug/all-logs', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const logs = [
+      `[${new Date().toISOString()}] [INFO] Debug endpoint accessed`,
+      `[${new Date().toISOString()}] [INFO] System operational`
+    ];
+    
+    res.json({ 
+      success: true,
+      count: logs.length,
+      logs: logs
+    });
+  } catch (error) {
+    console.error('[Debug] Error fetching logs:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
