@@ -28,12 +28,12 @@ The project is a Node.js backend service leveraging Discord.js for bot functiona
 
 **Design Decisions:**
 
-*   **Stateless Bot**: The system currently uses in-memory state only, lacking persistent storage for user preferences, conversation history, or analytics.
-*   **No Database**: While Drizzle ORM configuration exists, no database is actively used by the bot's functionality.
+*   **PostgreSQL Database**: Uses Drizzle ORM with PostgreSQL for persistent storage of player registrations and garden optimization payment tracking.
 *   **Unified Deployment**: The Express server for the dashboard is integrated directly into the main `bot.js` file.
 *   **UI/UX**: The admin dashboard uses pure HTML/CSS/JavaScript, no build step required, responsive design with dark theme matching the main dashboard.
 *   **Feature Specifications**: Includes a comprehensive NPC navigation system covering all 37 Crystalvale NPCs across 14 locations, multilingual support across 50+ languages, and enhanced garden interaction features such as APR range display and deprecated pool filtering.
 *   **Authentication**: Discord OAuth2 authentication protects admin endpoints using lightweight session management with signed cookies. No external packages required - built with native Node.js crypto and fetch API. Designed to scale for future client guild dashboards.
+*   **Payment Automation**: Garden optimization service uses blockchain monitoring to automatically verify JEWEL payments and trigger optimization processing without manual admin intervention.
 
 ## Authentication Setup (Discord OAuth2)
 
@@ -74,6 +74,65 @@ The admin dashboard is protected by Discord OAuth2 authentication. Users must be
 **Future Scalability:**
 
 The current architecture is designed to support future multi-guild dashboards where client guilds can have their own admin panels showing only their server's data. The permission checking logic can be extended to support different access levels based on guild membership.
+
+## Garden Optimization Payment Flow
+
+The bot provides automated garden optimization services with blockchain-based payment verification. Users can request LP yield optimization for 25 JEWEL, and the system automatically processes payments and delivers results.
+
+**Payment Wallet:** `0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1`
+
+**Flow Overview:**
+
+1.  **User Request**: User sends DM "optimize my gardens" or similar intent
+2.  **LP Detection**: Bot scans user's linked wallet for LP token holdings using `wallet-lp-detector.js`
+3.  **Payment Record Created**: Creates `gardenOptimizations` record with status `awaiting_payment`, 2-hour expiry
+4.  **Payment Instructions Sent**: Bot DMs payment wallet address and instructions
+5.  **Blockchain Monitoring**: `transaction-monitor.js` polls DFK Chain every 15 seconds for incoming transfers
+6.  **Payment Verification**: When 25 JEWEL transfer detected:
+    *   Validates sender wallet matches user's registered wallet
+    *   Checks expiry window (2 hours from request)
+    *   **Valid payment**: Updates status to `payment_verified`, stores `txHash`
+    *   **Expired payment**: Updates status to `expired`, logs error message
+7.  **Automatic Processing**: `optimization-processor.js` polls every 30 seconds for `payment_verified` records:
+    *   Atomically locks record (status → `processing`) to prevent race conditions
+    *   Validates LP snapshot structure (must be non-empty array)
+    *   Fetches user's heroes from GraphQL API
+    *   Generates optimization recommendations with before/after yield projections
+    *   Sends comprehensive DM report with daily/weekly/monthly JEWEL estimates
+    *   Updates status to `completed`, stores full report in `reportPayload`
+8.  **Error Handling**: Failed optimizations marked with status `failed` and error message saved
+
+**Database Schema (`gardenOptimizations`):**
+
+*   `id` (serial): Primary key
+*   `playerId` (integer): Foreign key to `players` table
+*   `status` (varchar): `awaiting_payment` | `payment_verified` | `processing` | `completed` | `failed` | `expired`
+*   `requestedAt` (timestamp): Request creation time
+*   `expiresAt` (timestamp): 2-hour expiry deadline for payment
+*   `expectedAmountJewel` (decimal): Always 25.0
+*   `fromWallet` (text): User's wallet address (verified against payment sender)
+*   `txHash` (text): Blockchain transaction hash after payment verified
+*   `lpSnapshot` (json): Array of LP positions at request time (explicit `::json` cast on insert)
+*   `reportPayload` (json): Full optimization results with yield projections (explicit `::json` cast on insert)
+*   `errorMessage` (text): Error details if status is `failed`
+*   `paymentVerifiedAt` (timestamp): When payment was confirmed
+*   `completedAt` (timestamp): When optimization finished
+
+**Critical Implementation Details:**
+
+*   **JSON Serialization**: Drizzle ORM requires explicit SQL casting for JSON columns on PostgreSQL: `sql\`\${JSON.stringify(data)}::json\`` to prevent storing as stringified text
+*   **Atomic Status Transitions**: All status updates use `WHERE status = 'expected_current_status'` to prevent race conditions
+*   **Expiry Validation**: Transaction monitor checks `expiresAt` before marking payment verified, preventing late payments from being processed
+*   **Single Optimization Per User**: System enforces one active optimization request per player
+*   **Background Polling**: Both monitor (15s) and processor (30s) run continuously in separate intervals
+
+**Files:**
+
+*   `bot.js`: DM handler creates optimization requests, sends payment instructions
+*   `transaction-monitor.js`: Detects JEWEL transfers, verifies sender and expiry
+*   `optimization-processor.js`: Background worker processes verified payments
+*   `wallet-lp-detector.js`: Scans wallets for LP token holdings
+*   `shared/schema.ts`: Database schema definition for `gardenOptimizations` table
 
 ## External Dependencies
 
