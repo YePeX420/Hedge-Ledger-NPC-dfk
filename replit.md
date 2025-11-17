@@ -6,6 +6,13 @@ Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi
 
 ## Recent Changes
 
+**November 17, 2025 - Crystalvale Focus Update**
+- **Current Realm Priority**: Updated system prompt to prioritize **Crystalvale** references in all DM interactions, reflecting the current state of DeFi Kingdoms gameplay (Serendale is phasing out).
+- **DM Mode Enhancement**: Added explicit instruction in DM personality section to reference "Crystalvale" when discussing current gameplay, NPCs, gardens, and activities.
+- **Location Terminology**: Updated multilingual section to clarify Crystalvale as "current focus" and Serendale as "legacy" for proper context.
+- **Character References**: Hedge now mentions "my crew in Crystalvale" and "the Crystalvale economy" instead of generic kingdom references.
+- **Backward Compatibility**: Character title remains "Reluctant Accountant of Serendale" as it's his historic identity, but all gameplay guidance focuses on Crystalvale.
+
 **November 17, 2025 - Multilingual Support Enhancement**
 - **Explicit Language Support**: Updated system prompt (`prompt/hedge-ledger.md`) with comprehensive multilingual instructions. Hedge can now interact fluently in 50+ languages supported by GPT-4o-mini (Spanish, French, German, Chinese, Japanese, Korean, Arabic, Portuguese, Russian, Hindi, etc.).
 - **Character Preservation**: Instructions ensure Hedge's sarcastic accountant personality, wit, and voice translate naturally across all languages while maintaining consistency.
