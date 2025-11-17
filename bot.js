@@ -12,6 +12,7 @@ import { startMonitoring, stopMonitoring } from './transaction-monitor.js';
 import { creditBalance } from './balance-credit.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
+import { initializePoolCache, stopPoolCache } from './pool-cache.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts } from './shared/schema.ts';
 import { eq, desc, sql } from 'drizzle-orm';
@@ -115,6 +116,15 @@ client.once(Events.ClientReady, async (c) => {
   } catch (err) {
     console.error('❌ Failed to initialize economic system:', err);
   }
+  
+  // Initialize pool analytics cache
+  try {
+    console.log('🏊 Initializing pool analytics cache...');
+    await initializePoolCache();
+    console.log('✅ Pool cache initialized');
+  } catch (err) {
+    console.error('❌ Failed to initialize pool cache:', err);
+  }
 });
 
 // Generic helper to talk to Hedge
@@ -204,17 +214,30 @@ client.on('messageCreate', async (message) => {
       if (intent.type === 'garden') {
         try {
           if (intent.action === 'all') {
-            // Fetch all pools with timeout
-            await message.reply("*cracks knuckles* Pulling live Crystalvale data... this'll take 30-45 seconds to scan the blockchain.");
-            const poolsData = await quickData.getAllPoolAnalyticsWithTimeout(8, 50000);
+            // Fetch all pools (instant if cached, otherwise live scan)
+            const result = await quickData.getAllPoolAnalyticsWithTimeout(8, 50000);
             
-            if (!poolsData || poolsData.length === 0) {
-              await message.reply("Huh. No pools found or blockchain is being slow. Try `/garden pool:all` in the server for better reliability.");
+            if (!result || !result.pools || result.pools.length === 0) {
+              if (result._error) {
+                await message.reply(`*yawns* ${result._error}. Try \`/garden pool:all\` in the server.`);
+              } else {
+                await message.reply("Huh. No pools found. Try `/garden pool:all` in the server.");
+              }
               return;
             }
             
+            const poolsData = result.pools;
+            const cacheAge = result._cacheAge || 0;
+            
             // Format top pools concisely
-            let poolsSummary = '📊 **Live Crystalvale Pool Analytics** (previous UTC day)\n\n';
+            let poolsSummary = '📊 **Crystalvale Pool Analytics**';
+            if (result._cached) {
+              poolsSummary += ` (cached ${cacheAge}m ago)`;
+            } else {
+              poolsSummary += ` (live scan)`;
+            }
+            poolsSummary += '\n\n';
+            
             poolsData.slice(0, 5).forEach((pool, i) => {
               poolsSummary += `${i+1}. **${pool.lpTokenSymbol}** (PID ${pool.pid})\n`;
               poolsSummary += `   • Total APR: ${pool.totalAPR}\n`;
@@ -226,7 +249,7 @@ client.on('messageCreate', async (message) => {
               poolsSummary += `...and ${poolsData.length - 5} more. Use \`/garden pool:all\` for full list.`;
             }
             
-            enrichedContent += `\n\n📊 LIVE GARDEN DATA:\n${poolsSummary}\n\nRespond as Hedge Ledger analyzing these APRs.`;
+            enrichedContent += `\n\n📊 GARDEN DATA:\n${poolsSummary}\n\nRespond as Hedge Ledger analyzing these APRs.`;
           } else if (intent.action === 'pool' && intent.pool) {
             // Fast pool lookup without heavy analytics
             await message.reply(`*flips through ledger* Looking up ${intent.pool} pool...`);
@@ -238,11 +261,21 @@ client.on('messageCreate', async (message) => {
               return;
             }
             
-            // Get detailed analytics for this specific pool only
-            await message.reply(`Found ${pool.lpTokenSymbol}! Scanning blockchain for APR data... ~30-40 seconds...`);
+            // Get detailed analytics for this specific pool from cache (instant)
             const poolData = await quickData.getPoolAnalyticsWithTimeout(pool.pid, 45000);
             
-            let poolDetails = `📊 **${poolData.lpTokenSymbol}** (PID ${poolData.pid})\n\n`;
+            if (!poolData) {
+              await message.reply("Couldn't fetch pool analytics. Cache might not be ready yet. Try `/garden pool:${pool.pid}` for live data.");
+              return;
+            }
+            
+            const cacheAge = poolData._cacheAge || 0;
+            
+            let poolDetails = `📊 **${poolData.lpTokenSymbol}** (PID ${poolData.pid})`;
+            if (poolData._cached) {
+              poolDetails += ` (cached ${cacheAge}m ago)`;
+            }
+            poolDetails += `\n\n`;
             poolDetails += `**APR Breakdown:**\n`;
             poolDetails += `• Total: ${poolData.totalAPR}\n`;
             poolDetails += `• Fee APR: ${poolData.feeAPR}\n`;
@@ -253,7 +286,7 @@ client.on('messageCreate', async (message) => {
             poolDetails += `• 24h Volume: $${poolData.volume24hUSD}\n`;
             poolDetails += `• 24h Fees: $${poolData.fees24hUSD}\n`;
             
-            enrichedContent += `\n\n📊 LIVE POOL DATA:\n${poolDetails}\n\nRespond as Hedge Ledger with analysis.`;
+            enrichedContent += `\n\n📊 POOL DATA:\n${poolDetails}\n\nRespond as Hedge Ledger with analysis.`;
           } else if (intent.action === 'wallet' && intent.wallet) {
             // Quick wallet rewards check (top 5 pools only to avoid delays)
             await message.reply(`*adjusts monocle* Checking your top staked positions... moment...`);
@@ -911,6 +944,7 @@ server.listen(5000, '0.0.0.0', () => {
 process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down gracefully...');
   stopMonitoring();
+  stopPoolCache();
   server.close(() => {
     console.log('✅ Web server closed');
     process.exit(0);

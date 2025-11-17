@@ -1,8 +1,9 @@
 // quick-data-fetcher.js
-// Lightweight data fetching for DM responses (no heavy blockchain scans)
+// Lightweight data fetching for DM responses (uses cached analytics)
 
 import * as analytics from './garden-analytics.js';
 import * as onchain from './onchain-data.js';
+import { getCachedPoolAnalytics, getCachedPool, searchCachedPools } from './pool-cache.js';
 
 // Cache pool list to avoid repeated queries
 let cachedPoolList = null;
@@ -53,25 +54,113 @@ export async function findPoolByName(searchTerm) {
 }
 
 /**
- * Get pool analytics with timeout
+ * Get pool analytics from cache (instant response)
+ * @param {number} pid - Pool ID
+ * @returns {Object|null} Pool analytics with cache metadata
  */
 export async function getPoolAnalyticsWithTimeout(pid, timeoutMs = 45000) {
-  return withTimeout(
-    analytics.getPoolAnalytics(pid),
-    timeoutMs,
-    `Pool ${pid} analytics timed out after ${timeoutMs}ms`
-  );
+  const cached = getCachedPool(pid);
+  
+  if (cached) {
+    const cacheInfo = getCachedPoolAnalytics();
+    return {
+      ...cached,
+      _cached: true,
+      _cacheAge: cacheInfo.ageMinutes,
+      _lastUpdated: cacheInfo.lastUpdated
+    };
+  }
+  
+  // If cache not initialized yet, fall back to live query
+  console.log(`[QuickData] Cache miss for pool ${pid}, fetching live data...`);
+  try {
+    const liveData = await withTimeout(
+      analytics.getPoolAnalytics(pid),
+      timeoutMs,
+      `Pool ${pid} analytics timed out after ${timeoutMs}ms`
+    );
+    
+    // Add metadata to match cached structure
+    return {
+      ...liveData,
+      _cached: false,
+      _cacheAge: null,
+      _lastUpdated: null
+    };
+  } catch (error) {
+    console.error(`[QuickData] Live fetch failed for pool ${pid}:`, error.message);
+    return null;
+  }
 }
 
 /**
- * Get all pools analytics with timeout
+ * Get all pools analytics from cache (instant response)
+ * @param {number} limit - Max pools to return
+ * @returns {Object} Pool analytics with cache metadata
  */
 export async function getAllPoolAnalyticsWithTimeout(limit = 10, timeoutMs = 60000) {
-  return withTimeout(
-    analytics.getAllPoolAnalytics(limit),
-    timeoutMs,
-    `All pools analytics timed out after ${timeoutMs}ms`
-  );
+  const cached = getCachedPoolAnalytics();
+  
+  if (cached) {
+    const pools = cached.data.slice(0, limit);
+    return {
+      pools,
+      _cached: true,
+      _cacheAge: cached.ageMinutes,
+      _lastUpdated: cached.lastUpdated,
+      _totalPools: cached.data.length
+    };
+  }
+  
+  // If cache not initialized yet, fall back to live query
+  console.log('[QuickData] Cache not initialized, fetching live data...');
+  try {
+    const liveData = await withTimeout(
+      analytics.getAllPoolAnalytics(limit),
+      timeoutMs,
+      `All pools analytics timed out after ${timeoutMs}ms`
+    );
+    
+    // Wrap in same structure as cached response
+    return {
+      pools: liveData,
+      _cached: false,
+      _cacheAge: null,
+      _lastUpdated: null,
+      _totalPools: liveData.length
+    };
+  } catch (error) {
+    // Return empty structure on error
+    return {
+      pools: [],
+      _cached: false,
+      _cacheAge: null,
+      _lastUpdated: null,
+      _totalPools: 0,
+      _error: error.message
+    };
+  }
+}
+
+/**
+ * Search for pools by name using cache (instant response)
+ * @param {string} query - Pool name search query
+ * @returns {Array} Matching pools with cache metadata
+ */
+export async function searchPoolsQuick(query) {
+  const results = searchCachedPools(query);
+  const cached = getCachedPoolAnalytics();
+  
+  if (results && cached) {
+    return {
+      pools: results,
+      _cached: true,
+      _cacheAge: cached.ageMinutes,
+      _lastUpdated: cached.lastUpdated
+    };
+  }
+  
+  return { pools: [], _cached: false };
 }
 
 /**
