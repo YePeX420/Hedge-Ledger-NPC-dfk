@@ -39,12 +39,21 @@ export function parseGardenIntent(message) {
     /\bpool[:\s]+([A-Z]+(?:[-\s][A-Z]+)?)/i
   ];
   
+  // Generic keywords that should NOT be treated as pool names
+  const genericKeywords = /\b(garden|gardens|apr|aprs|yield|yields|rate|rates|pool|pools|all|current|latest|top)\b/i;
+  
   for (const pattern of poolPatterns) {
     const match = message.match(pattern);
     if (match) {
       // Extract and normalize pool name
       let poolName = match[1] || match[0];
       poolName = poolName.replace(/\s+pool$/i, '').replace(/\s+pair$/i, '').trim();
+      
+      // Skip if this is a generic keyword, not an actual pool name
+      if (genericKeywords.test(poolName)) {
+        continue;
+      }
+      
       return {
         type: 'garden',
         action: 'pool',
