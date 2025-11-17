@@ -8,14 +8,15 @@ import * as onchain from './onchain-data.js';
 import * as analytics from './garden-analytics.js';
 import * as quickData from './quick-data-fetcher.js';
 import { parseIntent, formatIntent } from './intent-parser.js';
-import { requestDeposit } from './deposit-flow.js';
+import { requestDeposit, HEDGE_WALLET } from './deposit-flow.js';
 import { startMonitoring, stopMonitoring } from './transaction-monitor.js';
 import { creditBalance } from './balance-credit.js';
+import { initializeProcessor, startProcessor, stopProcessor } from './optimization-processor.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache } from './pool-cache.js';
 import { db } from './server/db.js';
-import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages } from './shared/schema.ts';
+import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations } from './shared/schema.ts';
 import { eq, desc, sql, inArray, and } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
@@ -250,28 +251,84 @@ client.once(Events.ClientReady, async (c) => {
     await initializePricingConfig();
     
     console.log('📡 Starting transaction monitor...');
-    // Wire up deposit callback to credit balances when deposits are detected
-    await startMonitoring(async (match) => {
-      try {
-        // Validate match structure
-        if (!match || !match.depositRequest || !match.transaction) {
-          console.error('[Bot] ❌ Invalid match structure:', match);
-          return;
+    // Wire up callbacks for deposits and garden optimizations
+    await startMonitoring(
+      // Callback for deposit matches - credit balances
+      async (match) => {
+        try {
+          // Validate match structure
+          if (!match || !match.depositRequest || !match.transaction) {
+            console.error('[Bot] ❌ Invalid match structure:', match);
+            return;
+          }
+          
+          console.log(`[Bot] Processing deposit match: ${match.transaction.txHash}`);
+          // Pass full match object to creditBalance
+          await creditBalance(match);
+          console.log(`[Bot] ✅ Credited balance for deposit #${match.depositRequest.id}`);
+        } catch (err) {
+          console.error(`[Bot] ❌ Failed to credit balance:`, err.message);
+          console.error(err.stack);
         }
-        
-        console.log(`[Bot] Processing deposit match: ${match.transaction.txHash}`);
-        // Pass full match object to creditBalance
-        await creditBalance(match);
-        console.log(`[Bot] ✅ Credited balance for deposit #${match.depositRequest.id}`);
-      } catch (err) {
-        console.error(`[Bot] ❌ Failed to credit balance:`, err.message);
-        console.error(err.stack);
+      },
+      // Callback for garden optimization matches - mark as payment_verified
+      async (match) => {
+        try {
+          // Validate match structure
+          if (!match || !match.optimization || !match.transaction) {
+            console.error('[Bot] ❌ Invalid optimization match structure:', match);
+            return;
+          }
+          
+          console.log(`[Bot] 🌿 Processing garden optimization payment: ${match.transaction.txHash}`);
+          
+          // Check if expired
+          const now = new Date();
+          if (now > new Date(match.optimization.expiresAt)) {
+            console.log(`[Bot] ⏰ Optimization #${match.optimization.id} expired - ignoring payment`);
+            
+            // Mark as expired with tx reference for debugging
+            await db.update(gardenOptimizations)
+              .set({
+                status: 'expired',
+                txHash: match.transaction.hash,
+                errorMessage: `Payment received after expiry (tx: ${match.transaction.hash})`,
+                updatedAt: new Date()
+              })
+              .where(eq(gardenOptimizations.id, match.optimization.id));
+            return;
+          }
+          
+          // Update optimization status to payment_verified
+          await db.update(gardenOptimizations)
+            .set({
+              status: 'payment_verified',
+              txHash: match.transaction.hash,
+              updatedAt: new Date()
+            })
+            .where(eq(gardenOptimizations.id, match.optimization.id));
+          
+          console.log(`[Bot] ✅ Verified payment for optimization #${match.optimization.id}`);
+        } catch (err) {
+          console.error(`[Bot] ❌ Failed to process optimization payment:`, err.message);
+          console.error(err.stack);
+        }
       }
-    });
+    );
     
     console.log('✅ Economic system initialized');
   } catch (err) {
     console.error('❌ Failed to initialize economic system:', err);
+  }
+  
+  // Initialize garden optimization processor
+  try {
+    console.log('🌿 Initializing garden optimization processor...');
+    initializeProcessor(c);
+    await startProcessor();
+    console.log('✅ Optimization processor started');
+  } catch (err) {
+    console.error('❌ Failed to initialize optimization processor:', err);
   }
   
   // Initialize pool analytics cache
@@ -474,7 +531,7 @@ Keep it entertaining but helpful. This is free educational content, so be genero
         }
       }
       
-      // 🌿 Garden Optimization (PAID - 25 JEWEL)
+      // 🌿 Garden Optimization (PAID - 25 JEWEL via direct deposit)
       if (intent.type === 'garden_optimization') {
         try {
           // Check if user has a linked wallet
@@ -488,7 +545,7 @@ Keep it entertaining but helpful. This is free educational content, so be genero
           
           // Scan for LP positions
           await message.reply("*pulls out magnifying glass* Let me check your garden positions...");
-          const { detectWalletLPPositions, formatLPPositionsSummary, generatePoolOptimizations, formatOptimizationReport } = await import('./wallet-lp-detector.js');
+          const { detectWalletLPPositions, formatLPPositionsSummary } = await import('./wallet-lp-detector.js');
           const positions = await detectWalletLPPositions(walletAddress);
           
           if (!positions || positions.length === 0) {
@@ -499,70 +556,41 @@ Keep it entertaining but helpful. This is free educational content, so be genero
           // Show summary (NO YIELDS YET - this is the teaser)
           const summary = formatLPPositionsSummary(positions);
           
-          // Check if user has 25 JEWEL balance
-          const balanceData = await db.select().from(jewelBalances).where(eq(jewelBalances.playerId, playerData.id)).limit(1);
+          // Create pending optimization record (expires in 2 hours)
+          const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
           
-          let userBalance = 0;
-          if (balanceData.length > 0) {
-            userBalance = parseFloat(balanceData[0].balanceJewel);
-          }
+          const [newOptimization] = await db.insert(gardenOptimizations)
+            .values({
+              playerId: playerData.id,
+              status: 'awaiting_payment',
+              fromWallet: walletAddress,
+              expiresAt,
+              lpSnapshot: sql`${JSON.stringify(positions)}::json`, // Explicit JSON cast to avoid string storage
+            })
+            .returning();
           
-          const OPTIMIZATION_COST = 25;
+          console.log(`📝 Created optimization request #${newOptimization.id} for player ${playerData.id}`);
           
-          if (userBalance >= OPTIMIZATION_COST) {
-            // User has sufficient funds - deduct and run optimization
-            await message.reply(`${summary}\n\n*cracks knuckles* Alright, analyzing your heroes and crunching the numbers... This will take a moment.`);
-            
-            // Atomically deduct 25 JEWEL (prevents concurrent overdraw)
-            const updateResult = await db.update(jewelBalances)
-              .set({ 
-                balanceJewel: sql`${jewelBalances.balanceJewel} - ${OPTIMIZATION_COST}`
-              })
-              .where(and(
-                eq(jewelBalances.playerId, playerData.id),
-                sql`${jewelBalances.balanceJewel} >= ${OPTIMIZATION_COST}`
-              ))
-              .returning();
-            
-            // Verify deduction succeeded (guards against race conditions)
-            if (!updateResult || updateResult.length === 0) {
-              await message.reply("Hmm, looks like you don't have enough JEWEL anymore. Use `/deposit` to add more and try again.");
-              return;
-            }
-            
-            console.log(`💰 Deducted ${OPTIMIZATION_COST} JEWEL from player ${playerData.id} for garden optimization`);
-            
-            // Fetch user's heroes
-            const heroes = await onchain.getHeroesByOwner(walletAddress, 50);
-            console.log(`🦸 Fetched ${heroes.length} heroes for optimization`);
-            
-            // Generate optimization recommendations
-            const optimization = generatePoolOptimizations(positions, heroes);
-            const report = formatOptimizationReport(optimization);
-            
-            // Send optimization report
-            const finalMessage = `## 💎 Garden Optimization Report\n\n${report}\n\n---\n\n*That 25 JEWEL is staying in my ledger forever, by the way.* <:hedge_evil:1439395005499441236>`;
-            
-            await message.reply(finalMessage);
-            console.log(`✅ Delivered garden optimization to player ${playerData.id}`);
-            
-          } else {
-            // Insufficient funds - create deposit request
-            const needed = OPTIMIZATION_COST - userBalance;
-            await message.reply(
-              `${summary}\n\n` +
-              `Want me to analyze your heroes and pets to recommend optimal assignments for maximum yield? ` +
-              `This deep optimization costs **25 JEWEL**.\n\n` +
-              `You currently have ${userBalance.toFixed(2)} JEWEL. You need ${needed.toFixed(2)} more.\n\n` +
-              `Use \`/deposit\` in the server to add JEWEL, then come back and ask me again. ` +
-              `(Spoiler: I never sell JEWEL, so yours stays in my ledger forever <:hedge_evil:1439395005499441236>)`
-            );
-          }
+          // Send payment instructions
+          const paymentMessage = 
+            `${summary}\n\n` +
+            `💎 **Garden Optimization - 25 JEWEL**\n\n` +
+            `Want me to analyze your heroes and pets to recommend optimal assignments for maximum yield?\n\n` +
+            `**How to pay:**\n` +
+            `1. **Send exactly 25 JEWEL** from your wallet (\`${walletAddress}\`)\n` +
+            `2. **To this address:** \`${HEDGE_WALLET}\`\n` +
+            `3. **Wait ~1 minute** - I'll verify your payment and get started automatically\n\n` +
+            `I'll send your optimization report as soon as I confirm the transaction. ` +
+            `*The JEWEL stays in my ledger forever, of course.* <:hedge_evil:1439395005499441236>\n\n` +
+            `This request expires in 2 hours.`;
+          
+          await message.reply(paymentMessage);
+          console.log(`📨 Sent payment instructions to player ${playerData.id}`);
           
           return;
         } catch (err) {
           console.error('Garden optimization error:', err);
-          await message.reply("*shuffles papers nervously* Something went wrong with the optimization. Try again later.");
+          await message.reply("*shuffles papers nervously* Something went wrong setting up the optimization. Try again later.");
           return;
         }
       }

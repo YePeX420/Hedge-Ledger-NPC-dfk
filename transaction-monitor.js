@@ -22,8 +22,8 @@ import { ethers } from 'ethers';
 import Decimal from 'decimal.js';
 import erc20ABI from './ERC20.json' with { type: 'json' };
 import { db } from './server/db.js';
-import { depositRequests } from './shared/schema.js';
-import { eq } from 'drizzle-orm';
+import { depositRequests, gardenOptimizations } from './shared/schema.js';
+import { eq, and, lt } from 'drizzle-orm';
 
 // Configuration
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
@@ -121,11 +121,75 @@ async function findMatchingDeposit(amountJewel, fromAddress) {
 }
 
 /**
+ * Find pending garden optimization matching transfer amount and sender wallet
+ * 
+ * Strategy:
+ * - Query all awaiting_payment optimizations
+ * - Match amount: ~25 JEWEL (with ±0.1 tolerance)
+ * - Verify sender wallet matches fromWallet field
+ * - Ensure not expired
+ * 
+ * @param {string} amountJewel - Transfer amount in JEWEL
+ * @param {string} fromAddress - Sender address (must match fromWallet)
+ * @returns {object|null} - Matching optimization request or null
+ */
+async function findMatchingGardenOptimization(amountJewel, fromAddress) {
+  try {
+    // Query all pending garden optimizations
+    const pending = await db
+      .select()
+      .from(gardenOptimizations)
+      .where(eq(gardenOptimizations.status, 'awaiting_payment'));
+    
+    if (pending.length === 0) {
+      return null;
+    }
+    
+    const transferAmount = new Decimal(amountJewel);
+    const EXPECTED_AMOUNT = new Decimal('25'); // 25 JEWEL
+    const TOLERANCE = new Decimal('0.1'); // Allow ±0.1 JEWEL tolerance
+    
+    for (const request of pending) {
+      // Check if amount matches (25 JEWEL ±0.1)
+      const expectedAmount = new Decimal(request.expectedAmountJewel);
+      const diff = transferAmount.minus(expectedAmount).abs();
+      
+      if (diff.lessThanOrEqualTo(TOLERANCE)) {
+        // Check if sender wallet matches
+        const fromWalletLower = request.fromWallet.toLowerCase();
+        const senderLower = fromAddress.toLowerCase();
+        
+        if (fromWalletLower === senderLower) {
+          // Check if not expired
+          const now = new Date();
+          if (now < new Date(request.expiresAt)) {
+            console.log(`[Monitor] ✅ Garden optimization payment matched: ${amountJewel} JEWEL`);
+            console.log(`[Monitor] Optimization #${request.id} for player #${request.playerId}`);
+            console.log(`[Monitor] Sender verified: ${fromAddress}`);
+            return request;
+          } else {
+            console.log(`[Monitor] ⏰ Garden optimization #${request.id} expired (sent anyway)`);
+          }
+        } else {
+          console.log(`[Monitor] ⚠️ Wallet mismatch for optimization #${request.id}`);
+          console.log(`[Monitor] Expected: ${request.fromWallet}, Got: ${fromAddress}`);
+        }
+      }
+    }
+    
+    return null;
+  } catch (err) {
+    console.error('[Monitor] Error finding garden optimization:', err.message);
+    return null;
+  }
+}
+
+/**
  * Process Transfer events from a block range
  * 
  * @param {number} fromBlock - Start block (inclusive)
  * @param {number} toBlock - End block (inclusive)
- * @returns {Array} - Array of matched deposits with transaction details
+ * @returns {Object} - Object with depositMatches and optimizationMatches arrays
  */
 async function processBlockRange(fromBlock, toBlock) {
   try {
@@ -137,7 +201,8 @@ async function processBlockRange(fromBlock, toBlock) {
     
     console.log(`[Monitor] Found ${events.length} JEWEL transfers to Hedge's wallet`);
     
-    const matches = [];
+    const depositMatches = [];
+    const optimizationMatches = [];
     
     for (const event of events) {
       const { from, value } = event.args;
@@ -151,8 +216,25 @@ async function processBlockRange(fromBlock, toBlock) {
       const matchedRequest = await findMatchingDeposit(amountJewel, from);
       
       if (matchedRequest) {
-        matches.push({
+        depositMatches.push({
           depositRequest: matchedRequest,
+          transaction: {
+            hash: txHash,
+            blockNumber,
+            from,
+            amountJewel,
+            timestamp: (await provider.getBlock(blockNumber)).timestamp
+          }
+        });
+        continue; // Don't try to match as optimization if already matched as deposit
+      }
+      
+      // Try to match to a pending garden optimization
+      const matchedOptimization = await findMatchingGardenOptimization(amountJewel, from);
+      
+      if (matchedOptimization) {
+        optimizationMatches.push({
+          optimization: matchedOptimization,
           transaction: {
             hash: txHash,
             blockNumber,
@@ -164,10 +246,10 @@ async function processBlockRange(fromBlock, toBlock) {
       }
     }
     
-    return matches;
+    return { depositMatches, optimizationMatches };
   } catch (err) {
     console.error(`[Monitor] Error processing blocks ${fromBlock}-${toBlock}:`, err.message);
-    return [];
+    return { depositMatches: [], optimizationMatches: [] };
   }
 }
 
@@ -175,7 +257,7 @@ async function processBlockRange(fromBlock, toBlock) {
  * Start monitoring loop
  * 
  * Polls for new blocks every POLL_INTERVAL_MS and processes Transfer events.
- * Calls creditBalance() for each matched deposit (Task 7).
+ * Calls onDepositMatched() for deposit requests and onOptimizationMatched() for garden optimizations.
  * 
  * Startup behavior:
  * - Looks back BLOCK_BATCH_SIZE blocks to catch pending deposits
@@ -183,8 +265,9 @@ async function processBlockRange(fromBlock, toBlock) {
  * - Ensures pre-existing transfers are matched and credited
  * 
  * @param {Function} onDepositMatched - Callback when deposit is matched (receives match object)
+ * @param {Function} onOptimizationMatched - Callback when garden optimization payment is matched
  */
-export async function startMonitoring(onDepositMatched) {
+export async function startMonitoring(onDepositMatched, onOptimizationMatched) {
   console.log('[Monitor] Starting DFK Chain transaction monitor...');
   console.log(`[Monitor] Watching JEWEL token: ${JEWEL_TOKEN_ADDRESS}`);
   console.log(`[Monitor] Hedge wallet: ${HEDGE_WALLET_ADDRESS}`);
@@ -213,12 +296,19 @@ export async function startMonitoring(onDepositMatched) {
     const toBlock = Math.min(currentBlock, fromBlock + BLOCK_BATCH_SIZE - 1);
     
     console.log(`[Monitor] Catch-up: processing blocks ${fromBlock}-${toBlock}`);
-    const matches = await processBlockRange(fromBlock, toBlock);
+    const { depositMatches, optimizationMatches } = await processBlockRange(fromBlock, toBlock);
     
-    // Trigger callback for each match
-    for (const match of matches) {
+    // Trigger callbacks for deposit matches
+    for (const match of depositMatches) {
       if (onDepositMatched) {
         await onDepositMatched(match);
+      }
+    }
+    
+    // Trigger callbacks for optimization matches
+    for (const match of optimizationMatches) {
+      if (onOptimizationMatched) {
+        await onOptimizationMatched(match);
       }
     }
     
@@ -244,12 +334,19 @@ export async function startMonitoring(onDepositMatched) {
         const fromBlock = lastProcessedBlock + 1;
         const toBlock = Math.min(currentBlock, fromBlock + BLOCK_BATCH_SIZE - 1);
         
-        const matches = await processBlockRange(fromBlock, toBlock);
+        const { depositMatches, optimizationMatches } = await processBlockRange(fromBlock, toBlock);
         
-        // Trigger callback for each match
-        for (const match of matches) {
+        // Trigger callbacks for deposit matches
+        for (const match of depositMatches) {
           if (onDepositMatched) {
             await onDepositMatched(match);
+          }
+        }
+        
+        // Trigger callbacks for optimization matches
+        for (const match of optimizationMatches) {
+          if (onOptimizationMatched) {
+            await onOptimizationMatched(match);
           }
         }
         

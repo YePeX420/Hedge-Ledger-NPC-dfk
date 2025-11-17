@@ -200,22 +200,36 @@ export function formatOptimizationReport(optimization) {
     return "No optimization recommendations available.";
   }
   
-  let report = `## Garden Optimization Analysis\n\n`;
-  report += `**Total Positions:** ${optimization.positions}\n`;
-  report += `**Total Value:** $${optimization.totalValueUSD}\n\n`;
+  let report = `**📊 Summary**\n`;
+  report += `- Total Positions: ${optimization.positions}\n`;
+  report += `- Total Value: $${optimization.totalValueUSD}\n\n`;
   
   for (const rec of optimization.recommendations) {
     report += `### ${rec.pairName}\n`;
-    report += `**Pool Type:** ${rec.poolType}\n`;
-    report += `**Your Position:** $${rec.userTVL}\n\n`;
+    report += `**Pool Type:** ${rec.poolType} | **Your Position:** $${rec.userTVL}\n\n`;
     
-    report += `**Current Yield Range:**\n`;
-    report += `- Worst scenario (no optimization): ${rec.currentYield.worst} (${rec.annualReturn.worst}/year)\n`;
-    report += `- Best scenario (optimized): ${rec.currentYield.best} (${rec.annualReturn.best}/year)\n`;
-    report += `- Potential gain: **${rec.additionalGain}** additional per year (${rec.yieldImprovement} improvement)\n\n`;
+    report += `**📈 Before vs After**\n`;
+    report += `\`\`\`\n`;
+    report += `BEFORE (No Optimization):\n`;
+    report += `  APR: ${rec.currentYield.worst}\n`;
+    report += `  Annual Return: ${rec.annualReturn.worst}\n\n`;
+    report += `AFTER (Optimized):\n`;
+    report += `  APR: ${rec.currentYield.best}\n`;
+    report += `  Annual Return: ${rec.annualReturn.best}\n\n`;
+    report += `GAIN: +${rec.additionalGain}/year (${rec.yieldImprovement})\n`;
+    report += `\`\`\`\n\n`;
     
-    report += `**Hero Assignment:**\n${rec.heroRecommendation}\n\n`;
-    report += `**Pet Assignment:**\n${rec.petRecommendation}\n\n`;
+    report += `**🦸 Recommended Setup**\n`;
+    report += `${rec.heroRecommendation}\n`;
+    report += `${rec.petRecommendation}\n\n`;
+    
+    report += `**📋 How to Run Gardening Quests**\n`;
+    report += `1. Go to the **Seed Box** in Crystalvale\n`;
+    report += `2. Select your assigned hero (${rec.poolType === 'fee-dominant' ? 'high WIS' : 'high STR/DEX'})\n`;
+    report += `3. Link your assigned pet (if you have one)\n`;
+    report += `4. Choose the **${rec.pairName}** pool\n`;
+    report += `5. Send hero on quest (costs stamina, earns JEWEL + pool fees)\n`;
+    report += `6. Claim rewards after quest completes\n\n`;
     
     report += `**APR Breakdown:**\n`;
     report += `- Fee APR: ${rec.aprBreakdown.fee}\n`;
