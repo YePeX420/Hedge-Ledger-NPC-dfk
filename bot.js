@@ -7,6 +7,7 @@ import * as onchain from './onchain-data.js';
 import * as analytics from './garden-analytics.js';
 import { requestDeposit } from './deposit-flow.js';
 import { startMonitoring, stopMonitoring } from './transaction-monitor.js';
+import { creditBalance } from './balance-credit.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { db } from './server/db.js';
@@ -87,7 +88,24 @@ client.once(Events.ClientReady, async (c) => {
     await initializePricingConfig();
     
     console.log('📡 Starting transaction monitor...');
-    await startMonitoring();
+    // Wire up deposit callback to credit balances when deposits are detected
+    await startMonitoring(async (match) => {
+      try {
+        // Validate match structure
+        if (!match || !match.depositRequest || !match.transaction) {
+          console.error('[Bot] ❌ Invalid match structure:', match);
+          return;
+        }
+        
+        console.log(`[Bot] Processing deposit match: ${match.transaction.txHash}`);
+        // Pass full match object to creditBalance
+        await creditBalance(match);
+        console.log(`[Bot] ✅ Credited balance for deposit #${match.depositRequest.id}`);
+      } catch (err) {
+        console.error(`[Bot] ❌ Failed to credit balance:`, err.message);
+        console.error(err.stack);
+      }
+    });
     
     console.log('✅ Economic system initialized');
   } catch (err) {
@@ -649,8 +667,25 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ status: 'ok', service: 'Hedge Ledger Discord Bot' }));
 });
 
+server.on('error', (err) => {
+  console.error('❌ Health check server error:', err.message);
+  if (err.code === 'EADDRINUSE') {
+    console.log('Port 5000 already in use - health check server disabled');
+  }
+});
+
 server.listen(5000, '0.0.0.0', () => {
   console.log('✅ Health check server listening on port 5000');
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n🛑 Shutting down gracefully...');
+  stopMonitoring();
+  server.close(() => {
+    console.log('✅ Health server closed');
+    process.exit(0);
+  });
 });
 
 // Export handlers so they can be called from the main command switch

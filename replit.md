@@ -12,6 +12,16 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+**November 17, 2025 - Economic System Integration - FINAL**
+- Fixed transaction monitor ABI issue by adding ERC-20 Transfer event to ERC20.json
+- Wired up balance credit callback - monitor now calls creditBalance() when deposits are matched
+- Enhanced deposit matching with 3-level strategy: exact uniqueAmount, exact requestedAmount, ±1 wei tolerance
+- Added HTTP health check server on port 5000 for workflow compliance
+- Implemented graceful shutdown handling (SIGINT)
+- All economic modules updated to use .ts imports with tsx runtime
+- Commands registered: /deposit (unique JEWEL amounts), /balance (tier/usage), /analytics (admin dashboard)
+- Transaction monitor operational in polling mode after 48h catch-up scan
+
 **November 16, 2025 - Comprehensive Garden Analytics (Crystalvale) - FINAL**
 - Implemented full on-chain analytics for Crystalvale garden pools
 - **Factory Enumeration**: ALL LP pairs from UniswapV2Factory (0x794C...) for accurate token pricing

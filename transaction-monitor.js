@@ -54,6 +54,11 @@ function weiToJewel(weiAmount) {
 /**
  * Find pending deposit request matching the transfer amount
  * 
+ * Enhanced matching strategy to handle RPC rounding:
+ * 1. Try exact match on uniqueAmountJewel
+ * 2. Try exact match on requestedAmountJewel
+ * 3. Try tolerance match (±1 wei) on uniqueAmountJewel
+ * 
  * @param {string} amountJewel - Transfer amount in JEWEL (e.g., "10.123456")
  * @param {string} fromAddress - Sender address (for verification)
  * @returns {object|null} - Matching deposit request or null
@@ -66,22 +71,48 @@ async function findMatchingDeposit(amountJewel, fromAddress) {
       .from(depositRequests)
       .where(eq(depositRequests.status, 'pending'));
     
-    // Match by uniqueAmountJewel using Decimal.js for exact comparison
-    const transferAmount = new Decimal(amountJewel);
+    if (pending.length === 0) {
+      return null;
+    }
     
+    const transferAmount = new Decimal(amountJewel);
+    const ONE_WEI = new Decimal('0.000000000000000001'); // 1 wei in JEWEL
+    
+    // Strategy 1: Exact match on uniqueAmountJewel
     for (const request of pending) {
       const uniqueAmount = new Decimal(request.uniqueAmountJewel);
-      
-      // Exact match required (precision-preserving)
       if (transferAmount.equals(uniqueAmount)) {
-        console.log(`[Monitor] Matched deposit: ${amountJewel} JEWEL from ${fromAddress}`);
+        console.log(`[Monitor] ✅ Exact match on uniqueAmount: ${amountJewel} JEWEL from ${fromAddress}`);
         console.log(`[Monitor] Request #${request.id} for player #${request.playerId}`);
         return request;
       }
     }
     
-    // No match found - might be a regular transfer or expired request
-    console.log(`[Monitor] No match for ${amountJewel} JEWEL transfer from ${fromAddress}`);
+    // Strategy 2: Exact match on requestedAmountJewel (user might have sent exact requested amount)
+    for (const request of pending) {
+      const requestedAmount = new Decimal(request.requestedAmountJewel);
+      if (transferAmount.equals(requestedAmount)) {
+        console.log(`[Monitor] ✅ Exact match on requestedAmount: ${amountJewel} JEWEL from ${fromAddress}`);
+        console.log(`[Monitor] Request #${request.id} for player #${request.playerId}`);
+        return request;
+      }
+    }
+    
+    // Strategy 3: Tolerance match (±1 wei) on uniqueAmountJewel to handle RPC rounding
+    for (const request of pending) {
+      const uniqueAmount = new Decimal(request.uniqueAmountJewel);
+      const diff = transferAmount.minus(uniqueAmount).abs();
+      
+      if (diff.lessThanOrEqualTo(ONE_WEI)) {
+        console.log(`[Monitor] ✅ Tolerance match (±1 wei): ${amountJewel} JEWEL from ${fromAddress}`);
+        console.log(`[Monitor] Request #${request.id} for player #${request.playerId} (diff: ${diff.toString()} JEWEL)`);
+        return request;
+      }
+    }
+    
+    // No match found
+    console.log(`[Monitor] ⚠️ No match for ${amountJewel} JEWEL transfer from ${fromAddress}`);
+    console.log(`[Monitor] Pending requests: ${pending.length}`);
     return null;
   } catch (err) {
     console.error('[Monitor] Error finding matching deposit:', err.message);
