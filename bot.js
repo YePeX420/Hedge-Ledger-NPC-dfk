@@ -113,6 +113,7 @@ function getNPCData(npcKey) {
  * Creates player and balance records if they don't exist
  * @param {string} discordId - Discord user ID
  * @param {string} username - Discord username
+ * @returns {Promise<{player: object, isNewUser: boolean}>} Player and registration status
  */
 async function ensureUserRegistered(discordId, username) {
   console.log(`[ensureUserRegistered] START - User: ${username}, ID: ${discordId}`);
@@ -126,7 +127,7 @@ async function ensureUserRegistered(discordId, username) {
     if (existingPlayer.length > 0) {
       console.log(`[ensureUserRegistered] User already exists, skipping registration`);
       // User already registered
-      return existingPlayer[0];
+      return { player: existingPlayer[0], isNewUser: false };
     }
     
     // Create new player
@@ -153,7 +154,7 @@ async function ensureUserRegistered(discordId, username) {
     console.log(`[ensureUserRegistered] Balance record created`);
     
     console.log(`✅ User registered: ${username} with free tier`);
-    return newPlayer;
+    return { player: newPlayer, isNewUser: true };
   } catch (err) {
     console.error(`❌ [ensureUserRegistered] FAILED for ${username}:`, err);
     console.error(`❌ [ensureUserRegistered] Error stack:`, err.stack);
@@ -302,9 +303,25 @@ client.on('messageCreate', async (message) => {
     const username = message.author.username;
     
     console.log(`[messageCreate] Attempting to register user: ${username} (${discordId})`);
+    let isNewUser = false;
+    let playerData = null;
     try {
-      await ensureUserRegistered(discordId, username);
-      console.log(`[messageCreate] Registration completed successfully`);
+      const result = await ensureUserRegistered(discordId, username);
+      isNewUser = result.isNewUser;
+      playerData = result.player;
+      console.log(`[messageCreate] Registration completed successfully, isNewUser: ${isNewUser}`);
+      
+      // 🎁 If this is a new user, send wallet request prompt
+      if (isNewUser) {
+        const walletRequestMessage = 
+          `*yawns* Welcome to my ledger, ${username}.\n\n` +
+          `If you give me your wallet address, I can provide much better support—optimization strategies tailored to your heroes, help you track onboarding milestones, and even send you rewards as you complete them. ` +
+          `Don't worry, I only have view-only rights on-chain with that address. Completely read-only.\n\n` +
+          `If you'd rather not share it, that's fine too. You can still use the free walkthrough guides and basic help. Your choice.`;
+        
+        await message.reply(walletRequestMessage);
+        console.log(`💼 Sent wallet request to new user: ${username}`);
+      }
     } catch (regError) {
       // Log registration error but don't block bot response
       console.error(`[messageCreate] ⚠️  Registration failed but continuing with response:`, regError);
