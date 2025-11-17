@@ -109,6 +109,67 @@ function getNPCData(npcKey) {
 }
 
 /**
+ * Update a player's wallet addresses
+ * First wallet becomes primaryWallet, all wallets added to wallets array
+ * @param {string} discordId - Discord user ID
+ * @param {string} walletAddress - Ethereum wallet address (0x...)
+ * @returns {Promise<object>} Updated player record
+ */
+async function updatePlayerWallet(discordId, walletAddress) {
+  console.log(`[updatePlayerWallet] Adding wallet ${walletAddress} for user ${discordId}`);
+  
+  try {
+    // Get current player data
+    const [player] = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+    
+    if (!player) {
+      throw new Error(`Player not found: ${discordId}`);
+    }
+    
+    // Normalize wallet address to lowercase
+    const normalizedWallet = walletAddress.toLowerCase();
+    
+    // Check if this is their first wallet
+    const isFirstWallet = !player.primaryWallet;
+    
+    // Get current wallets array, or initialize empty
+    const currentWallets = player.wallets || [];
+    
+    // Check if wallet already exists
+    if (currentWallets.includes(normalizedWallet)) {
+      console.log(`[updatePlayerWallet] Wallet already exists for user, skipping`);
+      return player;
+    }
+    
+    // Add wallet to array
+    const updatedWallets = [...currentWallets, normalizedWallet];
+    
+    // Build update object
+    const updateData = {
+      wallets: updatedWallets
+    };
+    
+    // If first wallet, also set as primary
+    if (isFirstWallet) {
+      updateData.primaryWallet = normalizedWallet;
+      console.log(`[updatePlayerWallet] Setting ${normalizedWallet} as primary wallet`);
+    }
+    
+    // Update player record
+    const [updatedPlayer] = await db.update(players)
+      .set(updateData)
+      .where(eq(players.discordId, discordId))
+      .returning();
+    
+    console.log(`✅ Wallet added successfully. Total wallets: ${updatedWallets.length}`);
+    return updatedPlayer;
+  } catch (err) {
+    console.error(`❌ [updatePlayerWallet] FAILED:`, err);
+    throw err;
+  }
+}
+
+/**
  * Ensure a user is registered in the database
  * Creates player and balance records if they don't exist
  * @param {string} discordId - Discord user ID
@@ -326,6 +387,38 @@ client.on('messageCreate', async (message) => {
       // Log registration error but don't block bot response
       console.error(`[messageCreate] ⚠️  Registration failed but continuing with response:`, regError);
       console.error(`[messageCreate] Registration error stack:`, regError.stack);
+    }
+    
+    // 💼 Check if message contains a wallet address
+    const walletRegex = /0x[a-fA-F0-9]{40}/;
+    const walletMatch = message.content.match(walletRegex);
+    
+    if (walletMatch && playerData) {
+      const walletAddress = walletMatch[0];
+      console.log(`💼 Detected wallet address in message: ${walletAddress}`);
+      
+      try {
+        const updatedPlayer = await updatePlayerWallet(discordId, walletAddress);
+        const isFirstWallet = updatedPlayer.wallets.length === 1;
+        
+        if (isFirstWallet) {
+          const confirmMessage = 
+            `Perfect! I've saved your wallet address: \`${walletAddress}\`\n\n` +
+            `Now I can give you personalized hero optimization advice and track your milestones. ` +
+            `Feel free to ask me anything about your account, heroes, or how to navigate the game!`;
+          await message.reply(confirmMessage);
+          console.log(`✅ Confirmed wallet save to user: ${username}`);
+        } else {
+          await message.reply(`Got it! I've added \`${walletAddress}\` to your account.`);
+        }
+        
+        // Don't process this message further - wallet was saved
+        return;
+      } catch (walletError) {
+        console.error(`❌ Failed to save wallet:`, walletError);
+        await message.reply(`Hmm, I had trouble saving that wallet address. Try again?`);
+        return;
+      }
     }
     
     let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
