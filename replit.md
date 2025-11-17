@@ -6,6 +6,14 @@ Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi
 
 ## Recent Changes
 
+**November 17, 2025 - NPC Navigation System (Beta)**
+- **Visual NPC Guide**: Added interactive NPC knowledge system allowing users to query game NPCs via DMs. System sends NPC images with Hedge's humorous anecdotes and clear usage instructions.
+- **Beta NPCs**: Druid (liquidity management), Seed Box (garden data viewing), Harvest (reward claiming). Each includes location, function, personal story from Hedge, and step-by-step instructions.
+- **Intent Detection**: Enhanced intent parser with NPC query patterns (where/how/what questions) and action-based mapping (e.g., "how do I harvest rewards" → Harvest NPC). Positioned after data queries to prevent conflicts.
+- **Knowledge Base**: Created `knowledge/npcs.md` with structured NPC data and stored pixel art images in `knowledge/npcs/` directory.
+- **Free Content**: NPC navigation queries are FREE educational content, helping new players learn game interface without cost.
+- **Extensible Design**: System designed for easy addition of more NPCs (Tavern, Marketplace, Alchemist, etc.) after beta testing validates approach.
+
 **November 17, 2025 - DM Response Formatting Improvements**
 - **Pool Display Format**: Removed PID numbers from all pool listings and details. Pool entries now show clean inline format: "CRYSTAL-WJEWEL - 2.50% Fee APR - 5.21% Distribution APR" for improved readability.
 - **AI Response Quality**: Updated all DM response prompts (garden summary, pool detail, wallet rewards, marketplace, wallet portfolio) to explicitly forbid "What to Consider" sections and slash command references, which don't work in DMs. This ensures concise, actionable responses without confusing suggestions.
