@@ -219,9 +219,9 @@ client.on('messageCreate', async (message) => {
             
             if (!result || !result.pools || result.pools.length === 0) {
               if (result._error) {
-                await message.reply(`*yawns* ${result._error}. Try \`/garden pool:all\` in the server.`);
+                await message.reply(`*yawns* ${result._error}.`);
               } else {
-                await message.reply("Huh. No pools found. Try `/garden pool:all` in the server.");
+                await message.reply("Huh. No pools found. Something's not right with the data.");
               }
               return;
             }
@@ -239,17 +239,15 @@ client.on('messageCreate', async (message) => {
             poolsSummary += '\n\n';
             
             poolsData.slice(0, 5).forEach((pool, i) => {
-              poolsSummary += `${i+1}. **${pool.pairName}** (PID ${pool.pid})\n`;
-              poolsSummary += `   • Total APR: ${pool.totalAPR}\n`;
-              poolsSummary += `   • Fee APR: ${pool.fee24hAPR} | Emission: ${pool.harvesting24hAPR}\n`;
-              poolsSummary += `   • TVL: $${pool.totalTVL}\n\n`;
+              poolsSummary += `${i+1}. **${pool.pairName}** - ${pool.fee24hAPR} Fee APR - ${pool.harvesting24hAPR} Distribution APR\n`;
+              poolsSummary += `   • Total: ${pool.totalAPR} | TVL: $${pool.totalTVL}\n\n`;
             });
             
             if (poolsData.length > 5) {
-              poolsSummary += `...and ${poolsData.length - 5} more. Use \`/garden pool:all\` for full list.`;
+              poolsSummary += `...and ${poolsData.length - 5} more pools available.`;
             }
             
-            enrichedContent += `\n\n📊 GARDEN DATA:\n${poolsSummary}\n\nRespond as Hedge Ledger analyzing these APRs.`;
+            enrichedContent += `\n\n📊 GARDEN DATA:\n${poolsSummary}\n\nRespond as Hedge Ledger analyzing these APRs. Do NOT include a "What to Consider" section or mention slash commands (they don't work in DMs).`;
           } else if (intent.action === 'pool' && intent.pool) {
             // Fast pool lookup without heavy analytics
             await message.reply(`*flips through ledger* Looking up ${intent.pool} pool...`);
@@ -257,7 +255,7 @@ client.on('messageCreate', async (message) => {
             const pool = await quickData.findPoolByName(intent.pool);
             
             if (!pool) {
-              await message.reply(`Couldn't find a pool matching "${intent.pool}". Try \`/garden pool:all\` to see all pools.`);
+              await message.reply(`Couldn't find a pool matching "${intent.pool}". Try asking for all pool APRs to see what's available.`);
               return;
             }
             
@@ -265,13 +263,13 @@ client.on('messageCreate', async (message) => {
             const poolData = await quickData.getPoolAnalyticsWithTimeout(pool.pid, 45000);
             
             if (!poolData) {
-              await message.reply("Couldn't fetch pool analytics. Cache might not be ready yet. Try `/garden pool:${pool.pid}` for live data.");
+              await message.reply("Couldn't fetch pool analytics. Cache might not be ready yet. Try again in a moment.");
               return;
             }
             
             const cacheAge = poolData._cacheAge || 0;
             
-            let poolDetails = `📊 **${poolData.pairName}** (PID ${poolData.pid})`;
+            let poolDetails = `📊 **${poolData.pairName}**`;
             if (poolData._cached) {
               poolDetails += ` (cached ${cacheAge}m ago)`;
             }
@@ -288,7 +286,7 @@ client.on('messageCreate', async (message) => {
             poolDetails += `• 24h Volume: $${poolData.volume24hUSD}\n`;
             poolDetails += `• 24h Fees: $${poolData.fees24hUSD}\n`;
             
-            enrichedContent += `\n\n📊 POOL DATA:\n${poolDetails}\n\nRespond as Hedge Ledger with analysis.`;
+            enrichedContent += `\n\n📊 POOL DATA:\n${poolDetails}\n\nRespond as Hedge Ledger with analysis. Do NOT include a "What to Consider" section or mention slash commands.`;
           } else if (intent.action === 'wallet' && intent.wallet) {
             // Quick wallet rewards check (top 5 pools only to avoid delays)
             await message.reply(`*adjusts monocle* Checking your top staked positions... moment...`);
@@ -306,17 +304,17 @@ client.on('messageCreate', async (message) => {
             }
             
             if (!hasRewards) {
-              walletSummary += "No pending rewards in top pools. Use \`/garden wallet:<addr>\` for complete scan.";
+              walletSummary += "No pending rewards in top pools.";
             }
             
-            enrichedContent += `\n\n📊 WALLET REWARDS:\n${walletSummary}\n\nRespond as Hedge Ledger.`;
+            enrichedContent += `\n\n📊 WALLET REWARDS:\n${walletSummary}\n\nRespond as Hedge Ledger. Keep it concise and do NOT include a "What to Consider" section or mention slash commands.`;
           }
         } catch (err) {
           console.error('Garden auto-fetch error:', err);
           if (err.message.includes('timed out')) {
-            await message.reply("*yawns* Blockchain scan took too long. Use the slash command for better reliability: `/garden pool:all realm:dfk`");
+            await message.reply("*yawns* Blockchain scan took too long. Try again in a moment.");
           } else {
-            await message.reply("*yawns* Something broke. Try the slash command: `/garden pool:all realm:dfk`");
+            await message.reply("*yawns* Something broke. Try again later.");
           }
           return;
         }
@@ -355,10 +353,10 @@ client.on('messageCreate', async (message) => {
             marketSummary += `\n...and ${heroes.length - 5} more listings.`;
           }
           
-          enrichedContent += `\n\n🏪 LIVE MARKETPLACE DATA:\n${marketSummary}\n\nRespond as Hedge Ledger with market analysis.`;
+          enrichedContent += `\n\n🏪 LIVE MARKETPLACE DATA:\n${marketSummary}\n\nRespond as Hedge Ledger with market analysis. Keep it concise and do NOT include a "What to Consider" section or mention slash commands.`;
         } catch (err) {
           console.error('Market auto-fetch error:', err);
-          await message.reply("*yawns* Marketplace lookup failed. Try the slash command: `/market class:<class>`");
+          await message.reply("*yawns* Marketplace lookup failed. Try again later.");
           return;
         }
       }
@@ -399,10 +397,10 @@ client.on('messageCreate', async (message) => {
             walletSummary += `\n**Total Listing Value:** ${totalValue.toFixed(2)} JEWEL`;
           }
           
-          enrichedContent += `\n\n💼 LIVE WALLET DATA:\n${walletSummary}\n\nRespond as Hedge Ledger with portfolio analysis.`;
+          enrichedContent += `\n\n💼 LIVE WALLET DATA:\n${walletSummary}\n\nRespond as Hedge Ledger with portfolio analysis. Keep it concise and do NOT include a "What to Consider" section or mention slash commands.`;
         } catch (err) {
           console.error('Wallet auto-fetch error:', err);
-          await message.reply("*yawns* Wallet lookup failed. Try the slash command: `/wallet <address>`");
+          await message.reply("*yawns* Wallet lookup failed. Try again later.");
           return;
         }
       }
