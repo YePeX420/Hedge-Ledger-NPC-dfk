@@ -1327,10 +1327,10 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     const allQueryStats = await db
       .select({
         playerId: queryCosts.playerId,
-        totalQueries: sql<number>`COUNT(*)::int`,
-        totalCost: sql<string>`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
-        totalProfit: sql<string>`COALESCE(SUM(${queryCosts.profitUsd}), 0)`,
-        freeQueries: sql<number>`COALESCE(SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END), 0)::int`
+        totalQueries: sql`COUNT(*)::int`,
+        totalCost: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
+        totalProfit: sql`COALESCE(SUM(${queryCosts.profitUsd}), 0)`,
+        freeQueries: sql`COALESCE(SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END), 0)::int`
       })
       .from(queryCosts)
       .where(inArray(queryCosts.playerId, playerIds))
@@ -1342,10 +1342,10 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     const allDepositStats = await db
       .select({
         playerId: depositRequests.playerId,
-        totalDeposits: sql<number>`COUNT(*)::int`,
-        completedDeposits: sql<number>`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
-        totalJewel: sql<string>`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
-        totalCrystal: sql<string>`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountCrystal} AS DECIMAL) ELSE 0 END), 0)`
+        totalDeposits: sql`COUNT(*)::int`,
+        completedDeposits: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
+        totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
+        totalCrystal: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountCrystal} AS DECIMAL) ELSE 0 END), 0)`
       })
       .from(depositRequests)
       .where(inArray(depositRequests.playerId, playerIds))
