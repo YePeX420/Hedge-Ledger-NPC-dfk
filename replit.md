@@ -12,6 +12,28 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+**November 17, 2025 - Smart Intent Detection & Auto-Fetch System**
+- Implemented intelligent DM conversation system that proactively fetches blockchain data
+- Created intent-parser.js module for analyzing user questions and detecting data needs
+- Created quick-data-fetcher.js for lightweight, cached data queries with timeout protection
+- DM auto-fetch capabilities:
+  - **Garden questions** → Automatically pulls live pool APRs, TVL, volume data
+  - **Market questions** → Auto-fetches marketplace listings with price/class filtering
+  - **Wallet portfolio** → Auto-fetches hero inventory and holdings
+  - **Garden rewards** → Auto-fetches pending LP staking rewards (top 5 pools)
+- Performance optimizations:
+  - Pool list caching (5-minute TTL)
+  - Timeout wrappers (30-50 second limits)
+  - Targeted queries instead of full blockchain scans
+  - Quick wallet checks (top 5 pools only)
+- Intent separation logic:
+  - "What heroes does wallet 0x... own?" → Wallet handler (hero inventory)
+  - "Pending rewards 0x..." → Garden wallet handler (LP rewards)
+  - "What are current APRs?" → Garden all pools handler
+  - "Show me cheap wizards" → Market handler with price filtering
+- Hedge now responds naturally with live data instead of telling users to use slash commands
+- All data fetching wrapped in error handling with graceful fallbacks
+
 **November 17, 2025 - Web Analytics Dashboard**
 - Built comprehensive web-based admin dashboard accessible at http://localhost:5000
 - Dashboard displays real-time metrics: total players, JEWEL deposits, revenue, query usage
@@ -58,8 +80,12 @@ Node.js backend service with Discord.js integration and web-based admin dashboar
 - Slash command registration and handling
 - Auto-onboarding system (DMs new members on join)
 - Free-form DM conversation support with intelligent auto-detection:
-  - **Garden/pool questions** - Detects APR/pool/yield keywords and guides users to `/garden` slash command
+  - **Garden/pool questions** - Auto-fetches live pool APRs, TVL, and volume data
+  - **Market questions** - Auto-fetches marketplace listings with class/price filtering
+  - **Wallet portfolio** - Auto-fetches hero inventory by wallet address
+  - **Garden rewards** - Auto-fetches pending LP staking rewards
   - **Hero ID mentions** - Automatically fetches blockchain data when hero IDs are mentioned (e.g., "What class is hero #62?")
+- Proactive data fetching using intent-parser.js and quick-data-fetcher.js modules
 - Integrates on-chain data module for live blockchain queries
 
 **2. AI Response System**
@@ -84,6 +110,20 @@ Node.js backend service with Discord.js integration and web-based admin dashboar
   - Wallet portfolio analysis
   - Market statistics
 - Helper utilities for token conversion (wei to JEWEL/CRYSTAL) and hero ID normalization
+
+**Intent Detection** (`intent-parser.js`):
+- Analyzes DM messages to determine user intent and data needs
+- Separates garden queries (APRs, pools, rewards) from wallet queries (hero inventory)
+- Parses specific parameters like pool names, hero classes, wallet addresses
+- Routes questions to appropriate data handlers
+
+**Quick Data Fetcher** (`quick-data-fetcher.js`):
+- Lightweight data fetching module for DM responses
+- Cached pool list (5-minute TTL) to avoid repeated blockchain queries
+- Timeout wrappers for all analytics calls (30-50 second limits)
+- Fast pool lookup by name without heavy blockchain scans
+- Quick wallet rewards check (top 5 pools only for speed)
+- Proper marketplace filtering with price and sort options
 
 **Garden Analytics** (`garden-analytics.js`):
 - Direct smart contract integration via ethers.js
