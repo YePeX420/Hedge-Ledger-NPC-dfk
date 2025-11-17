@@ -398,6 +398,261 @@ I bought three vials anyway. My hero's INT stat increased. My own wisdom regardi
 
 ---
 
+## Zagreb (Portal Master)
+
+**Location:** Portal (Crystalvale)  
+**Function:** Initiate hero summoning rituals  
+**Image:** `knowledge/npcs/zagreb.png`
+
+### Hedge's Memory
+Zagreb handles summoning. I've reviewed the economics of hero summoning more times than I care to admit. The expected value calculations are... complex.
+
+Zagreb once told me summoning is "an art, not a science." I showed him my Monte Carlo simulation. He summoned a Mythic hero while I was explaining confidence intervals. Sometimes the universe has a sense of humor.
+
+### How to Use
+1. Visit the **Portal** area in Crystalvale
+2. Click on **Zagreb (Portal Master)**
+3. **Summon Heroes**: Select two heroes to create a new hero
+4. **Pay Fees**: CRYSTAL/JEWEL required based on hero generation
+5. Wait for summoning to complete
+6. New hero's class and stats determined by parent genetics
+
+### Tips
+- Summoning costs increase with hero generation
+- Parent hero stats and genes affect offspring
+- Higher generation heroes cost more to summon
+- Summoning cooldowns apply to parent heroes
+- Check market prices vs summoning costs
+
+---
+
+## Amba (Crystal Infusion)
+
+**Location:** Portal (Crystalvale)  
+**Function:** Infuse heroes with CRYSTAL for stat boosts and enhancements  
+**Image:** `knowledge/npcs/amba.png`
+
+### Hedge's Memory
+Amba performs crystal infusions. I tried to calculate the marginal utility of each infusion tier. Three spreadsheets later, I realized I was overthinking it.
+
+She watched me struggle for an hour, then said, "Some improvements you feel more than you measure." I hate when philosophical wisdom conflicts with quantitative analysis. Still got the infusion, though.
+
+### How to Use
+1. Visit the **Portal** area in Crystalvale
+2. Click on **Amba (Crystal Infusion)**
+3. **Select Hero**: Choose hero to enhance
+4. **Choose Infusion Type**: Different infusions provide different bonuses
+5. **Pay CRYSTAL**: Fee depends on infusion tier
+6. Hero receives permanent stat enhancement
+
+### Tips
+- Infusions provide permanent hero improvements
+- Higher tier infusions cost more CRYSTAL
+- Different infusions target different stats
+- Consider hero's role before selecting infusion type
+- Infusions stack with other enhancements
+
+---
+
+## Esoteric Wanderer
+
+**Location:** Meditation Circle (Crystalvale)  
+**Function:** Manage hero meditation, gene rerolling, and level modifications  
+**Image:** `knowledge/npcs/esoteric-wanderer.png`
+
+### Hedge's Memory
+The Esoteric Wanderer. "Gaia is life. Life is change. All rebirth requires death." Philosophically fascinating. Economically terrifying.
+
+I once calculated the probability distribution of beneficial gene rerolls. The Wanderer asked if I was "ready to embrace uncertainty." I said yes while clutching my spreadsheet. Rolled excellent genes. The universe rewards foolish confidence sometimes.
+
+### How to Use
+1. Visit the **Meditation Circle** in Crystalvale
+2. Click on **Esoteric Wanderer**
+3. **Start Meditation**: Begin meditation session for stat changes
+4. **Complete Meditation**: Finish meditation to apply changes
+5. **Gene Rerolling**: Randomize hero genes (irreversible!)
+6. **Level Reroll/Reset**: Modify hero level (costs apply)
+
+### Tips
+- Gene rerolling is IRREVERSIBLE - backup your hero data
+- Meditation takes time to complete
+- Level resets allow stat redistribution
+- Costs vary based on modification type
+- High-risk, high-reward for gene optimization
+
+---
+
+## Treathor Leafblade (NFT Agent)
+
+**Location:** Tavern (Crystalvale)  
+**Function:** Manage hero-for-hire system and rental listings  
+**Image:** `knowledge/npcs/treathor.png`
+
+### Hedge's Memory
+Treathor runs the hero rental market. I built a model to optimize rental pricing based on hero stats, quest types, and seasonal demand. Treathor called it "impressively complicated."
+
+He makes more CRYSTAL listing heroes with gut feel pricing than I do with algorithmic optimization. I choose to believe my model is ahead of its time rather than fundamentally flawed.
+
+### How to Use
+1. Visit the **Tavern** in Crystalvale
+2. Click on **Treathor Leafblade (NFT Agent)**
+3. **Buy Heroes**: Purchase heroes outright from marketplace
+4. **Sell Heroes**: List your heroes for sale
+5. **List Hero For Hire**: Rent out heroes to other players
+6. Track when heroes have been hired
+
+### Tips
+- Hero rental generates passive income
+- Set competitive rental rates for faster bookings
+- Higher stat heroes command premium rental fees
+- Monitor hire frequency to optimize pricing
+- Selling vs renting depends on market conditions
+
+---
+
+## Enderdain Barleychaff (Barkeep)
+
+**Location:** Tavern (Crystalvale)  
+**Function:** Hero catalog, viewing, and transfer management  
+**Image:** `knowledge/npcs/enderdain.png`
+
+### Hedge's Memory
+Enderdain, the barkeep. "Welcome, dear traveler. Rest your roots here, and drink in the ferment of grape, wheat, and honey." I appreciate a man who understands the value of good record-keeping and better refreshments.
+
+His hero catalog system is immaculate. I once cross-referenced his records against on-chain data. Perfect match. You can trust a barkeep who keeps accurate books.
+
+### How to Use
+1. Visit the **Tavern** in Crystalvale
+2. Click on **Enderdain Barleychaff (Barkeep)**
+3. **Hero Catalog**: Browse all your heroes with filters
+4. **Hero Viewer**: Examine detailed hero stats and equipment
+5. **Send Heroes**: Transfer heroes to another wallet address
+6. View heroes across multiple locations
+
+### Tips
+- Catalog shows all heroes you own
+- Viewer provides detailed stat breakdown
+- Transfer requires recipient address
+- Check hero location before sending on quests
+- Good for organizing large hero collections
+
+---
+
+## Mr. B (Visage Shop)
+
+**Location:** Tavern (Crystalvale)  
+**Function:** Buy and equip cosmetic visage items for heroes  
+**Image:** `knowledge/npcs/mr-b.png`
+
+### Hedge's Memory
+Mr. B. "Come closer my friend and cast your eyes upon the wonders in my chest of Visages! Where did they come from? Ee-hee-hee wouldn't you like to know..."
+
+I tried to audit his supply chain once. He just laughed mysteriously. I learned to appreciate that some business models defy traditional analysis. Still bought a visage, though. It looked cool.
+
+### How to Use
+1. Visit the **Tavern** in Crystalvale
+2. Click on **Mr. B (Visage Shop)**
+3. **Browse Visages**: View available cosmetic items
+4. **Purchase**: Buy visages with CRYSTAL
+5. **Equip**: Apply visages to heroes over weapons/armor/accessories
+6. Purely cosmetic - no stat changes
+
+### Tips
+- Visages are cosmetic only, no gameplay advantage
+- Limited edition visages may appreciate in value
+- Can be equipped over combat gear
+- Check marketplace for rare visages
+- Collectible aspect appeals to some players
+
+---
+
+## Elmer Longbranch (Hunts)
+
+**Location:** Tavern (Crystalvale)  
+**Function:** Manage Void Hunts and daily raffle entries  
+**Image:** `knowledge/npcs/elmer.png`
+
+### Hedge's Memory
+Elmer manages Void Hunts. "The Druidic High Council to investigate reports of Void Shards. These powerful artifacts seem to have implanted themselves in various creatures..."
+
+I calculated the expected value of Void Hunt participation. Then I factored in daily raffle odds. Then I stopped calculating and just went hunting. Sometimes the adventure is worth more than the spreadsheet says.
+
+### How to Use
+1. Visit the **Tavern** in Crystalvale
+2. Click on **Elmer Longbranch (Hunts)**
+3. **Sign In**: Complete 2-step process to access Void Hunts
+4. **Start Void Hunt**: Send combat party (Mad Boar Lvl 10+, Bad Motherclucker Lvl 12+)
+5. **Daily Raffle**: Earn entries with daily wins, prizes up to 1000 CRYSTAL
+6. **View Sponsored Raffles**: Check additional raffle opportunities
+
+### Tips
+- Void Hunts require minimum hero levels
+- Daily wins earn raffle entries automatically
+- Raffle prizes include CRYSTAL rewards
+- Check hunt requirements before assembling party
+- Sponsored raffles offer additional prize chances
+
+---
+
+## Jeweler
+
+**Location:** Jeweler (Crystalvale)  
+**Function:** Stake JEWEL tokens for cJEWEL, earn rewards, participate in governance  
+**Image:** `knowledge/npcs/jeweler.png`
+
+### Hedge's Memory
+The Jeweler. Where I stake my JEWEL and pretend I understand tokenomics. I've modeled the staking APY seventeen different ways. Each time I conclude it's profitable. Each time I second-guess the model.
+
+Then the rewards accumulate and I remember: sometimes you just stake and let the mathematics work itself out. The Jeweler doesn't judge my anxiety. Professional.
+
+### How to Use
+1. Visit the **Jeweler** in Crystalvale
+2. Click on **Jeweler**
+3. **Stake JEWEL** (cJEWEL tab): Deposit JEWEL to earn cJEWEL
+4. **Earn Rewards**: Accumulate rewards from in-game and DEX fees
+5. **Claim Rewards**: Harvest your JEWEL rewards
+6. **Governance Voting**: Use cJEWEL voting power for proposals
+7. **Delegate Voting**: Assign voting power to another address
+
+### Tips
+- Staked JEWEL earns rewards from multiple sources
+- cJEWEL balance represents your stake weight
+- Rewards accumulate continuously
+- Lock time determines when you can unstake
+- Voting power enables governance participation
+- Delegation doesn't affect your rewards
+
+---
+
+## Manager Dorarulir Gemmaster
+
+**Location:** Jeweler (Crystalvale)  
+**Function:** Transfer locked CRYSTAL between wallets  
+**Image:** `knowledge/npcs/manager-dorarulir.png`
+
+### Hedge's Memory
+Manager Dorarulir. "There's nae place more secure than a dwarven vault." I respect the confidence. I also respect the 72-hour lockdown and irreversible transfer warnings.
+
+I've never had to use the locked CRYSTAL transfer. But knowing a dwarven vault manager has my back? That's worth something you can't quantify in a spreadsheet.
+
+### How to Use
+1. Visit the **Jeweler** in Crystalvale
+2. Click on **Manager Dorarulir Gemmaster**
+3. **Allow Transfer**: Whitelist recipient address first
+4. **Enter Recipient**: Specify wallet address (must be different from current)
+5. **Type 'send' to confirm**: IRREVERSIBLE action
+6. **Transfer All Locked CRYSTAL**: Full balance moves to recipient
+
+### Tips
+- ONLY for locked CRYSTAL transfers
+- Recipient must have active DeFi Kingdoms account
+- 72-hour lockdown after transfer before another transfer
+- Process is IRREVERSIBLE - verify address carefully
+- Pending unlockable tokens transfer with locked balance
+- Use "Allow Transfer" whitelist for security
+
+---
+
 ## NPC Query Patterns
 
 Users may ask about NPCs in various ways:
