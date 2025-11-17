@@ -108,6 +108,49 @@ function getNPCData(npcKey) {
   return npcMap[npcKey] || null;
 }
 
+/**
+ * Ensure a user is registered in the database
+ * Creates player and balance records if they don't exist
+ * @param {string} discordId - Discord user ID
+ * @param {string} username - Discord username
+ */
+async function ensureUserRegistered(discordId, username) {
+  try {
+    // Check if player exists
+    const existingPlayer = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+    
+    if (existingPlayer.length > 0) {
+      // User already registered
+      return existingPlayer[0];
+    }
+    
+    // Create new player
+    console.log(`📝 Registering new user: ${username} (${discordId})`);
+    
+    const [newPlayer] = await db.insert(players).values({
+      discordId,
+      username
+    }).returning();
+    
+    // Create initial balance record with 'free' tier
+    await db.insert(jewelBalances).values({
+      playerId: newPlayer.id,
+      balanceJewel: '0',
+      lifetimeDepositsJewel: '0',
+      tier: 'free',
+      freeGardenAprsUsedToday: 0,
+      freeSummonUsedToday: 0,
+      lastFreeResetDate: new Date().toISOString().split('T')[0]
+    });
+    
+    console.log(`✅ User registered: ${username} with free tier`);
+    return newPlayer;
+  } catch (err) {
+    console.error(`❌ Failed to register user ${username}:`, err);
+    throw err;
+  }
+}
+
 if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_TOKEN');
 if (!OPENAI_API_KEY) throw new Error('Missing OPENAI_API_KEY');
 
@@ -244,6 +287,12 @@ client.on('messageCreate', async (message) => {
   if (message.guild) return;
 
   try {
+    // 📝 Register user in database if first time
+    const discordId = message.author.id;
+    const username = message.author.username;
+    
+    await ensureUserRegistered(discordId, username);
+    
     let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
 
     // 🧠 Parse user intent to detect what data they want
