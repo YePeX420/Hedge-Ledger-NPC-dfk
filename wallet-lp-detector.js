@@ -8,10 +8,15 @@
 import { ethers } from 'ethers';
 import { getCachedPoolAnalytics } from './pool-cache.js';
 import erc20ABI from './ERC20.json' with { type: 'json' };
+import lpStakingABI from './LPStakingDiamond.json' with { type: 'json' };
 
 // DFK Chain configuration
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
+
+// LP Staking contract (where garden LP tokens are deposited)
+const LP_STAKING_ADDRESS = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
+const stakingContract = new ethers.Contract(LP_STAKING_ADDRESS, lpStakingABI, provider);
 
 /**
  * Detect LP token holdings in a wallet
@@ -32,22 +37,24 @@ export async function detectWalletLPPositions(walletAddress) {
     const pools = cached.data;
     const positions = [];
     
-    // Query each pool's LP token for user balance
+    // Query each pool for user's STAKED LP tokens
     for (const pool of pools) {
       try {
-        const lpContract = new ethers.Contract(pool.lpToken, erc20ABI, provider);
-        const balance = await lpContract.balanceOf(walletAddress);
+        // Get staked amount from LP Staking contract
+        const userInfo = await stakingContract.userInfo(pool.pid, walletAddress);
+        const stakedAmount = userInfo.amount; // Staked LP tokens in this pool
         
-        // Only include pools where user has LP tokens
-        if (balance > 0n) {
-          const balanceFormatted = ethers.formatUnits(balance, 18);
+        // Only include pools where user has staked LP tokens
+        if (stakedAmount > 0n) {
+          const stakedFormatted = ethers.formatUnits(stakedAmount, 18);
           
           // Calculate USD value of position using BigInt arithmetic
+          const lpContract = new ethers.Contract(pool.lpToken, erc20ABI, provider);
           const totalSupply = await lpContract.totalSupply();
           
           // Avoid precision loss: scale by 1e6, divide, then convert
           const PRECISION = 1000000n;
-          const userShareScaled = (balance * PRECISION) / totalSupply;
+          const userShareScaled = (stakedAmount * PRECISION) / totalSupply;
           const userShareOfPool = Number(userShareScaled) / 1000000;
           
           // Parse TVL safely with fallback
@@ -58,8 +65,8 @@ export async function detectWalletLPPositions(walletAddress) {
             pid: pool.pid,
             pairName: pool.pairName,
             lpToken: pool.lpToken,
-            lpBalance: balanceFormatted,
-            lpBalanceRaw: balance.toString(),
+            lpBalance: stakedFormatted,
+            lpBalanceRaw: stakedAmount.toString(),
             userTVL: userTVL.toFixed(2),
             shareOfPool: (userShareOfPool * 100).toFixed(4) + '%',
             poolData: {
@@ -73,7 +80,7 @@ export async function detectWalletLPPositions(walletAddress) {
             }
           });
           
-          console.log(`[LP Detector] Found position: ${pool.pairName} (${balanceFormatted} LP tokens, $${userTVL.toFixed(2)} TVL)`);
+          console.log(`[LP Detector] Found STAKED position: ${pool.pairName} (${stakedFormatted} LP tokens, $${userTVL.toFixed(2)} TVL)`);
         }
       } catch (err) {
         console.error(`[LP Detector] Error checking pool ${pool.pid}:`, err.message);
