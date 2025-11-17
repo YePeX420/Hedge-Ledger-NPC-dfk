@@ -1465,30 +1465,36 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     const depositStatsMap = new Map(allDepositStats.map(d => [d.playerId, d]));
     
     // Batch query: Get recent DM messages for all users (single query)
-    const allMessages = await db
-      .select({
-        playerId: interactionMessages.playerId,
-        content: interactionMessages.content,
-        messageType: interactionMessages.messageType,
-        timestamp: interactionMessages.timestamp
-      })
-      .from(interactionMessages)
-      .innerJoin(interactionSessions, eq(interactionMessages.sessionId, interactionSessions.id))
-      .where(sql`${interactionMessages.playerId} IN (${sql.raw(playerIds.join(','))}) AND ${interactionSessions.channelType} = 'dm'`)
-      .orderBy(desc(interactionMessages.timestamp))
-      .limit(10 * playerIds.length); // Get up to 10 messages per user
-    
-    // Group messages by player
-    const messagesByPlayer = new Map();
-    allMessages.forEach(msg => {
-      if (!messagesByPlayer.has(msg.playerId)) {
-        messagesByPlayer.set(msg.playerId, []);
-      }
-      const playerMsgs = messagesByPlayer.get(msg.playerId);
-      if (playerMsgs.length < 10) {
-        playerMsgs.push(msg);
-      }
-    });
+    // Wrap in try-catch since this is non-critical for user list
+    let messagesByPlayer = new Map();
+    try {
+      const allMessages = await db
+        .select({
+          playerId: interactionMessages.playerId,
+          content: interactionMessages.content,
+          messageType: interactionMessages.messageType,
+          timestamp: interactionMessages.timestamp
+        })
+        .from(interactionMessages)
+        .innerJoin(interactionSessions, eq(interactionMessages.sessionId, interactionSessions.id))
+        .where(sql`${interactionMessages.playerId} IN (${sql.raw(playerIds.join(','))}) AND ${interactionSessions.channelType} = 'dm'`)
+        .orderBy(desc(interactionMessages.timestamp))
+        .limit(10 * playerIds.length); // Get up to 10 messages per user
+      
+      // Group messages by player
+      allMessages.forEach(msg => {
+        if (!messagesByPlayer.has(msg.playerId)) {
+          messagesByPlayer.set(msg.playerId, []);
+        }
+        const playerMsgs = messagesByPlayer.get(msg.playerId);
+        if (playerMsgs.length < 10) {
+          playerMsgs.push(msg);
+        }
+      });
+    } catch (msgError) {
+      console.warn('[API] Failed to fetch messages, continuing without message data:', msgError.message);
+      // messagesByPlayer remains empty Map
+    }
     
     // Enrich users with batched data
     const enrichedUsers = userList.map((user) => {
