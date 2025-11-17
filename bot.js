@@ -659,33 +659,18 @@ async function handleWalletCommand(interaction) {
   await interaction.editReply(reply);
 }
 
-// Simple HTTP server on port 5000 for workflow health check
-import http from 'http';
-
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ status: 'ok', service: 'Hedge Ledger Discord Bot' }));
-});
-
-server.on('error', (err) => {
-  console.error('❌ Health check server error:', err.message);
-  if (err.code === 'EADDRINUSE') {
-    console.log('Port 5000 already in use - health check server disabled');
-  }
-});
-
-server.listen(5000, '0.0.0.0', () => {
-  console.log('✅ Health check server listening on port 5000');
+// Start the web server for admin dashboard
+import('./server/index.js').then((module) => {
+  console.log('✅ Web dashboard server started on port 5000');
+}).catch((err) => {
+  console.error('❌ Failed to start web server:', err.message);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down gracefully...');
   stopMonitoring();
-  server.close(() => {
-    console.log('✅ Health server closed');
-    process.exit(0);
-  });
+  process.exit(0);
 });
 
 // Export handlers so they can be called from the main command switch
