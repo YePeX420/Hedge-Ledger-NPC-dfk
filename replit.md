@@ -75,6 +75,28 @@ The admin dashboard is protected by Discord OAuth2 authentication. Users must be
 
 The current architecture is designed to support future multi-guild dashboards where client guilds can have their own admin panels showing only their server's data. The permission checking logic can be extended to support different access levels based on guild membership.
 
+## Debug Dashboard
+
+The admin dashboard includes a debug tools page (`/debug.html`) for system maintenance and troubleshooting.
+
+**Available Tools:**
+
+*   **Cache Management**: Clear or refresh the pool analytics cache manually
+*   **Flow Testing**: Test wallet detection, new user flows, and intent parser
+*   **System Controls**:
+    *   **Restart Bot (Kill Duplicates)**: Kills all `tsx bot.js` processes to ensure a clean single-instance restart. Useful when duplicate bot processes accumulate, which can cause Discord to connect to an old instance with outdated code. The workflow auto-restarts within 5-10 seconds.
+    *   **Restart Monitor**: Restart the blockchain transaction monitor
+    *   **System Health**: Check status of all background systems
+*   **Error Logs**: View recent errors and full system logs
+
+**Restart Button Usage:**
+
+The "Restart Bot (Kill Duplicates)" button solves a common issue where multiple bot processes run simultaneously after repeated workflow restarts. When this happens, Discord may connect to an older instance that doesn't have the latest code changes. Clicking the button:
+1. Sends confirmation dialog to prevent accidental clicks
+2. Kills ALL bot processes using `pkill -f "tsx bot.js"`
+3. Triggers automatic workflow restart
+4. Ensures only one clean bot instance is running
+
 ## Garden Optimization Payment Flow
 
 The bot provides automated garden optimization services with blockchain-based payment verification. Users can request LP yield optimization for 25 JEWEL, and the system automatically processes payments and delivers results.
