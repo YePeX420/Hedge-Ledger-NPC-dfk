@@ -6,8 +6,8 @@
  */
 
 import { isCacheReady } from './pool-cache.js';
-import { detectLPPositions } from './wallet-lp-detector.js';
-import { db } from './db/index.js';
+import { detectWalletLPPositions } from './wallet-lp-detector.js';
+import { db } from './db.js';
 import { players, gardenOptimizations } from './shared/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';

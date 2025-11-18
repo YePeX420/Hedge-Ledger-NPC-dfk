@@ -57,8 +57,10 @@ export async function detectWalletLPPositions(walletAddress) {
           const userShareScaled = (stakedAmount * PRECISION) / totalSupply;
           const userShareOfPool = Number(userShareScaled) / 1000000;
           
-          // Parse TVL safely with fallback
-          const poolTVL = parseFloat(pool.totalTVL?.replace(/[^0-9.]/g, '') || '0');
+          // Parse TVL safely with fallback (handle both string and number)
+          const poolTVL = typeof pool.totalTVL === 'number' 
+            ? pool.totalTVL 
+            : parseFloat(pool.totalTVL?.replace(/[^0-9.]/g, '') || '0');
           const userTVL = poolTVL * userShareOfPool;
           
           positions.push({
