@@ -25,6 +25,29 @@ import express from 'express';
 
 const execAsync = promisify(exec);
 
+// Helper function to convert BigInt values to strings for JSON serialization
+function serializeBigInt(obj) {
+  if (obj === null || obj === undefined) return obj;
+  
+  if (typeof obj === 'bigint') {
+    return obj.toString();
+  }
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => serializeBigInt(item));
+  }
+  
+  if (typeof obj === 'object') {
+    const serialized = {};
+    for (const key in obj) {
+      serialized[key] = serializeBigInt(obj[key]);
+    }
+    return serialized;
+  }
+  
+  return obj;
+}
+
 const {
   DISCORD_TOKEN,
   OPENAI_API_KEY,
@@ -596,7 +619,7 @@ Keep it entertaining but helpful. This is free educational content, so be genero
               status: 'awaiting_payment',
               fromWallet: walletAddress,
               expiresAt,
-              lpSnapshot: sql`${JSON.stringify(positions)}::json`, // Explicit JSON cast to avoid string storage
+              lpSnapshot: sql`${JSON.stringify(serializeBigInt(positions))}::json`, // Convert BigInt to strings before JSON serialization
             })
             .returning();
           
