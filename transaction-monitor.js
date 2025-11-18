@@ -241,13 +241,25 @@ async function scanNativeTransfers(fromBlock, toBlock) {
  * Process Transfer events from a block range
  * Now scans BOTH ERC20 token transfers AND native JEWEL transfers
  * 
+ * Performance optimization: Only scan native transfers for small ranges (<100 blocks)
+ * to avoid RPC timeouts during catch-up. Most payments use ERC20 anyway.
+ * 
  * @param {number} fromBlock - Start block (inclusive)
  * @param {number} toBlock - End block (inclusive)
  * @returns {Object} - Object with depositMatches and optimizationMatches arrays
  */
 async function processBlockRange(fromBlock, toBlock) {
   try {
-    console.log(`[Monitor] Scanning blocks ${fromBlock}-${toBlock} for JEWEL deposits...`);
+    const blockRange = toBlock - fromBlock + 1;
+    console.log(`[Monitor] Scanning blocks ${fromBlock}-${toBlock} (${blockRange} blocks) for JEWEL deposits...`);
+    
+    // Determine if we should scan native transfers
+    // Only scan native for recent blocks to avoid RPC timeouts
+    const shouldScanNative = blockRange <= 100; // Only scan native for small ranges
+    
+    if (!shouldScanNative) {
+      console.log(`[Monitor] Skipping native scan for large range (ERC20 only)`);
+    }
     
     // Scan both ERC20 transfers and native transfers in parallel
     const [erc20Events, nativeTransfers] = await Promise.all([
@@ -261,8 +273,8 @@ async function processBlockRange(fromBlock, toBlock) {
           return [];
         }
       })(),
-      // Scan for native JEWEL transfers
-      scanNativeTransfers(fromBlock, toBlock)
+      // Scan for native JEWEL transfers (only for small ranges)
+      shouldScanNative ? scanNativeTransfers(fromBlock, toBlock) : Promise.resolve([])
     ]);
     
     console.log(`[Monitor] Found ${erc20Events.length} ERC20 transfers + ${nativeTransfers.length} native transfers`);
@@ -404,9 +416,12 @@ export async function startMonitoring(onDepositMatched, onOptimizationMatched) {
   }
   
   // Catch-up phase: process all missed blocks before polling
+  // Strategy: Process in large batches for ERC20 (fast), then rescan with native support
   const currentBlock = await provider.getBlockNumber();
   let catchUpBlock = lastProcessedBlock;
   
+  // Phase 1: Fast ERC20-only catch-up
+  console.log('[Monitor] Phase 1: Fast ERC20 catch-up...');
   while (catchUpBlock < currentBlock) {
     const fromBlock = catchUpBlock + 1;
     const toBlock = Math.min(currentBlock, fromBlock + BLOCK_BATCH_SIZE - 1);
@@ -432,7 +447,51 @@ export async function startMonitoring(onDepositMatched, onOptimizationMatched) {
     lastProcessedBlock = toBlock;
   }
   
-  console.log('[Monitor] Catch-up complete. Entering polling mode...');
+  console.log('[Monitor] Phase 1 complete. ERC20 catch-up done.');
+  
+  // Phase 2: Scan entire lookback window for native transfers in smaller chunks
+  // Payment requests expire after 24h, so scan 24h worth of blocks
+  const HOURS_TO_SCAN = 24; // Match payment expiry window
+  const BLOCKS_PER_HOUR = 1800; // DFK Chain: ~2s blocks
+  const nativeScanBlocks = BLOCKS_PER_HOUR * HOURS_TO_SCAN;
+  const nativeScanStart = Math.max(0, currentBlock - nativeScanBlocks);
+  const NATIVE_CHUNK_SIZE = 50; // Small chunks to enable native scanning
+  
+  console.log(`[Monitor] Phase 2: Scanning ${HOURS_TO_SCAN}h (${nativeScanBlocks} blocks) for native JEWEL payments...`);
+  console.log(`[Monitor] Native scan range: ${nativeScanStart} to ${currentBlock}`);
+  
+  let nativeChunkStart = nativeScanStart;
+  let chunksProcessed = 0;
+  const totalChunks = Math.ceil((currentBlock - nativeScanStart) / NATIVE_CHUNK_SIZE);
+  
+  while (nativeChunkStart < currentBlock) {
+    const fromBlock = nativeChunkStart;
+    const toBlock = Math.min(nativeChunkStart + NATIVE_CHUNK_SIZE - 1, currentBlock);
+    
+    chunksProcessed++;
+    if (chunksProcessed % 20 === 0) {
+      console.log(`[Monitor] Native scan progress: ${chunksProcessed}/${totalChunks} chunks (${Math.round(chunksProcessed/totalChunks*100)}%)`);
+    }
+    
+    const { depositMatches, optimizationMatches } = await processBlockRange(fromBlock, toBlock);
+    
+    // Trigger callbacks for any matches found
+    for (const match of depositMatches) {
+      if (onDepositMatched) {
+        await onDepositMatched(match);
+      }
+    }
+    
+    for (const match of optimizationMatches) {
+      if (onOptimizationMatched) {
+        await onOptimizationMatched(match);
+      }
+    }
+    
+    nativeChunkStart = toBlock + 1;
+  }
+  
+  console.log(`[Monitor] Phase 2 complete. Native scan done (${chunksProcessed} chunks).`);
   
   // Polling loop
   const poll = async () => {
@@ -487,6 +546,8 @@ export async function startMonitoring(onDepositMatched, onOptimizationMatched) {
  * Called when user says "sent" or "done" after payment request
  * Now scans BOTH ERC20 transfers AND native JEWEL transfers
  * 
+ * Scans in smaller chunks (50 blocks) to enable native transfer detection
+ * 
  * @param {number} playerId - Player's database ID
  * @param {string} service - Service type ('garden_optimization' or 'deposit')
  * @returns {Promise<object|null>} - Matched payment or null
@@ -498,25 +559,40 @@ export async function verifyRecentPayment(playerId, service = 'garden_optimizati
     // Get current block
     const currentBlock = await provider.getBlockNumber();
     const lookbackBlocks = 500; // ~30-40 minutes on DFK Chain (1-2 second blocks)
-    const fromBlock = currentBlock - lookbackBlocks;
+    const startBlock = currentBlock - lookbackBlocks;
     
-    console.log(`[Manual Verify] Scanning blocks ${fromBlock}-${currentBlock}`);
+    console.log(`[Manual Verify] Scanning blocks ${startBlock}-${currentBlock}`);
     
-    // Scan both ERC20 transfers and native transfers in parallel
-    const [erc20Events, nativeTransfers] = await Promise.all([
-      // Query ERC20 Transfer events
-      (async () => {
-        try {
-          const filter = jewelContract.filters.Transfer(null, HEDGE_WALLET_ADDRESS);
-          return await jewelContract.queryFilter(filter, fromBlock, currentBlock);
-        } catch (err) {
-          console.error(`[Manual Verify] Error querying ERC20 events:`, err.message);
-          return [];
-        }
-      })(),
-      // Scan for native JEWEL transfers
-      scanNativeTransfers(fromBlock, currentBlock)
-    ]);
+    // Scan in chunks of 50 blocks to enable native transfer detection
+    const chunkSize = 50;
+    const allErc20Events = [];
+    const allNativeTransfers = [];
+    
+    for (let fromBlock = startBlock; fromBlock < currentBlock; fromBlock += chunkSize) {
+      const toBlock = Math.min(fromBlock + chunkSize - 1, currentBlock);
+      
+      // Scan both ERC20 and native in this chunk
+      const [erc20Events, nativeTransfers] = await Promise.all([
+        // Query ERC20 Transfer events
+        (async () => {
+          try {
+            const filter = jewelContract.filters.Transfer(null, HEDGE_WALLET_ADDRESS);
+            return await jewelContract.queryFilter(filter, fromBlock, toBlock);
+          } catch (err) {
+            console.error(`[Manual Verify] Error querying ERC20 events:`, err.message);
+            return [];
+          }
+        })(),
+        // Scan for native JEWEL transfers
+        scanNativeTransfers(fromBlock, toBlock)
+      ]);
+      
+      allErc20Events.push(...erc20Events);
+      allNativeTransfers.push(...nativeTransfers);
+    }
+    
+    const erc20Events = allErc20Events;
+    const nativeTransfers = allNativeTransfers;
     
     console.log(`[Manual Verify] Found ${erc20Events.length} ERC20 transfers + ${nativeTransfers.length} native transfers`);
     
