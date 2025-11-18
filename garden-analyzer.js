@@ -145,6 +145,8 @@ export async function analyzeCurrentAssignments(walletAddress) {
     const assignments = [];
     
     console.log(`[GardenAnalyzer] Checking all ${heroes.length} heroes for gardening assignments...`);
+    const heroIdList = heroIds.join(', ');
+    console.log(`[GardenAnalyzer] Hero IDs: ${heroIdList}`);
     
     // Check ALL heroes for gardening assignments (not just those with currentQuest set)
     // This is critical for expeditions which may not populate currentQuest in GraphQL
