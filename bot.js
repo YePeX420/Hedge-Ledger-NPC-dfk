@@ -4,7 +4,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder, EmbedBuilder } from 'discord.js';
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
 import * as analytics from './garden-analytics.js';
@@ -18,7 +18,7 @@ import { initializeProcessor, startProcessor, stopProcessor } from './optimizati
 import { startSnapshotJob, stopSnapshotJob } from './wallet-snapshot-job.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
-import { initializePoolCache, stopPoolCache } from './pool-cache.js';
+import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './pool-cache.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots } from './shared/schema.ts';
 import { eq, desc, sql, inArray, and } from 'drizzle-orm';
@@ -530,6 +530,144 @@ client.on('messageCreate', async (message) => {
     }
     
     let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
+
+    // 💳 HIGHEST Priority: Check for payment confirmation keywords ("sent", "done", "paid")
+    const paymentConfirmKeywords = /\b(sent|done|paid|payment\s+done|just\s+paid|i\s+sent|transaction\s+sent)\b/i;
+    if (paymentConfirmKeywords.test(message.content.toLowerCase())) {
+      try {
+        // Check if user has pending garden optimization payment
+        const { verifyRecentPayment } = await import('./transaction-monitor.js');
+        const verification = await verifyRecentPayment(playerData.id, 'garden_optimization');
+        
+        if (verification && verification.found) {
+          // Payment found! Update status and trigger processing
+          const opt = verification.optimization;
+          const tx = verification.transaction;
+          
+          await db.update(gardenOptimizations)
+            .set({
+              status: 'payment_verified',
+              paidAmountJewel: tx.amountJewel,
+              txHash: tx.hash,
+              paidAt: new Date()
+            })
+            .where(eq(gardenOptimizations.id, opt.id));
+          
+          console.log(`[Payment Fast-Track] ✅ Verified payment for optimization #${opt.id}`);
+          
+          await message.reply(
+            `✅ Nice, I can see your payment on-chain (${tx.amountJewel} JEWEL)! ` +
+            `I'll start your garden analysis now. This'll take a few minutes... 🧮`
+          );
+          
+          // Trigger optimization processor (it will pick this up automatically)
+          return;
+          
+        } else {
+          // Payment not found yet
+          await message.reply(
+            `I don't see it confirmed on-chain yet. It might still be pending. ` +
+            `I'll keep watching and start as soon as it appears! ⏳`
+          );
+          return;
+        }
+      } catch (err) {
+        console.error('[Payment Fast-Track] Error:', err);
+        // Continue to normal flow if verification fails
+      }
+    }
+
+    // 🎯 Priority: Check if user is responding to garden menu (numeric selection 1-5)
+    if (gardenMenu.isInMenuContext(discordId)) {
+      const menuSelection = gardenMenu.parseMenuSelection(message.content);
+      
+      if (menuSelection) {
+        console.log(`[Menu Selection] User ${username} selected: ${menuSelection}`);
+        
+        try {
+          // Clear menu context since they made a selection
+          gardenMenu.clearMenuContext(discordId);
+          
+          // Route their selection
+          const routeResult = await gardenMenu.routeMenuSelection(menuSelection, message, discordId);
+          
+          // Handle routing result
+          if (routeResult.type === 'knowledge') {
+            // Free educational content
+            const knowledgeFile = routeResult.topic === 'gardens' ? 'knowledge/gardens.md' : 'knowledge/impermanent_loss.md';
+            const knowledgeContent = fs.readFileSync(knowledgeFile, 'utf8');
+            
+            let educationPrompt = '';
+            if (routeResult.topic === 'gardens') {
+              educationPrompt = `The user selected the Gardens Walkthrough. Give them a comprehensive but engaging tutorial covering:\n1. What LP tokens are and how liquidity pools work\n2. How to add liquidity (step-by-step)\n3. How garden expeditions work\n4. APRs explained\n5. Risks (impermanent loss)\n\nKeep it friendly and thorough.`;
+            } else {
+              educationPrompt = `The user wants to understand impermanent loss. Explain:\n1. What IL is (simple terms)\n2. When it happens (price divergence)\n3. Why it matters\n4. How to minimize it\n5. Trade-offs (IL vs fees)\n\nUse simple analogies.`;
+            }
+            
+            const prompt = [{ role: 'user', content: educationPrompt }];
+            const reply = await askHedge(prompt);
+            await message.reply(reply);
+            return;
+            
+          } else if (routeResult.type === 'pool_aprs') {
+            // Free APR lookup (mark as used)
+            await gardenMenu.markAPRCheckUsed(discordId, username);
+            
+            const poolData = getCachedPoolAnalytics();
+            if (!poolData || poolData.length === 0) {
+              await message.reply("*checks pool data* The analytics cache is still warming up. Give me a minute and try again!");
+              return;
+            }
+            
+            // Format APR data
+            const aprLines = poolData
+              .sort((a, b) => (b.totalAPR || 0) - (a.totalAPR || 0))
+              .map((pool, i) => {
+                const totalAPR = pool.totalAPR || 0;
+                const feeAPR = pool.feeAPR || 0;
+                const distAPR = pool.distributionAPR || 0;
+                return `**${i + 1}. ${pool.name}**: ${totalAPR.toFixed(2)}% (Fees: ${feeAPR.toFixed(2)}%, Dist: ${distAPR.toFixed(2)}%)`;
+              });
+            
+            const embed = new EmbedBuilder()
+              .setColor(0x3498db)
+              .setTitle('Crystalvale Garden APRs')
+              .setDescription(aprLines.join('\n'))
+              .setFooter({ text: 'Free daily lookup used • Next lookup costs 2 JEWEL' })
+              .setTimestamp();
+            
+            await message.reply({ embeds: [embed] });
+            return;
+            
+          } else if (routeResult.type === 'payment_required') {
+            // Premium services - request payment
+            const serviceNames = {
+              'garden_insights_tier1': 'Garden Insights (Tier 1)',
+              'garden_optimization_tier2': 'Garden Optimization (Tier 2)',
+              'garden_aprs': 'APR Lookup'
+            };
+            
+            const serviceName = serviceNames[routeResult.service] || 'Premium Service';
+            const amount = routeResult.amount;
+            
+            // Create payment request (TODO: integrate with deposit system)
+            await message.reply(
+              `**${serviceName}** costs **${amount} JEWEL**.\n\n` +
+              `To proceed, send exactly **${amount} JEWEL** to:\n` +
+              `\`${process.env.HEDGE_WALLET_ADDRESS}\`\n\n` +
+              `I'll detect your payment automatically within 2 hours and start the analysis. ` +
+              `After sending, you can reply with "sent" or "done" and I'll check immediately!`
+            );
+            return;
+          }
+          
+        } catch (err) {
+          console.error('[Menu Selection] Error:', err);
+          await message.reply("*fumbles with selection* Something went wrong processing your choice. Try the menu again.");
+          return;
+        }
+      }
+    }
 
     // 🧠 Parse user intent to detect what data they want
     const intent = parseIntent(message.content);

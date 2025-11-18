@@ -367,6 +367,94 @@ export async function startMonitoring(onDepositMatched, onOptimizationMatched) {
 }
 
 /**
+ * Manual payment verification - Check recent blocks for payments
+ * Called when user says "sent" or "done" after payment request
+ * 
+ * @param {number} playerId - Player's database ID
+ * @param {string} service - Service type ('garden_optimization' or 'deposit')
+ * @returns {Promise<object|null>} - Matched payment or null
+ */
+export async function verifyRecentPayment(playerId, service = 'garden_optimization') {
+  try {
+    console.log(`[Manual Verify] Checking recent payments for player ${playerId}, service: ${service}`);
+    
+    // Get current block
+    const currentBlock = await provider.getBlockNumber();
+    const lookbackBlocks = 500; // ~30-40 minutes on DFK Chain (1-2 second blocks)
+    const fromBlock = currentBlock - lookbackBlocks;
+    
+    console.log(`[Manual Verify] Scanning blocks ${fromBlock}-${currentBlock}`);
+    
+    // Scan for transfers
+    const filter = jewelContract.filters.Transfer(null, HEDGE_WALLET_ADDRESS);
+    const events = await jewelContract.queryFilter(filter, fromBlock, currentBlock);
+    
+    console.log(`[Manual Verify] Found ${events.length} transfers in recent blocks`);
+    
+    if (events.length === 0) {
+      return null;
+    }
+    
+    // Check each transfer
+    for (const event of events) {
+      const { from, value } = event.args;
+      const amountJewel = weiToJewel(value);
+      const txHash = event.transactionHash;
+      
+      if (service === 'garden_optimization') {
+        // Check if this matches a pending optimization for this player
+        const pendingOptimizations = await db
+          .select()
+          .from(gardenOptimizations)
+          .where(
+            and(
+              eq(gardenOptimizations.playerId, playerId),
+              eq(gardenOptimizations.status, 'awaiting_payment')
+            )
+          );
+        
+        for (const opt of pendingOptimizations) {
+          const transferAmount = new Decimal(amountJewel);
+          const expectedAmount = new Decimal(opt.expectedAmountJewel);
+          const TOLERANCE = new Decimal('0.1');
+          const diff = transferAmount.minus(expectedAmount).abs();
+          
+          if (diff.lessThanOrEqualTo(TOLERANCE)) {
+            // Check wallet match
+            const fromWalletLower = opt.fromWallet.toLowerCase();
+            const senderLower = from.toLowerCase();
+            
+            if (fromWalletLower === senderLower) {
+              // Check not expired
+              const now = new Date();
+              if (now < new Date(opt.expiresAt)) {
+                console.log(`[Manual Verify] ✅ Found payment! ${amountJewel} JEWEL (tx: ${txHash})`);
+                return {
+                  found: true,
+                  optimization: opt,
+                  transaction: {
+                    hash: txHash,
+                    amountJewel,
+                    from
+                  }
+                };
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    console.log(`[Manual Verify] No matching payment found in recent blocks`);
+    return { found: false };
+    
+  } catch (err) {
+    console.error('[Manual Verify] Error:', err.message);
+    return { found: false, error: err.message };
+  }
+}
+
+/**
  * Stop monitoring (for testing/shutdown)
  */
 export function stopMonitoring() {

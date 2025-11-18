@@ -13,6 +13,14 @@ import { players } from './shared/schema.ts';
 import { eq } from 'drizzle-orm';
 
 /**
+ * Menu Context Tracking
+ * Tracks users who recently saw the menu so we can detect numeric selections (1-5)
+ * Map: discordId -> timestamp of when menu was shown
+ */
+const menuContext = new Map();
+const MENU_CONTEXT_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
  * Display the garden menu to a user
  * 
  * @param {object} interaction - Discord interaction or message
@@ -48,6 +56,10 @@ Get optimized expedition assignments and future yield projections.
   // Message objects have .reply() method by default
   if (typeof interaction.reply === 'function') {
     await interaction.reply({ embeds: [embed] });
+    
+    // Mark user as being in menu context (for next 5 minutes)
+    menuContext.set(discordId, Date.now());
+    console.log(`[Garden Menu] Set menu context for user ${discordId}`);
   } else {
     console.error('[Garden Menu] Invalid interaction object - missing reply method');
     throw new Error('Cannot display garden menu - invalid interaction object');
@@ -252,6 +264,37 @@ async function routeMenuSelection(intent, interaction, discordId) {
   }
 }
 
+/**
+ * Check if user is currently in menu context (recently saw the menu)
+ * 
+ * @param {string} discordId - User's Discord ID
+ * @returns {boolean} - true if user recently saw the menu
+ */
+function isInMenuContext(discordId) {
+  const menuShownAt = menuContext.get(discordId);
+  if (!menuShownAt) {
+    return false;
+  }
+
+  const elapsed = Date.now() - menuShownAt;
+  if (elapsed > MENU_CONTEXT_EXPIRY_MS) {
+    // Context expired, clean it up
+    menuContext.delete(discordId);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Clear menu context for a user (called after they make a selection)
+ * 
+ * @param {string} discordId - User's Discord ID
+ */
+function clearMenuContext(discordId) {
+  menuContext.delete(discordId);
+}
+
 export {
   showGardenMenu,
   parseMenuSelection,
@@ -259,5 +302,7 @@ export {
   hasUsedFreeAPRToday,
   markAPRCheckUsed,
   routeMenuSelection,
-  getTodayUTC
+  getTodayUTC,
+  isInMenuContext,
+  clearMenuContext
 };
