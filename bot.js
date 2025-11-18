@@ -893,7 +893,10 @@ Keep it entertaining but helpful. This is free educational content, so be genero
             `**How to pay:**\n` +
             `1. **Send exactly 25 JEWEL** from your wallet (\`${walletAddress}\`)\n` +
             `2. **To this address:** \`${HEDGE_WALLET}\`\n` +
-            `3. **Wait ~1 minute** - I'll verify your payment and get started automatically\n\n` +
+            `3. **Verify your payment:**\n` +
+            `   • Use command: \`/verify-payment <transaction_hash>\`\n` +
+            `   • Or send here: \`tx:0xYOURTRANSACTIONHASH\`\n` +
+            `   • Or just say "sent" and I'll scan the blockchain\n\n` +
             `I'll send your optimization report as soon as I confirm the transaction. ` +
             `*The JEWEL stays in my ledger forever, of course.* <:hedge_evil:1439395005499441236>\n\n` +
             `This request expires in 2 hours.`;
