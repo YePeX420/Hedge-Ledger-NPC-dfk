@@ -136,6 +136,9 @@ export async function analyzeCurrentAssignments(walletAddress) {
     
     // Get pool analytics data
     const poolCache = getCachedPoolAnalytics();
+    if (!poolCache || !poolCache.data) {
+      throw new Error('Pool cache not ready - please try again in a moment');
+    }
     
     // Analyze current assignments
     const assignments = [];

@@ -295,7 +295,16 @@ client.once(Events.ClientReady, async (c) => {
     console.error('❌ Failed to initialize economic system:', err);
   }
   
-  // Initialize garden optimization processor
+  // Initialize pool analytics cache FIRST (required by optimization processor)
+  try {
+    console.log('🏊 Initializing pool analytics cache...');
+    await initializePoolCache();
+    console.log('✅ Pool cache initialized');
+  } catch (err) {
+    console.error('❌ Failed to initialize pool cache:', err);
+  }
+  
+  // Initialize garden optimization processor (depends on pool cache)
   try {
     console.log('🌿 Initializing garden optimization processor...');
     initializeProcessor(c);
@@ -312,15 +321,6 @@ client.once(Events.ClientReady, async (c) => {
     console.log('✅ Wallet snapshot job started');
   } catch (err) {
     console.error('❌ Failed to start wallet snapshot job:', err);
-  }
-  
-  // Initialize pool analytics cache
-  try {
-    console.log('🏊 Initializing pool analytics cache...');
-    await initializePoolCache();
-    console.log('✅ Pool cache initialized');
-  } catch (err) {
-    console.error('❌ Failed to initialize pool cache:', err);
   }
   
   // Initialize cache-ready queue monitor

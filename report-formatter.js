@@ -81,7 +81,7 @@ export function formatCurrentGardens(currentState) {
     const petStr = pet ? formatPetSummary(pet) : 'No pet equipped';
     const rapidRenewal = (hero.passive1 === 'Rapid Renewal' || hero.passive2 === 'Rapid Renewal') ? '⚡' : '';
     
-    lines.push(`**${i + 1}. Pool ${pool.pid}: ${pool.pair}** (${pool.totalAPR.toFixed(1)}% APR)`);
+    lines.push(`**${i + 1}. Pool ${pool.pid}: ${pool.pair}** (${Number(pool.totalAPR || 0).toFixed(1)}% APR)`);
     lines.push(`   Hero #${hero.id} ${rapidRenewal} (Lvl ${hero.level}, INT ${hero.intelligence}, WIS ${hero.wisdom}, GrdSkl ${(hero.gardening / 10).toFixed(1)})`);
     lines.push(`   ${petStr}`);
     lines.push(`   Yield: ${heroYield.crystalsPerQuest.toFixed(4)} CRYSTAL + ${heroYield.jewelPerQuest.toFixed(4)} JEWEL per quest`);
@@ -128,7 +128,7 @@ export function formatOptimizedGardens(optimizedState) {
     const rapidRenewal = (hero.passive1 === 'Rapid Renewal' || hero.passive2 === 'Rapid Renewal') ? '⚡' : '';
     const poolType = pool.emissionRatio > 0.6 ? '🎯 Emission-dominant' : '💰 Fee-dominant';
     
-    lines.push(`**${i + 1}. Pool ${pool.pid}: ${pool.pair}** (${pool.totalAPR.toFixed(1)}% APR) ${poolType}`);
+    lines.push(`**${i + 1}. Pool ${pool.pid}: ${pool.pair}** (${Number(pool.totalAPR || 0).toFixed(1)}% APR) ${poolType}`);
     lines.push(`   → Hero #${hero.id} ${rapidRenewal} (Lvl ${hero.level}, Score: ${hero.score})`);
     lines.push(`      Stats: INT ${hero.intelligence}, WIS ${hero.wisdom}, VIT ${hero.vitality}, GrdSkl ${(hero.gardening / 10).toFixed(1)}`);
     lines.push(`   → ${petStr}`);
