@@ -18,31 +18,30 @@ import { getHeroGardeningAssignment } from './garden-analytics.js';
  * @returns {number} Score (higher is better)
  */
 export function scoreHeroForGardening(hero) {
-  // Base stats (INT and WIS are most important for gardening)
-  const intScore = hero.intelligence || 0;
+  // Base stats (VIT and WIS are most important for gardening per official docs)
+  const vitScore = hero.vitality || 0;
   const wisScore = hero.wisdom || 0;
   const level = hero.level || 1;
   
   // Gardening skill (already /10 in GraphQL response)
   const gardeningSkill = hero.gardening || 0;
   
-  // Rapid Renewal passive bonus (+10% yields)
-  const hasRapidRenewal = 
-    (hero.passive1?.name === 'Rapid Renewal') || 
-    (hero.passive2?.name === 'Rapid Renewal');
-  const rapidRenewalBonus = hasRapidRenewal ? 1.1 : 1.0;
+  // Gardening profession gene bonus (20% token bonus, reduces time per stamina)
+  const hasGardeningGene = hero.professionStr === 'Gardening';
+  const geneBonus = hasGardeningGene ? 1.2 : 1.0;
   
-  // Formula: (INT + WIS) * level * (1 + gardeningSkill/100) * rapidRenewalBonus
-  const baseScore = (intScore + wisScore) * level;
+  // Formula: (VIT + WIS) * level * (1 + gardeningSkill/100) * geneBonus
+  const baseScore = (vitScore + wisScore) * level;
   const skillMultiplier = 1 + (gardeningSkill / 100);
   
-  const finalScore = baseScore * skillMultiplier * rapidRenewalBonus;
+  const finalScore = baseScore * skillMultiplier * geneBonus;
   
   return Math.floor(finalScore);
 }
 
 /**
  * Calculate quest yield for a specific hero in a specific pool
+ * Uses official DeFi Kingdoms formula from docs.defikingdoms.com
  * 
  * @param {Object} hero - Hero object
  * @param {Object} pet - Pet object (optional)
@@ -55,51 +54,54 @@ export function calculateHeroYield(hero, pet, poolData) {
   }
   
   // Extract hero stats
-  const INT = hero.intelligence || 0;
   const WIS = hero.wisdom || 0;
   const VIT = hero.vitality || 0;
-  const level = hero.level || 1;
-  const gardeningSkill = (hero.gardening || 0) / 10; // Convert to 0-100 scale
+  const GrdSkl = Math.floor((hero.gardening || 0) / 10); // Rounded down as per docs
   
-  // Gene bonus (if hero has advanced/elite/exalted genes)
-  const totalGenes = (hero.advancedGenes || 0) + (hero.eliteGenes || 0) + (hero.exaltedGenes || 0);
-  const geneBonus = Math.min(totalGenes, 3); // Capped at 3
+  // Gardening profession gene bonus
+  // geneBonus = 1 if hero has Gardening profession, else 0
+  const hasGardeningGene = hero.professionStr === 'Gardening';
+  const geneBonus = hasGardeningGene ? 1 : 0;
   
-  // Rapid Renewal passive (+10%)
-  const hasRapidRenewal = 
-    (hero.passive1?.name === 'Rapid Renewal') || 
-    (hero.passive2?.name === 'Rapid Renewal');
-  const rapidRenewalMult = hasRapidRenewal ? 1.1 : 1.0;
+  // Reward modifier base (Skill 10+ quests have doubled rewards)
+  const rewardModBase = GrdSkl >= 10 ? 72 : 144;
   
-  // Pet bonus (gardening pets provide % boost)
+  // Annealing factor (fixed at 1.0, past annealing period)
+  const annealingFactor = 1.0;
+  
+  // Official DeFi Kingdoms formula (per stamina):
+  // earnRate = annealingFactor * (rewardPool * poolAllocation * LPowned * 
+  //            (0.1 + (WIS+VIT)/1222.22 + GrdSkl/244.44)) / 
+  //            ((300 - (50 * geneBonus)) * rewardModBase)
+  
+  const statComponent = 0.1 + (WIS + VIT) / 1222.22 + GrdSkl / 244.44;
+  const divisor = (300 - (50 * geneBonus)) * rewardModBase;
+  
+  // Pool reward data (rewardPool * poolAllocation * LPowned already calculated in poolData)
+  const poolRewardFactor = poolData.poolRewardFactor || 0;
+  
+  // Calculate earn rate per stamina
+  const earnRatePerStamina = annealingFactor * poolRewardFactor * statComponent / divisor;
+  
+  // Minimum reward: 0.0002 per stamina (when Quest Fund >= 420,000 tokens)
+  const minRewardPerStamina = 0.0002;
+  const finalEarnRate = Math.max(earnRatePerStamina, minRewardPerStamina);
+  
+  // Quest uses 5 stamina by default
+  const STAMINA_PER_QUEST = 5;
+  
+  // First hero gets CRYSTAL, second gets JEWEL (pool specific)
+  let crystalsPerQuest = finalEarnRate * STAMINA_PER_QUEST;
+  let jewelPerQuest = 0; // For second hero in pool (not implemented yet)
+  
+  // Pet bonus (gardening pets provide % boost to yields)
   const petBonus = (pet && pet.gatheringType === 'Gardening') 
     ? (1 + pet.gatheringBonusScalar / 100) 
     : 1.0;
   
-  // Base formula from spec (per stamina)
-  // baseYield = (rewardPerBlock * allocPoint / totalAllocPoint) * 
-  //             (0.1 + (WIS+VIT)/1222.22 + GrdSkl/244.44)) / rewardModBase
-  
-  const rewardModBase = gardeningSkill >= 10 ? 72 : 144;
-  
-  const statComponent = 0.1 + (WIS + VIT) / 1222.22 + gardeningSkill / 244.44;
-  
-  // Emissions per stamina (CRYSTAL)
-  const emissionsPerStamina = poolData.rewardsPerQuest || 0;
-  const crystalsPerStamina = emissionsPerStamina * statComponent / rewardModBase;
-  
-  // Trading fees (JEWEL) - simplified from pool data
-  const feesPerStamina = poolData.feesPerQuest || 0;
-  
-  // Quest uses 5 stamina
-  const STAMINA_PER_QUEST = 5;
-  
-  let crystalsPerQuest = crystalsPerStamina * STAMINA_PER_QUEST;
-  let jewelPerQuest = feesPerStamina * STAMINA_PER_QUEST;
-  
-  // Apply gene bonus, rapid renewal, and pet bonuses
-  crystalsPerQuest *= (1 + geneBonus * 0.02) * rapidRenewalMult * petBonus;
-  jewelPerQuest *= (1 + geneBonus * 0.02) * rapidRenewalMult * petBonus;
+  // Apply pet bonus
+  crystalsPerQuest *= petBonus;
+  jewelPerQuest *= petBonus;
   
   // Calculate total APR if pool has it (ensure it's a number)
   const totalAPR = Number(poolData.totalAPR) || 0;
@@ -123,8 +125,8 @@ export async function analyzeCurrentAssignments(walletAddress) {
   try {
     console.log(`[GardenAnalyzer] Analyzing current assignments for ${walletAddress}...`);
     
-    // Fetch all heroes owned by wallet (increase limit to ensure we get all of them)
-    const heroes = await getHeroesByOwner(walletAddress, 1000);
+    // Fetch all heroes owned by wallet (increase limit to 2000 to ensure we get all of them)
+    const heroes = await getHeroesByOwner(walletAddress, 2000);
     console.log(`[GardenAnalyzer] Found ${heroes.length} heroes`);
     
     // Fetch all pets owned by wallet

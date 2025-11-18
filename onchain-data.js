@@ -350,6 +350,7 @@ export async function getHeroesByOwner(ownerAddress, limit = 50) {
         strength
         intelligence
         wisdom
+        vitality
         stamina
         mining
         gardening
