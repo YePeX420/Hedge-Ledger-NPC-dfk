@@ -485,6 +485,7 @@ export async function startMonitoring(onDepositMatched, onOptimizationMatched) {
 /**
  * Manual payment verification - Check recent blocks for payments
  * Called when user says "sent" or "done" after payment request
+ * Now scans BOTH ERC20 transfers AND native JEWEL transfers
  * 
  * @param {number} playerId - Player's database ID
  * @param {string} service - Service type ('garden_optimization' or 'deposit')
@@ -501,21 +502,55 @@ export async function verifyRecentPayment(playerId, service = 'garden_optimizati
     
     console.log(`[Manual Verify] Scanning blocks ${fromBlock}-${currentBlock}`);
     
-    // Scan for transfers
-    const filter = jewelContract.filters.Transfer(null, HEDGE_WALLET_ADDRESS);
-    const events = await jewelContract.queryFilter(filter, fromBlock, currentBlock);
+    // Scan both ERC20 transfers and native transfers in parallel
+    const [erc20Events, nativeTransfers] = await Promise.all([
+      // Query ERC20 Transfer events
+      (async () => {
+        try {
+          const filter = jewelContract.filters.Transfer(null, HEDGE_WALLET_ADDRESS);
+          return await jewelContract.queryFilter(filter, fromBlock, currentBlock);
+        } catch (err) {
+          console.error(`[Manual Verify] Error querying ERC20 events:`, err.message);
+          return [];
+        }
+      })(),
+      // Scan for native JEWEL transfers
+      scanNativeTransfers(fromBlock, currentBlock)
+    ]);
     
-    console.log(`[Manual Verify] Found ${events.length} transfers in recent blocks`);
+    console.log(`[Manual Verify] Found ${erc20Events.length} ERC20 transfers + ${nativeTransfers.length} native transfers`);
     
-    if (events.length === 0) {
-      return null;
+    // Combine all transfers into a unified format
+    const allTransfers = [];
+    
+    // Add ERC20 transfers
+    for (const event of erc20Events) {
+      const { from, value } = event.args;
+      allTransfers.push({
+        from,
+        amountJewel: weiToJewel(value),
+        txHash: event.transactionHash,
+        type: 'ERC20'
+      });
+    }
+    
+    // Add native transfers
+    for (const transfer of nativeTransfers) {
+      allTransfers.push({
+        from: transfer.from,
+        amountJewel: transfer.amountJewel,
+        txHash: transfer.hash,
+        type: 'native'
+      });
+    }
+    
+    if (allTransfers.length === 0) {
+      return { found: false };
     }
     
     // Check each transfer
-    for (const event of events) {
-      const { from, value } = event.args;
-      const amountJewel = weiToJewel(value);
-      const txHash = event.transactionHash;
+    for (const transfer of allTransfers) {
+      const { from, amountJewel, txHash, type } = transfer;
       
       if (service === 'garden_optimization') {
         // Check if this matches a pending optimization for this player
@@ -544,14 +579,15 @@ export async function verifyRecentPayment(playerId, service = 'garden_optimizati
               // Check not expired
               const now = new Date();
               if (now < new Date(opt.expiresAt)) {
-                console.log(`[Manual Verify] ✅ Found payment! ${amountJewel} JEWEL (tx: ${txHash})`);
+                console.log(`[Manual Verify] ✅ Found ${type} payment! ${amountJewel} JEWEL (tx: ${txHash})`);
                 return {
                   found: true,
                   optimization: opt,
                   transaction: {
                     hash: txHash,
                     amountJewel,
-                    from
+                    from,
+                    type
                   }
                 };
               }
