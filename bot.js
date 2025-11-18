@@ -442,8 +442,54 @@ client.on('messageCreate', async (message) => {
       console.error(`[messageCreate] Registration error stack:`, regError.stack);
     }
     
-    // 💼 Check if message contains a wallet address (case-insensitive for 0x prefix)
-    const walletRegex = /0[xX][a-fA-F0-9]{40}/;
+    // 🔐 Check for transaction hash with tx: prefix for payment verification
+    const txPrefixRegex = /tx:\s*0[xX][a-fA-F0-9]{64}/i;
+    const txPrefixMatch = message.content.match(txPrefixRegex);
+    
+    if (txPrefixMatch && playerData) {
+      const txHash = txPrefixMatch[0].replace(/tx:\s*/i, '').trim();
+      console.log(`🔐 Detected transaction hash with tx: prefix: ${txHash}`);
+      
+      try {
+        const pendingOpt = await db.select()
+          .from(gardenOptimizations)
+          .where(and(
+            eq(gardenOptimizations.playerId, playerData.id),
+            eq(gardenOptimizations.status, 'awaiting_payment'),
+            gt(gardenOptimizations.expiresAt, new Date())
+          ))
+          .orderBy(desc(gardenOptimizations.createdAt))
+          .limit(1);
+        
+        if (pendingOpt && pendingOpt.length > 0) {
+          await message.reply(`🔍 Verifying your transaction...`);
+          
+          const result = await verifyTransactionHash(txHash, pendingOpt[0].id);
+          
+          if (result.success) {
+            await message.reply(
+              `✅ **Payment Verified!**\n\n` +
+              `**Amount:** ${result.payment.amount} JEWEL\n` +
+              `**Block:** ${result.payment.blockNumber}\n\n` +
+              `Your optimization is now being processed. You'll receive your personalized recommendations in a few minutes! 🌿`
+            );
+          } else {
+            await message.reply(`❌ **Verification Failed**\n\n${result.error}\n\nPlease check your transaction hash and try again.`);
+          }
+        } else {
+          await message.reply(`No pending garden optimization found. Use your wallet's DM to request optimization first!`);
+        }
+        return;
+      } catch (txError) {
+        console.error(`❌ Failed to verify transaction:`, txError);
+        await message.reply(`Hmm, I had trouble verifying that transaction. Try again or use \`/verify-payment\` command.`);
+        return;
+      }
+    }
+    
+    // 💼 Check if message contains a wallet address (42 chars only, not 66-char tx hashes)
+    // Using negative lookahead to ensure no more hex chars follow (prevents matching tx hashes)
+    const walletRegex = /0[xX][a-fA-F0-9]{40}(?![a-fA-F0-9])/;
     const walletMatch = message.content.match(walletRegex);
     
     if (walletMatch && playerData) {
