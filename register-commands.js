@@ -141,6 +141,13 @@ const commands = [
     ]
   },
   {
+    name: 'verify-payment',
+    description: 'Instantly verify your garden optimization payment with transaction hash',
+    options: [
+      { name: 'transaction', description: 'Your transaction hash (0x...)', type: 3, required: true }
+    ]
+  },
+  {
     name: 'analytics',
     description: '[ADMIN] View bot economic analytics',
     options: [

@@ -12,7 +12,7 @@ import * as quickData from './quick-data-fetcher.js';
 import { parseIntent, formatIntent } from './intent-parser.js';
 import { requestDeposit, HEDGE_WALLET } from './deposit-flow.js';
 import * as gardenMenu from './garden-menu.js';
-import { startMonitoring, stopMonitoring, initializeExistingJobs } from './transaction-monitor-v2.js';
+import { startMonitoring, stopMonitoring, initializeExistingJobs, verifyTransactionHash } from './transaction-monitor-v2.js';
 import { registerJob } from './payment-jobs.js';
 import { ethers } from 'ethers';
 import { creditBalance } from './balance-credit.js';
@@ -1427,6 +1427,58 @@ Give a short, step-by-step guide that a complete beginner can follow.`;
       const response = `${summary}\n\nWant me to analyze your heroes and recommend optimal assignments for maximum yield? This costs **25 JEWEL**.\n\nUse \`/deposit\` to add JEWEL, then DM me "optimize my gardens" to get your personalized recommendations.`;
       
       await interaction.editReply(response);
+      return;
+    }
+    
+    if (name === 'verify-payment') {
+      const discordId = interaction.user.id;
+      const txHash = interaction.options.getString('transaction');
+      
+      if (!txHash || !txHash.startsWith('0x')) {
+        await interaction.editReply('Please provide a valid transaction hash (starting with 0x).');
+        return;
+      }
+      
+      await interaction.editReply('Verifying your payment on DFK Chain...');
+      
+      const playerData = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+      if (playerData.length === 0) {
+        await interaction.editReply('You need to register first. Send me a DM to get started!');
+        return;
+      }
+      
+      const pendingJobs = await db
+        .select()
+        .from(gardenOptimizations)
+        .where(
+          and(
+            eq(gardenOptimizations.playerId, playerData[0].id),
+            eq(gardenOptimizations.status, 'awaiting_payment'),
+            gt(gardenOptimizations.expiresAt, new Date())
+          )
+        )
+        .orderBy(desc(gardenOptimizations.requestedAt))
+        .limit(1);
+      
+      if (pendingJobs.length === 0) {
+        await interaction.editReply('No pending garden optimization requests found. Use `/optimize-gardens` to create a new request first.');
+        return;
+      }
+      
+      const job = pendingJobs[0];
+      
+      const result = await verifyTransactionHash(txHash, job.id);
+      
+      if (result.success) {
+        let response = `✅ **Payment Verified!**\n\n`;
+        response += `**Transaction:** \`${result.payment.txHash}\`\n`;
+        response += `**Amount:** ${result.payment.amount} JEWEL\n`;
+        response += `**Block:** ${result.payment.blockNumber}\n\n`;
+        response += `Your optimization is now being processed. You'll receive your personalized recommendations via DM within a few minutes!`;
+        await interaction.editReply(response);
+      } else {
+        await interaction.editReply(`❌ **Verification Failed**\n\n${result.error}\n\nPlease check your transaction hash and try again.`);
+      }
       return;
     }
     

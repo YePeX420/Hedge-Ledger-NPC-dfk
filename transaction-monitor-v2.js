@@ -418,6 +418,125 @@ export async function verifyRecentPayment(jobId) {
 }
 
 /**
+ * Direct transaction hash verification (Option 1: Manual fast-track)
+ * Instantly verify a specific transaction without scanning blocks
+ * 
+ * @param {string} txHash - Transaction hash from user
+ * @param {number} jobId - Garden optimization job ID
+ * @returns {Promise<{success: boolean, error?: string, payment?: object}>}
+ */
+export async function verifyTransactionHash(txHash, jobId) {
+  try {
+    console.log(`[Monitor] Verifying tx ${txHash} for job #${jobId}`);
+    
+    // Fetch job details
+    const job = await db
+      .select()
+      .from(gardenOptimizations)
+      .where(eq(gardenOptimizations.id, jobId))
+      .limit(1);
+    
+    if (job.length === 0) {
+      return { success: false, error: 'Job not found' };
+    }
+    
+    const optimization = job[0];
+    
+    // Check if job is in correct status
+    if (optimization.status !== 'awaiting_payment') {
+      return { 
+        success: false, 
+        error: `Job is already ${optimization.status}` 
+      };
+    }
+    
+    // Check if job is expired
+    if (new Date() > new Date(optimization.expiresAt)) {
+      return { success: false, error: 'Job has expired' };
+    }
+    
+    // Fetch transaction receipt
+    const receipt = await provider.getTransactionReceipt(txHash);
+    
+    if (!receipt) {
+      return { success: false, error: 'Transaction not found on blockchain' };
+    }
+    
+    // Check transaction success
+    if (receipt.status !== 1) {
+      return { success: false, error: 'Transaction failed on blockchain' };
+    }
+    
+    // Fetch transaction details
+    const tx = await provider.getTransaction(txHash);
+    
+    if (!tx) {
+      return { success: false, error: 'Transaction details not found' };
+    }
+    
+    // Verify recipient
+    if (!tx.to || tx.to.toLowerCase() !== HEDGE_WALLET_ADDRESS.toLowerCase()) {
+      return { 
+        success: false, 
+        error: `Transaction was sent to ${tx.to}, expected ${HEDGE_WALLET_ADDRESS}` 
+      };
+    }
+    
+    // Verify sender
+    if (tx.from.toLowerCase() !== optimization.fromWallet.toLowerCase()) {
+      return { 
+        success: false, 
+        error: `Transaction was sent from ${tx.from}, expected ${optimization.fromWallet}` 
+      };
+    }
+    
+    // Verify amount (native JEWEL transfer)
+    const expectedAmount = new Decimal(optimization.expectedAmountJewel || '25');
+    const actualAmount = new Decimal(weiToJewel(tx.value));
+    
+    if (actualAmount.lt(expectedAmount)) {
+      return { 
+        success: false, 
+        error: `Payment amount ${actualAmount.toFixed(2)} JEWEL is less than expected ${expectedAmount.toFixed(2)} JEWEL` 
+      };
+    }
+    
+    // All checks passed - mark as verified
+    await db
+      .update(gardenOptimizations)
+      .set({
+        status: 'payment_verified',
+        paymentVerifiedAt: new Date(),
+        txHash: txHash,
+        updatedAt: new Date()
+      })
+      .where(eq(gardenOptimizations.id, jobId));
+    
+    console.log(`[Monitor] ✅ Verified payment for job #${jobId}: ${actualAmount.toFixed(2)} JEWEL`);
+    
+    // Remove from active jobs tracking
+    paymentJobs.removeJob(jobId);
+    
+    return {
+      success: true,
+      payment: {
+        txHash,
+        from: tx.from,
+        amount: actualAmount.toFixed(2),
+        blockNumber: receipt.blockNumber
+      }
+    };
+    
+  } catch (err) {
+    console.error(`[Monitor] Error verifying tx ${txHash}:`, err.message);
+    return { 
+      success: false, 
+      error: `Verification failed: ${err.message}` 
+    };
+  }
+}
+
+/**
  * Backward compatibility: Initialize existing jobs
  * Called once to migrate existing awaiting_payment jobs
  */
