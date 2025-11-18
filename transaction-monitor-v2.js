@@ -33,6 +33,7 @@ const jewelContract = new ethers.Contract(JEWEL_TOKEN_ADDRESS, erc20ABI, provide
 // Polling control
 let pollingTimer = null;
 let isRunning = false;
+let manualVerifyInProgress = false; // Mutex for fast-track scans
 
 /**
  * Convert wei amount to JEWEL string
@@ -164,6 +165,8 @@ async function markPaymentVerified(job, transfer) {
       .set({
         status: 'payment_verified',
         paymentVerifiedAt: new Date(),
+        paidAmountJewel: transfer.amountJewel, // Audit trail
+        paidAt: new Date(), // Payment timestamp
         txHash: transfer.hash,
         lastScannedBlock: transfer.blockNumber,
         updatedAt: new Date()
@@ -336,6 +339,19 @@ export function stopMonitoring() {
  * User types "sent/paid/done" → immediately scan last 1000 blocks
  */
 export async function verifyRecentPayment(jobId) {
+  // Mutex: Prevent concurrent fast-track scans
+  if (manualVerifyInProgress) {
+    console.log(`[Manual Verify] Scan already in progress, skipping duplicate request`);
+    return { 
+      found: false, 
+      reason: 'Verification in progress',
+      message: 'Already checking for your payment. Please wait...'
+    };
+  }
+  
+  manualVerifyInProgress = true;
+  const scanStart = Date.now();
+  
   try {
     const job = paymentJobs.getJob(jobId);
     
@@ -350,7 +366,7 @@ export async function verifyRecentPayment(jobId) {
     const lookbackBlocks = 1000; // ~30 minutes
     const startBlock = Math.max(job.startBlock, currentBlock - lookbackBlocks);
     
-    console.log(`[Manual Verify] Scanning blocks ${startBlock}-${currentBlock}`);
+    console.log(`[Manual Verify] Scanning blocks ${startBlock}-${currentBlock} (${currentBlock - startBlock + 1} blocks)`);
     
     // Scan in chunks
     let chunkStart = startBlock;
@@ -363,6 +379,9 @@ export async function verifyRecentPayment(jobId) {
       for (const transfer of transfers) {
         if (matchesJob(transfer, job)) {
           // Payment found!
+          const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
+          console.log(`[Manual Verify] ✅ Payment found in ${scanDuration}s`);
+          
           await markPaymentVerified(job, transfer);
           return { 
             found: true, 
@@ -375,7 +394,9 @@ export async function verifyRecentPayment(jobId) {
       chunkStart = chunkEnd + 1;
     }
     
-    console.log(`[Manual Verify] No matching payment found in last 1000 blocks`);
+    const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
+    console.log(`[Manual Verify] No matching payment found in last 1000 blocks (scan took ${scanDuration}s)`);
+    
     return { 
       found: false, 
       reason: 'No payment found in recent blocks',
@@ -383,12 +404,16 @@ export async function verifyRecentPayment(jobId) {
     };
     
   } catch (err) {
-    console.error('[Manual Verify] Error:', err.message);
+    const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
+    console.error(`[Manual Verify] Error after ${scanDuration}s:`, err.message);
+    
     return { 
       found: false, 
       reason: 'Error during verification',
       error: err.message 
     };
+  } finally {
+    manualVerifyInProgress = false;
   }
 }
 
