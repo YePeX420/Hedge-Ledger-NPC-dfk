@@ -119,9 +119,10 @@ export function calculateHeroYield(hero, pet, poolData) {
  * We infer it from currentQuest field in hero data
  * 
  * @param {string} walletAddress - User's wallet address
+ * @param {Array<Object>} pools - Pool analytics data (optional, will fetch from cache if not provided)
  * @returns {Promise<Object>} Current assignment analysis
  */
-export async function analyzeCurrentAssignments(walletAddress) {
+export async function analyzeCurrentAssignments(walletAddress, pools = null) {
   try {
     console.log(`[GardenAnalyzer] Analyzing current assignments for ${walletAddress}...`);
     
@@ -137,10 +138,16 @@ export async function analyzeCurrentAssignments(walletAddress) {
     const heroIds = heroes.map(h => h.id);
     const heroToPet = mapPetsToHeroes(heroIds, pets);
     
-    // Get pool analytics data
-    const poolCache = getCachedPoolAnalytics();
-    if (!poolCache || !poolCache.data) {
-      throw new Error('Pool cache not ready - please try again in a moment');
+    // Get pool analytics data (from parameter or cache)
+    let poolData;
+    if (pools) {
+      poolData = pools;
+    } else {
+      const poolCache = getCachedPoolAnalytics();
+      if (!poolCache || !poolCache.data) {
+        throw new Error('Pool cache not ready - please try again in a moment');
+      }
+      poolData = poolCache.data;
     }
     
     // Analyze current assignments by checking actual quest data from blockchain
@@ -190,7 +197,7 @@ export async function analyzeCurrentAssignments(walletAddress) {
       const pet = heroToPet.get(hero.id);
       
       // Find the exact pool they're assigned to
-      const pool = poolCache.data.find(p => p.pid === poolId);
+      const pool = poolData.find(p => p.pid === poolId);
       
       if (pool) {
         const heroYield = calculateHeroYield(hero, pet, pool);
@@ -227,7 +234,8 @@ export async function analyzeCurrentAssignments(walletAddress) {
       assignments,
       totalCurrentAPR,
       heroes, // Include all heroes for optimization
-      pets    // Include all pets for optimization
+      pets,   // Include all pets for optimization
+      pools: poolData // Include pool data
     };
     
   } catch (error) {
