@@ -2,28 +2,61 @@
 // Intelligent question analysis to determine what data to auto-fetch
 
 /**
+ * Parse garden menu trigger (general garden help without specific optimization/APR request)
+ * Examples:
+ * - "Help with gardens" → { type: 'garden_menu' }
+ * - "Tell me about my gardens" → { type: 'garden_menu' }
+ * - "Garden assistance" → { type: 'garden_menu' }
+ */
+export function parseGardenMenuIntent(message) {
+  const lowerMsg = message.toLowerCase();
+  
+  // Garden trigger keywords (specific to Crystalvale gardens - NOT generic "yield")
+  const gardenTriggers = /\b(garden|gardens|expedition|lp\s+yield|garden\s+yield|gardening.*help|explain.*gardens?|show.*my.*gardens?|farming.*jewel|farming.*crystal)\b/i;
+  
+  if (!gardenTriggers.test(message)) {
+    return null;
+  }
+  
+  // Direct routing exceptions - these should NOT show menu
+  
+  // Exception 1: Optimization keywords → direct to Tier 2
+  if (/\b(optimize|optimise|best.*setup|maximize|maximise|fix.*my.*gardeners?)\b/i.test(message)) {
+    return null; // Will be caught by parseGardenOptimizationIntent instead
+  }
+  
+  // Exception 2: APR keywords → direct to Option 3
+  if (/\b(aprs?|rates?.*today|garden.*aprs?|apr.*now)\b/i.test(message)) {
+    return null; // Will be caught by parseGardenIntent instead
+  }
+  
+  // If garden keywords present and no direct routing exceptions, show menu
+  return { type: 'garden_menu' };
+}
+
+/**
  * Parse garden optimization requests
  * Examples:
- * - "Optimize my gardens" → { type: 'garden_optimization' }
- * - "Analyze my LP positions" → { type: 'garden_optimization' }
- * - "Garden recommendations" → { type: 'garden_optimization' }
+ * - "Optimize my gardens" → { type: 'garden_optimization_tier2' }
+ * - "Analyze my LP positions" → { type: 'garden_optimization_tier2' }
+ * - "Garden recommendations" → { type: 'garden_optimization_tier2' }
  */
 export function parseGardenOptimizationIntent(message) {
   const lowerMsg = message.toLowerCase();
   
   // Keywords that indicate optimization requests
-  const optimizationKeywords = /\b(optimize|optimise|optimization|optimisation|analyze|analyse|analysis|recommend|recommendation|best|hero.*assign|pet.*assign|yield.*strateg)\b/i;
+  const optimizationKeywords = /\b(optimize|optimise|optimization|optimisation|maximize|maximise|best.*setup|fix.*gardeners?|hero.*assign|pet.*assign)\b/i;
   const gardenKeywords = /\b(garden|gardens|lp|pool|pools|position|positions)\b/i;
   
   // Must have both optimization keywords AND garden/LP keywords
   if (optimizationKeywords.test(message) && gardenKeywords.test(message)) {
-    return { type: 'garden_optimization' };
+    return { type: 'garden_optimization_tier2' };
   }
   
   // Specific phrases
-  const specificPhrases = /\b(garden optimization|lp optimization|pool optimization|optimize.*garden|analyze.*lp|garden.*recommendation)\b/i;
+  const specificPhrases = /\b(garden optimization|lp optimization|pool optimization|optimize.*garden|garden.*recommendation)\b/i;
   if (specificPhrases.test(message)) {
-    return { type: 'garden_optimization' };
+    return { type: 'garden_optimization_tier2' };
   }
   
   return null;
@@ -524,18 +557,24 @@ export function parseWalletIntent(message) {
 
 /**
  * Master intent parser - tries all parsers in order
- * Priority: Data queries first (wallet/garden/market), then NPC help
+ * Priority: Wallet → Garden Optimization → Garden Menu → Garden APRs → Market → NPC
  */
 export function parseIntent(message) {
   // Try wallet first (most specific - requires address + non-garden keywords)
   const walletIntent = parseWalletIntent(message);
   if (walletIntent) return walletIntent;
   
-  // Check for garden optimization before general garden queries (more specific)
+  // Check for garden optimization before any other garden queries (most specific garden intent)
   const gardenOptIntent = parseGardenOptimizationIntent(message);
   if (gardenOptIntent) return gardenOptIntent;
   
-  // Then garden (includes garden-specific wallet queries like "harvest rewards 0x...")
+  // Check for garden menu trigger (general garden help) BEFORE specific APR queries
+  // This ensures "help with gardens" shows menu instead of going to parseGardenIntent
+  const gardenMenuIntent = parseGardenMenuIntent(message);
+  if (gardenMenuIntent) return gardenMenuIntent;
+  
+  // Then garden APRs/pool queries (includes garden-specific wallet queries like "harvest rewards 0x...")
+  // This runs AFTER menu check so specific APR requests bypass the menu
   const gardenIntent = parseGardenIntent(message);
   if (gardenIntent) return gardenIntent;
   
@@ -559,6 +598,10 @@ export function formatIntent(intent) {
   if (!intent) return 'No intent detected';
   
   switch (intent.type) {
+    case 'garden_menu':
+      return 'Garden: Show menu';
+    case 'garden_optimization_tier2':
+      return 'Garden: Full Optimization (Tier 2 - 25 JEWEL)';
     case 'npc':
       if (intent.action) {
         return `NPC: ${intent.npc} (action: ${intent.action})`;

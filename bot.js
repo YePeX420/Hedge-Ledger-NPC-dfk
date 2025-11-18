@@ -11,6 +11,7 @@ import * as analytics from './garden-analytics.js';
 import * as quickData from './quick-data-fetcher.js';
 import { parseIntent, formatIntent } from './intent-parser.js';
 import { requestDeposit, HEDGE_WALLET } from './deposit-flow.js';
+import * as gardenMenu from './garden-menu.js';
 import { startMonitoring, stopMonitoring } from './transaction-monitor.js';
 import { creditBalance } from './balance-credit.js';
 import { initializeProcessor, startProcessor, stopProcessor } from './optimization-processor.js';
@@ -578,8 +579,111 @@ Keep it entertaining but helpful. This is free educational content, so be genero
         }
       }
       
-      // 🌿 Garden Optimization (PAID - 25 JEWEL via direct deposit)
-      if (intent.type === 'garden_optimization') {
+      // 🌿 Garden Menu - Show 5-option menu
+      if (intent.type === 'garden_menu') {
+        try {
+          await gardenMenu.showGardenMenu(message, message.author.id);
+          return;
+        } catch (err) {
+          console.error('Garden menu error:', err);
+          await message.reply("*fumbles with menu papers* Having trouble showing the garden options. Try again.");
+          return;
+        }
+      }
+      
+      // 🌿 Garden Walkthrough - Free tutorial
+      if (intent.type === 'garden_walkthrough') {
+        try {
+          const gardenKnowledge = fs.readFileSync('knowledge/gardens.md', 'utf8');
+          const prompt = [{ 
+            role: 'user', 
+            content: `The user wants to learn about gardens in Crystalvale. Based on knowledge/gardens.md, give them a comprehensive but engaging walkthrough covering:\n1. What LP tokens are and how liquidity pools work\n2. How to add liquidity (step-by-step)\n3. How garden expeditions work (hero assignments, pets, stamina)\n4. APRs (fee APR vs distribution APR vs quest APR)\n5. Risks (impermanent loss)\n\nKeep it friendly and entertaining while being thorough. This is free educational content.` 
+          }];
+          const reply = await askHedge(prompt);
+          await message.reply(reply);
+          return;
+        } catch (err) {
+          console.error('Garden walkthrough error:', err);
+          await message.reply("*drops tutorial scroll* Oops. Can't find my gardens guide right now. Try /walkthrough topic:gardens instead.");
+          return;
+        }
+      }
+      
+      // 🌿 Impermanent Loss Explanation - Free
+      if (intent.type === 'garden_IL') {
+        try {
+          const prompt = [{ 
+            role: 'user', 
+            content: `The user wants to understand impermanent loss (IL) in liquidity pools. Explain:\n1. What IL is (in simple terms)\n2. When it happens (price divergence)\n3. Why it matters for LP providers\n4. How to minimize it (stable pairs, correlated assets)\n5. Trade-offs (IL vs fee earnings)\n\nUse a simple analogy and keep it accessible. This is free educational content.` 
+          }];
+          const reply = await askHedge(prompt);
+          await message.reply(reply);
+          return;
+        } catch (err) {
+          console.error('Garden IL error:', err);
+          await message.reply("*scratches head* Can't explain IL right now. Try asking again.");
+          return;
+        }
+      }
+      
+      // 🌿 Garden APRs - Free once per day, then 1 JEWEL
+      if (intent.type === 'garden_aprs') {
+        try {
+          const hasUsedFree = await gardenMenu.hasUsedFreeAPRToday(message.author.id);
+          
+          if (hasUsedFree) {
+            await message.reply("You've already used your free APR lookup today. This lookup costs **1 JEWEL**. Reply with **yes** to proceed, or come back tomorrow for another free lookup.");
+            // TODO: Set up collector to wait for "yes" response and trigger payment flow
+            return;
+          }
+          
+          // Free lookup - mark as used and show APRs
+          await gardenMenu.markAPRCheckUsed(message.author.id, message.author.username);
+          
+          // Use existing garden APR fetching logic
+          const result = await quickData.getAllPoolAnalyticsWithTimeout(8, 50000);
+          
+          if (!result || !result.pools || result.pools.length === 0) {
+            await message.reply("*squints at ledger* Can't get current APR data. Try again in a moment.");
+            return;
+          }
+          
+          const poolsData = result.pools;
+          const cacheAge = result._cacheAge || 0;
+          
+          let poolsSummary = '📊 **Crystalvale Garden APRs** (Free Daily Lookup)';
+          if (result._cached) {
+            poolsSummary += ` • Cached ${cacheAge}m ago\n\n`;
+          } else {
+            poolsSummary += ` • Live Scan\n\n`;
+          }
+          
+          poolsData.slice(0, 8).forEach((pool, i) => {
+            poolsSummary += `${i+1}. **${pool.pairName}**\n`;
+            poolsSummary += `   Fee APR: ${pool.fee24hAPR} | Distribution APR: ${pool.harvesting24hAPR}\n`;
+            poolsSummary += `   Total: ${pool.totalAPR} | TVL: $${pool.totalTVL}\n\n`;
+          });
+          
+          poolsSummary += `\n*Next free lookup: Tomorrow (UTC midnight reset)*`;
+          
+          await message.reply(poolsSummary);
+          return;
+        } catch (err) {
+          console.error('Garden APRs error:', err);
+          await message.reply("*drops calculator* Something went wrong fetching APRs. Try again.");
+          return;
+        }
+      }
+      
+      // 🌿 Garden Insights Tier 1 (PAID - 2 JEWEL)
+      if (intent.type === 'garden_insights_tier1') {
+        await message.reply("🚧 **Garden Insights (Tier 1)** is coming soon!\n\nThis will analyze your LP positions and show inefficiencies for **2 JEWEL**.\n\nFor now, use `/optimize-gardens` for full optimization (25 JEWEL).");
+        return;
+        // TODO: Implement insights-processor.js and wire it up here
+      }
+      
+      // 🌿 Garden Optimization Tier 2 (PAID - 25 JEWEL via direct deposit)
+      if (intent.type === 'garden_optimization_tier2') {
         try {
           // Check if user has a linked wallet
           if (!playerData || !playerData.wallets || playerData.wallets.length === 0) {
