@@ -164,7 +164,8 @@ export async function analyzeCurrentAssignments(walletAddress) {
             hero,
             poolId: assignment.poolId,
             questDetails: assignment.questDetails,
-            isExpedition: assignment.isExpedition
+            isExpedition: assignment.isExpedition,
+            staminaUsed: assignment.staminaUsed
           });
           
           if (assignment.isExpedition) {
@@ -185,7 +186,7 @@ export async function analyzeCurrentAssignments(walletAddress) {
     console.log(`  - Total gardening heroes: ${gardeningAssignments.length}`);
     
     // Build detailed assignments with pool data and yield calculations
-    for (const { hero, poolId } of gardeningAssignments) {
+    for (const { hero, poolId, isExpedition, staminaUsed } of gardeningAssignments) {
       const pet = heroToPet.get(hero.id);
       
       // Find the exact pool they're assigned to
@@ -198,11 +199,10 @@ export async function analyzeCurrentAssignments(walletAddress) {
           hero: {
             id: hero.id,
             level: hero.level,
-            intelligence: hero.intelligence,
+            vitality: hero.vitality,
             wisdom: hero.wisdom,
             gardening: hero.gardening,
-            passive1: hero.passive1?.name,
-            passive2: hero.passive2?.name
+            professionStr: hero.professionStr
           },
           pet: pet || null,
           pool: {
@@ -210,7 +210,9 @@ export async function analyzeCurrentAssignments(walletAddress) {
             pair: pool.pair,
             totalAPR: pool.totalAPR
           },
-          yield: heroYield
+          yield: heroYield,
+          staminaUsed: staminaUsed || 5,
+          isExpedition: isExpedition || false
         });
       }
     }
