@@ -281,6 +281,9 @@ export const players = pgTable("players", {
   totalMessages: integer("total_messages").default(0).notNull(),
   totalMilestones: integer("total_milestones").default(0).notNull(),
   
+  // Garden Engine - APR check tracking (Option 3: free once per day)
+  lastGardenAPRCheckDate: text("last_garden_apr_check_date"), // Format: YYYY-MM-DD
+  
   updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => ({
   discordIdIdx: uniqueIndex("players_discord_id_idx").on(table.discordId),
@@ -532,6 +535,26 @@ export const gardenOptimizations = pgTable("garden_optimizations", {
   fromWalletIdx: index("garden_optimizations_from_wallet_idx").on(table.fromWallet),
 }));
 
+/**
+ * Garden insights cache - Cache Tier 1 garden analysis results
+ */
+export const gardenInsightsCache = pgTable("garden_insights_cache", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  
+  // Cached data
+  payload: json("payload").notNull(), // Full Tier 1 analysis results
+  
+  // Timing
+  calculatedAt: timestamp("calculated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), // Cache invalidation time
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  playerIdIdx: index("garden_insights_cache_player_id_idx").on(table.playerId),
+  expiresAtIdx: index("garden_insights_cache_expires_at_idx").on(table.expiresAt),
+}));
+
 // ============================================================================
 // ECONOMIC MODEL SCHEMA - JEWEL BALANCE & QUERY COSTS
 // ============================================================================
@@ -692,6 +715,7 @@ export const insertWalletActivitySchema = createInsertSchema(walletActivity).omi
 export const insertDailyPlayerSnapshotSchema = createInsertSchema(dailyPlayerSnapshots).omit({ id: true, createdAt: true });
 export const insertExtractorSignalSchema = createInsertSchema(extractorSignals).omit({ id: true, createdAt: true });
 export const insertGardenOptimizationSchema = createInsertSchema(gardenOptimizations).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertGardenInsightsCacheSchema = createInsertSchema(gardenInsightsCache).omit({ id: true, createdAt: true });
 export const insertJewelBalanceSchema = createInsertSchema(jewelBalances).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertDepositRequestSchema = createInsertSchema(depositRequests).omit({ id: true, createdAt: true });
 export const insertQueryCostSchema = createInsertSchema(queryCosts).omit({ id: true, createdAt: true });
@@ -715,6 +739,8 @@ export type InsertExtractorSignal = z.infer<typeof insertExtractorSignalSchema>;
 export type ExtractorSignal = typeof extractorSignals.$inferSelect;
 export type InsertGardenOptimization = z.infer<typeof insertGardenOptimizationSchema>;
 export type GardenOptimization = typeof gardenOptimizations.$inferSelect;
+export type InsertGardenInsightsCache = z.infer<typeof insertGardenInsightsCacheSchema>;
+export type GardenInsightsCache = typeof gardenInsightsCache.$inferSelect;
 export type InsertJewelBalance = z.infer<typeof insertJewelBalanceSchema>;
 export type JewelBalance = typeof jewelBalances.$inferSelect;
 export type InsertDepositRequest = z.infer<typeof insertDepositRequestSchema>;

@@ -12,14 +12,18 @@ Platform: Node.js + Discord.js + PostgreSQL
 1. [Project Overview](#project-overview)
 2. [System Architecture](#system-architecture)
 3. [Database Schema](#database-schema)
-4. [API Endpoints](#api-endpoints)
-5. [Discord Commands](#discord-commands)
-6. [Background Services](#background-services)
-7. [Blockchain Integration](#blockchain-integration)
-8. [Authentication & Security](#authentication--security)
-9. [File Structure](#file-structure)
-10. [External Dependencies](#external-dependencies)
-11. [Environment Variables](#environment-variables)
+4. [Fair Value Index (FVI) System](#fair-value-index-fvi-system)
+5. [Player Engagement & Extractor Classification System](#player-engagement--extractor-classification-system)
+6. [API Endpoints](#api-endpoints)
+7. [Discord Commands](#discord-commands)
+8. [Background Services](#background-services)
+9. [Garden Engine System](#garden-engine-system)
+10. [NPC Personality Adaptation System](#npc-personality-adaptation-system)
+11. [Blockchain Integration](#blockchain-integration)
+12. [Authentication & Security](#authentication--security)
+13. [File Structure](#file-structure)
+14. [External Dependencies](#external-dependencies)
+15. [Environment Variables](#environment-variables)
 
 ---
 
@@ -2125,6 +2129,637 @@ COMMIT;
 - Database errors: Retry 3 times, alert admin if persistent
 - Validation failure: Execute rollback procedure to revert
 - Concurrent update conflict: Retry transaction with exponential backoff
+
+---
+
+## Garden Engine System
+
+### Overview
+
+The Garden Engine powers all gardening-related interactions in Hedge Ledger, from free educational content to premium optimization services. It provides a guided, NPC-style DM experience that helps players maximize their LP token yields in Crystalvale gardens.
+
+**Design Goals**:
+- Help users understand gardens and impermanent loss (Free features)
+- Show users their current yields and inefficiencies (Tier 1 - 2 JEWEL)
+- Optimize gardens for maximum JEWEL/CRYSTAL earnings (Tier 2 - 25 JEWEL)
+- Use a friendly, menu-driven DM flow
+- Be deterministic, predictable, and safe
+- Integrate cleanly with existing payment monitoring
+- Not interfere with simple APR-only queries
+
+**Feature Tiers**:
+1. **Free Features**: Gardens tutorial, impermanent loss explanation, APR viewing (once/day)
+2. **Tier 1 - Garden Insights** (2 JEWEL): Current yield analysis, inefficiency detection
+3. **Tier 2 - Full Optimization** (25 JEWEL): Expedition assignments, future yield projections, Rapid Renewal simulation
+
+---
+
+### Garden Menu (DM Entry Point)
+
+Hedge shows the Garden Menu when users mention gardens in general conversation without explicitly requesting APRs or optimization:
+
+```
+🌿 I can help you with your Gardens! Choose an option:
+
+1 — Gardens Walkthrough (Free Unlimited)
+2 — Understand Impermanent Loss (Free Unlimited)
+3 — View Crystalvale APRs (Free once per day, then 1 JEWEL per additional use)
+4 — Show Your Pools & Current Yield (Premium Tier 1 — 2 JEWEL)
+5 — Optimize Your Gardens (Premium Tier 2 — 25 JEWEL)
+```
+
+**User Input Methods**:
+- Numerical reply: "3"
+- Keyword reply: "APR", "show my pools", "optimize"
+- Natural language: "what am I earning?", "help with gardens"
+
+**Menu Trigger Keywords**:
+```
+garden, gardens, expedition, yield, lp yield, gardening help, 
+explain gardens, what am I earning, show my gardens, 
+farming jewel, farming crystal
+```
+
+**Direct Routing Exceptions** (skip menu):
+- Optimization keywords → Tier 2: "optimize", "best setup", "maximize", "fix my gardeners"
+- APR keywords → Option 3: "APRs?", "rates today?", "garden APRs", "APR now"
+
+---
+
+### Intent Mapping
+
+| Option | Intent Name | Cost | Description |
+|--------|-------------|------|-------------|
+| 1 | `garden_walkthrough` | Free | Gardens tutorial from knowledge base |
+| 2 | `garden_IL` | Free | Impermanent loss explanation |
+| 3 | `garden_aprs` | Free once/day, then 1 JEWEL | Crystalvale APR list from pool-cache |
+| 4 | `garden_insights_tier1` | 2 JEWEL | "Before State" analysis only |
+| 5 | `garden_optimization_tier2` | 25 JEWEL | Full optimization (Before/After/Future) |
+
+**Additional Intent Handlers**:
+- `garden_menu`: Display the menu above
+- All 5 option-specific intents listed in table
+
+---
+
+### Pricing & Payment Rules
+
+#### Option 3 — Crystalvale APRs
+- **First APR lookup per UTC-day**: FREE
+- **Additional lookups same day**: 1 JEWEL per lookup
+- **Tracking**: Database field `players.lastGardenAPRCheckDate` (TEXT YYYY-MM-DD)
+- **Reset**: Automatically at UTC midnight
+
+#### Tier 1 — Garden Insights (2 JEWEL)
+- **Cost**: 2 JEWEL payment to designated wallet
+- **Payment window**: 2 hours expiration
+- **Verification**: Uses existing transaction monitor
+- **Includes**: Current yield analysis, inefficiency warnings, hero/pet contributions
+- **Excludes**: Optimization, future predictions, Rapid Renewal simulation
+
+#### Tier 2 — Full Optimization (25 JEWEL)
+- **Cost**: 25 JEWEL payment to designated wallet
+- **Payment window**: 2 hours expiration
+- **Verification**: Uses existing `optimization-processor.js` flow
+- **Includes**: Everything in Tier 1 + expedition assignments + future yield + RR simulation
+
+**Payment Flow** (Tier 1 & 2):
+```
+1. User selects Option 4 or 5
+2. Bot creates payment record with expiresAt = now + 2 hours
+3. Bot sends payment instructions with wallet address
+4. Transaction monitor detects payment
+5. Bot triggers insights-processor.js (Tier 1) or optimization-processor.js (Tier 2)
+6. Bot sends results via DM
+```
+
+---
+
+### Data Sources
+
+#### Heroes (from DFK GraphQL)
+**Required Fields**:
+- Stats: `WIS`, `VIT`, `AGI`, `LCK`, `INT`, `STR`, `DEX`, `END`
+- Profession: `mainClass`, `subClass`, `profession`
+- Skills: `gardening` skill level (GrdSkl)
+- Genes: `statBoost1`, `statBoost2`, `activeGenes`, `passiveGenes`
+- Stamina: `staminaCurrent`, `staminaMax`
+- Owner: `owner` wallet address
+
+**Gardening Skill Range** (Critical v4.2 Clarification):
+- Typical range: **0-30** (due to Level 20 cap)
+- **NEVER cap, clamp, or artificially limit Gardening Skill**
+- If a hero legitimately has `GrdSkl = 31`, treat as strictly better than `GrdSkl = 30`
+- All comparisons, rankings, sorting must use **raw on-chain value**
+- The "0-30 typical range" is for expectation only, NOT for logic constraints
+
+#### Pets (from PetCore Contract)
+**Required Fields**:
+- Profession bonuses (gardening compatibility)
+- Boost values (% or flat)
+- Pet type and rarity
+- Bonded hero (if applicable)
+
+#### Pools (from pool-cache.js)
+**Data Per Pool**:
+- `feeAPR`: Trading fee APR
+- `distributionAPR`: Emission APR
+- `allocationWeight`: Pool's share of rewards
+- `rewardPoolJEWEL`: JEWEL reward pool balance
+- `rewardPoolCRYSTAL`: CRYSTAL reward pool balance
+- `lpUSDValue`: Total LP value in USD
+- `lpShare`: User's LP token balance
+
+**Crystalvale Reward Fund Address**:
+```
+0x1137643FE14b032966a59Acd68EBf3c1271Df316
+```
+
+**Pool Cache Refresh**:
+- Interval: 20 minutes (configurable)
+- Module: `pool-cache.js`
+- Stale data threshold: If cache is >60 minutes old, warn user
+- Manual refresh: Available for paid tiers only
+
+---
+
+### DFK Gardening Formula (Canonical)
+
+For each hero **per stamina spent**:
+
+```javascript
+earnRate = 
+  (rewardPoolBalance * poolAllocation * LPowned * 
+    (0.1 + (WIS + VIT) / 1222.22 + GrdSkl / 244.44))
+  / ((300 - (50 * geneBonus)) * rewardModBase)
+```
+
+**Parameters**:
+- `rewardPoolBalance`: Pool's JEWEL or CRYSTAL balance
+- `poolAllocation`: Pool's allocation weight (0.0 - 1.0)
+- `LPowned`: User's LP token balance
+- `WIS`, `VIT`: Hero stat values
+- `GrdSkl`: Gardening skill level (**never capped, use raw value**)
+- `geneBonus`: 1 if gardening gene present, 0 otherwise
+- `rewardModBase`: 144 (skill 0) or 72 (skill 10+)
+
+**Minimum Yield**:
+- 0.0002 tokens/stamina (if pool balance ≥ 420k)
+
+**Jackpot Expected Value**:
+- +0.1 tokens @ 9.9% chance
+- +1.0 token @ 0.1% chance
+- Halved if no gardening gene
+- Requires pool balance ≥ 950k
+
+**Separate Calculations**:
+Compute `earnRate` **twice** for each hero:
+1. JEWEL earnRate
+2. CRYSTAL earnRate
+
+---
+
+### Stamina Optimization Engine (v2.4)
+
+**Universal Sweetspot**:
+```
+IdealStaminaThreshold = 5 stamina
+```
+
+**Rationale**:
+- Gardening cycle consumes 5 stamina
+- Heroes regenerate 3 stamina/hour
+- Waiting for more stamina wastes regen time
+- Highest yield/hour achieved with shortest cycle frequency
+
+**Tier 1 Behavior** (2 JEWEL Insights):
+- Only detect inefficiency
+- Flag heroes frequently questing above 5 stamina
+- Warn about wasted stamina regeneration
+
+**Tier 2 Behavior** (25 JEWEL Optimization):
+- Model all heroes as if they always quest at 5 stamina
+- Compute cycles per day:
+  ```javascript
+  cyclesPerDay = (24 * 3) / 5 // = 14.4 cycles/day per hero
+  ```
+- Generate stamina timing recommendations
+
+---
+
+### Expedition Model
+
+**Expedition Slots Per Pool**:
+- 3 expedition slots per pool
+- Each slot contains:
+  - 1 JEWEL gardener hero
+  - 1 CRYSTAL gardener hero
+  - 1 optional pet
+
+**Maximum Per Pool**:
+- 6 heroes (2 per slot × 3 slots)
+- 3 pets (1 per slot × 3 slots)
+
+**Expedition Simulation**:
+Expeditions model continuous 5-stamina gardening cycles with optimal hero-pool matching.
+
+---
+
+### Hero Query Limits & Performance
+
+**Prefiltering Rules** (include hero if ANY condition true):
+1. Gardening is main profession
+2. Gardening profession gene present
+3. Gardening Skill (GrdSkl) ≥ 5
+4. Stat-based potential: `WIS + VIT ≥ 100`
+5. Pet synergy: Hero linked to or compatible with gardening pet
+
+**Gardening Skill in Prefiltering** (v4.2 Critical Rule):
+- Gardening Skill typically 0-30 range
+- **DO NOT cap or clamp GrdSkl in prefiltering**
+- Always use real on-chain values in:
+  - Prefiltering logic
+  - Hero scoring calculations
+  - Comparison operations
+  - Assignment algorithms
+  - Optimization matrices
+
+**Soft Cap (60 Heroes)**:
+If more than 60 heroes match prefilters:
+1. Compute gardening score for each:
+   ```javascript
+   gardeningScore = WIS + VIT + (GrdSkl * 10) + (geneBonus * 50)
+   ```
+   **IMPORTANT**: Use raw `GrdSkl` value, never capped
+2. Sort by score descending
+3. Use top 60 heroes only
+
+**Performance Timeout**:
+- Total hero fetch time: ≤15 seconds before fallback
+- If timeout occurs, use cached data or partial results
+
+---
+
+### Tier 1 Output (Garden Insights - 2 JEWEL)
+
+**Includes**:
+- User's LP pool list with balances
+- feeAPR + distributionAPR per pool
+- `questAPR_before`: Current yield from hero questing
+- Weekly earnings: JEWEL/week + CRYSTAL/week
+- Hero/pet contribution table
+- Stamina inefficiency warnings
+- Empty expedition slot warnings
+- Misplaced gardener detection
+- Skill-pool mismatch warnings
+
+**Excludes**:
+- Optimization recommendations
+- "After State" projections
+- Rapid Renewal simulation
+- Action steps for reassignment
+
+**Sample Output Format**:
+```
+📊 Your Garden Analysis (Before State)
+
+LP Pools:
+1. JEWEL-CRYSTAL: 234.5 LP ($3,456 USD)
+   - Fee APR: 12.3%
+   - Distribution APR: 45.6%
+   - Quest APR (current): 8.2%
+   - Total APR: 66.1%
+
+Current Earnings:
+- JEWEL: 2.34 per week
+- CRYSTAL: 45.67 per week
+
+Active Heroes (3):
+- Hero #12345: WIS 42, VIT 38, GrdSkl 18, Gene ✓
+- Hero #67890: WIS 35, VIT 29, GrdSkl 12, Gene ✗
+- Hero #11111: WIS 28, VIT 31, GrdSkl 8, Gene ✓
+
+⚠ Inefficiency Warnings:
+- Hero #12345 frequently quests at 20+ stamina (wasting regen)
+- Pool 2 has empty expedition slot
+- Hero #67890 has low gardening skill for high-emission pool
+```
+
+---
+
+### Tier 2 Output (Full Optimization - 25 JEWEL)
+
+**Includes Everything in Tier 1 Plus**:
+
+#### BEFORE State
+(Same as Tier 1)
+
+#### AFTER State (Optimized)
+- Optimized gardener assignments per slot
+- 3 slots × 2 gardeners per pool
+- Pet assignments with boost calculations
+- JEWEL/week_after (projected)
+- CRYSTAL/week_after (projected)
+- `questAPR_after`: Optimized yield APR
+- Total APR comparison (before vs after)
+
+#### Stamina Timing Table
+```
+Hero ID | Max Stamina | Ideal Trigger | Cycles/Day | Notes
+--------|-------------|---------------|------------|-------
+#12345  | 25          | 5             | 14.4       | Gene bonus
+#67890  | 20          | 5             | 14.4       | No gene
+```
+
+#### Rapid Renewal Simulation (if user lacks RR)
+- Future state JEWEL/week (with RR active)
+- Future state CRYSTAL/week (with RR active)
+- APR with Rapid Renewal
+- RR cost: 50 JEWEL locked for 30 days
+- Payback period calculation
+
+#### Action Steps
+```
+Pool 5 (JEWEL-CRYSTAL) — Expedition Slot 1:
+  - JEWEL farmer: Hero #12345
+  - CRYSTAL farmer: Hero #67890
+  - Pet: Gardening Pet #555
+
+Pool 5 — Expedition Slot 2:
+  - JEWEL farmer: Hero #11111
+  - CRYSTAL farmer: Hero #22222
+  - Pet: None assigned
+```
+
+---
+
+### Optimization Flow Algorithm (Tier 2)
+
+#### Step 1: Collect Hero Data
+For each hero, compute:
+- Base JEWEL yield per stamina
+- Base CRYSTAL yield per stamina
+- Jackpot expected value
+- Stamina regen rate (3/hour)
+- Gardening gene multiplier (1 or 0)
+- Gardening skill level (**raw value, never capped**)
+
+#### Step 2: Build Matrices
+```javascript
+HeroPoolMatrix[heroId][poolId][token] = yieldPerStamina
+PetHeroMatrix[petId][heroId] = boostValue
+```
+
+**Critical v4.2 Rule**:
+In all matrix computations, use:
+```javascript
+hero.GrdSkl_raw = valueFromChain // ✓ CORRECT
+```
+
+NOT:
+```javascript
+min(hero.GrdSkl_raw, 30) // ✗ NEVER DO THIS
+```
+
+#### Step 3: Rank Pools
+Sort pools by:
+1. `lpUSDValue` (user's stake size)
+2. `rewardPool` strength (JEWEL + CRYSTAL balance)
+3. `allocationWeight`
+
+#### Step 4: Fill Expedition Slots
+For each of top 3 pools:
+1. Select best JEWEL gardener from candidate list
+2. Select best CRYSTAL gardener from remaining candidates
+3. Select best pet for highest combined boost
+4. Remove assigned heroes/pets from candidate pool
+5. Repeat for next slot
+
+**Hero Ranking Criteria**:
+- Highest `yieldPerStamina` for target token
+- Gardening gene bonus (prefer gene heroes)
+- Higher gardening skill (**never capped**)
+- Better stat combination (WIS + VIT)
+
+#### Step 5: Compute questAPR_after
+```javascript
+questAPR_after = (optimizedTokenYieldUSD_weekly * 52) / lpUSDValue
+TotalAPR_after = feeAPR + distributionAPR + questAPR_after
+```
+
+#### Step 6: Rapid Renewal Simulation
+If user lacks Rapid Renewal:
+```javascript
+effectiveYield_RR = yield_after * (1 + RR_boost_percentage)
+extraDailyYield = (effectiveYield_RR - yield_after) / 7
+paybackDays = RR_costUSD / extraDailyYieldUSD
+```
+
+**Rapid Renewal Details**:
+- Cost: 50 JEWEL locked for 30 days (in-game mechanic)
+- Boost: Increases stamina regen rate
+- Requirement: Must be active on hero for boost to apply
+
+---
+
+### Inefficiency Detection Rules (Tier 1)
+
+Trigger warnings if ANY condition met:
+
+#### A) High Stamina Questing
+- >50% of gardeners regularly quest at >5 stamina
+- Warning: "Hero #XXXXX frequently quests at 20+ stamina (wasting regen)"
+
+#### B) Empty Expedition Slots
+- User has staked LP but <3 slots filled
+- Warning: "Pool 2 has 2 empty expedition slots"
+
+#### C) Incomplete Slot Configuration
+- Slot has only JEWEL gardener (no CRYSTAL) or vice versa
+- Warning: "Pool 3 Slot 1 only has JEWEL farmer (missing CRYSTAL farmer)"
+
+#### D) Missing Pet Assignments
+- User owns gardening-compatible pets but none assigned
+- Warning: "You have 2 gardening pets not assigned to any expedition"
+
+#### E) Skill-Pool Mismatch (High → Low)
+- High-skill gardener (GrdSkl >20) in low-emission pool
+- Warning: "Hero #XXXXX (GrdSkl 25) assigned to low-reward pool"
+
+#### F) Skill-Pool Mismatch (Low → High)
+- Low-skill gardener (GrdSkl <10) in high-emission pool
+- Warning: "Hero #YYYYY (GrdSkl 5) underperforming in top pool"
+
+---
+
+### Database Schema Additions
+
+#### Required Fields
+
+**players table**:
+```sql
+ALTER TABLE players 
+ADD COLUMN lastGardenAPRCheckDate TEXT DEFAULT NULL;
+```
+
+Purpose: Track free daily APR lookup for Option 3
+
+#### Optional (Recommended): Cache Table
+
+```sql
+CREATE TABLE garden_insights_cache (
+  id SERIAL PRIMARY KEY,
+  playerId INT REFERENCES players(id),
+  payload JSON NOT NULL,
+  calculatedAt TIMESTAMP DEFAULT NOW(),
+  expiresAt TIMESTAMP NOT NULL
+);
+```
+
+Purpose: Cache Tier 1/2 results to avoid re-querying blockchain for repeated requests within short timeframe
+
+---
+
+### Error Handling
+
+#### No LP Staked
+**Message**: "You don't have any LP tokens staked in Crystalvale Gardens. Would you like help getting started with liquidity provision?"
+
+#### No Gardening-Suitable Heroes
+**Message**: "None of your heroes have meaningful gardening stats (WIS, VIT, or gardening skill). Heroes with high combat stats won't earn much in gardens."
+
+#### Pool Cache Unavailable
+**Message**: "APR data is currently unavailable. The pool cache is refreshing—try again in a few minutes."
+
+#### Payment Expired
+**Message**: "Payment window expired (2 hours). If you'd still like garden insights, just ask again and I'll send fresh payment instructions."
+
+#### GraphQL API Timeout
+**Message**: "Couldn't fetch your hero data from the blockchain. The DFK API might be slow. Want to try again in a moment?"
+
+---
+
+### Implementation Modules
+
+#### New Files Required
+
+**1. `garden-menu.js`**
+- Displays the 5-option menu
+- Handles user selection (numbers, keywords, natural language)
+- Routes to appropriate handler based on selection
+
+**2. `insights-processor.js`**
+- Tier 1 (2 JEWEL) implementation
+- Fetches hero/pool data
+- Computes "Before State" only
+- Generates inefficiency warnings
+- Sends formatted DM response
+
+#### Modified Files
+
+**3. `optimization-processor.js`** (existing)
+- Update to align with v4.2 spec
+- Ensure Gardening Skill never capped
+- Use raw on-chain values in all calculations
+- Add Rapid Renewal simulation logic
+
+**4. `bot.js`** (existing)
+- Add garden intent handlers
+- Route garden_menu → `garden-menu.js`
+- Route garden_insights_tier1 → `insights-processor.js`
+- Route garden_optimization_tier2 → `optimization-processor.js`
+
+**5. Intent Parser** (existing intent detection system)
+- Add new intents: `garden_menu`, `garden_walkthrough`, `garden_IL`, `garden_aprs`, `garden_insights_tier1`, `garden_optimization_tier2`
+- Add trigger keywords for menu vs direct routing
+
+**6. `pool-cache.js`** (existing)
+- Ensure APR data includes all required fields
+- Add staleness check (warn if >60 minutes old)
+
+---
+
+### Payment Integration
+
+**Tier 1 Payment Tracking** (2 JEWEL):
+```javascript
+// In transaction-monitor.js
+if (amount === 2 && recipientIsHedgeWallet) {
+  // Tier 1 garden insights payment
+  await markPaymentReceived(playerId, 'garden_insights_tier1');
+  await triggerInsightsProcessor(playerId);
+}
+```
+
+**Option 3 Daily Limit Tracking**:
+```javascript
+// In garden-aprs handler
+const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+const lastCheck = await getPlayerField(playerId, 'lastGardenAPRCheckDate');
+
+if (lastCheck === today) {
+  // Not free, require 1 JEWEL payment
+  await requestPayment(playerId, 1, 'garden_aprs');
+} else {
+  // Free lookup
+  await showGardenAPRs(playerId);
+  await updatePlayerField(playerId, 'lastGardenAPRCheckDate', today);
+}
+```
+
+---
+
+### Natural Language Intent Detection
+
+**Garden Menu Triggers** (general gardening):
+```
+garden, gardens, expedition, yield, lp yield, gardening help,
+explain gardens, what am I earning, show my gardens, 
+farming jewel, farming crystal
+```
+
+**Direct to Option 3** (APR only):
+```
+apr, apr?, aprs, rates today, garden apr, apr now, pool rates,
+what are the aprs, show me aprs
+```
+
+**Direct to Tier 2** (optimization):
+```
+optimize, maximize, best setup, fix my gardeners, 
+improve my yield, best pools, rearrange my heroes,
+maximize earnings
+```
+
+**Confidence Thresholds**:
+- High confidence (>0.8): Direct routing
+- Medium confidence (0.5-0.8): Show menu with highlighted option
+- Low confidence (<0.5): Show full menu without suggestion
+
+---
+
+### Testing & Validation
+
+**Unit Tests Required**:
+1. Gardening formula accuracy (compare to known hero yields)
+2. Hero ranking algorithm (verify top heroes selected)
+3. Slot assignment logic (no duplicate heroes, max 6 per pool)
+4. Payment detection (2 JEWEL vs 25 JEWEL)
+5. Daily APR limit tracking (UTC midnight reset)
+
+**Integration Tests Required**:
+1. Full Tier 1 flow (payment → analysis → DM output)
+2. Full Tier 2 flow (payment → optimization → DM output)
+3. Menu interaction (all 5 options)
+4. Direct routing (APR keywords, optimization keywords)
+5. Error handling (no LP, no heroes, API timeout)
+
+**Edge Cases**:
+- User has 100+ heroes (soft cap to 60)
+- User has no gardening-suitable heroes
+- Hero has GrdSkl >30 (verify not capped)
+- Pool cache stale (>60 minutes)
+- Payment expires before completion
 
 ---
 
