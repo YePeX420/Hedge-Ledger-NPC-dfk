@@ -1,0 +1,99 @@
+When Hedge sends a payment request for a garden service (Tier 1 or Tier 2), the flow should work like this:
+
+1) After Hedge posts the payment instructions
+
+For example:
+
+“Send exactly 25 JEWEL from wallet X to address Y. This request expires in 2 hours.”
+
+We consider that user to have an active pending payment with:
+
+status = 'awaiting_payment'
+
+expiresAt = requestedAt + 2 hours
+
+2) If the user replies “sent / done / paid / etc.”
+
+If, after that payment message, the user sends something like:
+
+"sent"
+
+"done"
+
+"paid"
+
+"I sent it"
+
+"payment done"
+
+"just paid"
+
+( case-insensitive, simple substring match is fine )
+
+Then Hedge should:
+
+Immediately run a manual payment verification for that specific pending job:
+
+Same matching logic as the transaction monitor:
+
+to === HEDGE_WALLET_ADDRESS
+
+amount >= expectedAmount
+
+within the last N blocks / reasonable time window
+
+fromWallet matches expected wallet if we have it
+
+If payment is found:
+
+Set job:
+
+status = 'payment_verified'
+
+txHash populated
+
+Reply to user:
+
+“Nice, I can see your payment on-chain. I’ll start your garden analysis now. 🧮”
+
+Immediately kick off:
+
+Tier 1 → insights-processor
+
+Tier 2 → optimization-processor
+
+If payment is not found yet:
+
+Reply:
+
+“I don’t see it confirmed on-chain yet. It might still be pending. I’ll keep watching and start as soon as it appears.”
+
+Do nothing else — leave the background monitor + expiry logic as-is.
+
+3) If the user does NOT reply at all
+
+The existing behavior stays:
+
+The transaction monitor keeps watching for up to 2 hours.
+
+If payment is detected during that window:
+
+job → payment_verified → analysis runs → report sent.
+
+If no payment is detected by expiresAt:
+
+job → expired
+
+Optional DM:
+
+“The payment window expired before I could see a transaction. If you still want the service, just ask me again and I’ll create a new payment request.”
+
+4) Important behavior notes
+
+The “sent/done/paid” fast-track only triggers when:
+
+There is an active awaiting_payment garden job for that user AND
+
+The message comes after the payment instructions in that channel/DM.
+
+If there is no pending payment, those words should just be handled by the normal DM logic (or ignored).
