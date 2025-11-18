@@ -153,6 +153,9 @@ export async function analyzeCurrentAssignments(walletAddress) {
     
     // Check each hero to see if they're on a GARDENING quest specifically
     const gardeningAssignments = [];
+    let expeditionCount = 0;
+    let regularQuestCount = 0;
+    
     for (const hero of heroesOnQuests) {
       try {
         const assignment = await getHeroGardeningAssignment(hero.id);
@@ -160,15 +163,26 @@ export async function analyzeCurrentAssignments(walletAddress) {
           gardeningAssignments.push({
             hero,
             poolId: assignment.poolId,
-            questDetails: assignment.questDetails
+            questDetails: assignment.questDetails,
+            isExpedition: assignment.isExpedition
           });
+          
+          if (assignment.isExpedition) {
+            expeditionCount++;
+          } else {
+            regularQuestCount++;
+          }
         }
       } catch (err) {
         console.error(`[GardenAnalyzer] Error checking hero #${hero.id}:`, err.message);
       }
     }
     
-    console.log(`[GardenAnalyzer] ${gardeningAssignments.length} heroes on GARDENING quests`);
+    console.log(`[GardenAnalyzer] ✅ GARDENING Detection Summary:`);
+    console.log(`  - Total heroes on quests: ${heroesOnQuests.length}`);
+    console.log(`  - Gardening expeditions: ${expeditionCount}`);
+    console.log(`  - Gardening regular quests: ${regularQuestCount}`);
+    console.log(`  - Total gardening heroes: ${gardeningAssignments.length}`);
     
     // Build detailed assignments with pool data and yield calculations
     for (const { hero, poolId } of gardeningAssignments) {

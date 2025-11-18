@@ -786,19 +786,32 @@ async function getHeroGardeningExpedition(heroId) {
     const expedition = await questCoreContract.getHeroExpedition(heroId);
     
     // Check if expedition is active (remainingIterations > 0)
-    if (!expedition || expedition.remainingIterations.toString() === '0') {
+    if (!expedition) {
+      console.log(`[Expedition] Hero #${heroId}: No expedition data returned`);
       return null;
     }
+    
+    const remainingIter = expedition.remainingIterations.toString();
+    if (remainingIter === '0') {
+      console.log(`[Expedition] Hero #${heroId}: Expedition inactive (0 iterations remaining)`);
+      return null;
+    }
+    
+    console.log(`[Expedition] Hero #${heroId}: Active expedition found (${remainingIter} iterations)`);
     
     // Expedition is active, now get quest details to determine pool
     const questDetails = await getHeroQuestDetails(heroId);
     if (!questDetails) {
+      console.log(`[Expedition] Hero #${heroId}: ⚠️ Active expedition but no quest details available`);
       return null;
     }
     
     // Check if it's a gardening expedition (questType = poolId 0-13)
     const poolId = questDetails.questType;
+    console.log(`[Expedition] Hero #${heroId}: Quest type = ${poolId}`);
+    
     if (poolId >= 0 && poolId <= 13) {
+      console.log(`[Expedition] Hero #${heroId}: ✅ GARDENING expedition detected (Pool #${poolId})`);
       return {
         poolId,
         questDetails,
@@ -811,9 +824,10 @@ async function getHeroGardeningExpedition(heroId) {
       };
     }
     
+    console.log(`[Expedition] Hero #${heroId}: Non-gardening expedition (quest type ${poolId})`);
     return null;
   } catch (err) {
-    // Expedition functions might not exist on older contracts, that's OK
+    console.error(`[Expedition] Hero #${heroId}: ❌ ERROR - ${err.message}`);
     return null;
   }
 }
