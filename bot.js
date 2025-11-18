@@ -21,6 +21,7 @@ import { startSnapshotJob, stopSnapshotJob } from './wallet-snapshot-job.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './pool-cache.js';
+import { generateOptimizationMessages } from './report-formatter.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots } from './shared/schema.ts';
 import { eq, desc, sql, inArray, and, gt } from 'drizzle-orm';
@@ -1478,6 +1479,68 @@ Give a short, step-by-step guide that a complete beginner can follow.`;
         await interaction.editReply(response);
       } else {
         await interaction.editReply(`❌ **Verification Failed**\n\n${result.error}\n\nPlease check your transaction hash and try again.`);
+      }
+      return;
+    }
+    
+    if (name === 'resend-report') {
+      const discordId = interaction.user.id;
+      
+      await interaction.editReply('Looking up your most recent optimization report...');
+      
+      const playerData = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+      if (playerData.length === 0) {
+        await interaction.editReply('You need to register first. Send me a DM to get started!');
+        return;
+      }
+      
+      const completedJobs = await db
+        .select()
+        .from(gardenOptimizations)
+        .where(
+          and(
+            eq(gardenOptimizations.playerId, playerData[0].id),
+            eq(gardenOptimizations.status, 'completed')
+          )
+        )
+        .orderBy(desc(gardenOptimizations.completedAt))
+        .limit(1);
+      
+      if (completedJobs.length === 0) {
+        await interaction.editReply('❌ No completed optimization reports found.\n\nUse `/optimize-gardens` to request your first analysis (25 JEWEL).');
+        return;
+      }
+      
+      const job = completedJobs[0];
+      
+      if (!job.reportPayload) {
+        await interaction.editReply('❌ Report data not found. Please contact support.');
+        return;
+      }
+      
+      try {
+        const user = await client.users.fetch(discordId);
+        const reportData = job.reportPayload;
+        
+        const messages = generateOptimizationMessages(
+          reportData.currentState,
+          reportData.optimizedState,
+          reportData.improvement
+        );
+        
+        await interaction.editReply('✅ Resending your optimization report via DM...');
+        
+        for (let i = 0; i < messages.length; i++) {
+          await user.send(messages[i]);
+          if (i < messages.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+        
+        await interaction.editReply(`✅ **Report Sent!**\n\nI've resent your optimization analysis (${messages.length} messages) via DM. Check your direct messages!`);
+      } catch (err) {
+        console.error('Error resending report:', err);
+        await interaction.editReply('❌ Failed to send report. Make sure your DMs are open and try again.');
       }
       return;
     }
