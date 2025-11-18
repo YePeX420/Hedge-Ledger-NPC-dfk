@@ -88,7 +88,15 @@ async function saveCache() {
       version: '1.0'
     };
     
-    await fs.writeFile(CACHE_FILE_PATH, JSON.stringify(cacheData, null, 2), 'utf8');
+    // Custom replacer to handle BigInt values
+    const bigIntReplacer = (key, value) => {
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      return value;
+    };
+    
+    await fs.writeFile(CACHE_FILE_PATH, JSON.stringify(cacheData, bigIntReplacer, 2), 'utf8');
     console.log(`[PoolCache] 💾 Cache saved to disk (${cache.data.length} pools)`);
   } catch (error) {
     console.error('[PoolCache] ❌ Failed to save cache to disk:', error.message);
