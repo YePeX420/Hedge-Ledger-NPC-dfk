@@ -20,8 +20,64 @@ import * as onchain from './onchain-data.js';
 import { generatePoolOptimizations, formatOptimizationReport } from './wallet-lp-detector.js';
 
 const POLL_INTERVAL_MS = 30000; // 30 seconds
+const DISCORD_MESSAGE_LIMIT = 2000; // Discord's message character limit
 let pollingTimer = null;
 let discordClient = null; // Will be set by bot.js
+
+/**
+ * Split a long message into chunks that fit Discord's 2000 character limit
+ * @param {string} message - The full message to split
+ * @returns {string[]} - Array of message chunks
+ */
+function splitMessage(message) {
+  if (message.length <= DISCORD_MESSAGE_LIMIT) {
+    return [message];
+  }
+  
+  const chunks = [];
+  let currentChunk = '';
+  const lines = message.split('\n');
+  
+  for (const line of lines) {
+    // If adding this line would exceed the limit, save current chunk and start new one
+    if (currentChunk.length + line.length + 1 > DISCORD_MESSAGE_LIMIT) {
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk.trim());
+        currentChunk = '';
+      }
+      
+      // If a single line is longer than the limit, split it by words
+      if (line.length > DISCORD_MESSAGE_LIMIT) {
+        const words = line.split(' ');
+        let wordChunk = '';
+        
+        for (const word of words) {
+          if (wordChunk.length + word.length + 1 > DISCORD_MESSAGE_LIMIT) {
+            chunks.push(wordChunk.trim());
+            wordChunk = word + ' ';
+          } else {
+            wordChunk += word + ' ';
+          }
+        }
+        
+        if (wordChunk.trim().length > 0) {
+          currentChunk = wordChunk;
+        }
+      } else {
+        currentChunk = line + '\n';
+      }
+    } else {
+      currentChunk += line + '\n';
+    }
+  }
+  
+  // Add the last chunk
+  if (currentChunk.trim().length > 0) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  return chunks;
+}
 
 /**
  * Initialize the processor with Discord client
@@ -107,7 +163,19 @@ async function processOptimization(optimization) {
     }
     
     const user = await discordClient.users.fetch(playerData.discordId);
-    await user.send(message);
+    
+    // Split message into chunks if needed (Discord 2000 char limit)
+    const messageChunks = splitMessage(message);
+    console.log(`[OptimizationProcessor] Sending report in ${messageChunks.length} message(s)`);
+    
+    for (let i = 0; i < messageChunks.length; i++) {
+      await user.send(messageChunks[i]);
+      // Small delay between messages to avoid rate limiting
+      if (i < messageChunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    
     console.log(`[OptimizationProcessor] Sent optimization report to user ${playerData.discordUsername}`);
     
     // Update status to completed with report payload
