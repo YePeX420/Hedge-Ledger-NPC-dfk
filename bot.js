@@ -12,7 +12,9 @@ import * as quickData from './quick-data-fetcher.js';
 import { parseIntent, formatIntent } from './intent-parser.js';
 import { requestDeposit, HEDGE_WALLET } from './deposit-flow.js';
 import * as gardenMenu from './garden-menu.js';
-import { startMonitoring, stopMonitoring } from './transaction-monitor.js';
+import { startMonitoring, stopMonitoring, initializeExistingJobs } from './transaction-monitor-v2.js';
+import { registerJob } from './payment-jobs.js';
+import { ethers } from 'ethers';
 import { creditBalance } from './balance-credit.js';
 import { initializeProcessor, startProcessor, stopProcessor } from './optimization-processor.js';
 import { startSnapshotJob, stopSnapshotJob } from './wallet-snapshot-job.js';
@@ -279,71 +281,13 @@ client.once(Events.ClientReady, async (c) => {
     console.log('💰 Initializing pricing config...');
     await initializePricingConfig();
     
-    console.log('📡 Starting transaction monitor...');
-    // Wire up callbacks for deposits and garden optimizations
-    await startMonitoring(
-      // Callback for deposit matches - credit balances
-      async (match) => {
-        try {
-          // Validate match structure
-          if (!match || !match.depositRequest || !match.transaction) {
-            console.error('[Bot] ❌ Invalid match structure:', match);
-            return;
-          }
-          
-          console.log(`[Bot] Processing deposit match: ${match.transaction.txHash}`);
-          // Pass full match object to creditBalance
-          await creditBalance(match);
-          console.log(`[Bot] ✅ Credited balance for deposit #${match.depositRequest.id}`);
-        } catch (err) {
-          console.error(`[Bot] ❌ Failed to credit balance:`, err.message);
-          console.error(err.stack);
-        }
-      },
-      // Callback for garden optimization matches - mark as payment_verified
-      async (match) => {
-        try {
-          // Validate match structure
-          if (!match || !match.optimization || !match.transaction) {
-            console.error('[Bot] ❌ Invalid optimization match structure:', match);
-            return;
-          }
-          
-          console.log(`[Bot] 🌿 Processing garden optimization payment: ${match.transaction.txHash}`);
-          
-          // Check if expired
-          const now = new Date();
-          if (now > new Date(match.optimization.expiresAt)) {
-            console.log(`[Bot] ⏰ Optimization #${match.optimization.id} expired - ignoring payment`);
-            
-            // Mark as expired with tx reference for debugging
-            await db.update(gardenOptimizations)
-              .set({
-                status: 'expired',
-                txHash: match.transaction.hash,
-                errorMessage: `Payment received after expiry (tx: ${match.transaction.hash})`,
-                updatedAt: new Date()
-              })
-              .where(eq(gardenOptimizations.id, match.optimization.id));
-            return;
-          }
-          
-          // Update optimization status to payment_verified
-          await db.update(gardenOptimizations)
-            .set({
-              status: 'payment_verified',
-              txHash: match.transaction.hash,
-              updatedAt: new Date()
-            })
-            .where(eq(gardenOptimizations.id, match.optimization.id));
-          
-          console.log(`[Bot] ✅ Verified payment for optimization #${match.optimization.id}`);
-        } catch (err) {
-          console.error(`[Bot] ❌ Failed to process optimization payment:`, err.message);
-          console.error(err.stack);
-        }
-      }
-    );
+    console.log('📡 Starting payment monitor (V2: Per-job fast scanner)...');
+    
+    // Initialize existing jobs with current block
+    await initializeExistingJobs();
+    
+    // Start per-job payment monitor
+    await startMonitoring();
     
     console.log('✅ Economic system initialized');
   } catch (err) {
@@ -535,42 +479,48 @@ client.on('messageCreate', async (message) => {
     const paymentConfirmKeywords = /\b(sent|done|paid|payment\s+done|just\s+paid|i\s+sent|transaction\s+sent)\b/i;
     if (paymentConfirmKeywords.test(message.content.toLowerCase())) {
       try {
-        // Check if user has pending garden optimization payment
-        const { verifyRecentPayment } = await import('./transaction-monitor.js');
-        const verification = await verifyRecentPayment(playerData.id, 'garden_optimization');
+        // Get user's pending optimization job
+        const pendingOpt = await db.select()
+          .from(gardenOptimizations)
+          .where(and(
+            eq(gardenOptimizations.playerId, playerData.id),
+            eq(gardenOptimizations.status, 'awaiting_payment')
+          ))
+          .limit(1);
         
-        if (verification && verification.found) {
-          // Payment found! Update status and trigger processing
-          const opt = verification.optimization;
-          const tx = verification.transaction;
+        if (pendingOpt && pendingOpt.length > 0) {
+          // User has a pending optimization - trigger fast-track scan
+          const jobId = pendingOpt[0].id;
           
-          await db.update(gardenOptimizations)
-            .set({
-              status: 'payment_verified',
-              paidAmountJewel: tx.amountJewel,
-              txHash: tx.hash,
-              paidAt: new Date()
-            })
-            .where(eq(gardenOptimizations.id, opt.id));
+          await message.reply(`🔍 Let me check the blockchain for your payment...`);
           
-          console.log(`[Payment Fast-Track] ✅ Verified payment for optimization #${opt.id}`);
+          const { verifyRecentPayment } = await import('./transaction-monitor-v2.js');
+          const verification = await verifyRecentPayment(jobId);
           
-          await message.reply(
-            `✅ Nice, I can see your payment on-chain (${tx.amountJewel} JEWEL)! ` +
-            `I'll start your garden analysis now. This'll take a few minutes... 🧮`
-          );
-          
-          // Trigger optimization processor (it will pick this up automatically)
-          return;
-          
-        } else {
-          // Payment not found yet
-          await message.reply(
-            `I don't see it confirmed on-chain yet. It might still be pending. ` +
-            `I'll keep watching and start as soon as it appears! ⏳`
-          );
-          return;
+          if (verification && verification.found) {
+            // Payment found!
+            await message.reply(
+              `✅ Nice, I can see your payment on-chain (${verification.transfer.amountJewel} JEWEL)! ` +
+              `I'll start your garden analysis now. This'll take a few minutes... 🧮`
+            );
+            
+            // Optimization processor will pick this up automatically
+            return;
+            
+          } else {
+            // Payment not found yet
+            const reason = verification?.message || verification?.reason || 'No payment detected yet';
+            await message.reply(
+              `I don't see it confirmed on-chain yet. ${reason}\n\n` +
+              `Make sure you sent exactly **25 JEWEL** from your linked wallet to my address. ` +
+              `It might still be pending - I'll keep watching! ⏳`
+            );
+            return;
+          }
         }
+        
+        // No pending optimization - just ignore the keywords
+        // (fall through to normal flow)
       } catch (err) {
         console.error('[Payment Fast-Track] Error:', err);
         // Continue to normal flow if verification fails
@@ -865,17 +815,26 @@ Keep it entertaining but helpful. This is free educational content, so be genero
           // Create pending optimization record (expires in 2 hours)
           const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
           
+          // Get current blockchain head for per-job scanning
+          const provider = new ethers.JsonRpcProvider('https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc');
+          const currentBlock = await provider.getBlockNumber();
+          
           const [newOptimization] = await db.insert(gardenOptimizations)
             .values({
               playerId: playerData.id,
               status: 'awaiting_payment',
               fromWallet: walletAddress,
               expiresAt,
+              startBlock: currentBlock, // Per-job fast scanning
+              lastScannedBlock: currentBlock - 1, // Start scanning from next block
               lpSnapshot: sql`${JSON.stringify(serializeBigInt(positions))}::json`, // Convert BigInt to strings before JSON serialization
             })
             .returning();
           
-          console.log(`📝 Created optimization request #${newOptimization.id} for player ${playerData.id}`);
+          console.log(`📝 Created optimization request #${newOptimization.id} for player ${playerData.id} (startBlock: ${currentBlock})`);
+          
+          // Register job with payment monitor
+          registerJob(newOptimization);
           
           // Send payment instructions
           const paymentMessage = 
