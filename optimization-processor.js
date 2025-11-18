@@ -137,7 +137,7 @@ async function processOptimization(optimization) {
     
     // Step 2: Get pool analytics data
     const pools = getCachedPoolAnalytics();
-    if (!pools || pools.length === 0) {
+    if (!pools || !pools.data || pools.data.length === 0) {
       throw new Error('Pool cache is empty - unable to optimize');
     }
     
@@ -145,7 +145,7 @@ async function processOptimization(optimization) {
     const optimizedState = optimizeHeroAssignments(
       currentState.heroes,
       currentState.pets,
-      pools,
+      pools.data,
       10 // Max 10 heroes
     );
     
