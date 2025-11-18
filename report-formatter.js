@@ -76,7 +76,7 @@ export function formatCurrentGardens(currentState) {
   
   for (let i = 0; i < currentState.assignments.length; i++) {
     const assignment = currentState.assignments[i];
-    const { hero, pet, pool, yield } = assignment;
+    const { hero, pet, pool, yield: heroYield } = assignment;
     
     const petStr = pet ? formatPetSummary(pet) : 'No pet equipped';
     const rapidRenewal = (hero.passive1 === 'Rapid Renewal' || hero.passive2 === 'Rapid Renewal') ? '⚡' : '';
@@ -84,7 +84,7 @@ export function formatCurrentGardens(currentState) {
     lines.push(`**${i + 1}. Pool ${pool.pid}: ${pool.pair}** (${pool.totalAPR.toFixed(1)}% APR)`);
     lines.push(`   Hero #${hero.id} ${rapidRenewal} (Lvl ${hero.level}, INT ${hero.intelligence}, WIS ${hero.wisdom}, GrdSkl ${(hero.gardening / 10).toFixed(1)})`);
     lines.push(`   ${petStr}`);
-    lines.push(`   Yield: ${yield.crystalsPerQuest.toFixed(4)} CRYSTAL + ${yield.jewelPerQuest.toFixed(4)} JEWEL per quest`);
+    lines.push(`   Yield: ${heroYield.crystalsPerQuest.toFixed(4)} CRYSTAL + ${heroYield.jewelPerQuest.toFixed(4)} JEWEL per quest`);
     lines.push('');
   }
   
@@ -119,7 +119,7 @@ export function formatOptimizedGardens(optimizedState) {
   
   for (let i = 0; i < optimizedState.assignments.length; i++) {
     const assignment = optimizedState.assignments[i];
-    const { hero, pet, pool, yield } = assignment;
+    const { hero, pet, pool, yield: heroYield } = assignment;
     
     const petStr = pet 
       ? `Pet #${pet.id} ${pet.shiny ? '✨' : ''}(+${pet.gatheringBonusScalar}% ${pet.gatheringType})`
@@ -132,7 +132,7 @@ export function formatOptimizedGardens(optimizedState) {
     lines.push(`   → Hero #${hero.id} ${rapidRenewal} (Lvl ${hero.level}, Score: ${hero.score})`);
     lines.push(`      Stats: INT ${hero.intelligence}, WIS ${hero.wisdom}, VIT ${hero.vitality}, GrdSkl ${(hero.gardening / 10).toFixed(1)}`);
     lines.push(`   → ${petStr}`);
-    lines.push(`   **Expected Yield:** ${yield.crystalsPerQuest.toFixed(4)} CRYSTAL + ${yield.jewelPerQuest.toFixed(4)} JEWEL per quest`);
+    lines.push(`   **Expected Yield:** ${heroYield.crystalsPerQuest.toFixed(4)} CRYSTAL + ${heroYield.jewelPerQuest.toFixed(4)} JEWEL per quest`);
     lines.push('');
   }
   

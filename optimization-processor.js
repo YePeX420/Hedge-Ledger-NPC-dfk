@@ -19,7 +19,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { analyzeCurrentAssignments } from './garden-analyzer.js';
 import { optimizeHeroAssignments, calculateImprovement } from './garden-optimizer.js';
 import { generateOptimizationMessages } from './report-formatter.js';
-import { getPoolCache } from './pool-cache.js';
+import { getCachedPoolAnalytics } from './pool-cache.js';
 
 const POLL_INTERVAL_MS = 30000; // 30 seconds
 const DISCORD_MESSAGE_LIMIT = 2000; // Discord's message character limit
@@ -136,7 +136,7 @@ async function processOptimization(optimization) {
     console.log(`[OptimizationProcessor] Current state: ${currentState.totalHeroes} heroes, ${currentState.totalPets} pets`);
     
     // Step 2: Get pool analytics data
-    const pools = getPoolCache();
+    const pools = getCachedPoolAnalytics();
     if (!pools || pools.length === 0) {
       throw new Error('Pool cache is empty - unable to optimize');
     }

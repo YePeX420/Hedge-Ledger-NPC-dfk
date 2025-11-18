@@ -7,7 +7,7 @@
 
 import { getHeroesByOwner } from './onchain-data.js';
 import { fetchPetsForWallet, mapPetsToHeroes } from './pet-data.js';
-import { getPoolCache } from './pool-cache.js';
+import { getCachedPoolAnalytics } from './pool-cache.js';
 
 /**
  * Calculate hero gardening effectiveness score
@@ -135,7 +135,7 @@ export async function analyzeCurrentAssignments(walletAddress) {
     const heroToPet = mapPetsToHeroes(heroIds, pets);
     
     // Get pool analytics data
-    const poolCache = getPoolCache();
+    const poolCache = getCachedPoolAnalytics();
     
     // Analyze current assignments
     const assignments = [];
