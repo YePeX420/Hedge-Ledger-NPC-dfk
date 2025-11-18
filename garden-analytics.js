@@ -774,14 +774,66 @@ export async function getHeroQuestDetails(heroId) {
 }
 
 /**
- * Check if a hero is on a gardening quest
+ * Check if a hero is on a gardening expedition
+ * Expeditions are detected if remainingIterations > 0
+ * For gardening expeditions, we need to call getHeroQuest to get the questType/poolId
+ * 
+ * @param {string} heroId - Hero ID
+ * @returns {Promise<Object|null>} { poolId, expeditionDetails, questDetails } or null if not on expedition
+ */
+async function getHeroGardeningExpedition(heroId) {
+  try {
+    const expedition = await questCoreContract.getHeroExpedition(heroId);
+    
+    // Check if expedition is active (remainingIterations > 0)
+    if (!expedition || expedition.remainingIterations.toString() === '0') {
+      return null;
+    }
+    
+    // Expedition is active, now get quest details to determine pool
+    const questDetails = await getHeroQuestDetails(heroId);
+    if (!questDetails) {
+      return null;
+    }
+    
+    // Check if it's a gardening expedition (questType = poolId 0-13)
+    const poolId = questDetails.questType;
+    if (poolId >= 0 && poolId <= 13) {
+      return {
+        poolId,
+        questDetails,
+        expeditionDetails: {
+          lastClaimedAt: expedition.lastClaimedAt.toString(),
+          remainingIterations: expedition.remainingIterations.toString(),
+          iterationsToProcess: expedition.iterationsToProcess.toString()
+        },
+        isExpedition: true
+      };
+    }
+    
+    return null;
+  } catch (err) {
+    // Expedition functions might not exist on older contracts, that's OK
+    return null;
+  }
+}
+
+/**
+ * Check if a hero is on a gardening quest (regular or expedition)
  * For gardening quests, questType matches the poolId (0-13 for DFK Chain)
  * 
  * @param {string} heroId - Hero ID
- * @returns {Promise<Object|null>} { poolId, questDetails } or null if not gardening
+ * @returns {Promise<Object|null>} { poolId, questDetails, isExpedition } or null if not gardening
  */
 export async function getHeroGardeningAssignment(heroId) {
   try {
+    // First check if hero is on a gardening expedition
+    const expeditionAssignment = await getHeroGardeningExpedition(heroId);
+    if (expeditionAssignment) {
+      return expeditionAssignment;
+    }
+    
+    // If not on expedition, check regular quest
     const questDetails = await getHeroQuestDetails(heroId);
     
     if (!questDetails) {
@@ -794,7 +846,8 @@ export async function getHeroGardeningAssignment(heroId) {
     if (poolId >= 0 && poolId <= 13) {
       return {
         poolId,
-        questDetails
+        questDetails,
+        isExpedition: false
       };
     }
     

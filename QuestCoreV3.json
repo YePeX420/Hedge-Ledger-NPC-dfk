@@ -93,5 +93,152 @@
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHeroExpedition",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint40",
+            "name": "lastClaimedAt",
+            "type": "uint40"
+          },
+          {
+            "internalType": "uint24",
+            "name": "iterationsToProcess",
+            "type": "uint24"
+          },
+          {
+            "internalType": "uint24",
+            "name": "remainingIterations",
+            "type": "uint24"
+          },
+          {
+            "internalType": "uint16",
+            "name": "escrowedPetTreats",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint32",
+            "name": "escrowedStaminaPotions",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint16",
+            "name": "globalSettings",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint40",
+            "name": "iterationTime",
+            "type": "uint40"
+          },
+          {
+            "internalType": "uint40",
+            "name": "claimStartBlock",
+            "type": "uint40"
+          },
+          {
+            "internalType": "uint24",
+            "name": "feePerStamina",
+            "type": "uint24"
+          }
+        ],
+        "internalType": "struct Expedition",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getExpeditionHeroData",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "heroSettings",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16",
+            "name": "statScores",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "professionSkill",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "luck",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint8",
+            "name": "foodType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "eggType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "rarity",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "professionBonus",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "scalar",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "level",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint64",
+            "name": "petHungryAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint32",
+            "name": "xp",
+            "type": "uint32"
+          }
+        ],
+        "internalType": "struct HeroExpeditionData",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]
