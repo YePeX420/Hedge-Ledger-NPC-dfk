@@ -14,11 +14,12 @@ import { requestDeposit, HEDGE_WALLET } from './deposit-flow.js';
 import { startMonitoring, stopMonitoring } from './transaction-monitor.js';
 import { creditBalance } from './balance-credit.js';
 import { initializeProcessor, startProcessor, stopProcessor } from './optimization-processor.js';
+import { startSnapshotJob, stopSnapshotJob } from './wallet-snapshot-job.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache } from './pool-cache.js';
 import { db } from './server/db.js';
-import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations } from './shared/schema.ts';
+import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots } from './shared/schema.ts';
 import { eq, desc, sql, inArray, and } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
@@ -356,6 +357,15 @@ client.once(Events.ClientReady, async (c) => {
     console.log('✅ Optimization processor started');
   } catch (err) {
     console.error('❌ Failed to initialize optimization processor:', err);
+  }
+  
+  // Initialize wallet snapshot job (daily balance tracking)
+  try {
+    console.log('📸 Starting wallet snapshot job...');
+    await startSnapshotJob();
+    console.log('✅ Wallet snapshot job started');
+  } catch (err) {
+    console.error('❌ Failed to start wallet snapshot job:', err);
   }
   
   // Initialize pool analytics cache
@@ -1680,6 +1690,53 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     
     const depositStatsMap = new Map(allDepositStats.map(d => [d.playerId, d]));
     
+    // Batch query: Get latest wallet snapshots for all users (single query)
+    const latestSnapshots = await db
+      .select({
+        playerId: walletSnapshots.playerId,
+        asOfDate: walletSnapshots.asOfDate,
+        jewelBalance: walletSnapshots.jewelBalance,
+        crystalBalance: walletSnapshots.crystalBalance,
+        cjewelBalance: walletSnapshots.cjewelBalance
+      })
+      .from(walletSnapshots)
+      .where(inArray(walletSnapshots.playerId, playerIds))
+      .orderBy(desc(walletSnapshots.asOfDate));
+    
+    // Group snapshots by player (keep only latest)
+    const latestSnapshotMap = new Map();
+    latestSnapshots.forEach(snap => {
+      if (!latestSnapshotMap.has(snap.playerId)) {
+        latestSnapshotMap.set(snap.playerId, snap);
+      }
+    });
+    
+    // Calculate 7 days ago date
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    // Batch query: Get wallet snapshots from ~7 days ago for % change calculation
+    const historicalSnapshots = await db
+      .select({
+        playerId: walletSnapshots.playerId,
+        asOfDate: walletSnapshots.asOfDate,
+        jewelBalance: walletSnapshots.jewelBalance
+      })
+      .from(walletSnapshots)
+      .where(and(
+        inArray(walletSnapshots.playerId, playerIds),
+        sql`${walletSnapshots.asOfDate} <= ${sevenDaysAgo}`
+      ))
+      .orderBy(desc(walletSnapshots.asOfDate));
+    
+    // Group historical snapshots by player (keep only latest within 7-day window)
+    const historicalSnapshotMap = new Map();
+    historicalSnapshots.forEach(snap => {
+      if (!historicalSnapshotMap.has(snap.playerId)) {
+        historicalSnapshotMap.set(snap.playerId, snap);
+      }
+    });
+    
     // Batch query: Get recent DM messages for all users (single query)
     const messagesByPlayer = new Map();
     try {
@@ -1729,6 +1786,24 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
         totalJewel: '0'
       };
       
+      // Get wallet balance data
+      const latestSnapshot = latestSnapshotMap.get(user.id);
+      const historicalSnapshot = historicalSnapshotMap.get(user.id);
+      
+      // Calculate 7-day % change for JEWEL balance
+      let sevenDayChangePercent = null;
+      if (latestSnapshot && historicalSnapshot) {
+        const currentBalance = parseFloat(latestSnapshot.jewelBalance || '0');
+        const historicalBalance = parseFloat(historicalSnapshot.jewelBalance || '0');
+        
+        if (historicalBalance > 0) {
+          sevenDayChangePercent = ((currentBalance - historicalBalance) / historicalBalance * 100).toFixed(2);
+        } else if (currentBalance > 0) {
+          // New wallet with balance (infinite growth from zero)
+          sevenDayChangePercent = '∞';
+        }
+      }
+      
       // Generate conversation summary
       const recentMessages = messagesByPlayer.get(user.id) || [];
       let conversationSummary = 'No recent conversations';
@@ -1766,6 +1841,11 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
         depositCount: deposits.totalDeposits || 0,
         completedDeposits: deposits.completedDeposits || 0,
         totalJewelProvided: deposits.totalJewel || '0',
+        // Wallet balance data from snapshots
+        jewelBalance: latestSnapshot?.jewelBalance || null,
+        crystalBalance: latestSnapshot?.crystalBalance || null,
+        cjewelBalance: latestSnapshot?.cjewelBalance || null,
+        sevenDayChangePercent,
         conversationSummary,
         userState: user.lastQueryAt ? 'active' : 'inactive',
         conversionStatus: (deposits.completedDeposits || 0) > 0 ? 'converted' : 'free',
@@ -2169,6 +2249,7 @@ server.on('error', (err) => {
 process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down gracefully...');
   stopMonitoring();
+  stopSnapshotJob();
   stopPoolCache();
   server.close(() => {
     console.log('✅ Web server closed');

@@ -658,6 +658,31 @@ export const pricingConfig = pgTable("pricing_config", {
   configKeyIdx: uniqueIndex("pricing_config_key_idx").on(table.configKey),
 }));
 
+/**
+ * Wallet snapshots - Daily balance history for 7-day % change tracking
+ */
+export const walletSnapshots = pgTable("wallet_snapshots", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  wallet: text("wallet").notNull(),
+  asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(), // UTC midnight
+  
+  // Token balances at snapshot time
+  jewelBalance: numeric("jewel_balance", { precision: 30, scale: 18 }).notNull().default('0'),
+  crystalBalance: numeric("crystal_balance", { precision: 30, scale: 18 }).notNull().default('0'),
+  cjewelBalance: numeric("cjewel_balance", { precision: 30, scale: 18 }).notNull().default('0'),
+  
+  // USD values at snapshot time (optional)
+  jewelPriceUsd: numeric("jewel_price_usd", { precision: 15, scale: 6 }),
+  crystalPriceUsd: numeric("crystal_price_usd", { precision: 15, scale: 6 }),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletAsOfDateIdx: uniqueIndex("wallet_snapshots_wallet_date_idx").on(table.wallet, table.asOfDate),
+  playerIdIdx: index("wallet_snapshots_player_id_idx").on(table.playerId),
+  asOfDateIdx: index("wallet_snapshots_as_of_date_idx").on(table.asOfDate),
+}));
+
 // Insert schemas
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, firstSeenAt: true, updatedAt: true });
 export const insertInteractionSessionSchema = createInsertSchema(interactionSessions).omit({ id: true, createdAt: true });
@@ -671,6 +696,7 @@ export const insertJewelBalanceSchema = createInsertSchema(jewelBalances).omit({
 export const insertDepositRequestSchema = createInsertSchema(depositRequests).omit({ id: true, createdAt: true });
 export const insertQueryCostSchema = createInsertSchema(queryCosts).omit({ id: true, createdAt: true });
 export const insertPricingConfigSchema = createInsertSchema(pricingConfig).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWalletSnapshotSchema = createInsertSchema(walletSnapshots).omit({ id: true, createdAt: true });
 
 // Types
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
@@ -697,3 +723,5 @@ export type InsertQueryCost = z.infer<typeof insertQueryCostSchema>;
 export type QueryCost = typeof queryCosts.$inferSelect;
 export type InsertPricingConfig = z.infer<typeof insertPricingConfigSchema>;
 export type PricingConfig = typeof pricingConfig.$inferSelect;
+export type InsertWalletSnapshot = z.infer<typeof insertWalletSnapshotSchema>;
+export type WalletSnapshot = typeof walletSnapshots.$inferSelect;

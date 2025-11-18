@@ -232,6 +232,30 @@
             border-radius: 0.375rem;
             margin-bottom: 1rem;
         }
+        
+        .change-positive {
+            color: #10b981;
+            font-weight: 600;
+        }
+        
+        .change-negative {
+            color: #ef4444;
+            font-weight: 600;
+        }
+        
+        .change-neutral {
+            color: #94a3b8;
+        }
+        
+        .balance-value {
+            font-family: monospace;
+            color: #fbbf24;
+        }
+        
+        .no-data {
+            color: #64748b;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -270,7 +294,10 @@
                         <th>Discord User</th>
                         <th>Wallet Address</th>
                         <th>Tier</th>
-                        <th>Balance (JEWEL)</th>
+                        <th>JEWEL Balance</th>
+                        <th>CRYSTAL Balance</th>
+                        <th>cJEWEL Balance</th>
+                        <th>7d Change</th>
                         <th>Lifetime Deposits</th>
                         <th>Messages</th>
                         <th>First Seen</th>
@@ -430,6 +457,26 @@
             if (isNaN(num)) return '0';
             return num.toFixed(2);
         }
+        
+        function formatWalletBalance(balance) {
+            if (!balance) return '<span class="no-data">No data</span>';
+            const num = parseFloat(balance);
+            if (isNaN(num)) return '<span class="no-data">No data</span>';
+            return `<span class="balance-value">${num.toFixed(2)}</span>`;
+        }
+        
+        function formatChangePercent(change) {
+            if (!change && change !== 0) return '<span class="no-data">-</span>';
+            if (change === '∞') return '<span class="change-positive">+∞%</span>';
+            
+            const num = parseFloat(change);
+            if (isNaN(num)) return '<span class="no-data">-</span>';
+            
+            const prefix = num >= 0 ? '+' : '';
+            const className = num > 0 ? 'change-positive' : (num < 0 ? 'change-negative' : 'change-neutral');
+            
+            return `<span class="${className}">${prefix}${num}%</span>`;
+        }
 
         function renderUsers() {
             const loadingState = document.getElementById('loadingState');
@@ -461,7 +508,10 @@
                             <option value="whale" ${user.tier === 'whale' ? 'selected' : ''}>Whale</option>
                         </select>
                     </td>
-                    <td>${formatBalance(user.balance)}</td>
+                    <td>${formatWalletBalance(user.jewelBalance)}</td>
+                    <td>${formatWalletBalance(user.crystalBalance)}</td>
+                    <td>${formatWalletBalance(user.cjewelBalance)}</td>
+                    <td>${formatChangePercent(user.sevenDayChangePercent)}</td>
                     <td>${formatBalance(user.lifetimeDeposits)}</td>
                     <td>${user.totalMessages || 0}</td>
                     <td>${formatDate(user.firstSeenAt)}</td>

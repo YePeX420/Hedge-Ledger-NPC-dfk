@@ -14,8 +14,8 @@
  */
 
 import { db } from './server/db.js';
-import { gardenOptimizations, players } from './shared/schema.ts';
-import { eq, and } from 'drizzle-orm';
+import { gardenOptimizations, players, jewelBalances } from './shared/schema.ts';
+import { eq, and, sql } from 'drizzle-orm';
 import * as onchain from './onchain-data.js';
 import { generatePoolOptimizations, formatOptimizationReport } from './wallet-lp-detector.js';
 
@@ -179,7 +179,6 @@ async function processOptimization(optimization) {
     console.log(`[OptimizationProcessor] Sent optimization report to user ${playerData.discordUsername}`);
     
     // Update status to completed with report payload
-    const { sql } = await import('drizzle-orm');
     await db.update(gardenOptimizations)
       .set({
         status: 'completed',
@@ -188,6 +187,40 @@ async function processOptimization(optimization) {
         updatedAt: new Date()
       })
       .where(eq(gardenOptimizations.id, optimization.id));
+    
+    // Update or create jewelBalances record to track lifetime deposits
+    const paymentAmount = optimization.expectedAmountJewel || '25';
+    console.log(`[OptimizationProcessor] Updating jewelBalances for player #${optimization.playerId}, adding ${paymentAmount} JEWEL`);
+    
+    // Check if jewelBalances record exists
+    const existingBalance = await db
+      .select()
+      .from(jewelBalances)
+      .where(eq(jewelBalances.playerId, optimization.playerId))
+      .limit(1);
+    
+    if (existingBalance.length > 0) {
+      // Update existing record - increment lifetime deposits
+      await db.update(jewelBalances)
+        .set({
+          lifetimeDepositsJewel: sql`${jewelBalances.lifetimeDepositsJewel} + ${paymentAmount}`,
+          lastDepositAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(jewelBalances.playerId, optimization.playerId));
+      console.log(`[OptimizationProcessor] ✅ Updated jewelBalances for player #${optimization.playerId}`);
+    } else {
+      // Create new record
+      await db.insert(jewelBalances).values({
+        playerId: optimization.playerId,
+        balanceJewel: '0',
+        lifetimeDepositsJewel: paymentAmount,
+        tier: 'free',
+        lastDepositAt: new Date(),
+        updatedAt: new Date()
+      });
+      console.log(`[OptimizationProcessor] ✅ Created jewelBalances record for player #${optimization.playerId}`);
+    }
     
     console.log(`[OptimizationProcessor] ✅ Completed optimization #${optimization.id}`);
     
