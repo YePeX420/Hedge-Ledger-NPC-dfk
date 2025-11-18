@@ -3,10 +3,12 @@ import lpStakingABI from './LPStakingDiamond.json' with { type: 'json' };
 import uniswapPairABI from './UniswapV2Pair.json' with { type: 'json' };
 import uniswapFactoryABI from './UniswapV2Factory.json' with { type: 'json' };
 import erc20ABI from './ERC20.json' with { type: 'json' };
+import questCoreABI from './QuestCoreV3.json' with { type: 'json' };
 
 // DFK Chain configuration
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 const LP_STAKING_ADDRESS = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
+const QUEST_CORE_V3_ADDRESS = '0x530fff22987E137e7C8D2aDcC4c15eb45b4FA752';
 const UNISWAP_V2_FACTORY = '0x794C07912474351b3134E6D6B3B7b3b4A07cbAAa';
 const USDC_ADDRESS = '0x3AD9DFE640E1A9Cc1D9B0948620820D975c3803a'; // USDC.e on DFK Chain
 const BLOCKS_PER_DAY = 43200; // ~2 second blocks
@@ -14,10 +16,11 @@ const FEE_RATE = 0.0025; // 0.25% swap fee
 
 const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
 const stakingContract = new ethers.Contract(LP_STAKING_ADDRESS, lpStakingABI, provider);
+const questCoreContract = new ethers.Contract(QUEST_CORE_V3_ADDRESS, questCoreABI, provider);
 const factoryContract = new ethers.Contract(UNISWAP_V2_FACTORY, uniswapFactoryABI, provider);
 
 // Export for use in bot.js when building shared data
-export { stakingContract };
+export { stakingContract, questCoreContract };
 
 /**
  * Find first block whose timestamp is >= targetTimestamp
@@ -733,5 +736,71 @@ export async function getUserPendingRewards(walletAddress, pid) {
   } catch (err) {
     console.error('Error getting pending rewards:', err.message);
     return '0';
+  }
+}
+
+/**
+ * Get hero's quest details from QuestCoreV3 contract
+ * 
+ * @param {string} heroId - Hero ID
+ * @returns {Promise<Object|null>} Quest details or null if not on a quest
+ */
+export async function getHeroQuestDetails(heroId) {
+  try {
+    const quest = await questCoreContract.getHeroQuest(heroId);
+    
+    // Check if quest exists (id !== 0)
+    if (quest.id.toString() === '0') {
+      return null;
+    }
+    
+    return {
+      id: quest.id.toString(),
+      questInstanceId: quest.questInstanceId.toString(),
+      level: quest.level,
+      heroes: quest.heroes.map(h => h.toString()),
+      player: quest.player,
+      startBlock: quest.startBlock.toString(),
+      startAtTime: quest.startAtTime.toString(),
+      completeAtTime: quest.completeAtTime.toString(),
+      attempts: quest.attempts,
+      status: quest.status,
+      questType: quest.questType // For gardening: questType = poolId (0-13)
+    };
+  } catch (err) {
+    console.error(`Error getting quest details for hero #${heroId}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Check if a hero is on a gardening quest
+ * For gardening quests, questType matches the poolId (0-13 for DFK Chain)
+ * 
+ * @param {string} heroId - Hero ID
+ * @returns {Promise<Object|null>} { poolId, questDetails } or null if not gardening
+ */
+export async function getHeroGardeningAssignment(heroId) {
+  try {
+    const questDetails = await getHeroQuestDetails(heroId);
+    
+    if (!questDetails) {
+      return null;
+    }
+    
+    // Gardening quests have questType = poolId (0-13 for DFK Chain)
+    // Valid pool IDs: 0-13 based on LP Staking contract
+    const poolId = questDetails.questType;
+    if (poolId >= 0 && poolId <= 13) {
+      return {
+        poolId,
+        questDetails
+      };
+    }
+    
+    return null; // Not a gardening quest (mining/fishing/foraging/etc.)
+  } catch (err) {
+    console.error(`Error checking gardening assignment for hero #${heroId}:`, err.message);
+    return null;
   }
 }

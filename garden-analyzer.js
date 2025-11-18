@@ -8,6 +8,7 @@
 import { getHeroesByOwner } from './onchain-data.js';
 import { fetchPetsForWallet, mapPetsToHeroes } from './pet-data.js';
 import { getCachedPoolAnalytics } from './pool-cache.js';
+import { getHeroGardeningAssignment } from './garden-analytics.js';
 
 /**
  * Calculate hero gardening effectiveness score
@@ -140,36 +141,45 @@ export async function analyzeCurrentAssignments(walletAddress) {
       throw new Error('Pool cache not ready - please try again in a moment');
     }
     
-    // Analyze current assignments
+    // Analyze current assignments by checking actual quest data from blockchain
     const assignments = [];
-    const gardeningHeroes = heroes.filter(h => {
-      // Check if hero is currently on a gardening quest
-      // currentQuest format: "0x..." (contract address)
+    
+    // Filter heroes with active quests
+    const heroesOnQuests = heroes.filter(h => {
       return h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000';
     });
     
-    console.log(`[GardenAnalyzer] ${gardeningHeroes.length} heroes currently on quests`);
+    console.log(`[GardenAnalyzer] ${heroesOnQuests.length} heroes currently on quests`);
     
-    // For each hero on a gardening quest, calculate their yield
-    for (const hero of gardeningHeroes) {
+    // Check each hero to see if they're on a GARDENING quest specifically
+    const gardeningAssignments = [];
+    for (const hero of heroesOnQuests) {
+      try {
+        const assignment = await getHeroGardeningAssignment(hero.id);
+        if (assignment) {
+          gardeningAssignments.push({
+            hero,
+            poolId: assignment.poolId,
+            questDetails: assignment.questDetails
+          });
+        }
+      } catch (err) {
+        console.error(`[GardenAnalyzer] Error checking hero #${hero.id}:`, err.message);
+      }
+    }
+    
+    console.log(`[GardenAnalyzer] ${gardeningAssignments.length} heroes on GARDENING quests`);
+    
+    // Build detailed assignments with pool data and yield calculations
+    for (const { hero, poolId } of gardeningAssignments) {
       const pet = heroToPet.get(hero.id);
       
-      // Try to match hero's quest to a pool
-      // This is a best-effort approach - exact pool matching requires more data
-      let bestPoolMatch = null;
-      let bestYield = { crystalsPerQuest: 0, jewelPerQuest: 0, totalAPR: 0 };
+      // Find the exact pool they're assigned to
+      const pool = poolCache.data.find(p => p.pid === poolId);
       
-      // Calculate potential yield in each pool to infer current assignment
-      for (const pool of poolCache.data) {
+      if (pool) {
         const heroYield = calculateHeroYield(hero, pet, pool);
-        if (heroYield.crystalsPerQuest + heroYield.jewelPerQuest > 
-            bestYield.crystalsPerQuest + bestYield.jewelPerQuest) {
-          bestPoolMatch = pool;
-          bestYield = heroYield;
-        }
-      }
-      
-      if (bestPoolMatch) {
+        
         assignments.push({
           hero: {
             id: hero.id,
@@ -182,11 +192,11 @@ export async function analyzeCurrentAssignments(walletAddress) {
           },
           pet: pet || null,
           pool: {
-            pid: bestPoolMatch.pid,
-            pair: bestPoolMatch.pair,
-            totalAPR: bestPoolMatch.totalAPR
+            pid: pool.pid,
+            pair: pool.pair,
+            totalAPR: pool.totalAPR
           },
-          yield: bestYield
+          yield: heroYield
         });
       }
     }
@@ -197,7 +207,7 @@ export async function analyzeCurrentAssignments(walletAddress) {
     return {
       totalHeroes: heroes.length,
       totalPets: pets.length,
-      activeGardeningHeroes: gardeningHeroes.length,
+      activeGardeningHeroes: gardeningAssignments.length,
       assignments,
       totalCurrentAPR,
       heroes, // Include all heroes for optimization
