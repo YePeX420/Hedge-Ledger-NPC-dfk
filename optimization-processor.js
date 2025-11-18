@@ -16,8 +16,10 @@
 import { db } from './server/db.js';
 import { gardenOptimizations, players, jewelBalances } from './shared/schema.ts';
 import { eq, and, sql } from 'drizzle-orm';
-import * as onchain from './onchain-data.js';
-import { generatePoolOptimizations, formatOptimizationReport } from './wallet-lp-detector.js';
+import { analyzeCurrentAssignments } from './garden-analyzer.js';
+import { optimizeHeroAssignments, calculateImprovement } from './garden-optimizer.js';
+import { generateOptimizationMessages } from './report-formatter.js';
+import { getPoolCache } from './pool-cache.js';
 
 const POLL_INTERVAL_MS = 30000; // 30 seconds
 const DISCORD_MESSAGE_LIMIT = 2000; // Discord's message character limit
@@ -125,37 +127,39 @@ async function processOptimization(optimization) {
       throw new Error(`Player #${optimization.playerId} not found`);
     }
     
-    // Fetch user's heroes
+    // Analyze current state and optimize
     const walletAddress = optimization.fromWallet;
-    const heroes = await onchain.getHeroesByOwner(walletAddress, 50);
-    console.log(`[OptimizationProcessor] Fetched ${heroes.length} heroes for wallet ${walletAddress}`);
+    console.log(`[OptimizationProcessor] Analyzing wallet ${walletAddress}...`);
     
-    // Use stored LP snapshot from request
-    const lpSnapshot = optimization.lpSnapshot;
+    // Step 1: Analyze current assignments (fetches heroes, pets, maps them to pools)
+    const currentState = await analyzeCurrentAssignments(walletAddress);
+    console.log(`[OptimizationProcessor] Current state: ${currentState.totalHeroes} heroes, ${currentState.totalPets} pets`);
     
-    // Validate LP snapshot structure
-    if (!lpSnapshot) {
-      throw new Error('No LP snapshot found in optimization record');
+    // Step 2: Get pool analytics data
+    const pools = getPoolCache();
+    if (!pools || pools.length === 0) {
+      throw new Error('Pool cache is empty - unable to optimize');
     }
     
-    if (!Array.isArray(lpSnapshot)) {
-      throw new Error(`Invalid LP snapshot structure: expected array, got ${typeof lpSnapshot}`);
-    }
+    // Step 3: Run optimization algorithm
+    const optimizedState = optimizeHeroAssignments(
+      currentState.heroes,
+      currentState.pets,
+      pools,
+      10 // Max 10 heroes
+    );
     
-    if (lpSnapshot.length === 0) {
-      throw new Error('LP snapshot is empty - no positions to optimize');
-    }
+    // Step 4: Calculate improvement metrics
+    const improvement = calculateImprovement(currentState, optimizedState);
+    console.log(`[OptimizationProcessor] Improvement: ${improvement.absoluteImprovement.toFixed(2)}% APR`);
     
-    // Generate optimization recommendations
-    const optimizationResult = generatePoolOptimizations(lpSnapshot, heroes);
-    const report = formatOptimizationReport(optimizationResult);
+    // Step 5: Generate all messages (3 messages total, possibly split into more chunks)
+    const messages = generateOptimizationMessages(currentState, optimizedState, improvement);
     
-    // Build Discord message with before/after comparison
-    const message = 
-      `## 💎 Garden Optimization Report\n\n` +
-      `${report}\n\n` +
-      `---\n\n` +
-      `*Payment confirmed! That 25 JEWEL is staying in my ledger forever, by the way.* <:hedge_evil:1439395005499441236>`;
+    // Add Hedge's signature to the last message
+    const lastMessage = messages[messages.length - 1] + 
+      `\n\n---\n\n*Payment confirmed! That 25 JEWEL is staying in my ledger forever, by the way.* <:hedge_evil:1439395005499441236>`;
+    messages[messages.length - 1] = lastMessage;
     
     // Send DM to user
     if (!discordClient) {
@@ -164,14 +168,12 @@ async function processOptimization(optimization) {
     
     const user = await discordClient.users.fetch(playerData.discordId);
     
-    // Split message into chunks if needed (Discord 2000 char limit)
-    const messageChunks = splitMessage(message);
-    console.log(`[OptimizationProcessor] Sending report in ${messageChunks.length} message(s)`);
+    console.log(`[OptimizationProcessor] Sending report in ${messages.length} message(s)`);
     
-    for (let i = 0; i < messageChunks.length; i++) {
-      await user.send(messageChunks[i]);
+    for (let i = 0; i < messages.length; i++) {
+      await user.send(messages[i]);
       // Small delay between messages to avoid rate limiting
-      if (i < messageChunks.length - 1) {
+      if (i < messages.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
@@ -179,11 +181,28 @@ async function processOptimization(optimization) {
     console.log(`[OptimizationProcessor] Sent optimization report to user ${playerData.discordUsername}`);
     
     // Update status to completed with report payload
+    const reportPayload = {
+      currentState: {
+        totalHeroes: currentState.totalHeroes,
+        totalPets: currentState.totalPets,
+        activeGardeningHeroes: currentState.activeGardeningHeroes,
+        totalCurrentAPR: currentState.totalCurrentAPR,
+        assignments: currentState.assignments
+      },
+      optimizedState: {
+        assignments: optimizedState.assignments,
+        totalOptimizedAPR: optimizedState.totalOptimizedAPR,
+        heroesUsed: optimizedState.heroesUsed,
+        petsUsed: optimizedState.petsUsed
+      },
+      improvement
+    };
+    
     await db.update(gardenOptimizations)
       .set({
         status: 'completed',
         completedAt: new Date(),
-        reportPayload: sql`${JSON.stringify(optimizationResult)}::json`, // Explicit JSON cast
+        reportPayload: sql`${JSON.stringify(reportPayload)}::json`, // Explicit JSON cast
         updatedAt: new Date()
       })
       .where(eq(gardenOptimizations.id, optimization.id));

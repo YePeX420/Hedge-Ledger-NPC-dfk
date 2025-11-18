@@ -158,11 +158,11 @@ export async function analyzeCurrentAssignments(walletAddress) {
       
       // Calculate potential yield in each pool to infer current assignment
       for (const pool of poolCache) {
-        const yield = calculateHeroYield(hero, pet, pool);
-        if (yield.crystalsPerQuest + yield.jewelPerQuest > 
+        const heroYield = calculateHeroYield(hero, pet, pool);
+        if (heroYield.crystalsPerQuest + heroYield.jewelPerQuest > 
             bestYield.crystalsPerQuest + bestYield.jewelPerQuest) {
           bestPoolMatch = pool;
-          bestYield = yield;
+          bestYield = heroYield;
         }
       }
       

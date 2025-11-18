@@ -100,7 +100,7 @@ export function optimizeHeroAssignments(heroes, pets, pools, maxHeroes = 10) {
     }
     
     // Calculate yield with this hero+pet+pool combination
-    const yield = calculateHeroYield(hero, selectedPet, pool);
+    const heroYield = calculateHeroYield(hero, selectedPet, pool);
     
     assignments.push({
       hero: {
@@ -128,7 +128,7 @@ export function optimizeHeroAssignments(heroes, pets, pools, maxHeroes = 10) {
         feeAPR: pool.feeAPR,
         emissionRatio
       },
-      yield
+      yield: heroYield
     });
   }
   
