@@ -515,7 +515,7 @@ export async function verifyTransactionHash(txHash, jobId) {
     console.log(`[Monitor] ✅ Verified payment for job #${jobId}: ${actualAmount.toFixed(2)} JEWEL`);
     
     // Remove from active jobs tracking
-    paymentJobs.removeJob(jobId);
+    paymentJobs.cancelJob(jobId);
     
     return {
       success: true,
