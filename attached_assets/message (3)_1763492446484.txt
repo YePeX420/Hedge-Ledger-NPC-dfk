@@ -1,0 +1,367 @@
+/* ---- CONFIG ---- */
+var DFK_GRAPHQL='https://api.defikingdoms.com/graphql';
+var DFK_RPC='https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
+var PETCORE_DFK='0x1990F87d6BC9D9385917E3EDa0A7674411C3Cd7F'.toLowerCase();
+/* Metis (fill both to enable) */
+var METIS_RPC='';  // e.g. 'https://andromeda.metis.io'
+var PETCORE_METIS='0x74cE6E7cEF79F5ae6363c6CB1F6c2b528E92D7c7'.toLowerCase();
+/* Metadata */
+var PET_META_BASE='https://pets.defikingdoms.com';
+/* Batch sizes */
+var RPC_BATCH_SIZE=50;  // RPC calls per batch
+var META_BATCH_SIZE=50; // Metadata calls per batch
+
+/* ---- SHEETS/HEADERS ---- */
+var SHEET_WALLETS='DFK_Wallets',SHEET_HEROES='Heroes',SHEET_PETS='Pets',SHEET_LOG='DFK_Log';
+var WALLETS_HEADERS=['Enabled','Chain','WalletAddress','SummonerName'];
+var HERO_HEADERS=['HeroID','Summoner','Realm','MainClass','SubClass','Rarity','Level','XP','Stamina','Summons','Generation','Profession','STR','AGI','DEX','VIT','END','INT','WIS','LCK','Mining','Gardening','Foraging','Fishing','Shiny','GreenBoost','BlueBoost','PetID','PetBonus'];
+var PET_HEADERS=['ScopedID','Chain','PetID','Owner','Rarity','Element','EggType','GatheringType','GatheringBonusName','GatheringBonusPct','CombatBonusName','CombatBonusPct','Shiny','Season','EquippedToHero'];
+
+/* ---- MENU ---- */
+function onOpen(){
+  SpreadsheetApp.getUi().createMenu('DFK')
+    .addItem('Wallets: Open/Create','walletsOpen')
+    .addItem('Wallets: Add Address…','walletsAddForm')
+    .addSeparator()
+    .addItem('Import / Refresh Heroes','dfkImportHeroes')
+    .addItem('Import / Refresh Pets (On-Chain)','dfkImportPetsOnChain')
+    .addItem('Link Pets → Heroes','dfkLinkPetsToHeroes')
+    .addSeparator()
+    .addItem('Apply Hero Styles','dfkApplyHeroStyles')
+    .addItem('Apply Pet Styles','dfkApplyPetStyles')
+    .addToUi();
+}
+
+/* ---- UTIL ---- */
+function _s(v){return(v==null)?'':String(v)}function _n(v){return(v==null||v==='')?'':Number(v)}
+function _sheet(n){var ss=SpreadsheetApp.getActive(),sh=ss.getSheetByName(n);if(!sh)sh=ss.insertSheet(n);return sh}
+function _headers(sh){return sh.getRange(1,1,1,Math.max(1,sh.getLastColumn())).getValues()[0]||[]}
+function _autoCols(sh){sh.autoResizeColumns(1,Math.max(1,sh.getLastColumn()))}
+function _idx(h,n){var k=h.indexOf(n);return k<0?-1:k+1}
+function _pad32(x){var s=String(x);if(s.indexOf('0x')!==0)s=Number(x).toString(16);s=s.replace(/^0x/,'');while(s.length<64)s='0'+s;return'0x'+s}
+function _filterNone(v){var s=String(v||'').toLowerCase();return(s==='none'||s==='unrevealed'||s===''||s==='[unused]')?'':v}
+
+/* ---- LOG ---- */
+function _ensureLog(){var sh=_sheet(SHEET_LOG);if(sh.getLastRow()===0){sh.getRange(1,1,1,6).setValues([['Start','End','Duration(s)','Action','Status','Details']]).setFontWeight('bold');sh.setFrozenRows(1)}return sh}
+function _logStart(a){return{action:a,start:new Date()}}function _logEnd(t,s,d){var e=new Date();_ensureLog().appendRow([t.start,e,(e-t.start)/1000,t.action,s,_s(d)])}
+
+/* ---- WALLETS ---- */
+function _ensureWallets(){var ws=_sheet(SHEET_WALLETS);if(ws.getLastRow()===0){ws.getRange(1,1,1,WALLETS_HEADERS.length).setValues([WALLETS_HEADERS]).setFontWeight('bold');ws.setFrozenRows(1);ws.appendRow([true,'DFK','0xYourAddressHere','Your Name'])}_autoCols(ws);return ws}
+function walletsOpen(){SpreadsheetApp.setActiveSheet(_ensureWallets())}
+function walletsAddForm(){var ws=_ensureWallets(),ui=SpreadsheetApp.getUi(),r1=ui.prompt('Add Wallet','Paste 0x…',ui.ButtonSet.OK_CANCEL);if(r1.getSelectedButton()!==ui.Button.OK)return;var a=_s(r1.getResponseText()).trim().toLowerCase();if(!/^0x[a-f0-9]{40}$/.test(a)){ui.alert('Not an EVM address.');return}var r2=ui.prompt('Chain','DFK (default) or METIS',ui.ButtonSet.OK_CANCEL),c=(r2.getSelectedButton()===ui.Button.OK&&_s(r2.getResponseText()).trim().toUpperCase()==='METIS')?'METIS':'DFK';ws.appendRow([true,c,a,a.slice(0,6)+'…'+a.slice(-4)]);_autoCols(ws)}
+function getEnabledWallets_(){var ws=_ensureWallets(),last=ws.getLastRow();if(last<2)return[];var H=_headers(ws),cE=_idx(H,'Enabled'),cC=_idx(H,'Chain'),cW=_idx(H,'WalletAddress'),cN=_idx(H,'SummonerName');var V=ws.getRange(2,1,last-1,ws.getLastColumn()).getValues(),out=[];for(var i=0;i<V.length;i++){if(String(V[i][cE-1]).toLowerCase()!=='true')continue;var ch=_s(V[i][cC-1]).toUpperCase()||'DFK',ad=_s(V[i][cW-1]).toLowerCase(),nm=_s(V[i][cN-1])||ad.slice(0,6)+'…'+ad.slice(-4);if(/^0x[a-f0-9]{40}$/.test(ad))out.push({chain:ch,addr:ad,name:nm})}return out}
+
+/* ---- RPC (with batch support) ---- */
+function _ethCall(rpc,to,dataHex){var payload={jsonrpc:'2.0',id:1,method:'eth_call',params:[{to:to,data:dataHex},'latest']};var res=UrlFetchApp.fetch(rpc,{method:'post',contentType:'application/json',payload:JSON.stringify(payload),muteHttpExceptions:true});var txt=res.getContentText()||'{}',j={};try{j=JSON.parse(txt)}catch(e){throw new Error('RPC JSON parse')}if(j.error)throw new Error('RPC error: '+JSON.stringify(j.error));return j.result||null}
+
+function _ethCallBatch(rpc,to,dataHexArray){
+  if(!dataHexArray||!dataHexArray.length)return[];
+  var batch=[];
+  for(var i=0;i<dataHexArray.length;i++){
+    batch.push({jsonrpc:'2.0',id:i,method:'eth_call',params:[{to:to,data:dataHexArray[i]},'latest']});
+  }
+  var res=UrlFetchApp.fetch(rpc,{method:'post',contentType:'application/json',payload:JSON.stringify(batch),muteHttpExceptions:true});
+  var txt=res.getContentText()||'[]',results=[];
+  try{results=JSON.parse(txt)}catch(e){return[]}
+  if(!Array.isArray(results))return[];
+  var out=[];
+  for(var i=0;i<results.length;i++){
+    var item=results[i];
+    if(item&&!item.error&&item.result){
+      out[item.id]=item.result;
+    }else{
+      out[item.id]=null;
+    }
+  }
+  return out;
+}
+
+function _cfg(chain){if(chain==='METIS'){if(METIS_RPC&&PETCORE_METIS)return{rpc:METIS_RPC,core:PETCORE_METIS};return null}return{rpc:DFK_RPC,core:PETCORE_DFK}}
+
+/* ---- COMBAT BONUS DECODER ---- */
+var COMBAT_BONUS_NAMES={1:'[Unused]',2:'Stone Hide',3:'Arcane Shell',4:'Recuperate',5:'Magical Shell',6:'Heavy Hide',7:'Vorpal Soul',8:'Sharpened Claws',9:'Attuned',10:'Hard Head',11:'Harder Head',12:'Graceful',13:'Diamond Hands',14:'Impenetrable',15:'Resilient',16:'Relentless',17:'Outspoken',18:'Lucid',19:'Brave',20:'Confident',21:'Inner Lids',22:'Insulated',23:'Moist',24:'Studious',80:'[Unused]',81:'Stone Hide',82:'Arcane Shell',83:'Recuperate',84:'Magical Shell',85:'Heavy Hide',86:'Vorpal Soul',87:'Sharpened Claws',88:'Attuned',89:'Hard Head',90:'Harder Head',91:'Graceful',92:'Diamond Hands',93:'Impenetrable',94:'Resilient',95:'Relentless',96:'Outspoken',97:'Lucid',98:'Brave',99:'Confident',100:'Inner Lids',101:'Insulated',102:'Moist',103:'Studious',104:'Slippery',105:'Blur',106:'Divine Intervention',107:'Rune Sniffer',108:'Threaten',109:'Hobble',110:'Shock',111:'Bop',112:'Hush',113:'Befuddle',114:'Petrify',115:'Tug',116:'Gash',117:'Infect',118:'Gouge',119:'Bruise',120:'Expose',121:'Flash',122:'Mystify',123:'Freeze',124:'Char',125:'Good Eye',126:'Third Eye',127:'Omni Shell',128:'Hardy Constitution',129:'Vampiric',130:'Meat Shield',131:'Super Meat Shield',132:'Flow State',133:'Cleansing Aura',134:'Lick Wounds',135:'Rescuer',136:'Amplify',137:'Intercept',138:'Conservative',160:'[Unused]',161:'Stone Hide',162:'Arcane Shell',163:'Recuperate',164:'Magical Shell',165:'Heavy Hide',166:'Vorpal Soul',167:'Sharpened Claws',168:'Attuned',169:'Hard Head',170:'Harder Head',171:'Graceful',172:'Diamond Hands',173:'Impenetrable',174:'Resilient',175:'Relentless',176:'Outspoken',177:'Lucid',178:'Brave',179:'Confident',180:'Inner Lids',181:'Insulated',182:'Moist',183:'Studious',184:'Slippery',185:'Blur',186:'Divine Intervention',187:'Rune Sniffer',188:'Threaten',189:'Hobble',190:'Shock',191:'Bop',192:'Hush',193:'Befuddle',194:'Petrify',195:'Tug',196:'Gash',197:'Infect',198:'Gouge',199:'Bruise',200:'Expose',201:'Flash',202:'Mystify',203:'Freeze',204:'Char',205:'Good Eye',206:'Third Eye',207:'Omni Shell',208:'Hardy Constitution',209:'Vampiric',210:'Meat Shield',211:'Super Meat Shield',212:'Flow State',213:'Cleansing Aura',214:'Lick Wounds',215:'Rescuer',216:'Amplify',217:'Intercept',218:'Conservative',219:'Scavenger',220:'Ultra Conservative',221:'Reflector',222:'Null Field',223:'Brick Wall',224:'Purifying Aura',225:'Swift Cast',226:'Total Recall',227:'Zoomy',228:'Skin of Teeth',229:'Rebalance',230:'Guardian Shell',231:'Healing Bond',232:'Foil',233:'Quicksand',234:'Beastly Roar',235:'Maul',236:'Thwack',237:'Protective Coat'};
+function _combatBonusName(id){return COMBAT_BONUS_NAMES[Number(id)]||''}
+
+/* ---- ABI selectors/encoders ---- */
+var SEL_getUserPetsV2='0x9ba0a636'; // getUserPetsV2(address)
+var SEL_getPetsV2='0xcff273f3';    // getPetsV2(uint256[])
+var SEL_getPetV2='0x49e6c04b';     // getPetV2(uint256)
+var SEL_getPet='0x86b9d9e2';       // getPet(uint256)
+var SEL_balanceOf='0x70a08231',SEL_tokenByIndex='0x2f745c59';
+function enc_getUserPetsV2(a){a=a.toLowerCase().replace(/^0x/,'');while(a.length<64)a='0'+a;return SEL_getUserPetsV2+a}
+function enc_getPetsV2(ids){var len=(ids.length).toString(16);while(len.length<64)len='0'+len;var body=len;for(var i=0;i<ids.length;i++){var h=Number(ids[i]).toString(16);while(h.length<64)h='0'+h;body+=h}return SEL_getPetsV2+'0000000000000000000000000000000000000000000000000000000000000020'+body}
+function enc_u2561(sel,id){var h=Number(id).toString(16);while(h.length<64)h='0'+h;return sel+h}
+
+/* ---- PetV2[] decoders ---- */
+function _decPetV2Tuple(hex,ofs){function W(p){return BigInt('0x'+hex.slice(p,p+64))}return{
+  id:W(ofs+0).toString(),season:Number(W(ofs+192)),eggType:Number(W(ofs+256)),rarity:Number(W(ofs+320)),
+  element:Number(W(ofs+384)),bonusCount:Number(W(ofs+448)),profBonus:Number(W(ofs+512)),profScalar:Number(W(ofs+576)),
+  craftBonus:Number(W(ofs+640)),craftScalar:Number(W(ofs+704)),combatBonus:Number(W(ofs+768)),combatScalar:Number(W(ofs+832)),
+  shiny:Number(W(ofs+1024)),equippedTo:W(ofs+1216).toString()
+}}
+function dec_PetV2Arr(ret){if(!ret||ret==='0x')return[];var hex=ret.replace(/^0x/,''),arrOfs=Number(BigInt('0x'+hex.slice(0,64)))*2,arrLen=Number(BigInt('0x'+hex.slice(arrOfs,arrOfs+64))),out=[],head=arrOfs+64;for(var i=0;i<arrLen;i++)out.push(_decPetV2Tuple(hex,head+i*22*64));return out}
+function dec_PetV2Single(ret){if(!ret||ret==='0x')return null;var hex=ret.replace(/^0x/,''),ofs=0x20*2;return _decPetV2Tuple(hex,ofs)}
+/* ---- legacy getPet(uint256) (20 words layout) ---- */
+function dec_PetLegacy(ret){if(!ret||ret==='0x')return null;var hex=ret.replace(/^0x/,''),ofs=0x20*2;function W(p){return BigInt('0x'+hex.slice(p,p+64))}return{
+  id:W(ofs+0).toString(),season:Number(W(ofs+192)),eggType:Number(W(ofs+256)),rarity:Number(W(ofs+320)),
+  element:Number(W(ofs+384)),bonusCount:Number(W(ofs+448)),profBonus:Number(W(ofs+512)),profScalar:Number(W(ofs+576)),
+  craftBonus:Number(W(ofs+640)),craftScalar:Number(W(ofs+704)),combatBonus:Number(W(ofs+768)),combatScalar:Number(W(ofs+832)),
+  shiny:Number(W(ofs+960)),equippedTo:'0'
+}}
+
+/* ---- Metadata fallback (with batch support) ---- */
+function fetchMeta(id){try{var r=UrlFetchApp.fetch(PET_META_BASE+'/token/'+encodeURIComponent(String(id)),{muteHttpExceptions:true});if(r.getResponseCode()!==200)return null;var j=JSON.parse(r.getContentText()||'{}'),a=j.attributes||[],d=j.data||{},raw=j.rawData||{};function A(k){k=(k||'').toLowerCase();for(var i=0;i<a.length;i++){if(String(a[i].trait_type||'').toLowerCase()===k)return String(a[i].value||'')}return''}var egg=A('Egg Type'),g=A('Gathering Bonus Type')||A('Gathering Type')||'';if(!g){var e=(egg||'').toLowerCase();if(e.indexOf('blue')>=0)g='Fishing';else if(e.indexOf('grey')>=0||e.indexOf('gray')>=0)g='Foraging';else if(e.indexOf('green')>=0)g='Gardening';else if(e.indexOf('yellow')>=0||e.indexOf('gold')>=0)g='Mining'}var gN=A('Gathering Bonus')||A('Profession Bonus')||'',gP=(d.gatheringbonusscalar||d.profbonusscalar)?Number(d.gatheringbonusscalar||d.profbonusscalar)/100:'',cN=(raw.combatbonus)?_combatBonusName(raw.combatbonus):'',cP=(d.combatbonusscalar)?Number(d.combatbonusscalar)/100:'';return{egg:egg||'',gather:g||'',gName:gN||'',gPct:gP,cName:cN||'',cPct:cP,shiny:/true|yes|1/i.test(A('Shiny')),season:A('Season')||''}}catch(e){return null}}
+
+function fetchMetaBatch(ids){
+  if(!ids||!ids.length)return[];
+  var requests=[];
+  for(var i=0;i<ids.length;i++){
+    requests.push({
+      url:PET_META_BASE+'/token/'+encodeURIComponent(String(ids[i])),
+      method:'get',
+      muteHttpExceptions:true
+    });
+  }
+  var responses=UrlFetchApp.fetchAll(requests);
+  var results=[];
+  for(var i=0;i<responses.length;i++){
+    var r=responses[i];
+    if(r.getResponseCode()!==200){results.push(null);continue}
+    try{
+      var j=JSON.parse(r.getContentText()||'{}'),a=j.attributes||[],d=j.data||{},raw=j.rawData||{};
+      function A(k){k=(k||'').toLowerCase();for(var x=0;x<a.length;x++){if(String(a[x].trait_type||'').toLowerCase()===k)return String(a[x].value||'')}return''}
+      var egg=A('Egg Type'),g=A('Gathering Bonus Type')||A('Gathering Type')||'';
+      if(!g){var e=(egg||'').toLowerCase();if(e.indexOf('blue')>=0)g='Fishing';else if(e.indexOf('grey')>=0||e.indexOf('gray')>=0)g='Foraging';else if(e.indexOf('green')>=0)g='Gardening';else if(e.indexOf('yellow')>=0||e.indexOf('gold')>=0)g='Mining'}
+      var gN=A('Gathering Bonus')||A('Profession Bonus')||'',gP=(d.gatheringbonusscalar||d.profbonusscalar)?Number(d.gatheringbonusscalar||d.profbonusscalar)/100:'',cN=(raw.combatbonus)?_combatBonusName(raw.combatbonus):'',cP=(d.combatbonusscalar)?Number(d.combatbonusscalar)/100:'';
+      results.push({egg:egg||'',gather:g||'',gName:gN||'',gPct:gP,cName:cN||'',cPct:cP,shiny:/true|yes|1/i.test(A('Shiny')),season:A('Season')||''});
+    }catch(e){results.push(null)}
+  }
+  return results;
+}
+
+/* ---- PET IMPORT (A→B1→B2→B3→C) WITH BATCHING ---- */
+function dfkWritePetsHeader(){var ps=_sheet(SHEET_PETS);ps.clear();ps.getRange(1,1,1,PET_HEADERS.length).setValues([PET_HEADERS]).setFontWeight('bold');ps.setFrozenRows(1);_autoCols(ps)}
+function fmtPct(x){return(x===''||isNaN(Number(x)))?'':Number(x)/100}
+function _gatherFromEgg(eggType){return eggType===0?'Fishing':eggType===1?'Foraging':eggType===2?'Gardening':eggType===3?'Mining':''}
+function _cfgOrSkip(wl){var c=_cfg(wl.chain);if(!c){_logEnd(_logStart('skip'),'OK','No RPC for '+wl.chain)}return c}
+
+function dfkImportPetsOnChain(){
+  var T=_logStart('Import Pets');
+  try{
+    var wallets=getEnabledWallets_(); if(!wallets.length){SpreadsheetApp.getUi().alert('Add wallets in DFK_Wallets');_logEnd(T,'ERR','no wallets');return}
+    var ps=_sheet(SHEET_PETS); dfkWritePetsHeader(); var rows=[];
+    for(var w=0; w<wallets.length; w++){
+      var wl=wallets[w],cfg=_cfgOrSkip(wl); if(!cfg)continue;
+      var used=false, ids=null;
+
+      /* A) getUserPetsV2(address) */
+      try{
+        var retA=_ethCall(cfg.rpc,cfg.core,enc_getUserPetsV2(wl.addr)),LA=dec_PetV2Arr(retA);
+        if(LA && LA.length){used=true;ids=LA.map(function(p){return Number(p.id)});
+          for(var i=0;i<LA.length;i++){var p=LA[i],g=_gatherFromEgg(p.eggType);
+            rows.push([wl.chain+'#'+p.id,wl.chain,'#'+p.id,wl.addr,p.rarity,p.element,p.eggType,g,'',fmtPct(p.profScalar),'',fmtPct(p.combatScalar),(p.shiny?'✨':''),p.season,(p.equippedTo!=='0'?('#'+p.equippedTo):'')]);
+          }
+        }
+      }catch(e){}
+
+      /* enumerate for B/C */
+      if(!ids){
+        var balHex=_ethCall(cfg.rpc,cfg.core,SEL_balanceOf+_pad32(wl.addr).slice(2)),bal=balHex?parseInt(balHex,16):0; ids=[];
+        for(var j=0;j<bal;j++){var h=_ethCall(cfg.rpc,cfg.core,SEL_tokenByIndex+_pad32(wl.addr).slice(2)+_pad32(j).slice(2)),id=parseInt(h,16);if(!isNaN(id))ids.push(id);Utilities.sleep(30)}
+      }
+
+      /* B1) getPetsV2(uint256[]) */
+      if(ids.length&&!used){
+        try{
+          var retB=_ethCall(cfg.rpc,cfg.core,enc_getPetsV2(ids)),LB=dec_PetV2Arr(retB);
+          if(LB && LB.length){used=true;for(var k=0;k<LB.length;k++){var q=LB[k],g1=_gatherFromEgg(q.eggType);
+            rows.push([wl.chain+'#'+q.id,wl.chain,'#'+q.id,wl.addr,q.rarity,q.element,q.eggType,g1,'',fmtPct(q.profScalar),'',fmtPct(q.combatScalar),(q.shiny?'✨':''),q.season,(q.equippedTo!=='0'?('#'+q.equippedTo):'')]);
+          }}
+        }catch(e){}
+      }
+
+      /* B2) getPetV2(uint256) BATCHED */
+      if(ids.length&&!used){
+        try{
+          var gotAny=false;
+          for(var chunk=0;chunk<ids.length;chunk+=RPC_BATCH_SIZE){
+            var chunkIds=ids.slice(chunk,Math.min(chunk+RPC_BATCH_SIZE,ids.length));
+            var dataArray=[];
+            for(var x=0;x<chunkIds.length;x++){
+              dataArray.push(enc_u2561(SEL_getPetV2,chunkIds[x]));
+            }
+            var batchResults=_ethCallBatch(cfg.rpc,cfg.core,dataArray);
+            for(var x=0;x<batchResults.length;x++){
+              var pv=dec_PetV2Single(batchResults[x]);
+              if(pv){
+                gotAny=true;
+                var g2=_gatherFromEgg(pv.eggType);
+                rows.push([wl.chain+'#'+pv.id,wl.chain,'#'+pv.id,wl.addr,pv.rarity,pv.element,pv.eggType,g2,'',fmtPct(pv.profScalar),'',fmtPct(pv.combatScalar),(pv.shiny?'✨':''),pv.season,(pv.equippedTo!=='0'?('#'+pv.equippedTo):'')]);
+              }
+            }
+            Utilities.sleep(100); // Small delay between batches
+          }
+          if(gotAny) used=true;
+        }catch(e){}
+      }
+
+      /* B3) getPet(uint256) legacy BATCHED */
+      if(ids.length&&!used){
+        try{
+          var gotAny2=false;
+          for(var chunk=0;chunk<ids.length;chunk+=RPC_BATCH_SIZE){
+            var chunkIds=ids.slice(chunk,Math.min(chunk+RPC_BATCH_SIZE,ids.length));
+            var dataArray=[];
+            for(var y=0;y<chunkIds.length;y++){
+              dataArray.push(enc_u2561(SEL_getPet,chunkIds[y]));
+            }
+            var batchResults=_ethCallBatch(cfg.rpc,cfg.core,dataArray);
+            for(var y=0;y<batchResults.length;y++){
+              var pl=dec_PetLegacy(batchResults[y]);
+              if(pl){
+                gotAny2=true;
+                var g3=_gatherFromEgg(pl.eggType);
+                rows.push([wl.chain+'#'+pl.id,wl.chain,'#'+pl.id,wl.addr,pl.rarity,pl.element,pl.eggType,g3,'',fmtPct(pl.profScalar),'',fmtPct(pl.combatScalar),(pl.shiny?'✨':''),pl.season,(pl.equippedTo!=='0'?('#'+pl.equippedTo):'')]);
+              }
+            }
+            Utilities.sleep(100); // Small delay between batches
+          }
+          if(gotAny2) used=true;
+        }catch(e){}
+      }
+
+      /* C) metadata final BATCHED */
+      if(ids.length&&!used){
+        for(var chunk=0;chunk<ids.length;chunk+=META_BATCH_SIZE){
+          var chunkIds=ids.slice(chunk,Math.min(chunk+META_BATCH_SIZE,ids.length));
+          var metaBatch=fetchMetaBatch(chunkIds);
+          for(var m=0;m<chunkIds.length;m++){
+            var md=metaBatch[m]||{};
+            rows.push([wl.chain+'#'+chunkIds[m],wl.chain,'#'+chunkIds[m],wl.addr,'','',md.egg||'',md.gather||'',_filterNone(md.gName),(md.gPct===''?'':md.gPct),_filterNone(md.cName),(md.cPct===''?'':md.cPct),(md.shiny?'✨':''),md.season||'','']);
+          }
+          Utilities.sleep(100); // Small delay between batches
+        }
+      }
+
+      Utilities.sleep(120);
+    }
+    var ps=_sheet(SHEET_PETS); ps.clear(); ps.getRange(1,1,1,PET_HEADERS.length).setValues([PET_HEADERS]).setFontWeight('bold');ps.setFrozenRows(1);
+    if(rows.length)ps.getRange(2,1,rows.length,PET_HEADERS.length).setValues(rows);
+    dfkApplyPetStyles();_autoCols(ps);_logEnd(T,'OK','Rows='+rows.length);SpreadsheetApp.getActive().toast('Pets imported: '+rows.length)
+  }catch(e){_logEnd(T,'ERR',e);throw e}
+}
+
+/* ============================================================================
+ * STYLING
+ * ============================================================================ */
+
+/**
+ * Get color for rarity
+ */
+function _rarityColor(s) {
+  s = String(s || '').toLowerCase();
+  return s.indexOf('myth') >= 0 ? '#9C27B0' :
+         s.indexOf('legend') >= 0 ? '#FFD700' :
+         s.indexOf('rare') >= 0 ? '#2196F3' :
+         s.indexOf('uncommon') >= 0 ? '#4CAF50' : '#9E9E9E';
+}
+
+/**
+ * Get color for egg type or gathering type
+ */
+function _eggGatherColor(s) {
+  s = String(s || '').toLowerCase();
+  // Egg types and gathering types
+  if (s.indexOf('blue') >= 0 || s === 'fishing') return '#2196F3';  // Blue
+  if (s.indexOf('green') >= 0 || s === 'gardening') return '#4CAF50';  // Green
+  if (s.indexOf('yellow') >= 0 || s.indexOf('gold') >= 0 || s === 'mining') return '#FFC107';  // Yellow
+  if (s.indexOf('grey') >= 0 || s.indexOf('gray') >= 0 || s === 'foraging') return '#9E9E9E';  // Grey
+  return null;
+}
+
+function dfkApplyPetStyles() {
+  var ps = _sheet(SHEET_PETS);
+  var H = _headers(ps);
+  if (!H.length) return;
+  
+  ps.getRange(1, 1, 1, H.length).setFontWeight('bold');
+  
+  var cR = _idx(H, 'Rarity');
+  var cEgg = _idx(H, 'EggType');
+  var cGather = _idx(H, 'GatheringType');
+  var cGP = _idx(H, 'GatheringBonusPct');
+  var cCP = _idx(H, 'CombatBonusPct');
+  var last = ps.getLastRow();
+  
+  if (last < 2) return;
+  
+  // Color rarity column
+  if (cR > 0) {
+    var vals = ps.getRange(2, cR, last - 1, 1).getValues();
+    var colors = [];
+    for (var i = 0; i < vals.length; i++) {
+      colors.push([_rarityColor(vals[i][0])]);
+    }
+    ps.getRange(2, cR, last - 1, 1).setBackgrounds(colors);
+  }
+  
+  // Color egg type column
+  if (cEgg > 0) {
+    var eggVals = ps.getRange(2, cEgg, last - 1, 1).getValues();
+    var eggColors = [];
+    for (var i = 0; i < eggVals.length; i++) {
+      var color = _eggGatherColor(eggVals[i][0]);
+      eggColors.push([color]);
+    }
+    ps.getRange(2, cEgg, last - 1, 1).setBackgrounds(eggColors);
+  }
+  
+  // Color gathering type column
+  if (cGather > 0) {
+    var gatherVals = ps.getRange(2, cGather, last - 1, 1).getValues();
+    var gatherColors = [];
+    for (var i = 0; i < gatherVals.length; i++) {
+      var color = _eggGatherColor(gatherVals[i][0]);
+      gatherColors.push([color]);
+    }
+    ps.getRange(2, cGather, last - 1, 1).setBackgrounds(gatherColors);
+  }
+  
+  // Format percentage columns
+  if (cGP > 0) ps.getRange(2, cGP, last - 1, 1).setNumberFormat('0.00%');
+  if (cCP > 0) ps.getRange(2, cCP, last - 1, 1).setNumberFormat('0.00%');
+  
+  _autoCols(ps);
+}
+function dfkApplyHeroStyles(){var sh=_sheet(SHEET_HEROES),H=_headers(sh);if(!H.length)return;sh.getRange(1,1,1,H.length).setFontWeight('bold');var cR=_idx(H,'Rarity'),cPet=_idx(H,'PetID'),cPB=_idx(H,'PetBonus'),cProf=_idx(H,'Profession');var last=sh.getLastRow();if(last<2)return;var V=sh.getRange(2,1,last-1,sh.getLastColumn()).getValues(),rb=[],pf=[],bf=[];for(var i=0;i<V.length;i++){rb.push([_rarityColor(V[i][cR-1])]);var prof=_s(V[i][cProf-1]),pb=_s(V[i][cPB-1]),g='';if(pb){var d=pb.indexOf(' · ');g=d>=0?pb.substring(0,d):pb}var mis=(g&&prof&&g.toLowerCase()!==prof.toLowerCase()),col=mis?'#d93025':null;pf.push([col]);bf.push([col])}if(cR>0)sh.getRange(2,cR,rb.length,1).setBackgrounds(rb);if(cPet>0)sh.getRange(2,cPet,pf.length,1).setFontColors(pf);if(cPB>0)sh.getRange(2,cPB,bf.length,1).setFontColors(bf);var cS=_idx(H,'Mining');if(cS>0)sh.getRange(2,cS,last-1,4).setNumberFormat('0.0');_autoCols(sh)}
+
+/* ---- HEROES (GraphQL) ---- */
+var CLASS_ID_TO_NAME={0:'Warrior',1:'Knight',2:'Thief',3:'Archer',4:'Priest',5:'Wizard',6:'Monk',7:'Pirate',8:'Berserker',9:'Seer',10:'Legionnaire',11:'Scholar',16:'Paladin',17:'DarkKnight',18:'Summoner',19:'Ninja',20:'Shapeshifter',21:'Bard',24:'Dragoon',25:'Sage',26:'SpellBow',28:'DreadKnight'};
+function className(v){var s=_s(v),n=Number(s);return(!isNaN(n)&&CLASS_ID_TO_NAME[n])?CLASS_ID_TO_NAME[n]:(s||'Warrior')}
+function boostType(c){c=Number(c);return({0:'STR',2:'AGI',4:'INT',6:'WIS',8:'LCK',10:'VIT',12:'END',14:'DEX'})[c]||''}
+function decodeProfessionName_(x){var s=_s(x).trim();if(s==='')return'Mining';var n=Number(s);if(!isNaN(n)){if(n===0)return'Mining';if(n===2)return'Gardening';if(n===4)return'Fishing';if(n===6)return'Foraging'}s=s.toLowerCase();if(s==='mining')return'Mining';if(s==='gardening')return'Gardening';if(s==='foraging')return'Foraging';if(s==='fishing')return'Fishing';return x}
+function dfkWriteHeroesHeader(){var sh=_sheet(SHEET_HEROES);sh.clear();sh.getRange(1,1,1,HERO_HEADERS.length).setValues([HERO_HEADERS]).setFontWeight('bold');sh.setFrozenRows(1);_autoCols(sh)}
+function runGql(q,v){try{var r=UrlFetchApp.fetch(DFK_GRAPHQL,{method:'post',contentType:'application/json',payload:JSON.stringify({query:q,variables:v||{}}),muteHttpExceptions:true});var t=r.getContentText()||'{}',j={};try{j=JSON.parse(t)}catch(e){return[]}if(j.errors)return[];return(j.data&&(j.data.heroes||j.data.pets))?(j.data.heroes||j.data.pets):[]}catch(e){return[]}}
+function dfkImportHeroes(){
+  var T=_logStart('Import Heroes');try{
+    var sh=_sheet(SHEET_HEROES);dfkWriteHeroesHeader();var ws=getEnabledWallets_();if(!ws.length){_logEnd(T,'ERR','no wallets');return}
+    var q="query($o:String!,$n:Int!,$s:Int!){heroes(where:{owner:$o},first:$n,skip:$s,orderBy:id,orderDirection:asc){id owner{id} mainClass subClass rarity level xp stamina summons generation profession strength agility dexterity vitality endurance intelligence wisdom luck mining gardening foraging fishing shiny statBoost1 statBoost2}}",total=0;
+    for(var w=0;w<ws.length;w++){var owner=ws[w].addr,summ=ws[w].name||owner.slice(0,6)+'…'+owner.slice(-4),first=500,skip=0;while(true){var page=runGql(q,{o:owner,n:first,s:skip});if(!page||!page.length)break;var rows=[];for(var i=0;i<page.length;i++){var h=page[i];rows.push([_n(h.id),summ,'',className(h.mainClass),className(h.subClass),_s(h.rarity),_n(h.level),_n(h.xp),_n(h.stamina),_n(h.summons),_n(h.generation),decodeProfessionName_(h.profession),_n(h.strength),_n(h.agility),_n(h.dexterity),_n(h.vitality),_n(h.endurance),_n(h.intelligence),_n(h.wisdom),_n(h.luck),(_n(h.mining)/10)||0,(_n(h.gardening)/10)||0,(_n(h.foraging)/10)||0,(_n(h.fishing)/10)||0,h.shiny?'✨':'',boostType(h.statBoost1),boostType(h.statBoost2),'',''])}var start=sh.getLastRow()+1;sh.getRange(start,1,rows.length,HERO_HEADERS.length).setValues(rows);total+=rows.length;if(page.length<first)break;skip+=page.length}}
+    if(sh.getLastRow()>1)sh.getRange(2,21,sh.getLastRow()-1,4).setNumberFormat('0.0');_autoCols(sh);dfkApplyHeroStyles();_logEnd(T,'OK','Count='+total)
+  }catch(e){_logEnd(T,'ERR',e);throw e}
+}
+
+/* ---- LINK PETS → HEROES ---- */
+function dfkLinkPetsToHeroes(){
+  var T=_logStart('Link Pets');try{
+    var hs=_sheet(SHEET_HEROES),ps=_sheet(SHEET_PETS);if(!hs||!ps){SpreadsheetApp.getUi().alert('Import heroes and pets first');_logEnd(T,'ERR','missing');return}
+    var pH=_headers(ps),cPid=_idx(pH,'PetID'),cGt=_idx(pH,'GatheringType'),cGbN=_idx(pH,'GatheringBonusName'),cGbP=_idx(pH,'GatheringBonusPct');if(cPid<1||cGt<1||cGbN<1||cGbP<1){SpreadsheetApp.getUi().alert('Pets sheet missing columns');_logEnd(T,'ERR','cols');return}
+    var petRows=ps.getRange(2,1,Math.max(0,ps.getLastRow()-1),ps.getLastColumn()).getValues(),petMap={};for(var i=0;i<petRows.length;i++){var id=_s(petRows[i][cPid-1]);if(!id)continue;id=id.replace('#','');var gt=_s(petRows[i][cGt-1]),bn=_s(petRows[i][cGbN-1]),bp=_n(petRows[i][cGbP-1]);var bonus=(gt?gt:'')+(bn?(gt?' · ':'')+bn+(bp!==''?(' '+Math.round(bp*100)+'%'):''):'');petMap[id]={g:gt,t:bonus||'N/A'}}
+    var hH=_headers(hs),cHid=_idx(hH,'HeroID'),cProf=_idx(hH,'Profession'),cPet=_idx(hH,'PetID'),cPB=_idx(hH,'PetBonus');if(cHid<1||cProf<1||cPet<1||cPB<1){_logEnd(T,'ERR','hero cols');return}
+    var last=hs.getLastRow();if(last<2){_logEnd(T,'OK','0');return}var H=hs.getRange(2,1,last-1,hs.getLastColumn()).getValues(),outId=[],outB=[],colI=[],colB=[];
+    var ws=getEnabledWallets_(),heroToPet={},qA="query($o:String!,$n:Int!,$s:Int!){heroes(where:{owner:$o},first:$n,skip:$s,orderBy:id,orderDirection:asc){id profession pet{id}}}",first=500,skip=0;
+    for(var w=0;w<ws.length;w++){first=500;skip=0;while(true){var pA=runGql(qA,{o:ws[w].addr,n:first,s:skip});if(!pA||!pA.length)break;for(var a=0;a<pA.length;a++){heroToPet[String(pA[a].id)]=(pA[a].pet&&pA[a].pet.id)?String(pA[a].pet.id):''}if(pA.length<first)break;skip+=pA.length}}
+    for(var r=0;r<H.length;r++){var hid=_s(H[r][cHid-1]),prof=_s(H[r][cProf-1]),pid=heroToPet[hid]||'';if(!pid){outId.push(['']);outB.push(['N/A']);colI.push([null]);colB.push([null]);continue}var info=petMap[pid]||{g:'',t:'N/A'},mis=(info.g&&prof&&info.g.toLowerCase()!==prof.toLowerCase()),clr=mis?'#d93025':null;outId.push(['#'+pid]);outB.push([info.t]);colI.push([clr]);colB.push([clr])}
+    hs.getRange(2,cPet,outId.length,1).setValues(outId);hs.getRange(2,cPB,outB.length,1).setValues(outB);hs.getRange(2,cPet,colI.length,1).setFontColors(colI);hs.getRange(2,cPB,colB.length,1).setFontColors(colB);
+  }catch(e){_logEnd(T,'ERR',e);throw e}
+}
