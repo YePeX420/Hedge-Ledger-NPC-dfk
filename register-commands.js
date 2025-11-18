@@ -148,6 +148,11 @@ const commands = [
     ]
   },
   {
+    name: 'resend-report',
+    description: 'Resend your most recent garden optimization analysis',
+    options: []
+  },
+  {
     name: 'analytics',
     description: '[ADMIN] View bot economic analytics',
     options: [
