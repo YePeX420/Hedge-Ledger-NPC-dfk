@@ -123,8 +123,8 @@ export async function analyzeCurrentAssignments(walletAddress) {
   try {
     console.log(`[GardenAnalyzer] Analyzing current assignments for ${walletAddress}...`);
     
-    // Fetch all heroes owned by wallet
-    const heroes = await getHeroesByOwner(walletAddress);
+    // Fetch all heroes owned by wallet (increase limit to ensure we get all of them)
+    const heroes = await getHeroesByOwner(walletAddress, 1000);
     console.log(`[GardenAnalyzer] Found ${heroes.length} heroes`);
     
     // Fetch all pets owned by wallet
