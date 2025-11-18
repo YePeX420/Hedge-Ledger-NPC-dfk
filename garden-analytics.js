@@ -839,7 +839,12 @@ export async function getHeroGardeningAssignment(heroId) {
     // First check if hero is on a gardening expedition
     const expeditionAssignment = await getHeroGardeningExpedition(heroId);
     if (expeditionAssignment) {
-      return expeditionAssignment;
+      // Add stamina tracking for expeditions
+      const staminaPerQuest = expeditionAssignment.questDetails.attempts || 5;
+      return {
+        ...expeditionAssignment,
+        staminaUsed: staminaPerQuest
+      };
     }
     
     // If not on expedition, check regular quest
@@ -853,10 +858,12 @@ export async function getHeroGardeningAssignment(heroId) {
     // Valid pool IDs: 0-13 based on LP Staking contract
     const poolId = questDetails.questType;
     if (poolId >= 0 && poolId <= 13) {
+      const staminaPerQuest = questDetails.attempts || 5;
       return {
         poolId,
         questDetails,
-        isExpedition: false
+        isExpedition: false,
+        staminaUsed: staminaPerQuest
       };
     }
     

@@ -76,14 +76,17 @@ export function formatCurrentGardens(currentState) {
   
   for (let i = 0; i < currentState.assignments.length; i++) {
     const assignment = currentState.assignments[i];
-    const { hero, pet, pool, yield: heroYield } = assignment;
+    const { hero, pet, pool, yield: heroYield, staminaUsed, isExpedition } = assignment;
     
     const petStr = pet ? formatPetSummary(pet) : 'No pet equipped';
-    const rapidRenewal = (hero.passive1 === 'Rapid Renewal' || hero.passive2 === 'Rapid Renewal') ? '⚡' : '';
+    const gardeningGene = hero.professionStr === 'Gardening' ? '🧬' : '';
+    const questType = isExpedition ? '🔁 Expedition' : '🎯 Quest';
+    const staminaInfo = staminaUsed ? `${staminaUsed} stamina` : '5 stamina';
     
-    lines.push(`**${i + 1}. Pool ${pool.pid}: ${pool.pair}** (${Number(pool.totalAPR || 0).toFixed(1)}% APR)`);
-    lines.push(`   Hero #${hero.id} ${rapidRenewal} (Lvl ${hero.level}, INT ${hero.intelligence}, WIS ${hero.wisdom}, GrdSkl ${(hero.gardening / 10).toFixed(1)})`);
+    lines.push(`**${i + 1}. Pool ${pool.pid}: ${pool.pair}** (${Number(pool.totalAPR || 0).toFixed(1)}% APR) ${questType}`);
+    lines.push(`   Hero #${hero.id} ${gardeningGene} (Lvl ${hero.level}, VIT ${hero.vitality}, WIS ${hero.wisdom}, GrdSkl ${(hero.gardening / 10).toFixed(1)})`);
     lines.push(`   ${petStr}`);
+    lines.push(`   Using: ${staminaInfo} per quest`);
     lines.push(`   Yield: ${heroYield.crystalsPerQuest.toFixed(4)} CRYSTAL + ${heroYield.jewelPerQuest.toFixed(4)} JEWEL per quest`);
     lines.push('');
   }
@@ -125,24 +128,27 @@ export function formatOptimizedGardens(optimizedState) {
       ? `Pet #${pet.id} ${pet.shiny ? '✨' : ''}(+${pet.gatheringBonusScalar}% ${pet.gatheringType})`
       : 'No pet (consider equipping one!)';
     
-    const rapidRenewal = (hero.passive1 === 'Rapid Renewal' || hero.passive2 === 'Rapid Renewal') ? '⚡' : '';
-    const poolType = pool.emissionRatio > 0.6 ? '🎯 Emission-dominant' : '💰 Fee-dominant';
+    const gardeningGene = hero.professionStr === 'Gardening' ? '🧬' : '';
     
-    lines.push(`**${i + 1}. Pool ${pool.pid}: ${pool.pair}** (${Number(pool.totalAPR || 0).toFixed(1)}% APR) ${poolType}`);
-    lines.push(`   → Hero #${hero.id} ${rapidRenewal} (Lvl ${hero.level}, Score: ${hero.score})`);
-    lines.push(`      Stats: INT ${hero.intelligence}, WIS ${hero.wisdom}, VIT ${hero.vitality}, GrdSkl ${(hero.gardening / 10).toFixed(1)}`);
+    // Optimal stamina setpoint: 5 for Skill 0-9, can use more for Skill 10+
+    const optimalStamina = (hero.gardening / 10) >= 10 ? '5-25' : '5';
+    
+    lines.push(`**${i + 1}. Pool ${pool.pid}: ${pool.pair}** (${Number(pool.totalAPR || 0).toFixed(1)}% APR)`);
+    lines.push(`   → Hero #${hero.id} ${gardeningGene} (Lvl ${hero.level}, Score: ${hero.score})`);
+    lines.push(`      Stats: VIT ${hero.vitality}, WIS ${hero.wisdom}, GrdSkl ${(hero.gardening / 10).toFixed(1)}`);
     lines.push(`   → ${petStr}`);
+    lines.push(`   → **Optimal Stamina:** ${optimalStamina} per quest`);
     lines.push(`   **Expected Yield:** ${heroYield.crystalsPerQuest.toFixed(4)} CRYSTAL + ${heroYield.jewelPerQuest.toFixed(4)} JEWEL per quest`);
     lines.push('');
   }
   
   lines.push(`**Total Optimized APR: ${optimizedState.totalOptimizedAPR.toFixed(2)}%**`);
   lines.push('');
-  lines.push('💡 **Tips:**');
-  lines.push('• Equip gardening pets (green eggs) to emission-dominant pools');
-  lines.push('• Equip trading pets (blue eggs) to fee-dominant pools');
-  lines.push('• Level up heroes and gardening skill for better yields');
-  lines.push('• Heroes with Rapid Renewal passive get +10% boost ⚡');
+  lines.push('💡 **Optimization Tips:**');
+  lines.push('• 🧬 Heroes with Gardening profession gene get 20% more tokens & faster quests');
+  lines.push('• Equip gardening pets (green eggs) for additional yield bonuses');
+  lines.push('• Skill 10+ heroes can use more stamina per quest for better efficiency');
+  lines.push('• Focus on VIT + WIS stats for maximum gardening yields');
   
   return lines.join('\n');
 }
