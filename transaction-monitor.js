@@ -185,7 +185,61 @@ async function findMatchingGardenOptimization(amountJewel, fromAddress) {
 }
 
 /**
+ * Scan for native JEWEL transfers in block range
+ * Native transfers are direct value transfers (like ETH), not ERC20 token transfers
+ * 
+ * @param {number} fromBlock - Start block
+ * @param {number} toBlock - End block
+ * @returns {Array} - Array of native JEWEL transfers
+ */
+async function scanNativeTransfers(fromBlock, toBlock) {
+  const nativeTransfers = [];
+  
+  try {
+    // Scan each block for transactions to Hedge's wallet
+    for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
+      const block = await provider.getBlock(blockNum, true); // true = include transactions
+      
+      if (!block || !block.transactions) {
+        continue;
+      }
+      
+      // Check each transaction in the block
+      for (const tx of block.transactions) {
+        // Check if transaction is to Hedge's wallet and has native value
+        if (tx.to && tx.to.toLowerCase() === HEDGE_WALLET_ADDRESS.toLowerCase() && tx.value > 0n) {
+          // Get transaction receipt to ensure it succeeded
+          const receipt = await provider.getTransactionReceipt(tx.hash);
+          
+          if (receipt && receipt.status === 1) {
+            // Transaction succeeded
+            const amountJewel = weiToJewel(tx.value);
+            
+            nativeTransfers.push({
+              hash: tx.hash,
+              from: tx.from,
+              value: tx.value,
+              amountJewel,
+              blockNumber: blockNum,
+              timestamp: block.timestamp,
+              type: 'native'
+            });
+            
+            console.log(`[Monitor] Native JEWEL: ${amountJewel} JEWEL from ${tx.from} (tx: ${tx.hash})`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[Monitor] Error scanning native transfers:`, err.message);
+  }
+  
+  return nativeTransfers;
+}
+
+/**
  * Process Transfer events from a block range
+ * Now scans BOTH ERC20 token transfers AND native JEWEL transfers
  * 
  * @param {number} fromBlock - Start block (inclusive)
  * @param {number} toBlock - End block (inclusive)
@@ -195,22 +249,41 @@ async function processBlockRange(fromBlock, toBlock) {
   try {
     console.log(`[Monitor] Scanning blocks ${fromBlock}-${toBlock} for JEWEL deposits...`);
     
-    // Query Transfer events where to = Hedge's wallet
-    const filter = jewelContract.filters.Transfer(null, HEDGE_WALLET_ADDRESS);
-    const events = await jewelContract.queryFilter(filter, fromBlock, toBlock);
+    // Scan both ERC20 transfers and native transfers in parallel
+    const [erc20Events, nativeTransfers] = await Promise.all([
+      // Query ERC20 Transfer events where to = Hedge's wallet
+      (async () => {
+        try {
+          const filter = jewelContract.filters.Transfer(null, HEDGE_WALLET_ADDRESS);
+          return await jewelContract.queryFilter(filter, fromBlock, toBlock);
+        } catch (err) {
+          console.error(`[Monitor] Error querying ERC20 events:`, err.message);
+          return [];
+        }
+      })(),
+      // Scan for native JEWEL transfers
+      scanNativeTransfers(fromBlock, toBlock)
+    ]);
     
-    console.log(`[Monitor] Found ${events.length} JEWEL transfers to Hedge's wallet`);
+    console.log(`[Monitor] Found ${erc20Events.length} ERC20 transfers + ${nativeTransfers.length} native transfers`);
     
     const depositMatches = [];
     const optimizationMatches = [];
+    const processedTxHashes = new Set(); // Prevent duplicate processing
     
-    for (const event of events) {
+    // Process ERC20 transfers
+    for (const event of erc20Events) {
       const { from, value } = event.args;
       const amountJewel = weiToJewel(value);
       const txHash = event.transactionHash;
       const blockNumber = event.blockNumber;
       
-      console.log(`[Monitor] Transfer: ${amountJewel} JEWEL from ${from} (tx: ${txHash})`);
+      if (processedTxHashes.has(txHash)) {
+        continue; // Skip duplicates
+      }
+      processedTxHashes.add(txHash);
+      
+      console.log(`[Monitor] ERC20 Transfer: ${amountJewel} JEWEL from ${from} (tx: ${txHash})`);
       
       // Try to match to a pending deposit request
       const matchedRequest = await findMatchingDeposit(amountJewel, from);
@@ -241,6 +314,49 @@ async function processBlockRange(fromBlock, toBlock) {
             from,
             amountJewel,
             timestamp: (await provider.getBlock(blockNumber)).timestamp
+          }
+        });
+      }
+    }
+    
+    // Process native transfers
+    for (const transfer of nativeTransfers) {
+      const { hash: txHash, from, amountJewel, blockNumber, timestamp } = transfer;
+      
+      if (processedTxHashes.has(txHash)) {
+        continue; // Skip duplicates
+      }
+      processedTxHashes.add(txHash);
+      
+      // Try to match to a pending deposit request
+      const matchedRequest = await findMatchingDeposit(amountJewel, from);
+      
+      if (matchedRequest) {
+        depositMatches.push({
+          depositRequest: matchedRequest,
+          transaction: {
+            hash: txHash,
+            blockNumber,
+            from,
+            amountJewel,
+            timestamp
+          }
+        });
+        continue; // Don't try to match as optimization if already matched as deposit
+      }
+      
+      // Try to match to a pending garden optimization
+      const matchedOptimization = await findMatchingGardenOptimization(amountJewel, from);
+      
+      if (matchedOptimization) {
+        optimizationMatches.push({
+          optimization: matchedOptimization,
+          transaction: {
+            hash: txHash,
+            blockNumber,
+            from,
+            amountJewel,
+            timestamp
           }
         });
       }
