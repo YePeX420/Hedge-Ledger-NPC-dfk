@@ -194,6 +194,8 @@ async function scanJob(job, currentBlock) {
     return; // No new blocks to scan
   }
   
+  console.log(`[Job #${job.jobId}] Scanning blocks ${fromBlock} → ${currentBlock} (${currentBlock - fromBlock + 1} blocks)`);
+  
   // Scan in small chunks
   let chunkStart = fromBlock;
   
@@ -202,10 +204,15 @@ async function scanJob(job, currentBlock) {
     
     const transfers = await scanBlockRange(chunkStart, chunkEnd);
     
+    if (transfers.length > 0) {
+      console.log(`[Job #${job.jobId}] Found ${transfers.length} JEWEL transfers in blocks ${chunkStart}-${chunkEnd}`);
+    }
+    
     // Check each transfer against this job
     for (const transfer of transfers) {
       if (matchesJob(transfer, job)) {
         // Payment found!
+        console.log(`[Job #${job.jobId}] ✅ PAYMENT MATCHED! ${transfer.amountJewel} JEWEL from ${transfer.from}`);
         await markPaymentVerified(job, transfer);
         return; // Job complete
       }
@@ -213,6 +220,8 @@ async function scanJob(job, currentBlock) {
     
     chunkStart = chunkEnd + 1;
   }
+  
+  console.log(`[Job #${job.jobId}] No payment found, updated scan to block ${currentBlock}`);
   
   // Update lastScannedBlock even if no match
   paymentJobs.updateLastScannedBlock(job.jobId, currentBlock);
