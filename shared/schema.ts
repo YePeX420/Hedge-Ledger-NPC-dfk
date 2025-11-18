@@ -513,11 +513,16 @@ export const gardenOptimizations = pgTable("garden_optimizations", {
   requestedAt: timestamp("requested_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), // 2 hours from request
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  paymentVerifiedAt: timestamp("payment_verified_at", { withTimezone: true }), // When payment was detected
   
   // Payment details
   expectedAmountJewel: numeric("expected_amount_jewel", { precision: 30, scale: 18 }).notNull().default('25'),
   fromWallet: text("from_wallet").notNull(), // User's wallet address
   txHash: text("tx_hash"), // Transaction hash once payment verified
+  
+  // Per-job block scanning (prevents global backlog dependency)
+  startBlock: bigint("start_block", { mode: "number" }), // Block number when request created
+  lastScannedBlock: bigint("last_scanned_block", { mode: "number" }), // Last block checked for payment
   
   // Optimization data (stored as JSON)
   lpSnapshot: json("lp_snapshot"), // Array of LP positions at time of request
