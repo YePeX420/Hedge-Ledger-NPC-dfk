@@ -23,7 +23,7 @@ import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './pool-cache.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots } from './shared/schema.ts';
-import { eq, desc, sql, inArray, and } from 'drizzle-orm';
+import { eq, desc, sql, inArray, and, gt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
 
@@ -479,13 +479,15 @@ client.on('messageCreate', async (message) => {
     const paymentConfirmKeywords = /\b(sent|done|paid|payment\s+done|just\s+paid|i\s+sent|transaction\s+sent)\b/i;
     if (paymentConfirmKeywords.test(message.content.toLowerCase())) {
       try {
-        // Get user's pending optimization job
+        // Get user's pending optimization job (exclude expired)
         const pendingOpt = await db.select()
           .from(gardenOptimizations)
           .where(and(
             eq(gardenOptimizations.playerId, playerData.id),
-            eq(gardenOptimizations.status, 'awaiting_payment')
+            eq(gardenOptimizations.status, 'awaiting_payment'),
+            gt(gardenOptimizations.expiresAt, new Date()) // Must not be expired
           ))
+          .orderBy(desc(gardenOptimizations.createdAt))
           .limit(1);
         
         if (pendingOpt && pendingOpt.length > 0) {
