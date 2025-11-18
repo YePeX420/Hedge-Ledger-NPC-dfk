@@ -219,9 +219,10 @@ async function processOptimization(optimization) {
       .limit(1);
     
     if (existingBalance.length > 0) {
-      // Update existing record - increment lifetime deposits
+      // Update existing record - increment both balance and lifetime deposits
       await db.update(jewelBalances)
         .set({
+          balanceJewel: sql`${jewelBalances.balanceJewel} + ${paymentAmount}`,
           lifetimeDepositsJewel: sql`${jewelBalances.lifetimeDepositsJewel} + ${paymentAmount}`,
           lastDepositAt: new Date(),
           updatedAt: new Date()
@@ -229,10 +230,10 @@ async function processOptimization(optimization) {
         .where(eq(jewelBalances.playerId, optimization.playerId));
       console.log(`[OptimizationProcessor] ✅ Updated jewelBalances for player #${optimization.playerId}`);
     } else {
-      // Create new record
+      // Create new record with initial balance
       await db.insert(jewelBalances).values({
         playerId: optimization.playerId,
-        balanceJewel: '0',
+        balanceJewel: paymentAmount,
         lifetimeDepositsJewel: paymentAmount,
         tier: 'free',
         lastDepositAt: new Date(),
