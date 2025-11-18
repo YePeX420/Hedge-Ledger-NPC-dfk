@@ -144,19 +144,15 @@ export async function analyzeCurrentAssignments(walletAddress) {
     // Analyze current assignments by checking actual quest data from blockchain
     const assignments = [];
     
-    // Filter heroes with active quests
-    const heroesOnQuests = heroes.filter(h => {
-      return h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000';
-    });
+    console.log(`[GardenAnalyzer] Checking all ${heroes.length} heroes for gardening assignments...`);
     
-    console.log(`[GardenAnalyzer] ${heroesOnQuests.length} heroes currently on quests`);
-    
-    // Check each hero to see if they're on a GARDENING quest specifically
+    // Check ALL heroes for gardening assignments (not just those with currentQuest set)
+    // This is critical for expeditions which may not populate currentQuest in GraphQL
     const gardeningAssignments = [];
     let expeditionCount = 0;
     let regularQuestCount = 0;
     
-    for (const hero of heroesOnQuests) {
+    for (const hero of heroes) {
       try {
         const assignment = await getHeroGardeningAssignment(hero.id);
         if (assignment) {
@@ -179,7 +175,7 @@ export async function analyzeCurrentAssignments(walletAddress) {
     }
     
     console.log(`[GardenAnalyzer] ✅ GARDENING Detection Summary:`);
-    console.log(`  - Total heroes on quests: ${heroesOnQuests.length}`);
+    console.log(`  - Total heroes checked: ${heroes.length}`);
     console.log(`  - Gardening expeditions: ${expeditionCount}`);
     console.log(`  - Gardening regular quests: ${regularQuestCount}`);
     console.log(`  - Total gardening heroes: ${gardeningAssignments.length}`);
