@@ -100,8 +100,8 @@ export function calculateHeroYield(hero, pet, poolData) {
   crystalsPerQuest *= (1 + geneBonus * 0.02) * rapidRenewalMult * petBonus;
   jewelPerQuest *= (1 + geneBonus * 0.02) * rapidRenewalMult * petBonus;
   
-  // Calculate total APR if pool has it
-  const totalAPR = poolData.totalAPR || 0;
+  // Calculate total APR if pool has it (ensure it's a number)
+  const totalAPR = Number(poolData.totalAPR) || 0;
   
   return {
     crystalsPerQuest: Number(crystalsPerQuest.toFixed(4)),
