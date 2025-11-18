@@ -90,7 +90,7 @@ async function processQueue() {
         await user.send("🎉 *pulls out freshly polished ledger* Alright, the garden data is ready. Let me analyze your LP positions now...");
         
         // Detect LP positions
-        const positions = await detectLPPositions(userData.wallet);
+        const positions = await detectWalletLPPositions(userData.wallet);
         
         if (!positions || positions.length === 0) {
           await user.send("Hmm. No garden LP positions found in your wallet. Make sure you have LP tokens staked in Crystalvale pools, then try again.");
