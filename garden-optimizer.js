@@ -60,44 +60,22 @@ export function optimizeHeroAssignments(heroes, pets, pools, maxHeroes = 10) {
     const { hero, score } = scoredHeroes[i];
     const pool = rankedPools[i];
     
-    // Determine pool type (emission-dominant vs fee-dominant)
-    const emissionRatio = pool.emissionAPR / (pool.totalAPR || 1);
-    const isEmissionDominant = emissionRatio > 0.6;
+    // IMPORTANT: Only Gardening pets boost gardening quests!
+    // Fishing/Trading/Mining pets don't provide any benefit to gardening.
+    // Always prioritize gardening pets for ALL gardening assignments.
     
-    // Select best pet for this pool type
     let selectedPet = null;
     
-    if (isEmissionDominant && gardeningPets.length > 0) {
-      // Emission pools: use gardening pets
-      for (const pet of gardeningPets) {
-        if (!usedPets.has(pet.id)) {
-          selectedPet = pet;
-          usedPets.add(pet.id);
-          break;
-        }
-      }
-    } else if (!isEmissionDominant && tradingPets.length > 0) {
-      // Fee pools: use trading pets
-      for (const pet of tradingPets) {
-        if (!usedPets.has(pet.id)) {
-          selectedPet = pet;
-          usedPets.add(pet.id);
-          break;
-        }
+    // Try to assign a gardening pet first (best bonus first)
+    for (const pet of gardeningPets) {
+      if (!usedPets.has(pet.id) && !pet.equippedTo) {
+        selectedPet = pet;
+        usedPets.add(pet.id);
+        break;
       }
     }
     
-    // If no pet matched the pool type, try the other type
-    if (!selectedPet) {
-      const allAvailablePets = [...gardeningPets, ...tradingPets];
-      for (const pet of allAvailablePets) {
-        if (!usedPets.has(pet.id)) {
-          selectedPet = pet;
-          usedPets.add(pet.id);
-          break;
-        }
-      }
-    }
+    // No fallback to other pet types - they provide no benefit to gardening
     
     // Calculate yield with this hero+pet+pool combination
     const heroYield = calculateHeroYield(hero, selectedPet, pool);
@@ -106,12 +84,10 @@ export function optimizeHeroAssignments(heroes, pets, pools, maxHeroes = 10) {
       hero: {
         id: hero.id,
         level: hero.level,
-        intelligence: hero.intelligence,
         wisdom: hero.wisdom,
         vitality: hero.vitality,
         gardening: hero.gardening,
-        passive1: hero.passive1?.name,
-        passive2: hero.passive2?.name,
+        professionStr: hero.professionStr,
         score
       },
       pet: selectedPet ? {
@@ -125,8 +101,7 @@ export function optimizeHeroAssignments(heroes, pets, pools, maxHeroes = 10) {
         pair: pool.pair,
         totalAPR: pool.totalAPR,
         emissionAPR: pool.emissionAPR,
-        feeAPR: pool.feeAPR,
-        emissionRatio
+        feeAPR: pool.feeAPR
       },
       yield: heroYield
     });
