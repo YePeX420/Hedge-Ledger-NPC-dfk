@@ -1,7 +1,12 @@
 import { getAllPoolAnalytics } from './garden-analytics.js';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 const REFRESH_INTERVAL_MS = 20 * 60 * 1000; // 20 minutes
 const MAX_TIMING_HISTORY = 10; // Keep last 10 refresh times for averages
+const CACHE_DIR = '.cache';
+const CACHE_FILE_PATH = path.join(CACHE_DIR, 'pool-analytics.json');
+const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours - reject cache older than this
 
 let cache = {
   data: null,
@@ -57,11 +62,79 @@ async function refreshCache() {
     if (cache.timingHistory.length >= 3 && duration > avgTime * 1.5) {
       console.warn(`[PoolCache] ⚠️ Slow refresh detected: ${duration.toFixed(1)}s (${((duration / avgTime - 1) * 100).toFixed(0)}% slower than avg)`);
     }
+    
+    // Save cache to disk for next startup
+    await saveCache();
   } catch (error) {
     console.error('[PoolCache] ❌ Failed to refresh cache:', error.message);
     // Keep old cache data if refresh fails
   } finally {
     cache.isRefreshing = false;
+  }
+}
+
+/**
+ * Save cache to disk for persistence across restarts
+ */
+async function saveCache() {
+  try {
+    // Ensure cache directory exists
+    await fs.mkdir(CACHE_DIR, { recursive: true });
+    
+    const cacheData = {
+      data: cache.data,
+      lastUpdated: cache.lastUpdated?.toISOString(),
+      timingHistory: cache.timingHistory,
+      version: '1.0'
+    };
+    
+    await fs.writeFile(CACHE_FILE_PATH, JSON.stringify(cacheData, null, 2), 'utf8');
+    console.log(`[PoolCache] 💾 Cache saved to disk (${cache.data.length} pools)`);
+  } catch (error) {
+    console.error('[PoolCache] ❌ Failed to save cache to disk:', error.message);
+  }
+}
+
+/**
+ * Load cache from disk if available and not too old
+ * @returns {boolean} True if cache was loaded successfully
+ */
+async function loadCache() {
+  try {
+    const fileContent = await fs.readFile(CACHE_FILE_PATH, 'utf8');
+    const cacheData = JSON.parse(fileContent);
+    
+    // Validate cache version and structure
+    if (!cacheData.version || !cacheData.data || !cacheData.lastUpdated) {
+      console.log('[PoolCache] ⚠️ Invalid cache file format, will refresh from blockchain');
+      return false;
+    }
+    
+    const lastUpdated = new Date(cacheData.lastUpdated);
+    const ageMs = Date.now() - lastUpdated.getTime();
+    const ageMinutes = Math.floor(ageMs / 60000);
+    
+    // Reject cache if too old
+    if (ageMs > MAX_CACHE_AGE_MS) {
+      console.log(`[PoolCache] ⏰ Cached data is ${ageMinutes} minutes old (max: ${MAX_CACHE_AGE_MS / 60000} min), will refresh`);
+      return false;
+    }
+    
+    // Load cache data
+    cache.data = cacheData.data;
+    cache.lastUpdated = lastUpdated;
+    cache.timingHistory = cacheData.timingHistory || [];
+    
+    console.log(`[PoolCache] 📂 Loaded cache from disk (${cache.data.length} pools, ${ageMinutes} min old)`);
+    console.log(`[PoolCache] ✅ Cache ready immediately - background refresh will update soon`);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      console.log('[PoolCache] No cached data found, performing initial refresh...');
+    } else {
+      console.error('[PoolCache] ❌ Failed to load cache from disk:', error.message);
+    }
+    return false;
   }
 }
 
@@ -73,8 +146,20 @@ export async function initializePoolCache() {
   console.log('[PoolCache] Initializing pool analytics cache...');
   console.log(`[PoolCache] Refresh interval: ${REFRESH_INTERVAL_MS / 60000} minutes`);
   
-  // Initial cache population
-  await refreshCache();
+  // Try to load cache from disk first for instant availability
+  const cacheLoaded = await loadCache();
+  
+  // If cache wasn't loaded, perform initial refresh
+  // If cache was loaded, still refresh in background to get fresh data
+  if (!cacheLoaded) {
+    await refreshCache();
+  } else {
+    // Cache loaded successfully, refresh in background without blocking startup
+    console.log('[PoolCache] Scheduling background refresh for fresh data...');
+    refreshCache().catch(err => {
+      console.error('[PoolCache] Background refresh failed:', err.message);
+    });
+  }
   
   // Start background refresh cycle
   if (refreshInterval) {
