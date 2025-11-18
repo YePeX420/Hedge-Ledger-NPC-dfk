@@ -1725,7 +1725,7 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
       .from(walletSnapshots)
       .where(and(
         inArray(walletSnapshots.playerId, playerIds),
-        sql`${walletSnapshots.asOfDate} <= ${sevenDaysAgo}`
+        sql`${walletSnapshots.asOfDate} <= ${sevenDaysAgo.toISOString()}`
       ))
       .orderBy(desc(walletSnapshots.asOfDate));
     
