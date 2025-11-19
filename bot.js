@@ -27,7 +27,7 @@ import { jewelBalances, players, depositRequests, queryCosts, interactionSession
 import { eq, desc, sql, inArray, and, gt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
-import { isPaymentBypassEnabled } from './debug-settings.js';
+import { isPaymentBypassEnabled, getDebugSettings, setDebugSettings } from './debug-settings.js';
 
 const execAsync = promisify(exec);
 
