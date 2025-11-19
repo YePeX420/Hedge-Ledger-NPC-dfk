@@ -1,81 +1,112 @@
-import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+// index.js
+// Hedge Ledger – minimal bot with /ping and /logtest
 
-const app = express();
+const fs = require('fs');
+const path = require('path');
+const {
+  Client,
+  Collection,
+  GatewayIntentBits,
+  Events,
+  REST,
+  Routes,
+} = require('discord.js');
 
-declare module 'http' {
-  interface IncomingMessage {
-    rawBody: unknown
-  }
+// ==== CONFIG FROM ENV (set these in Replit Secrets) ====
+// DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_GUILD_ID
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+const GUILD_ID = process.env.DISCORD_GUILD_ID;
+
+if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
+  console.error(
+    '❌ Missing DISCORD_TOKEN, DISCORD_CLIENT_ID, or DISCORD_GUILD_ID in environment.'
+  );
+  process.exit(1);
 }
-app.use(express.json({
-  verify: (req, _res, buf) => {
-    req.rawBody = buf;
-  }
-}));
-app.use(express.urlencoded({ extended: false }));
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-    }
-  });
-
-  next();
+// ==== DISCORD CLIENT ====
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds],
 });
 
-(async () => {
-  const server = await registerRoutes(app);
+// Collection to store commands
+client.commands = new Collection();
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+// ==== LOAD COMMAND FILES ====
+const commandsPath = path.join(__dirname, 'commands');
+const commandFiles = fs
+  .readdirSync(commandsPath)
+  .filter((file) => file.endsWith('.js'));
 
-    res.status(status).json({ message });
-    throw err;
-  });
+const slashCommandsForRegistration = [];
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+for (const file of commandFiles) {
+  const filePath = path.join(commandsPath, file);
+  const command = require(filePath);
+
+  if (!command.data || !command.execute) {
+    console.warn(`⚠️ Command at ${filePath} is missing "data" or "execute". Skipping.`);
+    continue;
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-  });
+  client.commands.set(command.data.name, command);
+  slashCommandsForRegistration.push(command.data.toJSON());
+}
+
+// ==== REGISTER SLASH COMMANDS (GUILD-SCOPED) ====
+const rest = new REST({ version: '10' }).setToken(TOKEN);
+
+async function registerCommands() {
+  try {
+    console.log(`🔁 Refreshing ${slashCommandsForRegistration.length} application (/) commands…`);
+    await rest.put(
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      { body: slashCommandsForRegistration }
+    );
+    console.log('✅ Successfully registered application (/) commands.');
+  } catch (error) {
+    console.error('❌ Error registering commands:', error);
+  }
+}
+
+// ==== EVENT: CLIENT READY ====
+client.once(Events.ClientReady, (c) => {
+  console.log(`🤖 Logged in as ${c.user.tag}`);
+});
+
+// ==== EVENT: INTERACTION HANDLER ====
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  const command = client.commands.get(interaction.commandName);
+
+  if (!command) {
+    console.error(`❌ No command matching ${interaction.commandName} found.`);
+    return;
+  }
+
+  try {
+    await command.execute(interaction);
+  } catch (error) {
+    console.error(`❌ Error executing command ${interaction.commandName}:`, error);
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({
+        content: 'There was an error while executing this command.',
+        ephemeral: true,
+      });
+    } else {
+      await interaction.reply({
+        content: 'There was an error while executing this command.',
+        ephemeral: true,
+      });
+    }
+  }
+});
+
+// ==== STARTUP ====
+(async () => {
+  await registerCommands();
+  await client.login(TOKEN);
 })();
