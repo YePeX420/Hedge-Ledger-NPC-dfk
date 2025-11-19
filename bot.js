@@ -339,13 +339,8 @@ client.once(Events.ClientReady, async (c) => {
   console.log(`🤖 Logged in as ${c.user.tag}`);
   console.log(`🧠 Model: ${OPENAI_MODEL}`);
 
-  // 🔧 Register debug slash commands (/ping, /logtest) on the guild
-  client.once(Events.ClientReady, async (c) => {
-    console.log(`🤖 Logged in as ${c.user.tag}`);
-    console.log(`🧠 Model: ${OPENAI_MODEL}`);
-
-    // 🔧 Register debug slash commands (/ping, /logtest, /health) on the guild
-    try {
+  // 🔧 Register debug slash commands (/ping, /logtest, /health) on the guild
+  try {
       if (!DISCORD_GUILD_ID) {
         console.warn('⚠️ DISCORD_GUILD_ID not set; skipping debug command registration.');
       } else if (c.application) {
@@ -375,75 +370,15 @@ client.once(Events.ClientReady, async (c) => {
           debugCommands.map((cmd) => cmd.name).join(', ')
         );
       }
-    } catch (err) {
-      console.error('❌ Failed to register debug commands:', err);
-    }
-
-    // Initialize pool analytics cache FIRST (required by optimization processor)
-    try {
-      console.log('🏊 Initializing pool analytics cache...');
-      await initializePoolCache();
-      poolCacheInitialized = true;
-      console.log('✅ Pool cache initialized');
-    } catch (err) {
-      console.error('❌ Failed to initialize pool cache:', err);
-    }
-
-    // Initialize garden optimization processor (depends on pool cache)
-    try {
-      console.log('🌿 Initializing garden optimization processor...');
-      initializeProcessor(c);
-      await startProcessor();
-      optimizationProcessorStarted = true;
-      console.log('✅ Optimization processor started');
-    } catch (err) {
-      console.error('❌ Failed to initialize optimization processor:', err);
-    }
-
-    // Initialize wallet snapshot job (daily balance tracking)
-    try {
-      console.log('📸 Starting wallet snapshot job...');
-      await startSnapshotJob();
-      snapshotJobStarted = true;
-      console.log('✅ Wallet snapshot job started');
-    } catch (err) {
-      console.error('❌ Failed to start wallet snapshot job:', err);
-    }
-
-    // Initialize cache-ready queue monitor
-    try {
-      console.log('⏳ Initializing cache-ready queue monitor...');
-      const { initializeCacheQueue } = await import('./cache-ready-queue.js');
-      initializeCacheQueue(c);
-      cacheQueueInitialized = true;
-      console.log('✅ Cache queue monitor started');
-    } catch (err) {
-      console.error('❌ Failed to initialize cache queue:', err);
-    }
-  });
-
-  // Initialize economic system
-  try {
-    console.log('💰 Initializing pricing config...');
-    await initializePricingConfig();
-
-    console.log('📡 Starting payment monitor (V2: Per-job fast scanner)...');
-
-    // Initialize existing jobs with current block
-    await initializeExistingJobs();
-
-    // Start per-job payment monitor
-    await startMonitoring();
-
-    console.log('✅ Economic system initialized');
   } catch (err) {
-    console.error('❌ Failed to initialize economic system:', err);
+    console.error('❌ Failed to register debug commands:', err);
   }
 
   // Initialize pool analytics cache FIRST (required by optimization processor)
   try {
     console.log('🏊 Initializing pool analytics cache...');
     await initializePoolCache();
+    poolCacheInitialized = true;
     console.log('✅ Pool cache initialized');
   } catch (err) {
     console.error('❌ Failed to initialize pool cache:', err);
@@ -454,6 +389,7 @@ client.once(Events.ClientReady, async (c) => {
     console.log('🌿 Initializing garden optimization processor...');
     initializeProcessor(c);
     await startProcessor();
+    optimizationProcessorStarted = true;
     console.log('✅ Optimization processor started');
   } catch (err) {
     console.error('❌ Failed to initialize optimization processor:', err);
@@ -463,6 +399,7 @@ client.once(Events.ClientReady, async (c) => {
   try {
     console.log('📸 Starting wallet snapshot job...');
     await startSnapshotJob();
+    snapshotJobStarted = true;
     console.log('✅ Wallet snapshot job started');
   } catch (err) {
     console.error('❌ Failed to start wallet snapshot job:', err);
@@ -473,6 +410,7 @@ client.once(Events.ClientReady, async (c) => {
     console.log('⏳ Initializing cache-ready queue monitor...');
     const { initializeCacheQueue } = await import('./cache-ready-queue.js');
     initializeCacheQueue(c);
+    cacheQueueInitialized = true;
     console.log('✅ Cache queue monitor started');
   } catch (err) {
     console.error('❌ Failed to initialize cache queue:', err);
