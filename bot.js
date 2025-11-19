@@ -799,13 +799,6 @@ const app = express();
 app.use(express.json());
 app.use(express.static('public'));
 
-// Helper to serialize BigInt values for JSON
-function serializeBigInt(obj) {
-  return JSON.parse(JSON.stringify(obj, (key, value) =>
-    typeof value === 'bigint' ? value.toString() : value
-  ));
-}
-
 // GET /api/admin/debug-settings - Get debug settings
 app.get('/api/admin/debug-settings', async (req, res) => {
   try {
