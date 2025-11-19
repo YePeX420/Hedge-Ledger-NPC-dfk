@@ -1,11 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users, Coins, TrendingUp, Activity, Settings } from "lucide-react";
+import { Users, Coins, TrendingUp, Activity, Settings, Bug } from "lucide-react";
 import { Link } from "wouter";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 interface OverviewData {
   players: {
@@ -57,7 +61,13 @@ interface QueryBreakdown {
   freeTier: number;
 }
 
+interface DebugSettings {
+  paymentBypass: boolean;
+}
+
 export default function Dashboard() {
+  const { toast } = useToast();
+  
   const { data: overview, isLoading: loadingOverview } = useQuery<OverviewData>({
     queryKey: ['/api/analytics/overview'],
   });
@@ -73,6 +83,37 @@ export default function Dashboard() {
   const { data: queryBreakdown } = useQuery<QueryBreakdown[]>({
     queryKey: ['/api/analytics/query-breakdown'],
   });
+
+  const { data: debugSettings } = useQuery<DebugSettings>({
+    queryKey: ['/api/admin/debug-settings'],
+  });
+
+  const updateDebugSettingsMutation = useMutation({
+    mutationFn: async (settings: DebugSettings) => {
+      return await apiRequest('/api/admin/debug-settings', {
+        method: 'POST',
+        body: JSON.stringify(settings)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/debug-settings'] });
+      toast({
+        title: "Debug settings updated",
+        description: "Changes applied successfully",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update debug settings",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handlePaymentBypassToggle = (enabled: boolean) => {
+    updateDebugSettingsMutation.mutate({ paymentBypass: enabled });
+  };
 
   if (loadingOverview) {
     return (
@@ -286,6 +327,42 @@ export default function Dashboard() {
               )}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-debug-settings" className="border-yellow-500/50 bg-yellow-500/5">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <div className="flex items-center gap-2">
+            <Bug className="h-5 w-5 text-yellow-500" />
+            <div>
+              <CardTitle>Debug Settings</CardTitle>
+              <CardDescription>Testing & development controls</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between" data-testid="debug-payment-bypass">
+            <div className="space-y-0.5">
+              <Label htmlFor="payment-bypass" className="text-sm font-medium">
+                Payment Bypass
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Skip payment verification for garden optimization and premium features
+              </p>
+            </div>
+            <Switch
+              id="payment-bypass"
+              data-testid="switch-payment-bypass"
+              checked={debugSettings?.paymentBypass || false}
+              onCheckedChange={handlePaymentBypassToggle}
+              disabled={updateDebugSettingsMutation.isPending}
+            />
+          </div>
+          {debugSettings?.paymentBypass && (
+            <div className="rounded-md bg-yellow-500/10 p-3 text-sm text-yellow-600 dark:text-yellow-400" data-testid="text-bypass-warning">
+              ⚠️ Payment bypass is enabled. You can test premium features without payment.
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

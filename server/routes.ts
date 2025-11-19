@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { db } from "./db";
 import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages } from "@shared/schema";
 import { desc, sql, eq, inArray } from "drizzle-orm";
+import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Analytics API Routes
@@ -344,6 +345,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[API] Error updating tier:', error);
       res.status(500).json({ error: 'Failed to update tier' });
+    }
+  });
+
+  // Debug Settings API
+  // GET /api/admin/debug-settings - Get debug settings
+  app.get("/api/admin/debug-settings", async (req: any, res: any) => {
+    try {
+      res.json(getDebugSettings());
+    } catch (error) {
+      console.error('[API] Error fetching debug settings:', error);
+      res.status(500).json({ error: 'Failed to fetch debug settings' });
+    }
+  });
+
+  // POST /api/admin/debug-settings - Update debug settings
+  app.post("/api/admin/debug-settings", async (req: any, res: any) => {
+    try {
+      const { paymentBypass } = req.body;
+      
+      if (typeof paymentBypass !== 'boolean') {
+        return res.status(400).json({ error: 'paymentBypass must be a boolean' });
+      }
+      
+      setDebugSettings({ paymentBypass });
+      
+      res.json({ success: true, settings: getDebugSettings() });
+    } catch (error) {
+      console.error('[API] Error updating debug settings:', error);
+      res.status(500).json({ error: 'Failed to update debug settings' });
     }
   });
 

@@ -27,6 +27,7 @@ import { jewelBalances, players, depositRequests, queryCosts, interactionSession
 import { eq, desc, sql, inArray, and, gt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
+import { isPaymentBypassEnabled } from './debug-settings.js';
 
 const execAsync = promisify(exec);
 
@@ -861,7 +862,32 @@ Keep it entertaining but helpful. This is free educational content, so be genero
           // Show summary (NO YIELDS YET - this is the teaser)
           const summary = formatLPPositionsSummary(positions);
           
-          // Create pending optimization record (expires in 2 hours)
+          // Check if payment bypass is enabled (DEBUG MODE)
+          if (isPaymentBypassEnabled()) {
+            console.log(`🐛 [DEBUG] Payment bypass enabled - skipping payment for ${message.author.username}`);
+            
+            // Create optimization request that's immediately ready for processing
+            const [newOptimization] = await db.insert(gardenOptimizations)
+              .values({
+                playerId: playerData.id,
+                status: 'processing', // Skip payment - go straight to processing
+                fromWallet: walletAddress,
+                expiresAt: null,
+                lpSnapshot: sql`${JSON.stringify(serializeBigInt(positions))}::json`,
+              })
+              .returning();
+            
+            console.log(`📝 [DEBUG] Created bypass optimization request #${newOptimization.id} for player ${playerData.id}`);
+            
+            await message.reply(
+              `${summary}\n\n` +
+              `🐛 **DEBUG MODE: Payment bypass enabled**\n\n` +
+              `Your garden optimization is being processed now. You'll receive your personalized recommendations within a few minutes!`
+            );
+            return;
+          }
+          
+          // Normal flow: Create pending optimization record (expires in 2 hours)
           const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
           
           // Get current blockchain head for per-job scanning
