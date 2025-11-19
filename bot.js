@@ -778,6 +778,110 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    if (name === 'debug-wallet') {
+      const walletAddress = interaction.options.getString('address');
+      
+      if (!walletAddress || !walletAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+        await interaction.editReply('❌ Invalid wallet address. Must be a 40-character hex string starting with 0x.');
+        return;
+      }
+
+      const lines = [];
+      lines.push(`**Debug wallet report for ${walletAddress}**\n`);
+
+      try {
+        // Fetch heroes
+        const heroes = await onchain.getHeroesByOwner(walletAddress, 100);
+        
+        if (!heroes || heroes.length === 0) {
+          lines.push('**Heroes**');
+          lines.push('Total heroes: 0\n');
+        } else {
+          // Count by class
+          const classCounts = {};
+          const sampleHeroes = [];
+          
+          for (const hero of heroes) {
+            const mainClass = hero.mainClassStr || 'Unknown';
+            classCounts[mainClass] = (classCounts[mainClass] || 0) + 1;
+            
+            // Collect first 5 heroes as samples
+            if (sampleHeroes.length < 5) {
+              sampleHeroes.push(`• #${hero.normalizedId} - ${mainClass} (Lvl ${hero.level})`);
+            }
+          }
+
+          lines.push('**Heroes**');
+          lines.push(`Total heroes: ${heroes.length}`);
+          
+          const classBreakdown = Object.entries(classCounts)
+            .map(([cls, count]) => `${cls}: ${count}`)
+            .join(', ');
+          lines.push(`By class: ${classBreakdown}`);
+          
+          if (sampleHeroes.length > 0) {
+            lines.push('Sample heroes:');
+            lines.push(...sampleHeroes);
+          }
+          lines.push('');
+        }
+
+        // Fetch all harvestable pools
+        const cached = getCachedPoolAnalytics();
+        
+        if (!cached || !cached.data || cached.data.length === 0) {
+          lines.push('**Gardens (harvestable rewards)**');
+          lines.push('⚠️ Pool cache not ready yet. Try again in a minute.\n');
+        } else {
+          const pools = cached.data;
+          const harvestablePoolsData = [];
+
+          // Check pending rewards for each pool
+          for (const pool of pools) {
+            try {
+              const pendingRewardsStr = await analytics.getUserPendingRewards(walletAddress, pool.pid);
+              const pendingRewards = parseFloat(pendingRewardsStr);
+              
+              // Only include pools with rewards > 0.00001
+              if (pendingRewards > 0.00001) {
+                harvestablePoolsData.push({
+                  pairName: pool.pairName,
+                  rewards: pendingRewards
+                });
+              }
+            } catch (err) {
+              // Silently skip pools with errors
+              continue;
+            }
+          }
+
+          lines.push('**Gardens (harvestable rewards, all pools)**');
+          
+          if (harvestablePoolsData.length === 0) {
+            lines.push('No harvestable rewards found (all pools < 0.00001 CRYSTAL)');
+          } else {
+            // Sort by rewards descending
+            harvestablePoolsData.sort((a, b) => b.rewards - a.rewards);
+            
+            for (const poolData of harvestablePoolsData) {
+              lines.push(`• ${poolData.pairName}: ${poolData.rewards.toFixed(4)} CRYSTAL`);
+            }
+          }
+          lines.push('');
+        }
+
+        lines.push('*Raw debug view. Use Hedge persona commands for nicer analysis.*');
+        
+        await interaction.editReply(lines.join('\n'));
+
+      } catch (err) {
+        console.error('❌ Error in /debug-wallet:', err);
+        await interaction.editReply(`❌ Error fetching wallet data: ${err.message}`);
+      }
+      
+      return;
+    }
+
     // Other slash commands (help, npc, hero, garden, etc.) were not included
     // in this truncated version of the file. Add them back here later as needed.
 
