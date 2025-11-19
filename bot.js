@@ -28,6 +28,48 @@ import { eq, desc, sql, inArray, and, gt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
 
+const userLanguagePreferences = new Map();
+
+const LANGUAGE_HINTS = [
+  { code: 'es', name: 'Spanish', patterns: [/¿|¡/, /[áéíóúñÁÉÍÓÚÑ]/, /\b(hola|vale|gracias|inversi[óo]n|ayuda)\b/i] },
+  { code: 'fr', name: 'French', patterns: [/[%ÉÈÊÀÇÙÂÎÔÛËÏÜŒéèêàçùâîôûëïüœ]/, /\b(bonjour|merci|investissement)\b/i] },
+  { code: 'de', name: 'German', patterns: [/Ä|Ö|Ü|ä|ö|ü|ß/, /\b(hallo|danke|bitte|investition)\b/i] },
+  { code: 'pt', name: 'Portuguese', patterns: [/Ã|Õ|Ç|ã|õ|ç/, /\b(olá|obrigad[ao]|investir|vale a pena)\b/i] },
+  { code: 'it', name: 'Italian', patterns: [/À|È|É|Ì|Ò|Ó|Ù|à|è|é|ì|ò|ó|ù/, /\b(ciao|grazie|investimento)\b/i] },
+  { code: 'zh', name: 'Chinese', patterns: [/[一-鿿]/] },
+  { code: 'ja', name: 'Japanese', patterns: [/[぀-ヿ]/] },
+  { code: 'ko', name: 'Korean', patterns: [/[가-힯]/] },
+  { code: 'ru', name: 'Russian', patterns: [/[Ѐ-ӿ]/] }
+];
+
+function detectLanguageFromText(text) {
+  if (!text || text.trim().length < 4) return null;
+
+  for (const hint of LANGUAGE_HINTS) {
+    if (hint.patterns.some((pattern) => pattern.test(text))) {
+      return hint;
+    }
+  }
+
+  return null;
+}
+
+function rememberUserLanguage(discordId, text) {
+  const detectedLanguage = detectLanguageFromText(text);
+
+  if (detectedLanguage) {
+    userLanguagePreferences.set(discordId, detectedLanguage);
+    console.log(`🌐 Detected preferred language for ${discordId}: ${detectedLanguage.name}`);
+    return detectedLanguage;
+  }
+
+  return null;
+}
+
+function getPreferredLanguage(discordId) {
+  return userLanguagePreferences.get(discordId) || null;
+}
+
 const execAsync = promisify(exec);
 
 // Helper function to convert BigInt values to strings for JSON serialization
@@ -335,7 +377,7 @@ client.once(Events.ClientReady, async (c) => {
 });
 
 // Generic helper to talk to Hedge
-async function askHedge(userMessages, { mode } = {}) {
+async function askHedge(userMessages, { mode, preferredLanguage } = {}) {
   const messages = [
     { role: 'system', content: HEDGE_PROMPT }
   ];
@@ -347,6 +389,13 @@ async function askHedge(userMessages, { mode } = {}) {
         "You are in WALKTHROUGH MODE. Focus ONLY on explaining DeFi Kingdoms game concepts, UI navigation, and basic gameplay. " +
         "Do NOT discuss ROI, APR, yields, token prices, or financial advice. Assume the user is a beginner. " +
         "Use short, clear, step-by-step instructions. Keep answers compact but friendly."
+    });
+  }
+
+  if (preferredLanguage) {
+    messages.push({
+      role: 'system',
+      content: `The user prefers to chat in ${preferredLanguage.name} (${preferredLanguage.code}). Unless they explicitly switch languages, keep all replies in ${preferredLanguage.name}.`
     });
   }
 
@@ -412,7 +461,11 @@ client.on('messageCreate', async (message) => {
     // 📝 Register user in database if first time
     const discordId = message.author.id;
     const username = message.author.username;
-    
+
+    // 🗣️ Track preferred language per user
+    rememberUserLanguage(discordId, message.content);
+    const preferredLanguage = getPreferredLanguage(discordId);
+
     console.log(`[messageCreate] Attempting to register user: ${username} (${discordId})`);
     let isNewUser = false;
     let playerData = null;
@@ -604,7 +657,7 @@ client.on('messageCreate', async (message) => {
             }
             
             const prompt = [{ role: 'user', content: educationPrompt }];
-            const reply = await askHedge(prompt);
+            const reply = await askHedge(prompt, { preferredLanguage });
             await message.reply(reply);
             return;
             
@@ -700,7 +753,7 @@ client.on('messageCreate', async (message) => {
 Keep it entertaining but helpful. This is free educational content, so be generous with the guidance.`;
           
           const prompt = [{ role: 'user', content: npcPrompt }];
-          const reply = await askHedge(prompt);
+          const reply = await askHedge(prompt, { preferredLanguage });
           
           // Send image + response
           await message.reply({
@@ -736,7 +789,7 @@ Keep it entertaining but helpful. This is free educational content, so be genero
             role: 'user', 
             content: `The user wants to learn about gardens in Crystalvale. Based on knowledge/gardens.md, give them a comprehensive but engaging walkthrough covering:\n1. What LP tokens are and how liquidity pools work\n2. How to add liquidity (step-by-step)\n3. How garden expeditions work (hero assignments, pets, stamina)\n4. APRs (fee APR vs distribution APR vs quest APR)\n5. Risks (impermanent loss)\n\nKeep it friendly and entertaining while being thorough. This is free educational content.` 
           }];
-          const reply = await askHedge(prompt);
+          const reply = await askHedge(prompt, { preferredLanguage });
           await message.reply(reply);
           return;
         } catch (err) {
@@ -753,7 +806,7 @@ Keep it entertaining but helpful. This is free educational content, so be genero
             role: 'user', 
             content: `The user wants to understand impermanent loss (IL) in liquidity pools. Explain:\n1. What IL is (in simple terms)\n2. When it happens (price divergence)\n3. Why it matters for LP providers\n4. How to minimize it (stable pairs, correlated assets)\n5. Trade-offs (IL vs fee earnings)\n\nUse a simple analogy and keep it accessible. This is free educational content.` 
           }];
-          const reply = await askHedge(prompt);
+          const reply = await askHedge(prompt, { preferredLanguage });
           await message.reply(reply);
           return;
         } catch (err) {
@@ -1140,7 +1193,7 @@ Keep it entertaining but helpful. This is free educational content, so be genero
     }
 
     const prompt = [{ role: 'user', content: enrichedContent }];
-    const reply = await askHedge(prompt);
+    const reply = await askHedge(prompt, { preferredLanguage });
     await message.reply(reply);
   } catch (err) {
     console.error("DM error:", err);
@@ -1152,6 +1205,9 @@ Keep it entertaining but helpful. This is free educational content, so be genero
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (!interaction.isChatInputCommand()) return;
+
+    const discordId = interaction.user.id;
+    const preferredLanguage = getPreferredLanguage(discordId);
 
     const name = interaction.commandName;
     await interaction.deferReply();
@@ -1172,9 +1228,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (name === 'npc') {
       const message = interaction.options.getString('message', true);
+      rememberUserLanguage(discordId, message);
+      const languageForReply = getPreferredLanguage(discordId) || preferredLanguage;
       const reply = await askHedge([
         { role: 'user', content: message }
-      ]);
+      ], { preferredLanguage: languageForReply });
       await interaction.editReply(reply);
       return;
     }
@@ -1188,7 +1246,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       const heroData = onchain.formatHeroSummary(hero);
       const userMsg = `Slash Command: /hero - LIVE BLOCKCHAIN DATA\n\n${heroData}\n\nRespond as Hedge Ledger with analysis.`;
-      const reply = await askHedge([{ role: 'user', content: userMsg }]);
+      const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
       await interaction.editReply(reply);
       return;
     }
@@ -1230,7 +1288,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
           
           const userMsg = `COMPREHENSIVE CRYSTALVALE POOL DATA:\n\n${poolsList}\n\nAnalyze as Hedge. Highlight the best APR pools and mention both fee-based and emission-based returns.`;
-          const reply = await askHedge([{ role: 'user', content: userMsg }]);
+          const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
           await interaction.editReply(reply);
           return;
         } else if (pool) {
@@ -1298,7 +1356,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           poolInfo += `• CRYSTAL: $${poolData.crystalPrice.toFixed(4)}\n`;
           
           const userMsg = `COMPREHENSIVE POOL ANALYTICS:\n\n${poolInfo}\n\nAnalyze as Hedge. Explain the APR breakdown and whether this is a good yield opportunity.`;
-          const reply = await askHedge([{ role: 'user', content: userMsg }]);
+          const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
           await interaction.editReply(reply);
           return;
         } else if (wallet) {
@@ -1337,13 +1395,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
           positionsSummary += `\n**Total Harvestable:** ${totalPending.toFixed(4)} CRYSTAL`;
           
           const userMsg = `LIVE HARVEST DATA:\n\n${positionsSummary}\n\nAnalyze as Hedge and advise on harvesting strategy.`;
-          const reply = await askHedge([{ role: 'user', content: userMsg }]);
+          const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
           await interaction.editReply(reply);
           return;
         } else {
           // Generic garden info
           const userMsg = `User asked about garden pools. Explain how Crystalvale gardens work: LP staking, fee APR from trading, emission APR from CRYSTAL rewards, and how total APR is calculated. Respond as Hedge.`;
-          const reply = await askHedge([{ role: 'user', content: userMsg }]);
+          const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
           await interaction.editReply(reply);
           return;
         }
@@ -1359,7 +1417,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const userMsg = `Slash Command: /quest recommend
 - goal: ${goal}
 Return top 1–3 options and rationale in Hedge’s concise format.`;
-      const reply = await askHedge([{ role: 'user', content: userMsg }]);
+      const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
       await interaction.editReply(reply);
       return;
     }
@@ -1369,7 +1427,7 @@ Return top 1–3 options and rationale in Hedge’s concise format.`;
       const userMsg = `Slash Command: /stats summary
 - wallet: ${wallet}
 If wallet is 'not provided', explain the safe default view. Use Hedge format.`;
-      const reply = await askHedge([{ role: 'user', content: userMsg }]);
+      const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
       await interaction.editReply(reply);
       return;
     }
@@ -1385,7 +1443,7 @@ Do NOT talk about ROI, APR, or token prices.
 Give a short, step-by-step guide that a complete beginner can follow.`;
       const reply = await askHedge(
         [{ role: 'user', content: userMsg }],
-        { mode: 'walkthrough' }
+        { mode: 'walkthrough', preferredLanguage }
       );
       await interaction.editReply(reply);
       return;
@@ -1638,6 +1696,7 @@ client.login(DISCORD_TOKEN);
 // TODO: Move these handlers inline with the existing commands for better organization
 
 async function handleMarketCommand(interaction) {
+  const preferredLanguage = getPreferredLanguage(interaction.user.id);
   const mainClass = interaction.options.getString('class');
   const limit = interaction.options.getInteger('limit') || 10;
   const heroes = await onchain.getCheapestHeroes(mainClass, limit);
@@ -1652,11 +1711,12 @@ async function handleMarketCommand(interaction) {
     listings += `${i+1}. **#${hero.normalizedId}** - ${hero.mainClassStr} | ${rarity} | Lvl ${hero.level} → **${price}** JEWEL\n`;
   });
   const userMsg = `LIVE MARKET DATA:\n\n${listings}\n\nAnalyze as Hedge.`;
-  const reply = await askHedge([{ role: 'user', content: userMsg }]);
+  const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
   await interaction.editReply(reply);
 }
 
 async function handleLookupCommand(interaction) {
+  const preferredLanguage = getPreferredLanguage(interaction.user.id);
   const mainClass = interaction.options.getString('class');
   const profession = interaction.options.getString('profession');
   const forSale = interaction.options.getBoolean('for_sale') || false;
@@ -1672,11 +1732,12 @@ async function handleLookupCommand(interaction) {
     results += `${i+1}. **#${hero.normalizedId}** - ${hero.mainClassStr} | Lvl ${hero.level} | ${price}\n`;
   });
   const userMsg = `LIVE SEARCH:\n\n${results}\n\nAnalyze as Hedge.`;
-  const reply = await askHedge([{ role: 'user', content: userMsg }]);
+  const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
   await interaction.editReply(reply);
 }
 
 async function handleWalletCommand(interaction) {
+  const preferredLanguage = getPreferredLanguage(interaction.user.id);
   const address = interaction.options.getString('address', true);
   if (!address.match(/^0x[a-fA-F0-9]{40}$/)) {
     await interaction.editReply('Invalid wallet address format.');
@@ -1695,7 +1756,7 @@ async function handleWalletCommand(interaction) {
     portfolio += `${i+1}. #${hero.normalizedId} - ${hero.mainClassStr} | Lvl ${hero.level}\n`;
   });
   const userMsg = `LIVE PORTFOLIO:\n\n${portfolio}\n\nAnalyze as Hedge.`;
-  const reply = await askHedge([{ role: 'user', content: userMsg }]);
+  const reply = await askHedge([{ role: 'user', content: userMsg }], { preferredLanguage });
   await interaction.editReply(reply);
 }
 
