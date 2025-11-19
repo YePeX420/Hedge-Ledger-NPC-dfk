@@ -358,21 +358,21 @@ client.once(Events.ClientReady, async (c) => {
           {
             name: 'health',
             description: 'Show Hedge system health (RPC, DB, OpenAI, cache, monitors).'
+          },
+          {
+            name: 'debug-wallet',
+            description: 'Raw debug info for a wallet (heroes + basic garden data).',
+            options: [
+              {
+                name: 'address',
+                description: 'Wallet address (0x...) to inspect',
+                type: 3,           // STRING
+                required: true
+              }
+            ]
           }
         ];
 
-        // This overwrites existing guild-level commands for this app,
-        // guaranteeing that all three are present.
-        await c.application.commands.set(debugCommands, DISCORD_GUILD_ID);
-
-        console.log(
-          '✅ Debug commands registered:',
-          debugCommands.map((cmd) => cmd.name).join(', ')
-        );
-      }
-  } catch (err) {
-    console.error('❌ Failed to register debug commands:', err);
-  }
 
   // Initialize pool analytics cache FIRST (required by optimization processor)
   try {
@@ -415,7 +415,7 @@ client.once(Events.ClientReady, async (c) => {
   } catch (err) {
     console.error('❌ Failed to initialize cache queue:', err);
   }
-});
+}
 
 // Generic helper to talk to Hedge
 async function askHedge(userMessages, { mode } = {}) {
