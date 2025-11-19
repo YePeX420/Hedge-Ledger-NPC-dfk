@@ -889,24 +889,29 @@ Keep it entertaining but helpful. This is free educational content, so be genero
           
           // Normal flow: Create pending optimization record (expires in 2 hours)
           const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
-          
-          // Get current blockchain head for per-job scanning
-          const provider = new ethers.JsonRpcProvider('https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc');
-          const currentBlock = await provider.getBlockNumber();
-          
+
+          // Get current blockchain head for per-job scanning (tolerate RPC hiccups)
+          let currentBlock = null;
+          try {
+            const provider = new ethers.JsonRpcProvider('https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc');
+            currentBlock = await provider.getBlockNumber();
+          } catch (blockErr) {
+            console.warn('[Garden Opt] Could not fetch current block, proceeding without startBlock:', blockErr.message);
+          }
+
           const [newOptimization] = await db.insert(gardenOptimizations)
             .values({
               playerId: playerData.id,
               status: 'awaiting_payment',
               fromWallet: walletAddress,
               expiresAt,
-              startBlock: currentBlock, // Per-job fast scanning
-              lastScannedBlock: currentBlock - 1, // Start scanning from next block
+              startBlock: currentBlock, // Per-job fast scanning (nullable if RPC unavailable)
+              lastScannedBlock: currentBlock ? currentBlock - 1 : null, // Start scanning from next block
               lpSnapshot: sql`${JSON.stringify(serializeBigInt(positions))}::json`, // Convert BigInt to strings before JSON serialization
             })
             .returning();
-          
-          console.log(`📝 Created optimization request #${newOptimization.id} for player ${playerData.id} (startBlock: ${currentBlock})`);
+
+          console.log(`📝 Created optimization request #${newOptimization.id} for player ${playerData.id} (startBlock: ${currentBlock ?? 'unknown'})`);
           
           // Register job with payment monitor
           registerJob(newOptimization);
