@@ -373,6 +373,13 @@ client.once(Events.ClientReady, async (c) => {
           }
         ];
 
+        const guild = await c.guilds.fetch(DISCORD_GUILD_ID);
+        await guild.commands.set(debugCommands);
+        console.log(`✅ Debug commands registered: ${debugCommands.map(cmd => cmd.name).join(', ')}`);
+      }
+  } catch (err) {
+    console.error('❌ Failed to register slash commands:', err);
+  }
 
   // Initialize pool analytics cache FIRST (required by optimization processor)
   try {
@@ -415,7 +422,7 @@ client.once(Events.ClientReady, async (c) => {
   } catch (err) {
     console.error('❌ Failed to initialize cache queue:', err);
   }
-}
+});
 
 // Generic helper to talk to Hedge
 async function askHedge(userMessages, { mode } = {}) {
