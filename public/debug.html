@@ -1,605 +1,297 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Debug Tools - Hedge Ledger</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background: #0f172a;
-            color: #e2e8f0;
-            padding: 2rem;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        
-        header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        
-        .user-info {
-            color: #94a3b8;
-            font-size: 0.875rem;
-        }
-        
-        .back-button {
-            background: #1e293b;
-            color: #e2e8f0;
-            border: 1px solid #334155;
-            padding: 0.5rem 1rem;
-            border-radius: 0.375rem;
-            cursor: pointer;
-            text-decoration: none;
-            font-size: 0.875rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .back-button:hover {
-            background: #293548;
-        }
-        
-        .logout-button {
-            background: #7f1d1d;
-            color: #fecaca;
-            border: 1px solid #991b1b;
-            padding: 0.5rem 1rem;
-            border-radius: 0.375rem;
-            cursor: pointer;
-            font-size: 0.875rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .logout-button:hover {
-            background: #991b1b;
-        }
-        
-        h1 {
-            font-size: 2rem;
-            color: #f1f5f9;
-        }
-        
-        .section {
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 0.5rem;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
-        
-        .section-title {
-            font-size: 1.25rem;
-            color: #f1f5f9;
-            margin-bottom: 0.5rem;
-        }
-        
-        .section-description {
-            color: #94a3b8;
-            font-size: 0.875rem;
-            margin-bottom: 1rem;
-        }
-        
-        .button-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 1rem;
-        }
-        
-        .debug-button {
-            background: #1e3a5f;
-            color: #93c5fd;
-            border: 1px solid #3b82f6;
-            padding: 1rem;
-            border-radius: 0.375rem;
-            cursor: pointer;
-            font-size: 0.875rem;
-            text-align: center;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 0.5rem;
-            transition: all 0.2s;
-        }
-        
-        .debug-button:hover:not(:disabled) {
-            background: #1e40af;
-            border-color: #60a5fa;
-        }
-        
-        .debug-button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        .debug-button.danger {
-            background: #7f1d1d;
-            color: #fecaca;
-            border-color: #991b1b;
-        }
-        
-        .debug-button.danger:hover:not(:disabled) {
-            background: #991b1b;
-            border-color: #dc2626;
-        }
-        
-        .debug-button.success {
-            background: #14532d;
-            color: #bbf7d0;
-            border-color: #16a34a;
-        }
-        
-        .debug-button.success:hover:not(:disabled) {
-            background: #166534;
-            border-color: #22c55e;
-        }
-        
-        .button-icon {
-            font-size: 1.5rem;
-        }
-        
-        .button-label {
-            font-weight: 500;
-        }
-        
-        .output-area {
-            background: #0f172a;
-            border: 1px solid #334155;
-            border-radius: 0.375rem;
-            padding: 1rem;
-            margin-top: 1rem;
-            min-height: 200px;
-            max-height: 400px;
-            overflow-y: auto;
-            font-family: 'Courier New', monospace;
-            font-size: 0.813rem;
-            white-space: pre-wrap;
-            color: #94a3b8;
-            display: none;
-        }
-        
-        .output-area.visible {
-            display: block;
-        }
-        
-        .log-entry {
-            padding: 0.5rem 0;
-            border-bottom: 1px solid #1e293b;
-        }
-        
-        .log-entry:last-child {
-            border-bottom: none;
-        }
-        
-        .log-time {
-            color: #64748b;
-            font-size: 0.75rem;
-        }
-        
-        .log-level {
-            display: inline-block;
-            padding: 0.125rem 0.5rem;
-            border-radius: 0.25rem;
-            font-size: 0.75rem;
-            font-weight: 500;
-            margin-right: 0.5rem;
-        }
-        
-        .log-level.error {
-            background: #7f1d1d;
-            color: #fecaca;
-        }
-        
-        .log-level.warn {
-            background: #78350f;
-            color: #fed7aa;
-        }
-        
-        .log-level.info {
-            background: #1e3a5f;
-            color: #93c5fd;
-        }
-        
-        .log-message {
-            color: #e2e8f0;
-        }
-        
-        .status-message {
-            padding: 0.75rem;
-            border-radius: 0.375rem;
-            margin-top: 1rem;
-            display: none;
-        }
-        
-        .status-message.visible {
-            display: block;
-        }
-        
-        .status-message.success {
-            background: #14532d;
-            border: 1px solid #16a34a;
-            color: #bbf7d0;
-        }
-        
-        .status-message.error {
-            background: #7f1d1d;
-            border: 1px solid #991b1b;
-            color: #fecaca;
-        }
-        
-        .status-message.info {
-            background: #1e3a5f;
-            border: 1px solid #3b82f6;
-            color: #93c5fd;
-        }
-        
-        .loading {
-            display: inline-block;
-            width: 1rem;
-            height: 1rem;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-top-color: #fff;
-            border-radius: 50%;
-            animation: spin 0.6s linear infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Debug Settings - Hedge Ledger</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #0f1419;
+      color: #e0e0e0;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      color: #ffffff;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+    
+    .subtitle {
+      color: #888;
+      margin-bottom: 40px;
+      font-size: 14px;
+    }
+    
+    .card {
+      background: #1a1f2e;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 20px;
+      border: 1px solid #2a3142;
+    }
+    
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+    
+    .card-description {
+      color: #888;
+      font-size: 14px;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+    
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 0;
+      border-top: 1px solid #2a3142;
+    }
+    
+    .setting-info {
+      flex: 1;
+    }
+    
+    .setting-label {
+      font-size: 15px;
+      font-weight: 500;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    
+    .setting-desc {
+      font-size: 13px;
+      color: #888;
+    }
+    
+    /* Toggle Switch */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 28px;
+    }
+    
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #2a3142;
+      transition: .3s;
+      border-radius: 28px;
+    }
+    
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .toggle-slider {
+      background-color: #10b981;
+    }
+    
+    input:checked + .toggle-slider:before {
+      transform: translateX(22px);
+    }
+    
+    .status-message {
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      margin-top: 16px;
+      display: none;
+    }
+    
+    .status-message.success {
+      background: #10b98120;
+      border: 1px solid #10b981;
+      color: #10b981;
+    }
+    
+    .status-message.error {
+      background: #ef444420;
+      border: 1px solid #ef4444;
+      color: #ef4444;
+    }
+    
+    .status-message.show {
+      display: block;
+    }
+    
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #888;
+      border-radius: 50%;
+      border-top-color: transparent;
+      animation: spin 0.6s linear infinite;
+      margin-left: 8px;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-left: 12px;
+    }
+    
+    .badge.active {
+      background: #10b98130;
+      color: #10b981;
+      border: 1px solid #10b981;
+    }
+    
+    .badge.inactive {
+      background: #88888830;
+      color: #888;
+      border: 1px solid #555;
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div class="header-left">
-                <h1>🔧 Debug Tools</h1>
-            </div>
-            <div class="header-right">
-                <span class="user-info" id="userInfo">Loading...</span>
-                <a href="/index.html" class="back-button">← Dashboard</a>
-                <button class="logout-button" onclick="logout()">Logout</button>
-            </div>
-        </header>
-
-        <!-- Cache Management -->
-        <div class="section">
-            <h2 class="section-title">💾 Cache Management</h2>
-            <p class="section-description">Clear or refresh cached data</p>
-            <div class="button-grid">
-                <button class="debug-button" onclick="clearPoolCache()">
-                    <span class="button-icon">🏊</span>
-                    <span class="button-label">Clear Pool Cache</span>
-                </button>
-                <button class="debug-button" onclick="refreshPoolCache()">
-                    <span class="button-icon">🔄</span>
-                    <span class="button-label">Refresh Pool Cache</span>
-                </button>
-            </div>
-            <div id="cacheOutput" class="output-area"></div>
-            <div id="cacheStatus" class="status-message"></div>
+  <div class="container">
+    <h1>🐛 Debug Settings</h1>
+    <p class="subtitle">Testing controls for Hedge Ledger bot</p>
+    
+    <div class="card">
+      <div class="card-title">Payment Bypass</div>
+      <div class="card-description">
+        Enable this to test garden optimization without requiring 25 JEWEL payment. 
+        When enabled, users can request optimization and it will process immediately.
+      </div>
+      
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">
+            Skip Payment Requirement
+            <span id="statusBadge" class="badge inactive">Disabled</span>
+          </div>
+          <div class="setting-desc">Garden optimization will bypass payment flow</div>
         </div>
-
-        <!-- Flow Testing -->
-        <div class="section">
-            <h2 class="section-title">🧪 Flow Testing</h2>
-            <p class="section-description">Test user flows and message patterns</p>
-            <div class="button-grid">
-                <button class="debug-button" onclick="testWalletDetection()">
-                    <span class="button-icon">💼</span>
-                    <span class="button-label">Test Wallet Detection</span>
-                </button>
-                <button class="debug-button" onclick="testNewUserFlow()">
-                    <span class="button-icon">👋</span>
-                    <span class="button-label">Test New User Flow</span>
-                </button>
-                <button class="debug-button" onclick="testIntentParser()">
-                    <span class="button-icon">🧠</span>
-                    <span class="button-label">Test Intent Parser</span>
-                </button>
-            </div>
-            <div id="flowOutput" class="output-area"></div>
-            <div id="flowStatus" class="status-message"></div>
-        </div>
-
-        <!-- System Controls -->
-        <div class="section">
-            <h2 class="section-title">⚙️ System Controls</h2>
-            <p class="section-description">Restart or reset system components</p>
-            <div class="button-grid">
-                <button class="debug-button danger" onclick="restartBot()">
-                    <span class="button-icon">🔄</span>
-                    <span class="button-label">Restart Bot (Kill Duplicates)</span>
-                </button>
-                <button class="debug-button danger" onclick="restartMonitor()">
-                    <span class="button-icon">📡</span>
-                    <span class="button-label">Restart Monitor</span>
-                </button>
-                <button class="debug-button success" onclick="checkSystemHealth()">
-                    <span class="button-icon">💚</span>
-                    <span class="button-label">System Health</span>
-                </button>
-            </div>
-            <div id="systemOutput" class="output-area"></div>
-            <div id="systemStatus" class="status-message"></div>
-        </div>
-
-        <!-- Error Logs -->
-        <div class="section">
-            <h2 class="section-title">🐛 Recent Errors</h2>
-            <p class="section-description">View the last 50 errors from system logs</p>
-            <div class="button-grid">
-                <button class="debug-button" onclick="viewRecentErrors()">
-                    <span class="button-icon">📋</span>
-                    <span class="button-label">View Error Logs</span>
-                </button>
-                <button class="debug-button" onclick="viewAllLogs()">
-                    <span class="button-icon">📜</span>
-                    <span class="button-label">View All Logs</span>
-                </button>
-            </div>
-            <div id="errorOutput" class="output-area"></div>
-            <div id="errorStatus" class="status-message"></div>
-        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="paymentBypassToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      
+      <div id="statusMessage" class="status-message"></div>
     </div>
-
-    <script>
-        // Check authentication on load
-        async function checkAuth() {
-            try {
-                const response = await fetch('/api/admin/users');
-                if (response.status === 401 || response.status === 403) {
-                    window.location.href = '/login.html';
-                    return;
-                }
-                
-                // Get user info from response headers or a separate endpoint
-                const userInfoEl = document.getElementById('userInfo');
-                userInfoEl.textContent = 'Admin';
-            } catch (error) {
-                console.error('Auth check failed:', error);
-                window.location.href = '/login.html';
-            }
-        }
-
-        function logout() {
-            fetch('/api/auth/logout', { method: 'POST' })
-                .then(() => {
-                    window.location.href = '/login.html';
-                });
-        }
-
-        function showStatus(sectionId, message, type) {
-            const statusEl = document.getElementById(sectionId + 'Status');
-            statusEl.textContent = message;
-            statusEl.className = `status-message visible ${type}`;
-            setTimeout(() => {
-                statusEl.classList.remove('visible');
-            }, 5000);
-        }
-
-        function showOutput(sectionId, content) {
-            const outputEl = document.getElementById(sectionId + 'Output');
-            outputEl.textContent = content;
-            outputEl.classList.add('visible');
-        }
-
-        // Cache Management
-        async function clearPoolCache() {
-            try {
-                showStatus('cache', 'Clearing pool cache...', 'info');
-                const response = await fetch('/api/debug/clear-pool-cache', { method: 'POST' });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('cache', '✅ Pool cache cleared successfully', 'success');
-                    showOutput('cache', JSON.stringify(result, null, 2));
-                } else {
-                    showStatus('cache', '❌ Failed to clear cache: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('cache', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        async function refreshPoolCache() {
-            try {
-                showStatus('cache', 'Refreshing pool cache...', 'info');
-                const response = await fetch('/api/debug/refresh-pool-cache', { method: 'POST' });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('cache', '✅ Pool cache refreshed successfully', 'success');
-                    showOutput('cache', JSON.stringify(result, null, 2));
-                } else {
-                    showStatus('cache', '❌ Failed to refresh cache: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('cache', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        // Flow Testing
-        async function testWalletDetection() {
-            try {
-                showStatus('flow', 'Testing wallet detection...', 'info');
-                const response = await fetch('/api/debug/test-wallet-detection', { method: 'POST' });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('flow', '✅ Wallet detection test passed', 'success');
-                    showOutput('flow', JSON.stringify(result.tests, null, 2));
-                } else {
-                    showStatus('flow', '❌ Test failed: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('flow', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        async function testNewUserFlow() {
-            try {
-                showStatus('flow', 'Testing new user flow...', 'info');
-                const response = await fetch('/api/debug/test-new-user-flow', { method: 'POST' });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('flow', '✅ New user flow test passed', 'success');
-                    showOutput('flow', JSON.stringify(result, null, 2));
-                } else {
-                    showStatus('flow', '❌ Test failed: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('flow', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        async function testIntentParser() {
-            try {
-                showStatus('flow', 'Testing intent parser...', 'info');
-                const response = await fetch('/api/debug/test-intent-parser', { method: 'POST' });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('flow', '✅ Intent parser test passed', 'success');
-                    showOutput('flow', JSON.stringify(result.tests, null, 2));
-                } else {
-                    showStatus('flow', '❌ Test failed: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('flow', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        // System Controls
-        async function restartBot() {
-            if (!confirm('⚠️ This will kill ALL bot processes and trigger a clean restart.\n\nThe bot will be offline for 5-10 seconds.\n\nContinue?')) {
-                return;
-            }
-            
-            try {
-                showStatus('system', 'Killing all bot processes...', 'info');
-                const response = await fetch('/api/admin/restart-bot', { method: 'POST' });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('system', '✅ Bot restart initiated - processes killed, auto-restart in progress...', 'success');
-                    showOutput('system', JSON.stringify(result, null, 2));
-                    
-                    // Show a countdown message
-                    setTimeout(() => {
-                        showStatus('system', '⏳ Waiting for bot to restart... (this may take 10-15 seconds)', 'info');
-                    }, 2000);
-                } else {
-                    showStatus('system', '❌ Failed to restart: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('system', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        async function restartMonitor() {
-            if (!confirm('Are you sure you want to restart the transaction monitor? This may cause a brief interruption.')) {
-                return;
-            }
-            
-            try {
-                showStatus('system', 'Restarting transaction monitor...', 'info');
-                const response = await fetch('/api/debug/restart-monitor', { method: 'POST' });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('system', '✅ Transaction monitor restarted', 'success');
-                    showOutput('system', JSON.stringify(result, null, 2));
-                } else {
-                    showStatus('system', '❌ Failed to restart: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('system', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        async function checkSystemHealth() {
-            try {
-                showStatus('system', 'Checking system health...', 'info');
-                const response = await fetch('/api/debug/system-health');
-                const result = await response.json();
-                
-                if (result.healthy) {
-                    showStatus('system', '✅ All systems operational', 'success');
-                } else {
-                    showStatus('system', '⚠️ Some issues detected', 'error');
-                }
-                showOutput('system', JSON.stringify(result, null, 2));
-            } catch (error) {
-                showStatus('system', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        // Error Logs
-        async function viewRecentErrors() {
-            try {
-                showStatus('error', 'Fetching recent errors...', 'info');
-                const response = await fetch('/api/debug/recent-errors');
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('error', `✅ Found ${result.errors.length} errors`, 'success');
-                    showOutput('error', result.errors.join('\n\n'));
-                } else {
-                    showStatus('error', '❌ Failed to fetch errors: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('error', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        async function viewAllLogs() {
-            try {
-                showStatus('error', 'Fetching all logs...', 'info');
-                const response = await fetch('/api/debug/all-logs');
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('error', `✅ Found ${result.logs.length} log entries`, 'success');
-                    showOutput('error', result.logs.join('\n'));
-                } else {
-                    showStatus('error', '❌ Failed to fetch logs: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('error', '❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        // Initialize
-        checkAuth();
-    </script>
+  </div>
+  
+  <script>
+    const toggle = document.getElementById('paymentBypassToggle');
+    const statusMessage = document.getElementById('statusMessage');
+    const statusBadge = document.getElementById('statusBadge');
+    
+    // Fetch current settings on load
+    async function loadSettings() {
+      try {
+        const response = await fetch('/api/admin/debug-settings');
+        if (!response.ok) throw new Error('Failed to fetch settings');
+        
+        const settings = await response.json();
+        toggle.checked = settings.paymentBypass || false;
+        updateBadge(settings.paymentBypass);
+      } catch (error) {
+        console.error('Error loading settings:', error);
+        showMessage('Failed to load debug settings', 'error');
+      }
+    }
+    
+    // Update settings when toggle changes
+    toggle.addEventListener('change', async (e) => {
+      const paymentBypass = e.target.checked;
+      
+      try {
+        const response = await fetch('/api/admin/debug-settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ paymentBypass })
+        });
+        
+        if (!response.ok) throw new Error('Failed to update settings');
+        
+        const result = await response.json();
+        updateBadge(paymentBypass);
+        showMessage(
+          paymentBypass 
+            ? '✅ Payment bypass enabled - Garden optimization is now FREE for testing' 
+            : '✅ Payment bypass disabled - Normal payment flow restored',
+          'success'
+        );
+      } catch (error) {
+        console.error('Error updating settings:', error);
+        // Revert toggle on error
+        toggle.checked = !paymentBypass;
+        showMessage('❌ Failed to update setting. Please try again.', 'error');
+      }
+    });
+    
+    function updateBadge(enabled) {
+      if (enabled) {
+        statusBadge.textContent = 'Enabled';
+        statusBadge.className = 'badge active';
+      } else {
+        statusBadge.textContent = 'Disabled';
+        statusBadge.className = 'badge inactive';
+      }
+    }
+    
+    function showMessage(message, type) {
+      statusMessage.textContent = message;
+      statusMessage.className = `status-message ${type} show`;
+      
+      // Auto-hide after 5 seconds
+      setTimeout(() => {
+        statusMessage.classList.remove('show');
+      }, 5000);
+    }
+    
+    // Load settings on page load
+    loadSettings();
+  </script>
 </body>
 </html>
