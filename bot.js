@@ -4,7 +4,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder, EmbedBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder, EmbedBuilder, ActivityType } from 'discord.js';
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
 import * as analytics from './garden-analytics.js';
@@ -20,7 +20,7 @@ import { initializeProcessor, startProcessor, stopProcessor } from './optimizati
 import { startSnapshotJob, stopSnapshotJob } from './wallet-snapshot-job.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
-import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './pool-cache.js';
+import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics, isCacheReady, cacheEvents } from './pool-cache.js';
 import { generateOptimizationMessages } from './report-formatter.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots } from './shared/schema.ts';
@@ -274,10 +274,51 @@ const client = new Client({
   partials: [Partials.Channel] // needed for DMs
 });
 
+function setCachePresence(status) {
+  if (!client.user) return;
+
+  if (status === 'refreshing') {
+    client.user.setPresence({
+      status: 'idle',
+      activities: [
+        {
+          name: 'Updating garden cache…',
+          type: ActivityType.Watching
+        }
+      ]
+    });
+    return;
+  }
+
+  const cachedAnalytics = getCachedPoolAnalytics();
+  const poolCount = cachedAnalytics?.data?.length || 0;
+
+  client.user.setPresence({
+    status: 'online',
+    activities: poolCount
+      ? [
+          {
+            name: `Cache synced (${poolCount} pools)`,
+            type: ActivityType.Watching
+          }
+        ]
+      : []
+  });
+}
+
 client.once(Events.ClientReady, async (c) => {
   console.log(`🤖 Logged in as ${c.user.tag}`);
   console.log(`🧠 Model: ${OPENAI_MODEL}`);
-  
+
+  cacheEvents.on('refreshStart', () => setCachePresence('refreshing'));
+  cacheEvents.on('refreshComplete', () => {
+    if (isCacheReady()) {
+      setCachePresence('ready');
+    }
+  });
+
+  setCachePresence(isCacheReady() ? 'ready' : 'refreshing');
+
   // Initialize economic system
   try {
     console.log('💰 Initializing pricing config...');

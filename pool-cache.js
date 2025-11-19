@@ -1,5 +1,6 @@
 import { getAllPoolAnalytics } from './garden-analytics.js';
 import { promises as fs } from 'fs';
+import { EventEmitter } from 'events';
 import path from 'path';
 
 const REFRESH_INTERVAL_MS = 20 * 60 * 1000; // 20 minutes
@@ -18,6 +19,8 @@ let cache = {
 
 let refreshInterval = null;
 
+export const cacheEvents = new EventEmitter();
+
 /**
  * Refresh the pool analytics cache from blockchain
  */
@@ -29,6 +32,7 @@ async function refreshCache() {
 
   try {
     cache.isRefreshing = true;
+    cacheEvents.emit('refreshStart');
     const startTime = Date.now();
     
     // Show estimate based on historical data
@@ -57,7 +61,13 @@ async function refreshCache() {
     
     console.log(`[PoolCache] ✅ Cache refreshed successfully in ${duration.toFixed(1)}s (avg: ${avgTime.toFixed(1)}s)`);
     console.log(`[PoolCache] Cached ${analytics.length} pools. Next refresh in ${REFRESH_INTERVAL_MS / 60000} minutes.`);
-    
+
+    cacheEvents.emit('refreshComplete', {
+      success: true,
+      poolCount: analytics.length,
+      lastUpdated: cache.lastUpdated
+    });
+
     // Performance alert if significantly slower than average
     if (cache.timingHistory.length >= 3 && duration > avgTime * 1.5) {
       console.warn(`[PoolCache] ⚠️ Slow refresh detected: ${duration.toFixed(1)}s (${((duration / avgTime - 1) * 100).toFixed(0)}% slower than avg)`);
@@ -67,6 +77,12 @@ async function refreshCache() {
     await saveCache();
   } catch (error) {
     console.error('[PoolCache] ❌ Failed to refresh cache:', error.message);
+    cacheEvents.emit('refreshComplete', {
+      success: false,
+      error,
+      poolCount: cache.data?.length || 0,
+      lastUpdated: cache.lastUpdated
+    });
     // Keep old cache data if refresh fails
   } finally {
     cache.isRefreshing = false;
