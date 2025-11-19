@@ -19,7 +19,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { analyzeCurrentAssignments } from './garden-analyzer.js';
 import { optimizeHeroAssignments, calculateImprovement } from './garden-optimizer.js';
 import { generateOptimizationMessages } from './report-formatter.js';
-import { getCachedPoolAnalytics } from './pool-cache.js';
+import { getCachedPoolAnalytics, waitForCacheReady } from './pool-cache.js';
 
 const POLL_INTERVAL_MS = 30000; // 30 seconds
 const DISCORD_MESSAGE_LIMIT = 2000; // Discord's message character limit
@@ -130,30 +130,39 @@ async function processOptimization(optimization) {
     // Analyze current state and optimize
     const walletAddress = optimization.fromWallet;
     console.log(`[OptimizationProcessor] Analyzing wallet ${walletAddress}...`);
-    
-    // Step 1: Analyze current assignments (fetches heroes, pets, maps them to pools)
-    const currentState = await analyzeCurrentAssignments(walletAddress);
+
+    // Step 1: Ensure cache is ready before running expensive analysis
+    const poolCache = await waitForCacheReady({
+      onWait: (elapsedSeconds) => {
+        if (elapsedSeconds % 15 === 0) {
+          console.log(`[OptimizationProcessor] Waiting for pool cache readiness... (${elapsedSeconds}s)`);
+        }
+      }
+    });
+
+    // Step 2: Analyze current assignments (fetches heroes, pets, maps them to pools)
+    const currentState = await analyzeCurrentAssignments(walletAddress, poolCache.data);
     console.log(`[OptimizationProcessor] Current state: ${currentState.totalHeroes} heroes, ${currentState.totalPets} pets`);
-    
-    // Step 2: Get pool analytics data
+
+    // Step 3: Get pool analytics data
     const pools = getCachedPoolAnalytics();
     if (!pools || !pools.data || pools.data.length === 0) {
       throw new Error('Pool cache is empty - unable to optimize');
     }
-    
-    // Step 3: Run optimization algorithm
+
+    // Step 4: Run optimization algorithm
     const optimizedState = optimizeHeroAssignments(
       currentState.heroes,
       currentState.pets,
       pools.data,
       10 // Max 10 heroes
     );
-    
-    // Step 4: Calculate improvement metrics
+
+    // Step 5: Calculate improvement metrics
     const improvement = calculateImprovement(currentState, optimizedState);
     console.log(`[OptimizationProcessor] Improvement: ${improvement.absoluteImprovement.toFixed(2)}% APR`);
-    
-    // Step 5: Generate all messages (3 messages total, possibly split into more chunks)
+
+    // Step 6: Generate all messages (3 messages total, possibly split into more chunks)
     const messages = generateOptimizationMessages(currentState, optimizedState, improvement);
     
     // Add Hedge's signature to the last message
