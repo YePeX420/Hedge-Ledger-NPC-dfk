@@ -187,6 +187,83 @@
       color: #888;
       border: 1px solid #555;
     }
+    
+    .error-log {
+      max-height: 400px;
+      overflow-y: auto;
+      background: #0f1419;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    
+    .error-log::-webkit-scrollbar {
+      width: 8px;
+    }
+    
+    .error-log::-webkit-scrollbar-track {
+      background: #1a1f2e;
+    }
+    
+    .error-log::-webkit-scrollbar-thumb {
+      background: #2a3142;
+      border-radius: 4px;
+    }
+    
+    .error-entry {
+      padding: 8px;
+      margin-bottom: 4px;
+      border-left: 3px solid #ef4444;
+      background: #ef444410;
+      border-radius: 4px;
+    }
+    
+    .error-message {
+      color: #ef4444;
+      word-wrap: break-word;
+    }
+    
+    .error-file {
+      color: #888;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+    
+    .no-errors {
+      color: #10b981;
+      text-align: center;
+      padding: 20px;
+    }
+    
+    .refresh-btn {
+      background: #2a3142;
+      color: #fff;
+      border: 1px solid #3a4152;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+      margin-bottom: 12px;
+    }
+    
+    .refresh-btn:hover {
+      background: #3a4152;
+    }
+    
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .error-count {
+      color: #888;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -216,6 +293,28 @@
       </div>
       
       <div id="statusMessage" class="status-message"></div>
+    </div>
+    
+    <div class="card">
+      <div class="header-row">
+        <div>
+          <div class="card-title">Recent Errors</div>
+          <div class="card-description">
+            Live error log from the bot (auto-refreshes every 10 seconds)
+          </div>
+        </div>
+        <button class="refresh-btn" onclick="loadErrorLog()">
+          🔄 Refresh
+        </button>
+      </div>
+      
+      <div class="error-count" id="errorCount">Loading...</div>
+      <div class="error-log" id="errorLog">
+        <div style="text-align: center; color: #888; padding: 20px;">
+          <div class="loading" style="margin: 0 auto;"></div>
+          <div style="margin-top: 12px;">Loading error logs...</div>
+        </div>
+      </div>
     </div>
   </div>
   
@@ -292,6 +391,45 @@
     
     // Load settings on page load
     loadSettings();
+    
+    // Error log functionality
+    async function loadErrorLog() {
+      const errorLog = document.getElementById('errorLog');
+      const errorCount = document.getElementById('errorCount');
+      
+      try {
+        const response = await fetch('/api/debug/recent-errors');
+        if (!response.ok) throw new Error('Failed to fetch errors');
+        
+        const data = await response.json();
+        errorCount.textContent = `${data.count} error(s) found`;
+        
+        if (data.errors.length === 0) {
+          errorLog.innerHTML = '<div class="no-errors">✅ No errors found - System is running smoothly!</div>';
+        } else {
+          errorLog.innerHTML = data.errors.map(error => `
+            <div class="error-entry">
+              <div class="error-message">${escapeHtml(error.message)}</div>
+              <div class="error-file">Source: ${error.file}</div>
+            </div>
+          `).join('');
+        }
+      } catch (error) {
+        console.error('Error loading error log:', error);
+        errorLog.innerHTML = '<div class="error-entry"><div class="error-message">Failed to load error log</div></div>';
+        errorCount.textContent = 'Error loading logs';
+      }
+    }
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    // Auto-refresh error log every 10 seconds
+    loadErrorLog();
+    setInterval(loadErrorLog, 10000);
   </script>
 </body>
 </html>

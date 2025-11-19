@@ -867,12 +867,15 @@ Keep it entertaining but helpful. This is free educational content, so be genero
             console.log(`🐛 [DEBUG] Payment bypass enabled - skipping payment for ${message.author.username}`);
             
             // Create optimization request that's immediately ready for processing
+            // Set expiresAt to 7 days from now (even though it won't be used in debug mode)
+            const debugExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+            
             const [newOptimization] = await db.insert(gardenOptimizations)
               .values({
                 playerId: playerData.id,
                 status: 'processing', // Skip payment - go straight to processing
                 fromWallet: walletAddress,
-                expiresAt: null,
+                expiresAt: debugExpiresAt,
                 lpSnapshot: sql`${JSON.stringify(serializeBigInt(positions))}::json`,
               })
               .returning();
@@ -2570,21 +2573,51 @@ app.get('/api/debug/system-health', requireAuth, requireAdmin, async (req, res) 
 });
 
 // GET /api/debug/recent-errors - Get recent error logs
-app.get('/api/debug/recent-errors', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/debug/recent-errors', async (req, res) => {
   try {
     const fs = await import('fs');
     const path = await import('path');
+    const { readdir, readFile } = fs.promises;
     
-    // Try to read from logs if they exist
-    const errors = [
-      'Debug endpoint: Error logs would be retrieved from system logs',
-      'This is a placeholder - actual implementation would parse log files'
-    ];
+    // Read most recent log file from /tmp/logs
+    const logDir = '/tmp/logs';
+    const errors = [];
+    
+    try {
+      const files = await readdir(logDir);
+      const workflowLogs = files
+        .filter(f => f.startsWith('Start_application_'))
+        .sort()
+        .reverse()
+        .slice(0, 3); // Check last 3 log files
+      
+      for (const logFile of workflowLogs) {
+        const logPath = path.join(logDir, logFile);
+        const content = await readFile(logPath, 'utf-8');
+        const lines = content.split('\n');
+        
+        // Extract error lines (containing ❌, ERROR, Error:, Failed, or exception)
+        for (const line of lines) {
+          if (line.match(/❌|ERROR|Error:|Failed|Exception|CRITICAL|WARNING/i)) {
+            errors.push({
+              timestamp: new Date().toISOString(),
+              message: line.trim(),
+              file: logFile
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.log('[Debug] Could not read log files:', err.message);
+    }
+    
+    // Limit to last 50 errors
+    const recentErrors = errors.slice(0, 50);
     
     res.json({ 
       success: true,
-      count: errors.length,
-      errors: errors
+      count: recentErrors.length,
+      errors: recentErrors
     });
   } catch (error) {
     console.error('[Debug] Error fetching recent errors:', error);
