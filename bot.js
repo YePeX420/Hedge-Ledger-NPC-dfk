@@ -895,7 +895,12 @@ Keep it entertaining but helpful. This is free educational content, so be genero
           
           // Get current blockchain head for per-job scanning
           const provider = new ethers.JsonRpcProvider('https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc');
-          const currentBlock = await provider.getBlockNumber();
+          const currentBlockBigInt = await provider.getBlockNumber();
+          const currentBlock = Number(currentBlockBigInt);
+
+          if (!Number.isFinite(currentBlock)) {
+            throw new Error(`Invalid block number received: ${currentBlockBigInt}`);
+          }
           
           const [newOptimization] = await db.insert(gardenOptimizations)
             .values({
