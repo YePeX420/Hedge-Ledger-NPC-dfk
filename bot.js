@@ -2611,6 +2611,34 @@ app.get('/api/debug/all-logs', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+// GET /api/admin/debug-settings - Get debug settings
+app.get('/api/admin/debug-settings', async (req, res) => {
+  try {
+    res.json(getDebugSettings());
+  } catch (error) {
+    console.error('[API] Error fetching debug settings:', error);
+    res.status(500).json({ error: 'Failed to fetch debug settings' });
+  }
+});
+
+// POST /api/admin/debug-settings - Update debug settings
+app.post('/api/admin/debug-settings', async (req, res) => {
+  try {
+    const { paymentBypass } = req.body;
+    
+    if (typeof paymentBypass !== 'boolean') {
+      return res.status(400).json({ error: 'paymentBypass must be a boolean' });
+    }
+    
+    setDebugSettings({ paymentBypass });
+    
+    res.json({ success: true, settings: getDebugSettings() });
+  } catch (error) {
+    console.error('[API] Error updating debug settings:', error);
+    res.status(500).json({ error: 'Failed to update debug settings' });
+  }
+});
+
 const server = http.createServer(app);
 
 server.on('error', (err) => {
