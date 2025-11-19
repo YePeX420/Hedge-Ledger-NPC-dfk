@@ -784,7 +784,128 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+// === Initialize Economic System (BEFORE Discord client logs in) ===
+console.log('💰 Initializing pricing config...');
+await initializePricingConfig();
+
+console.log('📡 Starting payment monitor (V2: Per-job fast scanner)...');
+await initializeExistingJobs();
+await startMonitoring();
+paymentMonitorStarted = true;
+console.log('✅ Economic system initialized');
+
+// === Create Express App and HTTP Server ===
+const app = express();
+app.use(express.json());
+app.use(express.static('public'));
+
+// Helper to serialize BigInt values for JSON
+function serializeBigInt(obj) {
+  return JSON.parse(JSON.stringify(obj, (key, value) =>
+    typeof value === 'bigint' ? value.toString() : value
+  ));
+}
+
+// GET /api/admin/debug-settings - Get debug settings
+app.get('/api/admin/debug-settings', async (req, res) => {
+  try {
+    res.json(getDebugSettings());
+  } catch (error) {
+    console.error('[API] Error fetching debug settings:', error);
+    res.status(500).json({ error: 'Failed to fetch debug settings' });
+  }
+});
+
+// POST /api/admin/debug-settings - Update debug settings
+app.post('/api/admin/debug-settings', async (req, res) => {
+  try {
+    const { paymentBypass } = req.body;
+    
+    if (typeof paymentBypass !== 'boolean') {
+      return res.status(400).json({ error: 'paymentBypass must be a boolean' });
+    }
+    
+    setDebugSettings({ paymentBypass });
+    
+    res.json({ success: true, settings: getDebugSettings() });
+  } catch (error) {
+    console.error('[API] Error updating debug settings:', error);
+    res.status(500).json({ error: 'Failed to update debug settings' });
+  }
+});
+
+// GET /api/debug/recent-errors - Get recent error logs
+app.get('/api/debug/recent-errors', async (req, res) => {
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const { readdir, readFile } = fs.promises;
+    
+    const logDir = '/tmp/logs';
+    const errors = [];
+    
+    try {
+      const files = await readdir(logDir);
+      const workflowLogs = files
+        .filter(f => f.startsWith('Start_application_'))
+        .sort()
+        .reverse()
+        .slice(0, 3);
+      
+      for (const logFile of workflowLogs) {
+        const logPath = path.join(logDir, logFile);
+        const content = await readFile(logPath, 'utf-8');
+        const lines = content.split('\n');
+        
+        for (const line of lines) {
+          if (line.match(/❌|ERROR|Error:|Failed|Exception|CRITICAL|WARNING/i)) {
+            errors.push({
+              timestamp: new Date().toISOString(),
+              message: line.trim(),
+              file: logFile
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.log('[Debug] Could not read log files:', err.message);
+    }
+    
+    const recentErrors = errors.slice(0, 50);
+    
+    res.json({ 
+      success: true,
+      count: recentErrors.length,
+      errors: recentErrors
+    });
+  } catch (error) {
+    console.error('[Debug] Error fetching recent errors:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+const server = http.createServer(app);
+
+server.on('error', (err) => {
+  console.error('❌ Web server error:', err.message);
+  if (err.code === 'EADDRINUSE') {
+    console.log('Port 5000 already in use - web server disabled');
+  }
+});
+
+// Try to set up Vite dev server, fallback to static serving
+try {
+  const { setupVite } = await import('./server/vite.js');
+  await setupVite(app, server);
+  console.log('✅ Vite dev server configured');
+} catch (err) {
+  console.log(`❌ Failed to setup Vite: ${err.message}`);
+  console.log('Falling back to static file serving from public/');
+}
+
+server.listen(5000, () => {
+  console.log('✅ Web server listening on port 5000');
+});
+
+// === Login to Discord ===
 client.login(DISCORD_TOKEN);
-
-
-// (rest of your HTTP server, admin/debug routes, Vite setup, graceful shutdown, etc. stay identical)
