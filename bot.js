@@ -806,16 +806,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
           };
           
           const herosByRealm = {};
+          const uniqueNetworks = new Set();
           
           for (const hero of heroes) {
             const network = hero.network || 'unknown';
+            uniqueNetworks.add(network);
             if (!herosByRealm[network]) {
               herosByRealm[network] = [];
             }
             herosByRealm[network].push(hero);
           }
 
+          // DEBUG: Log all unique network values we found
+          console.log(`[DEBUG] Unique network values found: ${Array.from(uniqueNetworks).join(', ')}`);
+          console.log(`[DEBUG] Total heroes fetched: ${heroes.length}`);
+          for (const [network, heroList] of Object.entries(herosByRealm)) {
+            console.log(`[DEBUG] Network '${network}': ${heroList.length} heroes`);
+          }
+
           lines.push('**Heroes**');
+          lines.push(`DEBUG: Found network values: ${Array.from(uniqueNetworks).join(', ')}`);
           lines.push('');
           
           // Display each realm
