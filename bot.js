@@ -799,16 +799,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } else {
           // Count by class
           const classCounts = {};
-          const sampleHeroes = [];
           
           for (const hero of heroes) {
             const mainClass = hero.mainClassStr || 'Unknown';
             classCounts[mainClass] = (classCounts[mainClass] || 0) + 1;
-            
-            // Collect first 5 heroes as samples
-            if (sampleHeroes.length < 5) {
-              sampleHeroes.push(`• #${hero.normalizedId} - ${mainClass} (Lvl ${hero.level})`);
-            }
           }
 
           lines.push('**Heroes**');
@@ -818,11 +812,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .map(([cls, count]) => `${cls}: ${count}`)
             .join(', ');
           lines.push(`By class: ${classBreakdown}`);
-          
-          if (sampleHeroes.length > 0) {
-            lines.push('Sample heroes:');
-            lines.push(...sampleHeroes);
-          }
           lines.push('');
         }
 
