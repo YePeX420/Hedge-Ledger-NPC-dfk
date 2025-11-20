@@ -384,10 +384,17 @@ export async function getAllHeroesByOwner(ownerAddress) {
   let fetched = 0;
   let keepGoing = true;
   const lower = ownerAddress.toLowerCase();
+  
+  // For case-insensitive matching (Metis subgraph uses mixed case)
+  const ownerVariants = [
+    lower,
+    ownerAddress,
+    ownerAddress.toUpperCase()
+  ];
 
   const query = gql`
-    query HeroesByOwnerPaginated($owner: String!, $first: Int!, $skip: Int!) {
-      heroes(where: { owner: $owner }, first: $first, skip: $skip, orderBy: level, orderDirection: desc) {
+    query HeroesByOwnerPaginated($owners: [String!]!, $first: Int!, $skip: Int!) {
+      heroes(where: { owner_in: $owners }, first: $first, skip: $skip, orderBy: level, orderDirection: desc) {
         id
         normalizedId
         network
@@ -418,7 +425,7 @@ export async function getAllHeroesByOwner(ownerAddress) {
       console.log(`[getAllHeroesByOwner] Fetching heroes ${fetched}-${fetched + PAGE_SIZE}...`);
       
       const data = await client.request(query, { 
-        owner: lower, 
+        owners: ownerVariants, 
         first: PAGE_SIZE, 
         skip: fetched 
       });
