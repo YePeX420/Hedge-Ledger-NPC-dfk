@@ -790,8 +790,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       lines.push(`**Debug wallet report for ${walletAddress}**\n`);
 
       try {
-        // Fetch heroes
-        const heroes = await onchain.getHeroesByOwner(walletAddress, 100);
+        // Fetch heroes (paginated for large collections like 1000+ heroes)
+        const heroes = await onchain.getAllHeroesByOwnerCV(walletAddress);
         
         if (!heroes || heroes.length === 0) {
           lines.push('**Heroes**');
