@@ -1,0 +1,154 @@
+have a DeFi Kingdoms Discord bot in Node/JS. There’s a bug in my hero counting:
+
+In Crystalvale, my wallet actually has 1039 heroes.
+
+The bot’s /debug-wallet command is only showing 100 heroes.
+
+This means my hero fetcher is page-limited and not paginating.
+
+🔎 Current files & functions
+
+File: onchain-data.js
+This file defines my hero + garden helpers and exports them via a default object. In particular, it has:
+
+export async function getHeroesByOwner(ownerAddress, limit = 50) {
+  const query = gql`
+    query HeroesByOwner($owner: String!, $first: Int!) {
+      heroes(where: { owner: $owner }, first: $first, orderBy: level, orderDirection: desc) {
+        id
+        normalizedId
+        mainClassStr
+        professionStr
+        rarity
+        level
+        generation
+        strength
+        intelligence
+        wisdom
+        vitality
+        stamina
+        mining
+        gardening
+        foraging
+        fishing
+        summons
+        maxSummons
+        staminaFullAt
+        currentQuest
+      }
+    }
+  `;
+
+  try {
+    const data = await client.request(query, { owner: ownerAddress.toLowerCase(), first: limit });
+    return data.heroes;
+  } catch (error) {
+    console.error('Error fetching heroes by owner:', error);
+    return [];
+  }
+}
+
+
+As you can see, this only returns a single page (first: $first) and I’m calling it indirectly from the bot for /debug-wallet.
+
+File: bot.js
+Inside my Discord slash command handler for /debug-wallet I currently have something like:
+
+const heroes = await onchain.getHeroesByOwner(address);
+const totalHeroes = Array.isArray(heroes) ? heroes.length : 0;
+
+
+Then I show:
+
+lines.push('**Heroes**');
+lines.push(`Total heroes: ${totalHeroes}`);
+
+
+Right now that prints 100, but in Crystalvale I actually have 1039 heroes.
+
+🎯 What I want you to do
+
+Please implement a paginated hero fetcher in onchain-data.js for Crystalvale, and then update /debug-wallet to use it.
+
+1. Add a new function: getAllHeroesByOwnerCV(ownerAddress)
+
+Requirements:
+
+Use the same GraphQL endpoint I already use:
+
+const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
+
+Query the Crystalvale heroes (same schema as getHeroesByOwner)
+
+Fetch in pages (e.g. 200 at a time):
+
+use first: PAGE_SIZE
+
+use skip to page: 0, 200, 400, … until a page returns fewer than PAGE_SIZE
+
+Filter by owner: $owner just like getHeroesByOwner
+
+Collect all heroes into a single array
+
+Deduplicate by id (just in case) before returning
+
+Return the full hero list for that wallet (no limit)
+
+Rough shape:
+
+export async function getAllHeroesByOwnerCV(ownerAddress) {
+  const PAGE_SIZE = 200;
+  let allHeroes = [];
+  let fetched = 0;
+  let keepGoing = true;
+  const lower = ownerAddress.toLowerCase();
+
+  const query = gql`... heroes(where: { owner: $owner } first: $first skip: $skip ...)`;
+
+  while (keepGoing) {
+    // request with { owner: lower, first: PAGE_SIZE, skip: fetched }
+    // push into allHeroes
+    // if batch.length < PAGE_SIZE, keepGoing = false
+    // fetched += batch.length
+  }
+
+  // dedupe by id
+  return Object.values(dedupObject);
+}
+
+
+Use the minimal fields needed (id, normalizedId, mainClassStr, etc.) — no need to fetch the entire hero object if not necessary.
+
+Also:
+
+Add getAllHeroesByOwnerCV to the default export object at the bottom of onchain-data.js so I can call it from bot.js.
+
+2. Update /debug-wallet in bot.js to use the new function
+
+In the /debug-wallet handler in bot.js, where I currently have:
+
+const heroes = await onchain.getHeroesByOwner(address);
+const totalHeroes = Array.isArray(heroes) ? heroes.length : 0;
+
+
+Change it to:
+
+const heroes = await onchain.getAllHeroesByOwnerCV(address);
+const totalHeroes = Array.isArray(heroes) ? heroes.length : 0;
+
+
+Leave the rest of the hero display logic intact (class breakdown, sample heroes, etc.), just change the source to use the paginated helper instead of the single-page getHeroesByOwner.
+
+3. Sanity checks
+
+Make sure the new function handles errors gracefully and logs them similarly to the existing helpers.
+
+Make sure there are no syntax errors and all imports (gql, client) are in scope.
+
+After changes, running /debug-wallet address:<my-wallet> in Discord should show something close to:
+
+Total heroes: 1039 for Crystalvale.
+
+You do not need to touch the garden code in onchain-data.js — only the hero-owning parts and /debug-wallet in bot.js.
+
+Please implement all of this directly in the repo files (onchain-data.js and bot.js) and keep the style consistent with the existing code.
