@@ -790,29 +790,63 @@ client.on(Events.InteractionCreate, async (interaction) => {
       lines.push(`**Debug wallet report for ${walletAddress}**\n`);
 
       try {
-        // Fetch heroes (paginated for large collections like 1000+ heroes)
-        const heroes = await onchain.getAllHeroesByOwnerCV(walletAddress);
+        // Fetch heroes (paginated for large collections like 1000+ heroes, all realms)
+        const heroes = await onchain.getAllHeroesByOwner(walletAddress);
         
         if (!heroes || heroes.length === 0) {
           lines.push('**Heroes**');
           lines.push('Total heroes: 0\n');
         } else {
-          // Count by class
-          const classCounts = {};
+          // Group heroes by realm/network
+          const realmMap = {
+            'hmy': 'Serendale (Harmony)',
+            'kla': 'Serendale (Kaia)',
+            'dfk': 'Crystalvale (DFK Chain)',
+            'met': 'Sundered Isles (Metis)'
+          };
+          
+          const herosByRealm = {};
           
           for (const hero of heroes) {
-            const mainClass = hero.mainClassStr || 'Unknown';
-            classCounts[mainClass] = (classCounts[mainClass] || 0) + 1;
+            const network = hero.network || 'unknown';
+            if (!herosByRealm[network]) {
+              herosByRealm[network] = [];
+            }
+            herosByRealm[network].push(hero);
           }
 
           lines.push('**Heroes**');
-          lines.push(`Total heroes: ${heroes.length}`);
-          
-          const classBreakdown = Object.entries(classCounts)
-            .map(([cls, count]) => `${cls}: ${count}`)
-            .join(', ');
-          lines.push(`By class: ${classBreakdown}`);
           lines.push('');
+          
+          // Display each realm
+          let grandTotal = 0;
+          for (const [network, realmHeroes] of Object.entries(herosByRealm)) {
+            const realmName = realmMap[network] || `Unknown Realm (${network})`;
+            
+            // Count by class for this realm
+            const classCounts = {};
+            for (const hero of realmHeroes) {
+              const mainClass = hero.mainClassStr || 'Unknown';
+              classCounts[mainClass] = (classCounts[mainClass] || 0) + 1;
+            }
+            
+            lines.push(`**${realmName}**: ${realmHeroes.length} heroes`);
+            
+            const classBreakdown = Object.entries(classCounts)
+              .sort((a, b) => b[1] - a[1]) // Sort by count descending
+              .map(([cls, count]) => `${cls}: ${count}`)
+              .join(', ');
+            lines.push(`By class: ${classBreakdown}`);
+            lines.push('');
+            
+            grandTotal += realmHeroes.length;
+          }
+          
+          // Grand total across all realms
+          if (Object.keys(herosByRealm).length > 1) {
+            lines.push(`**Total across all realms**: ${grandTotal} heroes`);
+            lines.push('');
+          }
         }
 
         // Fetch all harvestable pools
