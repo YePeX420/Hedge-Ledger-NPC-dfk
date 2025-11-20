@@ -374,10 +374,11 @@ export async function getHeroesByOwner(ownerAddress, limit = 50) {
 }
 
 /**
- * Get ALL heroes owned by a specific address (paginated for Crystalvale)
+ * Get ALL heroes owned by a specific address across all realms (paginated)
  * This function handles wallets with 1000+ heroes by fetching in batches
+ * Returns heroes from Serendale, Crystalvale, and Sundered Isles
  */
-export async function getAllHeroesByOwnerCV(ownerAddress) {
+export async function getAllHeroesByOwner(ownerAddress) {
   const PAGE_SIZE = 200;
   let allHeroes = [];
   let fetched = 0;
@@ -389,6 +390,7 @@ export async function getAllHeroesByOwnerCV(ownerAddress) {
       heroes(where: { owner: $owner }, first: $first, skip: $skip, orderBy: level, orderDirection: desc) {
         id
         normalizedId
+        network
         mainClassStr
         professionStr
         rarity
@@ -413,7 +415,7 @@ export async function getAllHeroesByOwnerCV(ownerAddress) {
 
   try {
     while (keepGoing) {
-      console.log(`[getAllHeroesByOwnerCV] Fetching heroes ${fetched}-${fetched + PAGE_SIZE}...`);
+      console.log(`[getAllHeroesByOwner] Fetching heroes ${fetched}-${fetched + PAGE_SIZE}...`);
       
       const data = await client.request(query, { 
         owner: lower, 
@@ -424,7 +426,7 @@ export async function getAllHeroesByOwnerCV(ownerAddress) {
       const batch = data.heroes || [];
       allHeroes.push(...batch);
       
-      console.log(`[getAllHeroesByOwnerCV] Got ${batch.length} heroes in this batch`);
+      console.log(`[getAllHeroesByOwner] Got ${batch.length} heroes in this batch`);
       
       // If we got fewer than PAGE_SIZE, we've reached the end
       if (batch.length < PAGE_SIZE) {
@@ -443,11 +445,11 @@ export async function getAllHeroesByOwnerCV(ownerAddress) {
     }
 
     const dedupedHeroes = Array.from(dedupMap.values());
-    console.log(`[getAllHeroesByOwnerCV] Total heroes after dedup: ${dedupedHeroes.length}`);
+    console.log(`[getAllHeroesByOwner] Total heroes after dedup: ${dedupedHeroes.length}`);
     
     return dedupedHeroes;
   } catch (error) {
-    console.error('[getAllHeroesByOwnerCV] Error fetching all heroes:', error);
+    console.error('[getAllHeroesByOwner] Error fetching all heroes:', error);
     return [];
   }
 }
@@ -614,7 +616,7 @@ export default {
   getCheapestHeroes,
   getActiveSales,
   getHeroesByOwner,
-  getAllHeroesByOwnerCV,
+  getAllHeroesByOwner,
   getTopProfessionHeroes,
   getHeroSaleHistory,
   getMarketStats,
