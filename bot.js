@@ -956,7 +956,6 @@ console.log('✅ Economic system initialized');
 // === Create Express App and HTTP Server ===
 const app = express();
 app.use(express.json());
-app.use(express.static('public'));
 
 // GET /api/admin/debug-settings - Get debug settings
 app.get('/api/admin/debug-settings', async (req, res) => {
@@ -1044,6 +1043,9 @@ server.on('error', (err) => {
     console.log('Port 5000 already in use - web server disabled');
   }
 });
+
+// Serve static files AFTER API routes
+app.use(express.static('public'));
 
 // Try to set up Vite dev server, fallback to static serving
 try {
