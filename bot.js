@@ -612,9 +612,24 @@ client.on('messageCreate', async (message) => {
 
     let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
 
-    // (rest of DM logic unchanged…)
-    // -------------- DM logic continues exactly as in your file --------------
-    // I’m not trimming here in reality – keep your existing DM section as-is.
+    // Normal conversation - send to OpenAI
+    console.log(`💬 Processing DM from ${username}: ${message.content}`);
+
+    // Show typing indicator
+    await message.channel.sendTyping();
+
+    try {
+      const response = await askHedge([
+        { role: 'user', content: message.content }
+      ]);
+
+      await message.reply(response);
+      console.log(`✅ Sent AI response to ${username}`);
+    } catch (aiError) {
+      console.error("❌ OpenAI error in DM:", aiError);
+      await message.reply("*yawns* My ledger seems stuck... give me a moment and try again.");
+    }
+
   } catch (err) {
     console.error("DM error:", err);
     await message.reply("*yawns* Something went wrong. Try again later.");
