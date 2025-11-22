@@ -12,20 +12,20 @@
 const GENDER_MAP = {
   0: 'Male',
   1: 'Female',
-  2: 'Unknown2',
-  3: 'Unknown3',
-  4: 'Unknown4',
-  5: 'Unknown5',
-  6: 'Unknown6',
-  7: 'Unknown7',
-  8: 'Unknown8',
-  9: 'Unknown9',
-  10: 'Unknown10',
-  11: 'Unknown11',
-  12: 'Unknown12',
-  13: 'Unknown13',
-  14: 'Unknown14',
-  15: 'Unknown15'
+  2: 'Other',
+  3: 'Other',
+  4: 'Other',
+  5: 'Other',
+  6: 'Other',
+  7: 'Other',
+  8: 'Other',
+  9: 'Other',
+  10: 'Other',
+  11: 'Other',
+  12: 'Other',
+  13: 'Other',
+  14: 'Other',
+  15: 'Other'
 };
 
 const HEAD_APPENDAGE_MAP = {
@@ -66,13 +66,21 @@ const BACK_APPENDAGE_MAP = {
 
 const BACKGROUND_MAP = {
   0: 'Desert',
-  1: 'Forest',
-  2: 'Plains',
-  3: 'Island',
-  4: 'Swamp',
-  5: 'Mountains',
-  6: 'City',
-  7: 'Arctic'
+  1: 'None',      // Odd numbers unused
+  2: 'Forest',
+  3: 'None',
+  4: 'Plains',
+  5: 'None',
+  6: 'Island',
+  7: 'None',
+  8: 'Swamp',
+  9: 'None',
+  10: 'Mountains',
+  11: 'None',
+  12: 'City',
+  13: 'None',
+  14: 'Arctic',
+  15: 'None'
 };
 
 // Hair color palette
