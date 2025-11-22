@@ -1082,6 +1082,58 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    if (name === 'debug-hero-id') {
+      const input = interaction.options.getString('id', true).trim();
+
+      // Normalize ID (allow both raw and normalized forms, strip # if present)
+      const numericId = input.replace('#', '');
+
+      let hero;
+      try {
+        hero = await onchain.getHeroById(numericId);
+      } catch (err) {
+        console.error('❌ Error in /debug-hero-id:', err);
+      }
+
+      if (!hero) {
+        await interaction.editReply(`❌ Hero **${numericId}** not found in subgraph.`);
+        return;
+      }
+
+      // Log full hero object to console for detailed inspection
+      console.log('[DebugHeroId] Full hero data:', JSON.stringify(hero, null, 2));
+
+      const lines = [];
+      lines.push(`🧾 **Debug hero info for #${numericId}**`);
+      lines.push('');
+
+      lines.push(`**ID:** ${hero.id}`);
+      lines.push(`**normalizedId:** ${hero.normalizedId || 'N/A'}`);
+      lines.push(`**network:** ${hero.network || 'N/A'}`);
+      lines.push(`**originRealm:** ${hero.originRealm || 'N/A'}`);
+      lines.push(`**mainClass:** ${hero.mainClassStr || 'N/A'}`);
+      lines.push('');
+
+      if (hero.owner) {
+        lines.push(`**owner.id:** ${hero.owner.id}`);
+        lines.push(`**owner.name:** ${hero.owner.name || 'N/A'}`);
+      } else {
+        lines.push('**owner:** N/A');
+      }
+
+      lines.push('');
+      lines.push(`**salePrice:** ${hero.salePrice || '0'}`);
+      lines.push(`**assistingPrice:** ${hero.assistingPrice || '0'}`);
+      lines.push('');
+      lines.push('*(Full hero data logged to console as JSON.)*');
+
+      // Build safe reply under 2000 chars
+      const output = lines.join('\n').slice(0, 1900);
+      await interaction.editReply(output);
+      
+      return;
+    }
+
     // Other slash commands (help, npc, hero, garden, etc.) were not included
     // in this truncated version of the file. Add them back here later as needed.
 
