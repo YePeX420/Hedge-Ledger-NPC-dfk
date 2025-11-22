@@ -1,0 +1,171 @@
+ChatGPT said:
+Thought for 22s
+
+Yes, that’s exactly the right move 👍
+If we can see every hero ID the bot sees for a given class + realm, you can compare against your “truth list” and find the missing Monk immediately.
+
+Let’s keep it simple and very targeted:
+
+🧠 New command: /debug-heroes-by-class
+
+Behavior:
+
+Slash command: /debug-heroes-by-class
+
+Options:
+
+address (string, required) – wallet to inspect
+
+realm (string, choices: dfk, met) – default dfk
+
+class (string, free text or choice like Monk, Knight, etc.)
+
+It will:
+
+Use the same full hero fetchers you already added for CV + Metis
+
+Filter heroes by:
+
+realm/network
+
+mainClassStr === <class>
+
+Reply with:
+
+Total count for that class in that realm
+
+Full list of hero IDs for that class (comma or newline separated)
+
+Also log the IDs to the console for easy copy/paste.
+
+Example output for your test:
+
+🧾 Hero debug for 0x1A9F...4098
+
+Realm: met
+Class: Monk
+
+Total heroes detected: 10
+
+IDs:
+#12345, #67890, #13579, #...
+
+(IDs logged to console as JSON for further analysis.)
+
+
+That way you can:
+
+Run /debug-heroes-by-class address:<your wallet> realm:met class:Monk
+
+Get the list of IDs the bot sees
+
+Compare it to the Monk IDs you know you should have on Metis
+
+The one that’s missing is your “problem Monk” → we can then look at that hero’s owner, network, etc. directly in a separate GraphQL query.
+
+📋 Prompt you can paste into Replit AI
+
+Here’s a ready-made prompt you can give Replit so it writes the code for you (and uses your existing hero fetch logic):
+
+I have a Discord bot in bot.js that already has a /debug-wallet command and hero pagination helpers in onchain-data.js. The debug output shows that on Metis (Sundered Isles) I am off by exactly 1 hero for the “Monk” class compared to what the game shows. I want a new debug command to list the exact hero IDs the bot is seeing, grouped by class, so I can identify which hero is missing.
+
+Files involved
+
+onchain-data.js – has hero helpers like getHeroesByOwner and (now) paginated helpers for CV + Metis.
+
+bot.js – has the Discord client, slash command handler, and /debug-wallet.
+
+What I want you to implement
+
+1. New slash command: /debug-heroes-by-class
+
+In bot.js, inside the same place that other slash commands are defined (the client.on(Events.InteractionCreate, async (interaction) => { ... }) handler), add a new command handler:
+
+Name: debug-heroes-by-class
+
+Options:
+
+address – STRING, required (wallet address)
+
+realm – STRING, optional, default 'dfk' but allow 'dfk' and 'met'
+
+class – STRING, required (e.g. 'Monk', 'Knight', etc.)
+
+It should:
+
+Validate the address with a regex ^0x[a-fA-F0-9]{40}$ – if invalid, reply with an error.
+
+Normalize class input (Monk, monk, MONK → Monk) to match hero.mainClassStr from the GraphQL API.
+
+For realm:
+
+If realm === 'dfk', use the existing paginated CV hero helper (e.g. onchain.getAllHeroesByOwnerCV(address)).
+
+If realm === 'met', use the existing paginated Metis hero helper (whatever you named it in onchain-data.js, for example getAllHeroesByOwnerMetis(address) or similar). If that Metis helper doesn’t exist yet, create it by copying the CV version and pointing it at the Metis subgraph.
+
+Filter the full hero list for that realm to only include heroes where hero.mainClassStr === <normalized class>.
+
+Reply in Discord with:
+
+🧾 Hero debug for <short address>
+
+Realm: <realm>
+Class: <class>
+
+Total heroes detected: <N>
+
+IDs:
+#<id1>, #<id2>, #<id3>, ...
+
+(IDs also logged to console as JSON.)
+
+
+To stay under Discord’s 2000 character limit:
+
+Build a lines[] array (strings).
+
+Join with '\n' and, if the result is > 1900 characters, truncate and append a message like:
+"...(+ more IDs truncated to stay under Discord limits)".
+
+Also console.log the IDs as JSON for offline diff:
+
+console.log('[HeroDebug] Monk IDs on', realm, 'for', address, JSON.stringify(heroIds, null, 2));
+
+
+Where heroIds is the array of numeric IDs.
+
+2. Register the slash command
+
+In the client.once(Events.ClientReady, async (c) => { ... }) block where you currently register /ping, /logtest, /health, and /debug-wallet, update the registration so that debug-heroes-by-class is also registered on the guild:
+
+Add a new entry to the commands you send to Discord with:
+
+name: 'debug-heroes-by-class'
+
+description: 'List hero IDs for a given class and realm for debugging.'
+
+options array matching the handler above (address, realm, class).
+
+You can either:
+
+Use application.commands.set([...]) with the full list of commands, or
+
+Call application.commands.create({ ... }, GUILD_ID) once for the new command – whichever pattern is consistent with the rest of my code.
+
+3. Keep code style consistent
+
+Use the same logging style as other debug commands (console.log('...'), console.error('...')).
+
+Keep the same async/await error handling pattern as the rest of the handler.
+
+Do not remove or refactor existing commands; just extend the code with this new one.
+
+After you implement this:
+
+I should be able to run /debug-heroes-by-class address:<my wallet> realm:met class:Monk in Discord.
+
+The bot should reply with the list of Monk IDs it sees on Metis and log them to the console so I can compare them against my “true” list and identify the missing hero.
+
+Please implement all code changes directly in bot.js (and add any missing paginated Metis helper in onchain-data.js if needed) and ensure the project still compiles and runs.
+
+That’s all I need – keep it focused just on this debug feature.
