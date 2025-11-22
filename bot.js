@@ -430,6 +430,18 @@ client.once(Events.ClientReady, async (c) => {
                 required: true
               }
             ]
+          },
+          {
+            name: 'hedge-wallet',
+            description: 'Hedge-style wallet analysis in DMs.',
+            options: [
+              {
+                name: 'address',
+                description: 'Wallet address (0x...) - optional if you have a linked wallet',
+                type: 3,           // STRING
+                required: false
+              }
+            ]
           }
         ];
 
@@ -1131,6 +1143,193 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const output = lines.join('\n').slice(0, 1900);
       await interaction.editReply(output);
       
+      return;
+    }
+
+    if (name === 'hedge-wallet') {
+      const argAddress = interaction.options.getString('address', false);
+      let walletAddress = null;
+      let shortAddress = null;
+
+      // Resolve wallet address
+      if (argAddress) {
+        // Validate explicit address
+        if (!argAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+          await interaction.editReply('That does not look like a valid 0x wallet address.');
+          return;
+        }
+        walletAddress = argAddress;
+      } else {
+        // Try to use linked wallet from DB
+        try {
+          const userId = interaction.user.id;
+          const [playerRecord] = await db.select().from(players).where(eq(players.discordUserId, userId)).limit(1);
+          
+          if (playerRecord && playerRecord.primaryWallet) {
+            walletAddress = playerRecord.primaryWallet;
+          } else if (playerRecord && playerRecord.wallets && playerRecord.wallets.length > 0) {
+            walletAddress = playerRecord.wallets[0];
+          }
+        } catch (err) {
+          console.error('[hedge-wallet] Error looking up linked wallet:', err);
+        }
+
+        if (!walletAddress) {
+          await interaction.editReply(
+            "I don't see a linked wallet for you yet. DM me your wallet address first, or call /hedge-wallet address:<0x...> with an explicit address."
+          );
+          return;
+        }
+      }
+
+      shortAddress = `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+
+      // Public acknowledgment vs DM delivery
+      if (interaction.guildId) {
+        await interaction.editReply('📬 Check your DMs — I am sending your Hedge wallet analysis there.');
+      } else {
+        await interaction.editReply('Working on your wallet analysis...');
+      }
+
+      // Gather data
+      const lines = [];
+      lines.push(`👋 *Hedge cracks open your ledger for* \`${shortAddress}\` …`);
+      lines.push('');
+
+      try {
+        // Fetch all heroes
+        const allHeroes = await onchain.getAllHeroesByOwner(walletAddress);
+        
+        // Split by realm
+        const heroesCV = allHeroes.filter(h => h.network === 'dfk');
+        const heroesMet = allHeroes.filter(h => h.network === 'met');
+        const countCV = heroesCV.length;
+        const countMet = heroesMet.length;
+        const totalHeroes = allHeroes.length;
+
+        // Build class distributions
+        function buildClassCounts(heroes) {
+          const counts = {};
+          for (const h of heroes) {
+            const cls = h.mainClassStr || 'Unknown';
+            counts[cls] = (counts[cls] || 0) + 1;
+          }
+          return counts;
+        }
+
+        const classCountsCV = buildClassCounts(heroesCV);
+        const classCountsMet = buildClassCounts(heroesMet);
+
+        // Format top classes per realm
+        const topClassesCV = Object.entries(classCountsCV)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([cls, count]) => `${cls}: ${count}`)
+          .join(', ');
+
+        const topClassesMet = Object.entries(classCountsMet)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([cls, count]) => `${cls}: ${count}`)
+          .join(', ');
+
+        lines.push('**🧙 Hero Profile**');
+        lines.push(`• Total heroes: ${totalHeroes}`);
+        lines.push(`• Crystalvale: ${countCV} • Sundered Isles: ${countMet}`);
+        if (countCV > 0) {
+          lines.push(`• CV top classes: ${topClassesCV}`);
+        }
+        if (countMet > 0) {
+          lines.push(`• SIS top classes: ${topClassesMet}`);
+        }
+        lines.push('');
+
+        // Garden footprint
+        const cached = getCachedPoolAnalytics();
+        const topPools = [];
+
+        if (cached && cached.data && cached.data.length > 0) {
+          const pools = cached.data;
+          const harvestablePoolsData = [];
+
+          for (const pool of pools) {
+            try {
+              const pendingRewardsStr = await analytics.getUserPendingRewards(walletAddress, pool.pid);
+              const pendingRewards = parseFloat(pendingRewardsStr);
+              
+              if (pendingRewards > 0.0001) {
+                harvestablePoolsData.push({
+                  pairName: pool.pairName,
+                  amount: pendingRewards.toFixed(4)
+                });
+              }
+            } catch (err) {
+              // Skip pools with errors
+              continue;
+            }
+          }
+
+          // Sort by rewards and take top 5
+          harvestablePoolsData.sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount));
+          topPools.push(...harvestablePoolsData.slice(0, 5));
+        }
+
+        lines.push('**🌿 Garden Footprint (harvestable now)**');
+        if (topPools.length === 0) {
+          lines.push('• No harvestable rewards detected in tracked CV pools.');
+        } else {
+          for (const p of topPools) {
+            lines.push(`• ${p.pairName}: ${p.amount} CRYSTAL`);
+          }
+        }
+        lines.push('');
+
+        // Simple rule-based insights
+        lines.push('**📌 Quick Thoughts**');
+        
+        if (totalHeroes > 500) {
+          lines.push('• You\'re a large roster account; we can do serious optimization.');
+        } else if (totalHeroes > 100) {
+          lines.push('• Decent-sized roster. Plenty of room for yield optimization.');
+        } else if (totalHeroes === 0) {
+          lines.push('• No heroes detected. This wallet looks pretty empty to me.');
+        }
+
+        if (countCV > 0 && countMet === 0) {
+          lines.push('• You are CV-focused; SIS looks untapped.');
+        } else if (countMet > 0 && countCV === 0) {
+          lines.push('• All-in on Sundered Isles, eh? Risky, but I respect it.');
+        } else if (countCV > 0 && countMet > 0) {
+          lines.push('• Multi-realm presence detected. Diversification is wise.');
+        }
+
+        if (topPools.length === 0 && totalHeroes > 0) {
+          lines.push('• No active gardens detected; yields are probably coming from elsewhere.');
+        }
+
+        lines.push('');
+        lines.push('_This is a high-level view. For raw IDs and exact numbers, /debug-wallet is your friend - I\'m just here to grumble and advise._');
+
+      } catch (err) {
+        console.error('[hedge-wallet] Error gathering data:', err);
+        lines.push('_Note: data may be incomplete due to an upstream indexer issue._');
+      }
+
+      // Send DM
+      const dmText = lines.join('\n').slice(0, 1900);
+      
+      try {
+        await interaction.user.send(dmText);
+      } catch (dmErr) {
+        console.error('[hedge-wallet] Failed to send DM:', dmErr);
+        try {
+          await interaction.followUp({
+            content: '⚠️ I tried to DM you but could not. Please enable DMs from this server and try again.',
+            ephemeral: true
+          });
+        } catch {}
+      }
+
       return;
     }
 
