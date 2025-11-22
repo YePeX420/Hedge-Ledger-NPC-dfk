@@ -10,22 +10,22 @@
 // ============================================================================
 
 const GENDER_MAP = {
-  0: 'Male',
-  1: 'Female',
-  2: 'Other',
-  3: 'Other',
-  4: 'Other',
-  5: 'Other',
-  6: 'Other',
-  7: 'Other',
-  8: 'Other',
-  9: 'Other',
-  10: 'Other',
-  11: 'Other',
-  12: 'Other',
-  13: 'Other',
-  14: 'Other',
-  15: 'Other'
+  0: 'None',    // Even numbers unused
+  1: 'Male',
+  2: 'None',
+  3: 'Female',
+  4: 'None',
+  5: 'None',
+  6: 'None',
+  7: 'None',
+  8: 'None',
+  9: 'None',
+  10: 'None',
+  11: 'None',
+  12: 'None',
+  13: 'None',
+  14: 'None',
+  15: 'None'
 };
 
 const HEAD_APPENDAGE_MAP = {

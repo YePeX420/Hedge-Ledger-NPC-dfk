@@ -110,41 +110,41 @@ const STAT_BOOST_GENES = [
 ];
 
 const ELEMENT_GENES = [
-  'Fire',     // 0
-  'Water',    // 1
-  'Earth',    // 2
-  'Wind',     // 3
-  'Lightning', // 4
-  'Ice',      // 5
-  'Light',    // 6
-  'Dark',     // 7
-  'Neutral',  // 8 - Unused/default
-  'Neutral',  // 9
-  'Neutral',  // 10
-  'Neutral',  // 11
-  'Neutral',  // 12
-  'Neutral',  // 13
-  'Neutral',  // 14
-  'Neutral'   // 15
+  'Fire',      // 0
+  'None',      // 1 - Unused (odd numbers)
+  'Water',     // 2
+  'None',      // 3
+  'Earth',     // 4
+  'None',      // 5
+  'Wind',      // 6
+  'None',      // 7
+  'Lightning', // 8
+  'None',      // 9
+  'Ice',       // 10
+  'None',      // 11
+  'Light',     // 12
+  'None',      // 13
+  'Dark',      // 14
+  'None'       // 15
 ];
 
 const GENDER_GENES = [
-  'Male',    // 0
-  'Female',  // 1
-  'Other',   // 2 - Rare/mutation
-  'Other',   // 3
-  'Other',   // 4
-  'Other',   // 5
-  'Other',   // 6
-  'Other',   // 7
-  'Other',   // 8
-  'Other',   // 9
-  'Other',   // 10
-  'Other',   // 11
-  'Other',   // 12
-  'Other',   // 13
-  'Other',   // 14
-  'Other'    // 15
+  'None',    // 0 - Unused (even numbers)
+  'Male',    // 1
+  'None',    // 2
+  'Female',  // 3
+  'None',    // 4
+  'None',    // 5
+  'None',    // 6
+  'None',    // 7
+  'None',    // 8
+  'None',    // 9
+  'None',    // 10
+  'None',    // 11
+  'None',    // 12
+  'None',    // 13
+  'None',    // 14
+  'None'     // 15
 ];
 
 // Visual genes use numeric values (skin colors, hair styles, etc.)
