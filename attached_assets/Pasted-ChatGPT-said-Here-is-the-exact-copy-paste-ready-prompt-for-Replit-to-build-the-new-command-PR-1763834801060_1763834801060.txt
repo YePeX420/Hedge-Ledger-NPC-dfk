@@ -1,0 +1,119 @@
+ChatGPT said:
+
+Here is the exact, copy-paste-ready prompt for Replit to build the new command:
+
+✅ PROMPT FOR REPLIT — Add /debug-hero-id command
+
+I need a new debug slash command added to my Discord bot in bot.js.
+It should help me diagnose why specific heroes are missing in /debug-heroes-by-class.
+
+Context:
+
+I already have getHeroById implemented in onchain-data.js.
+
+I already have debug commands like /debug-wallet and /debug-heroes-by-class.
+
+Slash commands are registered inside client.once(Events.ClientReady, ...).
+
+Command handlers are inside client.on(Events.InteractionCreate, ...).
+
+What to build: /debug-hero-id
+
+Please implement a new slash command:
+
+/debug-hero-id id:<heroId>
+
+Requirements:
+1. Slash command registration
+
+Inside the block where /ping, /logtest, /health, and /debug-wallet are registered, add:
+
+name: debug-hero-id
+
+description: Debug: show detailed hero info by ID
+
+option:
+
+id (STRING, required): hero ID (e.g. 50161 or 1000000050161)
+
+Use the same style as the other debug commands.
+
+2. Command handler
+
+Inside:
+
+client.on(Events.InteractionCreate, async (interaction) => {
+
+
+Add a new block:
+
+if (name === 'debug-hero-id') {
+  const input = interaction.options.getString('id', true).trim();
+
+  // Normalize ID (allow both raw and normalized forms)
+  const numericId = input.replace('#','');
+
+  let hero;
+  try {
+    hero = await onchain.getHeroById(numericId);
+  } catch (err) {
+    console.error('debug-hero-id error:', err);
+  }
+
+  if (!hero) {
+    await interaction.editReply(`Hero **${numericId}** not found in subgraph.`);
+    return;
+  }
+
+  // Log full hero object to console
+  console.log('[DebugHeroId]', JSON.stringify(hero, null, 2));
+
+  const lines = [];
+  lines.push(`🧾 **Debug hero info for #${numericId}**`);
+  lines.push('');
+
+  lines.push(`**ID:** ${hero.id}`);
+  lines.push(`**normalizedId:** ${hero.normalizedId}`);
+  lines.push(`**network:** ${hero.network || 'N/A'}`);
+  lines.push(`**originRealm:** ${hero.originRealm || 'N/A'}`);
+  lines.push(`**mainClass:** ${hero.mainClassStr || 'N/A'}`);
+  lines.push('');
+
+  if (hero.owner) {
+    lines.push(`**owner.id:** ${hero.owner.id}`);
+    lines.push(`**owner.name:** ${hero.owner.name || 'N/A'}`);
+  } else {
+    lines.push('**owner:** N/A');
+  }
+
+  lines.push('');
+  lines.push(`**salePrice:** ${hero.salePrice || '0'}`);
+  lines.push(`**assistingPrice:** ${hero.assistingPrice || '0'}`);
+
+  // Build safe reply under 2000 chars
+  const output = lines.join('\n').slice(0, 1900);
+  await interaction.editReply(output);
+  return;
+}
+
+Purpose
+
+This command will allow me to debug individual heroes (e.g. hero #50161) and check:
+
+What realm/network it reports
+
+Who the subgraph thinks the owner is
+
+If it is listed or escrowed
+
+If the ID normalization is affecting detection
+
+This will help me find why a specific hero is missing from /debug-heroes-by-class.
+
+Please:
+
+Do NOT modify or remove any of my existing commands.
+
+Keep styling consistent with bot.js.
+
+Ensure the command is registered AND handled properly.
