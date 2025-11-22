@@ -1517,15 +1517,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines.push('');
         
         lines.push('**⚡ Abilities:**');
-        lines.push(`**Passive1:** D: ${decoded.passive1.dominant} | R1: ${decoded.passive1.R1}`);
-        lines.push(`**Passive2:** D: ${decoded.passive2.dominant} | R1: ${decoded.passive2.R1}`);
-        lines.push(`**Active1:** D: ${decoded.active1.dominant} | R1: ${decoded.active1.R1}`);
-        lines.push(`**Active2:** D: ${decoded.active2.dominant} | R1: ${decoded.active2.R1}`);
+        lines.push(`**Passive1:** D: ${decoded.passive1.dominant} | R1: ${decoded.passive1.R1} | R2: ${decoded.passive1.R2} | R3: ${decoded.passive1.R3}`);
+        lines.push(`**Passive2:** D: ${decoded.passive2.dominant} | R1: ${decoded.passive2.R1} | R2: ${decoded.passive2.R2} | R3: ${decoded.passive2.R3}`);
+        lines.push(`**Active1:** D: ${decoded.active1.dominant} | R1: ${decoded.active1.R1} | R2: ${decoded.active1.R2} | R3: ${decoded.active1.R3}`);
+        lines.push(`**Active2:** D: ${decoded.active2.dominant} | R1: ${decoded.active2.R1} | R2: ${decoded.active2.R2} | R3: ${decoded.active2.R3}`);
         lines.push('');
         
         lines.push('**📈 Stat Boosts:**');
-        lines.push(`**Boost1:** D: ${decoded.statBoost1.dominant} | R1: ${decoded.statBoost1.R1}`);
-        lines.push(`**Boost2:** D: ${decoded.statBoost2.dominant} | R1: ${decoded.statBoost2.R1}`);
+        lines.push(`**Boost1:** D: ${decoded.statBoost1.dominant} | R1: ${decoded.statBoost1.R1} | R2: ${decoded.statBoost1.R2} | R3: ${decoded.statBoost1.R3}`);
+        lines.push(`**Boost2:** D: ${decoded.statBoost2.dominant} | R1: ${decoded.statBoost2.R1} | R2: ${decoded.statBoost2.R2} | R3: ${decoded.statBoost2.R3}`);
         lines.push('');
         
         lines.push('**🔥 Element:**');
@@ -1533,10 +1533,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines.push('');
         
         lines.push('**👤 Visual Traits:**');
-        lines.push(`**Gender:** ${decoded.visual.gender.dominant}`);
-        lines.push(`**Hair:** Style ${decoded.visual.hairStyle.dominant} | Color ${decoded.visual.hairColor.dominant}`);
-        lines.push(`**Eyes:** ${decoded.visual.eyeColor.dominant} | **Skin:** ${decoded.visual.skinColor.dominant}`);
-        lines.push(`**Background:** ${decoded.visual.background.dominant}`);
+        lines.push(`**Gender:** D: ${decoded.visual.gender.dominant} | R1: ${decoded.visual.gender.R1} | R2: ${decoded.visual.gender.R2} | R3: ${decoded.visual.gender.R3}`);
+        lines.push(`**Hair:** Style D: ${decoded.visual.hairStyle.dominant} | R1: ${decoded.visual.hairStyle.R1} | Color D: ${decoded.visual.hairColor.dominant} | R1: ${decoded.visual.hairColor.R1}`);
+        lines.push(`**Eyes:** D: ${decoded.visual.eyeColor.dominant} | R1: ${decoded.visual.eyeColor.R1} | **Skin:** D: ${decoded.visual.skinColor.dominant} | R1: ${decoded.visual.skinColor.R1}`);
+        lines.push(`**Background:** D: ${decoded.visual.background.dominant} | R1: ${decoded.visual.background.R1} | R2: ${decoded.visual.background.R2} | R3: ${decoded.visual.background.R3}`);
+        lines.push(`**Head Appendage:** D: ${decoded.visual.headAppendage.dominant} | R1: ${decoded.visual.headAppendage.R1}`);
+        lines.push(`**Back Appendage:** D: ${decoded.visual.backAppendage.dominant} | R1: ${decoded.visual.backAppendage.R1}`);
+        lines.push(`**Appendage Color:** D: ${decoded.visual.appendageColor.dominant} | R1: ${decoded.visual.appendageColor.R1}`);
+        lines.push(`**Back Appendage Color:** D: ${decoded.visual.backAppendageColor.dominant} | R1: ${decoded.visual.backAppendageColor.R1}`);
         
         const output = lines.join('\n');
         
