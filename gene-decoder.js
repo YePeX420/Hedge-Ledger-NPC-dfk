@@ -34,22 +34,22 @@ const CLASS_GENES = [
 ];
 
 const PROFESSION_GENES = [
-  'Mining',    // 0
-  'Gardening', // 1
-  'Foraging',  // 2
-  'Fishing',   // 3
-  'Unknown4',  // 4
-  'Unknown5',  // 5
-  'Unknown6',  // 6
-  'Unknown7',  // 7
-  'Unknown8',  // 8
-  'Unknown9',  // 9
-  'Unknown10', // 10
-  'Unknown11', // 11
-  'Unknown12', // 12
-  'Unknown13', // 13
-  'Unknown14', // 14
-  'Unknown15'  // 15
+  'Mining',         // 0
+  'Gardening',      // 1
+  'Foraging',       // 2
+  'Fishing',        // 3
+  'Alchemy',        // 4 - Crafting: INT + WIS + Fire
+  'Weaponsmithing', // 5 - Crafting: STR + DEX + Fire
+  'Armorsmithing',  // 6 - Crafting: STR + END + Earth
+  'Jewelcrafting',  // 7 - Crafting: DEX + LCK + Light
+  'Tailoring',      // 8 - Crafting: DEX + AGI + Wind
+  'Leatherworking', // 9 - Crafting: AGI + VIT + Earth
+  'Woodworking',    // 10 - Crafting: STR + AGI + Earth
+  'Enchanting',     // 11 - Crafting: INT + LCK + Dark
+  'None',           // 12
+  'None',           // 13
+  'None',           // 14
+  'None'            // 15
 ];
 
 const PASSIVE_GENES = [
@@ -91,22 +91,22 @@ const ACTIVE_GENES = [
 ];
 
 const STAT_BOOST_GENES = [
-  'STR',  // 0
-  'AGI',  // 1
-  'INT',  // 2
-  'WIS',  // 3
-  'LCK',  // 4
-  'VIT',  // 5
-  'END',  // 6
-  'DEX',  // 7
-  'HP',   // 8
-  'MP',   // 9
-  'Unknown10', // 10
-  'Unknown11', // 11
-  'Unknown12', // 12
-  'Unknown13', // 13
-  'Unknown14', // 14
-  'Unknown15'  // 15
+  'STR',  // 0 - Strength
+  'None', // 1 - (odd numbers unused)
+  'AGI',  // 2 - Agility
+  'None', // 3
+  'INT',  // 4 - Intelligence
+  'None', // 5
+  'WIS',  // 6 - Wisdom
+  'None', // 7
+  'LCK',  // 8 - Luck
+  'None', // 9
+  'VIT',  // 10 - Vitality
+  'None', // 11
+  'END',  // 12 - Endurance
+  'None', // 13
+  'DEX',  // 14 - Dexterity
+  'None'  // 15
 ];
 
 const ELEMENT_GENES = [
@@ -118,33 +118,33 @@ const ELEMENT_GENES = [
   'Ice',      // 5
   'Light',    // 6
   'Dark',     // 7
-  'Unknown8', // 8
-  'Unknown9', // 9
-  'Unknown10', // 10
-  'Unknown11', // 11
-  'Unknown12', // 12
-  'Unknown13', // 13
-  'Unknown14', // 14
-  'Unknown15'  // 15
+  'Neutral',  // 8 - Unused/default
+  'Neutral',  // 9
+  'Neutral',  // 10
+  'Neutral',  // 11
+  'Neutral',  // 12
+  'Neutral',  // 13
+  'Neutral',  // 14
+  'Neutral'   // 15
 ];
 
 const GENDER_GENES = [
   'Male',    // 0
   'Female',  // 1
-  'Unknown2', // 2
-  'Unknown3', // 3
-  'Unknown4', // 4
-  'Unknown5', // 5
-  'Unknown6', // 6
-  'Unknown7', // 7
-  'Unknown8', // 8
-  'Unknown9', // 9
-  'Unknown10', // 10
-  'Unknown11', // 11
-  'Unknown12', // 12
-  'Unknown13', // 13
-  'Unknown14', // 14
-  'Unknown15'  // 15
+  'Other',   // 2 - Rare/mutation
+  'Other',   // 3
+  'Other',   // 4
+  'Other',   // 5
+  'Other',   // 6
+  'Other',   // 7
+  'Other',   // 8
+  'Other',   // 9
+  'Other',   // 10
+  'Other',   // 11
+  'Other',   // 12
+  'Other',   // 13
+  'Other',   // 14
+  'Other'    // 15
 ];
 
 // Visual genes use numeric values (skin colors, hair styles, etc.)
