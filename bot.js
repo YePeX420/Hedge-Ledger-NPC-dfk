@@ -454,6 +454,18 @@ client.once(Events.ClientReady, async (c) => {
                 required: true
               }
             ]
+          },
+          {
+            name: 'debug-hero-genetics',
+            description: 'Debug: fetch raw genetics data for a specific hero ID',
+            options: [
+              {
+                name: 'id',
+                description: 'Hero ID (e.g. 283911)',
+                type: 3,           // STRING
+                required: true
+              }
+            ]
           }
         ];
 
@@ -1409,6 +1421,120 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } catch (err) {
         console.error('❌ Error in /debug-hero-index:', err);
         await interaction.editReply(`❌ Error building hero index: ${err.message}`);
+      }
+      
+      return;
+    }
+
+    if (name === 'debug-hero-genetics') {
+      const heroId = interaction.options.getString('id', true);
+      
+      await interaction.editReply(`🧬 Fetching raw genetics data for hero ${heroId}...`);
+      
+      try {
+        // Fetch hero with extended query to discover all gene fields
+        const { request, gql } = await import('graphql-request');
+        const dfkClient = new (await import('graphql-request')).GraphQLClient(
+          'https://api.defikingdoms.com/graphql'
+        );
+        
+        // Extended query with all possible gene-related fields
+        const extendedQuery = gql`
+          query GetHeroExtendedGenetics($heroId: ID!) {
+            hero(id: $heroId) {
+              id
+              normalizedId
+              network
+              originRealm
+              mainClassStr
+              subClassStr
+              professionStr
+              rarity
+              level
+              generation
+              
+              # Basic stats
+              strength
+              intelligence
+              wisdom
+              luck
+              agility
+              vitality
+              endurance
+              dexterity
+              hp
+              mp
+              stamina
+              
+              # Profession skills
+              mining
+              gardening
+              foraging
+              fishing
+              
+              # Try all possible gene fields
+              advancedGenes
+              eliteGenes
+              exaltedGenes
+              statGenes
+              visualGenes
+              genes
+            }
+          }
+        `;
+        
+        const rawData = await dfkClient.request(extendedQuery, { heroId: heroId.toString() });
+        const hero = rawData.hero;
+        
+        if (!hero) {
+          await interaction.editReply(`❌ Hero ${heroId} not found.`);
+          return;
+        }
+        
+        // Format output
+        const lines = [];
+        lines.push(`**🧬 Raw Genetics Data for Hero ${hero.id}**`);
+        lines.push(`**Normalized ID:** ${hero.normalizedId || 'N/A'}`);
+        lines.push(`**Realm:** ${hero.network || hero.originRealm}`);
+        lines.push(`**Class:** ${hero.mainClassStr} / ${hero.subClassStr}`);
+        lines.push(`**Profession:** ${hero.professionStr}`);
+        lines.push(`**Rarity:** ${['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero.rarity] || hero.rarity}`);
+        lines.push(`**Level:** ${hero.level} | **Gen:** ${hero.generation}`);
+        lines.push('');
+        
+        lines.push('**📊 Stats:**');
+        lines.push(`STR: ${hero.strength} | DEX: ${hero.dexterity} | AGI: ${hero.agility} | VIT: ${hero.vitality}`);
+        lines.push(`END: ${hero.endurance} | INT: ${hero.intelligence} | WIS: ${hero.wisdom} | LCK: ${hero.luck}`);
+        lines.push(`HP: ${hero.hp} | MP: ${hero.mp} | Stamina: ${hero.stamina}`);
+        lines.push('');
+        
+        lines.push('**🔬 Gene Fields (Raw API Response):**');
+        lines.push(`\`\`\`json`);
+        lines.push(JSON.stringify({
+          advancedGenes: hero.advancedGenes,
+          eliteGenes: hero.eliteGenes,
+          exaltedGenes: hero.exaltedGenes,
+          statGenes: hero.statGenes,
+          visualGenes: hero.visualGenes,
+          genes: hero.genes
+        }, null, 2));
+        lines.push(`\`\`\``);
+        
+        const output = lines.join('\n');
+        
+        // Log full response to console
+        console.log('[debug-hero-genetics] Full API response:', JSON.stringify(hero, null, 2));
+        
+        // Discord message limit is 2000 chars
+        if (output.length > 1900) {
+          await interaction.editReply(output.slice(0, 1900) + '\n...\n_See console for full response_');
+        } else {
+          await interaction.editReply(output);
+        }
+        
+      } catch (err) {
+        console.error('❌ Error in /debug-hero-genetics:', err);
+        await interaction.editReply(`❌ Error fetching genetics: ${err.message}`);
       }
       
       return;
