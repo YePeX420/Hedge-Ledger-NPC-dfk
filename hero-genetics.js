@@ -1,199 +1,183 @@
-// hero-genetics.js
-// DeFi Kingdoms hero gene decoding system
-// Decodes raw gene data into dominant + R1/R2/R3 recessives for all traits
-
-// ========== TRAIT MAPPING TABLES ==========
-
-// Hero Classes (mainClass and subClass)
-const CLASSES = {
-  0: 'Warrior',
-  1: 'Knight',
-  2: 'Thief',
-  3: 'Archer',
-  4: 'Priest',
-  5: 'Wizard',
-  6: 'Monk',
-  7: 'Pirate',
-  8: 'Berserker',
-  9: 'Seer',
-  10: 'Legionnaire',
-  11: 'Scholar',
-  12: 'Paladin',
-  13: 'DarkKnight',
-  14: 'Summoner',
-  15: 'Ninja',
-  16: 'Shapeshifter',
-  17: 'Bard'
-};
-
-// Professions
-const PROFESSIONS = {
-  0: 'Mining',
-  2: 'Gardening',
-  4: 'Foraging',
-  6: 'Fishing'
-};
-
-// Elements
-const ELEMENTS = {
-  0: 'Fire',
-  1: 'Water',
-  2: 'Earth',
-  3: 'Wind',
-  4: 'Lightning',
-  5: 'Ice',
-  6: 'Light',
-  7: 'Dark'
-};
-
-// Stat Growth Types
-const STAT_GROWTH = {
-  0: 'Very Low',
-  1: 'Low',
-  2: 'Medium',
-  3: 'High',
-  4: 'Very High'
-};
-
-// Background/Visual trait mappings (for visualGenes)
-const BACKGROUNDS = {
-  0: 'Desert',
-  2: 'Forest',
-  4: 'Plains',
-  6: 'Island',
-  8: 'Swamp',
-  10: 'Mountains',
-  12: 'City',
-  14: 'Arctic'
-};
-
-// ========== GENE EXTRACTION UTILITIES ==========
-
 /**
- * Convert hex string to BigInt for bit manipulation
+ * DeFi Kingdoms Hero Genetics System
+ * Decodes raw statGenes and visualGenes into full dominant + recessive traits
  */
-function hexToBigInt(hexString) {
-  if (!hexString) return 0n;
-  // Remove '0x' prefix if present
-  const cleaned = hexString.startsWith('0x') ? hexString.slice(2) : hexString;
-  return BigInt('0x' + cleaned);
-}
+
+const { 
+  decodeGenes, 
+  hasGardeningGene, 
+  getDominantProfession 
+} = require('./gene-decoder.js');
 
 /**
- * Extract bits from a gene at a specific position
- * @param {BigInt} genes - The gene data as BigInt
- * @param {number} position - Bit position to start extraction
- * @param {number} length - Number of bits to extract
- * @returns {number} - Extracted value as number
- */
-function extractBits(genes, position, length) {
-  const mask = (1n << BigInt(length)) - 1n;
-  return Number((genes >> BigInt(position)) & mask);
-}
-
-/**
- * Extract a trait with all 4 positions (dominant, R1, R2, R3)
- * @param {BigInt} genes - The gene data as BigInt
- * @param {number} startPos - Starting bit position for this trait
- * @param {number} bitsPerGene - Bits per gene position (typically 4 or 8)
- * @param {Object} mapping - The trait mapping table
- * @returns {Object} - { dominant, R1, R2, R3 }
- */
-function extractTrait(genes, startPos, bitsPerGene, mapping) {
-  const positions = ['dominant', 'R1', 'R2', 'R3'];
-  const result = {};
-  
-  for (let i = 0; i < 4; i++) {
-    const position = startPos + (i * bitsPerGene);
-    const geneCode = extractBits(genes, position, bitsPerGene);
-    result[positions[i]] = mapping[geneCode] || `Unknown(${geneCode})`;
-  }
-  
-  return result;
-}
-
-// ========== MAIN DECODER FUNCTION ==========
-
-/**
- * Decode hero genes into structured trait data
- * NOTE: DFK GraphQL API doesn't expose raw gene data (genes/visualGenes/statGenes fields don't exist)
- * We use the already-decoded string fields and mark recessives as Unknown
+ * Decode hero genes from GraphQL hero object
+ * Now uses raw statGenes and visualGenes fields for full D/R1/R2/R3 decoding
  * 
- * @param {Object} hero - Hero object from GraphQL
- * @returns {Object} - Decoded genetics with dominant + R1/R2/R3 (recessives Unknown without raw data)
+ * @param {Object} hero - Hero object from GraphQL with statGenes and visualGenes
+ * @returns {Object} Decoded genetics with full recessive data
  */
-export function decodeHeroGenes(hero) {
+function decodeHeroGenes(hero) {
   if (!hero) {
     throw new Error('Hero object is required');
   }
 
-  // DFK GraphQL API provides decoded dominant traits as strings
-  // Raw gene data is not exposed, so we can't decode recessives
-  // advancedGenes/eliteGenes/exaltedGenes are structured objects, not raw hex
+  // Check if we have raw gene data
+  if (!hero.statGenes || !hero.visualGenes) {
+    // Fallback to dominant-only if raw genes not available
+    return {
+      id: hero.id,
+      normalizedId: hero.normalizedId || hero.id,
+      realm: hero.network || hero.originRealm || 'unknown',
+      
+      mainClass: {
+        dominant: hero.mainClassStr || 'Unknown',
+        R1: 'Unknown',
+        R2: 'Unknown',
+        R3: 'Unknown'
+      },
+      subClass: {
+        dominant: hero.subClassStr || 'Unknown',
+        R1: 'Unknown',
+        R2: 'Unknown',
+        R3: 'Unknown'
+      },
+      profession: {
+        dominant: hero.professionStr || 'Unknown',
+        R1: 'Unknown',
+        R2: 'Unknown',
+        R3: 'Unknown'
+      },
+      
+      _note: 'Raw gene data not available - showing dominant traits only'
+    };
+  }
+
+  // Decode full genetics from raw gene data
+  const { statTraits, visualTraits } = decodeGenes(hero.statGenes, hero.visualGenes);
   
-  const decoded = {
+  // Convert to legacy format for compatibility
+  return {
     id: hero.id,
     normalizedId: hero.normalizedId || hero.id,
     realm: hero.network || hero.originRealm || 'unknown',
     
-    // Use provided string fields for dominant, mark recessives as Unknown
+    // Stat traits with full D/R1/R2/R3
     mainClass: {
-      dominant: hero.mainClassStr || 'Unknown',
-      R1: 'Unknown',
-      R2: 'Unknown',
-      R3: 'Unknown'
+      dominant: statTraits.class.d.name,
+      R1: statTraits.class.r1.name,
+      R2: statTraits.class.r2.name,
+      R3: statTraits.class.r3.name
     },
     subClass: {
-      dominant: hero.subClassStr || 'Unknown',
-      R1: 'Unknown',
-      R2: 'Unknown',
-      R3: 'Unknown'
+      dominant: statTraits.subClass.d.name,
+      R1: statTraits.subClass.r1.name,
+      R2: statTraits.subClass.r2.name,
+      R3: statTraits.subClass.r3.name
     },
     profession: {
-      dominant: hero.professionStr || 'Unknown',
-      R1: 'Unknown',
-      R2: 'Unknown',
-      R3: 'Unknown'
+      dominant: statTraits.profession.d.name,
+      R1: statTraits.profession.r1.name,
+      R2: statTraits.profession.r2.name,
+      R3: statTraits.profession.r3.name
+    },
+    passive1: {
+      dominant: statTraits.passive1.d.name,
+      R1: statTraits.passive1.r1.name,
+      R2: statTraits.passive1.r2.name,
+      R3: statTraits.passive1.r3.name
+    },
+    passive2: {
+      dominant: statTraits.passive2.d.name,
+      R1: statTraits.passive2.r1.name,
+      R2: statTraits.passive2.r2.name,
+      R3: statTraits.passive2.r3.name
+    },
+    active1: {
+      dominant: statTraits.active1.d.name,
+      R1: statTraits.active1.r1.name,
+      R2: statTraits.active1.r2.name,
+      R3: statTraits.active1.r3.name
+    },
+    active2: {
+      dominant: statTraits.active2.d.name,
+      R1: statTraits.active2.r1.name,
+      R2: statTraits.active2.r2.name,
+      R3: statTraits.active2.r3.name
+    },
+    statBoost1: {
+      dominant: statTraits.statBoost1.d.name,
+      R1: statTraits.statBoost1.r1.name,
+      R2: statTraits.statBoost1.r2.name,
+      R3: statTraits.statBoost1.r3.name
+    },
+    statBoost2: {
+      dominant: statTraits.statBoost2.d.name,
+      R1: statTraits.statBoost2.r1.name,
+      R2: statTraits.statBoost2.r2.name,
+      R3: statTraits.statBoost2.r3.name
     },
     element: {
-      dominant: 'Unknown', // Not exposed in basic hero query
-      R1: 'Unknown',
-      R2: 'Unknown',
-      R3: 'Unknown'
-    },
-    
-    // Stats - we don't have growth type data without raw genes
-    stats: {
-      strength: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
-      intelligence: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
-      wisdom: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
-      luck: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
-      agility: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
-      vitality: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
-      endurance: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
-      dexterity: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' }
+      dominant: statTraits.element.d.name,
+      R1: statTraits.element.r1.name,
+      R2: statTraits.element.r2.name,
+      R3: statTraits.element.r3.name
     },
     
     // Visual traits
     visual: {
-      background: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' }
+      gender: {
+        dominant: visualTraits.gender.d.name,
+        R1: visualTraits.gender.r1.name,
+        R2: visualTraits.gender.r2.name,
+        R3: visualTraits.gender.r3.name
+      },
+      background: {
+        dominant: visualTraits.background.d.name,
+        R1: visualTraits.background.r1.name,
+        R2: visualTraits.background.r2.name,
+        R3: visualTraits.background.r3.name
+      },
+      hairStyle: {
+        dominant: visualTraits.hairStyle.d.name,
+        R1: visualTraits.hairStyle.r1.name,
+        R2: visualTraits.hairStyle.r2.name,
+        R3: visualTraits.hairStyle.r3.name
+      },
+      hairColor: {
+        dominant: visualTraits.hairColor.d.name,
+        R1: visualTraits.hairColor.r1.name,
+        R2: visualTraits.hairColor.r2.name,
+        R3: visualTraits.hairColor.r3.name
+      },
+      eyeColor: {
+        dominant: visualTraits.eyeColor.d.name,
+        R1: visualTraits.eyeColor.r1.name,
+        R2: visualTraits.eyeColor.r2.name,
+        R3: visualTraits.eyeColor.r3.name
+      },
+      skinColor: {
+        dominant: visualTraits.skinColor.d.name,
+        R1: visualTraits.skinColor.r1.name,
+        R2: visualTraits.skinColor.r2.name,
+        R3: visualTraits.skinColor.r3.name
+      }
     },
     
-    // Note about limitations
-    _note: 'Recessive genes (R1/R2/R3) are Unknown - DFK GraphQL API does not expose raw gene data'
+    // Raw stat and visual traits for advanced use
+    _rawStatTraits: statTraits,
+    _rawVisualTraits: visualTraits
   };
-
-  return decoded;
 }
 
 /**
- * Check if a hero has a specific profession gene (any position)
- * Useful for garden optimization to detect profession bonuses
+ * Check if a hero has a specific profession gene (any position: D/R1/R2/R3)
+ * Used for garden optimization bonus detection
+ * 
  * @param {Object} decodedGenes - Output from decodeHeroGenes()
  * @param {string} professionName - e.g. 'Gardening', 'Mining', 'Fishing'
- * @returns {boolean} - True if hero has the profession gene in any position
+ * @returns {boolean} True if hero has the profession gene in any position
  */
-export function hasProfessionGene(decodedGenes, professionName) {
+function hasProfessionGene(decodedGenes, professionName) {
   if (!decodedGenes || !decodedGenes.profession) return false;
   
   const prof = decodedGenes.profession;
@@ -205,21 +189,23 @@ export function hasProfessionGene(decodedGenes, professionName) {
 
 /**
  * Get profession gene bonus (1 if has gene, 0 otherwise)
- * This matches the DFK garden formula: geneBonus = 1 if gardening gene, else 0
+ * Matches DFK garden formula: geneBonus = 1 if gardening gene exists, else 0
+ * 
  * @param {Object} decodedGenes - Output from decodeHeroGenes()
  * @param {string} professionName - e.g. 'Gardening'
- * @returns {number} - 1 or 0
+ * @returns {number} 1 or 0
  */
-export function getProfessionGeneBonus(decodedGenes, professionName) {
+function getProfessionGeneBonus(decodedGenes, professionName) {
   return hasProfessionGene(decodedGenes, professionName) ? 1 : 0;
 }
 
 /**
  * Batch decode multiple heroes
+ * 
  * @param {Array} heroes - Array of hero objects from GraphQL
- * @returns {Array} - Array of decoded genetics
+ * @returns {Array} Array of decoded genetics
  */
-export function decodeMultipleHeroes(heroes) {
+function decodeMultipleHeroes(heroes) {
   if (!Array.isArray(heroes)) {
     throw new Error('heroes must be an array');
   }
@@ -234,7 +220,7 @@ export function decodeMultipleHeroes(heroes) {
   }).filter(Boolean);
 }
 
-export default {
+module.exports = {
   decodeHeroGenes,
   hasProfessionGene,
   getProfessionGeneBonus,
