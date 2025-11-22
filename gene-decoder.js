@@ -313,7 +313,7 @@ function getDominantProfession(statTraits) {
 // EXPORTS
 // ============================================================================
 
-module.exports = {
+export {
   decodeGenes,
   decodeStatGenes,
   decodeVisualGenes,
@@ -321,6 +321,18 @@ module.exports = {
   getDominantProfession,
   
   // Export mappings for reference
+  CLASS_GENES,
+  PROFESSION_GENES,
+  STAT_TRAITS,
+  VISUAL_TRAITS
+};
+
+export default {
+  decodeGenes,
+  decodeStatGenes,
+  decodeVisualGenes,
+  hasGardeningGene,
+  getDominantProfession,
   CLASS_GENES,
   PROFESSION_GENES,
   STAT_TRAITS,

@@ -3,11 +3,11 @@
  * Decodes raw statGenes and visualGenes into full dominant + recessive traits
  */
 
-const { 
+import { 
   decodeGenes, 
-  hasGardeningGene, 
+  hasGardeningGene as hasGardeningGeneInternal, 
   getDominantProfession 
-} = require('./gene-decoder.js');
+} from './gene-decoder.js';
 
 /**
  * Decode hero genes from GraphQL hero object
@@ -220,7 +220,14 @@ function decodeMultipleHeroes(heroes) {
   }).filter(Boolean);
 }
 
-module.exports = {
+export {
+  decodeHeroGenes,
+  hasProfessionGene,
+  getProfessionGeneBonus,
+  decodeMultipleHeroes
+};
+
+export default {
   decodeHeroGenes,
   hasProfessionGene,
   getProfessionGeneBonus,
