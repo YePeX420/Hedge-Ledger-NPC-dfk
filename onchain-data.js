@@ -166,11 +166,6 @@ export async function getHeroById(heroId) {
           name
           tier
         }
-        
-        # Raw gene fields for full trait decoding
-        genes
-        visualGenes
-        statGenes
       }
     }
   `;
@@ -424,11 +419,6 @@ export async function getAllHeroesByOwner(ownerAddress) {
         maxSummons
         staminaFullAt
         currentQuest
-        
-        # Raw gene fields for genetics decoding
-        genes
-        visualGenes
-        statGenes
       }
     }
   `;
