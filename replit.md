@@ -29,6 +29,7 @@ The project uses a Node.js backend with Discord.js for bot functionality and an 
 *   **Payment Automation**: The garden optimization service uses blockchain monitoring to automatically verify JEWEL payments and trigger processing.
 *   **Wallet Tracking**: Automated daily snapshots of JEWEL, CRYSTAL, and cJEWEL balances, with 7-day change tracking and lifetime deposit monitoring integrated into the admin dashboard.
 *   **Debug Features**: Includes a debug settings dashboard with a payment bypass toggle for testing garden optimization without JEWEL payment, shared between the admin UI and bot via `debug-settings.js`.
+*   **Hero Genetics System**: Modular genetics decoding layer (`hero-genetics.js`) that extracts dominant + R1/R2/R3 recessives for all hero traits (class, subclass, profession, stats, element) from raw gene data, enabling genetics-aware hero indexing and profession bonus detection for garden optimization.
 
 ## External Dependencies
 *   **Discord API**: Used for bot operations and OAuth2 authentication via `discord.js`.
