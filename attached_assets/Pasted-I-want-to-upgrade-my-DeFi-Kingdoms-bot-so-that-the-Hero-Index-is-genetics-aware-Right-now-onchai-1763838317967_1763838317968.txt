@@ -1,0 +1,176 @@
+I want to upgrade my DeFi Kingdoms bot so that the Hero Index is genetics-aware.
+
+Right now:
+
+onchain-data.js has helpers like getHeroById, getHeroesByOwner, etc. (including advancedGenes/eliteGenes/exaltedGenes and passive/active abilities in getHeroById).
+
+The code is already using a DFK GraphQL endpoint (https://api.defikingdoms.com/graphql) and the hero type.
+
+My long-term goal is for the bot (and later /hedge-wallet and summoning tools) to work off a Hero Index that knows:
+
+full stats
+
+full professions
+
+and ALL recessives for all key traits (class, subclass, profession, stats, element, maybe visual genes as a second phase).
+
+I want you to build the genetics layer in a modular way so everything else can reuse it.
+
+1. Extend getHeroById to fetch raw genes
+
+In onchain-data.js, my getHeroById already fetches a lot of fields. Please extend its GraphQL query so that it also fetches the raw gene fields needed for full trait decoding, for example:
+
+genes (32-byte hero genes)
+
+visualGenes (for appearance, if available)
+
+any other gene-related fields exposed by the DFK heroes graph (e.g. statGenes, visualGenes, etc., depending on the schema).
+
+Do not remove existing fields; just add the gene fields so we have enough data to decode full trait genetics.
+
+Keep getHeroById’s return shape the same structurally, just with extra properties (genes-related) added.
+
+2. Create a new module: hero-genetics.js
+
+Create a new file hero-genetics.js that is responsible for decoding hero genes and producing a trait structure with dominant + R1 + R2 + R3 for each trait.
+
+Requirements:
+
+It should export a primary function, something like:
+
+export function decodeHeroGenes(hero) {
+  // hero is the GraphQL hero object with fields from getHeroById
+  return {
+    id: hero.id,
+    normalizedId: hero.normalizedId,
+    realm: hero.network || hero.originRealm || 'unknown',
+    mainClass: {
+      dominant: 'Knight',
+      R1: 'Warrior',
+      R2: 'Knight',
+      R3: 'Thief',
+    },
+    subClass: {
+      dominant: 'Monk',
+      R1: 'Wizard',
+      R2: 'Monk',
+      R3: 'Warrior',
+    },
+    profession: { dominant: 'Gardening', R1: 'Mining', R2: 'Fishing', R3: 'Foraging' },
+    stats: {
+      // each stat has dominant + recessives per DFK gene encoding, if applicable
+      strength: { dominant: 'High', R1: 'High', R2: 'Mid', R3: 'Low' },
+      intelligence: { ... },
+      // etc.
+    },
+    element: { dominant: 'Water', R1: 'Wind', R2: 'Water', R3: 'Fire' },
+    // You can add visual/appearance traits as a separate section later.
+  };
+}
+
+
+Internally, hero-genetics.js should:
+
+Parse the genes (and visualGenes if needed) into bitfields according to the standard DFK hero gene encoding.
+
+Use extraction logic to map gene segments to:
+
+main class
+
+subclass
+
+profession
+
+stat growth types
+
+element
+
+(optionally) appearance traits
+
+Build mapping tables for gene codes → trait names (e.g., 0 = Warrior, 1 = Knight, etc.).
+
+You can base the decoding logic on official or community DFK gene decoders (e.g. from DFK docs, open source hero gene decoders in JS or TS, etc.) as long as you keep it self-contained and readable in hero-genetics.js.
+
+Keep the decoding functions pure and testable (no side effects beyond returning the decoded structure).
+
+3. Add a Hero Index helper: buildHeroIndexForWallet(address)
+
+In a new file (or at the bottom of onchain-data.js if you prefer), add an exported helper function:
+
+export async function buildHeroIndexForWallet(address) {
+  // Uses the paginated helpers and hero-genetics to build a full index.
+}
+
+
+Behavior:
+
+Use my existing paginated functions to fetch heroes by realm, or create them if missing:
+
+getAllHeroesByOwnerCV(address) for Crystalvale
+
+getAllHeroesByOwnerMet(address) (or similar) for Sundered Isles/Metis
+(If getAllHeroesByOwnerMet doesn’t exist yet, create it by copying the CV pagination pattern and pointing to the Metis graph.)
+
+For each hero returned:
+
+Call getHeroById(hero.id) (or ensure you already have all fields needed)
+
+Call decodeHeroGenes(...) from hero-genetics.js.
+
+Build and return a structure like:
+
+return {
+  wallet: address.toLowerCase(),
+  realms: {
+    dfk: {
+      heroes: DecodedHero[],    // full traits + stats
+      totalsByClass: { Knight: 10, Warrior: 5, ... },
+    },
+    met: {
+      heroes: DecodedHero[],
+      totalsByClass: { Monk: 7, Ninja: 3, ... },
+    }
+  },
+  totals: {
+    dfk: number,
+    met: number,
+    all: number
+  }
+  // optionally, a list of hero IDs that could not be decoded or found
+  missingHeroes: HeroId[]
+};
+
+
+This “Hero Index” object will be the base for all future features (debug commands, /hedge-wallet, summoning tools, etc.), so make it clean and documented.
+
+4. Wire it lightly into a debug command (optional)
+
+If you want to wire this up for quick checking, you can:
+
+Add a new debug command /debug-hero-index that:
+
+takes address as a parameter
+
+calls buildHeroIndexForWallet(address)
+
+responds with a short summary (total heroes per realm, top classes, and how many heroes successfully decoded vs missing)
+
+logs the full index to the console with console.log('[HeroIndex]', JSON.stringify(index, null, 2)).
+
+Do not overcomplicate the debug output yet; I mainly want the index builder and decoder in place.
+
+5. Constraints
+
+Do not break existing debug commands (/debug-wallet, /debug-heroes-by-class, etc.). They can be migrated to use the Hero Index later.
+
+Keep code style consistent with the current onchain-data.js and bot.js.
+
+Make sure everything compiles and the bot runs without syntax errors.
+
+Once this is done, I should have:
+
+decodeHeroGenes(hero) in hero-genetics.js to get dominant + R1 + R2 + R3 for each trait.
+
+buildHeroIndexForWallet(address) to get a genetics-aware hero index for a wallet, across realms.
+
+That’s all for this task.
