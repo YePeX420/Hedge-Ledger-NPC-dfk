@@ -5,6 +5,7 @@
 import { GraphQLClient, gql } from 'graphql-request';
 import { ethers } from 'ethers';
 import { readFileSync } from 'fs';
+import { decodeHeroGenes, decodeMultipleHeroes } from './hero-genetics.js';
 
 const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
 const client = new GraphQLClient(DFK_GRAPHQL_ENDPOINT);
@@ -403,7 +404,9 @@ export async function getAllHeroesByOwner(ownerAddress) {
         id
         normalizedId
         network
+        originRealm
         mainClassStr
+        subClassStr
         professionStr
         rarity
         level
@@ -421,6 +424,11 @@ export async function getAllHeroesByOwner(ownerAddress) {
         maxSummons
         staminaFullAt
         currentQuest
+        
+        # Raw gene fields for genetics decoding
+        genes
+        visualGenes
+        statGenes
       }
     }
   `;
@@ -622,6 +630,109 @@ export function formatMarketListing(auction) {
   return `**#${hero.normalizedId || hero.id}** - ${hero.mainClassStr} | ${rarity} | Lvl ${hero.level} | Gen ${hero.generation} → **${price}** JEWEL`;
 }
 
+// ========== HERO INDEX BUILDER ==========
+
+/**
+ * Build a genetics-aware Hero Index for a wallet across all realms
+ * Returns decoded genetics (dominant + R1/R2/R3) for all heroes
+ * 
+ * @param {string} ownerAddress - Wallet address (0x...)
+ * @returns {Promise<Object>} Hero index with genetics, class breakdowns, and totals
+ */
+export async function buildHeroIndexForWallet(ownerAddress) {
+  console.log(`[HeroIndex] Building genetics-aware index for ${ownerAddress}...`);
+  
+  try {
+    // Fetch all heroes across realms
+    const allHeroes = await getAllHeroesByOwner(ownerAddress);
+    console.log(`[HeroIndex] Found ${allHeroes.length} total heroes`);
+    
+    if (allHeroes.length === 0) {
+      return {
+        wallet: ownerAddress.toLowerCase(),
+        realms: {
+          dfk: { heroes: [], totalsByClass: {} },
+          met: { heroes: [], totalsByClass: {} },
+          kla: { heroes: [], totalsByClass: {} }
+        },
+        totals: {
+          dfk: 0,
+          met: 0,
+          kla: 0,
+          all: 0
+        },
+        missingHeroes: []
+      };
+    }
+    
+    // Decode genetics for all heroes
+    const decodedHeroes = [];
+    const missingHeroes = [];
+    
+    for (const hero of allHeroes) {
+      try {
+        const decoded = decodeHeroGenes(hero);
+        decodedHeroes.push(decoded);
+      } catch (err) {
+        console.error(`[HeroIndex] Failed to decode hero ${hero.id}:`, err.message);
+        missingHeroes.push(hero.id);
+      }
+    }
+    
+    console.log(`[HeroIndex] Successfully decoded ${decodedHeroes.length}/${allHeroes.length} heroes`);
+    
+    // Split by realm
+    const heroesByRealm = {
+      dfk: decodedHeroes.filter(h => h.realm === 'dfk'),
+      met: decodedHeroes.filter(h => h.realm === 'met'),
+      kla: decodedHeroes.filter(h => h.realm === 'kla')
+    };
+    
+    // Build class totals per realm
+    function buildClassTotals(heroes) {
+      const totals = {};
+      for (const hero of heroes) {
+        const mainClass = hero.mainClass.dominant;
+        totals[mainClass] = (totals[mainClass] || 0) + 1;
+      }
+      return totals;
+    }
+    
+    const index = {
+      wallet: ownerAddress.toLowerCase(),
+      realms: {
+        dfk: {
+          heroes: heroesByRealm.dfk,
+          totalsByClass: buildClassTotals(heroesByRealm.dfk)
+        },
+        met: {
+          heroes: heroesByRealm.met,
+          totalsByClass: buildClassTotals(heroesByRealm.met)
+        },
+        kla: {
+          heroes: heroesByRealm.kla,
+          totalsByClass: buildClassTotals(heroesByRealm.kla)
+        }
+      },
+      totals: {
+        dfk: heroesByRealm.dfk.length,
+        met: heroesByRealm.met.length,
+        kla: heroesByRealm.kla.length,
+        all: decodedHeroes.length
+      },
+      missingHeroes: missingHeroes
+    };
+    
+    console.log(`[HeroIndex] Index complete - DFK: ${index.totals.dfk}, MET: ${index.totals.met}, KLA: ${index.totals.kla}`);
+    
+    return index;
+    
+  } catch (err) {
+    console.error('[HeroIndex] Error building hero index:', err);
+    throw err;
+  }
+}
+
 export default {
   getHeroById,
   searchHeroes,
@@ -634,6 +745,7 @@ export default {
   getMarketStats,
   formatHeroSummary,
   formatMarketListing,
+  buildHeroIndexForWallet,
   weiToToken,
   normalizeHeroId
 };
