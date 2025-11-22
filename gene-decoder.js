@@ -53,41 +53,41 @@ const PROFESSION_GENES = [
 ];
 
 const PASSIVE_GENES = [
-  'Basic1',   // 0
-  'Basic2',   // 1
-  'Basic3',   // 2
-  'Basic4',   // 3
-  'Basic5',   // 4
-  'Basic6',   // 5
-  'Basic7',   // 6
-  'Basic8',   // 7
-  'Advanced1', // 8
-  'Advanced2', // 9
-  'Advanced3', // 10
-  'Advanced4', // 11
-  'Elite1',    // 12
-  'Elite2',    // 13
-  'Exalted1',  // 14
-  'Exalted2'   // 15
+  'Duelist',      // 0 - Basic1: +2.5% Block/Spell Block, +20% damage 1v1
+  'Clutch',       // 1 - Basic2: +20% damage when below 25% HP
+  'Foresight',    // 2 - Basic3: +3% Evasion
+  'Headstrong',   // 3 - Basic4: +32.5% Daze resistance, +2.5% Status Effect Resistance
+  'Clear Vision', // 4 - Basic5: +32.5% Blind resistance, +2.5% Status Effect Resistance
+  'Fearless',     // 5 - Basic6: +32.5% Fear resistance, +2.5% Status Effect Resistance
+  'Chatterbox',   // 6 - Basic7: +32.5% Silence resistance, +2.5% Status Effect Resistance
+  'Stalwart',     // 7 - Basic8: +32.5% Poison resistance, +2.5% Status Effect Resistance
+  'Leadership',   // 8 - Advanced1: Allies deal +5% damage (max 15%)
+  'Efficient',    // 9 - Advanced2: -10% Mana consumption
+  'Menacing',     // 10 - Advanced3: Enemies deal -5% damage (max 15%)
+  'Toxic',        // 11 - Advanced4: 3% chance to apply Poison per hit
+  'Giant Slayer', // 12 - Elite1: +10%/+20% damage vs higher HP targets
+  'Last Stand',   // 13 - Elite2: Survive with 10% HP once per battle
+  'Second Life',  // 14 - Exalted1: Revive with 35% HP once per battle
+  'Unknown15'     // 15 - Placeholder
 ];
 
 const ACTIVE_GENES = [
-  'Basic1',   // 0
-  'Basic2',   // 1
-  'Basic3',   // 2
-  'Basic4',   // 3
-  'Basic5',   // 4
-  'Basic6',   // 5
-  'Basic7',   // 6
-  'Basic8',   // 7
-  'Advanced1', // 8
-  'Advanced2', // 9
-  'Advanced3', // 10
-  'Advanced4', // 11
-  'Elite1',    // 12
-  'Elite2',    // 13
-  'Exalted1',  // 14
-  'Exalted2'   // 15
+  'Poisoned Blade',  // 0 - Basic1: Deal 1.0*POWER damage, 80% Poison
+  'Blinding Winds',  // 1 - Basic2: Deal 1.0*POWER damage, 80% Blind
+  'Heal',            // 2 - Basic3: Heal 35% max HP
+  'Cleanse',         // 3 - Basic4: Cleanse target, 50% double cleanse
+  'Iron Skin',       // 4 - Basic5: -15% Physical damage for 80 ticks
+  'Speed',           // 5 - Basic6: +20% Haste for 30 ticks, +500 Initiative
+  'Critical Aim',    // 6 - Basic7: Deal 1.0*POWER damage, +35% CSC this attack, +20% CSC for 2 turns
+  'Deathmark',       // 7 - Basic8: Deal 1.2*POWER damage, 80% +15% damage taken for 40 ticks
+  'Exhaust',         // 8 - Advanced1: Deal 1.2*POWER damage, 50% Exhaust
+  'Daze',            // 9 - Advanced2: Deal 1.2*POWER damage, 70% Daze
+  'Explosion',       // 10 - Advanced3: Channel, Deal 1.5*POWER AOE, 75% Pierce
+  'Hardened Shield', // 11 - Advanced4: -30% damage taken for 40 ticks
+  'Stun',            // 12 - Elite1: Deal 1.4*POWER damage, 70% Stun
+  'Second Wind',     // 13 - Elite2: Restore 50% missing HP, allies heal 50% of that
+  'Resurrection',    // 14 - Exalted1: Revive ally with 35% HP
+  'Unknown15'        // 15 - Placeholder
 ];
 
 const STAT_BOOST_GENES = [
