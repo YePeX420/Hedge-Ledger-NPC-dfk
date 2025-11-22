@@ -92,21 +92,21 @@ const ACTIVE_GENES = [
 
 const STAT_BOOST_GENES = [
   'STR',  // 0 - Strength
-  'None', // 1 - (odd numbers unused)
-  'AGI',  // 2 - Agility
-  'None', // 3
-  'INT',  // 4 - Intelligence
-  'None', // 5
-  'WIS',  // 6 - Wisdom
-  'None', // 7
-  'LCK',  // 8 - Luck
-  'None', // 9
-  'VIT',  // 10 - Vitality
-  'None', // 11
-  'END',  // 12 - Endurance
-  'None', // 13
-  'DEX',  // 14 - Dexterity
-  'None'  // 15
+  'AGI',  // 1 - Agility
+  'INT',  // 2 - Intelligence
+  'WIS',  // 3 - Wisdom
+  'LCK',  // 4 - Luck
+  'VIT',  // 5 - Vitality
+  'END',  // 6 - Endurance
+  'DEX',  // 7 - Dexterity
+  'HP',   // 8 - HP
+  'MP',   // 9 - MP
+  'Unknown10', // 10
+  'Unknown11', // 11
+  'Unknown12', // 12
+  'Unknown13', // 13
+  'Unknown14', // 14
+  'Unknown15'  // 15
 ];
 
 const ELEMENT_GENES = [
