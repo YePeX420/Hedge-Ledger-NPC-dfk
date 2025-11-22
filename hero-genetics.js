@@ -4,10 +4,12 @@
  */
 
 import { 
-  decodeGenes, 
+  decodeStatGenes,
   hasGardeningGene as hasGardeningGeneInternal, 
   getDominantProfession 
 } from './gene-decoder.js';
+
+import { decodeVisualGenes } from './visual-gene-decoder.js';
 
 /**
  * Decode hero genes from GraphQL hero object
@@ -53,7 +55,8 @@ function decodeHeroGenes(hero) {
   }
 
   // Decode full genetics from raw gene data
-  const { statTraits, visualTraits } = decodeGenes(hero.statGenes, hero.visualGenes);
+  const statTraits = decodeStatGenes(hero.statGenes);
+  const visualTraits = decodeVisualGenes(hero.visualGenes);
   
   // Convert to legacy format for compatibility
   return {
@@ -123,13 +126,25 @@ function decodeHeroGenes(hero) {
       R3: statTraits.element.r3.name
     },
     
-    // Visual traits
+    // Visual traits with hex colors and proper names
     visual: {
       gender: {
         dominant: visualTraits.gender.d.name,
         R1: visualTraits.gender.r1.name,
         R2: visualTraits.gender.r2.name,
         R3: visualTraits.gender.r3.name
+      },
+      headAppendage: {
+        dominant: visualTraits.headAppendage.d.name,
+        R1: visualTraits.headAppendage.r1.name,
+        R2: visualTraits.headAppendage.r2.name,
+        R3: visualTraits.headAppendage.r3.name
+      },
+      backAppendage: {
+        dominant: visualTraits.backAppendage.d.name,
+        R1: visualTraits.backAppendage.r1.name,
+        R2: visualTraits.backAppendage.r2.name,
+        R3: visualTraits.backAppendage.r3.name
       },
       background: {
         dominant: visualTraits.background.d.name,
@@ -144,22 +159,22 @@ function decodeHeroGenes(hero) {
         R3: visualTraits.hairStyle.r3.name
       },
       hairColor: {
-        dominant: visualTraits.hairColor.d.name,
-        R1: visualTraits.hairColor.r1.name,
-        R2: visualTraits.hairColor.r2.name,
-        R3: visualTraits.hairColor.r3.name
+        dominant: visualTraits.hairColor.d.hex,
+        R1: visualTraits.hairColor.r1.hex,
+        R2: visualTraits.hairColor.r2.hex,
+        R3: visualTraits.hairColor.r3.hex
       },
       eyeColor: {
-        dominant: visualTraits.eyeColor.d.name,
-        R1: visualTraits.eyeColor.r1.name,
-        R2: visualTraits.eyeColor.r2.name,
-        R3: visualTraits.eyeColor.r3.name
+        dominant: visualTraits.eyeColor.d.hex,
+        R1: visualTraits.eyeColor.r1.hex,
+        R2: visualTraits.eyeColor.r2.hex,
+        R3: visualTraits.eyeColor.r3.hex
       },
       skinColor: {
-        dominant: visualTraits.skinColor.d.name,
-        R1: visualTraits.skinColor.r1.name,
-        R2: visualTraits.skinColor.r2.name,
-        R3: visualTraits.skinColor.r3.name
+        dominant: visualTraits.skinColor.d.hex,
+        R1: visualTraits.skinColor.r1.hex,
+        R2: visualTraits.skinColor.r2.hex,
+        R3: visualTraits.skinColor.r3.hex
       }
     },
     

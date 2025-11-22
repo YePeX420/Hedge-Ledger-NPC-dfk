@@ -1533,14 +1533,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines.push('');
         
         lines.push('**👤 Visual Traits:**');
-        lines.push(`**Gender:** D: ${decoded.visual.gender.dominant} | R1: ${decoded.visual.gender.R1} | R2: ${decoded.visual.gender.R2} | R3: ${decoded.visual.gender.R3}`);
-        lines.push(`**Hair:** Style D: ${decoded.visual.hairStyle.dominant} | R1: ${decoded.visual.hairStyle.R1} | Color D: ${decoded.visual.hairColor.dominant} | R1: ${decoded.visual.hairColor.R1}`);
-        lines.push(`**Eyes:** D: ${decoded.visual.eyeColor.dominant} | R1: ${decoded.visual.eyeColor.R1} | **Skin:** D: ${decoded.visual.skinColor.dominant} | R1: ${decoded.visual.skinColor.R1}`);
-        lines.push(`**Background:** D: ${decoded.visual.background.dominant} | R1: ${decoded.visual.background.R1} | R2: ${decoded.visual.background.R2} | R3: ${decoded.visual.background.R3}`);
-        lines.push(`**Head Appendage:** D: ${decoded.visual.headAppendage.dominant} | R1: ${decoded.visual.headAppendage.R1}`);
-        lines.push(`**Back Appendage:** D: ${decoded.visual.backAppendage.dominant} | R1: ${decoded.visual.backAppendage.R1}`);
-        lines.push(`**Appendage Color:** D: ${decoded.visual.appendageColor.dominant} | R1: ${decoded.visual.appendageColor.R1}`);
-        lines.push(`**Back Appendage Color:** D: ${decoded.visual.backAppendageColor.dominant} | R1: ${decoded.visual.backAppendageColor.R1}`);
+        lines.push(`**Gender:** ${decoded.visual.gender.dominant}`);
+        lines.push(`**Hair:** ${decoded.visual.hairStyle.dominant} | Color ${decoded.visual.hairColor.dominant}`);
+        lines.push(`**Eyes:** ${decoded.visual.eyeColor.dominant} | **Skin:** ${decoded.visual.skinColor.dominant}`);
+        lines.push(`**Background:** ${decoded.visual.background.dominant}`);
+        
+        // Show appendages if not "None"
+        if (decoded.visual.headAppendage && decoded.visual.headAppendage.dominant !== 'None') {
+          lines.push(`**Head Appendage:** ${decoded.visual.headAppendage.dominant}`);
+        }
+        if (decoded.visual.backAppendage && decoded.visual.backAppendage.dominant !== 'None') {
+          lines.push(`**Back Appendage:** ${decoded.visual.backAppendage.dominant}`);
+        }
         
         const output = lines.join('\n');
         
