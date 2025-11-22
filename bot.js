@@ -1487,39 +1487,65 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return;
         }
         
+        // Decode genetics using hero-genetics module
+        const { decodeHeroGenes } = await import('./hero-genetics.js');
+        const decoded = decodeHeroGenes(hero);
+        
         // Format output
         const lines = [];
-        lines.push(`**🧬 Raw Genetics Data for Hero ${hero.id}**`);
+        lines.push(`**🧬 Full Genetics for Hero ${hero.id}**`);
         lines.push(`**Normalized ID:** ${hero.normalizedId || 'N/A'}`);
         lines.push(`**Realm:** ${hero.network || hero.originRealm}`);
-        lines.push(`**Class:** ${hero.mainClassStr} / ${hero.subClassStr}`);
-        lines.push(`**Profession:** ${hero.professionStr}`);
-        lines.push(`**Rarity:** ${['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero.rarity] || hero.rarity}`);
-        lines.push(`**Level:** ${hero.level} | **Gen:** ${hero.generation}`);
+        lines.push(`**Rarity:** ${['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero.rarity] || hero.rarity} | **Gen:** ${hero.generation} | **Level:** ${hero.level}`);
         lines.push('');
         
-        lines.push('**📊 Stats:**');
-        lines.push(`STR: ${hero.strength} | DEX: ${hero.dexterity} | AGI: ${hero.agility} | VIT: ${hero.vitality}`);
-        lines.push(`END: ${hero.endurance} | INT: ${hero.intelligence} | WIS: ${hero.wisdom} | LCK: ${hero.luck}`);
-        lines.push(`HP: ${hero.hp} | MP: ${hero.mp} | Stamina: ${hero.stamina}`);
+        // Show key traits with full recessive breakdown
+        lines.push('**🎭 Class Genetics:**');
+        lines.push(`**Main:** D: ${decoded.mainClass.dominant} | R1: ${decoded.mainClass.R1} | R2: ${decoded.mainClass.R2} | R3: ${decoded.mainClass.R3}`);
+        lines.push(`**Sub:** D: ${decoded.subClass.dominant} | R1: ${decoded.subClass.R1} | R2: ${decoded.subClass.R2} | R3: ${decoded.subClass.R3}`);
         lines.push('');
         
-        lines.push('**🔬 Gene Fields (Raw API Response):**');
-        lines.push(`\`\`\`json`);
-        lines.push(JSON.stringify({
-          statGenes: hero.statGenes,
-          visualGenes: hero.visualGenes
-        }, null, 2));
-        lines.push(`\`\`\``);
+        lines.push('**🌿 Profession Genetics:**');
+        lines.push(`D: ${decoded.profession.dominant} | R1: ${decoded.profession.R1} | R2: ${decoded.profession.R2} | R3: ${decoded.profession.R3}`);
+        const hasGardening = decoded.profession.dominant === 'Gardening' || 
+                            decoded.profession.R1 === 'Gardening' || 
+                            decoded.profession.R2 === 'Gardening' || 
+                            decoded.profession.R3 === 'Gardening';
+        if (hasGardening) {
+          lines.push('✅ **Has Gardening Gene** - Eligible for 40% stamina reduction bonus');
+        }
+        lines.push('');
+        
+        lines.push('**⚡ Abilities:**');
+        lines.push(`**Passive1:** D: ${decoded.passive1.dominant} | R1: ${decoded.passive1.R1}`);
+        lines.push(`**Passive2:** D: ${decoded.passive2.dominant} | R1: ${decoded.passive2.R1}`);
+        lines.push(`**Active1:** D: ${decoded.active1.dominant} | R1: ${decoded.active1.R1}`);
+        lines.push(`**Active2:** D: ${decoded.active2.dominant} | R1: ${decoded.active2.R1}`);
+        lines.push('');
+        
+        lines.push('**📈 Stat Boosts:**');
+        lines.push(`**Boost1:** D: ${decoded.statBoost1.dominant} | R1: ${decoded.statBoost1.R1}`);
+        lines.push(`**Boost2:** D: ${decoded.statBoost2.dominant} | R1: ${decoded.statBoost2.R1}`);
+        lines.push('');
+        
+        lines.push('**🔥 Element:**');
+        lines.push(`D: ${decoded.element.dominant} | R1: ${decoded.element.R1} | R2: ${decoded.element.R2} | R3: ${decoded.element.R3}`);
+        lines.push('');
+        
+        lines.push('**👤 Visual Traits:**');
+        lines.push(`**Gender:** ${decoded.visual.gender.dominant}`);
+        lines.push(`**Hair:** Style ${decoded.visual.hairStyle.dominant} | Color ${decoded.visual.hairColor.dominant}`);
+        lines.push(`**Eyes:** ${decoded.visual.eyeColor.dominant} | **Skin:** ${decoded.visual.skinColor.dominant}`);
+        lines.push(`**Background:** ${decoded.visual.background.dominant}`);
         
         const output = lines.join('\n');
         
-        // Log full response to console
-        console.log('[debug-hero-genetics] Full API response:', JSON.stringify(hero, null, 2));
+        // Log full decoded genetics to console
+        console.log('[debug-hero-genetics] Full decoded genetics:', JSON.stringify(decoded, null, 2));
         
         // Discord message limit is 2000 chars
         if (output.length > 1900) {
-          await interaction.editReply(output.slice(0, 1900) + '\n...\n_See console for full response_');
+          await interaction.editReply(output.slice(0, 1900) + '\n...\n_See console for full genetics_');
         } else {
           await interaction.editReply(output);
         }
