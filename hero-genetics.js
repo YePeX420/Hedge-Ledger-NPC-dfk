@@ -116,63 +116,71 @@ function extractTrait(genes, startPos, bitsPerGene, mapping) {
 
 /**
  * Decode hero genes into structured trait data
- * @param {Object} hero - Hero object from GraphQL (must include genes field)
- * @returns {Object} - Decoded genetics with dominant + R1/R2/R3 for each trait
+ * NOTE: DFK GraphQL API doesn't expose raw gene data (genes/visualGenes/statGenes fields don't exist)
+ * We use the already-decoded string fields and mark recessives as Unknown
+ * 
+ * @param {Object} hero - Hero object from GraphQL
+ * @returns {Object} - Decoded genetics with dominant + R1/R2/R3 (recessives Unknown without raw data)
  */
 export function decodeHeroGenes(hero) {
   if (!hero) {
     throw new Error('Hero object is required');
   }
 
-  // Parse raw genes
-  const genesBigInt = hexToBigInt(hero.genes);
-  const visualGenesBigInt = hexToBigInt(hero.visualGenes);
-  const statGenesBigInt = hero.statGenes ? hexToBigInt(hero.statGenes) : 0n;
-
-  // DFK gene layout (approximate positions based on standard encoding):
-  // Positions are in bits, reading right-to-left from the uint256
-  
-  // Main genes (hero.genes):
-  // - Class: bits 0-31 (8 bits per position, 4 positions)
-  // - SubClass: bits 32-63
-  // - Profession: bits 64-95
-  // - Element: bits 96-127
-  // - Stat growth genes are in separate statGenes field
+  // DFK GraphQL API provides decoded dominant traits as strings
+  // Raw gene data is not exposed, so we can't decode recessives
+  // advancedGenes/eliteGenes/exaltedGenes are structured objects, not raw hex
   
   const decoded = {
     id: hero.id,
     normalizedId: hero.normalizedId || hero.id,
     realm: hero.network || hero.originRealm || 'unknown',
     
-    // Extract main traits
-    mainClass: extractTrait(genesBigInt, 0, 8, CLASSES),
-    subClass: extractTrait(genesBigInt, 32, 8, CLASSES),
-    profession: extractTrait(genesBigInt, 64, 8, PROFESSIONS),
-    element: extractTrait(genesBigInt, 96, 8, ELEMENTS),
+    // Use provided string fields for dominant, mark recessives as Unknown
+    mainClass: {
+      dominant: hero.mainClassStr || 'Unknown',
+      R1: 'Unknown',
+      R2: 'Unknown',
+      R3: 'Unknown'
+    },
+    subClass: {
+      dominant: hero.subClassStr || 'Unknown',
+      R1: 'Unknown',
+      R2: 'Unknown',
+      R3: 'Unknown'
+    },
+    profession: {
+      dominant: hero.professionStr || 'Unknown',
+      R1: 'Unknown',
+      R2: 'Unknown',
+      R3: 'Unknown'
+    },
+    element: {
+      dominant: 'Unknown', // Not exposed in basic hero query
+      R1: 'Unknown',
+      R2: 'Unknown',
+      R3: 'Unknown'
+    },
     
-    // Extract stat growth traits (from statGenes if available)
+    // Stats - we don't have growth type data without raw genes
     stats: {
-      strength: extractTrait(statGenesBigInt, 0, 4, STAT_GROWTH),
-      intelligence: extractTrait(statGenesBigInt, 16, 4, STAT_GROWTH),
-      wisdom: extractTrait(statGenesBigInt, 32, 4, STAT_GROWTH),
-      luck: extractTrait(statGenesBigInt, 48, 4, STAT_GROWTH),
-      agility: extractTrait(statGenesBigInt, 64, 4, STAT_GROWTH),
-      vitality: extractTrait(statGenesBigInt, 80, 4, STAT_GROWTH),
-      endurance: extractTrait(statGenesBigInt, 96, 4, STAT_GROWTH),
-      dexterity: extractTrait(statGenesBigInt, 112, 4, STAT_GROWTH)
+      strength: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+      intelligence: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+      wisdom: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+      luck: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+      agility: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+      vitality: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+      endurance: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+      dexterity: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' }
     },
     
-    // Extract visual traits (from visualGenes if available)
+    // Visual traits
     visual: {
-      background: extractTrait(visualGenesBigInt, 0, 8, BACKGROUNDS)
+      background: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' }
     },
     
-    // Raw gene data (for debugging/verification)
-    raw: {
-      genes: hero.genes,
-      visualGenes: hero.visualGenes,
-      statGenes: hero.statGenes
-    }
+    // Note about limitations
+    _note: 'Recessive genes (R1/R2/R3) are Unknown - DFK GraphQL API does not expose raw gene data'
   };
 
   return decoded;
