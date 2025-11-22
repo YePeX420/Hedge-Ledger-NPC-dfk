@@ -418,6 +418,18 @@ client.once(Events.ClientReady, async (c) => {
                 ]
               }
             ]
+          },
+          {
+            name: 'debug-hero-id',
+            description: 'Debug: show detailed hero info by ID',
+            options: [
+              {
+                name: 'id',
+                description: 'Hero ID (e.g. 50161 or 1000000050161)',
+                type: 3,           // STRING
+                required: true
+              }
+            ]
           }
         ];
 
