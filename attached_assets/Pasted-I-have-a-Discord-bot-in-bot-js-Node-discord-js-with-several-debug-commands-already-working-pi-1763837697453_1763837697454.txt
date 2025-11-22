@@ -1,0 +1,255 @@
+I have a Discord bot in bot.js (Node + discord.js) with several debug commands already working:
+
+/ping, /logtest, /health
+
+/debug-wallet
+
+/debug-heroes-by-class
+
+/debug-hero-id
+
+The project also includes onchain-data.js with hero helpers such as:
+
+getHeroById
+
+getHeroesByOwner
+
+getAllHeroesByOwnerCV (paginated Crystalvale heroes)
+
+(and a similar helper for Metis/SIS, if you created one earlier)
+
+I want you to add a new user-facing command called /hedge-wallet that produces a Hedge-style wallet analysis in DMs, using the same data sources as the debug commands, but with friendly text instead of raw IDs.
+
+1. Slash command definition
+
+Add a new slash command called hedge-wallet and register it together with the other commands in client.once(Events.ClientReady, ...).
+
+Command:
+
+Name: hedge-wallet
+
+Description: Hedge-style wallet analysis in DMs.
+
+Options:
+
+address (type: STRING, optional)
+
+If provided, use this address as the wallet to analyze.
+
+If omitted, try to use the player’s linked wallet in our DB (see below).
+
+Register it in the same place we currently register /ping, /logtest, /health, and /debug-wallet so it exists as a guild command.
+
+2. Handler behavior in InteractionCreate
+
+Inside client.on(Events.InteractionCreate, async (interaction) => { ... }), add a new handler block:
+
+if (name === 'hedge-wallet') {
+  ...
+}
+
+2.1 Resolve wallet address
+
+Inside this block:
+
+Check if an address option was provided:
+
+const argAddress = interaction.options.getString('address', false);
+
+
+If argAddress is present:
+
+Validate it with a regex: /^0x[a-fA-F0-9]{40}$/.
+
+If invalid → await interaction.editReply('That does not look like a valid 0x wallet address.'); return;
+
+Otherwise, use argAddress as walletAddress.
+
+If argAddress is not provided:
+
+We should try to use the player’s linked wallet from the database.
+
+We already have players and jewelBalances tables and helper code like ensureUserRegistered in bot.js.
+
+Use interaction.user.id to look up the players row and check for a primary wallet field (e.g. players.primaryWallet or players.wallets[0]).
+
+If a primary wallet exists, use it as walletAddress.
+
+If no linked wallet exists:
+
+Reply in the channel (or ephemeral) with a short message:
+
+“I don’t see a linked wallet for you yet. DM me your wallet address first, or call /hedge-wallet address:<0x...> with an explicit address.”
+
+Then return;.
+
+Keep a shortAddress like 0x1A9F...4098 for display.
+
+2.2 Public acknowledgement vs DM analysis
+
+The command may be used in a server channel or in DMs.
+
+If interaction.guildId is set (used in a guild), do:
+
+await interaction.editReply('📬 Check your DMs — I am sending your Hedge wallet analysis there.');
+
+If in DMs, you can reply with a short “Working…” message or skip the public acknowledgement.
+
+Regardless, the main analysis should be sent via await interaction.user.send(...), not as a public channel message.
+
+If sending a DM throws (e.g. DMs disabled), catch and send a fallback in the original interaction:
+
+“⚠️ I couldn’t DM you. Please enable DMs from this server and try again.”
+
+3. Data gathering for /hedge-wallet
+
+Use the existing helpers that we already created for debug commands.
+
+3.1 Heroes per realm
+
+Use onchain-data.js helpers to get full hero lists:
+
+For Crystalvale:
+
+const heroesCV = await onchain.getAllHeroesByOwnerCV(walletAddress);
+
+
+For Metis/Sundered Isles:
+
+If you already added a similar helper (e.g. getAllHeroesByOwnerMetis), use it:
+
+const heroesMet = await onchain.getAllHeroesByOwnerMetis(walletAddress);
+
+
+If not, you can reuse the logic from getAllHeroesByOwnerCV but pointed at the Metis graph.
+
+Then compute:
+
+countCV = heroesCV.length
+
+countMet = heroesMet.length
+
+totalHeroes = countCV + countMet
+
+Also build class distributions per realm:
+
+function buildClassCounts(heroes) {
+  const counts = {};
+  for (const h of heroes) {
+    const cls = h.mainClassStr || 'Unknown';
+    counts[cls] = (counts[cls] || 0) + 1;
+  }
+  return counts;
+}
+
+
+You’ll use this to produce a short summary like:
+
+Crystalvale: 1004 heroes — Ninja: 239, DarkKnight: 181, Paladin: 85, …
+
+(Use the same logic you used in /debug-wallet, but condensed.)
+
+3.2 Gardens overview (harvestable rewards)
+
+Reuse the same quick garden helper used in /debug-wallet:
+
+const rewards = await quickData.getWalletRewardsQuick(walletAddress);
+
+
+From this:
+
+Filter pools with rewards > 0.0001.
+
+Build a list of up to ~5 top pools by reward amount.
+
+Summarize them as lines like:
+
+• CRYSTAL–WJEWEL: 4.5284 CRYSTAL
+
+• USDC–WJEWEL: 2.9510 CRYSTAL
+
+You don’t need to show every pool here; just enough to illustrate footprint. (The debug command already covers the full list.)
+
+3.3 Optional: basic “insights” section
+
+Add a simple rule-based insight section, for example:
+
+If totalHeroes > 500 → “You’re a large roster account; we can do serious optimization.”
+
+If countCV > 0 and countMet === 0 → “You are CV-focused; SIS looks untapped.”
+
+If number of pools with rewards is 0 → “No active gardens detected; yields are probably coming from elsewhere.”
+
+Keep this logic simple and deterministic, not AI-generated.
+
+4. DM message formatting (Hedge persona)
+
+Compose the DM text as a multi-section message, something like:
+
+const lines = [];
+
+lines.push(`👋 *Hedge cracks open your ledger for* \`${shortAddress}\` …`);
+lines.push('');
+
+lines.push('**🧙 Hero Profile**');
+lines.push(`• Total heroes: ${totalHeroes}`);
+lines.push(`• Crystalvale: ${countCV} • Sundered Isles: ${countMet}`);
+// maybe 1–2 lines summarizing top classes per realm
+lines.push('');
+
+lines.push('**🌿 Garden Footprint (harvestable now)**');
+if (topPools.length === 0) {
+  lines.push('• No harvestable rewards detected in tracked CV pools.');
+} else {
+  for (const p of topPools) {
+    lines.push(`• ${p.pairName}: ${p.amount} CRYSTAL`);
+  }
+}
+lines.push('');
+
+lines.push('**📌 Quick Thoughts**');
+// 1–3 short bullet lines based on simple heuristics
+lines.push('• (Example) You are heavily weighted to Ninja / DarkKnight on CV.');
+lines.push('• (Example) Consider diversifying your gardens if you want smoother yield.');
+lines.push('');
+
+lines.push('_This is a high-level view. For raw IDs and exact numbers, /debug-wallet is your friend — I’m just here to grumble and advise._');
+
+const dmText = lines.join('\n');
+
+
+Send it with:
+
+await interaction.user.send(dmText);
+
+
+If dmText might be >2000 chars, truncate or split into two messages (for now, keep it under 1800 chars by being concise).
+
+5. Fallback and error handling
+
+Catch any errors from hero/garden fetches and include small notes in the DM:
+
+catch (err) {
+  console.error('hedge-wallet heroes error:', err);
+  lines.push('_Note: hero data may be incomplete due to an upstream indexer issue._');
+}
+
+
+If sending the DM fails (DMs disabled), catch and:
+
+try {
+  await interaction.editReply('⚠️ I tried to DM you but could not. Please enable DMs from this server and try again.');
+} catch {}
+
+
+Do not crash the bot if any of these calls fail; just log and send a partial report.
+
+6. Do not remove or refactor existing commands
+
+Please:
+
+Do not change the behavior of /debug-wallet, /debug-heroes-by-class, /debug-hero-id, etc.
+
+Only add the /hedge-wallet registration + handler.
+
+Keep the code style and logging consistent with the existing patterns in bot.js.
