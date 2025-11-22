@@ -1438,7 +1438,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           'https://api.defikingdoms.com/graphql'
         );
         
-        // Extended query with all possible gene-related fields
+        // Query using only valid gene fields (statGenes, visualGenes)
         const extendedQuery = gql`
           query GetHeroExtendedGenetics($heroId: ID!) {
             hero(id: $heroId) {
@@ -1472,13 +1472,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
               foraging
               fishing
               
-              # Try all possible gene fields
-              advancedGenes
-              eliteGenes
-              exaltedGenes
+              # Valid gene fields (confirmed by API)
               statGenes
               visualGenes
-              genes
             }
           }
         `;
@@ -1511,12 +1507,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines.push('**🔬 Gene Fields (Raw API Response):**');
         lines.push(`\`\`\`json`);
         lines.push(JSON.stringify({
-          advancedGenes: hero.advancedGenes,
-          eliteGenes: hero.eliteGenes,
-          exaltedGenes: hero.exaltedGenes,
           statGenes: hero.statGenes,
-          visualGenes: hero.visualGenes,
-          genes: hero.genes
+          visualGenes: hero.visualGenes
         }, null, 2));
         lines.push(`\`\`\``);
         
