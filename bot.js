@@ -383,15 +383,39 @@ client.once(Events.ClientReady, async (c) => {
               },
               {
                 name: 'class',
-                description: 'Hero class (e.g. Monk, Knight, etc.)',
+                description: 'Hero class',
                 type: 3,           // STRING
-                required: true
+                required: true,
+                choices: [
+                  { name: 'Warrior', value: 'Warrior' },
+                  { name: 'Knight', value: 'Knight' },
+                  { name: 'Thief', value: 'Thief' },
+                  { name: 'Archer', value: 'Archer' },
+                  { name: 'Priest', value: 'Priest' },
+                  { name: 'Wizard', value: 'Wizard' },
+                  { name: 'Monk', value: 'Monk' },
+                  { name: 'Pirate', value: 'Pirate' },
+                  { name: 'Paladin', value: 'Paladin' },
+                  { name: 'DarkKnight', value: 'DarkKnight' },
+                  { name: 'Summoner', value: 'Summoner' },
+                  { name: 'Ninja', value: 'Ninja' },
+                  { name: 'Shapeshifter', value: 'Shapeshifter' },
+                  { name: 'Bard', value: 'Bard' },
+                  { name: 'Dragoon', value: 'Dragoon' },
+                  { name: 'Sage', value: 'Sage' },
+                  { name: 'Spellbow', value: 'Spellbow' }
+                ]
               },
               {
                 name: 'realm',
-                description: 'Realm filter: dfk (Crystalvale), met (Metis/Sundered Isles), or all',
+                description: 'Realm filter',
                 type: 3,           // STRING
-                required: false
+                required: false,
+                choices: [
+                  { name: 'All Realms', value: 'all' },
+                  { name: 'Crystalvale (DFK Chain)', value: 'dfk' },
+                  { name: 'Sundered Isles (Metis)', value: 'met' }
+                ]
               }
             ]
           }
