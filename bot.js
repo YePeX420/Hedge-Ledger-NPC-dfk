@@ -370,6 +370,30 @@ client.once(Events.ClientReady, async (c) => {
                 required: true
               }
             ]
+          },
+          {
+            name: 'debug-heroes-by-class',
+            description: 'List hero IDs for a given class and realm for debugging.',
+            options: [
+              {
+                name: 'address',
+                description: 'Wallet address (0x...) to inspect',
+                type: 3,           // STRING
+                required: true
+              },
+              {
+                name: 'class',
+                description: 'Hero class (e.g. Monk, Knight, etc.)',
+                type: 3,           // STRING
+                required: true
+              },
+              {
+                name: 'realm',
+                description: 'Realm filter: dfk (Crystalvale), met (Metis/Sundered Isles), or all',
+                type: 3,           // STRING
+                required: false
+              }
+            ]
           }
         ];
 
@@ -925,6 +949,98 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } catch (err) {
         console.error('❌ Error in /debug-wallet:', err);
         await interaction.editReply(`❌ Error fetching wallet data: ${err.message}`);
+      }
+      
+      return;
+    }
+
+    if (name === 'debug-heroes-by-class') {
+      const walletAddress = interaction.options.getString('address');
+      const targetClass = interaction.options.getString('class');
+      const realmFilter = interaction.options.getString('realm') || 'all';
+      
+      if (!walletAddress || !walletAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+        await interaction.editReply('❌ Invalid wallet address. Must be a 40-character hex string starting with 0x.');
+        return;
+      }
+
+      // Normalize class name (capitalize first letter)
+      const normalizedClass = targetClass.charAt(0).toUpperCase() + targetClass.slice(1).toLowerCase();
+
+      const lines = [];
+      const shortAddress = `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+      lines.push(`🧾 **Hero debug for ${shortAddress}**\n`);
+
+      try {
+        // Fetch all heroes
+        const allHeroes = await onchain.getAllHeroesByOwner(walletAddress);
+        
+        if (!allHeroes || allHeroes.length === 0) {
+          await interaction.editReply(`No heroes found for wallet ${shortAddress}`);
+          return;
+        }
+
+        // Filter by realm if specified
+        let heroes = allHeroes;
+        if (realmFilter !== 'all') {
+          heroes = allHeroes.filter(h => h.network === realmFilter);
+        }
+
+        // Filter by class
+        const classHeroes = heroes.filter(h => h.mainClassStr === normalizedClass);
+
+        // Build realm display
+        const realmMap = {
+          'dfk': 'Crystalvale (DFK Chain)',
+          'met': 'Sundered Isles (Metis)',
+          'all': 'All Realms'
+        };
+        const realmDisplay = realmMap[realmFilter] || realmFilter;
+
+        lines.push(`**Realm**: ${realmDisplay}`);
+        lines.push(`**Class**: ${normalizedClass}`);
+        lines.push('');
+        lines.push(`**Total heroes detected**: ${classHeroes.length}`);
+        lines.push('');
+
+        if (classHeroes.length === 0) {
+          lines.push(`No ${normalizedClass} heroes found in this realm.`);
+        } else {
+          // Extract IDs
+          const heroIds = classHeroes.map(h => h.id);
+          
+          // Log to console for offline analysis
+          console.log(`[HeroDebug] ${normalizedClass} IDs on ${realmFilter} for ${walletAddress}:`, JSON.stringify(heroIds, null, 2));
+          
+          // Format IDs for Discord
+          lines.push('**IDs**:');
+          
+          // Build comma-separated ID list
+          const idList = heroIds.map(id => `#${id}`).join(', ');
+          
+          // Check if we'll exceed Discord's 2000 char limit
+          const fullMessage = lines.join('\n') + '\n' + idList + '\n\n*(IDs also logged to console as JSON.)*';
+          
+          if (fullMessage.length > 1900) {
+            // Truncate IDs to fit
+            const availableSpace = 1900 - lines.join('\n').length - 60; // 60 chars for footer
+            const truncatedIds = idList.slice(0, availableSpace) + '...';
+            lines.push(truncatedIds);
+            lines.push('');
+            lines.push('*(+ more IDs truncated to stay under Discord limits)*');
+            lines.push('*(Full list logged to console as JSON.)*');
+          } else {
+            lines.push(idList);
+            lines.push('');
+            lines.push('*(IDs also logged to console as JSON.)*');
+          }
+        }
+        
+        await interaction.editReply(lines.join('\n'));
+
+      } catch (err) {
+        console.error('❌ Error in /debug-heroes-by-class:', err);
+        await interaction.editReply(`❌ Error fetching hero data: ${err.message}`);
       }
       
       return;
