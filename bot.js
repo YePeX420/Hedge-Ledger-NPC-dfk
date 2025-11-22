@@ -442,6 +442,18 @@ client.once(Events.ClientReady, async (c) => {
                 required: false
               }
             ]
+          },
+          {
+            name: 'debug-hero-index',
+            description: 'Debug: build genetics-aware hero index for a wallet',
+            options: [
+              {
+                name: 'address',
+                description: 'Wallet address (0x...)',
+                type: 3,           // STRING
+                required: true
+              }
+            ]
           }
         ];
 
@@ -1330,6 +1342,75 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } catch {}
       }
 
+      return;
+    }
+
+    if (name === 'debug-hero-index') {
+      const address = interaction.options.getString('address', true);
+      
+      // Validate address
+      if (!address.match(/^0x[a-fA-F0-9]{40}$/)) {
+        await interaction.editReply('That does not look like a valid 0x wallet address.');
+        return;
+      }
+      
+      await interaction.editReply('⏳ Building genetics-aware Hero Index... this may take a moment for large wallets.');
+      
+      try {
+        const index = await onchain.buildHeroIndexForWallet(address);
+        
+        // Build summary response
+        const lines = [];
+        lines.push(`🧬 **Genetics-Aware Hero Index**`);
+        lines.push(`**Wallet:** \`${address.slice(0, 6)}...${address.slice(-4)}\``);
+        lines.push('');
+        
+        lines.push('**📊 Realm Summary**');
+        lines.push(`• Crystalvale (DFK): ${index.totals.dfk} heroes`);
+        lines.push(`• Sundered Isles (MET): ${index.totals.met} heroes`);
+        lines.push(`• Serendale (KLA): ${index.totals.kla} heroes`);
+        lines.push(`• **Total: ${index.totals.all} heroes**`);
+        lines.push('');
+        
+        // Top classes per realm
+        if (index.totals.dfk > 0) {
+          const topCV = Object.entries(index.realms.dfk.totalsByClass)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([cls, count]) => `${cls}: ${count}`)
+            .join(', ');
+          lines.push(`**Crystalvale Top Classes:** ${topCV}`);
+        }
+        
+        if (index.totals.met > 0) {
+          const topMET = Object.entries(index.realms.met.totalsByClass)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([cls, count]) => `${cls}: ${count}`)
+            .join(', ');
+          lines.push(`**Sundered Isles Top Classes:** ${topMET}`);
+        }
+        
+        lines.push('');
+        lines.push(`✅ **Successfully decoded:** ${index.totals.all - index.missingHeroes.length}/${index.totals.all} heroes`);
+        
+        if (index.missingHeroes.length > 0) {
+          lines.push(`⚠️ **Failed to decode:** ${index.missingHeroes.length} heroes (see console log)`);
+        }
+        
+        lines.push('');
+        lines.push('_Full Hero Index with genetics logged to console as JSON._');
+        
+        // Log full index to console
+        console.log('[HeroIndex] Full genetics-aware index:', JSON.stringify(index, null, 2));
+        
+        await interaction.editReply(lines.join('\n'));
+        
+      } catch (err) {
+        console.error('❌ Error in /debug-hero-index:', err);
+        await interaction.editReply(`❌ Error building hero index: ${err.message}`);
+      }
+      
       return;
     }
 
