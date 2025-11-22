@@ -165,6 +165,11 @@ export async function getHeroById(heroId) {
           name
           tier
         }
+        
+        # Raw gene fields for full trait decoding
+        genes
+        visualGenes
+        statGenes
       }
     }
   `;
