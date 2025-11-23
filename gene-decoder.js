@@ -23,14 +23,14 @@ const CLASS_GENES = [
   'Wizard',       // 5
   'Monk',         // 6
   'Pirate',       // 7
-  'Berserker',    // 8 (Advanced)
-  'Paladin',      // 9 (Advanced)
-  'DarkKnight',   // 10 (Advanced)
-  'Summoner',     // 11 (Advanced)
-  'Ninja',        // 12 (Advanced)
-  'Shapeshifter', // 13 (Advanced)
-  'Bard',         // 14 (Advanced)
-  'Dragoon'       // 15 (Advanced)
+  'Berserker',    // 8
+  'Seer',         // 9
+  'Legionnaire',  // 10
+  'Scholar',      // 11
+  'Paladin',      // 12
+  'DarkKnight',   // 13
+  'Summoner',     // 14
+  'Ninja'         // 15
 ];
 
 const PROFESSION_GENES = [
