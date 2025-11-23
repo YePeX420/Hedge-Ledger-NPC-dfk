@@ -24,13 +24,13 @@ const CLASS_GENES = [
   'Monk',         // 6
   'Pirate',       // 7
   'Berserker',    // 8
-  'Seer',         // 9
-  'Legionnaire',  // 10
-  'Scholar',      // 11
-  'Paladin',      // 12
-  'DarkKnight',   // 13
-  'Summoner',     // 14
-  'Ninja'         // 15
+  'Paladin',      // 9
+  'DarkKnight',   // 10
+  'Summoner',     // 11
+  'Ninja',        // 12
+  'Shapeshifter', // 13
+  'Bard',         // 14
+  'Dragoon'       // 15
 ];
 
 const PROFESSION_GENES = [
