@@ -719,8 +719,34 @@ client.on('messageCreate', async (message) => {
         { role: 'user', content: message.content }
       ]);
 
-      await message.reply(response);
-      console.log(`✅ Sent AI response to ${username}`);
+      // 🎨 Check if we should attach hairstyle charts
+      const hairstyleKeywords = [
+        'hairstyle', 'hair style', 'hair mutation', 'hairstyle mutation',
+        'hair breeding', 'hair genetic', 'summoning tree',
+        'hair gene', 'visual trait', 'visual gene'
+      ];
+      
+      const userContent = message.content.toLowerCase();
+      const aiResponse = response.toLowerCase();
+      const shouldAttachCharts = hairstyleKeywords.some(keyword => 
+        userContent.includes(keyword) || aiResponse.includes(keyword)
+      );
+
+      if (shouldAttachCharts) {
+        console.log(`🎨 Detected hairstyle question - attaching charts`);
+        
+        const femaleChart = new AttachmentBuilder('knowledge/female-hairstyle-chart.png');
+        const maleChart = new AttachmentBuilder('knowledge/male-hairstyle-chart.png');
+        
+        await message.reply({
+          content: response,
+          files: [femaleChart, maleChart]
+        });
+        console.log(`✅ Sent AI response with hairstyle charts to ${username}`);
+      } else {
+        await message.reply(response);
+        console.log(`✅ Sent AI response to ${username}`);
+      }
     } catch (aiError) {
       console.error("❌ OpenAI error in DM:", aiError);
       await message.reply("*yawns* My ledger seems stuck... give me a moment and try again.");
