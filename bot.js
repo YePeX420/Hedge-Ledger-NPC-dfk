@@ -719,30 +719,54 @@ client.on('messageCreate', async (message) => {
         { role: 'user', content: message.content }
       ]);
 
-      // 🎨 Check if we should attach hairstyle charts
+      // 🎨 Check if we should attach visual genetics charts
       const hairstyleKeywords = [
         'hairstyle', 'hair style', 'hair mutation', 'hairstyle mutation',
-        'hair breeding', 'hair genetic', 'summoning tree',
-        'hair gene', 'visual trait', 'visual gene'
+        'hair breeding', 'hair genetic', 'hair gene'
+      ];
+      
+      const appendageKeywords = [
+        'appendage', 'head appendage', 'appendage mutation', 'appendage breeding',
+        'appendage genetic', 'appendage gene', 'cat ear', 'dragon wing',
+        'royal crown', 'demon horn', 'elven ear', 'fae chisel'
       ];
       
       const userContent = message.content.toLowerCase();
       const aiResponse = response.toLowerCase();
-      const shouldAttachCharts = hairstyleKeywords.some(keyword => 
+      
+      const shouldAttachHairstyles = hairstyleKeywords.some(keyword => 
+        userContent.includes(keyword) || aiResponse.includes(keyword)
+      );
+      
+      const shouldAttachAppendages = appendageKeywords.some(keyword => 
+        userContent.includes(keyword) || aiResponse.includes(keyword)
+      );
+      
+      // Also attach charts if user asks about "summoning tree" or "visual trait/gene"
+      const generalVisualKeywords = ['summoning tree', 'visual trait', 'visual gene'];
+      const isGeneralVisual = generalVisualKeywords.some(keyword => 
         userContent.includes(keyword) || aiResponse.includes(keyword)
       );
 
-      if (shouldAttachCharts) {
-        console.log(`🎨 Detected hairstyle question - attaching charts`);
-        
-        const femaleChart = new AttachmentBuilder('knowledge/female-hairstyle-chart.png');
-        const maleChart = new AttachmentBuilder('knowledge/male-hairstyle-chart.png');
-        
+      const attachments = [];
+      
+      if (shouldAttachHairstyles || isGeneralVisual) {
+        console.log(`🎨 Detected hairstyle question - attaching hairstyle charts`);
+        attachments.push(new AttachmentBuilder('knowledge/female-hairstyle-chart.png'));
+        attachments.push(new AttachmentBuilder('knowledge/male-hairstyle-chart.png'));
+      }
+      
+      if (shouldAttachAppendages || isGeneralVisual) {
+        console.log(`🎨 Detected appendage question - attaching appendage chart`);
+        attachments.push(new AttachmentBuilder('knowledge/head-appendage-chart.png'));
+      }
+
+      if (attachments.length > 0) {
         await message.reply({
           content: response,
-          files: [femaleChart, maleChart]
+          files: attachments
         });
-        console.log(`✅ Sent AI response with hairstyle charts to ${username}`);
+        console.log(`✅ Sent AI response with ${attachments.length} chart(s) to ${username}`);
       } else {
         await message.reply(response);
         console.log(`✅ Sent AI response to ${username}`);
