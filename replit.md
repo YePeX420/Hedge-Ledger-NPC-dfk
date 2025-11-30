@@ -59,6 +59,28 @@ The project uses a Node.js backend with Discord.js for bot functionality and an 
         *   **Core Engine** (`bargain-finder.js`): Fetches heroes for sale with genetics, calculates summoning probabilities for all possible pairs, filters by target class probability threshold, sorts by total price.
         *   **Command** (`/find-bargain`): Takes target class (e.g., 'Dreadknight'), minimum probability (default 5%), and optional max price. Returns top 5 cheapest pairs with detailed stats including parent rarities, generations, summon counts, individual prices, and complete probability breakdowns for classes/professions.
         *   **Future**: Conversational DM integration for natural language requests like "find me the cheapest pair for summoning a Sage".
+    *   **Player User Model System**: Comprehensive classification system for personalizing NPC responses and enabling targeted engagement strategies:
+        *   **Classification Config** (`classification-config.js`): Centralized thresholds for all classification dimensions. Easily tunable values for archetype detection (keyword frequencies, behavior patterns), tier boundaries (spending levels 0-4), engagement states (activity windows), and behavior tag triggers.
+        *   **Classification Engine** (`classification-engine.js`): Multi-dimensional classification algorithm that processes player data to determine:
+            *   **Archetypes** (LEARNER, BUILDER, FLIPPER, EXTRACTOR, WHALE, GUEST): Based on message content analysis (learning questions, building terms, trading focus, extraction patterns, high-value behavior)
+            *   **Tiers** (0=Guest, 1=Bronze, 2=Silver, 3=Gold, 4=Council of Hedge): Based on combined financial score (spending, hero count, LP value)
+            *   **Engagement States** (VISITOR, CURIOUS, ENGAGED, ACTIVE, COMMITTED, DORMANT, CHURNED): Based on activity recency and interaction frequency
+            *   **Behavior Tags**: Dynamic tags like `asks-questions`, `frequent-trader`, `hero-focused`, `garden-focused`, `multichain`, `quester`, `guild-member`
+            *   **Flags**: Boolean markers for `isWhale`, `isExtractor`, `isHighPotential`
+            *   **KPIs**: Numeric scores for engagement, financial activity, and retention probability
+        *   **Player Profile Service** (`player-profile-service.js`): Database layer for profile CRUD operations with automatic classification triggers. Stores enriched profile data in `profileData` JSON column including archetype, tier, state, tags, KPIs, DFK snapshot, flags, and recent message history.
+        *   **Hedge Persona Adapter** (`hedge-persona-adapter.js`): Dynamically adjusts Hedge's response style based on player profile. Controls:
+            *   Formality level (casual for whales, formal for guests)
+            *   Verbosity (concise for experienced, verbose for learners)
+            *   Proactivity (more suggestions for committed players)
+            *   Tone adjustments (warmer for high-potential, neutral for extractors)
+        *   **Discord Commands**:
+            *   `/hedge-profile [user]`: View player profile (self or admin-view others)
+            *   `/hedge-reclassify <user>`: Admin command to force profile reclassification
+            *   `/hedge-set-tier <user> <tier>`: Admin command to manually override tier
+            *   `/hedge-profiles-list [filters]`: Admin command to list profiles by archetype, tier, whale status
+        *   **Message Tracking**: All DM messages logged through profile service for automatic classification updates based on content analysis
+        *   **Auto-Reclassification**: Classification engine runs on significant activity changes (message count thresholds, payment events, milestone completions)
 
 ## External Dependencies
 *   **Discord API**: Used for bot operations and OAuth2 authentication via `discord.js`.
