@@ -33,10 +33,21 @@ The project uses a Node.js backend with Discord.js for bot functionality and an 
     *   **Stat Gene Decoder** (`gene-decoder.js`): Decodes `statGenes` using Kai (base-32) encoding matching the official @thanpolas/degenking library implementation. Each BigInt converts to 48 Kai characters (12 traits × 4 genes). Extracts all 4 gene tiers (D, R1, R2, R3) for classes, professions, passive/active abilities, stat boosts, and elements. Uses official gene mappings with proper gaps (e.g., class values 0-11, 16-21, 24-26, 28; professions at even-spaced values 0, 2, 4, 6). Maps abilities to official DFK combat names (Poisoned Blade, Clutch, Leadership, Heal, Resurrection, etc.).
     *   **Visual Gene Decoder** (`visual-gene-decoder.js`): Decodes `visualGenes` using identical Kai (base-32) conversion. Provides hex color codes for hair/eyes/skin, gender-specific hairstyle names (16 female and 16 male styles from official DFK summoning trees), named appendages (Cat Ears, Dragon Wings, Royal Crown), and labeled backgrounds (City, Forest, Mountains). Full D/R1/R2/R3 support for all 12 visual traits.
     *   **Integration Layer** (`hero-genetics.js`): Combines both decoders into unified hero genetics output. Used by garden optimizer to detect gardening gene bonuses (40% stamina reduction) across all 4 gene positions. Powers `/debug-hero-genetics` Discord command showing complete genetic breakdown. Verified accurate against official DFK hero data (tested with hero #283911).
-    *   **Visual Breeding Aids**: Automatic visual genetics summoning tree chart sharing in DMs. When users ask about visual trait mutations or breeding, Hedge automatically attaches official DFK summoning tree charts to help visualize mutation paths and breeding strategies:
-        *   **Hairstyle Charts**: Attached for hairstyle questions (`knowledge/female-hairstyle-chart.png` and `knowledge/male-hairstyle-chart.png`)
-        *   **Head Appendage Chart**: Attached for appendage questions (`knowledge/head-appendage-chart.png`)
-        *   **General Visual Genetics**: All 3 charts attached when users ask about "visual genetics" or "summoning trees" broadly
+    *   **Breeding Chart System**: Comprehensive automatic chart sharing in DMs covering both visual genetics and hero summoning mechanics. The bot intelligently detects question context and attaches relevant official DFK summoning tree charts:
+        *   **Visual Genetics Charts (6)**:
+            *   Female Hairstyle Chart (`knowledge/female-hairstyle-chart.png`)
+            *   Male Hairstyle Chart (`knowledge/male-hairstyle-chart.png`)
+            *   Head Appendage Chart (`knowledge/head-appendage-chart.png`)
+            *   Back Appendage Chart (`knowledge/back-appendage-chart.png`)
+            *   Hair Color Chart (`knowledge/hair-color-chart.png`)
+            *   Appendage Color Chart (`knowledge/appendage-color-chart.png`)
+        *   **Hero Summoning Chart (1)**:
+            *   Hero Class Summoning Chart showing class mutation trees, costs, cooldowns, and rarity chances (`knowledge/hero-class-summoning-chart.png`)
+        *   **Intelligent Detection**: Bot analyzes keywords to attach appropriate chart combinations:
+            *   Specific traits (e.g., "blue hair") → Single relevant chart
+            *   Multiple traits (e.g., "hairstyle and color") → Multiple charts
+            *   General questions (e.g., "visual genetics") → All 6 visual charts
+            *   Broad breeding questions (e.g., "what can I breed?") → All 7 charts
 
 ## External Dependencies
 *   **Discord API**: Used for bot operations and OAuth2 authentication via `discord.js`.
