@@ -22,6 +22,9 @@ import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './pool-cache.js';
 import { generateOptimizationMessages } from './report-formatter.js';
+import { calculateSummoningProbabilities } from './summoning-engine.js';
+import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
+import { decodeHeroGenetics } from './hero-genetics.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots } from './shared/schema.ts';
 import { eq, desc, sql, inArray, and, gt } from 'drizzle-orm';
@@ -462,6 +465,24 @@ client.once(Events.ClientReady, async (c) => {
               {
                 name: 'id',
                 description: 'Hero ID (e.g. 283911)',
+                type: 3,           // STRING
+                required: true
+              }
+            ]
+          },
+          {
+            name: 'summoning-calc',
+            description: 'Calculate summoning probabilities for two heroes',
+            options: [
+              {
+                name: 'hero1',
+                description: 'First hero ID (e.g. 1564)',
+                type: 3,           // STRING
+                required: true
+              },
+              {
+                name: 'hero2',
+                description: 'Second hero ID (e.g. 283911)',
                 type: 3,           // STRING
                 required: true
               }
@@ -1639,6 +1660,100 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } catch (err) {
         console.error('❌ Error in /debug-hero-genetics:', err);
         await interaction.editReply(`❌ Error fetching genetics: ${err.message}`);
+      }
+      
+      return;
+    }
+
+    if (name === 'summoning-calc') {
+      const hero1Id = interaction.options.getString('hero1', true);
+      const hero2Id = interaction.options.getString('hero2', true);
+      
+      await interaction.editReply(`⚗️ Calculating summoning probabilities for heroes ${hero1Id} and ${hero2Id}...`);
+      
+      try {
+        // Fetch both heroes from blockchain
+        const { request, gql } = await import('graphql-request');
+        const dfkClient = new (await import('graphql-request')).GraphQLClient(
+          'https://api.defikingdoms.com/graphql'
+        );
+        
+        const heroQuery = gql`
+          query GetHero($heroId: ID!) {
+            hero(id: $heroId) {
+              id
+              normalizedId
+              mainClassStr
+              subClassStr
+              professionStr
+              rarity
+              generation
+              statGenes
+              visualGenes
+            }
+          }
+        `;
+        
+        const [hero1Data, hero2Data] = await Promise.all([
+          dfkClient.request(heroQuery, { heroId: hero1Id.toString() }),
+          dfkClient.request(heroQuery, { heroId: hero2Id.toString() })
+        ]);
+        
+        const hero1 = hero1Data.hero;
+        const hero2 = hero2Data.hero;
+        
+        if (!hero1 || !hero2) {
+          await interaction.editReply(`❌ Could not find one or both heroes.`);
+          return;
+        }
+        
+        // Decode genetics for both heroes
+        const { decodeHeroGenes } = await import('./hero-genetics.js');
+        const hero1Genetics = decodeHeroGenes(hero1);
+        const hero2Genetics = decodeHeroGenes(hero2);
+        
+        // Get rarity names
+        const rarityNames = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+        const hero1Rarity = rarityNames[hero1.rarity] || 'Common';
+        const hero2Rarity = rarityNames[hero2.rarity] || 'Common';
+        
+        // Calculate summoning probabilities
+        const probabilities = calculateSummoningProbabilities(
+          hero1Genetics,
+          hero2Genetics,
+          hero1Rarity,
+          hero2Rarity
+        );
+        
+        // Create parent info objects for embeds
+        const parent1Info = {
+          heroId: hero1.normalizedId || hero1.id,
+          class: hero1.mainClassStr,
+          rarity: hero1Rarity
+        };
+        
+        const parent2Info = {
+          heroId: hero2.normalizedId || hero2.id,
+          class: hero2.mainClassStr,
+          rarity: hero2Rarity
+        };
+        
+        // Create summary embed
+        const summaryEmbed = createSummarySummoningEmbed(probabilities, parent1Info, parent2Info);
+        
+        // Send summary embed
+        await interaction.editReply({ content: '', embeds: [summaryEmbed] });
+        
+        // Send detailed embeds as follow-up
+        const statEmbed = createStatGenesEmbed(probabilities);
+        const visualEmbed = createVisualGenesEmbed(probabilities);
+        
+        await interaction.followUp({ embeds: [statEmbed] });
+        await interaction.followUp({ embeds: [visualEmbed] });
+        
+      } catch (err) {
+        console.error('❌ Error in /summoning-calc:', err);
+        await interaction.editReply(`❌ Error calculating summoning probabilities: ${err.message}`);
       }
       
       return;

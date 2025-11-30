@@ -19,41 +19,38 @@ import { calculateRarityDistribution } from './rarity-calculator.js';
 export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics, parent1Rarity, parent2Rarity) {
   const results = {
     // Stat genes
-    class: calculateTraitProbabilities(parent1Genetics.statGenes.class, parent2Genetics.statGenes.class),
-    subClass: calculateTraitProbabilities(parent1Genetics.statGenes.subClass, parent2Genetics.statGenes.subClass),
-    profession: calculateTraitProbabilities(parent1Genetics.statGenes.profession, parent2Genetics.statGenes.profession),
+    class: calculateTraitProbabilities(parent1Genetics.mainClass, parent2Genetics.mainClass),
+    subClass: calculateTraitProbabilities(parent1Genetics.subClass, parent2Genetics.subClass),
+    profession: calculateTraitProbabilities(parent1Genetics.profession, parent2Genetics.profession),
     
     // Passive abilities
-    passive1: calculateTraitProbabilities(parent1Genetics.statGenes.passive1, parent2Genetics.statGenes.passive1),
-    passive2: calculateTraitProbabilities(parent1Genetics.statGenes.passive2, parent2Genetics.statGenes.passive2),
+    passive1: calculateTraitProbabilities(parent1Genetics.passive1, parent2Genetics.passive1),
+    passive2: calculateTraitProbabilities(parent1Genetics.passive2, parent2Genetics.passive2),
     
     // Active abilities
-    active1: calculateTraitProbabilities(parent1Genetics.statGenes.active1, parent2Genetics.statGenes.active1),
-    active2: calculateTraitProbabilities(parent1Genetics.statGenes.active2, parent2Genetics.statGenes.active2),
+    active1: calculateTraitProbabilities(parent1Genetics.active1, parent2Genetics.active1),
+    active2: calculateTraitProbabilities(parent1Genetics.active2, parent2Genetics.active2),
     
     // Stat boosts
-    statBoost1: calculateTraitProbabilities(parent1Genetics.statGenes.statBoost1, parent2Genetics.statGenes.statBoost1),
-    statBoost2: calculateTraitProbabilities(parent1Genetics.statGenes.statBoost2, parent2Genetics.statGenes.statBoost2),
+    statBoost1: calculateTraitProbabilities(parent1Genetics.statBoost1, parent2Genetics.statBoost1),
+    statBoost2: calculateTraitProbabilities(parent1Genetics.statBoost2, parent2Genetics.statBoost2),
     
     // Element
-    element: calculateTraitProbabilities(parent1Genetics.statGenes.element, parent2Genetics.statGenes.element),
+    element: calculateTraitProbabilities(parent1Genetics.element, parent2Genetics.element),
     
-    // Background
-    background: calculateTraitProbabilities(parent1Genetics.statGenes.background, parent2Genetics.statGenes.background),
-    
-    // Visual genes
-    gender: calculateTraitProbabilities(parent1Genetics.visualGenes.gender, parent2Genetics.visualGenes.gender),
-    headAppendage: calculateTraitProbabilities(parent1Genetics.visualGenes.headAppendage, parent2Genetics.visualGenes.headAppendage),
-    backAppendage: calculateTraitProbabilities(parent1Genetics.visualGenes.backAppendage, parent2Genetics.visualGenes.backAppendage),
-    background: calculateTraitProbabilities(parent1Genetics.visualGenes.background, parent2Genetics.visualGenes.background),
-    hairStyle: calculateTraitProbabilities(parent1Genetics.visualGenes.hairStyle, parent2Genetics.visualGenes.hairStyle),
-    hairColor: calculateTraitProbabilities(parent1Genetics.visualGenes.hairColor, parent2Genetics.visualGenes.hairColor),
-    eyeColor: calculateTraitProbabilities(parent1Genetics.visualGenes.eyeColor, parent2Genetics.visualGenes.eyeColor),
-    skinColor: calculateTraitProbabilities(parent1Genetics.visualGenes.skinColor, parent2Genetics.visualGenes.skinColor),
-    appendageColor: calculateTraitProbabilities(parent1Genetics.visualGenes.appendageColor, parent2Genetics.visualGenes.appendageColor),
-    backAppendageColor: calculateTraitProbabilities(parent1Genetics.visualGenes.backAppendageColor, parent2Genetics.visualGenes.backAppendageColor),
-    visualUnknown1: calculateTraitProbabilities(parent1Genetics.visualGenes.visualUnknown1, parent2Genetics.visualGenes.visualUnknown1),
-    visualUnknown2: calculateTraitProbabilities(parent1Genetics.visualGenes.visualUnknown2, parent2Genetics.visualGenes.visualUnknown2),
+    // Visual genes (note: under 'visual' sub-object)
+    gender: calculateTraitProbabilities(parent1Genetics.visual.gender, parent2Genetics.visual.gender),
+    headAppendage: calculateTraitProbabilities(parent1Genetics.visual.headAppendage, parent2Genetics.visual.headAppendage),
+    backAppendage: calculateTraitProbabilities(parent1Genetics.visual.backAppendage, parent2Genetics.visual.backAppendage),
+    background: calculateTraitProbabilities(parent1Genetics.visual.background, parent2Genetics.visual.background),
+    hairStyle: calculateTraitProbabilities(parent1Genetics.visual.hairStyle, parent2Genetics.visual.hairStyle),
+    hairColor: calculateTraitProbabilities(parent1Genetics.visual.hairColor, parent2Genetics.visual.hairColor),
+    eyeColor: calculateTraitProbabilities(parent1Genetics.visual.eyeColor, parent2Genetics.visual.eyeColor),
+    skinColor: calculateTraitProbabilities(parent1Genetics.visual.skinColor, parent2Genetics.visual.skinColor),
+    appendageColor: calculateTraitProbabilities(parent1Genetics.visual.appendageColor, parent2Genetics.visual.appendageColor),
+    backAppendageColor: calculateTraitProbabilities(parent1Genetics.visual.backAppendageColor, parent2Genetics.visual.backAppendageColor),
+    visualUnknown1: calculateTraitProbabilities(parent1Genetics.visual.visualUnknown1, parent2Genetics.visual.visualUnknown1),
+    visualUnknown2: calculateTraitProbabilities(parent1Genetics.visual.visualUnknown2, parent2Genetics.visual.visualUnknown2),
     
     // Rarity
     rarity: calculateRarityDistribution(parent1Rarity, parent2Rarity)
@@ -64,12 +61,12 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
 
 /**
  * Calculate probability distribution for a single trait using 4x4 genetics
- * @param {Object} parent1Trait - Trait object with { D, R1, R2, R3 } genes
- * @param {Object} parent2Trait - Trait object with { D, R1, R2, R3 } genes
+ * @param {Object} parent1Trait - Trait object with { dominant, R1, R2, R3 } genes
+ * @param {Object} parent2Trait - Trait object with { dominant, R1, R2, R3 } genes
  * @returns {Object} Probability distribution { traitValue: percentage }
  */
 export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
-  const genePositions = ['D', 'R1', 'R2', 'R3'];
+  const genePositions = ['dominant', 'R1', 'R2', 'R3'];
   const outcomes = {};
   
   // 4x4 grid: each parent contributes one of their 4 genes
