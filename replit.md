@@ -47,7 +47,13 @@ The project uses a Node.js backend with Discord.js for bot functionality and an 
             *   Specific traits (e.g., "blue hair") → Single relevant chart
             *   Multiple traits (e.g., "hairstyle and color") → Multiple charts
             *   General questions (e.g., "visual genetics") → All 6 visual charts
-            *   Broad breeding questions (e.g., "what can I breed?") → All 7 charts
+            *   Broad summoning questions (e.g., "what can I summon?") → All 7 charts
+    *   **Hero Summoning Probability Calculator**: Complete 4×4 Mendelian genetics engine calculating offspring trait probabilities for all genetic combinations:
+        *   **Core Engine** (`summoning-engine.js`): Implements proper Mendelian genetics where each parent contributes one of their 4 genes (D, R1, R2, R3) randomly. Creates 16 possible combinations per trait (4×4 grid). Calculates probability distributions for ALL traits: classes, subclasses, professions, passive/active abilities, stat boosts, elements, visual genetics (hair style/color, appendages, eye/skin colors), and backgrounds.
+        *   **Rarity Calculator** (`rarity-calculator.js`): Based on official DeFi Kingdoms Hero Summoning Rarity Chances chart. Contains exact percentage distributions for all 15 parent rarity combinations (Common+Common → 58.5% Common; Mythic+Mythic → 40% Common with 4% Mythic chance, etc.).
+        *   **Discord Formatter** (`summoning-formatter.js`): Formats probability data into three embeds: Summary (top classes, professions, rarity distribution), Stat Genes (abilities, stat boosts, element), and Visual Genes (hairstyles, colors, appendages). Uses color-coded rarity embeds and percentage-sorted trait lists.
+        *   **Command** (`/summoning-calc`): Debug command taking two hero IDs, fetching their genetics from blockchain, and displaying complete summoning probabilities matching the official DeFi Kingdoms summoning calculator format.
+        *   **Future**: Conversational DM integration planned for flexible input (hero IDs, class descriptions, hypothetical scenarios).
 
 ## External Dependencies
 *   **Discord API**: Used for bot operations and OAuth2 authentication via `discord.js`.
