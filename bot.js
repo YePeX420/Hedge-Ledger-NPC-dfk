@@ -24,7 +24,7 @@ import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './po
 import { generateOptimizationMessages } from './report-formatter.js';
 import { calculateSummoningProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
-import { decodeHeroGenetics } from './hero-genetics.js';
+import { decodeHeroGenes } from './hero-genetics.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots } from './shared/schema.ts';
 import { eq, desc, sql, inArray, and, gt } from 'drizzle-orm';
