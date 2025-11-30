@@ -17,43 +17,85 @@ import { calculateRarityDistribution } from './rarity-calculator.js';
  * @returns {Object} Complete probability distributions for all traits
  */
 export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics, parent1Rarity, parent2Rarity) {
+  // Calculate each trait with mutation tracking
+  const classData = calculateTraitProbabilities(parent1Genetics.mainClass, parent2Genetics.mainClass);
+  const subClassData = calculateTraitProbabilities(parent1Genetics.subClass, parent2Genetics.subClass);
+  const professionData = calculateTraitProbabilities(parent1Genetics.profession, parent2Genetics.profession);
+  const passive1Data = calculateTraitProbabilities(parent1Genetics.passive1, parent2Genetics.passive1);
+  const passive2Data = calculateTraitProbabilities(parent1Genetics.passive2, parent2Genetics.passive2);
+  const active1Data = calculateTraitProbabilities(parent1Genetics.active1, parent2Genetics.active1);
+  const active2Data = calculateTraitProbabilities(parent1Genetics.active2, parent2Genetics.active2);
+  const statBoost1Data = calculateTraitProbabilities(parent1Genetics.statBoost1, parent2Genetics.statBoost1);
+  const statBoost2Data = calculateTraitProbabilities(parent1Genetics.statBoost2, parent2Genetics.statBoost2);
+  const elementData = calculateTraitProbabilities(parent1Genetics.element, parent2Genetics.element);
+  const genderData = calculateTraitProbabilities(parent1Genetics.visual.gender, parent2Genetics.visual.gender);
+  const headAppData = calculateTraitProbabilities(parent1Genetics.visual.headAppendage, parent2Genetics.visual.headAppendage);
+  const backAppData = calculateTraitProbabilities(parent1Genetics.visual.backAppendage, parent2Genetics.visual.backAppendage);
+  const bgData = calculateTraitProbabilities(parent1Genetics.visual.background, parent2Genetics.visual.background);
+  const hairStyleData = calculateTraitProbabilities(parent1Genetics.visual.hairStyle, parent2Genetics.visual.hairStyle);
+  const hairColorData = calculateTraitProbabilities(parent1Genetics.visual.hairColor, parent2Genetics.visual.hairColor);
+  const eyeColorData = calculateTraitProbabilities(parent1Genetics.visual.eyeColor, parent2Genetics.visual.eyeColor);
+  const skinColorData = calculateTraitProbabilities(parent1Genetics.visual.skinColor, parent2Genetics.visual.skinColor);
+  const appColorData = calculateTraitProbabilities(parent1Genetics.visual.appendageColor, parent2Genetics.visual.appendageColor);
+  const backAppColorData = calculateTraitProbabilities(parent1Genetics.visual.backAppendageColor, parent2Genetics.visual.backAppendageColor);
+  const vu1Data = calculateTraitProbabilities(parent1Genetics.visual.visualUnknown1, parent2Genetics.visual.visualUnknown1);
+  const vu2Data = calculateTraitProbabilities(parent1Genetics.visual.visualUnknown2, parent2Genetics.visual.visualUnknown2);
+  
   const results = {
-    // Stat genes
-    class: calculateTraitProbabilities(parent1Genetics.mainClass, parent2Genetics.mainClass),
-    subClass: calculateTraitProbabilities(parent1Genetics.subClass, parent2Genetics.subClass),
-    profession: calculateTraitProbabilities(parent1Genetics.profession, parent2Genetics.profession),
+    // Stat genes - probabilities
+    class: classData.probabilities,
+    subClass: subClassData.probabilities,
+    profession: professionData.probabilities,
+    passive1: passive1Data.probabilities,
+    passive2: passive2Data.probabilities,
+    active1: active1Data.probabilities,
+    active2: active2Data.probabilities,
+    statBoost1: statBoost1Data.probabilities,
+    statBoost2: statBoost2Data.probabilities,
+    element: elementData.probabilities,
     
-    // Passive abilities
-    passive1: calculateTraitProbabilities(parent1Genetics.passive1, parent2Genetics.passive1),
-    passive2: calculateTraitProbabilities(parent1Genetics.passive2, parent2Genetics.passive2),
-    
-    // Active abilities
-    active1: calculateTraitProbabilities(parent1Genetics.active1, parent2Genetics.active1),
-    active2: calculateTraitProbabilities(parent1Genetics.active2, parent2Genetics.active2),
-    
-    // Stat boosts
-    statBoost1: calculateTraitProbabilities(parent1Genetics.statBoost1, parent2Genetics.statBoost1),
-    statBoost2: calculateTraitProbabilities(parent1Genetics.statBoost2, parent2Genetics.statBoost2),
-    
-    // Element
-    element: calculateTraitProbabilities(parent1Genetics.element, parent2Genetics.element),
-    
-    // Visual genes (note: under 'visual' sub-object)
-    gender: calculateTraitProbabilities(parent1Genetics.visual.gender, parent2Genetics.visual.gender),
-    headAppendage: calculateTraitProbabilities(parent1Genetics.visual.headAppendage, parent2Genetics.visual.headAppendage),
-    backAppendage: calculateTraitProbabilities(parent1Genetics.visual.backAppendage, parent2Genetics.visual.backAppendage),
-    background: calculateTraitProbabilities(parent1Genetics.visual.background, parent2Genetics.visual.background),
-    hairStyle: calculateTraitProbabilities(parent1Genetics.visual.hairStyle, parent2Genetics.visual.hairStyle),
-    hairColor: calculateTraitProbabilities(parent1Genetics.visual.hairColor, parent2Genetics.visual.hairColor),
-    eyeColor: calculateTraitProbabilities(parent1Genetics.visual.eyeColor, parent2Genetics.visual.eyeColor),
-    skinColor: calculateTraitProbabilities(parent1Genetics.visual.skinColor, parent2Genetics.visual.skinColor),
-    appendageColor: calculateTraitProbabilities(parent1Genetics.visual.appendageColor, parent2Genetics.visual.appendageColor),
-    backAppendageColor: calculateTraitProbabilities(parent1Genetics.visual.backAppendageColor, parent2Genetics.visual.backAppendageColor),
-    visualUnknown1: calculateTraitProbabilities(parent1Genetics.visual.visualUnknown1, parent2Genetics.visual.visualUnknown1),
-    visualUnknown2: calculateTraitProbabilities(parent1Genetics.visual.visualUnknown2, parent2Genetics.visual.visualUnknown2),
+    // Visual genes - probabilities
+    gender: genderData.probabilities,
+    headAppendage: headAppData.probabilities,
+    backAppendage: backAppData.probabilities,
+    background: bgData.probabilities,
+    hairStyle: hairStyleData.probabilities,
+    hairColor: hairColorData.probabilities,
+    eyeColor: eyeColorData.probabilities,
+    skinColor: skinColorData.probabilities,
+    appendageColor: appColorData.probabilities,
+    backAppendageColor: backAppColorData.probabilities,
+    visualUnknown1: vu1Data.probabilities,
+    visualUnknown2: vu2Data.probabilities,
     
     // Rarity
-    rarity: calculateRarityDistribution(parent1Rarity, parent2Rarity)
+    rarity: calculateRarityDistribution(parent1Rarity, parent2Rarity),
+    
+    // Mutation sets for highlighting
+    mutations: {
+      class: classData.mutations,
+      subClass: subClassData.mutations,
+      profession: professionData.mutations,
+      passive1: passive1Data.mutations,
+      passive2: passive2Data.mutations,
+      active1: active1Data.mutations,
+      active2: active2Data.mutations,
+      statBoost1: statBoost1Data.mutations,
+      statBoost2: statBoost2Data.mutations,
+      element: elementData.mutations,
+      gender: genderData.mutations,
+      headAppendage: headAppData.mutations,
+      backAppendage: backAppData.mutations,
+      background: bgData.mutations,
+      hairStyle: hairStyleData.mutations,
+      hairColor: hairColorData.mutations,
+      eyeColor: eyeColorData.mutations,
+      skinColor: skinColorData.mutations,
+      appendageColor: appColorData.mutations,
+      backAppendageColor: backAppColorData.mutations,
+      visualUnknown1: vu1Data.mutations,
+      visualUnknown2: vu2Data.mutations
+    }
   };
   
   return results;
@@ -61,13 +103,19 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
 
 /**
  * Calculate probability distribution for a single trait using 4x4 genetics
+ * Also tracks which traits are mutations (not in either parent's dominant gene)
  * @param {Object} parent1Trait - Trait object with { dominant, R1, R2, R3 } genes
  * @param {Object} parent2Trait - Trait object with { dominant, R1, R2, R3 } genes
- * @returns {Object} Probability distribution { traitValue: percentage }
+ * @returns {Object} { probabilities: {...}, mutations: Set }
  */
 export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
   const genePositions = ['dominant', 'R1', 'R2', 'R3'];
   const outcomes = {};
+  const mutations = new Set();
+  
+  // Track parent dominant traits
+  const parent1Dominant = parent1Trait.dominant;
+  const parent2Dominant = parent2Trait.dominant;
   
   // 4x4 grid: each parent contributes one of their 4 genes
   for (const gene1 of genePositions) {
@@ -83,11 +131,19 @@ export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
       // Possibility 1: gene1 becomes dominant
       if (value1) {
         outcomes[value1] = (outcomes[value1] || 0) + 3.125; // 50% of 6.25%
+        // Mark as mutation if not in either parent's dominant gene
+        if (value1 !== parent1Dominant && value1 !== parent2Dominant) {
+          mutations.add(value1);
+        }
       }
       
       // Possibility 2: gene2 becomes dominant
       if (value2) {
         outcomes[value2] = (outcomes[value2] || 0) + 3.125; // 50% of 6.25%
+        // Mark as mutation if not in either parent's dominant gene
+        if (value2 !== parent1Dominant && value2 !== parent2Dominant) {
+          mutations.add(value2);
+        }
       }
     }
   }
@@ -97,7 +153,10 @@ export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
     .map(([trait, prob]) => [trait, Math.round(prob * 100) / 100])
     .sort((a, b) => b[1] - a[1]);
   
-  return Object.fromEntries(sorted);
+  return {
+    probabilities: Object.fromEntries(sorted),
+    mutations: mutations
+  };
 }
 
 /**

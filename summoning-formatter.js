@@ -101,6 +101,9 @@ export function createStatGenesEmbed(probabilities) {
     .setTitle('📊 Stat Genes & Abilities')
     .setColor(0x5865F2);
   
+  // Get mutation sets
+  const mutations = probabilities.mutations || {};
+  
   // Active abilities
   const active1Top = Object.entries(probabilities.active1)
     .sort((a, b) => b[1] - a[1])
@@ -111,13 +114,19 @@ export function createStatGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '⚡ Active 1',
-    value: active1Top.map(([ability, prob]) => `${ability}: ${prob}%`).join('\n') || 'None',
+    value: active1Top.map(([ability, prob]) => {
+      const isMutation = mutations.active1?.has(ability);
+      return `${isMutation ? '🧬 ' : ''}${ability}: ${prob}%`;
+    }).join('\n') || 'None',
     inline: true
   });
   
   embed.addFields({
     name: '⚡ Active 2',
-    value: active2Top.map(([ability, prob]) => `${ability}: ${prob}%`).join('\n') || 'None',
+    value: active2Top.map(([ability, prob]) => {
+      const isMutation = mutations.active2?.has(ability);
+      return `${isMutation ? '🧬 ' : ''}${ability}: ${prob}%`;
+    }).join('\n') || 'None',
     inline: true
   });
   
@@ -133,13 +142,19 @@ export function createStatGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '🛡️ Passive 1',
-    value: passive1Top.map(([ability, prob]) => `${ability}: ${prob}%`).join('\n') || 'None',
+    value: passive1Top.map(([ability, prob]) => {
+      const isMutation = mutations.passive1?.has(ability);
+      return `${isMutation ? '🧬 ' : ''}${ability}: ${prob}%`;
+    }).join('\n') || 'None',
     inline: true
   });
   
   embed.addFields({
     name: '🛡️ Passive 2',
-    value: passive2Top.map(([ability, prob]) => `${ability}: ${prob}%`).join('\n') || 'None',
+    value: passive2Top.map(([ability, prob]) => {
+      const isMutation = mutations.passive2?.has(ability);
+      return `${isMutation ? '🧬 ' : ''}${ability}: ${prob}%`;
+    }).join('\n') || 'None',
     inline: true
   });
   
@@ -155,13 +170,19 @@ export function createStatGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '💪 Stat Boost 1',
-    value: stat1Top.map(([stat, prob]) => `${stat}: ${prob}%`).join('\n') || 'None',
+    value: stat1Top.map(([stat, prob]) => {
+      const isMutation = mutations.statBoost1?.has(stat);
+      return `${isMutation ? '🧬 ' : ''}${stat}: ${prob}%`;
+    }).join('\n') || 'None',
     inline: true
   });
   
   embed.addFields({
     name: '💪 Stat Boost 2',
-    value: stat2Top.map(([stat, prob]) => `${stat}: ${prob}%`).join('\n') || 'None',
+    value: stat2Top.map(([stat, prob]) => {
+      const isMutation = mutations.statBoost2?.has(stat);
+      return `${isMutation ? '🧬 ' : ''}${stat}: ${prob}%`;
+    }).join('\n') || 'None',
     inline: true
   });
   
@@ -171,7 +192,10 @@ export function createStatGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '🔥 Element',
-    value: elementTop.map(([elem, prob]) => `${elem}: ${prob}%`).join('\n'),
+    value: elementTop.map(([elem, prob]) => {
+      const isMutation = mutations.element?.has(elem);
+      return `${isMutation ? '🧬 ' : ''}${elem}: ${prob}%`;
+    }).join('\n'),
     inline: false
   });
   
@@ -181,8 +205,15 @@ export function createStatGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '🌄 Background',
-    value: bgTop.map(([bg, prob]) => `${bg}: ${prob}%`).join('\n'),
+    value: bgTop.map(([bg, prob]) => {
+      const isMutation = mutations.background?.has(bg);
+      return `${isMutation ? '🧬 ' : ''}${bg}: ${prob}%`;
+    }).join('\n'),
     inline: false
+  });
+  
+  embed.setFooter({ 
+    text: '🧬 = Mutation (from recessive genes, not in either parent\'s dominant trait)' 
   });
   
   return embed;
@@ -201,6 +232,9 @@ export async function createVisualGenesEmbed(probabilities) {
   // Import color name converter
   const { getColorName } = await import('./color-names.js');
   
+  // Get mutation sets
+  const mutations = probabilities.mutations || {};
+  
   // Hair
   const hairStyleTop = Object.entries(probabilities.hairStyle)
     .sort((a, b) => b[1] - a[1])
@@ -211,13 +245,19 @@ export async function createVisualGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '💇 Hair Style',
-    value: hairStyleTop.map(([style, prob]) => `${style}: ${prob}%`).join('\n'),
+    value: hairStyleTop.map(([style, prob]) => {
+      const isMutation = mutations.hairStyle?.has(style);
+      return `${isMutation ? '🧬 ' : ''}${style}: ${prob}%`;
+    }).join('\n'),
     inline: true
   });
   
   embed.addFields({
     name: '🎨 Hair Color',
-    value: hairColorTop.map(([color, prob]) => `${getColorName(color, 'hair')}: ${prob}%`).join('\n'),
+    value: hairColorTop.map(([color, prob]) => {
+      const isMutation = mutations.hairColor?.has(color);
+      return `${isMutation ? '🧬 ' : ''}${getColorName(color, 'hair')}: ${prob}%`;
+    }).join('\n'),
     inline: true
   });
   
@@ -233,13 +273,19 @@ export async function createVisualGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '👑 Head Appendage',
-    value: headAppTop.map(([app, prob]) => `${app}: ${prob}%`).join('\n'),
+    value: headAppTop.map(([app, prob]) => {
+      const isMutation = mutations.headAppendage?.has(app);
+      return `${isMutation ? '🧬 ' : ''}${app}: ${prob}%`;
+    }).join('\n'),
     inline: true
   });
   
   embed.addFields({
     name: '🦋 Back Appendage',
-    value: backAppTop.map(([app, prob]) => `${app}: ${prob}%`).join('\n'),
+    value: backAppTop.map(([app, prob]) => {
+      const isMutation = mutations.backAppendage?.has(app);
+      return `${isMutation ? '🧬 ' : ''}${app}: ${prob}%`;
+    }).join('\n'),
     inline: true
   });
   
@@ -258,20 +304,33 @@ export async function createVisualGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '👁️ Eye Color',
-    value: eyeColorTop.map(([color, prob]) => `${getColorName(color, 'eye')}: ${prob}%`).join('\n'),
+    value: eyeColorTop.map(([color, prob]) => {
+      const isMutation = mutations.eyeColor?.has(color);
+      return `${isMutation ? '🧬 ' : ''}${getColorName(color, 'eye')}: ${prob}%`;
+    }).join('\n'),
     inline: true
   });
   
   embed.addFields({
     name: '👤 Skin Color',
-    value: skinColorTop.map(([color, prob]) => `${getColorName(color, 'skin')}: ${prob}%`).join('\n'),
+    value: skinColorTop.map(([color, prob]) => {
+      const isMutation = mutations.skinColor?.has(color);
+      return `${isMutation ? '🧬 ' : ''}${getColorName(color, 'skin')}: ${prob}%`;
+    }).join('\n'),
     inline: true
   });
   
   embed.addFields({
     name: '✨ Appendage Color',
-    value: appColorTop.map(([color, prob]) => `${getColorName(color, 'appendage')}: ${prob}%`).join('\n'),
+    value: appColorTop.map(([color, prob]) => {
+      const isMutation = mutations.appendageColor?.has(color);
+      return `${isMutation ? '🧬 ' : ''}${getColorName(color, 'appendage')}: ${prob}%`;
+    }).join('\n'),
     inline: true
+  });
+  
+  embed.setFooter({ 
+    text: '🧬 = Mutation (from recessive genes, not in either parent\'s dominant trait)' 
   });
   
   return embed;
