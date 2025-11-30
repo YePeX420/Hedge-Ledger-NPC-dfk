@@ -1,55 +1,94 @@
 /**
  * DeFi Kingdoms Hero Gene Decoder
  * 
- * Decodes the bit-packed statGenes and visualGenes into individual traits
+ * Decodes statGenes and visualGenes into individual traits
  * with dominant (D) and recessive (R1, R2, R3) values.
  * 
  * Each hero has 24 genetic traits (12 stat + 12 visual), stored as two large integers.
- * Each trait consists of 4 genes (D, R1, R2, R3), each using 4 bits (0-15).
+ * Each trait consists of 4 genes (D, R1, R2, R3).
  * 
- * Format: [4 bits D][4 bits R1][4 bits R2][4 bits R3] = 16 bits per trait
+ * Encoding: Both statGenes and visualGenes use Kai (base-32) encoding.
+ * The alphabet is '123456789abcdefghijkmnopqrstuvwx' (32 characters).
+ * Each BigInt converts to a 48-character Kai string (12 traits × 4 genes).
+ * Gene order in Kai string: R3, R2, R1, D (right to left: most recent to dominant)
  */
 
 // ============================================================================
 // TRAIT MAPPINGS
 // ============================================================================
 
+// Official gene-to-class mapping from degenking library
+// Note: There are gaps in the mapping (12-15, 22-23, 27, 29-31 undefined)
 const CLASS_GENES = [
-  'Warrior',      // 0
-  'Knight',       // 1
-  'Thief',        // 2
-  'Archer',       // 3
-  'Priest',       // 4
-  'Wizard',       // 5
-  'Monk',         // 6
-  'Pirate',       // 7
-  'Berserker',    // 8
-  'Paladin',      // 9
-  'DarkKnight',   // 10
-  'Summoner',     // 11
-  'Ninja',        // 12
-  'Shapeshifter', // 13
-  'Bard',         // 14
-  'Dragoon'       // 15
+  'Warrior',       // 0
+  'Knight',        // 1
+  'Thief',         // 2
+  'Archer',        // 3
+  'Priest',        // 4
+  'Wizard',        // 5
+  'Monk',          // 6
+  'Pirate',        // 7
+  'Berserker',     // 8
+  'Seer',          // 9
+  'Legionnaire',   // 10
+  'Scholar',       // 11
+  'Unknown12',     // 12 - Undefined in official mapping
+  'Unknown13',     // 13 - Undefined in official mapping
+  'Unknown14',     // 14 - Undefined in official mapping
+  'Unknown15',     // 15 - Undefined in official mapping
+  'Paladin',       // 16
+  'DarkKnight',    // 17
+  'Summoner',      // 18
+  'Ninja',         // 19
+  'Shapeshifter',  // 20
+  'Bard',          // 21
+  'Unknown22',     // 22 - Undefined in official mapping
+  'Unknown23',     // 23 - Undefined in official mapping
+  'Dragoon',       // 24
+  'Sage',          // 25
+  'Spellbow',      // 26
+  'Unknown27',     // 27 - Undefined in official mapping
+  'DreadKnight',   // 28
+  'Unknown29',     // 29 - Undefined in official mapping
+  'Unknown30',     // 30 - Undefined in official mapping
+  'Unknown31'      // 31 (max Kai value)
 ];
 
+// Official gene-to-profession mapping from degenking library
+// Note: Uses even-spaced values (0, 2, 4, 6) like some visual traits
 const PROFESSION_GENES = [
-  'Mining',         // 0
-  'Gardening',      // 1
-  'Foraging',       // 2
-  'Fishing',        // 3
-  'Alchemy',        // 4 - Crafting: INT + WIS + Fire
-  'Weaponsmithing', // 5 - Crafting: STR + DEX + Fire
-  'Armorsmithing',  // 6 - Crafting: STR + END + Earth
-  'Jewelcrafting',  // 7 - Crafting: DEX + LCK + Light
-  'Tailoring',      // 8 - Crafting: DEX + AGI + Wind
-  'Leatherworking', // 9 - Crafting: AGI + VIT + Earth
-  'Woodworking',    // 10 - Crafting: STR + AGI + Earth
-  'Enchanting',     // 11 - Crafting: INT + LCK + Dark
-  'None',           // 12
-  'None',           // 13
-  'None',           // 14
-  'None'            // 15
+  'Mining',      // 0
+  'Unknown1',    // 1 - Undefined in official mapping
+  'Gardening',   // 2
+  'Unknown3',    // 3 - Undefined in official mapping
+  'Fishing',     // 4
+  'Unknown5',    // 5 - Undefined in official mapping
+  'Foraging',    // 6
+  'Unknown7',    // 7
+  'Unknown8',    // 8
+  'Unknown9',    // 9
+  'Unknown10',   // 10
+  'Unknown11',   // 11
+  'Unknown12',   // 12
+  'Unknown13',   // 13
+  'Unknown14',   // 14
+  'Unknown15',   // 15
+  'Unknown16',   // 16
+  'Unknown17',   // 17
+  'Unknown18',   // 18
+  'Unknown19',   // 19
+  'Unknown20',   // 20
+  'Unknown21',   // 21
+  'Unknown22',   // 22
+  'Unknown23',   // 23
+  'Unknown24',   // 24
+  'Unknown25',   // 25
+  'Unknown26',   // 26
+  'Unknown27',   // 27
+  'Unknown28',   // 28
+  'Unknown29',   // 29
+  'Unknown30',   // 30
+  'Unknown31'    // 31 (max Kai value)
 ];
 
 const PASSIVE_GENES = [
@@ -196,54 +235,74 @@ const VISUAL_TRAITS = [
 // ============================================================================
 
 /**
- * Extracts a single gene (4 bits) from a genes integer
- * @param {string|BigInt} genesStr - The genes as a string or BigInt
- * @param {number} bitOffset - The bit offset to extract from
- * @returns {number} Gene value (0-15)
+ * Converts BigInt genes to Kai (base-32) representation
+ * @param {BigInt} genes - The genes as BigInt
+ * @returns {string} Kai representation (48 characters for 12 traits)
  */
-function extractGene(genesStr, bitOffset) {
-  const genesBigInt = typeof genesStr === 'string' ? BigInt(genesStr) : genesStr;
-  const shifted = genesBigInt >> BigInt(bitOffset);
-  const masked = shifted & BigInt(0xF);
-  return Number(masked);
-}
-
-/**
- * Decodes a single trait (4 genes: D, R1, R2, R3) from genes integer
- * @param {string|BigInt} genesStr - The genes as a string or BigInt
- * @param {number} traitIndex - Which trait to decode (0-11)
- * @returns {Object} { d, r1, r2, r3 } with numeric gene values
- */
-function decodeTrait(genesStr, traitIndex) {
-  const baseOffset = traitIndex * 16;
+function genesToKai(genes) {
+  const ALPHABET = '123456789abcdefghijkmnopqrstuvwx';
+  const BASE = BigInt(ALPHABET.length);
   
-  return {
-    d: extractGene(genesStr, baseOffset),
-    r1: extractGene(genesStr, baseOffset + 4),
-    r2: extractGene(genesStr, baseOffset + 8),
-    r3: extractGene(genesStr, baseOffset + 12)
-  };
+  let buf = '';
+  while (genes >= BASE) {
+    const mod = Number(genes % BASE);
+    buf = ALPHABET[mod] + buf;
+    genes = genes / BASE;
+  }
+  
+  if (genes > 0) {
+    buf = ALPHABET[Number(genes)] + buf;
+  }
+  
+  // Pad to 48 characters (12 traits × 4 genes)
+  while (buf.length < 48) {
+    buf = '1' + buf;
+  }
+  
+  return buf;
 }
 
 /**
- * Decodes all stat genes from statGenes integer
+ * Converts Kai character to decimal value (0-31)
+ * @param {string} kai - Single Kai character
+ * @returns {number} Decimal value (0-31)
+ */
+function kai2dec(kai) {
+  const ALPHABET = '123456789abcdefghijkmnopqrstuvwx';
+  return ALPHABET.indexOf(kai);
+}
+
+/**
+ * Decodes all stat genes from statGenes integer using Kai encoding
  * @param {string|BigInt} statGenes - The statGenes value
  * @returns {Object} Decoded stat traits with gene names
  */
 function decodeStatGenes(statGenes) {
+  const genesBigInt = typeof statGenes === 'string' ? BigInt(statGenes) : statGenes;
+  const kaiString = genesToKai(genesBigInt);
+  
   const decoded = {};
   
-  STAT_TRAITS.forEach((trait, index) => {
-    const genes = decodeTrait(statGenes, index);
+  // Process 48 Kai characters (12 traits × 4 genes each)
+  for (let traitIndex = 0; traitIndex < STAT_TRAITS.length; traitIndex++) {
+    const trait = STAT_TRAITS[traitIndex];
+    const startIdx = traitIndex * 4;
+    
+    // Extract 4 Kai characters for this trait (R3, R2, R1, D order in Kai string)
+    const r3Val = kai2dec(kaiString[startIdx]);
+    const r2Val = kai2dec(kaiString[startIdx + 1]);
+    const r1Val = kai2dec(kaiString[startIdx + 2]);
+    const dVal = kai2dec(kaiString[startIdx + 3]);
+    
     const mapping = trait.mapping;
     
     decoded[trait.name] = {
-      d: { value: genes.d, name: mapping[genes.d] },
-      r1: { value: genes.r1, name: mapping[genes.r1] },
-      r2: { value: genes.r2, name: mapping[genes.r2] },
-      r3: { value: genes.r3, name: mapping[genes.r3] }
+      d: { value: dVal, name: mapping[dVal] },
+      r1: { value: r1Val, name: mapping[r1Val] },
+      r2: { value: r2Val, name: mapping[r2Val] },
+      r3: { value: r3Val, name: mapping[r3Val] }
     };
-  });
+  }
   
   return decoded;
 }

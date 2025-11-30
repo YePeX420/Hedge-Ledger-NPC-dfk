@@ -1,0 +1,82 @@
+{
+    "private": false,
+    "name": "@thanpolas/degenking",
+    "version": "1.7.2",
+    "main": "./",
+    "description": "Unofficial DeFi Kingdoms SDK.",
+    "homepage": "https://github.com/degen-heroes/degenking",
+    "bugs": "https://github.com/degen-heroes/degenking/issues",
+    "author": {
+        "name": "Thanos Polychronakis",
+        "email": "thanpolas@gmail.com"
+    },
+    "contributors": [
+        ""
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/degen-heroes/degenking"
+    },
+    "license": "ISC",
+    "engines": {
+        "node": ">=16"
+    },
+    "scripts": {
+        "test": "npm run eslint && npm run jest",
+        "eslint": "eslint src test",
+        "jest": "TZ=utc jest --ci --coverage && codecov",
+        "release": "release-it --ci",
+        "release:minor": "release-it minor --ci",
+        "release:major": "release-it major --ci"
+    },
+    "jest": {
+        "coverageDirectory": "./coverage/",
+        "collectCoverage": true,
+        "collectCoverageFrom": [
+            "./src/*.js",
+            "./src/**/*.js"
+        ],
+        "coverageReporters": [
+            "json",
+            "html"
+        ],
+        "roots": [
+            "./test/app",
+            "./test/unit"
+        ],
+        "testEnvironment": "node",
+        "setupFilesAfterEnv": [
+            "jest-extended/all"
+        ],
+        "globalSetup": "./test/lib/global-setup.test.js",
+        "testTimeout": 10000
+    },
+    "dependencies": {
+        "@thanpolas/crypto-utils": "^0.4.1",
+        "@thanpolas/sidekick": "^1.1.0",
+        "axios": "^0.27.2",
+        "bluebird": "^3.7.2",
+        "date-fns": "^2.28.0",
+        "ethers": "^5.6.5",
+        "lodash": "^4.17.21",
+        "logality": "^3.1.3"
+    },
+    "devDependencies": {
+        "@types/jest": "27.5.0",
+        "codecov": "^3.8.3",
+        "eslint": "8.14.0",
+        "eslint-config-airbnb-base": "15.0.0",
+        "eslint-config-prettier": "8.5.0",
+        "eslint-plugin-import": "2.26.0",
+        "eslint-plugin-jest": "26.1.5",
+        "eslint-plugin-jsdoc": "39.2.9",
+        "eslint-plugin-prettier": "4.0.0",
+        "eslint-plugin-security": "1.5.0",
+        "expect": "28.0.2",
+        "jest": "28.0.3",
+        "jest-extended": "2.0.0",
+        "jest-junit": "13.2.0",
+        "prettier": "2.6.2",
+        "release-it": "15.0.0"
+    }
+}
