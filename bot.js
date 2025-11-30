@@ -1746,7 +1746,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         
         // Send detailed embeds as follow-up
         const statEmbed = createStatGenesEmbed(probabilities);
-        const visualEmbed = createVisualGenesEmbed(probabilities);
+        const visualEmbed = await createVisualGenesEmbed(probabilities);
         
         await interaction.followUp({ embeds: [statEmbed] });
         await interaction.followUp({ embeds: [visualEmbed] });

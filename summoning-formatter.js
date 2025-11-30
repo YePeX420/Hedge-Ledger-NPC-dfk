@@ -193,10 +193,13 @@ export function createStatGenesEmbed(probabilities) {
  * @param {Object} probabilities 
  * @returns {EmbedBuilder} Discord embed
  */
-export function createVisualGenesEmbed(probabilities) {
+export async function createVisualGenesEmbed(probabilities) {
   const embed = new EmbedBuilder()
     .setTitle('🎨 Visual Genetics')
     .setColor(0xFF1493);
+  
+  // Import color name converter
+  const { getColorName } = await import('./color-names.js');
   
   // Hair
   const hairStyleTop = Object.entries(probabilities.hairStyle)
@@ -214,7 +217,7 @@ export function createVisualGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '🎨 Hair Color',
-    value: hairColorTop.map(([color, prob]) => `${color}: ${prob}%`).join('\n'),
+    value: hairColorTop.map(([color, prob]) => `${getColorName(color, 'hair')}: ${prob}%`).join('\n'),
     inline: true
   });
   
@@ -255,19 +258,19 @@ export function createVisualGenesEmbed(probabilities) {
   
   embed.addFields({
     name: '👁️ Eye Color',
-    value: eyeColorTop.map(([color, prob]) => `${color}: ${prob}%`).join('\n'),
+    value: eyeColorTop.map(([color, prob]) => `${getColorName(color, 'eye')}: ${prob}%`).join('\n'),
     inline: true
   });
   
   embed.addFields({
     name: '👤 Skin Color',
-    value: skinColorTop.map(([color, prob]) => `${color}: ${prob}%`).join('\n'),
+    value: skinColorTop.map(([color, prob]) => `${getColorName(color, 'skin')}: ${prob}%`).join('\n'),
     inline: true
   });
   
   embed.addFields({
     name: '✨ Appendage Color',
-    value: appColorTop.map(([color, prob]) => `${color}: ${prob}%`).join('\n'),
+    value: appColorTop.map(([color, prob]) => `${getColorName(color, 'appendage')}: ${prob}%`).join('\n'),
     inline: true
   });
   
