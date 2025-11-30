@@ -82,18 +82,15 @@ try {
   console.log(`D: ${decoded.element.dominant} | R1: ${decoded.element.R1} | R2: ${decoded.element.R2} | R3: ${decoded.element.R3}`);
   console.log('');
   
-  console.log('**👤 Visual Traits:**');
-  console.log(`**Gender:** ${decoded.visual.gender.dominant}`);
-  console.log(`**Hair:** ${decoded.visual.hairStyle.dominant} | Color ${decoded.visual.hairColor.dominant}`);
-  console.log(`**Eyes:** ${decoded.visual.eyeColor.dominant} | **Skin:** ${decoded.visual.skinColor.dominant}`);
-  console.log(`**Background:** ${decoded.visual.background.dominant}`);
-  
-  if (decoded.visual.headAppendage && decoded.visual.headAppendage.dominant !== 'None') {
-    console.log(`**Head Appendage:** ${decoded.visual.headAppendage.dominant}`);
-  }
-  if (decoded.visual.backAppendage && decoded.visual.backAppendage.dominant !== 'None') {
-    console.log(`**Back Appendage:** ${decoded.visual.backAppendage.dominant}`);
-  }
+  console.log('**👤 Visual Genetics:**');
+  console.log(`**Gender:** D: ${decoded.visual.gender.dominant} | R1: ${decoded.visual.gender.R1} | R2: ${decoded.visual.gender.R2} | R3: ${decoded.visual.gender.R3}`);
+  console.log(`**Background:** D: ${decoded.visual.background.dominant} | R1: ${decoded.visual.background.R1} | R2: ${decoded.visual.background.R2} | R3: ${decoded.visual.background.R3}`);
+  console.log(`**Hair Style:** D: ${decoded.visual.hairStyle.dominant} | R1: ${decoded.visual.hairStyle.R1} | R2: ${decoded.visual.hairStyle.R2} | R3: ${decoded.visual.hairStyle.R3}`);
+  console.log(`**Hair Color:** D: ${decoded.visual.hairColor.dominant} | R1: ${decoded.visual.hairColor.R1} | R2: ${decoded.visual.hairColor.R2} | R3: ${decoded.visual.hairColor.R3}`);
+  console.log(`**Eye Color:** D: ${decoded.visual.eyeColor.dominant} | R1: ${decoded.visual.eyeColor.R1} | R2: ${decoded.visual.eyeColor.R2} | R3: ${decoded.visual.eyeColor.R3}`);
+  console.log(`**Skin Color:** D: ${decoded.visual.skinColor.dominant} | R1: ${decoded.visual.skinColor.R1} | R2: ${decoded.visual.skinColor.R2} | R3: ${decoded.visual.skinColor.R3}`);
+  console.log(`**Head Appendage:** D: ${decoded.visual.headAppendage.dominant} | R1: ${decoded.visual.headAppendage.R1} | R2: ${decoded.visual.headAppendage.R2} | R3: ${decoded.visual.headAppendage.R3}`);
+  console.log(`**Back Appendage:** D: ${decoded.visual.backAppendage.dominant} | R1: ${decoded.visual.backAppendage.R1} | R2: ${decoded.visual.backAppendage.R2} | R3: ${decoded.visual.backAppendage.R3}`);
   
   // Validation footer
   console.log('\n' + '─'.repeat(70));

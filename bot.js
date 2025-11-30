@@ -1532,19 +1532,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines.push(`D: ${decoded.element.dominant} | R1: ${decoded.element.R1} | R2: ${decoded.element.R2} | R3: ${decoded.element.R3}`);
         lines.push('');
         
-        lines.push('**👤 Visual Traits:**');
-        lines.push(`**Gender:** ${decoded.visual.gender.dominant}`);
-        lines.push(`**Hair:** ${decoded.visual.hairStyle.dominant} | Color ${decoded.visual.hairColor.dominant}`);
-        lines.push(`**Eyes:** ${decoded.visual.eyeColor.dominant} | **Skin:** ${decoded.visual.skinColor.dominant}`);
-        lines.push(`**Background:** ${decoded.visual.background.dominant}`);
-        
-        // Show appendages if not "None"
-        if (decoded.visual.headAppendage && decoded.visual.headAppendage.dominant !== 'None') {
-          lines.push(`**Head Appendage:** ${decoded.visual.headAppendage.dominant}`);
-        }
-        if (decoded.visual.backAppendage && decoded.visual.backAppendage.dominant !== 'None') {
-          lines.push(`**Back Appendage:** ${decoded.visual.backAppendage.dominant}`);
-        }
+        lines.push('**👤 Visual Genetics:**');
+        lines.push(`**Gender:** D: ${decoded.visual.gender.dominant} | R1: ${decoded.visual.gender.R1} | R2: ${decoded.visual.gender.R2} | R3: ${decoded.visual.gender.R3}`);
+        lines.push(`**Background:** D: ${decoded.visual.background.dominant} | R1: ${decoded.visual.background.R1} | R2: ${decoded.visual.background.R2} | R3: ${decoded.visual.background.R3}`);
+        lines.push(`**Hair Style:** D: ${decoded.visual.hairStyle.dominant} | R1: ${decoded.visual.hairStyle.R1} | R2: ${decoded.visual.hairStyle.R2} | R3: ${decoded.visual.hairStyle.R3}`);
+        lines.push(`**Hair Color:** D: ${decoded.visual.hairColor.dominant} | R1: ${decoded.visual.hairColor.R1} | R2: ${decoded.visual.hairColor.R2} | R3: ${decoded.visual.hairColor.R3}`);
+        lines.push(`**Eye Color:** D: ${decoded.visual.eyeColor.dominant} | R1: ${decoded.visual.eyeColor.R1} | R2: ${decoded.visual.eyeColor.R2} | R3: ${decoded.visual.eyeColor.R3}`);
+        lines.push(`**Skin Color:** D: ${decoded.visual.skinColor.dominant} | R1: ${decoded.visual.skinColor.R1} | R2: ${decoded.visual.skinColor.R2} | R3: ${decoded.visual.skinColor.R3}`);
+        lines.push(`**Head Appendage:** D: ${decoded.visual.headAppendage.dominant} | R1: ${decoded.visual.headAppendage.R1} | R2: ${decoded.visual.headAppendage.R2} | R3: ${decoded.visual.headAppendage.R3}`);
+        lines.push(`**Back Appendage:** D: ${decoded.visual.backAppendage.dominant} | R1: ${decoded.visual.backAppendage.R1} | R2: ${decoded.visual.backAppendage.R2} | R3: ${decoded.visual.backAppendage.R3}`);
         
         const output = lines.join('\n');
         
