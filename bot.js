@@ -719,49 +719,81 @@ client.on('messageCreate', async (message) => {
         { role: 'user', content: message.content }
       ]);
 
-      // 🎨 Check if we should attach visual genetics charts
-      const hairstyleKeywords = [
-        'hairstyle', 'hair style', 'hair mutation', 'hairstyle mutation',
-        'hair breeding', 'hair genetic', 'hair gene'
-      ];
-      
-      const appendageKeywords = [
-        'appendage', 'head appendage', 'appendage mutation', 'appendage breeding',
-        'appendage genetic', 'appendage gene', 'cat ear', 'dragon wing',
-        'royal crown', 'demon horn', 'elven ear', 'fae chisel'
-      ];
-      
+      // 🎨 Intelligent chart attachment system
       const userContent = message.content.toLowerCase();
       const aiResponse = response.toLowerCase();
+      const combined = userContent + ' ' + aiResponse;
       
-      const shouldAttachHairstyles = hairstyleKeywords.some(keyword => 
-        userContent.includes(keyword) || aiResponse.includes(keyword)
-      );
+      // Visual genetics keyword detection
+      const hairstyleKeywords = ['hairstyle', 'hair style', 'hair mutation', 'hair breeding', 'hair genetic', 'hair gene'];
+      const headAppendageKeywords = ['head appendage', 'cat ear', 'dragon horn', 'royal crown', 'demon horn', 'elven ear', 'fae chisel'];
+      const backAppendageKeywords = ['back appendage', 'wing', 'phoenix wing', 'dragon wing', 'butterfly wing', 'gryphon wing'];
+      const hairColorKeywords = ['hair color', 'hair colour'];
+      const appendageColorKeywords = ['appendage color', 'appendage colour', 'wing color', 'ear color'];
       
-      const shouldAttachAppendages = appendageKeywords.some(keyword => 
-        userContent.includes(keyword) || aiResponse.includes(keyword)
-      );
+      // Hero summoning keyword detection
+      const heroSummoningKeywords = [
+        'hero class', 'class breeding', 'class mutation', 'class tree',
+        'summoning cost', 'summoning cooldown', 'summoning rarity',
+        'hero summoning', 'summon hero', 'what class can i breed'
+      ];
       
-      // Also attach charts if user asks about "summoning tree" or "visual trait/gene"
-      const generalVisualKeywords = ['summoning tree', 'visual trait', 'visual gene'];
-      const isGeneralVisual = generalVisualKeywords.some(keyword => 
-        userContent.includes(keyword) || aiResponse.includes(keyword)
-      );
-
+      // General triggers that attach multiple charts
+      const generalVisualKeywords = ['visual trait', 'visual gene', 'visual genetic', 'visual breeding', 'visual mutation'];
+      const generalBreedingKeywords = ['breeding chart', 'summoning tree', 'mutation chart', 'what can i breed'];
+      
+      // Check which categories match
+      const matchHairstyle = hairstyleKeywords.some(k => combined.includes(k));
+      const matchHeadAppendage = headAppendageKeywords.some(k => combined.includes(k)) || combined.includes('appendage') && !combined.includes('back');
+      const matchBackAppendage = backAppendageKeywords.some(k => combined.includes(k));
+      const matchHairColor = hairColorKeywords.some(k => combined.includes(k));
+      const matchAppendageColor = appendageColorKeywords.some(k => combined.includes(k));
+      const matchHeroSummoning = heroSummoningKeywords.some(k => combined.includes(k));
+      const matchGeneralVisual = generalVisualKeywords.some(k => combined.includes(k));
+      const matchGeneralBreeding = generalBreedingKeywords.some(k => combined.includes(k));
+      
       const attachments = [];
+      let chartTypes = [];
       
-      if (shouldAttachHairstyles || isGeneralVisual) {
-        console.log(`🎨 Detected hairstyle question - attaching hairstyle charts`);
+      // Hairstyle charts (gender-specific)
+      if (matchHairstyle || matchGeneralVisual || matchGeneralBreeding) {
         attachments.push(new AttachmentBuilder('knowledge/female-hairstyle-chart.png'));
         attachments.push(new AttachmentBuilder('knowledge/male-hairstyle-chart.png'));
+        chartTypes.push('hairstyles');
       }
       
-      if (shouldAttachAppendages || isGeneralVisual) {
-        console.log(`🎨 Detected appendage question - attaching appendage chart`);
+      // Head appendage chart
+      if (matchHeadAppendage || matchGeneralVisual || matchGeneralBreeding) {
         attachments.push(new AttachmentBuilder('knowledge/head-appendage-chart.png'));
+        chartTypes.push('head-appendages');
+      }
+      
+      // Back appendage chart
+      if (matchBackAppendage || matchGeneralVisual || matchGeneralBreeding) {
+        attachments.push(new AttachmentBuilder('knowledge/back-appendage-chart.png'));
+        chartTypes.push('back-appendages');
+      }
+      
+      // Hair color chart
+      if (matchHairColor || matchGeneralVisual || matchGeneralBreeding) {
+        attachments.push(new AttachmentBuilder('knowledge/hair-color-chart.png'));
+        chartTypes.push('hair-colors');
+      }
+      
+      // Appendage color chart
+      if (matchAppendageColor || matchGeneralVisual || matchGeneralBreeding) {
+        attachments.push(new AttachmentBuilder('knowledge/appendage-color-chart.png'));
+        chartTypes.push('appendage-colors');
+      }
+      
+      // Hero class summoning chart
+      if (matchHeroSummoning || matchGeneralBreeding) {
+        attachments.push(new AttachmentBuilder('knowledge/hero-class-summoning-chart.png'));
+        chartTypes.push('hero-summoning');
       }
 
       if (attachments.length > 0) {
+        console.log(`🎨 Detected breeding question - attaching ${attachments.length} chart(s): ${chartTypes.join(', ')}`);
         await message.reply({
           content: response,
           files: attachments
