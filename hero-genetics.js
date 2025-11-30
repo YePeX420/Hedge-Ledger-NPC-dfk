@@ -175,6 +175,30 @@ function decodeHeroGenes(hero) {
         R1: visualTraits.skinColor.r1.hex,
         R2: visualTraits.skinColor.r2.hex,
         R3: visualTraits.skinColor.r3.hex
+      },
+      appendageColor: {
+        dominant: visualTraits.appendageColor.d.hex,
+        R1: visualTraits.appendageColor.r1.hex,
+        R2: visualTraits.appendageColor.r2.hex,
+        R3: visualTraits.appendageColor.r3.hex
+      },
+      backAppendageColor: {
+        dominant: visualTraits.backAppendageColor.d.hex,
+        R1: visualTraits.backAppendageColor.r1.hex,
+        R2: visualTraits.backAppendageColor.r2.hex,
+        R3: visualTraits.backAppendageColor.r3.hex
+      },
+      visualUnknown1: {
+        dominant: visualTraits.visualUnknown1.d.value,
+        R1: visualTraits.visualUnknown1.r1.value,
+        R2: visualTraits.visualUnknown1.r2.value,
+        R3: visualTraits.visualUnknown1.r3.value
+      },
+      visualUnknown2: {
+        dominant: visualTraits.visualUnknown2.d.value,
+        R1: visualTraits.visualUnknown2.r1.value,
+        R2: visualTraits.visualUnknown2.r2.value,
+        R3: visualTraits.visualUnknown2.r3.value
       }
     },
     
