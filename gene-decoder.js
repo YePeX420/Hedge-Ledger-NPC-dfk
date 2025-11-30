@@ -129,42 +129,78 @@ const ACTIVE_GENES = [
   'Unknown15'        // 15 - Placeholder
 ];
 
+// Official gene-to-stat boost mapping from degenking library
+// Note: Uses even-spaced values (0, 2, 4, 6, 8, 10, 12, 14)
 const STAT_BOOST_GENES = [
-  'STR',  // 0 - Strength
-  'AGI',  // 1 - Agility
-  'INT',  // 2 - Intelligence
-  'WIS',  // 3 - Wisdom
-  'LCK',  // 4 - Luck
-  'VIT',  // 5 - Vitality
-  'END',  // 6 - Endurance
-  'DEX',  // 7 - Dexterity
-  'HP',   // 8 - HP
-  'MP',   // 9 - MP
-  'Unknown10', // 10
-  'Unknown11', // 11
-  'Unknown12', // 12
-  'Unknown13', // 13
-  'Unknown14', // 14
-  'Unknown15'  // 15
+  'STR',       // 0 - Strength
+  'Unknown1',  // 1 - Undefined
+  'AGI',       // 2 - Agility
+  'Unknown3',  // 3 - Undefined
+  'INT',       // 4 - Intelligence
+  'Unknown5',  // 5 - Undefined
+  'WIS',       // 6 - Wisdom
+  'Unknown7',  // 7 - Undefined
+  'LCK',       // 8 - Luck
+  'Unknown9',  // 9 - Undefined
+  'VIT',       // 10 - Vitality
+  'Unknown11', // 11 - Undefined
+  'END',       // 12 - Endurance
+  'Unknown13', // 13 - Undefined
+  'DEX',       // 14 - Dexterity
+  'Unknown15', // 15 - Undefined
+  'Unknown16', // 16
+  'Unknown17', // 17
+  'Unknown18', // 18
+  'Unknown19', // 19
+  'Unknown20', // 20
+  'Unknown21', // 21
+  'Unknown22', // 22
+  'Unknown23', // 23
+  'Unknown24', // 24
+  'Unknown25', // 25
+  'Unknown26', // 26
+  'Unknown27', // 27
+  'Unknown28', // 28
+  'Unknown29', // 29
+  'Unknown30', // 30
+  'Unknown31'  // 31 (max Kai value)
 ];
 
+// Official gene-to-element mapping from degenking library
+// Note: Uses even-spaced values (0, 2, 4, 6, 8, 10, 12, 14)
 const ELEMENT_GENES = [
   'Fire',      // 0
-  'None',      // 1 - Unused (odd numbers)
+  'Unknown1',  // 1 - Undefined
   'Water',     // 2
-  'None',      // 3
+  'Unknown3',  // 3 - Undefined
   'Earth',     // 4
-  'None',      // 5
+  'Unknown5',  // 5 - Undefined
   'Wind',      // 6
-  'None',      // 7
+  'Unknown7',  // 7 - Undefined
   'Lightning', // 8
-  'None',      // 9
+  'Unknown9',  // 9 - Undefined
   'Ice',       // 10
-  'None',      // 11
+  'Unknown11', // 11 - Undefined
   'Light',     // 12
-  'None',      // 13
+  'Unknown13', // 13 - Undefined
   'Dark',      // 14
-  'None'       // 15
+  'Unknown15', // 15 - Undefined
+  'Unknown16', // 16
+  'Unknown17', // 17
+  'Unknown18', // 18
+  'Unknown19', // 19
+  'Unknown20', // 20
+  'Unknown21', // 21
+  'Unknown22', // 22
+  'Unknown23', // 23
+  'Unknown24', // 24
+  'Unknown25', // 25
+  'Unknown26', // 26
+  'Unknown27', // 27
+  'Unknown28', // 28
+  'Unknown29', // 29
+  'Unknown30', // 30
+  'Unknown31'  // 31 (max Kai value)
 ];
 
 const GENDER_GENES = [
