@@ -284,6 +284,40 @@ export const players = pgTable("players", {
   // Garden Engine - APR check tracking (Option 3: free once per day)
   lastGardenAPRCheckDate: text("last_garden_apr_check_date"), // Format: YYYY-MM-DD
   
+  // Enhanced Player Profile Data (JSON blob for classification system)
+  // Contains: archetype, tier, state, behaviorTags, kpis, dfkSnapshot, flags, recentMessages
+  profileData: json("profile_data").$type<{
+    archetype: string;
+    tier: number;
+    tierOverride?: number;
+    state: string;
+    behaviorTags: string[];
+    kpis: {
+      engagementScore: number;
+      financialScore: number;
+      retentionScore: number;
+      messagesLast7d: number;
+      adviceFollowedCount: number;
+      recommendationsClicked: number;
+      lastSeenAt?: Date;
+    };
+    dfkSnapshot: {
+      heroCount: number;
+      petCount: number;
+      lpPositionsCount: number;
+      totalLPValue: number;
+      jewelBalance: number;
+      crystalBalance: number;
+      questingStreakDays: number;
+    } | null;
+    flags: {
+      isExtractor: boolean;
+      isWhale: boolean;
+      isHighPotential: boolean;
+    };
+    recentMessages: Array<{ content: string; timestamp: Date }>;
+  }>(),
+  
   updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => ({
   discordIdIdx: uniqueIndex("players_discord_id_idx").on(table.discordId),

@@ -1,0 +1,282 @@
+You are modifying a Discord bot project called **Hedge Ledger** for the game DeFi Kingdoms.
+
+Your task is to IMPLEMENT A FULL PLAYER USER MODEL SYSTEM for Hedge Ledger, including:
+- Player archetypes (Guest, Adventurer, Player, Investor, Extractor)
+- Access tiers (Tier 0–4)
+- Player states (Curious, Optimizing, Expanding, Committed, Extracting)
+- Behavior tags (Scholar, Speedrunner, Lore Lover, Optimizer, Collector, Whale, etc.)
+- KPI tracking and automatic reclassification
+- Integration with the existing bot: responses must adapt to the player’s profile
+
+Do NOT just sketch ideas. Write complete, working code (full files or full replacements when editing), wired into the existing bot so it can actually use this model in real conversations.
+
+If something is unclear in the existing codebase, make a reasonable assumption and implement a clean, extensible solution.
+
+--------------------------------
+1. LANGUAGE / STACK ASSUMPTION
+--------------------------------
+Assume the bot is written in Node.js with either JavaScript or TypeScript. Detect which is used and:
+
+- If TypeScript: create/update `src/models`, `src/services`, etc. with `.ts` files and proper types.
+- If JavaScript: use JSDoc typedefs for structure, place logic in `src/` or `lib/` consistently.
+
+Use the existing style (imports/exports, folder structure, lint rules).
+
+--------------------------------
+2. DATA MODEL – PLAYER PROFILE
+--------------------------------
+Create a core **PlayerProfile** model stored in a dedicated module, e.g.:
+
+- `src/models/playerProfile.ts` (TypeScript)
+- or `src/models/playerProfile.js` (JS + JSDoc)
+
+The PlayerProfile should have at least:
+
+- `id` (internal identifier)
+- `discordId` (string | null)
+- `walletAddress` (string | null)
+- `archetype` (enum/string: "GUEST" | "ADVENTURER" | "PLAYER" | "INVESTOR" | "EXTRACTOR")
+- `tier` (number: 0–4)
+- `state` (enum/string: "CURIOUS" | "OPTIMIZING" | "EXPANDING" | "COMMITTED" | "EXTRACTING")
+- `behaviorTags` (string[]; examples: "SCHOLAR", "SPEEDRUNNER", "LORE_LOVER", "OPTIMIZER", "COLLECTOR", "WHALE", "MINIMALIST", "DATA_SCIENTIST", "SOCIAL_PLAYER", "SILENT_FARMER")
+- `kpis` object including at minimum:
+  - `engagementScore` (number)
+  - `financialScore` (number)
+  - `retentionScore` (number)
+  - `lastSeenAt` (Date or timestamp)
+  - `messagesLast7d` (number)
+  - `adviceFollowedCount` (number)
+  - `recommendationsClicked` (number)
+- `dfkSnapshot` (optional structured info from wallet scan):
+  - `heroCount`
+  - `petCount`
+  - `lpPositionsCount`
+  - `totalLPValue`
+  - `jewelBalance`
+  - `crystalBalance`
+  - `questingStreakDays`
+- `flags`:
+  - `isExtractor` (boolean)
+  - `isWhale` (boolean)
+  - `isHighPotential` (boolean) // good candidate for conversion
+- `meta`:
+  - `createdAt`
+  - `updatedAt`
+  - `notes` (string | null)
+
+Implement enums/constants for archetypes, states, tags, etc. in a way that can be easily reused elsewhere in the project.
+
+--------------------------------
+3. STORAGE LAYER
+--------------------------------
+Introduce a simple storage layer for PlayerProfiles:
+
+- If the project already has a DB (e.g., Prisma, Supabase, Mongo, JSON file), integrate into it.
+- If not, implement a small local JSON-based or in-memory store with a clear interface so it can be swapped later.
+
+Create a service like `src/services/playerProfileService.ts` (or .js) with functions:
+
+- `getOrCreateProfileByDiscordId(discordId: string): Promise<PlayerProfile>`
+- `getOrCreateProfileByWallet(walletAddress: string): Promise<PlayerProfile>`
+- `updateProfile(profile: PlayerProfile): Promise<PlayerProfile>`
+- `setWalletForDiscord(discordId: string, walletAddress: string): Promise<PlayerProfile>`
+- `listProfiles(filter?: Partial<...>): Promise<PlayerProfile[]>` (for admin/debug)
+
+Make sure profile updates automatically refresh `updatedAt`.
+
+--------------------------------
+4. CLASSIFICATION ENGINE
+--------------------------------
+Create a dedicated classification module, e.g.:
+
+- `src/services/classificationEngine.ts`
+
+This module is responsible for turning raw signals into:
+
+- `archetype`
+- `tier`
+- `state`
+- `behaviorTags`
+- `flags` (isExtractor, isWhale, etc.)
+- KPI updates
+
+It should expose functions like:
+
+- `classifyProfile(profile: PlayerProfile): PlayerProfile`
+- `updateKpisFromEvent(profile: PlayerProfile, event: ClassificationEvent): PlayerProfile`
+
+Define a `ClassificationEvent` type (in TypeScript or via JSDoc) that can represent things like:
+
+- `type: "WALLET_SCAN"` with payload `{ heroCount, petCount, lpPositionsCount, totalLPValue, jewelBalance, crystalBalance, questingStreakDays }`
+- `type: "DISCORD_MESSAGE"` with payload `{ messageContent, timestamp }`
+- `type: "ADVICE_FOLLOWED"` with payload `{ recommendationId }`
+- `type: "RECOMMENDATION_CLICKED"` with payload `{ linkType }`
+- `type: "SUBSCRIPTION_UPGRADE"` with payload `{ newTier }`
+
+The classification rules should approximately implement:
+
+ARCHETYPE (primary type)
+- GUEST:
+  - No wallet or zero DFK assets recorded.
+- ADVENTURER:
+  - `1–10` heroes, low LP, minor balances.
+- PLAYER:
+  - `>10` heroes OR multiple LP positions OR noticeable activity.
+- INVESTOR:
+  - HeroCount small or zero, but large LP positions or large JEWEL/CRYSTAL balance.
+- EXTRACTOR:
+  - Pattern of selling everything, zero reinvestment, or repeated behavior that matches “farm & dump”.
+  - Mark with `isExtractor = true`.
+
+TIER (0–4 access level)
+- Tier 0: Guest
+- Tier 1: Any Adventurer/Player with very low engagement/financial scores.
+- Tier 2: More engaged Player/Investor (e.g., moderate scores, some activity).
+- Tier 3: High engagement + high financial score (whale players, serious users).
+- Tier 4: “Council of Hedge”: top slice, manually assignable or auto-assigned if thresholds are very high.
+
+STATE
+- CURIOUS: early-stage, basic questions, low KPIs.
+- OPTIMIZING: user frequently asks about ROI, yields, better combos.
+- EXPANDING: trend of growing hero/pet/LP counts.
+- COMMITTED: consistent activity over time, strong retention.
+- EXTRACTING: if `isExtractor` flag triggered.
+
+BEHAVIOR TAGS (inferred from messages + wallet data)
+Examples:
+- “SCHOLAR”: asks for details, formulas, explanations.
+- “SPEEDRUNNER”: short, direct messages, wants answers quickly.
+- “LORE_LOVER”: mentions story, lore, NPC persona, roleplay.
+- “OPTIMIZER”: repeatedly asks about APR, min-maxing.
+- “COLLECTOR”: focuses on rare heroes/pets/visual traits.
+- “WHALE”: large holdings or large LP.
+- “MINIMALIST”: few assets, long-term.
+- “DATA_SCIENTIST”: explicitly asks for data models, tables, formulas.
+- “SOCIAL_PLAYER”: chats frequently, reacts in Discord.
+- “SILENT_FARMER”: little chat activity, high on-chain activity.
+
+Implement rule-based classification first, using thresholds you define in a configuration object so it’s easy to tweak later.
+
+--------------------------------
+5. KPI SYSTEM
+--------------------------------
+The classification engine should maintain and increment KPIs whenever events happen.
+
+Define heuristic scoring like:
+- `engagementScore` increases with messages, advice followed, recommendations clicked.
+- `financialScore` based on total LP value, hero count, pet count, balances.
+- `retentionScore` based on days active in last N days / questing streak / repeated usage.
+
+Whenever the bot receives:
+- A Discord message
+- A wallet scan result
+- A “user clicked / followed advice” event
+
+…call an update function like:
+- `processEventAndReclassify(profile, event)`
+
+This should:
+1. Update KPIs.
+2. Recalculate archetype, tier, state, tags, flags.
+3. Save the updated profile via the service.
+4. Return the updated profile to the caller.
+
+--------------------------------
+6. DISCORD BOT INTEGRATION
+--------------------------------
+Wire the classification engine into the Discord bot.
+
+At minimum:
+
+1. When a user interacts with Hedge (sends a message):
+   - Fetch or create their PlayerProfile based on `discordId`.
+   - Emit a `DISCORD_MESSAGE` ClassificationEvent with the message content.
+   - Call the classification engine to update + reclassify.
+   - Use the resulting archetype/tier/state/tags to decide **how** Hedge replies.
+
+2. If the bot supports binding a wallet (e.g., `/linkwallet 0x...`):
+   - Call `setWalletForDiscord(discordId, walletAddress)`.
+   - Trigger a `WALLET_SCAN` event after fetching DFK data (hero count, pets, LP, etc.).
+   - Reclassify the user.
+
+3. If the bot provides recommendations (e.g., “try this pair” or “switch to this pool”):
+   - When the user signals that they followed advice (by reaction, button click, or explicit command), emit an `ADVICE_FOLLOWED` event.
+   - When the user clicks a link (if trackable), emit a `RECOMMENDATION_CLICKED` event.
+
+Ensure the bot’s core command/message handler has access to the PlayerProfile, so it can make decisions per reply.
+
+--------------------------------
+7. RESPONSE ADAPTER (NPC BEHAVIOR)
+--------------------------------
+Create a module that takes the **player profile** plus a “base” response from Hedge and adjusts the tone and content.
+
+Example: `src/services/hedgePersonaAdapter.ts` with a function like:
+
+- `adaptResponse(baseText: string, profile: PlayerProfile, context: ResponseContext): string`
+
+This function should:
+
+- For GUEST / CURIOUS:
+  - Use simple language, no overload of details.
+  - Encourage first steps: connecting wallet, doing first quest, joining gardens.
+- For ADVENTURER / OPTIMIZING:
+  - Offer more specific tips.
+  - Tease optimizations: “You’re leaving some gains on the table… want to unlock advanced insights?”
+- For PLAYER / COMMITTED:
+  - Provide more detailed analytics.
+  - Refer to their progress: “Given your hero lineup and LP positions…”
+- For INVESTOR:
+  - Focus on yields, APRs, pool rotations, stability vs volatility.
+  - Reduce lore, be more analytical.
+- For EXTRACTOR:
+  - Be minimal and neutral.
+  - Avoid revealing deep optimization strategies.
+
+Also:
+- If `isWhale` or Tier ≥ 3:
+  - Give slightly more VIP treatment, recognition, and advanced hints.
+- If `behaviorTags` include `LORE_LOVER`:
+  - Lean into the Hedge persona and lore.
+- If `behaviorTags` include `DATA_SCIENTIST`:
+  - Include more numbers, percentages, projections.
+
+Wherever the bot sends a message, route it through this adapter so the user model affects all replies.
+
+--------------------------------
+8. DEBUG & ADMIN COMMANDS
+--------------------------------
+Add new debug/admin commands restricted to bot owner or admin role, for example:
+
+- `/hedge profile` → shows summary of your own PlayerProfile:
+  - Archetype, Tier, State, Tags, KPIs.
+- `/hedge profile @user` → admin-only view of another user’s profile.
+- `/hedge reclassify @user` → forces reclassification.
+- `/hedge set-tier @user <tier>` → manual override for special users (e.g., Council of Hedge).
+
+Render the info cleanly, with friendly emojis if appropriate.
+
+--------------------------------
+9. CODE QUALITY & ORGANIZATION
+--------------------------------
+- Keep logic modular: models, services, classification, adapter, Discord integration.
+- Add inline comments explaining non-trivial logic or thresholds.
+- Implement basic error handling (e.g., missing profiles, wallet scan failures).
+- Make configuration thresholds easy to tweak from a central config object or file.
+
+--------------------------------
+10. WHAT TO DELIVER
+--------------------------------
+1. New/updated model and service files for PlayerProfile.
+2. A fully implemented classification engine module.
+3. Storage integration (DB or JSON/in-memory with clear abstraction).
+4. Wiring into Discord message/command handlers.
+5. The Hedge Persona adapter that tailors responses using the player profile.
+6. Admin/debug commands to inspect profiles.
+7. Any necessary updates to the bot’s startup/initialization code to load the new modules.
+
+After implementing, ensure the project still runs without TypeScript/ESLint errors and that:
+- A new Discord user can send a message, get a profile created, be classified as a Guest/Curious, and receive a response shaped by that classification.
+- Binding a wallet and re-scanning correctly updates the archetype/tier.
+- The debug command for viewing profile works and shows the classification details.
+
+This should result in a working, integrated user-model system powering Hedge Ledger’s behavior.

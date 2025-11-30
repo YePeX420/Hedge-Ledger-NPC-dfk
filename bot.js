@@ -32,6 +32,19 @@ import http from 'http';
 import express from 'express';
 import { isPaymentBypassEnabled, getDebugSettings, setDebugSettings } from './debug-settings.js';
 
+// Player User Model System imports
+import { 
+  getOrCreateProfileByDiscordId, 
+  logDiscordMessage, 
+  getQuickProfileSummary,
+  forceReclassify,
+  setTierOverride,
+  listProfiles
+} from './player-profile-service.js';
+import { adaptResponse, generateGreeting, shouldSuggestPremium } from './hedge-persona-adapter.js';
+import { ARCHETYPES, TIERS, STATES, BEHAVIOR_TAGS } from './classification-config.js';
+import { profileCommands } from './commands/profile-commands.js';
+
 const execAsync = promisify(exec);
 
 // --- Runtime status flags for health checks ---
@@ -487,6 +500,100 @@ client.once(Events.ClientReady, async (c) => {
                 required: true
               }
             ]
+          },
+          // Profile Commands (Player User Model System)
+          {
+            name: 'hedge-profile',
+            description: 'View player classification profile',
+            options: [
+              {
+                name: 'user',
+                description: 'User to view (admin only, defaults to yourself)',
+                type: 6,           // USER
+                required: false
+              }
+            ]
+          },
+          {
+            name: 'hedge-reclassify',
+            description: 'Force reclassification of a player (admin only)',
+            options: [
+              {
+                name: 'user',
+                description: 'User to reclassify',
+                type: 6,           // USER
+                required: true
+              }
+            ]
+          },
+          {
+            name: 'hedge-set-tier',
+            description: 'Manually set a player access tier (admin only)',
+            options: [
+              {
+                name: 'user',
+                description: 'User to modify',
+                type: 6,           // USER
+                required: true
+              },
+              {
+                name: 'tier',
+                description: 'New tier level (0-4)',
+                type: 4,           // INTEGER
+                required: true,
+                choices: [
+                  { name: 'Tier 0 - Guest', value: 0 },
+                  { name: 'Tier 1 - Bronze', value: 1 },
+                  { name: 'Tier 2 - Silver', value: 2 },
+                  { name: 'Tier 3 - Gold', value: 3 },
+                  { name: 'Tier 4 - Council of Hedge', value: 4 }
+                ]
+              }
+            ]
+          },
+          {
+            name: 'hedge-profiles-list',
+            description: 'List player profiles with filters (admin only)',
+            options: [
+              {
+                name: 'archetype',
+                description: 'Filter by archetype',
+                type: 3,           // STRING
+                required: false,
+                choices: [
+                  { name: 'Guest', value: 'GUEST' },
+                  { name: 'Adventurer', value: 'ADVENTURER' },
+                  { name: 'Player', value: 'PLAYER' },
+                  { name: 'Investor', value: 'INVESTOR' },
+                  { name: 'Extractor', value: 'EXTRACTOR' }
+                ]
+              },
+              {
+                name: 'tier',
+                description: 'Filter by tier',
+                type: 4,           // INTEGER
+                required: false,
+                choices: [
+                  { name: 'Tier 0 - Guest', value: 0 },
+                  { name: 'Tier 1 - Bronze', value: 1 },
+                  { name: 'Tier 2 - Silver', value: 2 },
+                  { name: 'Tier 3 - Gold', value: 3 },
+                  { name: 'Tier 4 - Council', value: 4 }
+                ]
+              },
+              {
+                name: 'whales',
+                description: 'Show only whales',
+                type: 5,           // BOOLEAN
+                required: false
+              },
+              {
+                name: 'limit',
+                description: 'Number of results (default 10)',
+                type: 4,           // INTEGER
+                required: false
+              }
+            ]
           }
         ];
 
@@ -647,6 +754,15 @@ client.on('messageCreate', async (message) => {
       // Log registration error but don't block bot response
       console.error(`[messageCreate] ⚠️  Registration failed but continuing with response:`, regError);
       console.error(`[messageCreate] Registration error stack:`, regError.stack);
+    }
+
+    // 📊 Log message to Player Profile System for classification tracking
+    try {
+      await logDiscordMessage(discordId, message.content, username);
+      console.log(`[ProfileSystem] Logged message for classification: ${username}`);
+    } catch (profileError) {
+      // Don't block response if profile logging fails
+      console.warn(`[ProfileSystem] ⚠️ Failed to log message for profile:`, profileError.message);
     }
 
     // 🔐 Check for transaction hash with tx: prefix for payment verification
@@ -1909,6 +2025,253 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.editReply(`❌ Error finding bargain pairs: ${err.message}`);
       }
       
+      return;
+    }
+
+    // ============================================================================
+    // PROFILE COMMANDS (Player User Model System)
+    // ============================================================================
+    
+    if (name === 'hedge-profile') {
+      try {
+        const targetUser = interaction.options.getUser('user') || interaction.user;
+        const isAdmin = interaction.member?.permissions?.has('Administrator') || 
+                        interaction.user.id === process.env.BOT_OWNER_ID;
+        
+        // Non-admins can only view their own profile
+        if (targetUser.id !== interaction.user.id && !isAdmin) {
+          await interaction.editReply('You can only view your own profile.');
+          return;
+        }
+        
+        const profile = await getOrCreateProfileByDiscordId(targetUser.id, targetUser.username);
+        
+        const tierNames = {
+          0: 'Guest',
+          1: 'Bronze',
+          2: 'Silver', 
+          3: 'Gold',
+          4: 'Council of Hedge'
+        };
+        
+        const tierColors = {
+          0: 0x808080,
+          1: 0xCD7F32,
+          2: 0xC0C0C0,
+          3: 0xFFD700,
+          4: 0x9932CC
+        };
+        
+        const kpis = profile.kpis || {};
+        const flags = profile.flags || {};
+        const snapshot = profile.dfkSnapshot;
+        
+        const embed = {
+          color: tierColors[profile.tier] || 0x5865F2,
+          title: `Player Profile: ${targetUser.username}`,
+          thumbnail: { url: targetUser.displayAvatarURL({ dynamic: true }) },
+          fields: [
+            { name: 'Archetype', value: profile.archetype || 'GUEST', inline: true },
+            { name: 'Tier', value: `${profile.tier ?? 0} - ${tierNames[profile.tier] || 'Guest'}`, inline: true },
+            { name: 'State', value: profile.state || 'CURIOUS', inline: true },
+            { name: 'Behavior Tags', value: (profile.behaviorTags || []).join(', ') || 'None', inline: false },
+            { name: 'Engagement Score', value: String(kpis.engagementScore || 0), inline: true },
+            { name: 'Financial Score', value: String(kpis.financialScore || 0), inline: true },
+            { name: 'Retention Score', value: String(kpis.retentionScore || 0), inline: true }
+          ],
+          timestamp: new Date().toISOString()
+        };
+        
+        // Add flags if any
+        const activeFlags = [];
+        if (flags.isWhale) activeFlags.push('Whale');
+        if (flags.isExtractor) activeFlags.push('Extractor');
+        if (flags.isHighPotential) activeFlags.push('High Potential');
+        if (activeFlags.length > 0) {
+          embed.fields.push({ name: 'Flags', value: activeFlags.join(', '), inline: false });
+        }
+        
+        // Add wallet if exists
+        if (profile.walletAddress) {
+          embed.fields.push({
+            name: 'Primary Wallet',
+            value: `\`${profile.walletAddress.slice(0, 6)}...${profile.walletAddress.slice(-4)}\``,
+            inline: true
+          });
+        }
+        
+        // Add DFK snapshot if available
+        if (snapshot) {
+          embed.fields.push(
+            { name: 'Heroes', value: String(snapshot.heroCount || 0), inline: true },
+            { name: 'LP Positions', value: String(snapshot.lpPositionsCount || 0), inline: true }
+          );
+        }
+        
+        await interaction.editReply({ embeds: [embed] });
+        
+      } catch (err) {
+        console.error('❌ Error in /hedge-profile:', err);
+        await interaction.editReply('Failed to load profile. Please try again.');
+      }
+      return;
+    }
+    
+    if (name === 'hedge-reclassify') {
+      try {
+        const isAdmin = interaction.member?.permissions?.has('Administrator') || 
+                        interaction.user.id === process.env.BOT_OWNER_ID;
+        
+        if (!isAdmin) {
+          await interaction.editReply('This command requires admin permissions.');
+          return;
+        }
+        
+        const targetUser = interaction.options.getUser('user', true);
+        
+        const beforeProfile = await getOrCreateProfileByDiscordId(targetUser.id, targetUser.username);
+        const afterProfile = await forceReclassify(targetUser.id);
+        
+        const changes = [];
+        if (beforeProfile.archetype !== afterProfile.archetype) {
+          changes.push(`Archetype: ${beforeProfile.archetype} → ${afterProfile.archetype}`);
+        }
+        if (beforeProfile.tier !== afterProfile.tier) {
+          changes.push(`Tier: ${beforeProfile.tier} → ${afterProfile.tier}`);
+        }
+        if (beforeProfile.state !== afterProfile.state) {
+          changes.push(`State: ${beforeProfile.state} → ${afterProfile.state}`);
+        }
+        
+        const embed = {
+          color: 0x00FF00,
+          title: `Reclassified: ${targetUser.username}`,
+          description: changes.length > 0 ? changes.join('\n') : 'No changes detected',
+          fields: [
+            { name: 'Current Archetype', value: afterProfile.archetype, inline: true },
+            { name: 'Current Tier', value: String(afterProfile.tier), inline: true },
+            { name: 'Current State', value: afterProfile.state, inline: true }
+          ],
+          timestamp: new Date().toISOString()
+        };
+        
+        await interaction.editReply({ embeds: [embed] });
+        
+      } catch (err) {
+        console.error('❌ Error in /hedge-reclassify:', err);
+        await interaction.editReply('Failed to reclassify. Please try again.');
+      }
+      return;
+    }
+    
+    if (name === 'hedge-set-tier') {
+      try {
+        const isAdmin = interaction.member?.permissions?.has('Administrator') || 
+                        interaction.user.id === process.env.BOT_OWNER_ID;
+        
+        if (!isAdmin) {
+          await interaction.editReply('This command requires admin permissions.');
+          return;
+        }
+        
+        const targetUser = interaction.options.getUser('user', true);
+        const newTier = interaction.options.getInteger('tier', true);
+        
+        const updatedProfile = await setTierOverride(targetUser.id, newTier);
+        
+        const tierNames = {
+          0: 'Guest', 1: 'Bronze', 2: 'Silver', 3: 'Gold', 4: 'Council of Hedge'
+        };
+        
+        const tierColors = {
+          0: 0x808080, 1: 0xCD7F32, 2: 0xC0C0C0, 3: 0xFFD700, 4: 0x9932CC
+        };
+        
+        const embed = {
+          color: tierColors[newTier] || 0x5865F2,
+          title: `Tier Updated: ${targetUser.username}`,
+          fields: [
+            { name: 'New Tier', value: `${newTier} - ${tierNames[newTier]}`, inline: true },
+            { name: 'Override Active', value: 'Yes (manual)', inline: true }
+          ],
+          footer: { text: 'This tier override persists until manually changed' },
+          timestamp: new Date().toISOString()
+        };
+        
+        await interaction.editReply({ embeds: [embed] });
+        
+      } catch (err) {
+        console.error('❌ Error in /hedge-set-tier:', err);
+        await interaction.editReply('Failed to update tier. Please try again.');
+      }
+      return;
+    }
+    
+    if (name === 'hedge-profiles-list') {
+      try {
+        const isAdmin = interaction.member?.permissions?.has('Administrator') || 
+                        interaction.user.id === process.env.BOT_OWNER_ID;
+        
+        if (!isAdmin) {
+          await interaction.editReply('This command requires admin permissions.');
+          return;
+        }
+        
+        const filter = {
+          archetype: interaction.options.getString('archetype'),
+          tier: interaction.options.getInteger('tier'),
+          isWhale: interaction.options.getBoolean('whales'),
+          limit: interaction.options.getInteger('limit') || 10
+        };
+        
+        // Remove null/undefined values
+        Object.keys(filter).forEach(key => {
+          if (filter[key] === null || filter[key] === undefined) {
+            delete filter[key];
+          }
+        });
+        
+        const profiles = await listProfiles(filter);
+        
+        if (profiles.length === 0) {
+          await interaction.editReply('No profiles found matching your criteria.');
+          return;
+        }
+        
+        const embed = {
+          color: 0x5865F2,
+          title: 'Player Profiles',
+          description: `Showing ${profiles.length} profiles`,
+          fields: [],
+          timestamp: new Date().toISOString()
+        };
+        
+        // Add up to 10 profiles as fields
+        for (const profile of profiles.slice(0, 10)) {
+          const flags = [];
+          if (profile.flags?.isWhale) flags.push('Whale');
+          if (profile.flags?.isExtractor) flags.push('Extractor');
+          if (profile.flags?.isHighPotential) flags.push('High Potential');
+          
+          embed.fields.push({
+            name: profile.discordUsername || `ID: ${profile.discordId}`,
+            value: [
+              `**Archetype:** ${profile.archetype}`,
+              `**Tier:** ${profile.tier}`,
+              `**State:** ${profile.state}`,
+              `**Tags:** ${(profile.behaviorTags || []).slice(0, 3).join(', ') || 'None'}`,
+              flags.length > 0 ? `**Flags:** ${flags.join(', ')}` : ''
+            ].filter(Boolean).join('\n'),
+            inline: true
+          });
+        }
+        
+        await interaction.editReply({ embeds: [embed] });
+        
+      } catch (err) {
+        console.error('❌ Error in /hedge-profiles-list:', err);
+        await interaction.editReply('Failed to list profiles. Please try again.');
+      }
       return;
     }
 
