@@ -83,6 +83,46 @@ const BACKGROUND_MAP = {
   15: 'None'
 };
 
+// Female hairstyle names (Gene ID 0-15)
+const FEMALE_HAIRSTYLES = {
+  0: 'Widowpeak',
+  1: 'Faerie',
+  2: 'Enchantress',
+  3: 'Pineapple Top',
+  4: 'Pixie',
+  5: 'Darkmoon Pixie',
+  6: 'Dejected',
+  7: 'Cloudy Updo',
+  8: 'Cerulean Tuft',
+  9: 'Lorelei',
+  10: 'Casual Ponytail',
+  11: 'Wild Ponytail',
+  12: 'Ethereal Wisherah',
+  13: 'Kunoichi',
+  14: 'Sweeping Wisherah',
+  15: 'Chignon'
+};
+
+// Male hairstyle names (Gene ID 0-15)
+const MALE_HAIRSTYLES = {
+  0: 'Battle Hawk',
+  1: 'Wolf Mane',
+  2: 'Enchanter',
+  3: 'Wild Growth',
+  4: 'Pixie',
+  5: 'Sunrise',
+  6: 'Bedhead',
+  7: 'Aghoam Spike',
+  8: 'Wayfinder',
+  9: 'Faded Topknot',
+  10: 'Side Swoop',
+  11: 'Rovin',
+  12: 'Regal Locks',
+  13: 'Gnoll',
+  14: 'Stoic Crest',
+  15: "Sabre's Fall"
+};
+
 // Hair color palette
 const HAIR_COLORS = [
   '#C0C0C0',   // 0 - Silver
@@ -221,6 +261,17 @@ function getTraitName(mapping, value) {
   return mapping[value] || `Unknown${value}`;
 }
 
+/**
+ * Gets hairstyle name based on gender
+ * @param {number} styleValue - Hairstyle ID (0-15)
+ * @param {string} genderName - Gender name ('Male' or 'Female')
+ * @returns {string} Hairstyle name
+ */
+function getHairstyleName(styleValue, genderName) {
+  const mapping = genderName === 'Female' ? FEMALE_HAIRSTYLES : MALE_HAIRSTYLES;
+  return mapping[styleValue] || `Style ${styleValue}`;
+}
+
 // ============================================================================
 // MAIN DECODING FUNCTION
 // ============================================================================
@@ -293,10 +344,10 @@ function decodeVisualGenes(visualGenes) {
     },
     
     hairStyle: {
-      d: { value: decoded.hairStyle.d, name: `Style ${decoded.hairStyle.d}` },
-      r1: { value: decoded.hairStyle.r1, name: `Style ${decoded.hairStyle.r1}` },
-      r2: { value: decoded.hairStyle.r2, name: `Style ${decoded.hairStyle.r2}` },
-      r3: { value: decoded.hairStyle.r3, name: `Style ${decoded.hairStyle.r3}` }
+      d: { value: decoded.hairStyle.d, name: getHairstyleName(decoded.hairStyle.d, getTraitName(GENDER_MAP, decoded.gender.d)) },
+      r1: { value: decoded.hairStyle.r1, name: getHairstyleName(decoded.hairStyle.r1, getTraitName(GENDER_MAP, decoded.gender.r1)) },
+      r2: { value: decoded.hairStyle.r2, name: getHairstyleName(decoded.hairStyle.r2, getTraitName(GENDER_MAP, decoded.gender.r2)) },
+      r3: { value: decoded.hairStyle.r3, name: getHairstyleName(decoded.hairStyle.r3, getTraitName(GENDER_MAP, decoded.gender.r3)) }
     },
     
     hairColor: {
