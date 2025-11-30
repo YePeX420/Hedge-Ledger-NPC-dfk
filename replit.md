@@ -54,6 +54,10 @@ The project uses a Node.js backend with Discord.js for bot functionality and an 
         *   **Discord Formatter** (`summoning-formatter.js`): Formats probability data into three embeds: Summary (top classes, professions, rarity distribution), Stat Genes (abilities, stat boosts, element), and Visual Genes (hairstyles, colors, appendages). Uses color-coded rarity embeds and percentage-sorted trait lists.
         *   **Command** (`/summoning-calc`): Debug command taking two hero IDs, fetching their genetics from blockchain, and displaying complete summoning probabilities matching the official DeFi Kingdoms summoning calculator format.
         *   **Future**: Conversational DM integration planned for flexible input (hero IDs, class descriptions, hypothetical scenarios).
+    *   **Tavern Bargain Finder**: Smart marketplace scanner finding cheapest hero pairs with best odds for target class summoning:
+        *   **Core Engine** (`bargain-finder.js`): Fetches heroes for sale with genetics, calculates summoning probabilities for all possible pairs, filters by target class probability threshold, sorts by total price.
+        *   **Command** (`/find-bargain`): Takes target class (e.g., 'Dreadknight'), minimum probability (default 5%), and optional max price. Returns top 5 cheapest pairs with detailed stats including parent rarities, generations, summon counts, individual prices, and complete probability breakdowns for classes/professions.
+        *   **Future**: Conversational DM integration for natural language requests like "find me the cheapest pair for summoning a Sage".
 
 ## External Dependencies
 *   **Discord API**: Used for bot operations and OAuth2 authentication via `discord.js`.
