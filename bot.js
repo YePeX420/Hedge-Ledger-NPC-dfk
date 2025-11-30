@@ -1759,6 +1759,154 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    if (name === 'find-bargain') {
+      const targetClass = interaction.options.getString('target_class', true);
+      const minProbability = interaction.options.getNumber('min_probability') || 5.0;
+      const maxPrice = interaction.options.getNumber('max_price') || null;
+      const results = interaction.options.getInteger('results') || 5;
+      
+      await interaction.editReply(`🔍 Scanning tavern for bargain ${targetClass} pairs...`);
+      
+      try {
+        const { findBargainPairs } = await import('./bargain-finder.js');
+        
+        const pairs = await findBargainPairs({
+          targetClass,
+          minProbability,
+          maxTotalPrice: maxPrice,
+          limit: results
+        });
+        
+        if (pairs.length === 0) {
+          await interaction.editReply(
+            `❌ No pairs found on the tavern that meet your criteria:\n` +
+            `• Target: ${targetClass}\n` +
+            `• Min Probability: ${minProbability}%\n` +
+            `• Max Price: ${maxPrice ? maxPrice + ' JEWEL' : 'unlimited'}\n\n` +
+            `Try lowering the minimum probability or increasing the max price.`
+          );
+          return;
+        }
+        
+        // Create embeds for each pair
+        const embeds = [];
+        
+        for (let i = 0; i < Math.min(pairs.length, 3); i++) {
+          const pair = pairs[i];
+          
+          const rarityColors = {
+            Common: 0x9CA3AF,     // Gray
+            Uncommon: 0x10B981,   // Green
+            Rare: 0x3B82F6,       // Blue
+            Legendary: 0x8B5CF6,  // Purple
+            Mythic: 0xF59E0B      // Orange
+          };
+          
+          const color = rarityColors[pair.parent1.rarity] || 0x9CA3AF;
+          
+          const embed = {
+            color,
+            title: `${i === 0 ? '🏆 ' : ''}Bargain Pair #${i + 1}`,
+            description: `**${pair.targetClassProbability.toFixed(2)}%** chance to summon **${targetClass}**`,
+            fields: [
+              {
+                name: '💰 Total Cost',
+                value: `**${pair.totalPrice.toFixed(2)} JEWEL**`,
+                inline: true
+              },
+              {
+                name: '📊 Value Rating',
+                value: `${pair.targetClassProbability > 20 ? 'Excellent' : pair.targetClassProbability > 10 ? 'Good' : 'Fair'}`,
+                inline: true
+              },
+              {
+                name: '\u200B',
+                value: '\u200B',
+                inline: true
+              },
+              {
+                name: '🦸 Parent 1',
+                value: 
+                  `Hero #${pair.parent1.normalizedId}\n` +
+                  `${pair.parent1.mainClass} (${pair.parent1.rarity})\n` +
+                  `Gen ${pair.parent1.generation} • ${pair.parent1.summons}/${pair.parent1.maxSummons} summons\n` +
+                  `**${pair.parent1.price.toFixed(2)} JEWEL**`,
+                inline: true
+              },
+              {
+                name: '🦸 Parent 2',
+                value: 
+                  `Hero #${pair.parent2.normalizedId}\n` +
+                  `${pair.parent2.mainClass} (${pair.parent2.rarity})\n` +
+                  `Gen ${pair.parent2.generation} • ${pair.parent2.summons}/${pair.parent2.maxSummons} summons\n` +
+                  `**${pair.parent2.price.toFixed(2)} JEWEL**`,
+                inline: true
+              },
+              {
+                name: '\u200B',
+                value: '\u200B',
+                inline: true
+              }
+            ],
+            footer: {
+              text: `Top ${Math.min(results, pairs.length)} results • Probabilities from live blockchain genetics`
+            }
+          };
+          
+          // Add top 3 class probabilities
+          const topClasses = Object.entries(pair.allClassProbabilities)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([cls, prob]) => `${cls}: ${prob.toFixed(1)}%`)
+            .join(' • ');
+          
+          if (topClasses) {
+            embed.fields.push({
+              name: '🎲 Other Class Probabilities',
+              value: topClasses,
+              inline: false
+            });
+          }
+          
+          // Add top professions
+          const profStr = pair.topProfessions
+            .map(([prof, prob]) => `${prof}: ${prob.toFixed(1)}%`)
+            .join(' • ');
+          
+          if (profStr) {
+            embed.fields.push({
+              name: '🛠️ Top Professions',
+              value: profStr,
+              inline: false
+            });
+          }
+          
+          embeds.push(embed);
+        }
+        
+        await interaction.editReply({ content: '', embeds });
+        
+        // If more than 3 results, send the rest as a summary
+        if (pairs.length > 3) {
+          const summary = pairs.slice(3).map((pair, idx) => 
+            `**${idx + 4}.** Heroes #${pair.parent1.normalizedId} + #${pair.parent2.normalizedId} • ` +
+            `${pair.targetClassProbability.toFixed(1)}% ${targetClass} • ` +
+            `${pair.totalPrice.toFixed(2)} JEWEL`
+          ).join('\n');
+          
+          await interaction.followUp({
+            content: `**More Results:**\n${summary}`
+          });
+        }
+        
+      } catch (err) {
+        console.error('❌ Error in /find-bargain:', err);
+        await interaction.editReply(`❌ Error finding bargain pairs: ${err.message}`);
+      }
+      
+      return;
+    }
+
     // Other slash commands (help, npc, hero, garden, etc.) were not included
     // in this truncated version of the file. Add them back here later as needed.
 

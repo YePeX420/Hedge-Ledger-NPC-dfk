@@ -124,6 +124,16 @@ const commands = [
     ]
   },
   {
+    name: 'find-bargain',
+    description: 'Find cheapest hero pairs on tavern with best chance for target class',
+    options: [
+      { name: 'target_class', description: 'Class to summon (e.g., Dreadknight, Sage)', type: 3, required: true },
+      { name: 'min_probability', description: 'Minimum % chance (default 5%)', type: 10, required: false },
+      { name: 'max_price', description: 'Max total price in JEWEL (default unlimited)', type: 10, required: false },
+      { name: 'results', description: 'Number of results to show (default 5)', type: 4, required: false }
+    ]
+  },
+  {
     name: 'deposit',
     description: 'Deposit JEWEL to fund premium queries',
     options: []
