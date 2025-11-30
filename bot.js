@@ -1665,9 +1665,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    if (name === 'summoning-calc') {
-      const hero1Id = interaction.options.getString('hero1', true);
-      const hero2Id = interaction.options.getString('hero2', true);
+    if (name === 'summoning-calc' || name === 'summon') {
+      // Handle both debug command and main command
+      const hero1Id = name === 'summon' 
+        ? interaction.options.getInteger('parent1', true).toString()
+        : interaction.options.getString('hero1', true);
+      const hero2Id = name === 'summon'
+        ? interaction.options.getInteger('parent2', true).toString()
+        : interaction.options.getString('hero2', true);
       
       await interaction.editReply(`⚗️ Calculating summoning probabilities for heroes ${hero1Id} and ${hero2Id}...`);
       
@@ -1752,7 +1757,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.followUp({ embeds: [visualEmbed] });
         
       } catch (err) {
-        console.error('❌ Error in /summoning-calc:', err);
+        console.error(`❌ Error in /${name}:`, err);
         await interaction.editReply(`❌ Error calculating summoning probabilities: ${err.message}`);
       }
       
