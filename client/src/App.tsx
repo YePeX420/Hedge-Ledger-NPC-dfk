@@ -26,6 +26,7 @@ function AdminRoutes() {
           <Route path="/admin/users" component={AdminUsers} />
           <Route path="/admin/expenses" component={AdminExpenses} />
           <Route path="/admin/settings" component={AdminSettings} />
+          <Route path="/admin/account" component={AccountPage} />
           <Route component={NotFound} />
         </Switch>
       </AdminLayout>
@@ -39,10 +40,7 @@ function Router() {
       {/* Admin login (public) */}
       <Route path="/admin/login" component={AdminLogin} />
       
-      {/* Public account page */}
-      <Route path="/account" component={AccountPage} />
-      
-      {/* All other admin routes (protected) */}
+      {/* All admin routes (protected) */}
       <Route path="/admin/:rest*" component={AdminRoutes} />
       <Route path="/admin" component={AdminRoutes} />
       

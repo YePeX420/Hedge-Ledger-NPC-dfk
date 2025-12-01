@@ -440,7 +440,7 @@ export default function AdminUsers() {
           <div className="sticky top-0 border-b border-border p-4 flex items-center justify-between" style={{backgroundColor: 'hsl(var(--background))'}}>
             <div>
               <button 
-                onClick={() => window.open(`${window.location.origin}/account?userId=${selectedUser.discordId}`, '_blank')}
+                onClick={() => window.open(`${window.location.origin}/admin/account?userId=${selectedUser.discordId}`, '_blank')}
                 className="text-lg font-semibold text-blue-600 dark:text-blue-400 hover:underline hover-elevate"
                 data-testid={`button-open-user-dashboard-${selectedUser.id}`}
               >
