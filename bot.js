@@ -2786,6 +2786,119 @@ app.use((req, res, next) => {
   next();
 });
 
+// Admin list
+const ADMIN_USER_IDS = ['426019696916168714']; // yepex
+
+// Admin middleware
+function isAdmin(req, res, next) {
+  try {
+    const sessionToken = req.cookies.session_token;
+    
+    if (!sessionToken || !global.sessions || !global.sessions[sessionToken]) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    const session = global.sessions[sessionToken];
+    
+    if (session.expiresAt < Date.now()) {
+      delete global.sessions[sessionToken];
+      return res.status(401).json({ error: 'Session expired' });
+    }
+    
+    if (!ADMIN_USER_IDS.includes(session.userId)) {
+      return res.status(403).json({ error: 'Access denied: Administrator only' });
+    }
+    
+    req.user = session;
+    next();
+  } catch (err) {
+    console.error('❌ Admin middleware error:', err);
+    res.status(500).json({ error: 'Authentication check failed' });
+  }
+}
+
+// GET /api/admin/users - List all users with profiles
+app.get('/api/admin/users', isAdmin, async (req, res) => {
+  try {
+    const playerRows = await db.select().from(players);
+    
+    const usersWithProfiles = await Promise.all(
+      playerRows.map(async (player) => {
+        try {
+          const profile = await getQuickProfileSummary(player.discord_id);
+          return {
+            id: player.id,
+            discordId: player.discord_id,
+            discordUsername: player.discord_username,
+            wallet: player.wallet,
+            profile: profile || {
+              archetype: 'UNKNOWN',
+              tier: 0,
+              state: 'VISITOR',
+              tags: [],
+              flags: {}
+            }
+          };
+        } catch (err) {
+          console.error(`Error fetching profile for ${player.discord_id}:`, err);
+          return {
+            id: player.id,
+            discordId: player.discord_id,
+            discordUsername: player.discord_username,
+            wallet: player.wallet,
+            profile: {
+              archetype: 'ERROR',
+              tier: 0,
+              state: 'VISITOR',
+              tags: [],
+              flags: {}
+            }
+          };
+        }
+      })
+    );
+    
+    res.json({ success: true, users: usersWithProfiles });
+  } catch (err) {
+    console.error('❌ Error fetching users:', err);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// PATCH /api/admin/users/:id/tier - Update user tier
+app.patch('/api/admin/users/:id/tier', isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tier } = req.body;
+    
+    if (typeof tier !== 'number' || tier < 0 || tier > 4) {
+      return res.status(400).json({ error: 'Tier must be a number between 0-4' });
+    }
+    
+    const player = await db.select().from(players).where(eq(players.id, parseInt(id)));
+    
+    if (!player || player.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const discordId = player[0].discord_id;
+    
+    // Update tier using the profile service
+    await setTierOverride(discordId, tier);
+    
+    const updatedProfile = await getQuickProfileSummary(discordId);
+    
+    res.json({ 
+      success: true, 
+      message: `Tier updated to ${tier}`,
+      profile: updatedProfile 
+    });
+  } catch (err) {
+    console.error('❌ Error updating tier:', err);
+    res.status(500).json({ error: 'Failed to update tier' });
+  }
+});
+
 // GET /api/admin/debug-settings - Get debug settings
 app.get('/api/admin/debug-settings', async (req, res) => {
   try {
