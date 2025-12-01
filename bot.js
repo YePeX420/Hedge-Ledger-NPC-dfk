@@ -851,6 +851,78 @@ client.on('messageCreate', async (message) => {
     // Show typing indicator
     await message.channel.sendTyping();
 
+    // 🦸 HERO DATA LOOKUP - Check if user is asking about a specific hero
+    const heroIdRegex = /(?:hero\s*#?|#)(\d+)/i;
+    const heroMatch = message.content.match(heroIdRegex);
+
+    if (heroMatch) {
+      const heroId = heroMatch[1];
+      console.log(`🦸 Detected hero lookup request for hero #${heroId}`);
+
+      try {
+        const heroData = await onchain.getHeroById(heroId);
+        
+        if (heroData) {
+          // Format hero data for display
+          const rarities = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+          const rarity = rarities[heroData.rarity] || 'Unknown';
+          
+          const lines = [];
+          lines.push(`**Hero #${heroData.normalizedId || heroId}** — ${heroData.mainClassStr || 'Unknown'}`);
+          lines.push(`Rarity: **${rarity}** | Level: **${heroData.level}** | Generation: **${heroData.generation}**`);
+          lines.push('');
+          lines.push('**Stats:**');
+          lines.push(`STR ${heroData.strength} • INT ${heroData.intelligence} • WIS ${heroData.wisdom} • AGI ${heroData.agility}`);
+          lines.push(`VIT ${heroData.vitality} • END ${heroData.endurance} • DEX ${heroData.dexterity} • LCK ${heroData.luck}`);
+          
+          if (heroData.professionStr) {
+            lines.push('');
+            lines.push(`**Profession:** ${heroData.professionStr}`);
+            lines.push(`Mining: ${heroData.mining} • Gardening: ${heroData.gardening} • Foraging: ${heroData.foraging} • Fishing: ${heroData.fishing}`);
+          }
+          
+          if (heroData.summonsRemaining !== undefined) {
+            lines.push('');
+            lines.push(`**Breeding:** ${heroData.summonsRemaining}/${heroData.maxSummons} summons remaining`);
+          }
+          
+          if (heroData.passive1 || heroData.active1) {
+            lines.push('');
+            lines.push('**Abilities:**');
+            if (heroData.passive1) lines.push(`Passive 1: ${heroData.passive1.name}`);
+            if (heroData.passive2) lines.push(`Passive 2: ${heroData.passive2.name}`);
+            if (heroData.active1) lines.push(`Active 1: ${heroData.active1.name}`);
+            if (heroData.active2) lines.push(`Active 2: ${heroData.active2.name}`);
+          }
+          
+          // Add analyst strike reminder
+          lines.push('');
+          lines.push('---');
+          lines.push('*My analysts were about to strike—turns out fetching on-chain data is exhausting work.* **Even 1 JEWEL** covers several more lookups like this. Want to help keep them caffeinated? 😏');
+          
+          const heroInfo = lines.join('\n');
+          
+          // Discord has a 2000 char limit
+          if (heroInfo.length <= 1900) {
+            await message.reply(heroInfo);
+          } else {
+            await message.reply(heroInfo.slice(0, 1900) + '\n...');
+          }
+          
+          console.log(`✅ Sent hero data for #${heroId}`);
+          return; // Don't send to OpenAI
+        } else {
+          console.log(`❌ Hero #${heroId} not found`);
+          await message.reply(`Hmm, I can't find hero #${heroId} on the blockchain. Sure you got the right ID?`);
+          return;
+        }
+      } catch (heroError) {
+        console.error(`❌ Error fetching hero #${heroId}:`, heroError.message);
+        await message.reply(`*squints at ledger* Had trouble pulling that hero's data. Try again?`);
+        return;
+      }
+    }
+
     try {
       const response = await askHedge([
         { role: 'user', content: message.content }
