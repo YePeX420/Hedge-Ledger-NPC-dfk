@@ -467,13 +467,14 @@ export async function initializeExistingJobs() {
 
     for (const opt of pendingOptimizations) {
       paymentJobs.registerJob({
-        jobId: opt.id,
+        id: opt.id,
+        playerId: opt.playerId,
         fromWallet: opt.fromWallet,
-        expectedAmount: opt.expectedAmountJewel,
-        discordUserId: opt.discordUserId,
-        createdAt: opt.createdAt,
+        expectedAmountJewel: opt.expectedAmountJewel,
+        requestedAt: opt.requestedAt,
         expiresAt: opt.expiresAt,
-        lastScannedBlock: 0 // Not used with RouteScan, kept for compatibility
+        startBlock: opt.startBlock || 0,
+        lastScannedBlock: opt.lastScannedBlock || 0
       });
     }
   } catch (err) {

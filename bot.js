@@ -424,26 +424,35 @@ async function deployCommands() {
 client.once(Events.ClientReady, async (c) => {
   console.log(`🤖 Logged in as ${c.user.tag}`);
   console.log(`🧠 Model: ${OPENAI_MODEL}`);
-  
-  // Auto-deploy commands on startup
-  await deployCommands();
 
-  // 🔧 Register debug slash commands (/ping, /logtest, /health) on the guild
+  // 🔧 Register ALL slash commands (commands from /commands folder + debug commands) on the guild
   try {
       if (!DISCORD_GUILD_ID) {
-        console.warn('⚠️ DISCORD_GUILD_ID not set; skipping debug command registration.');
+        console.warn('⚠️ DISCORD_GUILD_ID not set; skipping command registration.');
       } else if (c.application) {
-        console.log('🛠 Setting debug slash commands (/ping, /logtest, /health)…');
+        console.log('🛠 Registering all slash commands...');
 
+        // First, load commands from /commands folder
+        const folderCommands = [];
+        const commandsPath = path.join(process.cwd(), 'commands');
+        const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+
+        for (const file of commandFiles) {
+          try {
+            const commandModule = await import(`./commands/${file}`);
+            const command = commandModule.default || commandModule;
+            if (command?.data) {
+              folderCommands.push(command.data.toJSON());
+              console.log(`✓ Adding command from folder: ${command.data.name}`);
+            }
+          } catch (err) {
+            console.error(`✗ Error loading ${file}:`, err.message);
+          }
+        }
+
+        // Debug/utility commands defined inline
+        // Note: ping and logtest are now in /commands folder, not duplicated here
         const debugCommands = [
-          {
-            name: 'ping',
-            description: 'Check if Hedge is online and measure latency.'
-          },
-          {
-            name: 'logtest',
-            description: 'Write a test line into Hedge debug log.'
-          },
           {
             name: 'health',
             description: 'Show Hedge system health (RPC, DB, OpenAI, cache, monitors).'
@@ -712,9 +721,33 @@ client.once(Events.ClientReady, async (c) => {
           }
         ];
 
-        const guild = await c.guilds.fetch(DISCORD_GUILD_ID);
-        await guild.commands.set(debugCommands);
-        console.log(`✅ Debug commands registered: ${debugCommands.map(cmd => cmd.name).join(', ')}`);
+        // Merge folder commands with debug commands
+        const allCommands = [...folderCommands, ...debugCommands];
+        console.log(`📋 Total commands to register: ${allCommands.length}`);
+        console.log(`📋 Command names: ${allCommands.map(cmd => cmd.name).join(', ')}`);
+        
+        // Use REST API directly for more reliable registration with timeout
+        const { REST, Routes } = await import('discord.js');
+        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+        
+        console.log(`📝 Registering commands via REST API...`);
+        
+        // Register commands with rate limit handling
+        try {
+          const result = await rest.put(
+            Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, DISCORD_GUILD_ID),
+            { body: allCommands }
+          );
+          console.log(`✅ Registered ${result.length} commands: ${result.map(cmd => cmd.name).join(', ')}`);
+        } catch (regError) {
+          if (regError.status === 429) {
+            const retryAfter = regError.rawError?.retry_after || 300;
+            console.warn(`⚠️ Rate limited - Discord limits command creates to 200/day. Retry after ${Math.ceil(retryAfter)}s`);
+            console.log('📋 Existing commands will continue to work. New commands will register on next restart after rate limit resets.');
+          } else {
+            console.error('❌ Command registration error:', regError.message || regError);
+          }
+        }
       }
   } catch (err) {
     console.error('❌ Failed to register slash commands:', err);
