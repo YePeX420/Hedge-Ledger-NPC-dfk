@@ -10,6 +10,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminUsers from "@/pages/admin/users";
+import AdminUserProfile from "@/pages/admin/user-profile";
 import AdminExpenses from "@/pages/admin/expenses";
 import AdminSettings from "@/pages/admin/settings";
 import NotFound from "@/pages/not-found";
@@ -20,6 +21,7 @@ function AdminRoutes() {
       <AdminLayout>
         <Switch>
           <Route path="/admin" component={AdminDashboard} />
+          <Route path="/admin/users/:userId" component={AdminUserProfile} />
           <Route path="/admin/users" component={AdminUsers} />
           <Route path="/admin/expenses" component={AdminExpenses} />
           <Route path="/admin/settings" component={AdminSettings} />

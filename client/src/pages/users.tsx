@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Users, Search, ArrowLeft } from "lucide-react";
+import { Users, Search, ArrowLeft, Eye } from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -138,12 +138,13 @@ export default function UserManagement() {
                   <TableHead>Query Costs</TableHead>
                   <TableHead>Profit</TableHead>
                   <TableHead>Conversation Summary</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center text-muted-foreground">
+                    <TableCell colSpan={13} className="text-center text-muted-foreground">
                       No users found
                     </TableCell>
                   </TableRow>
@@ -248,6 +249,14 @@ export default function UserManagement() {
                         <div className="text-sm max-w-xs truncate" title={user.conversationSummary}>
                           {user.conversationSummary}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <Link href={`/admin/users/${user.id}`}>
+                          <Button size="sm" variant="outline" data-testid={`button-view-account-${user.id}`}>
+                            <Eye className="h-4 w-4 mr-1" />
+                            View Account
+                          </Button>
+                        </Link>
                       </TableCell>
                     </TableRow>
                   ))
