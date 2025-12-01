@@ -391,22 +391,21 @@ export default function AdminUsers() {
       {selectedUser && (
         <div className="fixed right-0 top-0 bottom-0 w-96 z-50 flex flex-col border-l border-border shadow-2xl" style={{backgroundColor: 'hsl(var(--background))', backdropFilter: 'none'}}>
           <div className="sticky top-0 border-b border-border p-4 flex items-center justify-between" style={{backgroundColor: 'hsl(var(--background))'}}>
-            <h2 className="text-lg font-semibold">{selectedUser.discordUsername}</h2>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">{selectedUser.discordUsername}</CardTitle>
-              <Button 
-                size="icon" 
-                variant="ghost" 
-                onClick={() => setSelectedUserId(null)}
-                data-testid="button-close-detail"
-              >
-                <X className="w-4 h-4" />
-              </Button>
+            <div>
+              <h2 className="text-lg font-semibold">{selectedUser.discordUsername}</h2>
+              <p className="text-xs text-muted-foreground">{selectedUser.discordId}</p>
             </div>
-            <CardDescription className="text-xs">{selectedUser.discordId}</CardDescription>
-          </CardHeader>
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              onClick={() => setSelectedUserId(null)}
+              data-testid="button-close-detail"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
           
-          <CardContent className="space-y-6 py-4">
+          <div className="flex-1 overflow-y-auto space-y-6 p-4">
             {/* Basic Info */}
             <div className="space-y-3">
               <h3 className="font-semibold text-sm">Basic Info</h3>
@@ -545,17 +544,8 @@ export default function AdminUsers() {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Overlay */}
-      {selectedUserId && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40"
-          onClick={() => setSelectedUserId(null)}
-          data-testid="overlay-user-detail"
-        />
+          </div>
+        </div>
       )}
     </div>
   );
