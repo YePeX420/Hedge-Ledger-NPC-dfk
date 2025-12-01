@@ -577,7 +577,7 @@ export default function AdminUsers() {
                 <div className="flex flex-wrap gap-2">
                   {selectedUser.behaviorTags.map((tag) => (
                     <Tooltip key={tag}>
-                      <TooltipTrigger>
+                      <TooltipTrigger asChild>
                         <Badge variant="outline" className="text-xs cursor-help">{tag}</Badge>
                       </TooltipTrigger>
                       <TooltipContent side="top" className="text-xs max-w-xs">
