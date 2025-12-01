@@ -597,27 +597,35 @@ export const queryCosts = pgTable("query_costs", {
 
 export const gardenOptimizations = pgTable("garden_optimizations", {
   id: serial("id").primaryKey(),
-  discordId: text("discord_id").notNull(),
-  wallet: text("wallet").notNull(),
+  playerId: integer("player_id").notNull().references(() => players.id),
   status: text("status").notNull().default('pending'), // 'pending', 'processing', 'completed', 'failed', 'expired'
-  costJewel: numeric("cost_jewel", { precision: 30, scale: 18 }).notNull().default('25'),
-  requiredPayment: numeric("required_payment", { precision: 30, scale: 18 }).notNull(),
-  paymentTransactionHash: text("payment_transaction_hash"),
-  reportUrl: text("report_url"),
-  errorMessage: text("error_message"),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  expectedAmountJewel: numeric("expected_amount_jewel", { precision: 30, scale: 18 }).notNull(),
+  fromWallet: text("from_wallet").notNull(),
+  txHash: text("tx_hash"),
+  lpSnapshot: json("lp_snapshot").$type<any>(),
+  reportPayload: json("report_payload").$type<any>(),
+  errorMessage: text("error_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  paymentVerifiedAt: timestamp("payment_verified_at", { withTimezone: true }),
+  startBlock: bigint("start_block", { mode: "number" }),
+  lastScannedBlock: bigint("last_scanned_block", { mode: "number" }),
 });
 
 export const walletSnapshots = pgTable("wallet_snapshots", {
   id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
   wallet: text("wallet").notNull(),
   asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(),
   jewelBalance: numeric("jewel_balance", { precision: 30, scale: 18 }).notNull(),
   crystalBalance: numeric("crystal_balance", { precision: 30, scale: 18 }).notNull().default('0'),
   cJewelBalance: numeric("c_jewel_balance", { precision: 30, scale: 18 }).notNull().default('0'),
+  jewelPriceUsd: numeric("jewel_price_usd", { precision: 15, scale: 2 }),
+  crystalPriceUsd: numeric("crystal_price_usd", { precision: 15, scale: 2 }),
   lifetimeDeposit: numeric("lifetime_deposit", { precision: 30, scale: 18 }).notNull().default('0'),
-  change7d: numeric("change_7d", { precision: 30, scale: 18 }).default('0'),
+  change7d: numeric("change_7d", { precision: 30, scale: 18 }),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
