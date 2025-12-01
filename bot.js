@@ -2653,66 +2653,63 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return;
         }
 
-        const blockDepth = interaction.options.getInteger('blocks') || 50000;
-        
         const lines = [];
-        lines.push(`📊 **JEWEL Token Transfers to Hedge (Last ${blockDepth} blocks)**\n`);
+        lines.push(`📊 **JEWEL Token Transfers to Hedge (Last 20 Transactions)**\n`);
 
         try {
-          // Setup blockchain connection
-          const DFK_RPC = process.env.DFK_RPC_URL || process.env.DFK_RPC || 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
           const JEWEL_TOKEN = '0x77f2656d04E158f915bC22f07B779D94c1DC47Ff';
           const HEDGE_ADDR = HEDGE_WALLET.toLowerCase();
           
-          const provider = new ethers.JsonRpcProvider(DFK_RPC);
-          const currentBlock = await provider.getBlockNumber();
-          const fromBlock = Math.max(0, currentBlock - blockDepth);
+          // Fetch token transfer data from RouteScan API
+          const url = `https://api.routescan.io/v2/network/mainnet/evm/53935/address/${HEDGE_ADDR}/erc20-transfers`;
+          const response = await fetch(url);
           
-          lines.push(`Searching blocks ${fromBlock.toLocaleString()} to ${currentBlock.toLocaleString()}...\n`);
+          if (!response.ok) {
+            await interaction.editReply(`Failed to fetch from explorer: HTTP ${response.status}`);
+            return;
+          }
 
-          // Create ERC20 ABI for Transfer events
-          const erc20ABI = [
-            'event Transfer(address indexed from, address indexed to, uint256 value)'
-          ];
+          const data = await response.json();
           
-          const tokenContract = new ethers.Contract(JEWEL_TOKEN, erc20ABI, provider);
-          
-          // Query Transfer events TO Hedge wallet
-          const filter = tokenContract.filters.Transfer(null, HEDGE_ADDR);
-          const events = await tokenContract.queryFilter(filter, fromBlock, currentBlock);
-          
-          if (events.length === 0) {
-            lines.push('No JEWEL transfers found in this block range.');
+          if (!data.items || data.items.length === 0) {
+            lines.push('No JEWEL transfers found.');
             await interaction.editReply(lines.join('\n'));
             return;
           }
 
-          // Get latest 20 and fetch block info for timestamps
-          const recentEvents = events.slice(-20).reverse();
+          // Filter for incoming JEWEL transfers (to = Hedge wallet, token = JEWEL)
+          const incomingJewel = data.items.filter(tx => 
+            tx.to?.toLowerCase() === HEDGE_ADDR && 
+            tx.token?.address?.toLowerCase() === JEWEL_TOKEN.toLowerCase()
+          ).reverse(); // Most recent first
           
-          lines.push(`**Found ${events.length} total transfers, showing last 20:**\n`);
+          if (incomingJewel.length === 0) {
+            lines.push('No incoming JEWEL transfers found.');
+            await interaction.editReply(lines.join('\n'));
+            return;
+          }
+
+          // Get last 20
+          const recent = incomingJewel.slice(0, 20);
+          
+          lines.push(`**Found ${incomingJewel.length} total incoming transfers, showing last 20:**\n`);
           lines.push('**Transactions**:');
           
-          for (let i = 0; i < recentEvents.length; i++) {
-            const event = recentEvents[i];
-            const amount = (Number(event.args.value) / 1e18).toFixed(4);
-            const fromWallet = event.args.from.slice(0, 6) + '...' + event.args.from.slice(-4);
-            const txHash = event.transactionHash.slice(0, 8) + '...' + event.transactionHash.slice(-4);
+          for (let i = 0; i < recent.length; i++) {
+            const tx = recent[i];
+            const amount = (Number(tx.value) / 1e18).toFixed(4);
+            const fromWallet = tx.from.slice(0, 6) + '...' + tx.from.slice(-4);
+            const txHash = tx.transactionHash.slice(0, 8) + '...' + tx.transactionHash.slice(-4);
+            const date = new Date(tx.timestamp * 1000).toLocaleDateString();
             
-            try {
-              const block = await provider.getBlock(event.blockNumber);
-              const date = new Date(Number(block.timestamp) * 1000).toLocaleDateString();
-              lines.push(`${i + 1}. **${amount} JEWEL** from \`${fromWallet}\` on ${date} - TX: \`${txHash}\``);
-            } catch {
-              lines.push(`${i + 1}. **${amount} JEWEL** from \`${fromWallet}\` - TX: \`${txHash}\``);
-            }
+            lines.push(`${i + 1}. **${amount} JEWEL** from \`${fromWallet}\` on ${date} - TX: \`${txHash}\``);
           }
           
           await interaction.editReply(lines.join('\n'));
 
-        } catch (rpcErr) {
-          console.error('❌ RPC Error in /debug-transactions:', rpcErr);
-          await interaction.editReply(`Failed to query blockchain: ${rpcErr.message}`);
+        } catch (err) {
+          console.error('❌ Error in /debug-transactions:', err);
+          await interaction.editReply(`Failed to fetch transactions: ${err.message}`);
         }
 
       } catch (err) {
