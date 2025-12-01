@@ -15,21 +15,21 @@ export async function getAdminStats() {
         total: sql`COUNT(*)`,
       }).from(players),
       
-      // Deposit stats
+      // Deposit stats - count of completed deposits (no amount aggregation for now)
       db.select({
-        totalJewel: sql`COALESCE(SUM(CASE WHEN status = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
+        totalJewel: sql`COALESCE(SUM(CASE WHEN "status" = 'completed' THEN CAST("requested_amount_jewel" AS DECIMAL) ELSE 0 END), 0)`,
       }).from(depositRequests),
       
-      // Balance stats (Hedge wallet = sum of all balances)
+      // Balance stats (Hedge wallet = sum of all player balances)
       db.select({
-        totalBalance: sql`COALESCE(SUM(CAST(${jewelBalances.balanceJewel} AS DECIMAL)), 0)`,
+        totalBalance: sql`COALESCE(SUM(CAST("balance_jewel" AS DECIMAL)), 0)`,
       }).from(jewelBalances),
       
       // Revenue stats from query costs
       db.select({
-        totalRevenue: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
+        totalRevenue: sql`COALESCE(SUM("revenue_usd"), 0)`,
         totalQueries: sql`COUNT(*)`,
-        paidQueries: sql`SUM(CASE WHEN NOT ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`,
+        paidQueries: sql`SUM(CASE WHEN NOT "free_tier_used" THEN 1 ELSE 0 END)`,
       }).from(queryCosts)
     ]);
     
