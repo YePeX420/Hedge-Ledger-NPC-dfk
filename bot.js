@@ -3399,6 +3399,32 @@ app.patch('/api/admin/users/:id/tier', isAdmin, async (req, res) => {
   }
 });
 
+// GET /api/admin/lp-positions/:wallet - Fetch LP positions for a wallet
+app.get('/api/admin/lp-positions/:wallet', isAdmin, async (req, res) => {
+  try {
+    const { wallet } = req.params;
+    
+    if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+      return res.status(400).json({ error: 'Invalid wallet address' });
+    }
+    
+    console.log(`[API] Fetching LP positions for wallet: ${wallet}`);
+    const { detectWalletLPPositions } = await import('./wallet-lp-detector.js');
+    const positions = await detectWalletLPPositions(wallet);
+    
+    res.json({ 
+      success: true, 
+      wallet,
+      positions: positions || [],
+      totalPositions: positions?.length || 0,
+      totalValue: (positions || []).reduce((sum, p) => sum + parseFloat(p.userTVL || '0'), 0).toFixed(2)
+    });
+  } catch (error) {
+    console.error('[API] Error fetching LP positions:', error);
+    res.status(500).json({ error: 'Failed to fetch LP positions' });
+  }
+});
+
 // GET /api/admin/debug-settings - Get debug settings
 app.get('/api/admin/debug-settings', async (req, res) => {
   try {

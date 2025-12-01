@@ -98,23 +98,34 @@ export default function AccountPage() {
     retry: 1,
   });
 
-  const { data: lpData, isLoading: lpLoading } = useQuery<{
+  const { data: lpData, isLoading: lpLoading, error: lpError } = useQuery<{
     positions: LPPosition[];
     totalValue: string;
   }>({
     queryKey: ["/api/admin/lp-positions", user?.walletAddress],
     queryFn: async () => {
-      const response = await fetch(`/api/admin/lp-positions/${user!.walletAddress}`);
+      console.log(`[LP Fetch] Fetching LP positions for wallet: ${user!.walletAddress}`);
+      const response = await fetch(`/api/admin/lp-positions/${user!.walletAddress}`, {
+        credentials: 'include'
+      });
+      console.log(`[LP Fetch] Response status: ${response.status}`);
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[LP Fetch] Error response:`, errorText);
         throw new Error(`HTTP ${response.status}`);
       }
       const data = await response.json();
+      console.log(`[LP Fetch] Got ${data.positions?.length || 0} positions, total value: ${data.totalValue}`);
       return { positions: data.positions || [], totalValue: data.totalValue || "0.00" };
     },
     enabled: !!user?.walletAddress,
     retry: 1,
     staleTime: 60000,
   });
+  
+  if (lpError) {
+    console.error("[LP Fetch] Query error:", lpError);
+  }
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
