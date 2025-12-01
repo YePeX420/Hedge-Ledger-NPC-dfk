@@ -63,8 +63,13 @@ export default function AccountPage() {
         console.error("Failed to fetch users:", response.status, response.statusText);
         throw new Error(`HTTP ${response.status}`);
       }
-      const users = await response.json();
-      const foundUser = users.find((u: any) => u.discordId === userId);
+      const data = await response.json();
+      const usersArray = Array.isArray(data?.users) ? data.users : Array.isArray(data) ? data : null;
+      if (!usersArray) {
+        console.error("Invalid API response format:", data);
+        throw new Error("Invalid API response");
+      }
+      const foundUser = usersArray.find((u: any) => u.discordId === userId);
       if (!foundUser) throw new Error("User not found");
       return foundUser;
     },
