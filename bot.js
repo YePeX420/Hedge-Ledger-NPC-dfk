@@ -388,9 +388,45 @@ async function loadCommands() {
 // Load commands on startup
 await loadCommands();
 
+// Helper to auto-deploy commands on bot startup
+async function deployCommands() {
+  try {
+    const { REST, Routes } = await import('discord.js');
+    const commands = [];
+    const commandsPath = path.join(process.cwd(), 'commands');
+    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+
+    for (const file of commandFiles) {
+      try {
+        const commandModule = await import(`./commands/${file}`);
+        const command = commandModule.default || commandModule;
+        if (command?.data) {
+          commands.push(command.data.toJSON());
+        }
+      } catch (err) {
+        console.error(`Error loading ${file}:`, err.message);
+      }
+    }
+
+    if (commands.length === 0) return;
+
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    const result = await rest.put(
+      Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, process.env.DISCORD_GUILD_ID),
+      { body: commands }
+    );
+    console.log(`✅ Auto-deployed ${result.length} commands on startup`);
+  } catch (err) {
+    console.error('❌ Command auto-deploy failed:', err.message);
+  }
+}
+
 client.once(Events.ClientReady, async (c) => {
   console.log(`🤖 Logged in as ${c.user.tag}`);
   console.log(`🧠 Model: ${OPENAI_MODEL}`);
+  
+  // Auto-deploy commands on startup
+  await deployCommands();
 
   // 🔧 Register debug slash commands (/ping, /logtest, /health) on the guild
   try {
