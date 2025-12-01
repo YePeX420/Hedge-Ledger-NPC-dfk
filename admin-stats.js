@@ -12,24 +12,24 @@ export async function getAdminStats() {
     const [playerStats, depositStats, balanceStats, revenueStats] = await Promise.all([
       // Player stats
       db.select({
-        total: sql<number>`COUNT(*)`,
+        total: sql`COUNT(*)`,
       }).from(players),
       
       // Deposit stats
       db.select({
-        totalJewel: sql<string>`COALESCE(SUM(CASE WHEN status = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
+        totalJewel: sql`COALESCE(SUM(CASE WHEN status = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
       }).from(depositRequests),
       
       // Balance stats (Hedge wallet = sum of all balances)
       db.select({
-        totalBalance: sql<string>`COALESCE(SUM(CAST(${jewelBalances.balanceJewel} AS DECIMAL)), 0)`,
+        totalBalance: sql`COALESCE(SUM(CAST(${jewelBalances.balanceJewel} AS DECIMAL)), 0)`,
       }).from(jewelBalances),
       
       // Revenue stats from query costs
       db.select({
-        totalRevenue: sql<string>`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
-        totalQueries: sql<number>`COUNT(*)`,
-        paidQueries: sql<number>`SUM(CASE WHEN NOT ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`,
+        totalRevenue: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
+        totalQueries: sql`COUNT(*)`,
+        paidQueries: sql`SUM(CASE WHEN NOT ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`,
       }).from(queryCosts)
     ]);
     
