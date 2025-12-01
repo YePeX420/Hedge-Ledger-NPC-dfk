@@ -2793,6 +2793,7 @@ const ADMIN_USER_IDS = ['426019696916168714']; // yepex
 async function isAdmin(req, res, next) {
   try {
     const sessionToken = req.cookies.session_token;
+    console.log(`[AdminAuth] Checking session. Cookie: ${sessionToken ? sessionToken.substring(0, 16) + '...' : 'NONE'}`);
     
     if (!sessionToken) {
       return res.status(401).json({ error: 'Not authenticated' });
@@ -2800,12 +2801,14 @@ async function isAdmin(req, res, next) {
     
     // Fetch session from database
     const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+    console.log(`[AdminAuth] Found ${sessions.length} session(s) in DB`);
     
     if (!sessions || sessions.length === 0) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     
     const session = sessions[0];
+    console.log(`[AdminAuth] Session found: discordId=${session.discordId}, expires=${session.expiresAt}`);
     
     // Check expiration
     if (new Date(session.expiresAt) < new Date()) {
@@ -2825,6 +2828,40 @@ async function isAdmin(req, res, next) {
     res.status(500).json({ error: 'Authentication check failed' });
   }
 }
+
+// Debug endpoint - no auth required
+app.get('/api/admin/debug-status', async (req, res) => {
+  try {
+    const sessionToken = req.cookies.session_token;
+    console.log(`[Debug] Session token from cookie: ${sessionToken ? sessionToken.substring(0, 16) + '...' : 'NONE'}`);
+    
+    const debug = {
+      timestamp: new Date().toISOString(),
+      hasCookie: !!sessionToken,
+      cookiePreview: sessionToken ? sessionToken.substring(0, 32) + '...' : null,
+      adminIds: ADMIN_USER_IDS,
+      dbConnected: true
+    };
+    
+    if (sessionToken) {
+      const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+      debug.sessionInDb = sessions.length > 0;
+      
+      if (sessions.length > 0) {
+        const sess = sessions[0];
+        debug.discordId = sess.discordId;
+        debug.username = sess.username;
+        debug.isAdmin = ADMIN_USER_IDS.includes(sess.discordId);
+        debug.expiresAt = sess.expiresAt;
+        debug.isExpired = new Date(sess.expiresAt) < new Date();
+      }
+    }
+    
+    res.json(debug);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+})
 
 // GET /api/admin/users - List all users with profiles
 app.get('/api/admin/users', isAdmin, async (req, res) => {
