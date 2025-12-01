@@ -3333,6 +3333,38 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
   }
 });
 
+// GET /api/admin/users/:userId/profile - Get single user's account profile
+app.get('/api/admin/users/:userId/profile', isAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { getOrCreateUserProfile } = await import('./user-account-service.js');
+    
+    const player = await db.select().from(players).where(eq(players.id, parseInt(userId))).limit(1);
+    
+    if (!player || player.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const p = player[0];
+    const profile = await getOrCreateUserProfile(p.discordId, p.discordUsername);
+    
+    res.json({
+      success: true,
+      id: p.id,
+      discordId: p.discordId,
+      discordUsername: p.discordUsername,
+      tier: profile.tier,
+      totalQueries: profile.totalQueries,
+      wallets: profile.wallets,
+      lpPositions: profile.lpPositions,
+      createdAt: profile.createdAt
+    });
+  } catch (err) {
+    console.error('❌ Error fetching user profile:', err);
+    res.status(500).json({ error: 'Failed to fetch user profile' });
+  }
+});
+
 // PATCH /api/admin/users/:id/tier - Update user tier
 app.patch('/api/admin/users/:id/tier', isAdmin, async (req, res) => {
   try {
