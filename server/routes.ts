@@ -1,9 +1,51 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { db } from "./db";
-import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots } from "@shared/schema";
+import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions } from "@shared/schema";
 import { desc, sql, eq, inArray } from "drizzle-orm";
 import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
+
+const ADMIN_USER_IDS = ['426019696916168714']; // yepex
+
+// Admin middleware - database-backed sessions
+async function isAdmin(req: any, res: any, next: any) {
+  try {
+    const sessionToken = req.cookies?.session_token;
+    console.log(`[AdminAuth] Checking session. Cookie: ${sessionToken ? sessionToken.substring(0, 16) + '...' : 'NONE'}`);
+    
+    if (!sessionToken) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    // Fetch session from database
+    const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+    console.log(`[AdminAuth] Found ${sessions.length} session(s) in DB`);
+    
+    if (!sessions || sessions.length === 0) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    const session = sessions[0];
+    console.log(`[AdminAuth] Session found: discordId=${session.discordId}, expires=${session.expiresAt}`);
+    
+    // Check expiration
+    if (new Date(session.expiresAt) < new Date()) {
+      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+      return res.status(401).json({ error: 'Session expired' });
+    }
+    
+    console.log(`🔍 Admin check - userId: ${session.discordId}, admins: [${ADMIN_USER_IDS.join(', ')}], match: ${ADMIN_USER_IDS.includes(session.discordId)}`);
+    if (!ADMIN_USER_IDS.includes(session.discordId)) {
+      return res.status(403).json({ error: 'Access denied: Administrator only' });
+    }
+    
+    req.user = { userId: session.discordId, username: session.username, avatar: session.avatar };
+    next();
+  } catch (err) {
+    console.error('❌ Admin middleware error:', err);
+    res.status(500).json({ error: 'Authentication check failed' });
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Analytics API Routes
@@ -148,7 +190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin API Routes
   
   // GET /api/admin/users - Comprehensive user management list
-  app.get("/api/admin/users", async (req: any, res: any) => {
+  app.get("/api/admin/users", isAdmin, async (req: any, res: any) => {
     try {
       // Fetch all users with their basic info (single query)
       const userList = await db
