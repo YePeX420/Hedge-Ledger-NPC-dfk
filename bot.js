@@ -2950,7 +2950,7 @@ app.get('/auth/discord/callback', async (req, res) => {
   }
 });
 
-app.get('/api/auth/status', (req, res) => {
+app.get('/auth/status', (req, res) => {
   try {
     const sessionToken = req.cookies.session_token;
     
@@ -2979,7 +2979,7 @@ app.get('/api/auth/status', (req, res) => {
   }
 });
 
-app.get('/api/auth/logout', (req, res) => {
+app.get('/auth/logout', (req, res) => {
   const sessionToken = req.cookies.session_token;
   if (sessionToken && global.sessions) {
     delete global.sessions[sessionToken];
