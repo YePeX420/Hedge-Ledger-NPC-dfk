@@ -142,7 +142,11 @@ export async function getHeroById(heroId) {
         salePrice
         assistingPrice
         
-        # Gene data
+        # Raw gene data for full D/R1/R2/R3 decoding
+        statGenes
+        visualGenes
+        
+        # Parsed gene data
         advancedGenes
         eliteGenes
         exaltedGenes

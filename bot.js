@@ -54,6 +54,10 @@ let optimizationProcessorStarted = false;
 let snapshotJobStarted = false;
 let cacheQueueInitialized = false;
 
+// --- DM Conversation Context ---
+// Tracks the last hero ID discussed per user for follow-up questions
+const dmConversationContext = new Map(); // userId -> { lastHeroId, lastHeroData, timestamp }
+
 // RPC + HTTP helpers for /health
 async function checkJsonRpcEndpoint(url) {
   if (!url) return { status: 'NOT_CONFIGURED' };
@@ -863,6 +867,13 @@ client.on('messageCreate', async (message) => {
         const heroData = await onchain.getHeroById(heroId);
         
         if (heroData) {
+          // Save to conversation context for follow-up questions
+          dmConversationContext.set(discordId, {
+            lastHeroId: heroId,
+            lastHeroData: heroData,
+            timestamp: Date.now()
+          });
+          
           // Format hero data for display
           const rarities = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
           const rarity = rarities[heroData.rarity] || 'Unknown';
@@ -920,6 +931,87 @@ client.on('messageCreate', async (message) => {
         console.error(`❌ Error fetching hero #${heroId}:`, heroError.message);
         await message.reply(`*squints at ledger* Had trouble pulling that hero's data. Try again?`);
         return;
+      }
+    }
+
+    // 🧬 GENETICS FOLLOW-UP - Check if user is asking about genetics of a previously discussed hero
+    const geneticsKeywords = ['genetic', 'genes', 'gene', 'genetica', 'recessive', 'dominant', 'r1', 'r2', 'r3', 'breeding trait', 'mutation chance'];
+    const userContentLower = message.content.toLowerCase();
+    const isGeneticsQuestion = geneticsKeywords.some(k => userContentLower.includes(k));
+    
+    // Check if we have a recent hero context (within 30 minutes)
+    const context = dmConversationContext.get(discordId);
+    const contextAge = context ? (Date.now() - context.timestamp) / 1000 / 60 : Infinity;
+    const hasRecentContext = context && contextAge < 30;
+    
+    if (isGeneticsQuestion && hasRecentContext && context.lastHeroData) {
+      console.log(`🧬 Detected genetics follow-up for hero #${context.lastHeroId}`);
+      
+      try {
+        const heroData = context.lastHeroData;
+        
+        // Decode full genetics
+        const genetics = decodeHeroGenes(heroData);
+        
+        if (genetics._note) {
+          // Raw genes not available - explain
+          await message.reply(`I'd love to show you the full genetics for Hero #${context.lastHeroId}, but the raw gene data isn't available right now. Try asking about a different hero?`);
+          return;
+        }
+        
+        // Format genetics for display
+        const lines = [];
+        lines.push(`**🧬 Full Genetics for Hero #${genetics.normalizedId || context.lastHeroId}**`);
+        lines.push('');
+        lines.push('**Classes & Profession:**');
+        lines.push(`Main Class: **${genetics.mainClass.dominant}** | R1: ${genetics.mainClass.R1} | R2: ${genetics.mainClass.R2} | R3: ${genetics.mainClass.R3}`);
+        lines.push(`Sub Class: **${genetics.subClass.dominant}** | R1: ${genetics.subClass.R1} | R2: ${genetics.subClass.R2} | R3: ${genetics.subClass.R3}`);
+        lines.push(`Profession: **${genetics.profession.dominant}** | R1: ${genetics.profession.R1} | R2: ${genetics.profession.R2} | R3: ${genetics.profession.R3}`);
+        lines.push('');
+        lines.push('**Abilities:**');
+        lines.push(`Passive 1: **${genetics.passive1.dominant}** | R1: ${genetics.passive1.R1} | R2: ${genetics.passive1.R2} | R3: ${genetics.passive1.R3}`);
+        lines.push(`Passive 2: **${genetics.passive2.dominant}** | R1: ${genetics.passive2.R1} | R2: ${genetics.passive2.R2} | R3: ${genetics.passive2.R3}`);
+        lines.push(`Active 1: **${genetics.active1.dominant}** | R1: ${genetics.active1.R1} | R2: ${genetics.active1.R2} | R3: ${genetics.active1.R3}`);
+        lines.push(`Active 2: **${genetics.active2.dominant}** | R1: ${genetics.active2.R1} | R2: ${genetics.active2.R2} | R3: ${genetics.active2.R3}`);
+        lines.push('');
+        lines.push('**Stat Boosts & Element:**');
+        lines.push(`Stat Boost 1: **${genetics.statBoost1.dominant}** | R1: ${genetics.statBoost1.R1} | R2: ${genetics.statBoost1.R2} | R3: ${genetics.statBoost1.R3}`);
+        lines.push(`Stat Boost 2: **${genetics.statBoost2.dominant}** | R1: ${genetics.statBoost2.R1} | R2: ${genetics.statBoost2.R2} | R3: ${genetics.statBoost2.R3}`);
+        lines.push(`Element: **${genetics.element.dominant}** | R1: ${genetics.element.R1} | R2: ${genetics.element.R2} | R3: ${genetics.element.R3}`);
+        
+        // Add visual traits summary if available
+        if (genetics.visual) {
+          lines.push('');
+          lines.push('**Visual Traits:**');
+          lines.push(`Gender: **${genetics.visual.gender.dominant}** | Hair: ${genetics.visual.hairStyle.dominant} | Head: ${genetics.visual.headAppendage.dominant} | Back: ${genetics.visual.backAppendage.dominant}`);
+        }
+        
+        // Analyst reminder
+        lines.push('');
+        lines.push('---');
+        lines.push('*Decoding all those recessive genes made my analysts need a coffee break.* **Even 1 JEWEL** covers several more genetic analyses. Keep the data flowing? 😏');
+        
+        const geneticsInfo = lines.join('\n');
+        
+        // Discord has a 2000 char limit - may need to split
+        if (geneticsInfo.length <= 1900) {
+          await message.reply(geneticsInfo);
+        } else {
+          // Split into two messages
+          const splitPoint = geneticsInfo.indexOf('**Stat Boosts');
+          if (splitPoint > 0) {
+            await message.reply(geneticsInfo.slice(0, splitPoint));
+            await message.reply(geneticsInfo.slice(splitPoint));
+          } else {
+            await message.reply(geneticsInfo.slice(0, 1900) + '\n...');
+          }
+        }
+        
+        console.log(`✅ Sent genetics for hero #${context.lastHeroId}`);
+        return;
+      } catch (geneticsError) {
+        console.error(`❌ Error decoding genetics:`, geneticsError.message);
+        // Fall through to OpenAI for a general response
       }
     }
 
