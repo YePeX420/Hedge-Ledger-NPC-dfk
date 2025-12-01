@@ -906,10 +906,7 @@ client.on('messageCreate', async (message) => {
             if (heroData.active2) lines.push(`Active 2: ${heroData.active2.name}`);
           }
           
-          // Add analyst strike reminder
-          lines.push('');
-          lines.push('---');
-          lines.push('*My analysts were about to strike—turns out fetching on-chain data is exhausting work.* **Even 1 JEWEL** covers several more lookups like this. Want to help keep them caffeinated? 😏');
+          // Tier 1: Basic lookup - no payment reminder (free tier)
           
           const heroInfo = lines.join('\n');
           
