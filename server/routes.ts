@@ -173,7 +173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Early return if no players exist
       if (playerIds.length === 0) {
-        return res.json([]);
+        return res.json({ success: true, users: [] });
       }
       
       // Batch query: Get all query stats grouped by player (single query)
@@ -310,7 +310,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       });
       
-      res.json(enrichedUsers);
+      res.json({ success: true, users: enrichedUsers });
     } catch (error) {
       console.error('[API] Error fetching users:', error);
       res.status(500).json({ error: 'Failed to fetch users' });
