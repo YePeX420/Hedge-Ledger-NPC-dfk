@@ -192,7 +192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/admin/users - Comprehensive user management list
   app.get("/api/admin/users", isAdmin, async (req: any, res: any) => {
     try {
-      // Fetch all users with their basic info (single query)
+      // Fetch all players first
       const userList = await db
         .select({
           id: players.id,
@@ -200,22 +200,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
           discordUsername: players.discordUsername,
           walletAddress: players.primaryWallet,
           profileData: players.profileData,
-          tier: jewelBalances.tier,
-          balance: jewelBalances.balanceJewel,
-          lifetimeDeposits: jewelBalances.lifetimeDepositsJewel,
-          lastQueryAt: jewelBalances.lastQueryAt,
           firstSeenAt: players.firstSeenAt,
           totalMessages: players.totalMessages,
         })
         .from(players)
-        .leftJoin(jewelBalances, eq(players.id, jewelBalances.playerId))
         .orderBy(desc(players.firstSeenAt));
       
+      console.log(`[API] /api/admin/users fetched ${userList.length} players`);
       const playerIds = userList.map(u => u.id);
       
       // Early return if no players exist
       if (playerIds.length === 0) {
         return res.json({ success: true, users: [] });
+      }
+      
+      // Fetch balance data for all players
+      const balanceMap = new Map<number, any>();
+      if (playerIds.length > 0) {
+        const balances = await db
+          .select({
+            playerId: jewelBalances.playerId,
+            tier: jewelBalances.tier,
+            balance: jewelBalances.balanceJewel,
+            lifetimeDeposits: jewelBalances.lifetimeDepositsJewel,
+            lastQueryAt: jewelBalances.lastQueryAt,
+          })
+          .from(jewelBalances)
+          .where(inArray(jewelBalances.playerId, playerIds));
+        
+        balances.forEach(b => balanceMap.set(b.playerId, b));
       }
       
       // Batch query: Get all query stats grouped by player (single query)
@@ -298,6 +311,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Enrich users with batched data
       const enrichedUsers = userList.map((user) => {
+        const balance = balanceMap.get(user.id) || {
+          tier: 'free',
+          balance: '0',
+          lifetimeDeposits: '0',
+          lastQueryAt: null,
+        };
+        
         const stats = queryStatsMap.get(user.id) || {
           totalQueries: 0,
           totalCost: '0',
@@ -355,6 +375,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         return {
           ...user,
+          tier: balance.tier || 'free',
+          balance: balance.balance || '0',
+          lifetimeDeposits: balance.lifetimeDeposits || '0',
+          lastQueryAt: balance.lastQueryAt,
           queryCount: stats.totalQueries || 0,
           queryCosts: stats.totalCost || '0',
           queryProfit: stats.totalProfit || '0',
@@ -364,7 +388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalJewelProvided: deposits.totalJewel || '0',
           totalCrystalProvided: deposits.totalCrystal || '0',
           conversationSummary,
-          userState: user.lastQueryAt ? 'active' : 'inactive',
+          userState: balance.lastQueryAt ? 'active' : 'inactive',
           conversionStatus: (deposits.completedDeposits || 0) > 0 ? 'converted' : 'free',
           profileData: profileData,
           archetype: profileData?.archetype || 'GUEST',
