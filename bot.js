@@ -628,6 +628,18 @@ client.once(Events.ClientReady, async (c) => {
                 required: false
               }
             ]
+          },
+          {
+            name: 'debug-transactions',
+            description: 'View last 20 JEWEL token transfers to Hedge wallet from blockchain (admin only)',
+            options: [
+              {
+                name: 'blocks',
+                description: 'How many blocks back to search (default 50000, ~1 hour)',
+                type: 4,           // INTEGER
+                required: false
+              }
+            ]
           }
         ];
 
@@ -2627,6 +2639,85 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } catch (err) {
         console.error('❌ Error in /debug-wallet-payments:', err);
         await interaction.editReply(`Failed to fetch payments: ${err.message}`);
+      }
+      return;
+    }
+
+    if (name === 'debug-transactions') {
+      try {
+        const isAdmin = interaction.member?.permissions?.has('Administrator') || 
+                        interaction.user.id === process.env.BOT_OWNER_ID;
+        
+        if (!isAdmin) {
+          await interaction.editReply('This command requires admin permissions.');
+          return;
+        }
+
+        const blockDepth = interaction.options.getInteger('blocks') || 50000;
+        
+        const lines = [];
+        lines.push(`📊 **JEWEL Token Transfers to Hedge (Last ${blockDepth} blocks)**\n`);
+
+        try {
+          // Setup blockchain connection
+          const DFK_RPC = process.env.DFK_RPC_URL || process.env.DFK_RPC || 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
+          const JEWEL_TOKEN = '0x77f2656d04E158f915bC22f07B779D94c1DC47Ff';
+          const HEDGE_ADDR = HEDGE_WALLET.toLowerCase();
+          
+          const provider = new ethers.JsonRpcProvider(DFK_RPC);
+          const currentBlock = await provider.getBlockNumber();
+          const fromBlock = Math.max(0, currentBlock - blockDepth);
+          
+          lines.push(`Searching blocks ${fromBlock.toLocaleString()} to ${currentBlock.toLocaleString()}...\n`);
+
+          // Create ERC20 ABI for Transfer events
+          const erc20ABI = [
+            'event Transfer(address indexed from, address indexed to, uint256 value)'
+          ];
+          
+          const tokenContract = new ethers.Contract(JEWEL_TOKEN, erc20ABI, provider);
+          
+          // Query Transfer events TO Hedge wallet
+          const filter = tokenContract.filters.Transfer(null, HEDGE_ADDR);
+          const events = await tokenContract.queryFilter(filter, fromBlock, currentBlock);
+          
+          if (events.length === 0) {
+            lines.push('No JEWEL transfers found in this block range.');
+            await interaction.editReply(lines.join('\n'));
+            return;
+          }
+
+          // Get latest 20 and fetch block info for timestamps
+          const recentEvents = events.slice(-20).reverse();
+          
+          lines.push(`**Found ${events.length} total transfers, showing last 20:**\n`);
+          lines.push('**Transactions**:');
+          
+          for (let i = 0; i < recentEvents.length; i++) {
+            const event = recentEvents[i];
+            const amount = (Number(event.args.value) / 1e18).toFixed(4);
+            const fromWallet = event.args.from.slice(0, 6) + '...' + event.args.from.slice(-4);
+            const txHash = event.transactionHash.slice(0, 8) + '...' + event.transactionHash.slice(-4);
+            
+            try {
+              const block = await provider.getBlock(event.blockNumber);
+              const date = new Date(Number(block.timestamp) * 1000).toLocaleDateString();
+              lines.push(`${i + 1}. **${amount} JEWEL** from \`${fromWallet}\` on ${date} - TX: \`${txHash}\``);
+            } catch {
+              lines.push(`${i + 1}. **${amount} JEWEL** from \`${fromWallet}\` - TX: \`${txHash}\``);
+            }
+          }
+          
+          await interaction.editReply(lines.join('\n'));
+
+        } catch (rpcErr) {
+          console.error('❌ RPC Error in /debug-transactions:', rpcErr);
+          await interaction.editReply(`Failed to query blockchain: ${rpcErr.message}`);
+        }
+
+      } catch (err) {
+        console.error('❌ Error in /debug-transactions:', err);
+        await interaction.editReply(`Failed to fetch transactions: ${err.message}`);
       }
       return;
     }
