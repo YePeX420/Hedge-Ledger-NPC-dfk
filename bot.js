@@ -931,34 +931,66 @@ client.on('messageCreate', async (message) => {
       }
     }
 
-    // 🧬 GENETICS FOLLOW-UP - Check if user is asking about genetics of a previously discussed hero
+    // 🧬 TIER 2: GENETICS REQUEST - Check if user is asking about genetics
     const geneticsKeywords = ['genetic', 'genes', 'gene', 'genetica', 'recessive', 'dominant', 'r1', 'r2', 'r3', 'breeding trait', 'mutation chance'];
     const userContentLower = message.content.toLowerCase();
     const isGeneticsQuestion = geneticsKeywords.some(k => userContentLower.includes(k));
+    
+    // Check for hero ID in the genetics request (e.g., "genetics for hero 1569")
+    const geneticsHeroMatch = message.content.match(/(?:hero\s*#?|#)(\d+)/i);
     
     // Check if we have a recent hero context (within 30 minutes)
     const context = dmConversationContext.get(discordId);
     const contextAge = context ? (Date.now() - context.timestamp) / 1000 / 60 : Infinity;
     const hasRecentContext = context && contextAge < 30;
     
-    if (isGeneticsQuestion && hasRecentContext && context.lastHeroData) {
-      console.log(`🧬 Detected genetics follow-up for hero #${context.lastHeroId}`);
+    // Genetics request can be: 1) Direct with hero ID, or 2) Follow-up with context
+    if (isGeneticsQuestion && (geneticsHeroMatch || (hasRecentContext && context.lastHeroData))) {
+      let heroData;
+      let heroId;
+      
+      // If hero ID in message, fetch fresh data (direct request)
+      if (geneticsHeroMatch) {
+        heroId = geneticsHeroMatch[1];
+        console.log(`🧬 Detected direct genetics request for hero #${heroId}`);
+        
+        try {
+          heroData = await onchain.getHeroById(heroId);
+          if (!heroData) {
+            await message.reply(`Hmm, I can't find hero #${heroId} on the blockchain. Sure you got the right ID?`);
+            return;
+          }
+          // Update context for future follow-ups
+          dmConversationContext.set(discordId, {
+            lastHeroId: heroId,
+            lastHeroData: heroData,
+            timestamp: Date.now()
+          });
+        } catch (fetchError) {
+          console.error(`❌ Error fetching hero #${heroId}:`, fetchError.message);
+          await message.reply(`*squints at ledger* Had trouble pulling that hero's data. Try again?`);
+          return;
+        }
+      } else {
+        // Use context from previous conversation
+        heroData = context.lastHeroData;
+        heroId = context.lastHeroId;
+        console.log(`🧬 Detected genetics follow-up for hero #${heroId}`);
+      }
       
       try {
-        const heroData = context.lastHeroData;
-        
         // Decode full genetics
         const genetics = decodeHeroGenes(heroData);
         
         if (genetics._note) {
           // Raw genes not available - explain
-          await message.reply(`I'd love to show you the full genetics for Hero #${context.lastHeroId}, but the raw gene data isn't available right now. Try asking about a different hero?`);
+          await message.reply(`I'd love to show you the full genetics for Hero #${heroId}, but the raw gene data isn't available right now. Try asking about a different hero?`);
           return;
         }
         
         // Format genetics for display
         const lines = [];
-        lines.push(`**🧬 Full Genetics for Hero #${genetics.normalizedId || context.lastHeroId}**`);
+        lines.push(`**🧬 Full Genetics for Hero #${genetics.normalizedId || heroId}**`);
         lines.push('');
         lines.push('**Classes & Profession:**');
         lines.push(`Main Class: **${genetics.mainClass.dominant}** | R1: ${genetics.mainClass.R1} | R2: ${genetics.mainClass.R2} | R3: ${genetics.mainClass.R3}`);
@@ -1004,7 +1036,7 @@ client.on('messageCreate', async (message) => {
           }
         }
         
-        console.log(`✅ Sent genetics for hero #${context.lastHeroId}`);
+        console.log(`✅ Sent genetics for hero #${heroId}`);
         return;
       } catch (geneticsError) {
         console.error(`❌ Error decoding genetics:`, geneticsError.message);
