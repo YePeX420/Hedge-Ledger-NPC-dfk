@@ -1,0 +1,117 @@
+You are helping me update my Hedge Ledger Discord bot project.
+
+Current situation:
+- I already have a /hedge-admin slash command that responds in Discord with an embed and a button to "Open Dashboard", which opens my web admin UI (the React/Next admin dashboard with cards for Hedge Wallet, Total Players, JEWEL Deposits, Total Revenue, Total Queries, Recent Activity).
+- I also have environment variables configured in my Replit secrets, including:
+  - DISCORD_TOKEN
+  - DISCORD_CLIENT_ID
+  - DISCORD_GUILD_ID
+  - ADMIN_CHANNEL_ID
+  - OWNER_ID
+  - ADMIN_ROLE_ID
+  - DATABASE_URL and other Postgres vars (PGHOST, PGUSER, etc.)
+
+What I want you to do:
+
+1. Locate the code that implements the /hedge-admin command.
+   - It might be in /commands/hedgeAdmin.js or similar.
+   - Right now it sends an embed with a "Dashboard URL" and a button like "Open Dashboard".
+
+2. Keep the existing behavior:
+   - The command must still send an embed with a button that opens the existing web admin dashboard.
+   - Do NOT remove the web dashboard button. Just enhance the command.
+
+3. Add proper admin protections to /hedge-admin:
+   - The command MUST only be executable by:
+       - The user whose ID equals process.env.OWNER_ID, OR
+       - Any user who has the role whose ID equals process.env.ADMIN_ROLE_ID.
+   - The command MUST only be usable in the channel whose ID equals process.env.ADMIN_CHANNEL_ID.
+   - If a user is not admin, respond with an ephemeral message:
+       "⛔ This command is only available to Hedge Admins."
+   - If the command is used outside the admin channel, respond with an ephemeral message:
+       "🔒 For security, the admin dashboard can only be used in the private admin channel: <#ADMIN_CHANNEL_ID>."
+   - Make sure these checks are applied both for the initial slash command and any interaction buttons belonging to this command (for example, admin_* button customIds).
+
+4. Add a Discord-native "Admin Snapshot" to the /hedge-admin response:
+   - In addition to the "Open Dashboard" button, the command should also show a compact summary embed that mirrors the high-level metrics from my web dashboard.
+   - The embed should be ephemeral and visible only to the admin who runs the command.
+   - The embed should include these sections (fields):
+       a) Hedge Wallet:
+          - JEWEL balance
+          - CRYSTAL balance
+          - cJEWEL (Staked)
+       b) Total Players:
+          - total number of players (or user accounts)
+          c) JEWEL Deposits:
+          - total amount deposited (or 0.00 if not implemented)
+       d) Total Revenue:
+          - total revenue in USD (or 0.00 if not implemented)
+       e) Total Queries:
+          - total paid queries (or 0 if not implemented)
+       f) Recent Activity:
+          - short text summary like "Recent activity feed not implemented yet" or a real summary if you can get it easily from existing data.
+
+5. For pulling stats for the admin snapshot:
+   - If the project already has backend functions, services, or an API route that the web admin dashboard uses to gather those metrics (such as an /api/admin/summary endpoint, a StatsService, or database queries), REUSE that logic instead of inventing new numbers.
+   - If you cannot easily reuse existing code, create a new helper function called something like getAdminStats() that:
+       - Tries to query the Postgres database using DATABASE_URL (or the existing DB client in the project).
+       - If this is too involved or uncertain, fall back to safe placeholder values:
+           JEWEL = 0
+           CRYSTAL = 0
+           cJEWEL = 0
+           TotalPlayers = 0
+           JewelDeposits = 0
+           TotalRevenue = 0
+           TotalQueries = 0
+           RecentActivityText = "Recent activity feed not implemented yet."
+   - The important part is that the code path exists and is easy to replace with real queries later.
+
+6. Structure of the /hedge-admin response:
+   - The bot should send ONE main ephemeral message in the admin channel with:
+       - A title like "Hedge Ledger – Admin Dashboard"
+       - A description explaining that this is the internal admin view.
+       - Fields showing the admin snapshot values.
+       - A row of buttons that includes AT LEAST:
+           - "Open Dashboard" (link button to the existing web admin dashboard URL)
+       - Optionally other buttons such as:
+           - "Refresh Snapshot" (customId 'admin_refresh')
+           - "Queues" (customId 'admin_queues')
+           - "Users" (customId 'admin_users')
+           - "Settings" (customId 'admin_settings')
+   - If you add non-link buttons (customIds), make sure the interactionCreate handler checks:
+       - The user has OWNER_ID or ADMIN_ROLE_ID
+       - The interaction happens in ADMIN_CHANNEL_ID
+     before responding.
+
+7. interactionCreate handler:
+   - In the main bot file (index.js or app.js), ensure that:
+       - client.commands is a Collection that loads all command files from /commands.
+       - When interaction.isChatInputCommand() is true, it finds command by interaction.commandName and runs command.execute(interaction).
+       - When interaction.isButton() is true and the customId starts with 'admin_', it applies the same admin + channel checks described above, then handles 'admin_refresh', 'admin_queues', 'admin_users', 'admin_settings' if they exist.
+   - If the project already has this structure, just integrate the new admin button logic correctly.
+
+8. Environment variables:
+   - Make sure the code uses these ENV vars:
+       process.env.DISCORD_TOKEN
+       process.env.DISCORD_CLIENT_ID
+       process.env.DISCORD_GUILD_ID
+       process.env.ADMIN_CHANNEL_ID
+       process.env.ADMIN_ROLE_ID
+       process.env.OWNER_ID
+   - Do not hardcode IDs.
+
+9. Do NOT rewrite my entire project. Only modify the files that are necessary for:
+   - The /hedge-admin command
+   - Admin protections (role + channel + owner)
+   - The admin snapshot embed
+   - The optional admin_* button handlers in interactionCreate
+
+10. When you are done:
+    - Show me the FULL UPDATED CODE for every file you changed (for example: commands/hedgeAdmin.js, index.js, any helper files).
+    - Ensure the code is syntactically valid JavaScript for Node + discord.js v14.
+    - After these changes, I should be able to:
+        a) Run `node deploy-commands.js` (if present) to register /hedge-admin.
+        b) In Discord, in my private admin channel, run `/hedge-admin` and see:
+            - An ephemeral embed with admin snapshot stats, AND
+            - A button that opens the existing web dashboard URL.
+        c) Confirm that non-admin users or non-admin channels cannot use /hedge-admin or the admin_* buttons.
