@@ -13,6 +13,7 @@ import AdminUsers from "@/pages/admin/users";
 import AdminUserProfile from "@/pages/admin/user-profile";
 import AdminExpenses from "@/pages/admin/expenses";
 import AdminSettings from "@/pages/admin/settings";
+import AccountPage from "@/pages/account";
 import NotFound from "@/pages/not-found";
 
 function AdminRoutes() {
@@ -37,6 +38,9 @@ function Router() {
     <Switch>
       {/* Admin login (public) */}
       <Route path="/admin/login" component={AdminLogin} />
+      
+      {/* Public account page */}
+      <Route path="/account" component={AccountPage} />
       
       {/* All other admin routes (protected) */}
       <Route path="/admin/:rest*" component={AdminRoutes} />
