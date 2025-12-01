@@ -52,6 +52,14 @@ interface UsersResponse {
 const ARCHETYPES = ['ALL', 'GUEST', 'ADVENTURER', 'PLAYER', 'INVESTOR', 'EXTRACTOR', 'UNKNOWN'];
 const TIERS = ['ALL', '0', '1', '2', '3', '4'];
 
+const tierNames: Record<string | number, string> = {
+  0: 'Guest',
+  1: 'Bronze',
+  2: 'Silver',
+  3: 'Gold',
+  4: 'Council of Hedge'
+};
+
 export default function AdminUsers() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
@@ -199,7 +207,7 @@ export default function AdminUsers() {
               </SelectTrigger>
               <SelectContent>
                 {TIERS.map((t) => (
-                  <SelectItem key={t} value={t}>{t === 'ALL' ? 'All Tiers' : `Tier ${t}`}</SelectItem>
+                  <SelectItem key={t} value={t}>{t === 'ALL' ? 'All Tiers' : tierNames[t]}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -288,7 +296,7 @@ export default function AdminUsers() {
                         </TableCell>
                         <TableCell>
                           <Badge className={getTierBadgeClass(user.profile.tier)}>
-                            Tier {user.profile.tier}
+                            {tierNames[user.profile.tier]}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -322,7 +330,7 @@ export default function AdminUsers() {
                             </SelectTrigger>
                             <SelectContent>
                               {[0, 1, 2, 3, 4].map((t) => (
-                                <SelectItem key={t} value={t.toString()}>Tier {t}</SelectItem>
+                                <SelectItem key={t} value={t.toString()}>{tierNames[t]}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
