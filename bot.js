@@ -2950,6 +2950,19 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
               const questingHeroes = heroes.filter(h => h.currentQuest !== null && h.currentQuest !== undefined);
               const questingStreakDays = questingHeroes.length > 0 ? 1 : 0;
               
+              // Fetch DFK age - first transaction on DFK chain
+              let dfkAgeDays = null;
+              let firstTxAt = null;
+              try {
+                const firstTxTimestampMs = await onchain.getFirstDfkTxTimestamp(player.primaryWallet);
+                if (firstTxTimestampMs) {
+                  dfkAgeDays = onchain.calculateDfkAgeDays(firstTxTimestampMs);
+                  firstTxAt = new Date(firstTxTimestampMs).toISOString();
+                }
+              } catch (err) {
+                console.warn(`[API] Failed to fetch DFK age for ${player.primaryWallet}:`, err.message);
+              }
+              
               dfkSnapshot = {
                 heroCount: heroes.length,
                 gen0Count,
@@ -2960,10 +2973,12 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
                 jewelBalance: parseFloat(balances.jewel || '0'),
                 crystalBalance: parseFloat(balances.crystal || '0'),
                 cJewelBalance: parseFloat(balances.cjewel || '0'),
-                questingStreakDays
+                questingStreakDays,
+                dfkAgeDays,
+                firstTxAt
               };
               
-              console.log(`[API] User ${player.discordUsername}: Influence=${influence}, Gen0=${gen0Count}, HeroAge=${heroAge}d, LP=${lpPositionsCount}, LPValue=$${totalLPValue.toFixed(2)}, QuestHeroes=${questingHeroes.length}`);
+              console.log(`[API] User ${player.discordUsername}: Influence=${influence}, Gen0=${gen0Count}, HeroAge=${heroAge}d, DFKAge=${dfkAgeDays}d, LP=${lpPositionsCount}, LPValue=$${totalLPValue.toFixed(2)}, QuestHeroes=${questingHeroes.length}`);
             } catch (err) {
               console.warn(`[API] Failed to fetch blockchain data for ${player.primaryWallet}:`, err.message);
             }
