@@ -33,6 +33,7 @@ interface KPIs {
 
 interface DFKSnapshot {
   heroCount?: number;
+  gen0Count?: number;
   petCount?: number;
   lpPositionsCount?: number;
   totalLPValue?: number;
@@ -411,6 +412,14 @@ export default function AdminUsers() {
               <h3 className="font-semibold text-sm">Basic Info</h3>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
+                  <span className="text-muted-foreground">Discord</span>
+                  <span className="font-medium truncate">{selectedUser.discordUsername}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Wallet</span>
+                  <span className="font-medium text-xs truncate">{selectedUser.walletAddress ? `${selectedUser.walletAddress.slice(0, 6)}...${selectedUser.walletAddress.slice(-4)}` : 'Not linked'}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Archetype</span>
                   <Badge variant={getArchetypeBadgeVariant(selectedUser.archetype)}>{selectedUser.archetype}</Badge>
                 </div>
@@ -448,8 +457,8 @@ export default function AdminUsers() {
               </div>
             </div>
 
-            {/* Wallet Balances */}
-            {selectedUser.walletBalances && (
+            {/* Wallet Balances - Debug */}
+            {selectedUser.walletBalances ? (
               <div className="space-y-3">
                 <h3 className="font-semibold text-sm">Wallet Balances</h3>
                 <div className="space-y-2 text-sm">
@@ -480,6 +489,10 @@ export default function AdminUsers() {
                   </div>
                 </div>
               </div>
+            ) : (
+              selectedUser.walletAddress && (
+                <div className="text-xs text-muted-foreground p-2 bg-muted rounded">No wallet snapshot data yet</div>
+              )
             )}
 
             {/* DFK Snapshot */}
@@ -490,6 +503,10 @@ export default function AdminUsers() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Heroes</span>
                     <span className="font-medium">{selectedUser.dfkSnapshot.heroCount || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Gen0 Heroes</span>
+                    <span className="font-medium">{selectedUser.dfkSnapshot.gen0Count || 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">LP Positions</span>
