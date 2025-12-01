@@ -694,6 +694,16 @@ client.once(Events.ClientReady, async (c) => {
   } catch (err) {
     console.error('❌ Failed to initialize cache queue:', err);
   }
+
+  // Initialize DFK Age cache background job
+  try {
+    console.log('📅 Starting DFK Age cache job...');
+    const { startDfkAgeCache } = await import('./dfk-age-cache.js');
+    await startDfkAgeCache();
+    console.log('✅ DFK Age cache job started');
+  } catch (err) {
+    console.error('❌ Failed to start DFK Age cache job:', err);
+  }
 });
 
 // Generic helper to talk to Hedge
