@@ -1411,6 +1411,65 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
       }
+
+      // Handle account user buttons (non-admin)
+      if (customId.startsWith('account_')) {
+        if (customId === 'account_add_wallet') {
+          return interaction.reply({
+            content: '**Wallet linking coming soon.** Eventually this will let you connect your DFK wallets to Hedge. For now, you can share your address with an admin and we\'ll attach it manually.',
+            ephemeral: true,
+          });
+        }
+        
+        if (customId === 'account_verify_wallet') {
+          return interaction.reply({
+            content: '**Wallet verification** will check that you control the wallet (for example by sending a small transaction to a Hedge verification address). This is not fully implemented yet.',
+            ephemeral: true,
+          });
+        }
+        
+        if (customId === 'account_verify_payment') {
+          return interaction.reply({
+            content: '**Payment verification** will check the chain for a 5 JEWEL transfer from your verified wallet to the Hedge wallet. Once confirmed, Hedge will run an LP optimization and send it here in Discord. This feature is still being wired up.',
+            ephemeral: true,
+          });
+        }
+        
+        if (customId === 'account_request_feature') {
+          return interaction.reply({
+            content: '**Feature request logging coming soon.** For now, please describe your idea in the support channel and tag an admin.',
+            ephemeral: true,
+          });
+        }
+      }
+
+      // Handle wallet copy buttons
+      if (customId.startsWith('wallet_copy_')) {
+        const { getOrCreateUserProfile } = await import('./user-account-service.js');
+        try {
+          const walletIndex = parseInt(customId.replace('wallet_copy_', ''));
+          const profile = await getOrCreateUserProfile(interaction.user.id, interaction.user.username || interaction.user.tag);
+          
+          if (!profile.wallets || profile.wallets.length <= walletIndex) {
+            return interaction.reply({
+              content: 'Wallet not found. Please run `/account` again and try the copy button once more.',
+              ephemeral: true,
+            });
+          }
+          
+          const wallet = profile.wallets[walletIndex];
+          return interaction.reply({
+            content: `**Wallet address:**\n\`\`\`${wallet.address}\`\`\``,
+            ephemeral: true,
+          });
+        } catch (err) {
+          console.error('Error copying wallet:', err);
+          return interaction.reply({
+            content: 'Error retrieving wallet. Please try again.',
+            ephemeral: true,
+          });
+        }
+      }
       
       return;
     }

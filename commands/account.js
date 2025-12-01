@@ -68,33 +68,70 @@ export default {
         .setFooter({ text: 'Early Access – features and on-chain automation are still being rolled out.' })
         .setTimestamp();
 
-      // Create buttons
-      const linkWalletBtn = new ButtonBuilder()
-        .setCustomId('btn_link_wallet')
-        .setLabel('Link Wallet')
+      // Create buttons - Row 1: Wallet actions
+      const addWalletBtn = new ButtonBuilder()
+        .setCustomId('account_add_wallet')
+        .setLabel('➕ Add Wallet')
         .setStyle(ButtonStyle.Primary);
 
       const verifyWalletBtn = new ButtonBuilder()
-        .setCustomId('btn_verify_wallet')
-        .setLabel('Verify Wallet')
+        .setCustomId('account_verify_wallet')
+        .setLabel('✅ Verify Wallet')
         .setStyle(ButtonStyle.Secondary);
 
-      const viewGardensBtn = new ButtonBuilder()
-        .setCustomId('btn_view_gardens')
-        .setLabel('View Gardens')
-        .setStyle(ButtonStyle.Secondary);
+      const row1 = new ActionRowBuilder().addComponents(addWalletBtn, verifyWalletBtn);
 
-      const optimizeBtn = new ButtonBuilder()
-        .setCustomId('btn_optimize')
-        .setLabel('Optimize (5 JEWEL)')
+      // Row 2: Payment & LP actions
+      const verifyPaymentBtn = new ButtonBuilder()
+        .setCustomId('account_verify_payment')
+        .setLabel('💸 Verify Payment')
         .setStyle(ButtonStyle.Success);
 
-      const row1 = new ActionRowBuilder().addComponents(linkWalletBtn, verifyWalletBtn);
-      const row2 = new ActionRowBuilder().addComponents(viewGardensBtn, optimizeBtn);
+      const row2Components = [verifyPaymentBtn];
+
+      // Add Optimize LP link button if URL is provided
+      if (process.env.USER_OPTIMIZE_URL) {
+        const optimizeLpBtn = new ButtonBuilder()
+          .setLabel('🧠 Optimize LPs')
+          .setStyle(ButtonStyle.Link)
+          .setURL(process.env.USER_OPTIMIZE_URL);
+        row2Components.push(optimizeLpBtn);
+      }
+
+      const row2 = new ActionRowBuilder().addComponents(...row2Components);
+
+      // Row 3: Feature requests
+      const requestFeatureBtn = new ButtonBuilder()
+        .setCustomId('account_request_feature')
+        .setLabel('📝 Request Feature')
+        .setStyle(ButtonStyle.Secondary);
+
+      const row3 = new ActionRowBuilder().addComponents(requestFeatureBtn);
+
+      // Build component array
+      const components = [row1, row2, row3];
+
+      // Row 4+: Wallet copy buttons (up to 5 wallets)
+      if (profile.wallets && profile.wallets.length > 0) {
+        const walletCopyButtons = profile.wallets.slice(0, 5).map((w, idx) => {
+          const shortAddr = `${w.address.slice(0, 6)}…${w.address.slice(-4)}`;
+          return new ButtonBuilder()
+            .setCustomId(`wallet_copy_${idx}`)
+            .setLabel(`Copy #${idx + 1}`)
+            .setStyle(ButtonStyle.Secondary);
+        });
+
+        // Add wallet copy buttons in rows of 5
+        for (let i = 0; i < walletCopyButtons.length; i += 5) {
+          const rowButtons = walletCopyButtons.slice(i, i + 5);
+          const walletRow = new ActionRowBuilder().addComponents(...rowButtons);
+          components.push(walletRow);
+        }
+      }
 
       await interaction.editReply({
         embeds: [embed],
-        components: [row1, row2],
+        components,
       });
 
     } catch (error) {

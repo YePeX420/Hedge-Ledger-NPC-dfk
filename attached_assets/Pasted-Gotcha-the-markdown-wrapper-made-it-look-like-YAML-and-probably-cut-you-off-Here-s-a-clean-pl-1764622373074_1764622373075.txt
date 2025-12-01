@@ -1,0 +1,363 @@
+Gotcha — the markdown wrapper made it look like YAML and probably cut you off.
+Here’s a **clean, plain-text version** of the full prompt for Replit.
+Copy **everything from the first line to the last line** into Replit AI.
+
+---
+
+You are helping me build a complete user account dashboard for my Hedge Ledger Discord bot.
+
+Context about the project:
+
+* This is a Node.js + discord.js v14 bot.
+* There is already an admin system with a /hedge-admin command and an admin web UI at /admin, using Postgres + a shared schema file (shared/schema.ts and compiled JS).
+* ENV variables that already exist include:
+  DISCORD_TOKEN
+  DISCORD_CLIENT_ID
+  DISCORD_GUILD_ID
+  ADMIN_CHANNEL_ID
+  OWNER_ID
+  ADMIN_ROLE_ID
+  ADMIN_DASHBOARD_URL
+  DATABASE_URL, PGHOST, PGUSER, etc.
+* Hedge is an AI NPC for DeFi Kingdoms. It will:
+
+  * link & verify wallets
+  * show LPs and APRs
+  * accept 5 JEWEL payments for optimizations
+  * later, automatically hold or LP funds on-chain
+
+What I need you to build now is the **user-facing account dashboard** in Discord, via a `/account` command, plus all necessary helper files and button handlers.
+
+Please follow these requirements carefully:
+
+---
+
+1. Create the /account slash command
+
+---
+
+* Create a new command file at: `commands/account.js` (or update it if it already exists).
+
+* Use discord.js v14 and `SlashCommandBuilder`.
+
+* Define the command as:
+
+  * Name: `account`
+  * Description: `View and manage your Hedge Ledger account.`
+
+* The command MUST respond with an **ephemeral** message (only visible to the user).
+
+* When executed, the command should:
+
+  * Identify the user by `interaction.user.id` and `interaction.user.tag` (or username).
+
+  * Call a helper function like `getOrCreateUserProfile(discordId, username)` that returns a structured object with at least:
+
+    {
+    discordId,
+    discordUsername,
+    tier,              // string like "Mythic", "Legendary", "Rare", "Unranked"
+    totalQueries,      // number, total Hedge queries used
+    wallets: [         // list of linked wallets
+    {
+    id,            // unique ID (string or number)
+    address,       // full wallet address
+    chain,         // e.g. 'dfk-chain', 'cv', 'metis'
+    verified,      // boolean
+    },
+    ],
+    lpPositions: [     // list of LP positions
+    {
+    id,            // unique ID
+    poolName,      // e.g. 'CRYSTAL-JEWEL'
+    chain,         // e.g. 'dfk-chain'
+    lpAmount,      // number (string is fine if easier)
+    apr24h,        // number or string, 24h effective APR including quests
+    },
+    ],
+    createdAt,         // Date or date string
+    }
+
+  * For now, if there is no real data from the DB or on-chain:
+
+    * `tier` can default to `"Unranked"`
+    * `totalQueries` can default to `0`
+    * `wallets` can be an empty array or 1–2 mocked wallets
+    * `lpPositions` can be an empty array or a couple of mocked entries
+    * `createdAt` can be `new Date()` on first creation.
+
+---
+
+2. Implement getOrCreateUserProfile helper
+
+---
+
+* Create a new helper/service file, for example at:
+
+  * `services/user-profile.js`  (or another sensible path)
+
+* Implement `async function getOrCreateUserProfile(discordId, username)`:
+
+  * Use the existing database connection / ORM pattern already used in the project (e.g., drizzle + shared/schema).
+
+  * If there is already a `users` table in the schema, reuse it.
+
+  * If there is no `users` table yet, create a simple table in the existing schema with at least:
+
+    * id (primary key)
+    * discordId (string, unique)
+    * discordUsername (string)
+    * tier (string, default 'Unranked')
+    * totalQueries (integer, default 0)
+    * createdAt (timestamp)
+
+  * For wallets and LP positions:
+
+    * If there are already tables for wallets or LPs, reuse them when populating `wallets` and `lpPositions`.
+    * If not, you can:
+
+      * Either define simple tables for them that match the data structure above, OR
+      * For now, return placeholder arrays in code (we will wire the DB and DFK APIs later).
+
+* The function should:
+
+  * Look up a user by `discordId` in the DB.
+  * If found, load their user record + wallets + LP positions into the profile object.
+  * If not found, create a new user record with default values, and return a new profile object accordingly.
+
+---
+
+3. /account embed layout and content
+
+---
+
+* The /account command should create an embed that looks like a personal dashboard.
+
+* Layout:
+
+  Title: `Your Hedge Ledger Account`
+
+  Description:
+  `"This is your personal Hedge Ledger dashboard. Here you can manage wallets, LPs, and paid optimizations."`
+
+  Fields:
+
+  **Profile**
+  Value:
+
+  Discord: mention or username
+  Tier: profile.tier (e.g. Mythic / Legendary / Rare / Unranked)
+  Total queries: profile.totalQueries
+  Member since: formatted createdAt (YYYY-MM-DD)
+
+  **Wallets**
+
+  * If `wallets.length === 0`:
+    `"No wallets linked yet. Use the buttons below to add and verify a wallet."`
+  * Else show up to the first 5 wallets:
+
+    `1) 0x1234…abcd (dfk-chain) – Verified`
+    `2) 0x9876…cdef (cv) – Not verified`
+
+    If more than 5 wallets, add `"+ X more wallets"`.
+
+  **LP Positions**
+
+  * If `lpPositions.length === 0`:
+    `"No LP positions detected yet. Hedge will show your gardens and LPs here."`
+  * Else, for each LP (limit to 3–5 entries):
+
+    `${poolName} (${chain})  
+    • ${lpAmount} LP  
+    • 24h APR (with quests): ${apr24h}%`
+
+  Footer:
+  `"Early Access – features and on-chain automation are still being rolled out."`
+
+  Reply:
+
+  await interaction.reply({
+  embeds: [embed],
+  components: [rowWallets, rowLpActions, rowRequests, ...],
+  ephemeral: true,
+  });
+
+---
+
+4. Buttons for wallets, LP actions, feature requests, and copy address
+
+---
+
+Use `ActionRowBuilder` and `ButtonBuilder` from discord.js v14.
+
+**Row 1 – Wallet actions**
+
+* customId: `account_add_wallet` – label: `➕ Add Wallet` – style: `Primary`
+* customId: `account_verify_wallet` – label: `✅ Verify Wallet` – style: `Secondary`
+
+**Row 2 – LP / payment actions**
+
+* customId: `account_verify_payment` – label: `💸 Verify Payment` – style: `Success`
+* Optional LINK button for optimization:
+
+  * ENV var: `USER_OPTIMIZE_URL`
+  * If defined, add:
+
+    * label: `🧠 Optimize LPs`
+    * style: `Link`
+    * url: `process.env.USER_OPTIMIZE_URL`
+
+**Row 3 – Feature requests**
+
+* customId: `account_request_feature` – label: `📝 Request Feature` – style: `Secondary`
+
+**Wallet-specific Copy buttons**
+
+* For each of the first few wallets (up to 5), add a “Copy” button.
+* customId pattern: `wallet_copy_<index>` (or `<walletId>` if easier).
+* label: `Copy`
+* style: `Secondary`
+
+Be mindful of Discord’s component limits (max 5 buttons per row, max 5 rows).
+If needed, you can:
+
+* Keep Row 1 and Row 2 as above.
+* Use Row 3 for up to 3–5 `Copy` buttons.
+
+---
+
+5. interactionCreate handler updates for these buttons
+
+---
+
+In the main bot file (`index.js` or similar), inside `client.on('interactionCreate', ...)`:
+
+* Keep existing handling for:
+
+  * `interaction.isChatInputCommand()` → execute commands
+  * Admin buttons whose customId starts with `admin_` (do NOT break these).
+
+* Extend `if (interaction.isButton())` with user-facing logic:
+
+  1. `account_add_wallet`
+     Reply ephemerally (placeholder):
+
+     `"Wallet linking is coming soon. Eventually this will let you connect your DFK wallets to Hedge. For now, you can share your address with an admin and we’ll attach it manually."`
+
+  2. `account_verify_wallet`
+     Reply ephemerally:
+
+     `"Wallet verification will check that you control the wallet (for example by sending a small transaction to a Hedge verification address). This is not fully implemented yet."`
+
+  3. `account_verify_payment`
+     Reply ephemerally:
+
+     `"Payment verification will check the chain for a 5 JEWEL transfer from your verified wallet to the Hedge wallet. Once confirmed, Hedge will run an LP optimization and send it here in Discord. This feature is still being wired up."`
+
+  4. `account_request_feature`
+     Reply ephemerally:
+
+     `"Feature request logging is coming soon. For now, please describe your idea in the support channel and tag an admin."`
+
+  5. Wallet copy buttons (`customId` starts with `wallet_copy_`):
+
+     * Detect with `interaction.customId.startsWith('wallet_copy_')`.
+
+     * Parse the index or ID.
+
+     * Call `getOrCreateUserProfile(interaction.user.id, interaction.user.tag)` (or equivalent) to get the latest wallets.
+
+     * Find the corresponding wallet.
+
+     * If found, reply ephemerally:
+
+       `"**Wallet address:**\n\`FULL_WALLET_ADDRESS_HERE`"`
+
+     * If not found, reply ephemerally:
+
+       `"Wallet not found. Please run /account again and try the copy button once more."`
+
+These buttons must NOT require admin role checks and should be usable by any user.
+
+---
+
+6. APR semantics for LP positions
+
+---
+
+* In the LP data model, use a field `apr24h` representing:
+
+  `"current 24h effective APR including both base garden rewards and associated questing rewards."`
+
+* For now, it can use placeholder numbers. The key is that:
+
+  * the field exists,
+  * it’s used in the embed text as:
+
+    `24h APR (with quests): ${apr24h}%`
+
+* Add a brief code comment where appropriate explaining this meaning.
+
+---
+
+7. Environment variables
+
+---
+
+Support:
+
+* `USER_OPTIMIZE_URL`
+  For the Optimize LPs LINK button. If not set, omit the button.
+
+* Optionally `USER_DASHBOARD_URL` for future web user UI.
+  If you want, you may add a LINK button like “Open User Dashboard” using this URL, but it’s not strictly required right now.
+
+Do NOT hardcode localhost URLs in /account.
+
+---
+
+8. Non-goals right now
+
+---
+
+* Do NOT actually connect to MetaMask or sign transactions (that will happen on the web frontend at USER_OPTIMIZE_URL).
+* Do NOT implement real on-chain payment scanning yet.
+* Do NOT modify /hedge-admin logic except to ensure it still works alongside this new code.
+
+---
+
+9. Final expectations
+
+---
+
+After your changes, I should be able to:
+
+1. Run `node deploy-commands.js` (if needed) to register /account.
+2. Start the bot.
+3. In Discord, run `/account` in any channel and see:
+
+   * An ephemeral embed with:
+
+     * Profile info (Discord, tier, total queries, member since),
+     * Wallet summary (or “no wallets linked”),
+     * LP summary (or “no LP positions detected yet”) with “24h APR (with quests)” wording.
+   * Buttons:
+
+     * ➕ Add Wallet
+     * ✅ Verify Wallet
+     * 💸 Verify Payment
+     * 📝 Request Feature
+     * Optional: 🧠 Optimize LPs (if USER_OPTIMIZE_URL is set)
+     * Copy buttons for up to 3–5 wallets that, when clicked, reply ephemerally with the full wallet address in a code block.
+4. Confirm that /hedge-admin and admin_* buttons still work correctly.
+
+Please show me the FULL updated code for:
+
+* commands/account.js
+* services/user-profile.js (or equivalent)
+* any schema changes (if you add a users table)
+* and the interactionCreate handler block in the main bot file that manages these new button customIds.
+
+---
+
+After you run this, try `/account` and send me a screenshot of what you see so we can tweak wording/layout next.
