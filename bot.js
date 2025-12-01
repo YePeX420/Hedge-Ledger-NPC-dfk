@@ -2950,17 +2950,13 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
               const questingHeroes = heroes.filter(h => h.currentQuest !== null && h.currentQuest !== undefined);
               const questingStreakDays = questingHeroes.length > 0 ? 1 : 0;
               
-              // Fetch DFK age - first transaction on DFK chain
+              // Use cached DFK age from database (computed in background)
               let dfkAgeDays = null;
               let firstTxAt = null;
-              try {
-                const firstTxTimestampMs = await onchain.getFirstDfkTxTimestamp(player.primaryWallet);
-                if (firstTxTimestampMs) {
-                  dfkAgeDays = onchain.calculateDfkAgeDays(firstTxTimestampMs);
-                  firstTxAt = new Date(firstTxTimestampMs).toISOString();
-                }
-              } catch (err) {
-                console.warn(`[API] Failed to fetch DFK age for ${player.primaryWallet}:`, err.message);
+              if (player.firstDfkTxTimestamp) {
+                const firstTxTimestampMs = new Date(player.firstDfkTxTimestamp).getTime();
+                dfkAgeDays = onchain.calculateDfkAgeDays(firstTxTimestampMs);
+                firstTxAt = player.firstDfkTxTimestamp.toISOString();
               }
               
               dfkSnapshot = {

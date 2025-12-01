@@ -325,6 +325,9 @@ export const players = pgTable("players", {
   // Garden Engine - APR check tracking (Option 3: free once per day)
   lastGardenAPRCheckDate: text("last_garden_apr_check_date"), // Format: YYYY-MM-DD
   
+  // DFK Age Cache - First transaction timestamp on DFK chain (computed once and cached)
+  firstDfkTxTimestamp: timestamp("first_dfk_tx_timestamp", { withTimezone: true }), // Cached on first computation
+  
   // Enhanced Player Profile Data (JSON blob for classification system)
   // Contains: archetype, tier, state, behaviorTags, kpis, dfkSnapshot, flags, recentMessages
   profileData: json("profile_data").$type<{
