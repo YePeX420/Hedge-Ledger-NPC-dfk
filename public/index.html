@@ -250,11 +250,12 @@
     <script>
         async function loadDashboard() {
             try {
+                const fetchOpts = { credentials: 'include' };
                 const [overview, players, deposits, queries] = await Promise.all([
-                    fetch('/api/analytics/overview').then(r => r.json()),
-                    fetch('/api/analytics/players?limit=5').then(r => r.json()),
-                    fetch('/api/analytics/deposits?limit=5').then(r => r.json()),
-                    fetch('/api/analytics/query-breakdown').then(r => r.json())
+                    fetch('/api/analytics/overview', fetchOpts).then(r => r.json()),
+                    fetch('/api/analytics/players?limit=5', fetchOpts).then(r => r.json()),
+                    fetch('/api/analytics/deposits?limit=5', fetchOpts).then(r => r.json()),
+                    fetch('/api/analytics/query-breakdown', fetchOpts).then(r => r.json())
                 ]);
                 
                 document.getElementById('total-players').textContent = overview.players.total;

@@ -195,7 +195,7 @@
 
     async function checkAuth() {
       try {
-        const response = await fetch('/auth/status');
+        const response = await fetch('/auth/status', { credentials: 'include' });
         const data = await response.json();
         
         if (data.authenticated && data.user.isAdmin) {
