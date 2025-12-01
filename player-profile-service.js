@@ -8,6 +8,28 @@ import { eq, sql, and, gte, desc, inArray } from 'drizzle-orm';
 import { DEFAULT_PROFILE, ARCHETYPES, TIERS, STATES, BEHAVIOR_TAGS } from './classification-config.js';
 import { classifyProfile, processEventAndReclassify, getProfileSummary } from './classification-engine.js';
 
+// Simple in-memory LRU cache for profiles (max 1000 entries, 30min TTL)
+const profileCache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const CACHE_MAX_SIZE = 1000;
+
+function getCachedProfile(key) {
+  const entry = profileCache.get(key);
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
+    return entry.value;
+  }
+  profileCache.delete(key);
+  return null;
+}
+
+function setCachedProfile(key, value) {
+  if (profileCache.size >= CACHE_MAX_SIZE) {
+    const firstKey = profileCache.keys().next().value;
+    profileCache.delete(firstKey);
+  }
+  profileCache.set(key, { value, timestamp: Date.now() });
+}
+
 /**
  * PlayerProfile shape with enhanced classification data
  * @typedef {Object} PlayerProfile
@@ -37,6 +59,14 @@ import { classifyProfile, processEventAndReclassify, getProfileSummary } from '.
  * @returns {Promise<PlayerProfile>} Player profile
  */
 export async function getOrCreateProfileByDiscordId(discordId, discordUsername = null) {
+  // Check cache first
+  const cacheKey = `discord:${discordId}`;
+  const cached = getCachedProfile(cacheKey);
+  if (cached) {
+    console.log(`[ProfileService] Cache hit for ${discordId}`);
+    return cached;
+  }
+
   // Try to find existing player
   const existing = await db
     .select()
@@ -47,17 +77,19 @@ export async function getOrCreateProfileByDiscordId(discordId, discordUsername =
   if (existing.length > 0) {
     const player = existing[0];
     
-    // Update last seen and username if provided
-    await db
-      .update(players)
+    // Update last seen and username if provided (async, don't await)
+    db.update(players)
       .set({ 
         lastSeenAt: new Date(),
         discordUsername: discordUsername || player.discordUsername,
         updatedAt: new Date()
       })
-      .where(eq(players.id, player.id));
+      .where(eq(players.id, player.id))
+      .catch(err => console.error('[ProfileService] Failed to update last seen:', err));
     
-    return dbRowToProfile(player);
+    const profile = dbRowToProfile(player);
+    setCachedProfile(cacheKey, profile);
+    return profile;
   }
 
   // Create new player with default profile
@@ -132,13 +164,23 @@ export async function getOrCreateProfileByWallet(walletAddress) {
  * @returns {Promise<PlayerProfile|null>}
  */
 export async function getProfileById(playerId) {
+  // Check cache first
+  const cacheKey = `id:${playerId}`;
+  const cached = getCachedProfile(cacheKey);
+  if (cached) return cached;
+
   const result = await db
     .select()
     .from(players)
     .where(eq(players.id, playerId))
     .limit(1);
 
-  return result.length > 0 ? dbRowToProfile(result[0]) : null;
+  if (result.length > 0) {
+    const profile = dbRowToProfile(result[0]);
+    setCachedProfile(cacheKey, profile);
+    return profile;
+  }
+  return null;
 }
 
 /**
@@ -176,6 +218,10 @@ export async function updateProfile(profile) {
     .update(players)
     .set(updateData)
     .where(eq(players.id, profile.id));
+
+  // Invalidate cache on update
+  profileCache.delete(`id:${profile.id}`);
+  profileCache.delete(`discord:${profile.discordId}`);
 
   return profile;
 }
