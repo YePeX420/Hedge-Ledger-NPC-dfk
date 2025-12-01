@@ -2805,6 +2805,7 @@ function isAdmin(req, res, next) {
       return res.status(401).json({ error: 'Session expired' });
     }
     
+    console.log(`🔍 Admin check - userId: ${session.userId}, admins: [${ADMIN_USER_IDS.join(', ')}], match: ${ADMIN_USER_IDS.includes(session.userId)}`);
     if (!ADMIN_USER_IDS.includes(session.userId)) {
       return res.status(403).json({ error: 'Access denied: Administrator only' });
     }
@@ -3038,6 +3039,7 @@ app.get('/auth/discord/callback', async (req, res) => {
     }
     
     const user = await userResponse.json();
+    console.log(`🔐 OAuth Success - Discord User ID: ${user.id}, Username: ${user.username}`);
     
     // Create session token
     const sessionToken = crypto
