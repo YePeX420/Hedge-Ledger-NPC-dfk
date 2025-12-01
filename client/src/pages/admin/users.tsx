@@ -326,8 +326,8 @@ export default function AdminUsers() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge className={getTierBadgeClass(user.tier)}>
-                            {tierNames[user.tier]}
+                          <Badge className={getTierBadgeClass(user.tier ?? 0)}>
+                            {tierNames[user.tier ?? 0]}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -348,7 +348,7 @@ export default function AdminUsers() {
                         </TableCell>
                         <TableCell>
                           <Select
-                            value={user.tier.toString()}
+                            value={(user.tier ?? 0).toString()}
                             onValueChange={(value) => {
                               updateTierMutation.mutate({ 
                                 userId: user.id, 
@@ -405,7 +405,7 @@ export default function AdminUsers() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Tier</span>
-                  <Badge className={getTierBadgeClass(selectedUser.tier)}>{tierNames[selectedUser.tier]}</Badge>
+                  <Badge className={getTierBadgeClass(selectedUser.tier ?? 0)}>{tierNames[selectedUser.tier ?? 0]}</Badge>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">State</span>
