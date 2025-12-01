@@ -76,6 +76,7 @@ interface User {
     isHighPotential?: boolean;
   };
   tier: number;
+  influence?: number;
   walletBalances?: {
     jewel: string;
     crystal: string;
@@ -453,7 +454,7 @@ export default function AdminUsers() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Influence</span>
-                  <span className="font-medium">{selectedUser.tier > 0 ? selectedUser.tier : 1} / 4</span>
+                  <span className="font-medium">{selectedUser.influence ?? 0}</span>
                 </div>
               </div>
             </div>
@@ -563,10 +564,10 @@ export default function AdminUsers() {
                 <div className="flex flex-wrap gap-2">
                   {selectedUser.behaviorTags.map((tag) => (
                     <Tooltip key={tag}>
-                      <TooltipTrigger asChild>
+                      <TooltipTrigger>
                         <Badge variant="outline" className="text-xs cursor-help">{tag}</Badge>
                       </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">
+                      <TooltipContent side="top" className="text-xs max-w-xs">
                         {behaviorTagDescriptions[tag] || 'Player behavior indicator'}
                       </TooltipContent>
                     </Tooltip>
