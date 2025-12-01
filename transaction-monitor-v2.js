@@ -1,34 +1,30 @@
 /**
- * DFK Chain Transaction Monitor V2 - Per-Job Fast Scanner
+ * DFK Chain Transaction Monitor V2 - RouteScan API Fast Scanner
  * 
- * Critical Fix: Uses per-job block scanning instead of global historical backfill.
- * Each payment job tracks its own startBlock and scans only relevant blocks.
+ * Uses RouteScan blockchain explorer API for reliable, instant payment verification.
  * 
  * Architecture:
- * - Fast Scanner: Scans only from job.startBlock → current for active jobs
- * - No global 48h backlog dependency - jobs can be verified immediately
- * - Manual trigger: User types "sent/paid/done" → scan last 1000 blocks
+ * - RouteScan API: Single HTTP request, no block limits, instant response
+ * - Multi-chain: Queries both DFK Chain (53935) and Metis Andromeda (1088)
+ * - Payment matching: Filters transfers TO Hedge wallet FROM user wallet, checks amount
  * - Auto-expiry: Jobs expire after 2 hours if no payment detected
  */
 
-import { ethers } from 'ethers';
 import Decimal from 'decimal.js';
-import erc20ABI from './ERC20.json' with { type: 'json' };
 import { db } from './server/db.js';
 import { gardenOptimizations } from './shared/schema.js';
 import { eq } from 'drizzle-orm';
 import * as paymentJobs from './payment-jobs.js';
 
 // Configuration
-const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
-const JEWEL_TOKEN_ADDRESS = '0x77f2656d04E158f915bC22f07B779D94c1DC47Ff';
 const HEDGE_WALLET_ADDRESS = '0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1';
 const POLL_INTERVAL_MS = 30000; // 30 seconds
-const CHUNK_SIZE = 50; // Small chunks for native transfer support
 
-// Initialize provider and contract
-const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
-const jewelContract = new ethers.Contract(JEWEL_TOKEN_ADDRESS, erc20ABI, provider);
+// RouteScan API configuration (DFK Chain and Metis Andromeda)
+const CHAINS = [
+  { id: 53935, name: 'DFK Chain' },
+  { id: 1088, name: 'Metis Andromeda' }
+];
 
 // Polling control
 let pollingTimer = null;
@@ -36,102 +32,58 @@ let isRunning = false;
 let manualVerifyInProgress = false; // Mutex for fast-track scans
 
 /**
- * Convert wei amount to JEWEL string
+ * Fetch transfers from RouteScan for a specific wallet across all chains
+ * Returns unified format for all transfers TO Hedge wallet
  */
-function weiToJewel(weiAmount) {
-  return ethers.formatEther(weiAmount);
-}
+async function fetchTransfersFromRouteScan(fromWallet) {
+  const fromWalletLower = fromWallet.toLowerCase();
+  const hedgeWalletLower = HEDGE_WALLET_ADDRESS.toLowerCase();
+  const allTransfers = [];
 
-/**
- * Scan for native JEWEL transfers in block range
- */
-async function scanNativeTransfers(fromBlock, toBlock) {
-  const nativeTransfers = [];
-  
-  try {
-    for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
-      const block = await provider.getBlock(blockNum, true);
-      
-      if (!block || !block.transactions) {
+  for (const chain of CHAINS) {
+    try {
+      const url = `https://api.routescan.io/v2/network/mainnet/evm/${chain.id}/address/${fromWalletLower}/transactions`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        console.error(`[API] Failed to fetch ${chain.name}: HTTP ${response.status}`);
         continue;
       }
-      
-      for (const tx of block.transactions) {
-        if (tx.to && tx.to.toLowerCase() === HEDGE_WALLET_ADDRESS.toLowerCase() && tx.value > 0n) {
-          const receipt = await provider.getTransactionReceipt(tx.hash);
-          
-          if (receipt && receipt.status === 1) {
-            const amountJewel = weiToJewel(tx.value);
-            
-            nativeTransfers.push({
-              hash: tx.hash,
-              from: tx.from,
-              value: tx.value,
-              amountJewel,
-              blockNumber: blockNum,
-              timestamp: block.timestamp,
-              type: 'native'
-            });
-            
-            console.log(`[Monitor] Native JEWEL: ${amountJewel} JEWEL from ${tx.from} (tx: ${tx.hash})`);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error(`[Monitor] Error scanning native transfers:`, err.message);
-  }
-  
-  return nativeTransfers;
-}
 
-/**
- * Scan block range for both ERC20 and native transfers
- */
-async function scanBlockRange(fromBlock, toBlock) {
-  try {
-    const [erc20Events, nativeTransfers] = await Promise.all([
-      (async () => {
-        try {
-          const filter = jewelContract.filters.Transfer(null, HEDGE_WALLET_ADDRESS);
-          return await jewelContract.queryFilter(filter, fromBlock, toBlock);
-        } catch (err) {
-          console.error(`[Monitor] Error querying ERC20:`, err.message);
-          return [];
-        }
-      })(),
-      scanNativeTransfers(fromBlock, toBlock)
-    ]);
-    
-    // Normalize all transfers to unified format
-    const allTransfers = [];
-    
-    for (const event of erc20Events) {
-      const { from, value } = event.args;
-      allTransfers.push({
-        hash: event.transactionHash,
-        from,
-        amountJewel: weiToJewel(value),
-        blockNumber: event.blockNumber,
-        type: 'ERC20'
-      });
+      const data = await response.json();
+
+      if (!data.items || data.items.length === 0) {
+        continue;
+      }
+
+      // Filter for incoming transfers (to = Hedge wallet, value > 0)
+      const incoming = data.items
+        .filter(tx =>
+          tx.to?.toLowerCase() === hedgeWalletLower &&
+          tx.value &&
+          BigInt(tx.value) > 0n &&
+          tx.status === true // Only successful transactions
+        )
+        .map(tx => ({
+          hash: tx.id,
+          from: tx.from,
+          to: tx.to,
+          amountJewel: (Number(BigInt(tx.value)) / 1e18).toString(),
+          value: tx.value,
+          blockNumber: tx.blockNumber,
+          timestamp: new Date(tx.timestamp),
+          type: 'native',
+          chain: chain.name
+        }));
+
+      allTransfers.push(...incoming);
+    } catch (err) {
+      console.error(`[API] Error fetching ${chain.name}:`, err.message);
     }
-    
-    for (const transfer of nativeTransfers) {
-      allTransfers.push({
-        hash: transfer.hash,
-        from: transfer.from,
-        amountJewel: transfer.amountJewel,
-        blockNumber: transfer.blockNumber,
-        type: 'native'
-      });
-    }
-    
-    return allTransfers;
-  } catch (err) {
-    console.error(`[Monitor] Error scanning blocks ${fromBlock}-${toBlock}:`, err.message);
-    return [];
   }
+
+  // Sort by timestamp (most recent first)
+  return allTransfers.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 /**
@@ -141,17 +93,17 @@ function matchesJob(transfer, job) {
   const transferAmount = new Decimal(transfer.amountJewel);
   const expectedAmount = new Decimal(job.expectedAmount);
   const TOLERANCE = new Decimal('0.1'); // ±0.1 JEWEL
-  
+
   // Check amount match
   const diff = transferAmount.minus(expectedAmount).abs();
   if (!diff.lessThanOrEqualTo(TOLERANCE)) {
     return false;
   }
-  
+
   // Check wallet match
   const fromWalletLower = job.fromWallet.toLowerCase();
   const senderLower = transfer.from.toLowerCase();
-  
+
   return fromWalletLower === senderLower;
 }
 
@@ -165,21 +117,21 @@ async function markPaymentVerified(job, transfer) {
       .set({
         status: 'payment_verified',
         paymentVerifiedAt: new Date(),
-        paidAmountJewel: transfer.amountJewel, // Audit trail
-        paidAt: new Date(), // Payment timestamp
+        paidAmountJewel: transfer.amountJewel,
+        paidAt: transfer.timestamp,
         txHash: transfer.hash,
-        lastScannedBlock: transfer.blockNumber,
         updatedAt: new Date()
       })
       .where(eq(gardenOptimizations.id, job.jobId));
-    
+
     console.log(`[Monitor] ✅ Payment verified for job #${job.jobId}`);
     console.log(`[Monitor] Amount: ${transfer.amountJewel} JEWEL from ${transfer.from}`);
     console.log(`[Monitor] TX: ${transfer.hash}`);
-    
+    console.log(`[Monitor] Chain: ${transfer.chain}`);
+
     // Remove from active jobs
     paymentJobs.cancelJob(job.jobId);
-    
+
     return true;
   } catch (err) {
     console.error(`[Monitor] Error marking payment verified:`, err.message);
@@ -188,55 +140,36 @@ async function markPaymentVerified(job, transfer) {
 }
 
 /**
- * Scan specific job's block range
+ * Scan for specific job's payment using RouteScan API
  */
-async function scanJob(job, currentBlock) {
-  const fromBlock = job.lastScannedBlock + 1;
-  
-  if (fromBlock > currentBlock) {
-    return; // No new blocks to scan
-  }
-  
-  console.log(`[Job #${job.jobId}] Scanning blocks ${fromBlock} → ${currentBlock} (${currentBlock - fromBlock + 1} blocks)`);
-  
-  // Scan in small chunks
-  let chunkStart = fromBlock;
-  
-  while (chunkStart <= currentBlock) {
-    const chunkEnd = Math.min(chunkStart + CHUNK_SIZE - 1, currentBlock);
-    
-    const transfers = await scanBlockRange(chunkStart, chunkEnd);
-    
-    if (transfers.length > 0) {
-      console.log(`[Job #${job.jobId}] Found ${transfers.length} JEWEL transfers in blocks ${chunkStart}-${chunkEnd}`);
+async function scanJob(job) {
+  try {
+    console.log(`[Job #${job.jobId}] Scanning for payment from ${job.fromWallet.slice(0, 6)}...`);
+
+    // Fetch all transfers from user's wallet
+    const transfers = await fetchTransfersFromRouteScan(job.fromWallet);
+
+    if (transfers.length === 0) {
+      console.log(`[Job #${job.jobId}] No transfers found from wallet`);
+      return;
     }
-    
+
+    console.log(`[Job #${job.jobId}] Found ${transfers.length} transfers from wallet`);
+
     // Check each transfer against this job
     for (const transfer of transfers) {
       if (matchesJob(transfer, job)) {
         // Payment found!
         console.log(`[Job #${job.jobId}] ✅ PAYMENT MATCHED! ${transfer.amountJewel} JEWEL from ${transfer.from}`);
         await markPaymentVerified(job, transfer);
-        return; // Job complete
+        return;
       }
     }
-    
-    chunkStart = chunkEnd + 1;
+
+    console.log(`[Job #${job.jobId}] No matching payment found (checked ${transfers.length} transfers)`);
+  } catch (err) {
+    console.error(`[Job #${job.jobId}] Error scanning:`, err.message);
   }
-  
-  console.log(`[Job #${job.jobId}] No payment found, updated scan to block ${currentBlock}`);
-  
-  // Update lastScannedBlock even if no match
-  paymentJobs.updateLastScannedBlock(job.jobId, currentBlock);
-  
-  // Persist to database
-  await db
-    .update(gardenOptimizations)
-    .set({ 
-      lastScannedBlock: currentBlock,
-      updatedAt: new Date()
-    })
-    .where(eq(gardenOptimizations.id, job.jobId));
 }
 
 /**
@@ -245,7 +178,7 @@ async function scanJob(job, currentBlock) {
 async function expireOldJobs() {
   const now = new Date();
   const activeJobs = paymentJobs.getActiveJobs();
-  
+
   for (const job of activeJobs) {
     if (job.expiresAt < now) {
       // Mark as expired in database
@@ -256,9 +189,9 @@ async function expireOldJobs() {
           updatedAt: new Date()
         })
         .where(eq(gardenOptimizations.id, job.jobId));
-      
+
       console.log(`[Monitor] ⏰ Job #${job.jobId} expired (no payment received)`);
-      
+
       // Remove from active jobs
       paymentJobs.cancelJob(job.jobId);
     }
@@ -266,26 +199,24 @@ async function expireOldJobs() {
 }
 
 /**
- * Main polling loop - per-job fast scanner
+ * Main polling loop - API-based scanner
  */
 async function poll() {
   try {
-    const currentBlock = await provider.getBlockNumber();
     const activeJobs = paymentJobs.getActiveJobs();
-    
+
     if (activeJobs.length === 0) {
       // No active jobs, skip scanning
       return;
     }
-    
+
+    console.log(`[Monitor] Polling ${activeJobs.length} active job(s)...`);
+
     // Scan each active job in parallel
-    await Promise.all(
-      activeJobs.map(job => scanJob(job, currentBlock))
-    );
-    
+    await Promise.all(activeJobs.map(job => scanJob(job)));
+
     // Expire old jobs
     await expireOldJobs();
-    
   } catch (err) {
     console.error('[Monitor] Polling error:', err.message);
   } finally {
@@ -304,19 +235,18 @@ export async function startMonitoring() {
     console.log('[Monitor] Already running');
     return;
   }
-  
-  console.log('[Monitor] Starting per-job payment monitor...');
-  console.log(`[Monitor] JEWEL token: ${JEWEL_TOKEN_ADDRESS}`);
+
+  console.log('[Monitor] Starting RouteScan-based payment monitor...');
   console.log(`[Monitor] Hedge wallet: ${HEDGE_WALLET_ADDRESS}`);
-  
+
   // Load active jobs from database
   await paymentJobs.loadActiveJobs();
-  
+
   const jobCount = paymentJobs.getActiveJobCount();
   console.log(`[Monitor] Monitoring ${jobCount} active payment jobs`);
-  
+
   isRunning = true;
-  
+
   // Start polling
   poll();
 }
@@ -327,7 +257,7 @@ export async function startMonitoring() {
 export function stopMonitoring() {
   console.log('[Monitor] Stopping payment monitor...');
   isRunning = false;
-  
+
   if (pollingTimer) {
     clearTimeout(pollingTimer);
     pollingTimer = null;
@@ -335,82 +265,83 @@ export function stopMonitoring() {
 }
 
 /**
- * Manual fast-track verification
- * User types "sent/paid/done" → immediately scan last 1000 blocks
+ * Manual fast-track verification using RouteScan API
+ * User types "sent/paid/done" → immediately check for payment
  */
 export async function verifyRecentPayment(jobId) {
   // Mutex: Prevent concurrent fast-track scans
   if (manualVerifyInProgress) {
     console.log(`[Manual Verify] Scan already in progress, skipping duplicate request`);
-    return { 
-      found: false, 
+    return {
+      found: false,
       reason: 'Verification in progress',
       message: 'Already checking for your payment. Please wait...'
     };
   }
-  
+
   manualVerifyInProgress = true;
   const scanStart = Date.now();
-  
+
   try {
     const job = paymentJobs.getJob(jobId);
-    
+
     if (!job) {
       console.log(`[Manual Verify] Job #${jobId} not found in active jobs`);
       return { found: false, reason: 'Job not active' };
     }
-    
+
     console.log(`[Manual Verify] Fast-track scan for job #${jobId}`);
-    
-    const currentBlock = await provider.getBlockNumber();
-    const lookbackBlocks = 1000; // ~30 minutes
-    const startBlock = Math.max(job.startBlock, currentBlock - lookbackBlocks);
-    
-    console.log(`[Manual Verify] Scanning blocks ${startBlock}-${currentBlock} (${currentBlock - startBlock + 1} blocks)`);
-    
-    // Scan in chunks
-    let chunkStart = startBlock;
-    
-    while (chunkStart <= currentBlock) {
-      const chunkEnd = Math.min(chunkStart + CHUNK_SIZE - 1, currentBlock);
-      
-      const transfers = await scanBlockRange(chunkStart, chunkEnd);
-      
-      for (const transfer of transfers) {
-        if (matchesJob(transfer, job)) {
-          // Payment found!
-          const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
-          console.log(`[Manual Verify] ✅ Payment found in ${scanDuration}s`);
-          
-          await markPaymentVerified(job, transfer);
-          return { 
-            found: true, 
-            transfer,
-            message: `Payment verified! ${transfer.amountJewel} JEWEL received.`
-          };
-        }
-      }
-      
-      chunkStart = chunkEnd + 1;
+
+    // Fetch all transfers from user's wallet
+    const transfers = await fetchTransfersFromRouteScan(job.fromWallet);
+
+    if (transfers.length === 0) {
+      const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
+      console.log(`[Manual Verify] No transfers found (${scanDuration}s)`);
+
+      return {
+        found: false,
+        reason: 'No transfers found',
+        message: 'No transactions found from your wallet yet. Please ensure you sent 25 JEWEL to the correct address.'
+      };
     }
-    
+
+    console.log(`[Manual Verify] Found ${transfers.length} transfers from wallet`);
+
+    // Check each transfer against this job
+    for (const transfer of transfers) {
+      if (matchesJob(transfer, job)) {
+        // Payment found!
+        const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
+        console.log(`[Manual Verify] ✅ Payment found in ${scanDuration}s`);
+
+        await markPaymentVerified(job, transfer);
+        return {
+          found: true,
+          transfer,
+          message: `Payment verified! ${transfer.amountJewel} JEWEL received.`
+        };
+      }
+    }
+
     const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
-    console.log(`[Manual Verify] No matching payment found in last 1000 blocks (scan took ${scanDuration}s)`);
-    
-    return { 
-      found: false, 
-      reason: 'No payment found in recent blocks',
+    console.log(
+      `[Manual Verify] No matching payment found among ${transfers.length} transfers (scan took ${scanDuration}s)`
+    );
+
+    return {
+      found: false,
+      reason: 'No matching payment found',
       message: 'No payment detected yet. Please ensure you sent exactly 25 JEWEL to the correct address.'
     };
-    
   } catch (err) {
     const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
     console.error(`[Manual Verify] Error after ${scanDuration}s:`, err.message);
-    
-    return { 
-      found: false, 
+
+    return {
+      found: false,
       reason: 'Error during verification',
-      error: err.message 
+      error: err.message
     };
   } finally {
     manualVerifyInProgress = false;
@@ -418,9 +349,9 @@ export async function verifyRecentPayment(jobId) {
 }
 
 /**
- * Direct transaction hash verification (Option 1: Manual fast-track)
- * Instantly verify a specific transaction without scanning blocks
- * 
+ * Direct verification via RouteScan API
+ * Verify a specific transaction hash instantly
+ *
  * @param {string} txHash - Transaction hash from user
  * @param {number} jobId - Garden optimization job ID
  * @returns {Promise<{success: boolean, error?: string, payment?: object}>}
@@ -428,149 +359,124 @@ export async function verifyRecentPayment(jobId) {
 export async function verifyTransactionHash(txHash, jobId) {
   try {
     console.log(`[Monitor] Verifying tx ${txHash} for job #${jobId}`);
-    
+
     // Fetch job details
     const job = await db
       .select()
       .from(gardenOptimizations)
       .where(eq(gardenOptimizations.id, jobId))
       .limit(1);
-    
+
     if (job.length === 0) {
       return { success: false, error: 'Job not found' };
     }
-    
+
     const optimization = job[0];
-    
+
     // Check if job is in correct status
     if (optimization.status !== 'awaiting_payment') {
-      return { 
-        success: false, 
-        error: `Job is already ${optimization.status}` 
+      return {
+        success: false,
+        error: `Job is already ${optimization.status}`
       };
     }
-    
+
     // Check if job is expired
     if (new Date() > new Date(optimization.expiresAt)) {
       return { success: false, error: 'Job has expired' };
     }
-    
-    // Fetch transaction receipt
-    const receipt = await provider.getTransactionReceipt(txHash);
-    
-    if (!receipt) {
-      return { success: false, error: 'Transaction not found on blockchain' };
-    }
-    
-    // Check transaction success
-    if (receipt.status !== 1) {
-      return { success: false, error: 'Transaction failed on blockchain' };
-    }
-    
-    // Fetch transaction details
-    const tx = await provider.getTransaction(txHash);
-    
-    if (!tx) {
-      return { success: false, error: 'Transaction details not found' };
-    }
-    
-    // Verify recipient
-    if (!tx.to || tx.to.toLowerCase() !== HEDGE_WALLET_ADDRESS.toLowerCase()) {
-      return { 
-        success: false, 
-        error: `Transaction was sent to ${tx.to}, expected ${HEDGE_WALLET_ADDRESS}` 
+
+    // Fetch transfers from user wallet via RouteScan
+    const transfers = await fetchTransfersFromRouteScan(optimization.fromWallet);
+
+    // Find matching transaction
+    const matchingTx = transfers.find(
+      tx =>
+        tx.hash.toLowerCase() === txHash.toLowerCase() &&
+        tx.to.toLowerCase() === HEDGE_WALLET_ADDRESS.toLowerCase()
+    );
+
+    if (!matchingTx) {
+      return {
+        success: false,
+        error: 'Transaction not found in wallet history or not sent to Hedge wallet'
       };
     }
-    
-    // Verify sender
-    if (tx.from.toLowerCase() !== optimization.fromWallet.toLowerCase()) {
-      return { 
-        success: false, 
-        error: `Transaction was sent from ${tx.from}, expected ${optimization.fromWallet}` 
-      };
-    }
-    
-    // Verify amount (native JEWEL transfer)
+
+    // Check amount
     const expectedAmount = new Decimal(optimization.expectedAmountJewel || '25');
-    const actualAmount = new Decimal(weiToJewel(tx.value));
-    
+    const actualAmount = new Decimal(matchingTx.amountJewel);
+
     if (actualAmount.lt(expectedAmount)) {
-      return { 
-        success: false, 
-        error: `Payment amount ${actualAmount.toFixed(2)} JEWEL is less than expected ${expectedAmount.toFixed(2)} JEWEL` 
+      return {
+        success: false,
+        error: `Payment amount ${actualAmount.toFixed(2)} JEWEL is less than expected ${expectedAmount.toFixed(
+          2
+        )} JEWEL`
       };
     }
-    
+
     // All checks passed - mark as verified
     await db
       .update(gardenOptimizations)
       .set({
         status: 'payment_verified',
         paymentVerifiedAt: new Date(),
+        paidAmountJewel: matchingTx.amountJewel,
+        paidAt: matchingTx.timestamp,
         txHash: txHash,
         updatedAt: new Date()
       })
       .where(eq(gardenOptimizations.id, jobId));
-    
+
     console.log(`[Monitor] ✅ Verified payment for job #${jobId}: ${actualAmount.toFixed(2)} JEWEL`);
-    
+
     // Remove from active jobs tracking
     paymentJobs.cancelJob(jobId);
-    
+
     return {
       success: true,
       payment: {
         txHash,
-        from: tx.from,
-        amount: actualAmount.toFixed(2),
-        blockNumber: receipt.blockNumber
+        from: matchingTx.from,
+        amount: matchingTx.amountJewel,
+        timestamp: matchingTx.timestamp,
+        chain: matchingTx.chain
       }
     };
-    
   } catch (err) {
-    console.error(`[Monitor] Error verifying tx ${txHash}:`, err.message);
-    return { 
-      success: false, 
-      error: `Verification failed: ${err.message}` 
+    console.error(`[Monitor] Error verifying transaction:`, err.message);
+    return {
+      success: false,
+      error: `Verification error: ${err.message}`
     };
   }
 }
 
 /**
- * Backward compatibility: Initialize existing jobs
- * Called once to migrate existing awaiting_payment jobs
+ * Initialize existing jobs from database
  */
 export async function initializeExistingJobs() {
   try {
-    const currentBlock = await provider.getBlockNumber();
-    
-    const pending = await db
+    const pendingOptimizations = await db
       .select()
       .from(gardenOptimizations)
       .where(eq(gardenOptimizations.status, 'awaiting_payment'));
-    
-    let initialized = 0;
-    
-    for (const job of pending) {
-      // Set startBlock and lastScannedBlock if not set
-      if (!job.startBlock) {
-        await db
-          .update(gardenOptimizations)
-          .set({
-            startBlock: currentBlock,
-            lastScannedBlock: currentBlock - 1,
-            updatedAt: new Date()
-          })
-          .where(eq(gardenOptimizations.id, job.id));
-        
-        initialized++;
-      }
+
+    console.log(`[Monitor] Loading ${pendingOptimizations.length} existing payment jobs from database...`);
+
+    for (const opt of pendingOptimizations) {
+      paymentJobs.registerJob({
+        jobId: opt.id,
+        fromWallet: opt.fromWallet,
+        expectedAmount: opt.expectedAmountJewel,
+        discordUserId: opt.discordUserId,
+        createdAt: opt.createdAt,
+        expiresAt: opt.expiresAt,
+        lastScannedBlock: 0 // Not used with RouteScan, kept for compatibility
+      });
     }
-    
-    console.log(`[Monitor] Initialized ${initialized} existing jobs with current block ${currentBlock}`);
-    return initialized;
   } catch (err) {
     console.error('[Monitor] Error initializing existing jobs:', err.message);
-    return 0;
   }
 }
