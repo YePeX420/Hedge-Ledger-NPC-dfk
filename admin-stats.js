@@ -1,9 +1,44 @@
 // admin-stats.js - Helper to fetch admin dashboard statistics
 import { db } from './server/db.js';
 import { players, jewelBalances, depositRequests, queryCosts } from './shared/schema';
-import { sql } from 'drizzle-orm';
+import { sql, eq } from 'drizzle-orm';
 import { HEDGE_WALLET } from './deposit-flow.js';
 import { fetchWalletBalances } from './blockchain-balance-fetcher.js';
+
+/**
+ * Fetch Hedge wallet balance with fallback
+ */
+async function getHedgeBalance() {
+  try {
+    const balance = await fetchWalletBalances(HEDGE_WALLET);
+    console.log('[AdminStats] Blockchain balance fetched:', balance);
+    
+    if (balance && typeof balance === 'object' && balance.JEWEL) {
+      return {
+        jewel: parseFloat(balance.JEWEL),
+        crystal: parseFloat(balance.CRYSTAL || '0'),
+        cjewel: parseFloat(balance.cJEWEL || '0')
+      };
+    }
+    throw new Error('Invalid balance format');
+  } catch (err) {
+    console.error('[AdminStats] Failed to fetch blockchain balance:', err.message);
+    // Fallback: return database balances
+    try {
+      const result = await db.select({
+        totalJewel: sql`COALESCE(SUM(CAST("balance_jewel" AS DECIMAL)), 0)`,
+      }).from(jewelBalances);
+      return {
+        jewel: parseFloat(result[0]?.totalJewel || '0'),
+        crystal: 0,
+        cjewel: 0
+      };
+    } catch (dbErr) {
+      console.error('[AdminStats] Fallback also failed:', dbErr.message);
+      return { jewel: 0, crystal: 0, cjewel: 0 };
+    }
+  }
+}
 
 /**
  * Fetch admin dashboard statistics
@@ -29,15 +64,12 @@ export async function getAdminStats() {
         paidQueries: sql`SUM(CASE WHEN NOT "free_tier_used" THEN 1 ELSE 0 END)`,
       }).from(queryCosts),
       
-      // Hedge wallet balance (fetched live from blockchain)
-      fetchWalletBalances(HEDGE_WALLET)
+      // Hedge wallet balance (with fallback)
+      getHedgeBalance()
     ]);
     
     const totalPlayers = playerStats[0]?.total || 0;
     const jewelDeposits = parseFloat(depositStats[0]?.totalJewel || '0');
-    const hedgeWalletJewel = parseFloat(hedgeBalance?.JEWEL || '0');
-    const hedgeWalletCrystal = parseFloat(hedgeBalance?.CRYSTAL || '0');
-    const hedgeWalletCjewel = parseFloat(hedgeBalance?.cJEWEL || '0');
     const totalRevenue = parseFloat(revenueStats[0]?.totalRevenue || '0');
     const paidQueries = revenueStats[0]?.paidQueries || 0;
 
@@ -45,9 +77,9 @@ export async function getAdminStats() {
       totalPlayers,
       jewelDeposits,
       hedgeWallet: {
-        jewel: hedgeWalletJewel,
-        crystal: hedgeWalletCrystal,
-        cjewel: hedgeWalletCjewel
+        jewel: hedgeBalance.jewel,
+        crystal: hedgeBalance.crystal,
+        cjewel: hedgeBalance.cjewel
       },
       totalRevenue,
       totalQueries: paidQueries,
