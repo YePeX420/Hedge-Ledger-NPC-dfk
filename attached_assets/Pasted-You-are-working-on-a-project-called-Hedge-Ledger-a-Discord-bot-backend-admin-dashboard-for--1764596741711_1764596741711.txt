@@ -1,0 +1,590 @@
+You are working on a project called **Hedge Ledger**: a Discord bot + backend + admin dashboard for the DeFi Kingdoms ecosystem.
+
+Your job is to IMPLEMENT and/or UPGRADE the following core systems in a cohesive way:
+
+1. Player user model (classification engine, including sub-archetypes / activity)
+2. Persona response policies (Hedge adapts replies based on user type + activity + DFK age + Metis Influence)
+3. Cost tracking per user (OpenAI + Replit + misc)
+4. Admin “Manage Users” dashboard:
+   - Profitability, activity, DFK age, Gen0 count, Metis Influence
+   - Per-user “User Dashboard” view with KPI week-over-week % changes
+   - Hedge weekly assessment narrative for each user
+5. Admin “Expenses” tab (monthly expense uploads + reconciliation)
+6. Scheduled jobs:
+   - Weekly DM reminder to the owner to upload expenses
+   - Daily activity + sub-archetype update across all users
+   - 3-hour check for new users to initialize gamer KPIs, DFK age, Gen0s, and Influence
+   - Weekly KPI snapshot + Hedge weekly assessment generation per user
+7. DFK “age” per user based on first transaction on the DFK chain (via RouteScan)
+8. Gen0 hero count across all realms (display only)
+9. Influence token on Metis (Colosseum staking) tracked and surfaced
+
+You MUST:
+- Detect the existing stack (Node/TypeScript vs Node/JS, React/Next vs other) and follow it.
+- Produce complete, working files (or full replacements) instead of partial snippets.
+- Keep everything admin-only where specified.
+
+=========================================================
+0. PROJECT ASSUMPTIONS & STYLE
+=========================================================
+
+- The bot is in Node.js (TypeScript or JS). Use the existing style (imports, lint rules).
+- The admin dashboard is React/Next.js or similar. Detect and follow existing conventions.
+- There may already be partial implementations of PlayerProfile or classification; extend/refine them cleanly.
+
+If something is missing, create it modularly under `src/` (or equivalent) in a way that fits the repo.
+
+=========================================================
+1. PLAYERPROFILE MODEL (CLASSIFICATION + ECONOMICS + ACTIVITY + DFK AGE + GEN0 + INFLUENCE + WEEKLY SUMMARY)
+=========================================================
+
+Create or update a central **PlayerProfile** model in e.g.:
+
+- `src/models/playerProfile.ts` (TypeScript), or
+- `src/models/playerProfile.js` (JS with JSDoc typedefs)
+
+It should, at minimum, include:
+
+Identifiers:
+- `id`
+- `discordId: string | null`
+- `walletAddress: string | null`
+
+Classification:
+- `archetype: "GUEST" | "ADVENTURER" | "PLAYER" | "INVESTOR" | "EXTRACTOR"`
+- `tier: number` (0–4)
+- `state: "CURIOUS" | "OPTIMIZING" | "EXPANDING" | "COMMITTED" | "EXTRACTING"`
+
+Behavior tags:
+- `behaviorTags: string[]`
+  - e.g. `"OPTIMIZER"`, `"SCHOLAR"`, `"LORE_LOVER"`, `"DATA_SCIENTIST"`, `"COLLECTOR"`, `"WHALE"`, `"SOCIAL_PLAYER"`, `"SILENT_FARMER"`
+
+Sub-archetype & activity:
+- `subArchetype: string | null`
+  - e.g. `"GARDENER"`, `"CRAFTER"`, `"HUNTER"`, `"PATROLLER"`, `"SUMMONER"`, `"IDLE"`
+- `secondarySubArchetypes: string[]`  // other activities where the user meets/exceeds the 30d kingdom average
+- `activityProfile: {`
+  - `gardensActionsLast30d: number`
+  - `craftingActionsLast30d: number`
+  - `huntsLast30d: number`
+  - `patrolsLast30d: number`
+  - `summonsLast30d: number`
+  - `lastActivityAt?: number | Date`
+  - `initialized: boolean`
+  `}`
+
+KPIs (current snapshot):
+- `kpis: {`
+  - `engagementScore: number`
+  - `financialScore: number`
+  - `retentionScore: number`
+  - `messagesLast7d: number`
+  - `adviceFollowedCount: number`
+  - `recommendationsClicked: number`
+  - `lastSeenAt: number | Date`
+  `}`
+
+Weekly KPI summary (for last 2 weeks):
+- `weeklySummary?: {`
+  - `periodStart: number | Date`      // start of latest weekly period
+  - `periodEnd: number | Date`        // end of latest weekly period
+  - `current: {`
+    - `engagementScore: number`
+    - `financialScore: number`
+    - `retentionScore: number`
+    - `actionsCount: number`          // total notable actions this week (messages, quests, etc.)
+    - `aiCostUsd: number`             // cost attributable to this user this week (optional)
+  - `previous?: {`
+    - `engagementScore: number`
+    - `financialScore: number`
+    - `retentionScore: number`
+    - `actionsCount: number`
+    - `aiCostUsd: number`
+  - `changePct?: {`
+    - `engagementScore: number`       // week-over-week % change
+    - `financialScore: number`
+    - `retentionScore: number`
+    - `actionsCount: number`
+    - `aiCostUsd: number`
+  - `hedgeAssessment?: string`        // Hedge’s narrative assessment of the user for this week
+  `}`
+
+DFK Snapshot, Age, Gen0 & Influence:
+- `dfkSnapshot?: {`
+  - `heroCount: number`
+  - `petCount: number`
+  - `lpPositionsCount: number`
+  - `totalLPValueUsd: number`
+  - `jewelBalance: number`
+  - `crystalBalance: number`
+  - `questingStreakDays: number`
+  - `gen0CountAllRealms: number`      // total Gen0 heroes across all realms
+  `}`
+- `dfkProfile?: {`
+  - `firstTxAt?: number | Date`       // first transaction on DFK chain
+  - `dfkAgeDays?: number`            // days since firstTxAt
+  - `lastAgeComputedAt?: number | Date`
+  - `metisInfluenceTokenBalance?: string | number`  // Influence token balance (Metis)
+  - `metisInfluenceLastUpdatedAt?: number | Date`
+  `}`
+
+Flags:
+- `flags: {`
+  - `isExtractor: boolean`
+  - `isWhale: boolean`
+  - `isHighPotential: boolean`
+  `}`
+
+Economics (COST + REVENUE):
+- `economics: {`
+  - `openAiTokensIn: number`
+  - `openAiTokensOut: number`
+  - `openAiCostUsd: number`
+  - `replitComputeSeconds: number`
+  - `replitCostUsd: number`
+  - `miscCostUsd: number`
+  - `totalCostUsd: number`
+  - `totalRevenueUsd: number`
+  - `profitUsd: number`
+  - `marginPct: number`
+  `}`
+
+Meta:
+- `meta: {`
+  - `createdAt: number | Date`
+  - `updatedAt: number | Date`
+  - `notes?: string`
+  `}`
+
+Initialize numeric fields to 0, `activityProfile.initialized` to `false`, and dfkProfile/dfkSnapshot/weeklySummary to sensible defaults or undefined for new profiles.
+
+=========================================================
+2. PLAYERPROFILE SERVICE
+=========================================================
+
+Create or update `src/services/playerProfileService.(ts|js)` with:
+
+- `getOrCreateProfileByDiscordId(discordId: string): Promise<PlayerProfile>`
+- `getOrCreateProfileByWallet(walletAddress: string): Promise<PlayerProfile>`
+- `updateProfile(profile: PlayerProfile): Promise<PlayerProfile>`
+- `setWalletForDiscord(discordId: string, walletAddress: string): Promise<PlayerProfile>`
+- `listProfiles(filter?: { archetype?: string; tier?: number; state?: string; search?: string; subArchetype?: string; }): Promise<PlayerProfile[]>`
+
+Use the project’s DB/persistence; keep it clean and consistent. Always update `meta.updatedAt` on write.
+
+=========================================================
+3. CLASSIFICATION ENGINE + REASONS
+=========================================================
+
+Create `src/services/classificationEngine.(ts|js)`.
+
+Types:
+
+- `ClassificationReason = { ruleId: string; description: string; weight?: number }`
+- `ClassificationResult = { updatedProfile: PlayerProfile; reasons: ClassificationReason[] }`
+
+- `ClassificationEvent` variants:
+  - `"WALLET_SCAN"`: `{ heroCount, petCount, lpPositionsCount, totalLPValueUsd, jewelBalance, crystalBalance, questingStreakDays, gen0CountAllRealms? }`
+  - `"DISCORD_MESSAGE"`: `{ messageContent, timestamp }`
+  - `"ADVICE_FOLLOWED"`: `{ recommendationId }`
+  - `"RECOMMENDATION_CLICKED"`: `{ linkType }`
+  - `"SUBSCRIPTION_UPGRADE"`: `{ newTier }`
+  - `"GAME_ACTIVITY"`: `{ activityType: "GARDENS" | "CRAFTING" | "HUNT" | "PATROL" | "SUMMON" | string; timestamp: number | Date; count?: number }`
+
+Functions:
+
+- `classifyProfile(profile: PlayerProfile, globalActivityStats?: GlobalActivityStats): ClassificationResult`
+- `updateKpisFromEvent(profile: PlayerProfile, event: ClassificationEvent): PlayerProfile`
+- `processEventAndReclassify(profile: PlayerProfile, event: ClassificationEvent, globalActivityStats?: GlobalActivityStats): Promise<{ updatedProfile: PlayerProfile; reasons: ClassificationReason[] }>`
+  - Update KPIs.
+  - For GAME_ACTIVITY, update `activityProfile`.
+  - Call `classifyProfile`.
+  - Persist and return.
+
+Classification rules (summarized):
+
+- Archetype: GUEST / ADVENTURER / PLAYER / INVESTOR / EXTRACTOR according to assets and behavior.
+- Tier: 0–4 based on engagementScore + financialScore thresholds.
+- State: CURIOUS / OPTIMIZING / EXPANDING / COMMITTED / EXTRACTING.
+- Behavior tags: derived from questions and behavior (ROI-focus, lore, data, etc.).
+- Influence token: if `dfkProfile.metisInfluenceTokenBalance` high, may set `flags.isHighPotential` and/or add a tag like `"INFLUENCE_METIS"` with a ClassificationReason.
+
+Keep thresholds and formulas configurable.
+
+=========================================================
+4. SUB-ARCHETYPE & ACTIVITY (KINGDOM AVERAGES, DAILY UPDATE)
+=========================================================
+
+Create `src/services/activityStatsService.(ts|js)`:
+
+- `type GlobalActivityStats = { gardensAvg: number; craftingAvg: number; huntsAvg: number; patrolsAvg: number; summonsAvg: number }`
+- `getGlobalActivityStats(): Promise<GlobalActivityStats>`
+- `updateGlobalActivityStats(): Promise<GlobalActivityStats>`
+
+Recalculate averages daily from all PlayerProfiles’ activityProfile.*Last30d.
+
+In `classifyProfile(profile, globalActivityStats)`:
+
+- Read `gardensActionsLast30d`, `crafting...`, `hunts...`, `patrols...`, `summons...`.
+- If all zero → `subArchetype = "IDLE"`, `secondarySubArchetypes = []`.
+- Else, compute normalized vs global averages and:
+  - Primary subArchetype = max normalized activity.
+  - secondarySubArchetypes = activities where normalized >= 1.0 (>= kingdom average).
+- Add ClassificationReasons explaining relative dominance and secondary promotions.
+
+=========================================================
+5. TRAINING OVERRIDES (TRAININGCASES)
+=========================================================
+
+Create `TrainingCase` model:
+
+- `id`
+- `profileSnapshot: PlayerProfile`
+- `overriddenFields: { archetype?: string; tier?: number; state?: string; behaviorTags?: string[] }`
+- `createdBy: string`
+- `createdAt: number | Date`
+- `note?: string`
+
+Service: `trainingService.createTrainingCase`.
+
+Call this whenever classification is overridden via admin dashboard or train commands.
+
+=========================================================
+6. COST CONFIG & ESTIMATOR
+=========================================================
+
+Create `src/config/costConfig.(ts|js)` with:
+
+- `OPENAI_PRICE_PER_1K_PROMPT_TOKENS_USD`
+- `OPENAI_PRICE_PER_1K_COMPLETION_TOKENS_USD`
+- `REPLIT_PRICE_PER_COMPUTE_SECOND_USD`
+- `MISC_COST_PER_REQUEST_USD`
+
+Create `src/services/costEstimator.(ts|js)`:
+
+- `type InteractionCostEvent = { tokensIn?: number; tokensOut?: number; computeSeconds?: number; miscCostUnits?: number; revenueUsd?: number }`
+
+- Functions:
+  - `estimateOpenAiCost(tokensIn, tokensOut)`
+  - `estimateReplitCost(computeSeconds)`
+  - `estimateMiscCost(units)`
+  - `updateEconomicsFromInteraction(profile, event): PlayerProfile`
+
+Hook this into the main interaction pipeline whenever the bot uses the LLM or heavy analytics per user.
+
+=========================================================
+7. DFK AGE VIA ROUTESCAN (FIRST TX ON DFK CHAIN)
+=========================================================
+
+Create `src/services/dfkAgeService.(ts|js)`:
+
+- `fetchFirstDfkTxTimestamp(walletAddress): Promise<number | null>`
+- `updateDfkAgeForProfile(profile): Promise<PlayerProfile>`
+
+Use RouteScan (API if available, else HTML) to find first DFK-chain tx timestamp and set `dfkProfile.firstTxAt` and `dfkProfile.dfkAgeDays`.
+
+Call sparingly (wallet link & new-user init).
+
+=========================================================
+8. GEN0 COUNT (ALL REALMS)
+=========================================================
+
+Create `src/services/dfkHeroesService.(ts|js)`:
+
+- `fetchGen0CountAllRealms(walletAddress): Promise<number>`
+- `updateGen0ForProfile(profile): Promise<PlayerProfile>`
+
+Use DFK APIs/GraphQL to count Gen0 heroes across realms and store in `dfkSnapshot.gen0CountAllRealms`.
+
+=========================================================
+9. METIS INFLUENCE TOKEN (COLOSSEUM STAKING)
+=========================================================
+
+Create `src/services/influenceService.(ts|js)`:
+
+- `fetchMetisInfluenceTokenBalance(walletAddress): Promise<string | number>`
+  - Use Metis RPC + Influence token contract (address in config).
+- `updateInfluenceForProfile(profile): Promise<PlayerProfile>`
+  - Store result in `dfkProfile.metisInfluenceTokenBalance` and `metisInfluenceLastUpdatedAt`.
+
+Hook into daily batch and new-user init.
+
+=========================================================
+10. WEEKLY KPI SNAPSHOT & HEDGE ASSESSMENT NARRATIVE
+=========================================================
+
+We want a **weekly snapshot** per user with week-over-week % changes and a **Hedge assessment narrative** summarizing their week.
+
+Create `src/services/weeklySummaryService.(ts|js)`:
+
+Types:
+- `WeeklySnapshotInput = { profile: PlayerProfile; now: Date }`
+
+Functions:
+
+1) `computeWeeklySnapshot(profile: PlayerProfile, now: Date): PlayerProfile`
+   - Determine the weekly period (e.g. previous full week: Mon–Sun or rolling 7 days; choose and document).
+   - Collect metrics for the current week vs previous week. At minimum:
+     - `engagementScore`
+     - `financialScore`
+     - `retentionScore`
+     - `actionsCount` (sum of relevant events, e.g. messages + game activities)
+     - `aiCostUsd` (approx cost attributable to this user this week, derived from economics if possible)
+   - Store into `profile.weeklySummary.current` and `weeklySummary.previous`.
+   - Compute `changePct` for each metric:
+     - `(current - previous) / max(previous, small_epsilon)`.
+   - Set `weeklySummary.periodStart` and `periodEnd`.
+   - Return updated profile.
+
+2) `generateWeeklyAssessment(profile: PlayerProfile): Promise<string>`
+   - Build a compact prompt including:
+     - archetype, subArchetype, behaviorTags
+     - DFK age, Gen0 count, Influence
+     - weeklySummary (current, previous, changePct)
+   - Call the LLM once to generate a **short narrative** (2–5 sentences) for admins, e.g.:
+     - “This week user shifted from gardens to hunts, engagement is up 20%, financialScore down 5%, Influence stable…”
+   - Use `costEstimator.updateEconomicsFromInteraction` to attribute the LLM cost for this narrative to the user.
+   - Return the narrative string.
+
+3) `updateWeeklySummaryAndAssessment(profile: PlayerProfile, now: Date): Promise<PlayerProfile>`
+   - Calls `computeWeeklySnapshot` then `generateWeeklyAssessment`.
+   - Stores `weeklySummary.hedgeAssessment`.
+   - Persists and returns updated profile.
+
+Scheduled integration:
+- A weekly cron job (Section 14.4) should call `updateWeeklySummaryAndAssessment` for all users.
+
+=========================================================
+11. RESPONSE POLICIES & HEDGEPERSONAADAPTER
+=========================================================
+
+Create:
+
+- `config/responsePolicies.archetypes.(json|ts)`
+- `config/responsePolicies.behaviorTags.(json|ts)`
+- `config/responsePolicies.activities.(json|ts)`
+
+Create `src/services/hedgePersonaAdapter.(ts|js)`:
+
+- `adaptResponse(baseText, profile, context?): { adaptedText: string; policyDebug: any }`
+
+Apply archetype, tag, activity, DFK age, and Influence. Return adaptedText + policyDebug.
+
+All user-facing replies should go through this adapter.
+
+=========================================================
+12. ADMIN API – USERS & SIMULATION
+=========================================================
+
+Create admin-only endpoints (e.g. `/api/admin/users`):
+
+1) `GET /api/admin/users`
+   - Filters: archetype, tier, state, subArchetype, profitability, search, page, pageSize.
+   - Return per-user summary including classification, dfkProfile (dfkAgeDays, Influence), dfkSnapshot (heroCount, gen0CountAllRealms), KPIs, economics, and flags.
+
+2) `GET /api/admin/users/:id`
+   - Return full PlayerProfile including:
+     - weeklySummary (current, previous, changePct, hedgeAssessment)
+     - classificationReasons[]
+
+3) `POST /api/admin/users/:id/classification`
+   - Override archetype/tier/state/behaviorTags; create TrainingCase.
+
+4) `POST /api/admin/users/:id/simulate`
+   - Given baseText or question, run hedgePersonaAdapter and return adaptedResponse + policyDebug.
+
+5) `GET /api/admin/activity-stats`
+   - Return GlobalActivityStats.
+
+Protect all admin endpoints with admin auth.
+
+=========================================================
+13. ADMIN UI – MANAGE USERS DASHBOARD & USER DASHBOARD
+=========================================================
+
+Route: `/admin/users`.
+
+Left sidebar:
+- “Hedge Ledger Admin”
+- “Users” (active)
+- “Expenses”
+
+Main content:
+
+- Top: filters + search.
+- Middle: users table.
+- Selecting a user opens a **User Dashboard** view (detail panel or full-page) with:
+  - Profile, DFK Age, Gen0, Influence
+  - Classification, activity
+  - Cost/profit
+  - Weekly KPI % changes
+  - Hedge weekly assessment (narrative)
+
+13.1 Filters:
+- Archetype, Tier, State, Sub-Archetype, Profitability, Search.
+
+13.2 Users Table:
+Columns:
+- Discord
+- Wallet
+- Archetype
+- Tier
+- State
+- Sub-Archetype
+- DFK Age
+- Gen0
+- Metis Influence
+- Profit
+- Margin
+
+Sorting + pagination.
+
+13.3 User Dashboard (Detail View on Select):
+
+Layout suggestions (you can adapt to your UI framework):
+
+**A. Header**
+- Discord handle + wallet (short).
+- Quick badges:
+  - Archetype, Tier, Sub-Archetype.
+  - DFK Age summary (e.g. “Player for 320 days”).
+  - Influence tier (e.g. Low/Med/High from token balance).
+
+**B. Summary KPIs with Week-over-Week Change**
+Show a KPI grid for current week vs previous week:
+
+- EngagementScore
+- FinancialScore
+- RetentionScore
+- ActionsCount
+- AI Cost (optional)
+
+Each tile:
+
+- Current value
+- Small text: “vs last week: +35%” with up/down arrow and color.
+- Use `weeklySummary.current`, `weeklySummary.previous`, `weeklySummary.changePct`.
+
+If previous is missing, show “N/A (first tracked week)”.
+
+**C. Hedge Weekly Assessment Narrative**
+A card titled: “Hedge’s Weekly Assessment”
+
+- Content: `weeklySummary.hedgeAssessment` (multi-sentence narrative).
+- This is generated by weeklySummaryService and stored on the profile.
+- Add a small note like: “Updated weekly by Hedge based on activity & KPIs.”
+
+Optionally, include a button “Regenerate Assessment” that calls a small admin endpoint to re-run `updateWeeklySummaryAndAssessment` for that user.
+
+**D. DFK Age & Tokens**
+- First DFK Tx (date/time)
+- DFK Age (days / ~months)
+- Gen0 count (all realms)
+- Metis Influence token balance (formatted)
+- Optional influence tier label (Low / Medium / High).
+
+**E. Activity Breakdown (Last 30d vs Kingdom Average)**
+- For each activity:
+  - Gardens, Crafting, Hunts, Patrols, Summons:
+    - Show user count, kingdom avg, diff, ratio.
+    - Bold user count when >= kingdom avg.
+
+**F. Classification & Flags**
+- Archetype, Tier, State (with dropdowns if editable).
+- Behavior tags (checkboxes).
+- Flags (isExtractor, isWhale, isHighPotential).
+- Button “Save Overrides”.
+
+**G. Classification Reasons**
+- List of ruleId + human description for why the user is classified the way they are (including sub-archetype, Influence, etc.).
+
+**H. Cost & Revenue**
+- OpenAI tokens in/out, cost.
+- Replit compute seconds, cost.
+- Misc cost.
+- Total cost, total revenue, profit, margin with badge.
+
+**I. Actions**
+- “Simulate Hedge Reply” (modal).
+- “Re-run Classification”.
+- “Export Profile JSON” (optional).
+
+13.4 Persona Simulation Modal:
+- Textarea for test message.
+- Show resulting adapted response + policyDebug.
+
+=========================================================
+14. EXPENSES & RECONCILIATION SYSTEM
+=========================================================
+
+Implement:
+
+- ExpenseRecord model.
+- CostCalibration model with correction factors and `lastReminderSentAt`.
+- Admin API: `GET/POST /api/admin/expenses`, `/upload`, `/reconcile`.
+- `/admin/expenses` UI with:
+  - Month selector.
+  - Expense table & totals.
+  - Reconciliation summary.
+  - Manual add form.
+  - CSV upload.
+
+=========================================================
+15. SCHEDULED JOBS
+=========================================================
+
+Use node-cron or equivalent.
+
+15.1 Weekly Expense Reminder DM (Owner Only)
+- Config: `ADMIN_DISCORD_ID`.
+- Weekly job:
+  - If no OpenAI/Replit expenses for current month and no `lastReminderSentAt` → DM admin, set lastReminderSentAt.
+
+15.2 Daily Activity + Sub-Archetype + Gen0 + Influence Batch Update
+- Daily job:
+  - `updateGlobalActivityStats`.
+  - For all users with walletAddress:
+    - Refresh last-30d activity counts (single query per user).
+    - Set `activityProfile.initialized = true`.
+    - Optionally refresh heroCount, gen0Count, Influence.
+    - Call `classifyProfile` with latest stats.
+    - Persist.
+
+15.3 New User Initialization & DFK Age / Gen0 / Influence (Every 3 Hours)
+- For profiles with walletAddress but missing init data:
+  - Initialize activityProfile.
+  - `updateDfkAgeForProfile`.
+  - `updateGen0ForProfile`.
+  - `updateInfluenceForProfile`.
+  - `classifyProfile`.
+  - Persist.
+
+15.4 Weekly KPI Snapshot & Hedge Assessment (All Users)
+- Weekly job (align with your “week” definition):
+  - For all PlayerProfiles:
+    - Call `updateWeeklySummaryAndAssessment(profile, now)`:
+      - Build weekly current & previous KPI snapshot.
+      - Compute changePct.
+      - Generate Hedge narrative via LLM (use costEstimator).
+      - Persist weeklySummary.
+
+This supports the “User Dashboard” weekly view and assessment narrative shown in `/admin/users` when a user is selected.
+
+=========================================================
+16. QUALITY & TESTING
+=========================================================
+
+After implementation:
+
+- Bot still runs & responds.
+- New users get full gamer profile, DFK age, Gen0, Influence within 3 hours of wallet linking.
+- Daily & weekly jobs work without blocking main behavior.
+- Admin `/admin/users`:
+  - Shows table summarizing users.
+  - Selecting a user shows User Dashboard:
+    - Week-over-week % changes on KPIs.
+    - Hedge weekly assessment narrative.
+    - DFK Age, Gen0, Influence, classification, activity, cost.
+- Expenses system works and reminder DM is only sent when appropriate.
+
+Comment all non-trivial logic (classification, normalized activity, RouteScan, Metis Influence, Gen0, weekly summary math, LLM narrative generation, cost calibration, scheduling) so it’s straightforward to tune later.
