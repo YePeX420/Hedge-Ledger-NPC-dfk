@@ -2657,52 +2657,66 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines.push(`📊 **JEWEL Token Transfers to Hedge (Last 20 Transactions)**\n`);
 
         try {
-          const JEWEL_TOKEN = '0x77f2656d04E158f915bC22f07B779D94c1DC47Ff';
           const HEDGE_ADDR = HEDGE_WALLET.toLowerCase();
           
-          // Fetch token transfer data from RouteScan API
-          const url = `https://api.routescan.io/v2/network/mainnet/evm/53935/address/${HEDGE_ADDR}/erc20-transfers`;
-          const response = await fetch(url);
+          // Fetch from both DFK Chain (53935) and Metis Andromeda (1088)
+          const chains = [
+            { id: 53935, name: 'DFK Chain' },
+            { id: 1088, name: 'Metis Andromeda' }
+          ];
           
-          if (!response.ok) {
-            await interaction.editReply(`Failed to fetch from explorer: HTTP ${response.status}`);
-            return;
+          let allTransfers = [];
+          
+          for (const chain of chains) {
+            try {
+              // Query transactions endpoint (JEWEL is native token on DFK Chain)
+              const url = `https://api.routescan.io/v2/network/mainnet/evm/${chain.id}/address/${HEDGE_ADDR}/transactions`;
+              const response = await fetch(url);
+              
+              if (response.ok) {
+                const data = await response.json();
+                
+                if (data.items && data.items.length > 0) {
+                  // Filter for incoming transfers (to = Hedge wallet, value > 0)
+                  const incoming = data.items.filter(tx => 
+                    tx.to?.toLowerCase() === HEDGE_ADDR && 
+                    tx.value && 
+                    BigInt(tx.value) > 0n
+                  ).map(tx => ({
+                    ...tx,
+                    chain: chain.name,
+                    amount: (Number(BigInt(tx.value)) / 1e18).toFixed(4)
+                  }));
+                  
+                  allTransfers.push(...incoming);
+                }
+              }
+            } catch (err) {
+              console.error(`Error fetching ${chain.name}:`, err.message);
+            }
           }
-
-          const data = await response.json();
           
-          if (!data.items || data.items.length === 0) {
-            lines.push('No JEWEL transfers found.');
-            await interaction.editReply(lines.join('\n'));
-            return;
-          }
-
-          // Filter for incoming JEWEL transfers (to = Hedge wallet, token = JEWEL)
-          const incomingJewel = data.items.filter(tx => 
-            tx.to?.toLowerCase() === HEDGE_ADDR && 
-            tx.token?.address?.toLowerCase() === JEWEL_TOKEN.toLowerCase()
-          ).reverse(); // Most recent first
-          
-          if (incomingJewel.length === 0) {
+          if (allTransfers.length === 0) {
             lines.push('No incoming JEWEL transfers found.');
             await interaction.editReply(lines.join('\n'));
             return;
           }
 
-          // Get last 20
-          const recent = incomingJewel.slice(0, 20);
+          // Sort by timestamp (most recent first) and get last 20
+          allTransfers.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          const recent = allTransfers.slice(0, 20);
           
-          lines.push(`**Found ${incomingJewel.length} total incoming transfers, showing last 20:**\n`);
+          lines.push(`**Found ${allTransfers.length} total incoming transfers, showing last 20:**\n`);
           lines.push('**Transactions**:');
           
           for (let i = 0; i < recent.length; i++) {
             const tx = recent[i];
-            const amount = (Number(tx.value) / 1e18).toFixed(4);
             const fromWallet = tx.from.slice(0, 6) + '...' + tx.from.slice(-4);
-            const txHash = tx.transactionHash.slice(0, 8) + '...' + tx.transactionHash.slice(-4);
-            const date = new Date(tx.timestamp * 1000).toLocaleDateString();
+            const txHash = tx.id.slice(0, 8) + '...' + tx.id.slice(-4);
+            const date = new Date(tx.timestamp).toLocaleDateString();
+            const chainLabel = tx.chain === 'DFK Chain' ? '🏰' : '🌍';
             
-            lines.push(`${i + 1}. **${amount} JEWEL** from \`${fromWallet}\` on ${date} - TX: \`${txHash}\``);
+            lines.push(`${i + 1}. **${tx.amount} JEWEL** from \`${fromWallet}\` on ${date} - ${chainLabel} ${tx.chain} - TX: \`${txHash}\``);
           }
           
           await interaction.editReply(lines.join('\n'));
