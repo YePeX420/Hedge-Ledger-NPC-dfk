@@ -640,6 +640,18 @@ export default function AdminUsers() {
                 </div>
               </div>
             )}
+
+            {/* View Dashboard Button */}
+            <div className="border-t pt-4">
+              <Button 
+                className="w-full" 
+                variant="default"
+                data-testid={`button-view-user-dashboard-${selectedUser.id}`}
+                onClick={() => window.open(`${window.location.origin}/account?userId=${selectedUser.discordId}`, '_blank')}
+              >
+                View User Dashboard
+              </Button>
+            </div>
           </div>
         </div>
       )}
