@@ -1,6 +1,7 @@
 // bot.js
 import 'dotenv/config';
 import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -3104,10 +3105,19 @@ app.get('/auth/discord/callback', async (req, res) => {
     });
     
     res.setCookie('session_token', sessionToken, { maxAge: 7 * 24 * 60 * 60 });
-    res.redirect('/');
+    
+    // Check if user is an admin
+    const isAdmin = ADMIN_USER_IDS.includes(user.id);
+    
+    // Redirect to admin dashboard or login page with error
+    if (isAdmin) {
+      res.redirect('/admin');
+    } else {
+      res.redirect('/admin/login?error=not_admin');
+    }
   } catch (err) {
     console.error('❌ OAuth callback error:', err);
-    res.status(500).json({ error: 'Authentication failed' });
+    res.redirect('/admin/login?error=auth_failed');
   }
 });
 
@@ -3133,12 +3143,15 @@ app.get('/auth/status', async (req, res) => {
       return res.json({ authenticated: false });
     }
     
+    const isAdmin = ADMIN_USER_IDS.includes(session.discordId);
+    
     res.json({
       authenticated: true,
       user: {
-        id: session.discordId,
+        discordId: session.discordId,
         username: session.username,
-        avatar: session.avatar
+        avatar: session.avatar,
+        isAdmin
       }
     });
   } catch (err) {
@@ -3147,7 +3160,7 @@ app.get('/auth/status', async (req, res) => {
   }
 });
 
-app.get('/auth/logout', async (req, res) => {
+app.post('/auth/logout', async (req, res) => {
   try {
     const sessionToken = req.cookies.session_token;
     if (sessionToken) {
@@ -3159,6 +3172,22 @@ app.get('/auth/logout', async (req, res) => {
   } catch (err) {
     console.error('❌ Logout error:', err);
     res.status(500).json({ error: 'Logout failed' });
+  }
+});
+
+// Also support GET for backward compatibility
+app.get('/auth/logout', async (req, res) => {
+  try {
+    const sessionToken = req.cookies.session_token;
+    if (sessionToken) {
+      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+    }
+    
+    res.setCookie('session_token', '', { maxAge: 0 });
+    res.redirect('/admin/login');
+  } catch (err) {
+    console.error('❌ Logout error:', err);
+    res.redirect('/admin/login');
   }
 });
 
@@ -3181,7 +3210,20 @@ try {
   console.log('✅ Vite dev server configured');
 } catch (err) {
   console.log(`❌ Failed to setup Vite: ${err.message}`);
-  console.log('Falling back to static file serving from public/');
+  console.log('Falling back to static file serving from dist/public/');
+  
+  // Serve built React app from dist/public
+  const distPath = path.resolve(import.meta.dirname, 'dist', 'public');
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    // SPA fallback - serve index.html for all non-API routes
+    app.get(/^(?!\/api|\/auth).*$/, (req, res) => {
+      res.sendFile(path.resolve(distPath, 'index.html'));
+    });
+    console.log('✅ Serving React app from dist/public/');
+  } else {
+    console.log('⚠️ dist/public not found - run "npx vite build" to build the client');
+  }
 }
 
 server.listen(5000, () => {

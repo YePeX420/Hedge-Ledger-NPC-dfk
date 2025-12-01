@@ -17,13 +17,13 @@ The project uses a Node.js backend with Discord.js for bot functionality and an 
     *   **DFK Chain RPC Interaction**: Employs `ethers.js` for direct interaction with the DFK Chain RPC for detailed Crystalvale garden pool analytics, LP token detection, and smart contract data.
     *   **Pool Analytics Cache**: A background system (`pool-cache.js`) periodically refreshes and stores DeFi Kingdoms pool analytics in memory for quick responses.
     *   **Wallet LP Token Detection**: Scans user wallets for staked LP tokens in garden pools to facilitate yield optimization.
-*   **Web Dashboard**: An Express server hosts a static HTML dashboard displaying real-time metrics and an admin user management system.
+*   **Web Dashboard**: React-based admin dashboard with Vite build system, served from `dist/public/`. Features Discord OAuth authentication, protected routes, user management, expenses tracking, and settings pages. Uses TailwindCSS v4, shadcn/ui components, and Radix UI primitives.
 *   **Command System**: Implements eleven core slash commands for Discord functionality, including `/optimize-gardens`.
 
 **Design Decisions:**
 *   **Database**: PostgreSQL with Drizzle ORM for persistent storage of player registrations and payment tracking.
 *   **Unified Deployment**: Express server is integrated directly into the main bot application.
-*   **UI/UX**: Admin dashboard features pure HTML/CSS/JavaScript with a responsive dark theme, requiring no build step.
+*   **UI/UX**: React admin dashboard with responsive design, dark/light theme support, and shadcn/ui component library. Built with Vite, served from `dist/public/`.
 *   **Feature Specifications**: Includes a comprehensive NPC navigation system for Crystalvale, multilingual support, and enhanced garden interaction features like APR ranges.
 *   **Authentication**: Discord OAuth2 protects admin endpoints using lightweight, native Node.js session management with signed cookies.
 *   **Payment Automation**: The garden optimization service uses blockchain monitoring to automatically verify JEWEL payments and trigger processing.
@@ -87,4 +87,18 @@ The project uses a Node.js backend with Discord.js for bot functionality and an 
 *   **OpenAI API**: For AI-driven conversational responses using the `GPT-4o-mini` model.
 *   **DeFi Kingdoms GraphQL API**: Accessed via `graphql-request` for game data.
 *   **DFK Chain RPC (Crystalvale)**: Directly accessed using `ethers.js` for blockchain interactions.
-*   **NPM Packages**: `discord.js`, `openai`, `graphql-request`, `dotenv`.
+*   **NPM Packages**: `discord.js`, `openai`, `graphql-request`, `dotenv`, `graphql`.
+
+## Recent Changes
+
+### December 2024 - React Admin Dashboard Migration
+*   Migrated admin dashboard from static HTML to React with Vite
+*   Installed TailwindCSS v4 with `@tailwindcss/postcss` plugin
+*   Added `.npmrc` with `legacy-peer-deps=true` to resolve zod v3/v4 conflict between `openai` (requires v3) and `drizzle-zod` (requires v4)
+*   Downgraded `drizzle-zod` to v0.6.0 for zod v3 compatibility
+*   Installed Radix UI component packages for shadcn/ui
+*   Created auth context (`client/src/lib/auth.tsx`) with Discord OAuth integration
+*   Built admin pages: login, dashboard, users, expenses, settings
+*   Added protected route component for authentication
+*   Updated `postcss.config.js` to use `@tailwindcss/postcss`
+*   Fixed TailwindCSS v4 compatibility in `index.css` (replaced `@apply border-border` with raw CSS)
