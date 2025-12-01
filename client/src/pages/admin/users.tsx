@@ -22,7 +22,24 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, RefreshCw, ChevronUp, ChevronDown, X } from 'lucide-react';
+
+interface KPIs {
+  engagementScore?: number;
+  financialScore?: number;
+  retentionScore?: number;
+  messagesLast7d?: number;
+}
+
+interface DFKSnapshot {
+  heroCount?: number;
+  petCount?: number;
+  lpPositionsCount?: number;
+  totalLPValue?: number;
+  jewelBalance?: number;
+  crystalBalance?: number;
+  questingStreakDays?: number;
+}
 
 interface UserProfile {
   archetype: string;
@@ -40,8 +57,19 @@ interface User {
   id: number;
   discordId: string;
   discordUsername: string;
-  wallet: string | null;
+  walletAddress: string | null;
   profile: UserProfile;
+  archetype: string;
+  state: string;
+  behaviorTags: string[];
+  kpis: KPIs;
+  dfkSnapshot: DFKSnapshot | null;
+  flags: {
+    isExtractor?: boolean;
+    isWhale?: boolean;
+    isHighPotential?: boolean;
+  };
+  tier: number;
 }
 
 interface UsersResponse {
@@ -67,6 +95,7 @@ export default function AdminUsers() {
   const [tierFilter, setTierFilter] = useState('ALL');
   const [sortField, setSortField] = useState<'discordUsername' | 'tier'>('discordUsername');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
 
   const { data, isLoading, refetch, isRefetching } = useQuery<UsersResponse>({
     queryKey: ['/api/admin/users'],
@@ -88,7 +117,8 @@ export default function AdminUsers() {
     },
   });
 
-  const users = data?.users ?? [];
+  const users = (data?.users ?? []) as User[];
+  const selectedUser = users.find(u => u.id === selectedUserId);
 
   const filteredUsers = users
     .filter((user) => {
@@ -96,14 +126,14 @@ export default function AdminUsers() {
         const query = searchQuery.toLowerCase();
         if (!user.discordUsername.toLowerCase().includes(query) &&
             !user.discordId.includes(query) &&
-            !(user.wallet?.toLowerCase().includes(query))) {
+            !(user.walletAddress?.toLowerCase().includes(query))) {
           return false;
         }
       }
-      if (archetypeFilter !== 'ALL' && user.profile.archetype !== archetypeFilter) {
+      if (archetypeFilter !== 'ALL' && user.archetype !== archetypeFilter) {
         return false;
       }
-      if (tierFilter !== 'ALL' && user.profile.tier !== parseInt(tierFilter)) {
+      if (tierFilter !== 'ALL' && user.tier !== parseInt(tierFilter)) {
         return false;
       }
       return true;
@@ -113,7 +143,7 @@ export default function AdminUsers() {
       if (sortField === 'discordUsername') {
         cmp = a.discordUsername.localeCompare(b.discordUsername);
       } else if (sortField === 'tier') {
-        cmp = a.profile.tier - b.profile.tier;
+        cmp = a.tier - b.tier;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -220,7 +250,7 @@ export default function AdminUsers() {
         <CardHeader>
           <CardTitle>Players ({filteredUsers.length})</CardTitle>
           <CardDescription>
-            Click on a user row to view detailed profile (coming soon)
+            Click on a user row to view detailed profile
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -273,6 +303,7 @@ export default function AdminUsers() {
                         key={user.id} 
                         className="cursor-pointer hover:bg-muted/50"
                         data-testid={`row-user-${user.id}`}
+                        onClick={() => setSelectedUserId(user.id)}
                       >
                         <TableCell>
                           <div>
@@ -281,43 +312,43 @@ export default function AdminUsers() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {user.wallet ? (
+                          {user.walletAddress ? (
                             <span className="font-mono text-xs">
-                              {user.wallet.slice(0, 6)}...{user.wallet.slice(-4)}
+                              {user.walletAddress.slice(0, 6)}...{user.walletAddress.slice(-4)}
                             </span>
                           ) : (
                             <span className="text-muted-foreground text-sm">Not linked</span>
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={getArchetypeBadgeVariant(user.profile.archetype)}>
-                            {user.profile.archetype}
+                          <Badge variant={getArchetypeBadgeVariant(user.archetype)}>
+                            {user.archetype}
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge className={getTierBadgeClass(user.profile.tier)}>
-                            {tierNames[user.profile.tier]}
+                          <Badge className={getTierBadgeClass(user.tier)}>
+                            {tierNames[user.tier]}
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm">{user.profile.state}</span>
+                          <span className="text-sm">{user.state}</span>
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1 flex-wrap">
-                            {user.profile.flags?.isWhale && (
+                            {user.flags?.isWhale && (
                               <Badge variant="secondary" className="text-xs">Whale</Badge>
                             )}
-                            {user.profile.flags?.isExtractor && (
+                            {user.flags?.isExtractor && (
                               <Badge variant="destructive" className="text-xs">Extractor</Badge>
                             )}
-                            {user.profile.flags?.isHighPotential && (
+                            {user.flags?.isHighPotential && (
                               <Badge variant="default" className="text-xs">High Pot.</Badge>
                             )}
                           </div>
                         </TableCell>
                         <TableCell>
                           <Select
-                            value={user.profile.tier.toString()}
+                            value={user.tier.toString()}
                             onValueChange={(value) => {
                               updateTierMutation.mutate({ 
                                 userId: user.id, 
@@ -344,6 +375,142 @@ export default function AdminUsers() {
           )}
         </CardContent>
       </Card>
+
+      {/* User Detail Panel */}
+      {selectedUser && (
+        <Card className="fixed right-0 top-0 bottom-0 w-96 rounded-none border-l border-r-0 shadow-lg z-50 overflow-y-auto" data-testid="panel-user-detail">
+          <CardHeader className="sticky top-0 bg-background border-b">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">{selectedUser.discordUsername}</CardTitle>
+              <Button 
+                size="icon" 
+                variant="ghost" 
+                onClick={() => setSelectedUserId(null)}
+                data-testid="button-close-detail"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <CardDescription className="text-xs">{selectedUser.discordId}</CardDescription>
+          </CardHeader>
+          
+          <CardContent className="space-y-6 py-4">
+            {/* Basic Info */}
+            <div className="space-y-3">
+              <h3 className="font-semibold text-sm">Basic Info</h3>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Archetype</span>
+                  <Badge variant={getArchetypeBadgeVariant(selectedUser.archetype)}>{selectedUser.archetype}</Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tier</span>
+                  <Badge className={getTierBadgeClass(selectedUser.tier)}>{tierNames[selectedUser.tier]}</Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">State</span>
+                  <span className="font-medium">{selectedUser.state}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* KPIs */}
+            <div className="space-y-3">
+              <h3 className="font-semibold text-sm">Performance KPIs</h3>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Engagement</span>
+                  <span className="font-medium">{selectedUser.kpis?.engagementScore?.toFixed(0) || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Financial</span>
+                  <span className="font-medium">{selectedUser.kpis?.financialScore?.toFixed(0) || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Retention</span>
+                  <span className="font-medium">{selectedUser.kpis?.retentionScore?.toFixed(0) || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Messages (7d)</span>
+                  <span className="font-medium">{selectedUser.kpis?.messagesLast7d || 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* DFK Snapshot */}
+            {selectedUser.dfkSnapshot && (
+              <div className="space-y-3">
+                <h3 className="font-semibold text-sm">DFK Portfolio</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Heroes</span>
+                    <span className="font-medium">{selectedUser.dfkSnapshot.heroCount || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">LP Positions</span>
+                    <span className="font-medium">{selectedUser.dfkSnapshot.lpPositionsCount || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total LP Value</span>
+                    <span className="font-medium">${selectedUser.dfkSnapshot.totalLPValue?.toFixed(2) || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">JEWEL Balance</span>
+                    <span className="font-medium">{selectedUser.dfkSnapshot.jewelBalance?.toFixed(0) || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">CRYSTAL Balance</span>
+                    <span className="font-medium">{selectedUser.dfkSnapshot.crystalBalance?.toFixed(0) || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Questing Streak</span>
+                    <span className="font-medium">{selectedUser.dfkSnapshot.questingStreakDays || 0}d</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Behavior Tags */}
+            {selectedUser.behaviorTags && selectedUser.behaviorTags.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="font-semibold text-sm">Behavior Tags</h3>
+                <div className="flex flex-wrap gap-2">
+                  {selectedUser.behaviorTags.map((tag) => (
+                    <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Flags */}
+            {(selectedUser.flags?.isWhale || selectedUser.flags?.isExtractor || selectedUser.flags?.isHighPotential) && (
+              <div className="space-y-3">
+                <h3 className="font-semibold text-sm">Flags</h3>
+                <div className="flex flex-wrap gap-2">
+                  {selectedUser.flags.isWhale && (
+                    <Badge variant="secondary" className="text-xs">Whale</Badge>
+                  )}
+                  {selectedUser.flags.isExtractor && (
+                    <Badge variant="destructive" className="text-xs">Extractor</Badge>
+                  )}
+                  {selectedUser.flags.isHighPotential && (
+                    <Badge variant="default" className="text-xs">High Potential</Badge>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Overlay */}
+      {selectedUserId && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40"
+          onClick={() => setSelectedUserId(null)}
+          data-testid="overlay-user-detail"
+        />
+      )}
     </div>
   );
 }

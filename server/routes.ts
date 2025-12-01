@@ -157,6 +157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           discordId: players.discordId,
           discordUsername: players.discordUsername,
           walletAddress: players.walletAddress,
+          profileData: players.profileData,
           tier: jewelBalances.tier,
           balance: jewelBalances.balanceJewel,
           lifetimeDeposits: jewelBalances.lifetimeDepositsJewel,
@@ -274,6 +275,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
+        // Parse profile data
+        let profileData = null;
+        try {
+          if (user.profileData) {
+            profileData = typeof user.profileData === 'string' 
+              ? JSON.parse(user.profileData)
+              : user.profileData;
+          }
+        } catch (e) {
+          console.warn(`Failed to parse profileData for user ${user.id}`);
+        }
+
         return {
           ...user,
           queryCount: stats.totalQueries || 0,
@@ -286,7 +299,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalCrystalProvided: deposits.totalCrystal || '0',
           conversationSummary,
           userState: user.lastQueryAt ? 'active' : 'inactive',
-          conversionStatus: (deposits.completedDeposits || 0) > 0 ? 'converted' : 'free'
+          conversionStatus: (deposits.completedDeposits || 0) > 0 ? 'converted' : 'free',
+          profileData: profileData,
+          archetype: profileData?.archetype || 'GUEST',
+          state: profileData?.state || 'CURIOUS',
+          behaviorTags: profileData?.behaviorTags || [],
+          kpis: profileData?.kpis || {},
+          dfkSnapshot: profileData?.dfkSnapshot || null,
+          flags: profileData?.flags || {}
         };
       });
       
