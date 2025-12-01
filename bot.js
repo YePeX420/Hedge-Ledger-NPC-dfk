@@ -26,8 +26,8 @@ import { calculateSummoningProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
 import { decodeHeroGenes } from './hero-genetics.js';
 import { db } from './server/db.js';
-import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots } from './shared/schema.ts';
-import { eq, desc, sql, inArray, and, gt } from 'drizzle-orm';
+import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions } from './shared/schema.ts';
+import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
 import { isPaymentBypassEnabled, getDebugSettings, setDebugSettings } from './debug-settings.js';
@@ -2789,28 +2789,36 @@ app.use((req, res, next) => {
 // Admin list
 const ADMIN_USER_IDS = ['426019696916168714']; // yepex
 
-// Admin middleware
-function isAdmin(req, res, next) {
+// Admin middleware - database-backed sessions
+async function isAdmin(req, res, next) {
   try {
     const sessionToken = req.cookies.session_token;
     
-    if (!sessionToken || !global.sessions || !global.sessions[sessionToken]) {
+    if (!sessionToken) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     
-    const session = global.sessions[sessionToken];
+    // Fetch session from database
+    const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
     
-    if (session.expiresAt < Date.now()) {
-      delete global.sessions[sessionToken];
+    if (!sessions || sessions.length === 0) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    const session = sessions[0];
+    
+    // Check expiration
+    if (new Date(session.expiresAt) < new Date()) {
+      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
       return res.status(401).json({ error: 'Session expired' });
     }
     
-    console.log(`🔍 Admin check - userId: ${session.userId}, admins: [${ADMIN_USER_IDS.join(', ')}], match: ${ADMIN_USER_IDS.includes(session.userId)}`);
-    if (!ADMIN_USER_IDS.includes(session.userId)) {
+    console.log(`🔍 Admin check - userId: ${session.discordId}, admins: [${ADMIN_USER_IDS.join(', ')}], match: ${ADMIN_USER_IDS.includes(session.discordId)}`);
+    if (!ADMIN_USER_IDS.includes(session.discordId)) {
       return res.status(403).json({ error: 'Access denied: Administrator only' });
     }
     
-    req.user = session;
+    req.user = { userId: session.discordId, username: session.username, avatar: session.avatar };
     next();
   } catch (err) {
     console.error('❌ Admin middleware error:', err);
@@ -3047,17 +3055,18 @@ app.get('/auth/discord/callback', async (req, res) => {
       .update(`${user.id}:${Date.now()}`)
       .digest('hex');
     
-    // Store session with user data
-    if (!global.sessions) global.sessions = {};
-    global.sessions[sessionToken] = {
-      userId: user.id,
+    // Store session in database (7-day expiration)
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await db.insert(adminSessions).values({
+      sessionToken,
+      discordId: user.id,
       username: user.username,
       avatar: user.avatar,
       accessToken: tokenData.access_token,
-      expiresAt: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
-    };
+      expiresAt
+    });
     
-    res.setCookie('session_token', sessionToken, { maxAge: 24 * 60 * 60 });
+    res.setCookie('session_token', sessionToken, { maxAge: 7 * 24 * 60 * 60 });
     res.redirect('/');
   } catch (err) {
     console.error('❌ OAuth callback error:', err);
@@ -3065,25 +3074,32 @@ app.get('/auth/discord/callback', async (req, res) => {
   }
 });
 
-app.get('/auth/status', (req, res) => {
+app.get('/auth/status', async (req, res) => {
   try {
     const sessionToken = req.cookies.session_token;
     
-    if (!sessionToken || !global.sessions || !global.sessions[sessionToken]) {
+    if (!sessionToken) {
       return res.json({ authenticated: false });
     }
     
-    const session = global.sessions[sessionToken];
+    // Fetch from database
+    const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
     
-    if (session.expiresAt < Date.now()) {
-      delete global.sessions[sessionToken];
+    if (!sessions || sessions.length === 0) {
+      return res.json({ authenticated: false });
+    }
+    
+    const session = sessions[0];
+    
+    if (new Date(session.expiresAt) < new Date()) {
+      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
       return res.json({ authenticated: false });
     }
     
     res.json({
       authenticated: true,
       user: {
-        id: session.userId,
+        id: session.discordId,
         username: session.username,
         avatar: session.avatar
       }
@@ -3094,14 +3110,19 @@ app.get('/auth/status', (req, res) => {
   }
 });
 
-app.get('/auth/logout', (req, res) => {
-  const sessionToken = req.cookies.session_token;
-  if (sessionToken && global.sessions) {
-    delete global.sessions[sessionToken];
+app.get('/auth/logout', async (req, res) => {
+  try {
+    const sessionToken = req.cookies.session_token;
+    if (sessionToken) {
+      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+    }
+    
+    res.setCookie('session_token', '', { maxAge: 0 });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Logout error:', err);
+    res.status(500).json({ error: 'Logout failed' });
   }
-  
-  res.setCookie('session_token', '', { maxAge: 0 });
-  res.json({ success: true });
 });
 
 const server = http.createServer(app);

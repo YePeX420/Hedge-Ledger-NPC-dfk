@@ -19,6 +19,29 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
 // ============================================================================
+// ADMIN SESSIONS TABLE (for Discord OAuth authentication persistence)
+// ============================================================================
+
+export const adminSessions = pgTable("admin_sessions", {
+  id: serial("id").primaryKey(),
+  sessionToken: varchar("session_token").notNull().unique(),
+  discordId: text("discord_id").notNull(),
+  username: text("username").notNull(),
+  avatar: text("avatar"),
+  accessToken: text("access_token"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionTokenIdx: uniqueIndex("admin_sessions_token_idx").on(table.sessionToken),
+  discordIdIdx: index("admin_sessions_discord_id_idx").on(table.discordId),
+  expiresAtIdx: index("admin_sessions_expires_at_idx").on(table.expiresAt),
+}));
+
+export const insertAdminSessionSchema = createInsertSchema(adminSessions).omit({ id: true, createdAt: true });
+export type InsertAdminSession = z.infer<typeof insertAdminSessionSchema>;
+export type AdminSession = typeof adminSessions.$inferSelect;
+
+// ============================================================================
 // FAIR VALUE ENGINE SCHEMA
 // ============================================================================
 
@@ -509,284 +532,74 @@ export const extractorSignals = pgTable("extractor_signals", {
   id: serial("id").primaryKey(),
   playerId: integer("player_id").notNull().references(() => players.id),
   wallet: text("wallet").notNull(),
+  signalType: text("signal_type").notNull(), // 'floor_hero_flip', 'immediate_reward_sale', 'multi_hero_flip', etc.
+  signalStrength: numeric("signal_strength", { precision: 5, scale: 2 }).notNull(), // 0.0 to 10.0
   detectedAt: timestamp("detected_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  
-  // Signal type and weight
-  signalType: text("signal_type").notNull(),
-  // e.g., 'claim_sell_pattern', 'floor_flip', 'no_progression', 'yield_only_questions', 
-  // 'no_summoning', 'no_leveling', 'quick_cashout'
-  
-  signalWeight: numeric("signal_weight", { precision: 5, scale: 2 }).notNull(), // Weight: 0.00 to 10.00
-  
-  // Evidence
-  evidence: json("evidence"), // Details about what triggered this signal
+  relatedTransactionHash: text("related_transaction_hash"),
+  relatedHeroId: bigint("related_hero_id", { mode: "number" }),
   
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => ({
   playerIdIdx: index("extractor_signals_player_id_idx").on(table.playerId),
   walletIdx: index("extractor_signals_wallet_idx").on(table.wallet),
+  signalTypeIdx: index("extractor_signals_type_idx").on(table.signalType),
   detectedAtIdx: index("extractor_signals_detected_at_idx").on(table.detectedAt),
 }));
 
-// ============================================================================
-// GARDEN OPTIMIZATION SERVICE SCHEMA
-// ============================================================================
-
-/**
- * Garden optimizations - Tracks pending and completed optimization sessions
- */
-export const gardenOptimizations = pgTable("garden_optimizations", {
-  id: serial("id").primaryKey(),
-  playerId: integer("player_id").notNull().references(() => players.id),
-  
-  // Status tracking
-  status: text("status").notNull().default('awaiting_payment'), 
-  // 'awaiting_payment', 'payment_verified', 'processing', 'completed', 'failed', 'expired'
-  
-  // Timing
-  requestedAt: timestamp("requested_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), // 2 hours from request
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  paymentVerifiedAt: timestamp("payment_verified_at", { withTimezone: true }), // When payment was detected
-  
-  // Payment details
-  expectedAmountJewel: numeric("expected_amount_jewel", { precision: 30, scale: 18 }).notNull().default('25'),
-  fromWallet: text("from_wallet").notNull(), // User's wallet address
-  txHash: text("tx_hash"), // Transaction hash once payment verified
-  
-  // Per-job block scanning (prevents global backlog dependency)
-  startBlock: bigint("start_block", { mode: "number" }), // Block number when request created
-  lastScannedBlock: bigint("last_scanned_block", { mode: "number" }), // Last block checked for payment
-  
-  // Optimization data (stored as JSON)
-  lpSnapshot: json("lp_snapshot"), // Array of LP positions at time of request
-  reportPayload: json("report_payload"), // Full optimization report with before/after yields
-  
-  // Error handling
-  errorMessage: text("error_message"),
-  
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => ({
-  playerIdIdx: index("garden_optimizations_player_id_idx").on(table.playerId),
-  statusIdx: index("garden_optimizations_status_idx").on(table.status),
-  expiresAtIdx: index("garden_optimizations_expires_at_idx").on(table.expiresAt),
-  fromWalletIdx: index("garden_optimizations_from_wallet_idx").on(table.fromWallet),
-}));
-
-/**
- * Garden insights cache - Cache Tier 1 garden analysis results
- */
-export const gardenInsightsCache = pgTable("garden_insights_cache", {
-  id: serial("id").primaryKey(),
-  playerId: integer("player_id").notNull().references(() => players.id),
-  
-  // Cached data
-  payload: json("payload").notNull(), // Full Tier 1 analysis results
-  
-  // Timing
-  calculatedAt: timestamp("calculated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), // Cache invalidation time
-  
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => ({
-  playerIdIdx: index("garden_insights_cache_player_id_idx").on(table.playerId),
-  expiresAtIdx: index("garden_insights_cache_expires_at_idx").on(table.expiresAt),
-}));
-
-// ============================================================================
-// ECONOMIC MODEL SCHEMA - JEWEL BALANCE & QUERY COSTS
-// ============================================================================
-
-/**
- * JEWEL balances - Pre-paid credits for AI queries
- */
+// Additional player tracking schemas
 export const jewelBalances = pgTable("jewel_balances", {
   id: serial("id").primaryKey(),
-  playerId: integer("player_id").notNull().references(() => players.id).unique(), // One balance per player
-  
-  // Balance tracking
-  balanceJewel: numeric("balance_jewel", { precision: 30, scale: 18 }).notNull().default('0'),
-  
-  // Tier classification (based on lifetime deposits)
-  lifetimeDepositsJewel: numeric("lifetime_deposits_jewel", { precision: 30, scale: 18 }).notNull().default('0'),
-  tier: text("tier").notNull().default('free'), // 'free', 'bronze', 'silver', 'gold', 'whale'
-  
-  // Free tier usage tracking (resets daily)
-  freeGardenAprsUsedToday: integer("free_garden_aprs_used_today").default(0).notNull(),
-  freeSummonUsedToday: integer("free_summon_used_today").default(0).notNull(),
-  freeTierResetDate: timestamp("free_tier_reset_date", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  
-  // Last activity
-  lastQueryAt: timestamp("last_query_at", { withTimezone: true }),
-  lastDepositAt: timestamp("last_deposit_at", { withTimezone: true }),
-  
+  wallet: text("wallet").notNull().unique(),
+  balance: numeric("balance", { precision: 30, scale: 18 }).notNull(),
+  lastUpdated: timestamp("last_updated", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => ({
-  playerIdIdx: uniqueIndex("jewel_balances_player_id_idx").on(table.playerId),
-  tierIdx: index("jewel_balances_tier_idx").on(table.tier),
-}));
+});
 
-/**
- * Deposit requests - Track pending deposits with unique decimal amounts
- */
 export const depositRequests = pgTable("deposit_requests", {
   id: serial("id").primaryKey(),
-  playerId: integer("player_id").notNull().references(() => players.id),
-  
-  // Request details
-  requestedAt: timestamp("requested_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  requestedAmountJewel: numeric("requested_amount_jewel", { precision: 30, scale: 18 }).notNull(), // Base amount user requested (e.g., 10)
-  uniqueAmountJewel: numeric("unique_amount_jewel", { precision: 30, scale: 18 }).notNull().unique(), // e.g., 10.123456
-  hedgeWallet: text("hedge_wallet").notNull(), // 0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1
-  purpose: text("purpose").default('general'), // 'general', 'garden_optimization', 'fve_analysis', etc.
-  
-  // Status tracking
-  status: text("status").notNull().default('pending'), // 'pending', 'completed', 'expired'
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), // 24h expiration
-  
-  // Completion details
-  completedAt: timestamp("completed_at", { withTimezone: true }),
+  discordId: text("discord_id").notNull(),
+  walletAddress: text("wallet_address").notNull(),
+  amount: numeric("amount", { precision: 30, scale: 18 }).notNull(),
+  tokenAddress: text("token_address").notNull(),
+  status: text("status").notNull().default('pending'), // 'pending', 'confirmed', 'expired', 'errored'
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  confirmationReceivedAt: timestamp("confirmation_received_at", { withTimezone: true }),
   transactionHash: text("transaction_hash"),
-  actualAmountReceived: numeric("actual_amount_received", { precision: 30, scale: 18 }),
-  senderWallet: text("sender_wallet"),
-  
+  errorReason: text("error_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => ({
-  playerIdIdx: index("deposit_requests_player_id_idx").on(table.playerId),
-  statusIdx: index("deposit_requests_status_idx").on(table.status),
-  uniqueAmountIdx: uniqueIndex("deposit_requests_unique_amount_idx").on(table.uniqueAmountJewel),
-  expiresAtIdx: index("deposit_requests_expires_at_idx").on(table.expiresAt),
-}));
+});
 
-/**
- * Query costs - Log every AI query with cost tracking
- */
 export const queryCosts = pgTable("query_costs", {
   id: serial("id").primaryKey(),
-  playerId: integer("player_id").notNull().references(() => players.id),
-  
-  // Query details
-  timestamp: timestamp("timestamp", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  queryType: text("query_type").notNull(), // 'hero', 'garden_free', 'garden_premium', 'fve', 'summon', 'knowledge'
-  toolsUsed: json("tools_used").$type<string[]>().default(sql`'[]'::json`), // ['get_hero_info', 'get_garden_pools_premium']
-  
-  // Cost breakdown
-  tokensUsed: integer("tokens_used").notNull(),
-  openaiCostUsd: numeric("openai_cost_usd", { precision: 15, scale: 6 }).notNull(), // Actual OpenAI cost
-  replitCostUsd: numeric("replit_cost_usd", { precision: 15, scale: 6 }).notNull().default('0'), // Hosting overhead
-  totalCostUsd: numeric("total_cost_usd", { precision: 15, scale: 6 }).notNull(),
-  
-  // Pricing and profit
-  priceChargedJewel: numeric("price_charged_jewel", { precision: 30, scale: 18 }).notNull().default('0'), // 0 for free tier
-  jewelPriceUsd: numeric("jewel_price_usd", { precision: 15, scale: 6 }).notNull(), // JEWEL/USD at query time
-  revenueUsd: numeric("revenue_usd", { precision: 15, scale: 6 }).notNull().default('0'),
-  profitUsd: numeric("profit_usd", { precision: 15, scale: 6 }).notNull(), // revenue - totalCost
-  profitMargin: numeric("profit_margin", { precision: 10, scale: 2 }).notNull(), // percentage
-  
-  // Context
-  userMessage: text("user_message"), // Original query (for analysis)
-  freeTierUsed: boolean("free_tier_used").default(false).notNull(),
-  discountApplied: text("discount_applied"), // 'new_player', 'whale_priority', null
-  
+  discordId: text("discord_id").notNull(),
+  queryType: text("query_type").notNull(),
+  costJewel: numeric("cost_jewel", { precision: 30, scale: 18 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => ({
-  playerIdIdx: index("query_costs_player_id_idx").on(table.playerId),
-  timestampIdx: index("query_costs_timestamp_idx").on(table.timestamp),
-  queryTypeIdx: index("query_costs_query_type_idx").on(table.queryType),
-  freeTierIdx: index("query_costs_free_tier_idx").on(table.freeTierUsed),
-}));
+});
 
-/**
- * Pricing config - Dynamic pricing parameters (admin-configurable)
- */
-export const pricingConfig = pgTable("pricing_config", {
+export const gardenOptimizations = pgTable("garden_optimizations", {
   id: serial("id").primaryKey(),
-  configKey: text("config_key").notNull().unique(), // 'base_rates', 'discounts', 'surge_pricing'
-  
-  // Config value (JSON)
-  configValue: json("config_value").notNull(),
-  // Examples:
-  // base_rates: {hero: 0.2, garden_basic: 0, garden_premium: 0.15, fve: 0.3, summon: 0.25}
-  // discounts: {new_player_threshold: 100, new_player_discount: 0.5, whale_multiplier: 5}
-  // surge_pricing: {peak_hours: [12,13,14,18,19,20], peak_multiplier: 1.2}
-  
-  description: text("description"),
-  updatedBy: text("updated_by"), // Admin who last updated
-  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  discordId: text("discord_id").notNull(),
+  wallet: text("wallet").notNull(),
+  status: text("status").notNull().default('pending'), // 'pending', 'processing', 'completed', 'failed', 'expired'
+  costJewel: numeric("cost_jewel", { precision: 30, scale: 18 }).notNull().default('25'),
+  requiredPayment: numeric("required_payment", { precision: 30, scale: 18 }).notNull(),
+  paymentTransactionHash: text("payment_transaction_hash"),
+  reportUrl: text("report_url"),
+  errorMessage: text("error_message"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => ({
-  configKeyIdx: uniqueIndex("pricing_config_key_idx").on(table.configKey),
-}));
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
 
-/**
- * Wallet snapshots - Daily balance history for 7-day % change tracking
- */
 export const walletSnapshots = pgTable("wallet_snapshots", {
   id: serial("id").primaryKey(),
-  playerId: integer("player_id").notNull().references(() => players.id),
   wallet: text("wallet").notNull(),
-  asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(), // UTC midnight
-  
-  // Token balances at snapshot time
-  jewelBalance: numeric("jewel_balance", { precision: 30, scale: 18 }).notNull().default('0'),
+  asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(),
+  jewelBalance: numeric("jewel_balance", { precision: 30, scale: 18 }).notNull(),
   crystalBalance: numeric("crystal_balance", { precision: 30, scale: 18 }).notNull().default('0'),
-  cjewelBalance: numeric("cjewel_balance", { precision: 30, scale: 18 }).notNull().default('0'),
-  
-  // USD values at snapshot time (optional)
-  jewelPriceUsd: numeric("jewel_price_usd", { precision: 15, scale: 6 }),
-  crystalPriceUsd: numeric("crystal_price_usd", { precision: 15, scale: 6 }),
-  
+  cJewelBalance: numeric("c_jewel_balance", { precision: 30, scale: 18 }).notNull().default('0'),
+  lifetimeDeposit: numeric("lifetime_deposit", { precision: 30, scale: 18 }).notNull().default('0'),
+  change7d: numeric("change_7d", { precision: 30, scale: 18 }).default('0'),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => ({
-  walletAsOfDateIdx: uniqueIndex("wallet_snapshots_wallet_date_idx").on(table.wallet, table.asOfDate),
-  playerIdIdx: index("wallet_snapshots_player_id_idx").on(table.playerId),
-  asOfDateIdx: index("wallet_snapshots_as_of_date_idx").on(table.asOfDate),
-}));
-
-// Insert schemas
-export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, firstSeenAt: true, updatedAt: true });
-export const insertInteractionSessionSchema = createInsertSchema(interactionSessions).omit({ id: true, createdAt: true });
-export const insertInteractionMessageSchema = createInsertSchema(interactionMessages).omit({ id: true, createdAt: true });
-export const insertConversionMilestoneSchema = createInsertSchema(conversionMilestones).omit({ id: true, createdAt: true });
-export const insertWalletActivitySchema = createInsertSchema(walletActivity).omit({ id: true, createdAt: true });
-export const insertDailyPlayerSnapshotSchema = createInsertSchema(dailyPlayerSnapshots).omit({ id: true, createdAt: true });
-export const insertExtractorSignalSchema = createInsertSchema(extractorSignals).omit({ id: true, createdAt: true });
-export const insertGardenOptimizationSchema = createInsertSchema(gardenOptimizations).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertGardenInsightsCacheSchema = createInsertSchema(gardenInsightsCache).omit({ id: true, createdAt: true });
-export const insertJewelBalanceSchema = createInsertSchema(jewelBalances).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertDepositRequestSchema = createInsertSchema(depositRequests).omit({ id: true, createdAt: true });
-export const insertQueryCostSchema = createInsertSchema(queryCosts).omit({ id: true, createdAt: true });
-export const insertPricingConfigSchema = createInsertSchema(pricingConfig).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertWalletSnapshotSchema = createInsertSchema(walletSnapshots).omit({ id: true, createdAt: true });
-
-// Types
-export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
-export type Player = typeof players.$inferSelect;
-export type InsertInteractionSession = z.infer<typeof insertInteractionSessionSchema>;
-export type InteractionSession = typeof interactionSessions.$inferSelect;
-export type InsertInteractionMessage = z.infer<typeof insertInteractionMessageSchema>;
-export type InteractionMessage = typeof interactionMessages.$inferSelect;
-export type InsertConversionMilestone = z.infer<typeof insertConversionMilestoneSchema>;
-export type ConversionMilestone = typeof conversionMilestones.$inferSelect;
-export type InsertWalletActivity = z.infer<typeof insertWalletActivitySchema>;
-export type WalletActivity = typeof walletActivity.$inferSelect;
-export type InsertDailyPlayerSnapshot = z.infer<typeof insertDailyPlayerSnapshotSchema>;
-export type DailyPlayerSnapshot = typeof dailyPlayerSnapshots.$inferSelect;
-export type InsertExtractorSignal = z.infer<typeof insertExtractorSignalSchema>;
-export type ExtractorSignal = typeof extractorSignals.$inferSelect;
-export type InsertGardenOptimization = z.infer<typeof insertGardenOptimizationSchema>;
-export type GardenOptimization = typeof gardenOptimizations.$inferSelect;
-export type InsertGardenInsightsCache = z.infer<typeof insertGardenInsightsCacheSchema>;
-export type GardenInsightsCache = typeof gardenInsightsCache.$inferSelect;
-export type InsertJewelBalance = z.infer<typeof insertJewelBalanceSchema>;
-export type JewelBalance = typeof jewelBalances.$inferSelect;
-export type InsertDepositRequest = z.infer<typeof insertDepositRequestSchema>;
-export type DepositRequest = typeof depositRequests.$inferSelect;
-export type InsertQueryCost = z.infer<typeof insertQueryCostSchema>;
-export type QueryCost = typeof queryCosts.$inferSelect;
-export type InsertPricingConfig = z.infer<typeof insertPricingConfigSchema>;
-export type PricingConfig = typeof pricingConfig.$inferSelect;
-export type InsertWalletSnapshot = z.infer<typeof insertWalletSnapshotSchema>;
-export type WalletSnapshot = typeof walletSnapshots.$inferSelect;
+});
