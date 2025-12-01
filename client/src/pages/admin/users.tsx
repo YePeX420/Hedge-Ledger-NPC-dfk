@@ -439,7 +439,13 @@ export default function AdminUsers() {
         <div className="fixed right-0 top-0 bottom-0 w-96 z-50 flex flex-col border-l border-border shadow-2xl" style={{backgroundColor: 'hsl(var(--background))', backdropFilter: 'none'}}>
           <div className="sticky top-0 border-b border-border p-4 flex items-center justify-between" style={{backgroundColor: 'hsl(var(--background))'}}>
             <div>
-              <h2 className="text-lg font-semibold">{selectedUser.discordUsername}</h2>
+              <button 
+                onClick={() => window.open(`${window.location.origin}/account?userId=${selectedUser.discordId}`, '_blank')}
+                className="text-lg font-semibold text-blue-600 dark:text-blue-400 hover:underline hover-elevate"
+                data-testid={`button-open-user-dashboard-${selectedUser.id}`}
+              >
+                {selectedUser.discordUsername}
+              </button>
               <p className="text-xs text-muted-foreground">{selectedUser.discordId}</p>
             </div>
             <Button 
@@ -640,18 +646,6 @@ export default function AdminUsers() {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Sticky Footer Button */}
-          <div className="sticky bottom-0 border-t border-border p-4" style={{backgroundColor: 'hsl(var(--background))'}}>
-            <Button 
-              className="w-full" 
-              variant="default"
-              data-testid={`button-view-user-dashboard-${selectedUser.id}`}
-              onClick={() => window.open(`${window.location.origin}/account?userId=${selectedUser.discordId}`, '_blank')}
-            >
-              View User Dashboard
-            </Button>
           </div>
         </div>
       )}
