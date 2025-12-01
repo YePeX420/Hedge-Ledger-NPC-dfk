@@ -19,6 +19,7 @@ import { ethers } from 'ethers';
 import { creditBalance } from './balance-credit.js';
 import { initializeProcessor, startProcessor, stopProcessor } from './optimization-processor.js';
 import { startSnapshotJob, stopSnapshotJob } from './wallet-snapshot-job.js';
+import { fetchWalletBalances } from './blockchain-balance-fetcher.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './pool-cache.js';
@@ -2863,6 +2864,25 @@ app.get('/api/admin/debug-status', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 })
+
+// GET /api/admin/hedge-wallet - Get Hedge's wallet balance (admin only)
+app.get('/api/admin/hedge-wallet', isAdmin, async (req, res) => {
+  try {
+    const balances = await fetchWalletBalances(HEDGE_WALLET);
+    res.json({
+      success: true,
+      wallet: HEDGE_WALLET,
+      balances: {
+        jewel: balances.jewel,
+        crystal: balances.crystal,
+        cjewel: balances.cjewel
+      }
+    });
+  } catch (err) {
+    console.error('[API] Error fetching hedge wallet balance:', err);
+    res.status(500).json({ error: 'Failed to fetch wallet balance' });
+  }
+});
 
 // GET /api/admin/users - List all users with profiles
 app.get('/api/admin/users', isAdmin, async (req, res) => {
