@@ -598,6 +598,36 @@ client.once(Events.ClientReady, async (c) => {
                 required: false
               }
             ]
+          },
+          {
+            name: 'debug-jewel-payments',
+            description: 'View all JEWEL payments to Hedge wallet (admin only)',
+            options: [
+              {
+                name: 'limit',
+                description: 'Number of recent payments to show (default 20)',
+                type: 4,           // INTEGER
+                required: false
+              }
+            ]
+          },
+          {
+            name: 'debug-wallet-payments',
+            description: 'View JEWEL payments from a specific wallet (admin only)',
+            options: [
+              {
+                name: 'wallet',
+                description: 'Wallet address (0x...)',
+                type: 3,           // STRING
+                required: true
+              },
+              {
+                name: 'limit',
+                description: 'Number of recent payments to show (default 20)',
+                type: 4,           // INTEGER
+                required: false
+              }
+            ]
           }
         ];
 
@@ -2464,6 +2494,139 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } catch (err) {
         console.error('❌ Error in /hedge-profiles-list:', err);
         await interaction.editReply('Failed to list profiles. Please try again.');
+      }
+      return;
+    }
+
+    if (name === 'debug-jewel-payments') {
+      try {
+        const isAdmin = interaction.member?.permissions?.has('Administrator') || 
+                        interaction.user.id === process.env.BOT_OWNER_ID;
+        
+        if (!isAdmin) {
+          await interaction.editReply('This command requires admin permissions.');
+          return;
+        }
+
+        const limit = interaction.options.getInteger('limit') || 20;
+
+        // Query all deposit requests, ordered by most recent
+        const allPayments = await db.select().from(depositRequests)
+          .orderBy(desc(depositRequests.createdAt))
+          .limit(limit);
+
+        const lines = [];
+        lines.push(`💰 **JEWEL Payments to Hedge** (Last ${limit})\n`);
+
+        if (allPayments.length === 0) {
+          lines.push('No payments recorded yet.');
+          await interaction.editReply(lines.join('\n'));
+          return;
+        }
+
+        // Calculate summary stats
+        const verified = allPayments.filter(p => p.status === 'payment_verified' || p.status === 'completed').length;
+        const pending = allPayments.filter(p => p.status === 'awaiting_payment').length;
+        const failed = allPayments.filter(p => p.status === 'failed').length;
+
+        // Calculate total received
+        let totalReceived = 0n;
+        for (const payment of allPayments) {
+          if (payment.status === 'payment_verified' || payment.status === 'completed') {
+            totalReceived += BigInt(payment.expectedAmountJewel || 0);
+          }
+        }
+
+        lines.push(`**Summary**: ${verified} verified, ${pending} pending, ${failed} failed`);
+        lines.push(`**Total Received**: ${(Number(totalReceived) / 1e18).toFixed(2)} JEWEL\n`);
+
+        lines.push('**Recent Payments**:');
+        for (let i = 0; i < allPayments.length; i++) {
+          const p = allPayments[i];
+          const status = p.status === 'payment_verified' || p.status === 'completed' ? '✅' : 
+                        p.status === 'awaiting_payment' ? '⏳' : '❌';
+          const amount = (Number(p.expectedAmountJewel || 0) / 1e18).toFixed(2);
+          const wallet = `${p.wallet.slice(0, 6)}...${p.wallet.slice(-4)}`;
+          const date = new Date(p.createdAt).toLocaleDateString();
+          lines.push(`${i + 1}. ${status} ${amount} JEWEL from ${wallet} (${date})`);
+        }
+
+        await interaction.editReply(lines.join('\n'));
+
+      } catch (err) {
+        console.error('❌ Error in /debug-jewel-payments:', err);
+        await interaction.editReply(`Failed to fetch payments: ${err.message}`);
+      }
+      return;
+    }
+
+    if (name === 'debug-wallet-payments') {
+      try {
+        const isAdmin = interaction.member?.permissions?.has('Administrator') || 
+                        interaction.user.id === process.env.BOT_OWNER_ID;
+        
+        if (!isAdmin) {
+          await interaction.editReply('This command requires admin permissions.');
+          return;
+        }
+
+        const walletAddress = interaction.options.getString('wallet', true);
+        const limit = interaction.options.getInteger('limit') || 20;
+
+        if (!walletAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+          await interaction.editReply('❌ Invalid wallet address. Must be a 40-character hex string starting with 0x.');
+          return;
+        }
+
+        const normalizedWallet = walletAddress.toLowerCase();
+
+        // Query payments from this wallet, ordered by most recent
+        const walletPayments = await db.select().from(depositRequests)
+          .where(eq(depositRequests.wallet, normalizedWallet))
+          .orderBy(desc(depositRequests.createdAt))
+          .limit(limit);
+
+        const lines = [];
+        lines.push(`💰 **JEWEL Payments from ${normalizedWallet.slice(0, 6)}...${normalizedWallet.slice(-4)}**\n`);
+
+        if (walletPayments.length === 0) {
+          lines.push('No payments found from this wallet.');
+          await interaction.editReply(lines.join('\n'));
+          return;
+        }
+
+        // Calculate summary stats for this wallet
+        const verified = walletPayments.filter(p => p.status === 'payment_verified' || p.status === 'completed').length;
+        const pending = walletPayments.filter(p => p.status === 'awaiting_payment').length;
+        const failed = walletPayments.filter(p => p.status === 'failed').length;
+
+        // Calculate total received from this wallet
+        let totalReceived = 0n;
+        for (const payment of walletPayments) {
+          if (payment.status === 'payment_verified' || payment.status === 'completed') {
+            totalReceived += BigInt(payment.expectedAmountJewel || 0);
+          }
+        }
+
+        lines.push(`**Summary**: ${verified} verified, ${pending} pending, ${failed} failed`);
+        lines.push(`**Total from this Wallet**: ${(Number(totalReceived) / 1e18).toFixed(2)} JEWEL\n`);
+
+        lines.push('**Payment History**:');
+        for (let i = 0; i < walletPayments.length; i++) {
+          const p = walletPayments[i];
+          const status = p.status === 'payment_verified' || p.status === 'completed' ? '✅' : 
+                        p.status === 'awaiting_payment' ? '⏳' : '❌';
+          const amount = (Number(p.expectedAmountJewel || 0) / 1e18).toFixed(2);
+          const date = new Date(p.createdAt).toLocaleDateString();
+          const txHash = p.txHash ? `\`${p.txHash.slice(0, 8)}...\`` : 'Pending';
+          lines.push(`${i + 1}. ${status} ${amount} JEWEL on ${date} - TX: ${txHash}`);
+        }
+
+        await interaction.editReply(lines.join('\n'));
+
+      } catch (err) {
+        console.error('❌ Error in /debug-wallet-payments:', err);
+        await interaction.editReply(`Failed to fetch payments: ${err.message}`);
       }
       return;
     }
