@@ -316,7 +316,7 @@
 
         async function checkAuth() {
             try {
-                const response = await fetch('/auth/status');
+                const response = await fetch('/auth/status', { credentials: 'include' });
                 const data = await response.json();
                 
                 if (!data.authenticated) {
@@ -343,7 +343,7 @@
 
         async function fetchUsers() {
             try {
-                const response = await fetch('/api/admin/users');
+                const response = await fetch('/api/admin/users', { credentials: 'include' });
                 
                 if (response.status === 401) {
                     window.location.href = '/login.html';
@@ -371,6 +371,7 @@
             try {
                 const response = await fetch(`/api/admin/users/${userId}/tier`, {
                     method: 'PATCH',
+                    credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ tier: newTier })
                 });
@@ -404,7 +405,8 @@
             
             try {
                 const response = await fetch(`/api/admin/users/${discordId}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    credentials: 'include'
                 });
                 
                 if (response.status === 401) {
