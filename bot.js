@@ -2917,6 +2917,37 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
             console.warn(`Failed to parse profileData for player ${player.id}`);
           }
           
+          // Fetch blockchain data if wallet exists
+          let influence = 0;
+          let dfkSnapshot = profileData?.dfkSnapshot || null;
+          
+          if (player.primaryWallet) {
+            try {
+              // Fetch influence token
+              influence = await onchain.getPlayerInfluence(player.primaryWallet);
+              
+              // Fetch all heroes and calculate metrics
+              const heroes = await onchain.getAllHeroesByOwner(player.primaryWallet);
+              const { gen0Count, heroAge } = onchain.calculateHeroMetrics(heroes);
+              
+              dfkSnapshot = {
+                heroCount: heroes.length,
+                gen0Count,
+                heroAge,
+                petCount: 0,
+                lpPositionsCount: 0,
+                totalLPValue: 0,
+                jewelBalance: 0,
+                crystalBalance: 0,
+                questingStreakDays: 0
+              };
+              
+              console.log(`[API] User ${player.discordUsername}: Influence=${influence}, Gen0=${gen0Count}, HeroAge=${heroAge}d`);
+            } catch (err) {
+              console.warn(`[API] Failed to fetch blockchain data for ${player.primaryWallet}:`, err.message);
+            }
+          }
+          
           return {
             id: player.id,
             discordId: player.discordId,
@@ -2928,7 +2959,8 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
             state: profileData?.state || 'CURIOUS',
             behaviorTags: profileData?.behaviorTags || [],
             kpis: profileData?.kpis || {},
-            dfkSnapshot: profileData?.dfkSnapshot || null,
+            dfkSnapshot,
+            influence,
             flags: profileData?.flags || {},
             // Legacy profile field for backward compatibility
             profile: {
@@ -2952,6 +2984,7 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
             behaviorTags: [],
             kpis: {},
             dfkSnapshot: null,
+            influence: 0,
             flags: {},
             profile: {
               archetype: 'ERROR',

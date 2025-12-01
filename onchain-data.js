@@ -936,6 +936,61 @@ export async function getGardenPoolByPid(pid, realm = 'dfk') {
 }
 
 /**
+ * Get player Influence token balance from PVP Diamond contract (Metis)
+ * @param {string} playerAddress - Player wallet address
+ * @returns {Promise<number>} Influence token balance or 0 if error
+ */
+export async function getPlayerInfluence(playerAddress) {
+  try {
+    const metisRpc = 'https://metis-mainnet.public.blastapi.io';
+    const metisProvider = new ethers.JsonRpcProvider(metisRpc);
+    
+    // PVP Diamond contract address on Metis
+    const PVP_DIAMOND_ADDRESS = '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B';
+    
+    // Minimal ABI for getPlayerInfluenceData
+    const abi = [
+      'function getPlayerInfluenceData(address _player) view returns (tuple(uint256 totalInfluence, uint256 availableInfluence, uint256 resetWeekNumber, uint256 spectatingBattleId))'
+    ];
+    
+    const contract = new ethers.Contract(PVP_DIAMOND_ADDRESS, abi, metisProvider);
+    const influenceData = await contract.getPlayerInfluenceData(playerAddress);
+    
+    // Return totalInfluence converted from BigInt
+    return Number(influenceData.totalInfluence || 0);
+  } catch (err) {
+    console.warn(`[getPlayerInfluence] Error fetching influence for ${playerAddress}:`, err.message);
+    return 0;
+  }
+}
+
+/**
+ * Calculate Gen0 count and hero age from hero data
+ * @param {Array} heroes - Array of hero objects
+ * @returns {Object} { gen0Count: number, heroAge: number }
+ */
+export function calculateHeroMetrics(heroes) {
+  if (!heroes || heroes.length === 0) {
+    return { gen0Count: 0, heroAge: 0 };
+  }
+  
+  // Count Gen0 heroes (generation = 0)
+  const gen0Count = heroes.filter(h => h.generation === 0 || h.generation === '0').length;
+  
+  // Find oldest hero by highest level (proxy for age - older heroes are typically higher level)
+  const oldestHero = heroes.reduce((max, h) => {
+    const heroLevel = Number(h.level || 0);
+    const maxLevel = Number(max.level || 0);
+    return heroLevel > maxLevel ? h : max;
+  }, heroes[0]);
+  
+  // Hero age in days (approximate based on level - roughly 1 day per 2-3 levels)
+  const heroAge = Math.floor((Number(oldestHero.level || 1) - 1) / 2.5);
+  
+  return { gen0Count, heroAge };
+}
+
+/**
  * Format garden pool summary for Discord display
  * @param {Object} pool - Pool data
  * @param {Object} rewards - Pending rewards (optional)
