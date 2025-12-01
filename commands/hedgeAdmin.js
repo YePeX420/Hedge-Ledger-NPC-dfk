@@ -1,5 +1,5 @@
 // commands/hedgeAdmin.js
-const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle } = require('discord.js');
+import { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle } from 'discord.js';
 
 // Helper function to check if user is admin
 function userIsAdmin(interaction) {
@@ -17,7 +17,7 @@ function userIsAdmin(interaction) {
   return false;
 }
 
-module.exports = {
+export default {
   data: new SlashCommandBuilder()
     .setName('hedge-admin')
     .setDescription('Open the Hedge Ledger admin dashboard (admins only).'),

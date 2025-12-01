@@ -1,8 +1,7 @@
 // commands/ping.js
+import { SlashCommandBuilder } from 'discord.js';
 
-const { SlashCommandBuilder } = require('discord.js');
-
-module.exports = {
+export default {
   data: new SlashCommandBuilder()
     .setName('ping')
     .setDescription('Check if Hedge is online and measure latency.'),

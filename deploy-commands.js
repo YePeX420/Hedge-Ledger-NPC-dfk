@@ -21,12 +21,12 @@ if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID || !DISCORD_GUILD_ID) {
 
 // Load all commands from /commands directory
 const commands = [];
-const commandsPath = path.join(__dirname, 'commands');
+const commandsPath = path.join(process.cwd(), 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 
 for (const file of commandFiles) {
   try {
-    const commandModule = await import(`./${path.join('commands', file)}`);
+    const commandModule = await import(`./commands/${file}`);
     const command = commandModule.default || commandModule;
     
     if (command?.data) {

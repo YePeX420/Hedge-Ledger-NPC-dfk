@@ -1,10 +1,8 @@
 // commands/logtest.js
+import { SlashCommandBuilder } from 'discord.js';
+import fs from 'fs';
 
-const { SlashCommandBuilder } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
-
-module.exports = {
+export default {
   data: new SlashCommandBuilder()
     .setName('logtest')
     .setDescription('Write a test entry into Hedge log for debugging.'),
@@ -14,8 +12,8 @@ module.exports = {
     const logLine = `[${now.toISOString()}] LOGTEST from ${interaction.user.tag} (${interaction.user.id}) in guild ${interaction.guildId}\n`;
 
     try {
-      const logsDir = path.join(__dirname, '..', 'logs');
-      const logFilePath = path.join(logsDir, 'hedge.log');
+      const logsDir = 'logs';
+      const logFilePath = `${logsDir}/hedge.log`;
 
       if (!fs.existsSync(logsDir)) {
         fs.mkdirSync(logsDir);
