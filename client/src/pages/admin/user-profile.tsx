@@ -163,8 +163,18 @@ export default function UserProfile() {
             )}
           </div>
 
-          <div className="border-t pt-4 text-xs text-muted-foreground">
-            Early Access – features and on-chain automation are still being rolled out.
+          <div className="border-t pt-4 space-y-4">
+            <Button 
+              className="w-full" 
+              variant="default"
+              data-testid="button-view-dashboard"
+              onClick={() => window.open(`${window.location.origin}/account?userId=${profile.discordId}`, '_blank')}
+            >
+              View User Dashboard
+            </Button>
+            <div className="text-xs text-muted-foreground">
+              Early Access – features and on-chain automation are still being rolled out.
+            </div>
           </div>
         </CardContent>
       </Card>
