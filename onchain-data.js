@@ -942,7 +942,7 @@ export async function getGardenPoolByPid(pid, realm = 'dfk') {
  */
 export async function getPlayerInfluence(playerAddress) {
   try {
-    const metisRpc = 'https://metis-mainnet.public.blastapi.io';
+    const metisRpc = 'https://rpc.metis.io';
     const metisProvider = new ethers.JsonRpcProvider(metisRpc);
     
     // PVP Diamond contract address on Metis

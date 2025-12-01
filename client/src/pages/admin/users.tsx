@@ -44,6 +44,7 @@ interface DFKSnapshot {
   totalLPValue?: number;
   jewelBalance?: number;
   crystalBalance?: number;
+  cJewelBalance?: number;
   questingStreakDays?: number;
   heroAge?: number;
   heroRarity?: string;
@@ -555,7 +556,11 @@ export default function AdminUsers() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">CRYSTAL Balance</span>
-                    <span className="font-medium">{selectedUser.dfkSnapshot.crystalBalance?.toFixed(0) || 0}</span>
+                    <span className="font-medium">{selectedUser.dfkSnapshot.crystalBalance?.toFixed(2) || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">cJEWEL Balance</span>
+                    <span className="font-medium">{selectedUser.dfkSnapshot.cJewelBalance?.toFixed(2) || 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Questing Streak</span>

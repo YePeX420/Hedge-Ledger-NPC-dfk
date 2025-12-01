@@ -2930,19 +2930,30 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
               const heroes = await onchain.getAllHeroesByOwner(player.primaryWallet);
               const { gen0Count, heroAge } = onchain.calculateHeroMetrics(heroes);
               
+              // Fetch wallet balances
+              const balances = await fetchWalletBalances(player.primaryWallet);
+              
+              // Fetch incentivized LP positions (gardens)
+              const dfkGardens = await onchain.getUserGardenPositions(player.primaryWallet, 'dfk');
+              const klaytnGardens = await onchain.getUserGardenPositions(player.primaryWallet, 'klaytn');
+              const allGardens = [...(dfkGardens || []), ...(klaytnGardens || [])];
+              const lpPositionsCount = allGardens.length;
+              const totalLPValue = allGardens.reduce((sum, pos) => sum + (Number(pos.lpStaked || 0) * 0.01), 0);
+              
               dfkSnapshot = {
                 heroCount: heroes.length,
                 gen0Count,
                 heroAge,
                 petCount: 0,
-                lpPositionsCount: 0,
-                totalLPValue: 0,
-                jewelBalance: 0,
-                crystalBalance: 0,
+                lpPositionsCount,
+                totalLPValue,
+                jewelBalance: parseFloat(balances.jewel || '0'),
+                crystalBalance: parseFloat(balances.crystal || '0'),
+                cJewelBalance: parseFloat(balances.cjewel || '0'),
                 questingStreakDays: 0
               };
               
-              console.log(`[API] User ${player.discordUsername}: Influence=${influence}, Gen0=${gen0Count}, HeroAge=${heroAge}d`);
+              console.log(`[API] User ${player.discordUsername}: Influence=${influence}, Gen0=${gen0Count}, HeroAge=${heroAge}d, LP=${lpPositionsCount}, JEWEL=${balances.jewel}`);
             } catch (err) {
               console.warn(`[API] Failed to fetch blockchain data for ${player.primaryWallet}:`, err.message);
             }
