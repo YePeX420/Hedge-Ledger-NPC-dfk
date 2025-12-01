@@ -207,6 +207,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(players.firstSeenAt));
       
       console.log(`[API] /api/admin/users fetched ${userList.length} players`);
+      if (userList.length > 0) {
+        console.log(`[API] First player raw data:`, JSON.stringify(userList[0], null, 2));
+      }
       const playerIds = userList.map(u => u.id);
       
       // Early return if no players exist

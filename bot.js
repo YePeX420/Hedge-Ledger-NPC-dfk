@@ -2897,31 +2897,62 @@ app.get('/api/admin/hedge-wallet', isAdmin, async (req, res) => {
 app.get('/api/admin/users', isAdmin, async (req, res) => {
   try {
     const playerRows = await db.select().from(players);
+    console.log(`[API] /api/admin/users fetched ${playerRows.length} players`);
+    if (playerRows.length > 0) {
+      console.log(`[API] First player raw:`, JSON.stringify(playerRows[0], null, 2));
+    }
     
     const usersWithProfiles = await Promise.all(
       playerRows.map(async (player) => {
         try {
-          const profile = await getQuickProfileSummary(player.discord_id);
+          // Parse profile data from the JSON column
+          let profileData = null;
+          try {
+            if (player.profileData) {
+              profileData = typeof player.profileData === 'string' 
+                ? JSON.parse(player.profileData)
+                : player.profileData;
+            }
+          } catch (e) {
+            console.warn(`Failed to parse profileData for player ${player.id}`);
+          }
+          
           return {
             id: player.id,
-            discordId: player.discord_id,
-            discordUsername: player.discord_username,
-            wallet: player.wallet,
-            profile: profile || {
-              archetype: 'UNKNOWN',
-              tier: 0,
-              state: 'VISITOR',
-              tags: [],
-              flags: {}
+            discordId: player.discordId,
+            discordUsername: player.discordUsername,
+            walletAddress: player.primaryWallet,
+            // Profile fields extracted from profileData JSON
+            archetype: profileData?.archetype || 'GUEST',
+            tier: profileData?.tier || 0,
+            state: profileData?.state || 'CURIOUS',
+            behaviorTags: profileData?.behaviorTags || [],
+            kpis: profileData?.kpis || {},
+            dfkSnapshot: profileData?.dfkSnapshot || null,
+            flags: profileData?.flags || {},
+            // Legacy profile field for backward compatibility
+            profile: {
+              archetype: profileData?.archetype || 'GUEST',
+              tier: profileData?.tier || 0,
+              state: profileData?.state || 'CURIOUS',
+              tags: profileData?.behaviorTags || [],
+              flags: profileData?.flags || {}
             }
           };
         } catch (err) {
-          console.error(`Error fetching profile for ${player.discord_id}:`, err);
+          console.error(`Error fetching profile for ${player.discordId}:`, err);
           return {
             id: player.id,
-            discordId: player.discord_id,
-            discordUsername: player.discord_username,
-            wallet: player.wallet,
+            discordId: player.discordId,
+            discordUsername: player.discordUsername,
+            walletAddress: player.primaryWallet,
+            archetype: 'ERROR',
+            tier: 0,
+            state: 'VISITOR',
+            behaviorTags: [],
+            kpis: {},
+            dfkSnapshot: null,
+            flags: {},
             profile: {
               archetype: 'ERROR',
               tier: 0,
@@ -2957,7 +2988,7 @@ app.patch('/api/admin/users/:id/tier', isAdmin, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    const discordId = player[0].discord_id;
+    const discordId = player[0].discordId; // Fixed: was player[0].discord_id
     
     // Update tier using the profile service
     await setTierOverride(discordId, tier);
