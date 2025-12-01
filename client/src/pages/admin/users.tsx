@@ -21,6 +21,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { Search, RefreshCw, ChevronUp, ChevronDown, X } from 'lucide-react';
 
@@ -93,6 +98,21 @@ const tierNames: Record<string | number, string> = {
   2: 'Silver',
   3: 'Gold',
   4: 'Council of Hedge'
+};
+
+const behaviorTagDescriptions: Record<string, string> = {
+  'NEWCOMER': 'Recently joined the community',
+  'COLLECTOR': 'Focuses on collecting heroes and assets',
+  'SPEEDRUNNER': 'Progresses quickly through content',
+  'SOCIAL_PLAYER': 'Frequently interacts with community',
+  'FREQUENT_TRADER': 'Active in marketplace transactions',
+  'HERO_FOCUSED': 'Prioritizes hero-related activities',
+  'GARDEN_FOCUSED': 'Concentrates on garden LP activities',
+  'QUESTER': 'Regularly participates in quests',
+  'GUILD_MEMBER': 'Part of player guild/organization',
+  'MULTICHAIN': 'Uses multiple blockchain networks',
+  'HIGH_ENGAGEMENT': 'Very active community participation',
+  'WHALE': 'Large financial investment in game'
 };
 
 export default function AdminUsers() {
@@ -431,6 +451,10 @@ export default function AdminUsers() {
                   <span className="text-muted-foreground">State</span>
                   <span className="font-medium">{selectedUser.state}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Influence</span>
+                  <span className="font-medium">{selectedUser.tier > 0 ? selectedUser.tier : 1} / 4</span>
+                </div>
               </div>
             </div>
 
@@ -538,7 +562,14 @@ export default function AdminUsers() {
                 <h3 className="font-semibold text-sm">Behavior Tags</h3>
                 <div className="flex flex-wrap gap-2">
                   {selectedUser.behaviorTags.map((tag) => (
-                    <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+                    <Tooltip key={tag}>
+                      <TooltipTrigger asChild>
+                        <Badge variant="outline" className="text-xs cursor-help">{tag}</Badge>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {behaviorTagDescriptions[tag] || 'Player behavior indicator'}
+                      </TooltipContent>
+                    </Tooltip>
                   ))}
                 </div>
               </div>
