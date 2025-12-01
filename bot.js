@@ -1093,6 +1093,15 @@ client.on('messageCreate', async (message) => {
         { role: 'user', content: message.content }
       ]);
 
+      // 💼 Wallet capture nudge system - append prompt if user has no wallet (frequency control: ~30% chance every message)
+      let finalResponse = response;
+      const hasWallet = playerData?.wallets && playerData.wallets.length > 0;
+      const shouldNudge = !hasWallet && Math.random() < 0.3; // ~30% chance to nudge
+      
+      if (shouldNudge) {
+        finalResponse += `\n\n---\n*By the way, if you share your wallet address, I can give you much more personalized advice—analyzing your heroes, checking your garden yields, the whole ledger. Might even set up some rewarded quests for you if you're new around the kingdoms!*`;
+      }
+
       // 🎨 Intelligent chart attachment system
       const userContent = message.content.toLowerCase();
       const aiResponse = response.toLowerCase();
@@ -1169,12 +1178,12 @@ client.on('messageCreate', async (message) => {
       if (attachments.length > 0) {
         console.log(`🎨 Detected breeding question - attaching ${attachments.length} chart(s): ${chartTypes.join(', ')}`);
         await message.reply({
-          content: response,
+          content: finalResponse,
           files: attachments
         });
         console.log(`✅ Sent AI response with ${attachments.length} chart(s) to ${username}`);
       } else {
-        await message.reply(response);
+        await message.reply(finalResponse);
         console.log(`✅ Sent AI response to ${username}`);
       }
     } catch (aiError) {
