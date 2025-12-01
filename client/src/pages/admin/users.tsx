@@ -640,18 +640,18 @@ export default function AdminUsers() {
                 </div>
               </div>
             )}
+          </div>
 
-            {/* View Dashboard Button */}
-            <div className="border-t pt-4">
-              <Button 
-                className="w-full" 
-                variant="default"
-                data-testid={`button-view-user-dashboard-${selectedUser.id}`}
-                onClick={() => window.open(`${window.location.origin}/account?userId=${selectedUser.discordId}`, '_blank')}
-              >
-                View User Dashboard
-              </Button>
-            </div>
+          {/* Sticky Footer Button */}
+          <div className="sticky bottom-0 border-t border-border p-4" style={{backgroundColor: 'hsl(var(--background))'}}>
+            <Button 
+              className="w-full" 
+              variant="default"
+              data-testid={`button-view-user-dashboard-${selectedUser.id}`}
+              onClick={() => window.open(`${window.location.origin}/account?userId=${selectedUser.discordId}`, '_blank')}
+            >
+              View User Dashboard
+            </Button>
           </div>
         </div>
       )}
