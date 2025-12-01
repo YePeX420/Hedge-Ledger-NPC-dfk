@@ -27,7 +27,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RefreshCw, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { Search, RefreshCw, ChevronUp, ChevronDown, X, Copy } from 'lucide-react';
 
 interface KPIs {
   engagementScore?: number;
@@ -215,6 +215,16 @@ export default function AdminUsers() {
     return tierColors[tier ?? 0] || 'bg-gray-400 text-white';
   };
 
+  const copyToClipboard = async (text: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: 'Copied!', description: 'Wallet address copied to clipboard' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to copy to clipboard', variant: 'destructive' });
+    }
+  };
+
   return (
     <div className="p-6 space-y-6" data-testid="admin-users-page">
       <div className="flex items-center justify-between">
@@ -346,9 +356,19 @@ export default function AdminUsers() {
                         </TableCell>
                         <TableCell>
                           {user.walletAddress ? (
-                            <span className="font-mono text-xs">
-                              {user.walletAddress.slice(0, 6)}...{user.walletAddress.slice(-4)}
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono text-xs">
+                                {user.walletAddress.slice(0, 6)}...{user.walletAddress.slice(-4)}
+                              </span>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={(e) => copyToClipboard(user.walletAddress!, e)}
+                                data-testid={`button-copy-wallet-${user.id}`}
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                            </div>
                           ) : (
                             <span className="text-muted-foreground text-sm">Not linked</span>
                           )}
@@ -441,9 +461,23 @@ export default function AdminUsers() {
                   <span className="text-muted-foreground">Discord</span>
                   <span className="font-medium truncate">{selectedUser.discordUsername}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Wallet</span>
-                  <span className="font-medium text-xs truncate">{selectedUser.walletAddress ? `${selectedUser.walletAddress.slice(0, 6)}...${selectedUser.walletAddress.slice(-4)}` : 'Not linked'}</span>
+                  {selectedUser.walletAddress ? (
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium text-xs truncate">{selectedUser.walletAddress.slice(0, 6)}...{selectedUser.walletAddress.slice(-4)}</span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => copyToClipboard(selectedUser.walletAddress!)}
+                        data-testid="button-copy-wallet-detail"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="font-medium text-xs">Not linked</span>
+                  )}
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Archetype</span>
