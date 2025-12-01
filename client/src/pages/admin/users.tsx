@@ -382,15 +382,16 @@ export default function AdminUsers() {
         </CardContent>
       </Card>
 
-      {/* User Detail Panel - Overlay */}
+      {/* Darkening overlay behind panel */}
       {selectedUser && (
-        <div className="fixed inset-0 pointer-events-none z-40 right-0 top-0 bottom-0 w-96" style={{background: 'linear-gradient(to right, transparent, rgba(0,0,0,0.3))'}} />
+        <div className="fixed inset-0 pointer-events-none z-40" style={{background: 'radial-gradient(circle at right, rgba(0,0,0,0.4), transparent)'}} />
       )}
       
       {/* User Detail Panel */}
       {selectedUser && (
-        <Card className="fixed right-0 top-0 bottom-0 w-96 rounded-none border-l border-r-0 shadow-2xl z-50 overflow-y-auto bg-card" data-testid="panel-user-detail">
-          <CardHeader className="sticky top-0 bg-card border-b">
+        <div className="fixed right-0 top-0 bottom-0 w-96 z-50 flex flex-col border-l border-border shadow-2xl" style={{backgroundColor: 'hsl(var(--background))', backdropFilter: 'none'}}>
+          <div className="sticky top-0 border-b border-border p-4 flex items-center justify-between" style={{backgroundColor: 'hsl(var(--background))'}}>
+            <h2 className="text-lg font-semibold">{selectedUser.discordUsername}</h2>
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg">{selectedUser.discordUsername}</CardTitle>
               <Button 
