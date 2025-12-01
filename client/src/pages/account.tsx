@@ -59,13 +59,17 @@ export default function AccountPage() {
     queryKey: ["/api/admin/users", userId, "account"],
     queryFn: async () => {
       const response = await fetch(`/api/admin/users`);
-      if (!response.ok) throw new Error("Failed to fetch users");
+      if (!response.ok) {
+        console.error("Failed to fetch users:", response.status, response.statusText);
+        throw new Error(`HTTP ${response.status}`);
+      }
       const users = await response.json();
       const foundUser = users.find((u: any) => u.discordId === userId);
       if (!foundUser) throw new Error("User not found");
       return foundUser;
     },
     enabled: !!userId,
+    retry: 1,
   });
 
   const copyToClipboard = (text: string) => {
