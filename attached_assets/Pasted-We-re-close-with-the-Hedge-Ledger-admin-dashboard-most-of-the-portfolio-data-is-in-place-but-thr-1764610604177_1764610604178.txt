@@ -1,0 +1,51 @@
+We’re close with the Hedge Ledger admin dashboard – most of the portfolio data is in place – but three things are still missing or wrong:
+
+1) DFK Age (first tx on DFK chain via RouteScan)
+2) Tier display mapping (should use DFK hero tiers + colors, not "Bronze")
+3) Behavior tag tooltips with descriptions on hover
+
+Please implement the following changes end-to-end.
+
+------------------------------------------------
+1. DFK AGE – FIRST TRANSACTION ON DFK CHAIN
+------------------------------------------------
+
+GOAL:
+Show "DFK Age" for each player based on their first transaction on the DFK chain. This should be derived from the DFK explorer (RouteScan) by finding the earliest transaction for the player wallet on the DFK chain.
+
+### 1.1 Backend: First-Tx Fetch Helper
+
+Create a helper/service, e.g. in `server/services/dfkAge.ts` (or similar to where you already fetch heroes / LP):
+
+- `async function fetchFirstDfkTxTimestamp(walletAddress: string): Promise<number | null>`
+
+Implementation details:
+
+- Use the RouteScan DFK chain API (or its documented "address/transactions" endpoint) to query the transaction list for that address.
+- Sort or request them ascending (oldest first) and read the **oldest transaction timestamp**.
+- Return that timestamp as a Unix time in seconds or milliseconds.
+- On error (timeout, HTTP error, etc.):
+  - Log the error.
+  - Return `null` rather than throwing, so the admin API can degrade gracefully.
+
+If you already have a DFK client service, add this function there instead of a new file.
+
+### 1.2 Backend: Attach Age to Player
+
+In the code that builds the admin player detail (the same place you fetch heroes, Gen0 count, LP positions, questing streak, etc. for `/api/admin/users`):
+
+- After you know the `walletAddress`, call `fetchFirstDfkTxTimestamp(walletAddress)` **if and only if**:
+  - wallet is not null, AND
+  - we don't already have a cached value for the first tx time on this player (if you’ve added such a field).
+
+- Compute:
+  - `dfkFirstTxAt: Date | null`
+  - `dfkAgeDays: number | null` where `dfkAgeDays = Math.floor((Date.now() - firstTxAt) / (1000 * 60 * 60 * 24))`
+
+- Add these fields to the admin user payload, for example under a `dfkProfile` or `portfolio` object, e.g.:
+
+```ts
+dfkProfile: {
+  firstTxAt: firstTx ? new Date(firstTx * 1000).toISOString() : null,
+  dfkAgeDays: firstTx ? dfkAgeDays : null,
+}

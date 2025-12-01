@@ -991,6 +991,61 @@ export function calculateHeroMetrics(heroes) {
 }
 
 /**
+ * Get first transaction timestamp on DFK chain for a wallet
+ * Uses RouteScan DFK chain explorer API
+ * @param {string} walletAddress - Wallet address to check
+ * @returns {Promise<number|null>} Unix timestamp in milliseconds or null if error
+ */
+export async function getFirstDfkTxTimestamp(walletAddress) {
+  try {
+    if (!walletAddress) return null;
+    
+    // RouteScan API for DFK chain
+    const url = `https://routescan.io/api?module=account&action=txlist&address=${walletAddress.toLowerCase()}&startblock=0&endblock=99999999&sort=asc&apikey=YH67P4W4YDGP7Z5Q47SHbronze`;
+    
+    const response = await fetch(url, { timeout: 10000 });
+    if (!response.ok) {
+      console.warn(`[DfkAge] RouteScan API error: ${response.status}`);
+      return null;
+    }
+    
+    const data = await response.json();
+    
+    if (data.status === '0' || !data.result || data.result.length === 0) {
+      console.warn(`[DfkAge] No transactions found for ${walletAddress}`);
+      return null;
+    }
+    
+    // Get earliest transaction (first in list since sort=asc)
+    const firstTx = data.result[0];
+    if (!firstTx || !firstTx.timeStamp) {
+      return null;
+    }
+    
+    // RouteScan returns Unix timestamp in seconds, convert to milliseconds
+    const timestampMs = parseInt(firstTx.timeStamp) * 1000;
+    console.log(`[DfkAge] Found first tx for ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}: ${new Date(timestampMs).toISOString()}`);
+    
+    return timestampMs;
+  } catch (err) {
+    console.warn(`[getFirstDfkTxTimestamp] Error fetching first tx for ${walletAddress}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Calculate DFK age in days from first transaction timestamp
+ * @param {number|null} firstTxTimestampMs - First tx timestamp in milliseconds
+ * @returns {number|null} Age in days or null
+ */
+export function calculateDfkAgeDays(firstTxTimestampMs) {
+  if (!firstTxTimestampMs) return null;
+  const ageMs = Date.now() - firstTxTimestampMs;
+  const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+  return ageDays;
+}
+
+/**
  * Format garden pool summary for Discord display
  * @param {Object} pool - Pool data
  * @param {Object} rewards - Pending rewards (optional)
