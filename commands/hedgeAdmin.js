@@ -86,11 +86,11 @@ export default {
       .setTimestamp();
 
     // Create buttons
-    const dashboardUrl = process.env.DASHBOARD_URL || `${process.env.REPLIT_URL || 'http://localhost:5000'}/admin`;
+    const adminDashboardUrl = process.env.ADMIN_DASHBOARD_URL || 'http://localhost:5000/admin';
     const openButton = new ButtonBuilder()
       .setLabel('Open Dashboard')
       .setStyle(ButtonStyle.Link)
-      .setURL(dashboardUrl);
+      .setURL(adminDashboardUrl);
 
     const refreshButton = new ButtonBuilder()
       .setLabel('Refresh Snapshot')
