@@ -5,7 +5,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder, EmbedBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder, EmbedBuilder, Collection } from 'discord.js';
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
 import * as analytics from './garden-analytics.js';
@@ -356,6 +356,37 @@ const client = new Client({
   ],
   partials: [Partials.Channel] // needed for DMs
 });
+
+// Initialize commands collection
+client.commands = new Collection();
+
+// Load all commands from /commands directory
+async function loadCommands() {
+  const commandsPath = path.join(process.cwd(), 'commands');
+  const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+  
+  let loadedCount = 0;
+  for (const file of commandFiles) {
+    try {
+      const commandModule = await import(`./commands/${file}`);
+      const command = commandModule.default || commandModule;
+      
+      if (command?.data && command?.execute) {
+        client.commands.set(command.data.name, command);
+        console.log(`✓ Loaded command: ${command.data.name} (${file})`);
+        loadedCount++;
+      } else {
+        console.warn(`⚠ Skipped ${file}: missing .data or .execute property`);
+      }
+    } catch (err) {
+      console.error(`✗ Error loading ${file}:`, err.message);
+    }
+  }
+  console.log(`📝 Loaded ${loadedCount} slash commands`);
+}
+
+// Load commands on startup
+await loadCommands();
 
 client.once(Events.ClientReady, async (c) => {
   console.log(`🤖 Logged in as ${c.user.tag}`);
@@ -1211,10 +1242,29 @@ client.on('messageCreate', async (message) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    if (!interaction.isChatInputCommand()) return;
+    if (interaction.isChatInputCommand()) {
+      const command = client.commands.get(interaction.commandName);
+      
+      // If command is in the commands collection, execute it
+      if (command) {
+        try {
+          await command.execute(interaction);
+          return;
+        } catch (err) {
+          console.error(`Error executing command ${interaction.commandName}:`, err);
+          const reply = { content: 'An error occurred while executing this command.', ephemeral: true };
+          if (interaction.deferred || interaction.replied) {
+            await interaction.editReply(reply);
+          } else {
+            await interaction.reply(reply);
+          }
+          return;
+        }
+      }
 
-    const name = interaction.commandName;
-    await interaction.deferReply();
+      // Otherwise, handle built-in commands (ping, logtest, health, etc.)
+      const name = interaction.commandName;
+      await interaction.deferReply();
 
     // 🔧 Debug commands: /ping, /logtest, /health
     if (name === 'ping') {
@@ -2757,6 +2807,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Other slash commands (help, npc, hero, garden, etc.) were not included
     // in this truncated version of the file. Add them back here later as needed.
 
+    } // end of if (interaction.isChatInputCommand())
   } catch (err) {
     console.error('Handler error:', err);
     try {
