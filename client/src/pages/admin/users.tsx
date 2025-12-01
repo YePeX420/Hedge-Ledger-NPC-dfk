@@ -538,6 +538,10 @@ export default function AdminUsers() {
                     <span className="font-medium">{selectedUser.dfkSnapshot.gen0Count || 0}</span>
                   </div>
                   <div className="flex justify-between">
+                    <span className="text-muted-foreground">Hero Age</span>
+                    <span className="font-medium">{selectedUser.dfkSnapshot.heroAge ? `${selectedUser.dfkSnapshot.heroAge} days` : 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">LP Positions</span>
                     <span className="font-medium">{selectedUser.dfkSnapshot.lpPositionsCount || 0}</span>
                   </div>
