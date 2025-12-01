@@ -226,41 +226,33 @@ export default function UserManagement() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2">
-                            <Select
-                              value={selectedTiers[user.id] || user.tier || 'free'}
-                              onValueChange={(value) => handleTierChange(user.id, value)}
-                              data-testid={`select-tier-actions-${user.id}`}
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={selectedTiers[user.id] || user.tier || 'free'}
+                            onValueChange={(value) => handleTierChange(user.id, value)}
+                            data-testid={`select-tier-actions-${user.id}`}
+                          >
+                            <SelectTrigger className="w-28">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="free">Free</SelectItem>
+                              <SelectItem value="bronze">Bronze</SelectItem>
+                              <SelectItem value="silver">Silver</SelectItem>
+                              <SelectItem value="gold">Gold</SelectItem>
+                              <SelectItem value="whale">Whale</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {selectedTiers[user.id] && selectedTiers[user.id] !== user.tier && (
+                            <Button 
+                              size="sm" 
+                              onClick={() => handleSaveTier(user.id)}
+                              disabled={updateTierMutation.isPending}
+                              data-testid={`button-save-tier-actions-${user.id}`}
                             >
-                              <SelectTrigger className="w-28">
-                                <SelectValue placeholder="Set tier" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="free">Free</SelectItem>
-                                <SelectItem value="bronze">Bronze</SelectItem>
-                                <SelectItem value="silver">Silver</SelectItem>
-                                <SelectItem value="gold">Gold</SelectItem>
-                                <SelectItem value="whale">Whale</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {selectedTiers[user.id] && selectedTiers[user.id] !== user.tier && (
-                              <Button 
-                                size="sm" 
-                                onClick={() => handleSaveTier(user.id)}
-                                disabled={updateTierMutation.isPending}
-                                data-testid={`button-save-tier-actions-${user.id}`}
-                              >
-                                Save
-                              </Button>
-                            )}
-                          </div>
-                          <Link href={`/admin/users/${user.id}`}>
-                            <Button size="sm" variant="outline" className="w-full" data-testid={`button-view-dashboard-${user.id}`}>
-                              <Eye className="h-4 w-4 mr-1" />
-                              View Dashboard
+                              Save
                             </Button>
-                          </Link>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
