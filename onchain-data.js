@@ -942,10 +942,33 @@ export async function getGardenPoolByPid(pid, realm = 'dfk') {
  */
 export async function getPlayerInfluence(playerAddress) {
   try {
-    const metisRpc = 'https://rpc.metis.io';
-    const metisProvider = new ethers.JsonRpcProvider(metisRpc);
+    // Try multiple Metis RPC endpoints for redundancy
+    const metisRpcEndpoints = [
+      'https://metis-mainnet.public.blastapi.io',
+      'https://andromeda.metis.io',
+      'https://rpc.metis.io'
+    ];
     
-    // PVP Diamond contract address on Metis
+    let metisProvider;
+    for (const endpoint of metisRpcEndpoints) {
+      try {
+        metisProvider = new ethers.JsonRpcProvider(endpoint);
+        // Test connection with a simple call
+        await metisProvider.getNetwork();
+        console.log(`[getPlayerInfluence] Using Metis RPC: ${endpoint}`);
+        break;
+      } catch (e) {
+        console.warn(`[getPlayerInfluence] Failed to connect to ${endpoint}: ${e.message}`);
+        continue;
+      }
+    }
+    
+    if (!metisProvider) {
+      console.warn(`[getPlayerInfluence] No working Metis RPC endpoint available`);
+      return 0;
+    }
+    
+    // PVP Diamond contract address on Metis (Sundered Isles)
     const PVP_DIAMOND_ADDRESS = '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B';
     
     // Minimal ABI for getPlayerInfluenceData
@@ -957,7 +980,9 @@ export async function getPlayerInfluence(playerAddress) {
     const influenceData = await contract.getPlayerInfluenceData(playerAddress);
     
     // Return totalInfluence converted from BigInt
-    return Number(influenceData.totalInfluence || 0);
+    const influence = Number(influenceData.totalInfluence || 0);
+    console.log(`[getPlayerInfluence] ${playerAddress.slice(0, 6)}...${playerAddress.slice(-4)}: ${influence} INFLUENCE`);
+    return influence;
   } catch (err) {
     console.warn(`[getPlayerInfluence] Error fetching influence for ${playerAddress}:`, err.message);
     return 0;
@@ -992,7 +1017,7 @@ export function calculateHeroMetrics(heroes) {
 
 /**
  * Get first transaction timestamp on DFK chain for a wallet
- * Uses RouteScan DFK chain explorer API
+ * Uses DFK chain RPC to query block headers
  * @param {string} walletAddress - Wallet address to check
  * @returns {Promise<number|null>} Unix timestamp in milliseconds or null if error
  */
@@ -1000,30 +1025,63 @@ export async function getFirstDfkTxTimestamp(walletAddress) {
   try {
     if (!walletAddress) return null;
     
-    // RouteScan API for DFK chain
-    const url = `https://routescan.io/api?module=account&action=txlist&address=${walletAddress.toLowerCase()}&startblock=0&endblock=99999999&sort=asc&apikey=YH67P4W4YDGP7Z5Q47SHbronze`;
+    const dfkRpc = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
+    const provider = new ethers.JsonRpcProvider(dfkRpc);
     
-    const response = await fetch(url, { timeout: 10000 });
-    if (!response.ok) {
-      console.warn(`[DfkAge] RouteScan API error: ${response.status}`);
+    // Get latest block number
+    const latestBlockNum = await provider.getBlockNumber();
+    console.log(`[DfkAge] Latest DFK block: ${latestBlockNum}`);
+    
+    // Binary search for first transaction from wallet
+    let searchStart = 0;
+    let searchEnd = latestBlockNum;
+    let firstTxBlock = null;
+    
+    // Start from a reasonable block range (don't search all history, narrow down)
+    const searchLimit = 50000; // Search up to 50k blocks back first
+    searchEnd = Math.min(searchEnd, latestBlockNum);
+    searchStart = Math.max(0, latestBlockNum - searchLimit);
+    
+    console.log(`[DfkAge] Searching blocks ${searchStart} to ${searchEnd} for ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`);
+    
+    // Linear search backward from recent blocks (most wallets have recent activity)
+    for (let blockNum = searchEnd; blockNum >= searchStart; blockNum--) {
+      try {
+        const block = await provider.getBlock(blockNum);
+        if (!block) continue;
+        
+        // Check if block contains any transactions from this wallet
+        if (block.transactions && block.transactions.length > 0) {
+          for (const txHash of block.transactions) {
+            const tx = await provider.getTransaction(txHash);
+            if (tx && (tx.from?.toLowerCase() === walletAddress.toLowerCase() || tx.to?.toLowerCase() === walletAddress.toLowerCase())) {
+              // Found a transaction from this wallet in this block
+              firstTxBlock = block;
+              console.log(`[DfkAge] Found transaction in block ${blockNum} from wallet`);
+              break;
+            }
+          }
+        }
+        
+        if (firstTxBlock) break;
+        
+        // Log progress every 1000 blocks
+        if ((searchEnd - blockNum) % 1000 === 0) {
+          console.log(`[DfkAge] Searched back ${searchEnd - blockNum} blocks...`);
+        }
+      } catch (e) {
+        // Continue searching if block fetch fails
+        continue;
+      }
+    }
+    
+    if (!firstTxBlock) {
+      console.warn(`[DfkAge] No transactions found for ${walletAddress} in recent blocks`);
       return null;
     }
     
-    const data = await response.json();
-    
-    if (data.status === '0' || !data.result || data.result.length === 0) {
-      console.warn(`[DfkAge] No transactions found for ${walletAddress}`);
-      return null;
-    }
-    
-    // Get earliest transaction (first in list since sort=asc)
-    const firstTx = data.result[0];
-    if (!firstTx || !firstTx.timeStamp) {
-      return null;
-    }
-    
-    // RouteScan returns Unix timestamp in seconds, convert to milliseconds
-    const timestampMs = parseInt(firstTx.timeStamp) * 1000;
+    // Convert block timestamp to milliseconds
+    const timestampMs = (firstTxBlock.timestamp || Math.floor(Date.now() / 1000)) * 1000;
     console.log(`[DfkAge] Found first tx for ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}: ${new Date(timestampMs).toISOString()}`);
     
     return timestampMs;
