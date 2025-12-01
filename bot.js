@@ -2938,7 +2938,17 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
               const klaytnGardens = await onchain.getUserGardenPositions(player.primaryWallet, 'klaytn');
               const allGardens = [...(dfkGardens || []), ...(klaytnGardens || [])];
               const lpPositionsCount = allGardens.length;
-              const totalLPValue = allGardens.reduce((sum, pos) => sum + (Number(pos.lpStaked || 0) * 0.01), 0);
+              
+              // Calculate LP value using JEWEL price (~$0.10) per LP token
+              const jewelPrice = 0.10;
+              const totalLPValue = allGardens.reduce((sum, pos) => {
+                const staked = parseFloat(pos.stakedAmount || '0');
+                return sum + (staked * jewelPrice);
+              }, 0);
+              
+              // Calculate questing streak - count heroes with active/recent quests
+              const questingHeroes = heroes.filter(h => h.currentQuest !== null && h.currentQuest !== undefined);
+              const questingStreakDays = questingHeroes.length > 0 ? 1 : 0;
               
               dfkSnapshot = {
                 heroCount: heroes.length,
@@ -2950,14 +2960,17 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
                 jewelBalance: parseFloat(balances.jewel || '0'),
                 crystalBalance: parseFloat(balances.crystal || '0'),
                 cJewelBalance: parseFloat(balances.cjewel || '0'),
-                questingStreakDays: 0
+                questingStreakDays
               };
               
-              console.log(`[API] User ${player.discordUsername}: Influence=${influence}, Gen0=${gen0Count}, HeroAge=${heroAge}d, LP=${lpPositionsCount}, JEWEL=${balances.jewel}`);
+              console.log(`[API] User ${player.discordUsername}: Influence=${influence}, Gen0=${gen0Count}, HeroAge=${heroAge}d, LP=${lpPositionsCount}, LPValue=$${totalLPValue.toFixed(2)}, QuestHeroes=${questingHeroes.length}`);
             } catch (err) {
               console.warn(`[API] Failed to fetch blockchain data for ${player.primaryWallet}:`, err.message);
             }
           }
+          
+          // Ensure tier is a number, not a string
+          const tierNum = typeof profileData?.tier === 'string' ? parseInt(profileData.tier, 10) : (profileData?.tier || 0);
           
           return {
             id: player.id,
@@ -2966,7 +2979,7 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
             walletAddress: player.primaryWallet,
             // Profile fields extracted from profileData JSON
             archetype: profileData?.archetype || 'GUEST',
-            tier: profileData?.tier || 0,
+            tier: tierNum,
             state: profileData?.state || 'CURIOUS',
             behaviorTags: profileData?.behaviorTags || [],
             kpis: profileData?.kpis || {},
@@ -2976,7 +2989,7 @@ app.get('/api/admin/users', isAdmin, async (req, res) => {
             // Legacy profile field for backward compatibility
             profile: {
               archetype: profileData?.archetype || 'GUEST',
-              tier: profileData?.tier || 0,
+              tier: tierNum,
               state: profileData?.state || 'CURIOUS',
               tags: profileData?.behaviorTags || [],
               flags: profileData?.flags || {}
