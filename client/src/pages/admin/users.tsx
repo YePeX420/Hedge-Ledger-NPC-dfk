@@ -45,6 +45,8 @@ interface DFKSnapshot {
   jewelBalance?: number;
   crystalBalance?: number;
   questingStreakDays?: number;
+  heroAge?: number;
+  heroRarity?: string;
 }
 
 interface UserProfile {
@@ -94,11 +96,19 @@ const ARCHETYPES = ['ALL', 'GUEST', 'ADVENTURER', 'PLAYER', 'INVESTOR', 'EXTRACT
 const TIERS = ['ALL', '0', '1', '2', '3', '4'];
 
 const tierNames: Record<string | number, string> = {
-  0: 'Guest',
-  1: 'Bronze',
-  2: 'Silver',
-  3: 'Gold',
-  4: 'Council of Hedge'
+  0: 'Common',
+  1: 'Uncommon',
+  2: 'Rare',
+  3: 'Legendary',
+  4: 'Mythic'
+};
+
+const tierColors: Record<string | number, string> = {
+  0: 'bg-gray-400 text-white',
+  1: 'bg-green-500 text-white',
+  2: 'bg-blue-500 text-white',
+  3: 'bg-purple-500 text-white',
+  4: 'bg-orange-500 text-white'
 };
 
 const behaviorTagDescriptions: Record<string, string> = {
@@ -201,13 +211,7 @@ export default function AdminUsers() {
   };
 
   const getTierBadgeClass = (tier: number) => {
-    switch (tier) {
-      case 4: return 'bg-purple-500 text-white';
-      case 3: return 'bg-yellow-500 text-black';
-      case 2: return 'bg-blue-500 text-white';
-      case 1: return 'bg-green-500 text-white';
-      default: return 'bg-gray-500 text-white';
-    }
+    return tierColors[tier ?? 0] || 'bg-gray-400 text-white';
   };
 
   return (
