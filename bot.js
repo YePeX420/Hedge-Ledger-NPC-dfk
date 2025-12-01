@@ -2760,6 +2760,32 @@ console.log('✅ Economic system initialized');
 const app = express();
 app.use(express.json());
 
+// Session management middleware
+app.use((req, res, next) => {
+  const cookies = (req.headers.cookie || '')
+    .split(';')
+    .reduce((acc, cookie) => {
+      const [key, value] = cookie.trim().split('=');
+      if (key && value) acc[key] = decodeURIComponent(value);
+      return acc;
+    }, {});
+  
+  req.cookies = cookies;
+  
+  // Set cookie helper
+  res.setCookie = (name, value, options = {}) => {
+    const cookieStr = `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax${
+      options.maxAge ? `; Max-Age=${options.maxAge}` : ''
+    }${options.secure ? '; Secure' : ''}`;
+    
+    const existing = res.getHeader('Set-Cookie') || [];
+    const setCookieArray = Array.isArray(existing) ? existing : [existing].filter(Boolean);
+    res.setHeader('Set-Cookie', [...setCookieArray, cookieStr]);
+  };
+  
+  next();
+});
+
 // GET /api/admin/debug-settings - Get debug settings
 app.get('/api/admin/debug-settings', async (req, res) => {
   try {
@@ -2836,6 +2862,131 @@ app.get('/api/debug/recent-errors', async (req, res) => {
     console.error('[Debug] Error fetching recent errors:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Discord OAuth Routes
+app.get('/auth/discord', (req, res) => {
+  if (!DISCORD_CLIENT_ID) {
+    return res.status(400).json({ error: 'Discord OAuth not configured' });
+  }
+  
+  const state = crypto.randomBytes(16).toString('hex');
+  const scopes = 'identify guilds';
+  const authorizeUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent(scopes)}&state=${state}`;
+  
+  res.setCookie('oauth_state', state, { maxAge: 600 }); // 10 minutes
+  res.redirect(authorizeUrl);
+});
+
+app.get('/auth/discord/callback', async (req, res) => {
+  try {
+    if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
+      return res.status(400).json({ error: 'Discord OAuth not configured' });
+    }
+    
+    const { code, state } = req.query;
+    
+    if (!code || !state) {
+      return res.status(400).json({ error: 'Missing code or state' });
+    }
+    
+    if (state !== req.cookies.oauth_state) {
+      return res.status(403).json({ error: 'State mismatch - potential CSRF attack' });
+    }
+    
+    // Exchange code for token
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: DISCORD_CLIENT_ID,
+        client_secret: DISCORD_CLIENT_SECRET,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: REDIRECT_URI
+      })
+    });
+    
+    if (!tokenResponse.ok) {
+      const error = await tokenResponse.text();
+      console.error('❌ Discord token exchange failed:', error);
+      return res.status(401).json({ error: 'Failed to exchange code for token' });
+    }
+    
+    const tokenData = await tokenResponse.json();
+    
+    // Get user info
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
+    });
+    
+    if (!userResponse.ok) {
+      return res.status(401).json({ error: 'Failed to fetch user info' });
+    }
+    
+    const user = await userResponse.json();
+    
+    // Create session token
+    const sessionToken = crypto
+      .createHmac('sha256', SESSION_SECRET)
+      .update(`${user.id}:${Date.now()}`)
+      .digest('hex');
+    
+    // Store session with user data
+    if (!global.sessions) global.sessions = {};
+    global.sessions[sessionToken] = {
+      userId: user.id,
+      username: user.username,
+      avatar: user.avatar,
+      accessToken: tokenData.access_token,
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+    };
+    
+    res.setCookie('session_token', sessionToken, { maxAge: 24 * 60 * 60 });
+    res.redirect('/');
+  } catch (err) {
+    console.error('❌ OAuth callback error:', err);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+});
+
+app.get('/api/auth/status', (req, res) => {
+  try {
+    const sessionToken = req.cookies.session_token;
+    
+    if (!sessionToken || !global.sessions || !global.sessions[sessionToken]) {
+      return res.json({ authenticated: false });
+    }
+    
+    const session = global.sessions[sessionToken];
+    
+    if (session.expiresAt < Date.now()) {
+      delete global.sessions[sessionToken];
+      return res.json({ authenticated: false });
+    }
+    
+    res.json({
+      authenticated: true,
+      user: {
+        id: session.userId,
+        username: session.username,
+        avatar: session.avatar
+      }
+    });
+  } catch (err) {
+    console.error('❌ Auth status check failed:', err);
+    res.status(500).json({ error: 'Failed to check auth status' });
+  }
+});
+
+app.get('/api/auth/logout', (req, res) => {
+  const sessionToken = req.cookies.session_token;
+  if (sessionToken && global.sessions) {
+    delete global.sessions[sessionToken];
+  }
+  
+  res.setCookie('session_token', '', { maxAge: 0 });
+  res.json({ success: true });
 });
 
 const server = http.createServer(app);
