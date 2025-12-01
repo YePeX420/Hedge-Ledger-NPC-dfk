@@ -70,6 +70,12 @@ interface User {
     isHighPotential?: boolean;
   };
   tier: number;
+  walletBalances?: {
+    jewel: string;
+    crystal: string;
+    cJewel: string;
+    change7d: string | null;
+  } | null;
 }
 
 interface UsersResponse {
@@ -378,8 +384,8 @@ export default function AdminUsers() {
 
       {/* User Detail Panel */}
       {selectedUser && (
-        <Card className="fixed right-0 top-0 bottom-0 w-96 rounded-none border-l border-r-0 shadow-lg z-50 overflow-y-auto" data-testid="panel-user-detail">
-          <CardHeader className="sticky top-0 bg-background border-b">
+        <Card className="fixed right-0 top-0 bottom-0 w-96 rounded-none border-l border-r-0 shadow-lg z-50 overflow-y-auto bg-background/95" data-testid="panel-user-detail">
+          <CardHeader className="sticky top-0 bg-background/95 border-b">
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg">{selectedUser.discordUsername}</CardTitle>
               <Button 
@@ -436,6 +442,34 @@ export default function AdminUsers() {
                 </div>
               </div>
             </div>
+
+            {/* Wallet Balances */}
+            {selectedUser.walletBalances && (
+              <div className="space-y-3">
+                <h3 className="font-semibold text-sm">Wallet Balances</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">JEWEL</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{parseFloat(selectedUser.walletBalances.jewel).toFixed(2)}</span>
+                      {selectedUser.walletBalances.change7d && (
+                        <span className={parseFloat(selectedUser.walletBalances.change7d) >= 0 ? 'text-green-600 dark:text-green-400 text-xs' : 'text-red-600 dark:text-red-400 text-xs'}>
+                          {parseFloat(selectedUser.walletBalances.change7d) >= 0 ? '+' : ''}{parseFloat(selectedUser.walletBalances.change7d).toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">CRYSTAL</span>
+                    <span className="font-medium">{parseFloat(selectedUser.walletBalances.crystal).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">cJEWEL</span>
+                    <span className="font-medium">{parseFloat(selectedUser.walletBalances.cJewel).toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* DFK Snapshot */}
             {selectedUser.dfkSnapshot && (

@@ -206,6 +206,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const depositStatsMap = new Map(allDepositStats.map(d => [d.playerId, d]));
       
+      // Batch query: Get latest wallet snapshots for each player
+      const latestSnapshots = await db
+        .select({
+          playerId: walletSnapshots.playerId,
+          jewelBalance: walletSnapshots.jewelBalance,
+          crystalBalance: walletSnapshots.crystalBalance,
+          cJewelBalance: walletSnapshots.cJewelBalance,
+          change7d: walletSnapshots.change7d,
+        })
+        .from(walletSnapshots)
+        .where(inArray(walletSnapshots.playerId, playerIds))
+        .orderBy(walletSnapshots.playerId, desc(walletSnapshots.asOfDate))
+        .then(rows => {
+          const map = new Map<number, typeof rows[0]>();
+          rows.forEach(row => {
+            if (!map.has(row.playerId)) {
+              map.set(row.playerId, row);
+            }
+          });
+          return map;
+        });
+      
       // Batch query: Get recent DM messages for all users (single query)
       const allMessages = await db
         .select({
@@ -287,6 +309,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.warn(`Failed to parse profileData for user ${user.id}`);
         }
 
+        const walletSnapshot = latestSnapshots.get(user.id);
+        
         return {
           ...user,
           queryCount: stats.totalQueries || 0,
@@ -306,7 +330,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           behaviorTags: profileData?.behaviorTags || [],
           kpis: profileData?.kpis || {},
           dfkSnapshot: profileData?.dfkSnapshot || null,
-          flags: profileData?.flags || {}
+          flags: profileData?.flags || {},
+          walletBalances: walletSnapshot ? {
+            jewel: walletSnapshot.jewelBalance,
+            crystal: walletSnapshot.crystalBalance,
+            cJewel: walletSnapshot.cJewelBalance,
+            change7d: walletSnapshot.change7d,
+          } : null
         };
       });
       
