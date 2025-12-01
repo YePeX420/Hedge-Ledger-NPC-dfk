@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { db } from "./db";
-import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages } from "@shared/schema";
+import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots } from "@shared/schema";
 import { desc, sql, eq, inArray } from "drizzle-orm";
 import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
 
