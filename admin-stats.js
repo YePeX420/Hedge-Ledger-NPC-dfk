@@ -1,6 +1,6 @@
 // admin-stats.js - Helper to fetch admin dashboard statistics
 import { db } from './server/db.js';
-import { players, jewelBalances, depositRequests, queryCosts } from './shared/schema.ts';
+import { players, jewelBalances, depositRequests, queryCosts } from './shared/schema';
 import { sql } from 'drizzle-orm';
 
 /**
