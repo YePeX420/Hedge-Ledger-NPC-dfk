@@ -1,0 +1,49 @@
+You are helping me fix my Discord bot project. Here is what I need you to do:
+
+1. Make sure the project has a command loader that reads EVERY file in /commands and registers their .data and .execute properties into client.commands.
+
+2. Ensure the command /hedge-admin is registered. The file should be located at: /commands/hedgeAdmin.js and contain:
+   - SlashCommandBuilder()
+   - .setName('hedge-admin')
+   - .setDescription('Open the Hedge Ledger admin dashboard (admins only).')
+   - userIsAdmin() and admin-channel locking using process.env.OWNER_ID, process.env.ADMIN_ROLE_ID, and process.env.ADMIN_CHANNEL_ID.
+   - An embed and buttons.
+
+3. Create or fix a deploy script called deploy-commands.js at the project root. It should:
+   - Load all .js files from /commands
+   - Convert command.data to JSON
+   - Register commands as GUILD commands for process.env.DISCORD_GUILD_ID
+   - Use process.env.DISCORD_CLIENT_ID and process.env.DISCORD_TOKEN
+   - Print success message
+
+4. The deploy script must successfully run using:
+      node deploy-commands.js
+
+5. Update the main bot file (index.js or app.js) to:
+   - Load client.commands = new Collection()
+   - Load commands from /commands into client.commands
+   - Respond to interactionCreate:
+        - If it's a chatInputCommand, call execute()
+        - If it's a button, run the admin button logic found inside hedgeAdmin.js
+
+6. Validate that the env vars are used exactly as:
+   process.env.DISCORD_TOKEN
+   process.env.DISCORD_CLIENT_ID
+   process.env.DISCORD_GUILD_ID
+   process.env.ADMIN_CHANNEL_ID
+   process.env.ADMIN_ROLE_ID
+   process.env.OWNER_ID
+
+7. After fixing the project, ensure that:
+   - /hedge-admin appears in Discord when typing `/`
+   - The command only works in the admin channel
+   - Only the owner or users with ADMIN_ROLE_ID can access it
+   - Non-admins see the correct error message
+
+8. Do not rewrite my whole project. ONLY correct the missing or broken parts needed to:
+   - load commands
+   - register commands
+   - execute commands
+   - support admin protections
+
+Please make all changes now and show me the updated code files.
