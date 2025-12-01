@@ -56,29 +56,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [playerStats, depositStats, balanceStats, revenueStats] = await Promise.all([
         // Player stats
         db.select({
-          total: sql<number>`COUNT(*)`,
-          withBalance: sql<number>`COUNT(CASE WHEN EXISTS(SELECT 1 FROM ${jewelBalances} WHERE ${jewelBalances.playerId} = ${players.id}) THEN 1 END)`
+          total: sql`COUNT(*)`,
+          withBalance: sql`COUNT(CASE WHEN EXISTS(SELECT 1 FROM ${jewelBalances} WHERE ${jewelBalances.playerId} = ${players.id}) THEN 1 END)`
         }).from(players),
         
         // Deposit stats
         db.select({
-          total: sql<number>`COUNT(*)`,
-          completed: sql<number>`SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END)`,
-          totalJewel: sql<string>`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
+          total: sql`COUNT(*)`,
+          completed: sql`SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END)`,
+          totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
         }).from(depositRequests),
         
         // Balance stats
         db.select({
-          totalBalance: sql<string>`COALESCE(SUM(CAST(${jewelBalances.balanceJewel} AS DECIMAL)), 0)`,
-          activeBalances: sql<number>`COUNT(CASE WHEN CAST(${jewelBalances.balanceJewel} AS DECIMAL) > 0 THEN 1 END)`
+          totalBalance: sql`COALESCE(SUM(CAST(${jewelBalances.balanceJewel} AS DECIMAL)), 0)`,
+          activeBalances: sql`COUNT(CASE WHEN CAST(${jewelBalances.balanceJewel} AS DECIMAL) > 0 THEN 1 END)`
         }).from(jewelBalances),
         
         // Revenue stats from query costs
         db.select({
-          totalRevenue: sql<string>`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
-          totalProfit: sql<string>`COALESCE(SUM(${queryCosts.profitUsd}), 0)`,
-          totalQueries: sql<number>`COUNT(*)`,
-          paidQueries: sql<number>`SUM(CASE WHEN NOT ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`
+          totalRevenue: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
+          totalProfit: sql`COALESCE(SUM(${queryCosts.profitUsd}), 0)`,
+          totalQueries: sql`COUNT(*)`,
+          paidQueries: sql`SUM(CASE WHEN NOT ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`
         }).from(queryCosts)
       ]);
       
@@ -172,9 +172,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const breakdown = await db
         .select({
           queryType: queryCosts.queryType,
-          count: sql<number>`COUNT(*)`,
-          totalRevenue: sql<string>`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
-          freeTier: sql<number>`SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`
+          count: sql`COUNT(*)`,
+          totalRevenue: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
+          freeTier: sql`SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`
         })
         .from(queryCosts)
         .groupBy(queryCosts.queryType)
@@ -238,10 +238,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allQueryStats = await db
         .select({
           playerId: queryCosts.playerId,
-          totalQueries: sql<number>`COUNT(*)`,
-          totalCost: sql<string>`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
-          totalProfit: sql<string>`COALESCE(SUM(${queryCosts.profitUsd}), 0)`,
-          freeQueries: sql<number>`SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`
+          totalQueries: sql`COUNT(*)`,
+          totalCost: sql`COALESCE(SUM(${queryCosts.revenueUsd}), 0)`,
+          totalProfit: sql`COALESCE(SUM(${queryCosts.profitUsd}), 0)`,
+          freeQueries: sql`SUM(CASE WHEN ${queryCosts.freeTierUsed} THEN 1 ELSE 0 END)`
         })
         .from(queryCosts)
         .where(inArray(queryCosts.playerId, playerIds))
@@ -253,10 +253,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allDepositStats = await db
         .select({
           playerId: depositRequests.playerId,
-          totalDeposits: sql<number>`COUNT(*)`,
-          completedDeposits: sql<number>`SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END)`,
-          totalJewel: sql<string>`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
-          totalCrystal: sql<string>`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountCrystal} AS DECIMAL) ELSE 0 END), 0)`
+          totalDeposits: sql`COUNT(*)`,
+          completedDeposits: sql`SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN 1 ELSE 0 END)`,
+          totalJewel: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountJewel} AS DECIMAL) ELSE 0 END), 0)`,
+          totalCrystal: sql`COALESCE(SUM(CASE WHEN ${depositRequests.status} = 'completed' THEN CAST(${depositRequests.requestedAmountCrystal} AS DECIMAL) ELSE 0 END), 0)`
         })
         .from(depositRequests)
         .where(inArray(depositRequests.playerId, playerIds))
