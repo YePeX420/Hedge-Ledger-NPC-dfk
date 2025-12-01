@@ -138,13 +138,14 @@ export default function UserManagement() {
                   <TableHead>Query Costs</TableHead>
                   <TableHead>Profit</TableHead>
                   <TableHead>Conversation Summary</TableHead>
+                  <TableHead>View Dashboard</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={13} className="text-center text-muted-foreground">
+                    <TableCell colSpan={14} className="text-center text-muted-foreground">
                       No users found
                     </TableCell>
                   </TableRow>
@@ -252,11 +253,41 @@ export default function UserManagement() {
                       </TableCell>
                       <TableCell>
                         <Link href={`/admin/users/${user.id}`}>
-                          <Button size="sm" variant="outline" data-testid={`button-view-account-${user.id}`}>
+                          <Button size="sm" variant="default" data-testid={`button-view-dashboard-${user.id}`}>
                             <Eye className="h-4 w-4 mr-1" />
-                            View Account
+                            View
                           </Button>
                         </Link>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={selectedTiers[user.id] || user.tier || 'free'}
+                            onValueChange={(value) => handleTierChange(user.id, value)}
+                            data-testid={`select-tier-actions-${user.id}`}
+                          >
+                            <SelectTrigger className="w-32">
+                              <SelectValue placeholder="Set tier" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="free">Free</SelectItem>
+                              <SelectItem value="bronze">Bronze</SelectItem>
+                              <SelectItem value="silver">Silver</SelectItem>
+                              <SelectItem value="gold">Gold</SelectItem>
+                              <SelectItem value="whale">Whale</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {selectedTiers[user.id] && selectedTiers[user.id] !== user.tier && (
+                            <Button 
+                              size="sm" 
+                              onClick={() => handleSaveTier(user.id)}
+                              disabled={updateTierMutation.isPending}
+                              data-testid={`button-save-tier-actions-${user.id}`}
+                            >
+                              Save
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
