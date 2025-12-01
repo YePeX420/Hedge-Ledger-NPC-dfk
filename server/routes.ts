@@ -156,7 +156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: players.id,
           discordId: players.discordId,
           discordUsername: players.discordUsername,
-          walletAddress: players.walletAddress,
+          walletAddress: players.primaryWallet,
           profileData: players.profileData,
           tier: jewelBalances.tier,
           balance: jewelBalances.balanceJewel,
