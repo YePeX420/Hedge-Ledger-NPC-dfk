@@ -42,6 +42,24 @@ export type InsertAdminSession = z.infer<typeof insertAdminSessionSchema>;
 export type AdminSession = typeof adminSessions.$inferSelect;
 
 // ============================================================================
+// PRICING CONFIGURATION TABLE
+// ============================================================================
+
+export const pricingConfig = pgTable("pricing_config", {
+  id: serial("id").primaryKey(),
+  configKey: text("config_key").notNull().unique(), // 'base_rates', 'modifiers'
+  configValue: json("config_value").notNull(), // Store config as JSON
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  configKeyIdx: uniqueIndex("pricing_config_key_idx").on(table.configKey),
+}));
+
+export const insertPricingConfigSchema = createInsertSchema(pricingConfig).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPricingConfig = z.infer<typeof insertPricingConfigSchema>;
+export type PricingConfig = typeof pricingConfig.$inferSelect;
+
+// ============================================================================
 // FAIR VALUE ENGINE SCHEMA
 // ============================================================================
 
