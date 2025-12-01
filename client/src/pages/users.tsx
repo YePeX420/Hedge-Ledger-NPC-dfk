@@ -176,34 +176,9 @@ export default function UserManagement() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Select
-                            value={selectedTiers[user.id] || user.tier || 'free'}
-                            onValueChange={(value) => handleTierChange(user.id, value)}
-                            data-testid={`select-tier-${user.id}`}
-                          >
-                            <SelectTrigger className="w-28">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="free">Free</SelectItem>
-                              <SelectItem value="bronze">Bronze</SelectItem>
-                              <SelectItem value="silver">Silver</SelectItem>
-                              <SelectItem value="gold">Gold</SelectItem>
-                              <SelectItem value="whale">Whale</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {selectedTiers[user.id] && selectedTiers[user.id] !== user.tier && (
-                            <Button 
-                              size="sm" 
-                              onClick={() => handleSaveTier(user.id)}
-                              disabled={updateTierMutation.isPending}
-                              data-testid={`button-save-tier-${user.id}`}
-                            >
-                              Save
-                            </Button>
-                          )}
-                        </div>
+                        <Badge variant="secondary">
+                          {user.tier || 'free'}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
