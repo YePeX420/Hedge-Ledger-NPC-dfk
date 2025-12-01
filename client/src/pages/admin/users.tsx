@@ -382,10 +382,15 @@ export default function AdminUsers() {
         </CardContent>
       </Card>
 
+      {/* User Detail Panel - Overlay */}
+      {selectedUser && (
+        <div className="fixed inset-0 pointer-events-none z-40 right-0 top-0 bottom-0 w-96" style={{background: 'linear-gradient(to right, transparent, rgba(0,0,0,0.3))'}} />
+      )}
+      
       {/* User Detail Panel */}
       {selectedUser && (
-        <Card className="fixed right-0 top-0 bottom-0 w-96 rounded-none border-l border-r-0 shadow-lg z-50 overflow-y-auto bg-background/95" data-testid="panel-user-detail">
-          <CardHeader className="sticky top-0 bg-background/95 border-b">
+        <Card className="fixed right-0 top-0 bottom-0 w-96 rounded-none border-l border-r-0 shadow-2xl z-50 overflow-y-auto bg-card" data-testid="panel-user-detail">
+          <CardHeader className="sticky top-0 bg-card border-b">
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg">{selectedUser.discordUsername}</CardTitle>
               <Button 
@@ -453,7 +458,7 @@ export default function AdminUsers() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{parseFloat(selectedUser.walletBalances.jewel).toFixed(2)}</span>
                       {selectedUser.walletBalances.change7d && (
-                        <span className={parseFloat(selectedUser.walletBalances.change7d) >= 0 ? 'text-green-600 dark:text-green-400 text-xs' : 'text-red-600 dark:text-red-400 text-xs'}>
+                        <span className={parseFloat(selectedUser.walletBalances.change7d) >= 0 ? 'text-green-600 dark:text-green-400 text-xs font-medium' : 'text-red-600 dark:text-red-400 text-xs font-medium'}>
                           {parseFloat(selectedUser.walletBalances.change7d) >= 0 ? '+' : ''}{parseFloat(selectedUser.walletBalances.change7d).toFixed(1)}%
                         </span>
                       )}
@@ -461,11 +466,17 @@ export default function AdminUsers() {
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">CRYSTAL</span>
-                    <span className="font-medium">{parseFloat(selectedUser.walletBalances.crystal).toFixed(2)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{parseFloat(selectedUser.walletBalances.crystal).toFixed(2)}</span>
+                      <span className="text-xs text-muted-foreground">7d: —</span>
+                    </div>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">cJEWEL</span>
-                    <span className="font-medium">{parseFloat(selectedUser.walletBalances.cJewel).toFixed(2)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{parseFloat(selectedUser.walletBalances.cJewel).toFixed(2)}</span>
+                      <span className="text-xs text-muted-foreground">7d: —</span>
+                    </div>
                   </div>
                 </div>
               </div>
