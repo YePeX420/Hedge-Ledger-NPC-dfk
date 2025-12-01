@@ -30,14 +30,14 @@ export async function getAdminStats() {
       }).from(queryCosts),
       
       // Hedge wallet balance (fetched live from blockchain)
-      fetchWalletBalances([HEDGE_WALLET])
+      fetchWalletBalances(HEDGE_WALLET)
     ]);
     
     const totalPlayers = playerStats[0]?.total || 0;
     const jewelDeposits = parseFloat(depositStats[0]?.totalJewel || '0');
-    const hedgeWalletJewel = parseFloat(hedgeBalance?.[HEDGE_WALLET]?.JEWEL || '0');
-    const hedgeWalletCrystal = parseFloat(hedgeBalance?.[HEDGE_WALLET]?.CRYSTAL || '0');
-    const hedgeWalletCjewel = parseFloat(hedgeBalance?.[HEDGE_WALLET]?.cJEWEL || '0');
+    const hedgeWalletJewel = parseFloat(hedgeBalance?.JEWEL || '0');
+    const hedgeWalletCrystal = parseFloat(hedgeBalance?.CRYSTAL || '0');
+    const hedgeWalletCjewel = parseFloat(hedgeBalance?.cJEWEL || '0');
     const totalRevenue = parseFloat(revenueStats[0]?.totalRevenue || '0');
     const paidQueries = revenueStats[0]?.paidQueries || 0;
 
