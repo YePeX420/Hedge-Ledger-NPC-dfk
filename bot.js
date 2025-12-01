@@ -1238,10 +1238,114 @@ client.on('messageCreate', async (message) => {
   }
 });
 
+// Helper: Check if user is admin for Discord interactions
+function isUserAdmin(interaction) {
+  const userId = interaction.user.id;
+  const userRoles = interaction.member?.roles?.cache?.map(r => r.id) || [];
+  const ownerId = process.env.OWNER_ID;
+  const adminRoleId = process.env.ADMIN_ROLE_ID;
+
+  if (userId === ownerId) return true;
+  if (adminRoleId && userRoles.includes(adminRoleId)) return true;
+  return false;
+}
+
 // Slash command handler
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    // Handle button interactions
+    if (interaction.isButton()) {
+      const customId = interaction.customId;
+      
+      // Admin button protection
+      if (customId.startsWith('admin_')) {
+        const adminChannelId = process.env.ADMIN_CHANNEL_ID;
+        
+        // Check channel
+        if (adminChannelId && interaction.channelId !== adminChannelId) {
+          return interaction.reply({
+            content: `🔒 For security, admin actions can only be used in: <#${adminChannelId}>.`,
+            ephemeral: true,
+          });
+        }
+        
+        // Check permissions
+        if (!isUserAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ This action is only available to Hedge Admins.',
+            ephemeral: true,
+          });
+        }
+        
+        // Handle admin buttons
+        if (customId === 'admin_refresh') {
+          await interaction.deferUpdate();
+          const { getAdminStats } = await import('./admin-stats.js');
+          const stats = await getAdminStats();
+          
+          const { EmbedBuilder } = await import('discord.js');
+          const embed = new EmbedBuilder()
+            .setColor('#FFD700')
+            .setTitle('Hedge Ledger – Admin Dashboard')
+            .setDescription('Internal admin view with live metrics and quick actions.')
+            .addFields(
+              {
+                name: 'Hedge Wallet',
+                value: `JEWEL: \`${stats.hedgeWallet.jewel.toFixed(2)}\`\nCRYSTAL: \`${stats.hedgeWallet.crystal.toFixed(2)}\`\ncJEWEL: \`${stats.hedgeWallet.cjewel.toFixed(2)}\``,
+                inline: true
+              },
+              {
+                name: 'Total Players',
+                value: `\`${stats.totalPlayers}\``,
+                inline: true
+              },
+              {
+                name: 'JEWEL Deposits',
+                value: `\`${stats.jewelDeposits.toFixed(2)}\``,
+                inline: true
+              },
+              {
+                name: 'Total Revenue',
+                value: `$\`${stats.totalRevenue.toFixed(2)}\``,
+                inline: true
+              },
+              {
+                name: 'Total Queries',
+                value: `\`${stats.totalQueries}\``,
+                inline: true
+              },
+              {
+                name: 'Recent Activity',
+                value: stats.recentActivity,
+                inline: false
+              }
+            )
+            .setFooter({ text: 'Admin Only - Access Restricted' })
+            .setTimestamp();
+          
+          await interaction.editReply({ embeds: [embed] });
+          return;
+        }
+        
+        if (customId === 'admin_users') {
+          return interaction.reply({
+            content: 'Users management feature coming soon. Use the web dashboard for now.',
+            ephemeral: true,
+          });
+        }
+        
+        if (customId === 'admin_settings') {
+          return interaction.reply({
+            content: 'Settings management feature coming soon. Use the web dashboard for now.',
+            ephemeral: true,
+          });
+        }
+      }
+      
+      return;
+    }
+
     if (interaction.isChatInputCommand()) {
       const command = client.commands.get(interaction.commandName);
       
