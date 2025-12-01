@@ -4,6 +4,7 @@ import { db } from "./db";
 import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions } from "@shared/schema";
 import { desc, sql, eq, inArray } from "drizzle-orm";
 import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
+import { detectWalletLPPositions } from "../wallet-lp-detector.js";
 
 const ADMIN_USER_IDS = ['426019696916168714']; // yepex
 
@@ -413,6 +414,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[API] Error fetching users:', error);
       res.status(500).json({ error: 'Failed to fetch users' });
+    }
+  });
+  
+  // GET /api/admin/lp-positions/:wallet - Fetch LP positions for a wallet
+  app.get("/api/admin/lp-positions/:wallet", isAdmin, async (req: any, res: any) => {
+    try {
+      const { wallet } = req.params;
+      
+      if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+        return res.status(400).json({ error: 'Invalid wallet address' });
+      }
+      
+      console.log(`[API] Fetching LP positions for wallet: ${wallet}`);
+      const positions = await detectWalletLPPositions(wallet);
+      
+      res.json({ 
+        success: true, 
+        wallet,
+        positions,
+        totalPositions: positions.length,
+        totalValue: positions.reduce((sum: number, p: any) => sum + parseFloat(p.userTVL || '0'), 0).toFixed(2)
+      });
+    } catch (error) {
+      console.error('[API] Error fetching LP positions:', error);
+      res.status(500).json({ error: 'Failed to fetch LP positions' });
     }
   });
   

@@ -3,9 +3,30 @@ import { useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Copy, Wallet, Users, TrendingUp, Coins } from "lucide-react";
+import { Copy, Wallet, Users, TrendingUp, Coins, Leaf } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+
+interface LPPosition {
+  pid: number;
+  pairName: string;
+  lpToken: string;
+  lpBalance: string;
+  userTVL: string;
+  shareOfPool: string;
+  poolData: {
+    totalTVL?: string;
+    fee24hAPR?: string;
+    harvesting24hAPR?: string;
+    gardeningQuestAPR?: {
+      worst?: string;
+      best?: string;
+    };
+    totalAPR?: string;
+    token0?: { symbol: string };
+    token1?: { symbol: string };
+  };
+}
 
 interface UserAccountData {
   id: number;
@@ -75,6 +96,24 @@ export default function AccountPage() {
     },
     enabled: !!userId,
     retry: 1,
+  });
+
+  const { data: lpData, isLoading: lpLoading } = useQuery<{
+    positions: LPPosition[];
+    totalValue: string;
+  }>({
+    queryKey: ["/api/admin/lp-positions", user?.walletAddress],
+    queryFn: async () => {
+      const response = await fetch(`/api/admin/lp-positions/${user!.walletAddress}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      return { positions: data.positions || [], totalValue: data.totalValue || "0.00" };
+    },
+    enabled: !!user?.walletAddress,
+    retry: 1,
+    staleTime: 60000,
   });
 
   const copyToClipboard = (text: string) => {
@@ -284,6 +323,84 @@ export default function AccountPage() {
             </CardContent>
           </Card>
         </div>
+
+        <Card data-testid="card-lp-positions" className="mt-4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Leaf className="h-5 w-5" />
+              LP Positions (Garden Pools)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!user.walletAddress ? (
+              <p className="text-muted-foreground text-sm">No wallet linked to fetch LP positions</p>
+            ) : lpLoading ? (
+              <div className="space-y-3">
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            ) : lpData?.positions && lpData.positions.length > 0 ? (
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground mb-2">
+                  Total Value: <span className="font-semibold text-foreground">${lpData.totalValue}</span>
+                </div>
+                <div className="space-y-3">
+                  {lpData.positions.map((pos) => (
+                    <div 
+                      key={pos.pid} 
+                      className="border rounded-lg p-4 space-y-2"
+                      data-testid={`lp-position-${pos.pid}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{pos.pairName}</span>
+                          <Badge variant="outline" className="text-xs">
+                            PID {pos.pid}
+                          </Badge>
+                        </div>
+                        <span className="font-semibold text-green-600 dark:text-green-400">
+                          ${pos.userTVL}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Total APR</span>
+                          <div className="font-medium text-green-600 dark:text-green-400">
+                            {pos.poolData.totalAPR || 'N/A'}
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Fee APR</span>
+                          <div className="font-medium">{pos.poolData.fee24hAPR || 'N/A'}</div>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Harvesting APR</span>
+                          <div className="font-medium">{pos.poolData.harvesting24hAPR || 'N/A'}</div>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Quest Boost</span>
+                          <div className="font-medium">
+                            {pos.poolData.gardeningQuestAPR?.worst && pos.poolData.gardeningQuestAPR?.best
+                              ? `${pos.poolData.gardeningQuestAPR.worst} - ${pos.poolData.gardeningQuestAPR.best}`
+                              : 'N/A'}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t">
+                        <span>Pool Share: {pos.shareOfPool}</span>
+                        <span>Pool TVL: {pos.poolData.totalTVL}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">No LP positions found in garden pools</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
