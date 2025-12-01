@@ -13,11 +13,12 @@ async function getHedgeBalance() {
     const balance = await fetchWalletBalances(HEDGE_WALLET);
     console.log('[AdminStats] Blockchain balance fetched:', balance);
     
-    if (balance && typeof balance === 'object' && balance.JEWEL) {
+    // fetchWalletBalances returns lowercase keys: jewel, crystal, cjewel
+    if (balance && typeof balance === 'object' && (balance.jewel || balance.JEWEL)) {
       return {
-        jewel: parseFloat(balance.JEWEL),
-        crystal: parseFloat(balance.CRYSTAL || '0'),
-        cjewel: parseFloat(balance.cJEWEL || '0')
+        jewel: parseFloat(balance.jewel || balance.JEWEL || '0'),
+        crystal: parseFloat(balance.crystal || balance.CRYSTAL || '0'),
+        cjewel: parseFloat(balance.cjewel || balance.cJEWEL || '0')
       };
     }
     throw new Error('Invalid balance format');
