@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { MouseEvent } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
@@ -229,7 +230,7 @@ export default function AdminUsers() {
     return tierColors[tier ?? 0] || 'bg-gray-400 text-white';
   };
 
-  const copyToClipboard = async (text: string, e?: React.MouseEvent) => {
+  const copyToClipboard = async (text: string, e?: MouseEvent) => {
     if (e) e.stopPropagation();
     try {
       await navigator.clipboard.writeText(text);
@@ -237,6 +238,20 @@ export default function AdminUsers() {
     } catch {
       toast({ title: 'Error', description: 'Failed to copy to clipboard', variant: 'destructive' });
     }
+  };
+
+  const handleRowClick = (discordId: string) => (event: MouseEvent) => {
+    const target = event.target as HTMLElement;
+
+    if (event.defaultPrevented) return;
+
+    if (event.button !== 0) return; // only respond to primary click
+
+    if (target.closest('button, a, input, select, textarea, [data-row-action-stop]')) {
+      return;
+    }
+
+    setLocation(`/admin/users/${discordId}/dashboard`);
   };
 
   return (
@@ -356,11 +371,11 @@ export default function AdminUsers() {
                     </TableRow>
                   ) : (
                     filteredUsers.map((user) => (
-                      <TableRow 
-                        key={user.id} 
+                      <TableRow
+                        key={user.id}
                         className="cursor-pointer hover:bg-muted/50"
                         data-testid={`row-user-${user.id}`}
-                        onClick={() => setLocation(`/admin/users/${user.discordId}/dashboard`)}
+                        onClick={handleRowClick(user.discordId)}
                       >
                         <TableCell>
                           <div>
@@ -377,6 +392,8 @@ export default function AdminUsers() {
                               <Button
                                 size="icon"
                                 variant="ghost"
+                                data-row-action-stop
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => copyToClipboard(user.walletAddress!, e)}
                                 data-testid={`button-copy-wallet-${user.id}`}
                               >
@@ -417,13 +434,19 @@ export default function AdminUsers() {
                           <Select
                             value={(user.tier ?? 0).toString()}
                             onValueChange={(value) => {
-                              updateTierMutation.mutate({ 
-                                userId: user.id, 
-                                tier: parseInt(value) 
+                              updateTierMutation.mutate({
+                                userId: user.id,
+                                tier: parseInt(value)
                               });
                             }}
                           >
-                            <SelectTrigger className="w-[100px] h-8" data-testid={`select-tier-${user.id}`}>
+                            <SelectTrigger
+                              className="w-[100px] h-8"
+                              data-testid={`select-tier-${user.id}`}
+                              data-row-action-stop
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
