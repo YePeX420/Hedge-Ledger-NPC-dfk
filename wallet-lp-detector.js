@@ -35,6 +35,7 @@ export async function detectWalletLPPositions(walletAddress) {
     }
     
     const pools = cached.data;
+    console.log(`[LP Detector] Checking ${pools.length} pools in cache...`);
     const positions = [];
     
     // Query each pool for user's STAKED LP tokens
@@ -43,6 +44,8 @@ export async function detectWalletLPPositions(walletAddress) {
         // Get staked amount from LP Staking contract
         const userInfo = await stakingContract.userInfo(pool.pid, walletAddress);
         const stakedAmount = userInfo.amount; // Staked LP tokens in this pool
+        
+        console.log(`[LP Detector] Pool ${pool.pid} (${pool.pairName}): staked=${stakedAmount.toString()}`);
         
         // Only include pools where user has staked LP tokens
         if (stakedAmount > 0n) {
@@ -82,14 +85,14 @@ export async function detectWalletLPPositions(walletAddress) {
             }
           });
           
-          console.log(`[LP Detector] Found STAKED position: ${pool.pairName} (${stakedFormatted} LP tokens, $${userTVL.toFixed(2)} TVL)`);
+          console.log(`[LP Detector] ✅ Found STAKED position: ${pool.pairName} (${stakedFormatted} LP tokens, $${userTVL.toFixed(2)} TVL)`);
         }
       } catch (err) {
-        console.error(`[LP Detector] Error checking pool ${pool.pid}:`, err.message);
+        console.error(`[LP Detector] ❌ Error checking pool ${pool.pid}:`, err.message);
       }
     }
     
-    console.log(`[LP Detector] Found ${positions.length} LP positions for wallet ${walletAddress}`);
+    console.log(`[LP Detector] Found ${positions.length}/${pools.length} LP positions for wallet ${walletAddress}`);
     return positions;
     
   } catch (error) {
