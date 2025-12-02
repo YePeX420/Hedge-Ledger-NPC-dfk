@@ -32,7 +32,12 @@ import { jewelBalances, players, depositRequests, queryCosts, interactionSession
 import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
-import { isPaymentBypassEnabled, getDebugSettings, setDebugSettings } from './debug-settings.js';
+import {
+  isPaymentBypassEnabled,
+  getDebugSettings,
+  setDebugSettings,
+  isVerboseLoggingEnabled
+} from './debug-settings.js';
 import { detectWalletLPPositions, generatePoolOptimizations, formatOptimizationReport } from './wallet-lp-detector.js';
 import { getAllHeroesByOwner } from './onchain-data.js';
 
@@ -1171,13 +1176,27 @@ async function handleGardenOptimizationDM(message, playerData) {
     `🧪 Payment bypass is enabled for testing, so I'm skipping the 25 JEWEL step and running your optimization now.`
   );
 
-  const heroes = await getAllHeroesByOwner(wallet);
-  const optimization = generatePoolOptimizations(positions, heroes, {
-    hasLinkedWallet: true,
-  });
-  const report = formatOptimizationReport(optimization);
+  try {
+    if (!positions || positions.length === 0) {
+      await message.reply("I couldn't find any LP tokens staked in the Crystalvale gardens for your linked wallet.");
+      return;
+    }
 
-  await message.reply(report);
+    const heroes = await getAllHeroesByOwner(wallet);
+    const optimization = generatePoolOptimizations(positions, heroes, {
+      hasLinkedWallet: true,
+    });
+
+    const report = formatOptimizationReport(optimization);
+    await message.reply(report);
+  } catch (err) {
+    if (isVerboseLoggingEnabled?.()) {
+      console.error('[GardenOpt] Error during bypass optimization:', err);
+    }
+    await message.reply(
+      "I hit a snag while running the optimization. Try again in a moment, or turn off payment bypass to use the standard flow."
+    );
+  }
 }
 
 

@@ -272,15 +272,33 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
       return isNaN(n) ? 0 : n;
     })();
 
-    const currentYieldLow = beforeAPR;
-    const currentYieldHigh = afterAPR;
+    const currentYieldLow = Number.isFinite(beforeAPR) ? beforeAPR : 0;
+    const currentYieldHigh = Number.isFinite(afterAPR) ? afterAPR : 0;
 
-    let yieldImprovementPct;
+    const formatAPR = (value) => {
+      const safe = Number.isFinite(value) ? value : 0;
+      return `${safe.toFixed(2)}%`;
+    };
+
+    const formatDollars = (value) => {
+      const safe = Number.isFinite(value) ? value : 0;
+      return `$${safe.toFixed(2)}`;
+    };
+
+    let yieldImprovementLabel;
     if (currentYieldLow > 0.1) {
-      yieldImprovementPct =
-        ((currentYieldHigh - currentYieldLow) / currentYieldLow) * 100;
+      const pct = ((currentYieldHigh - currentYieldLow) / currentYieldLow) * 100;
+      if (Number.isFinite(pct)) {
+        yieldImprovementLabel = `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs current`;
+      } else {
+        const absoluteDelta = currentYieldHigh - currentYieldLow;
+        const safeDelta = Number.isFinite(absoluteDelta) ? absoluteDelta : 0;
+        yieldImprovementLabel = `${safeDelta >= 0 ? '+' : ''}${safeDelta.toFixed(1)}% absolute`;
+      }
     } else {
-      yieldImprovementPct = currentYieldHigh - currentYieldLow;
+      const absoluteDelta = currentYieldHigh - currentYieldLow;
+      const safeDelta = Number.isFinite(absoluteDelta) ? absoluteDelta : 0;
+      yieldImprovementLabel = `${safeDelta >= 0 ? '+' : ''}${safeDelta.toFixed(1)}% absolute`;
     }
 
     const annualGainLow = (positionValue * currentYieldLow) / 100;
@@ -292,18 +310,15 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
       poolType,
       userTVL: positionValue.toFixed(2),
       currentYield: {
-        worst: currentYieldLow.toFixed(2) + '%',
-        best: currentYieldHigh.toFixed(2) + '%'
+        worst: formatAPR(currentYieldLow),
+        best: formatAPR(currentYieldHigh)
       },
       annualReturn: {
-        worst: `$${annualGainLow.toFixed(2)}`,
-        best: `$${annualGainHigh.toFixed(2)}`,
-        additionalGain: `$${additionalGain.toFixed(2)}`
+        worst: formatDollars(annualGainLow),
+        best: formatDollars(annualGainHigh),
+        additionalGain: formatDollars(additionalGain)
       },
-      yieldImprovement:
-        (yieldImprovementPct >= 0 ? '+' : '') +
-        yieldImprovementPct.toFixed(1) +
-        (currentYieldLow > 0.1 ? '% vs current' : '% absolute'),
+      yieldImprovement: yieldImprovementLabel,
       heroRecommendation,
       petRecommendation,
       aprBreakdown: {
