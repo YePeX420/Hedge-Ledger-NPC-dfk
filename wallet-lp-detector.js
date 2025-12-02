@@ -3,6 +3,7 @@
  * 
  * Scans user wallets for LP token holdings in Crystalvale garden pools.
  * Maps LP tokens to pool data for yield optimization recommendations.
+ * Uses official DFK documentation pool list as source of truth.
  */
 
 import { ethers } from 'ethers';
@@ -18,8 +19,28 @@ const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
 const LP_STAKING_ADDRESS = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
 const stakingContract = new ethers.Contract(LP_STAKING_ADDRESS, lpStakingABI, provider);
 
+// Official DFK Chain garden pools from documentation
+// https://devs.defikingdoms.com/contracts/gardens
+const OFFICIAL_GARDEN_POOLS = [
+  { pid: 0, name: 'wJEWEL-xJEWEL', lpToken: '0x6AC38A4C112F125eac0eBDbaDBed0BC8F4575d0d' },
+  { pid: 1, name: 'CRYSTAL-AVAX', lpToken: '0x9f378F48d0c1328fd0C80d7Ae544C6CadB5Ba99E' },
+  { pid: 2, name: 'CRYSTAL-wJEWEL', lpToken: '0x48658E69D741024b4686C8f7b236D3F1D291f386' },
+  { pid: 3, name: 'CRYSTAL-USDC', lpToken: '0x04Dec678825b8DfD2D0d9bD83B538bE3fbDA2926' },
+  { pid: 4, name: 'ETH-USDC', lpToken: '0x7d4daa9eB74264b082A92F3f559ff167224484aC' },
+  { pid: 5, name: 'wJEWEL-USDC', lpToken: '0xCF329b34049033dE26e4449aeBCb41f1992724D3' },
+  { pid: 6, name: 'CRYSTAL-ETH', lpToken: '0x78C893E262e2681Dbd6B6eBA6CCA2AaD45de19AD' },
+  { pid: 7, name: 'CRYSTAL-BTC.b', lpToken: '0x00BD81c9bAc29a3b6aea7ABc92d2C9a3366Bb4dD' },
+  { pid: 8, name: 'CRYSTAL-KLAY', lpToken: '0xaFC1fBc3F3fB517EB54Bb2472051A6f0b2105320' },
+  { pid: 9, name: 'wJEWEL-KLAY', lpToken: '0x561091E2385C90d41b4c0dAef651A4b33E1a5CfE' },
+  { pid: 10, name: 'wJEWEL-AVAX', lpToken: '0xF3EabeD6Bd905e0FcD68FC3dBCd6e3A4aEE55E98' },
+  { pid: 11, name: 'wJEWEL-BTC.b', lpToken: '0xfAa8507e822397bd56eFD4480Fb12ADC41ff940B' },
+  { pid: 12, name: 'wJEWEL-ETH', lpToken: '0x79724B6996502afc773feB3Ff8Bb3C23ADf2854B' },
+  { pid: 13, name: 'BTC.b-USDC', lpToken: '0x59D642B471dd54207Cb1CDe2e7507b0Ce1b1a6a5' }
+];
+
 /**
  * Detect LP token holdings in a wallet
+ * Uses official pool list for detection, falls back to cache for analytics
  * @param {string} walletAddress - Ethereum wallet address
  * @returns {Promise<Array>} Array of LP positions with pool data
  */
@@ -27,22 +48,24 @@ export async function detectWalletLPPositions(walletAddress) {
   try {
     console.log(`[LP Detector] Scanning wallet ${walletAddress} for LP positions...`);
     
-    // Get cached pool analytics - this is the source of truth for garden pools
+    // Get cached pool analytics for enriched data (TVL, APR, etc)
     const cached = getCachedPoolAnalytics();
     const cachedPools = cached?.data || [];
     
-    if (!cachedPools || cachedPools.length === 0) {
-      console.error('[LP Detector] Pool cache not available');
-      return [];
+    console.log(`[LP Detector] Using official DFK pool list + ${cachedPools.length} cached pools for analytics...`);
+    
+    // Build pool lookup from cache (pid -> full analytics)
+    const poolAnalyticsMap = new Map();
+    for (const cachedPool of cachedPools) {
+      poolAnalyticsMap.set(cachedPool.pid, cachedPool);
     }
     
-    console.log(`[LP Detector] Checking ${cachedPools.length} cached garden pools for user balances...`);
     const positions = [];
     
-    // For each pool in the analytics cache, check if user has staked balance
-    for (const cachedPool of cachedPools) {
+    // Check each official pool
+    for (const officialPool of OFFICIAL_GARDEN_POOLS) {
       try {
-        const pid = cachedPool.pid;
+        const pid = officialPool.pid;
         
         // Query user's staked amount in this specific pool
         const userInfo = await stakingContract.userInfo(pid, walletAddress);
@@ -51,50 +74,91 @@ export async function detectWalletLPPositions(walletAddress) {
         if (stakedAmount > 0n) {
           const stakedFormatted = ethers.formatUnits(stakedAmount, 18);
           
-          // Calculate USD value of position using BigInt arithmetic
-          const lpContract = new ethers.Contract(cachedPool.lpToken, erc20ABI, provider);
-          const totalSupply = await lpContract.totalSupply();
+          // Look up cached analytics for this pool
+          const cachedAnalytics = poolAnalyticsMap.get(pid);
           
-          // Avoid precision loss: scale by 1e6, divide, then convert
-          const PRECISION = 1000000n;
-          const userShareScaled = (stakedAmount * PRECISION) / totalSupply;
-          const userShareOfPool = Number(userShareScaled) / 1000000;
+          let userTVL = '0.00';
+          let poolData = null;
           
-          // Parse TVL safely with fallback (handle both string and number)
-          const poolTVL = typeof cachedPool.totalTVL === 'number' 
-            ? cachedPool.totalTVL 
-            : parseFloat(cachedPool.totalTVL?.replace(/[^0-9.]/g, '') || '0');
-          const userTVL = poolTVL * userShareOfPool;
+          if (cachedAnalytics) {
+            // Calculate USD value using cached pool data
+            try {
+              const lpContract = new ethers.Contract(officialPool.lpToken, erc20ABI, provider);
+              const totalSupply = await lpContract.totalSupply();
+              
+              // Avoid precision loss: scale by 1e6, divide, then convert
+              const PRECISION = 1000000n;
+              const userShareScaled = (stakedAmount * PRECISION) / totalSupply;
+              const userShareOfPool = Number(userShareScaled) / 1000000;
+              
+              // Parse TVL safely with fallback (handle both string and number)
+              const poolTVL = typeof cachedAnalytics.totalTVL === 'number' 
+                ? cachedAnalytics.totalTVL 
+                : parseFloat(cachedAnalytics.totalTVL?.replace(/[^0-9.]/g, '') || '0');
+              userTVL = (poolTVL * userShareOfPool).toFixed(2);
+              
+              poolData = {
+                totalTVL: cachedAnalytics.totalTVL,
+                fee24hAPR: cachedAnalytics.fee24hAPR,
+                harvesting24hAPR: cachedAnalytics.harvesting24hAPR,
+                gardeningQuestAPR: cachedAnalytics.gardeningQuestAPR,
+                totalAPR: cachedAnalytics.totalAPR,
+                token0: cachedAnalytics.token0,
+                token1: cachedAnalytics.token1
+              };
+            } catch (err) {
+              console.warn(`[LP Detector] Could not calculate USD value for pool ${pid}:`, err.message);
+              poolData = {
+                totalTVL: cachedAnalytics.totalTVL,
+                fee24hAPR: cachedAnalytics.fee24hAPR,
+                harvesting24hAPR: cachedAnalytics.harvesting24hAPR,
+                gardeningQuestAPR: cachedAnalytics.gardeningQuestAPR,
+                totalAPR: cachedAnalytics.totalAPR,
+                token0: cachedAnalytics.token0,
+                token1: cachedAnalytics.token1
+              };
+            }
+          } else {
+            // No cache data, create minimal pool object
+            poolData = {
+              totalTVL: 'N/A',
+              fee24hAPR: 'N/A',
+              harvesting24hAPR: 'N/A',
+              gardeningQuestAPR: { worst: 'N/A', best: 'N/A' },
+              totalAPR: 'N/A',
+              token0: null,
+              token1: null
+            };
+          }
           
           positions.push({
             pid,
-            pairName: cachedPool.pairName,
-            lpToken: cachedPool.lpToken,
+            pairName: officialPool.name,
+            lpToken: officialPool.lpToken,
             lpBalance: stakedFormatted,
             lpBalanceRaw: stakedAmount.toString(),
-            userTVL: userTVL.toFixed(2),
-            shareOfPool: (userShareOfPool * 100).toFixed(4) + '%',
-            poolData: {
-              totalTVL: cachedPool.totalTVL,
-              fee24hAPR: cachedPool.fee24hAPR,
-              harvesting24hAPR: cachedPool.harvesting24hAPR,
-              gardeningQuestAPR: cachedPool.gardeningQuestAPR,
-              totalAPR: cachedPool.totalAPR,
-              token0: cachedPool.token0,
-              token1: cachedPool.token1
-            }
+            userTVL,
+            shareOfPool: cachedAnalytics ? (
+              (() => {
+                const lpContract = new ethers.Contract(officialPool.lpToken, erc20ABI, provider);
+                return lpContract.totalSupply().then(ts => {
+                  const PRECISION = 1000000n;
+                  const userShareScaled = (stakedAmount * PRECISION) / ts;
+                  return ((Number(userShareScaled) / 1000000) * 100).toFixed(4) + '%';
+                }).catch(() => 'N/A');
+              })()
+            ) : 'N/A',
+            poolData
           });
           
-          console.log(`[LP Detector] ✅ Pool ${pid} (${cachedPool.pairName}): Found ${stakedFormatted} LP tokens staked`);
-        } else {
-          console.log(`[LP Detector] Pool ${pid} (${cachedPool.pairName}): No stake`);
+          console.log(`[LP Detector] ✅ PID ${pid} (${officialPool.name}): Found ${stakedFormatted} LP tokens staked`);
         }
       } catch (err) {
-        console.error(`[LP Detector] Error checking pool ${cachedPool.pid}:`, err.message);
+        console.error(`[LP Detector] Error checking PID ${officialPool.pid}:`, err.message);
       }
     }
     
-    console.log(`[LP Detector] ✅ Found ${positions.length}/${cachedPools.length} LP positions for wallet ${walletAddress}`);
+    console.log(`[LP Detector] ✅ Found ${positions.length}/${OFFICIAL_GARDEN_POOLS.length} LP positions for wallet ${walletAddress}`);
     return positions;
     
   } catch (error) {
@@ -114,7 +178,7 @@ export function formatLPPositionsSummary(positions) {
   }
   
   const poolList = positions.map(p => p.pairName).join(', ');
-  const totalValue = positions.reduce((sum, p) => sum + parseFloat(p.userTVL), 0).toFixed(2);
+  const totalValue = positions.reduce((sum, p) => sum + parseFloat(p.userTVL || 0), 0).toFixed(2);
   
   return `I found ${positions.length} garden pool${positions.length > 1 ? 's' : ''}: **${poolList}** (Total value: $${totalValue})`;
 }
@@ -199,7 +263,7 @@ export function generatePoolOptimizations(positions, heroes = []) {
   
   return {
     positions: positions.length,
-    totalValueUSD: positions.reduce((sum, p) => sum + parseFloat(p.userTVL), 0).toFixed(2),
+    totalValueUSD: positions.reduce((sum, p) => sum + parseFloat(p.userTVL || 0), 0).toFixed(2),
     recommendations
   };
 }
