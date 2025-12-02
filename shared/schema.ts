@@ -370,6 +370,17 @@ export const players = pgTable("players", {
   extractorClassIdx: index("players_extractor_class_idx").on(table.extractorClassification),
 }));
 
+export const userSettings = pgTable("user_settings", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull().references(() => players.id),
+  notifyOnAprDrop: boolean("notify_on_apr_drop").default(false).notNull(),
+  notifyOnNewOptimization: boolean("notify_on_new_optimization").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  playerIdIdx: uniqueIndex("user_settings_player_id_idx").on(table.playerId),
+}));
+
 /**
  * Interaction sessions - Track conversation sessions with Hedge
  */

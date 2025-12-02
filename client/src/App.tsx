@@ -11,6 +11,7 @@ import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminUsers from "@/pages/admin/users";
 import AdminUserProfile from "@/pages/admin/user-profile";
+import AdminUserDashboard from "@/pages/admin/user-dashboard";
 import AdminExpenses from "@/pages/admin/expenses";
 import AdminSettings from "@/pages/admin/settings";
 import AccountPage from "@/pages/account";
@@ -22,6 +23,7 @@ function AdminRoutes() {
       <AdminLayout>
         <Switch>
           <Route path="/admin" component={AdminDashboard} />
+          <Route path="/admin/users/:discordId/dashboard" component={AdminUserDashboard} />
           <Route path="/admin/users/:userId" component={AdminUserProfile} />
           <Route path="/admin/users" component={AdminUsers} />
           <Route path="/admin/expenses" component={AdminExpenses} />
