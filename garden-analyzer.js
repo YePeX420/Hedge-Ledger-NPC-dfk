@@ -7,7 +7,7 @@
 
 import { getHeroesByOwner } from './onchain-data.js';
 import { fetchPetsForWallet, mapPetsToHeroes } from './pet-data.js';
-import { getCachedPoolAnalytics } from './pool-cache.js';
+import { getCachedPoolAnalytics, waitForCacheReady } from './pool-cache.js';
 import { getHeroGardeningAssignment } from './garden-analytics.js';
 
 /**
@@ -143,10 +143,18 @@ export async function analyzeCurrentAssignments(walletAddress, pools = null) {
     if (pools) {
       poolData = pools;
     } else {
-      const poolCache = getCachedPoolAnalytics();
+      const poolCache = await waitForCacheReady({
+        onWait: (elapsedSeconds) => {
+          if (elapsedSeconds % 10 === 0) {
+            console.log(`[GardenAnalyzer] Waiting for pool cache... (${elapsedSeconds}s elapsed)`);
+          }
+        }
+      });
+
       if (!poolCache || !poolCache.data) {
         throw new Error('Pool cache not ready - please try again in a moment');
       }
+
       poolData = poolCache.data;
     }
     

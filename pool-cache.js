@@ -188,6 +188,40 @@ export function isCacheReady() {
 }
 
 /**
+ * Wait for the cache to become ready before serving requests
+ * @param {object} options
+ * @param {number} options.timeoutMs - Maximum time to wait (default: 45s)
+ * @param {number} options.pollIntervalMs - How often to check readiness (default: 1s)
+ * @param {(elapsedSeconds: number) => void} options.onWait - Optional callback while waiting
+ * @returns {Promise<{ data: Array, lastUpdated: Date, ageMinutes: number }>}
+ */
+export async function waitForCacheReady({
+  timeoutMs = 45000,
+  pollIntervalMs = 1000,
+  onWait
+} = {}) {
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    const cached = getCachedPoolAnalytics();
+    if (cached && cached.data && cached.data.length > 0) {
+      return cached;
+    }
+
+    const elapsedSeconds = Math.floor((Date.now() - start) / 1000);
+    if (typeof onWait === 'function') {
+      onWait(elapsedSeconds);
+    } else if (elapsedSeconds % 5 === 0) {
+      console.log(`[PoolCache] Waiting for cache to warm up... (${elapsedSeconds}s elapsed)`);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+  }
+
+  throw new Error(`Pool cache not ready after ${Math.round(timeoutMs / 1000)}s of waiting`);
+}
+
+/**
  * Get cached pool analytics data
  * @returns {Object} { data: Array, lastUpdated: Date, ageMinutes: number } or null if not initialized
  */
