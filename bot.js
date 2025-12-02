@@ -28,7 +28,7 @@ import { calculateSummoningProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
 import { decodeHeroGenes } from './hero-genetics.js';
 import { db } from './server/db.js';
-import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions } from './shared/schema.ts';
+import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings } from './shared/schema.ts';
 import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
@@ -3093,6 +3093,11 @@ async function startAdminWebServer() {
     }
   });
 
+  // /api/admin/users – lightweight list for admin Users table (no live on-chain calls)
+  // /api/admin/users/:userId/profile – detailed admin view for a single player
+  // /api/user/summary/:discordId – user-facing summary used by UserDashboard (admin impersonation for now)
+  // /api/user/settings/:discordId – per-user Hedge settings (admin-only for now)
+
   // GET /api/admin/users - Fast paginated list using cached dfkSnapshot only
   app.get("/api/admin/users", isAdmin, async (req, res) => {
     try {
@@ -3264,6 +3269,216 @@ async function startAdminWebServer() {
     } catch (err) {
       console.error('❌ Error updating tier:', err);
       res.status(500).json({ error: 'Failed to update tier' });
+    }
+  });
+
+  app.get('/api/user/summary/:discordId', isAdmin, async (req, res) => {
+    try {
+      const { discordId } = req.params;
+
+      const playerRows = await db
+        .select()
+        .from(players)
+        .where(eq(players.discordId, discordId))
+        .limit(1);
+
+      if (!playerRows || playerRows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const player = playerRows[0];
+
+      let profileData = null;
+      try {
+        if (player.profileData) {
+          profileData =
+            typeof player.profileData === 'string'
+              ? JSON.parse(player.profileData)
+              : player.profileData;
+        }
+      } catch (err) {
+        console.warn(`[API] Failed to parse profileData for player ${player.id}:`, err.message);
+      }
+
+      const tierNum =
+        typeof profileData?.tier === 'string'
+          ? parseInt(profileData.tier, 10)
+          : profileData?.tier || 0;
+
+      const latestSnapshot = await db
+        .select()
+        .from(walletSnapshots)
+        .where(eq(walletSnapshots.playerId, player.id))
+        .orderBy(desc(walletSnapshots.asOfDate))
+        .limit(1);
+
+      const walletSnapshot = latestSnapshot?.[0] || null;
+
+      const dfkSnapshot = profileData?.dfkSnapshot ? { ...profileData.dfkSnapshot } : {};
+
+      if (walletSnapshot) {
+        dfkSnapshot.jewelBalance = parseFloat(walletSnapshot.jewelBalance || '0');
+        dfkSnapshot.crystalBalance = parseFloat(walletSnapshot.crystalBalance || '0');
+        dfkSnapshot.cJewelBalance = parseFloat(walletSnapshot.cJewelBalance || '0');
+      }
+
+      if (player.firstDfkTxTimestamp) {
+        const firstTx = new Date(player.firstDfkTxTimestamp);
+        const ageDays = Math.floor((Date.now() - firstTx.getTime()) / (1000 * 60 * 60 * 24));
+        dfkSnapshot.dfkAgeDays = ageDays;
+        dfkSnapshot.firstTxAt = firstTx.toISOString();
+      }
+
+      const recentOptimizations = await db
+        .select()
+        .from(gardenOptimizations)
+        .where(eq(gardenOptimizations.playerId, player.id))
+        .orderBy(desc(gardenOptimizations.createdAt))
+        .limit(5);
+
+      const optimizations = recentOptimizations.map((opt) => {
+        const poolCount = Array.isArray(opt.lpSnapshot?.pools)
+          ? opt.lpSnapshot.pools.length
+          : Array.isArray(opt.lpSnapshot?.positions)
+          ? opt.lpSnapshot.positions.length
+          : undefined;
+
+        return {
+          id: opt.id,
+          createdAt: opt.createdAt || opt.requestedAt,
+          status: opt.status,
+          service: opt.reportPayload?.service || opt.reportPayload?.serviceName || 'garden_optimization',
+          paymentJewel: parseFloat(opt.expectedAmountJewel || '0'),
+          poolCount,
+        };
+      });
+
+      const settingsRows = await db
+        .select()
+        .from(userSettings)
+        .where(eq(userSettings.playerId, player.id))
+        .limit(1);
+
+      const settings = settingsRows[0] || null;
+
+      const userSettingsData = {
+        notifyOnAprDrop: settings?.notifyOnAprDrop ?? false,
+        notifyOnNewOptimization: settings?.notifyOnNewOptimization ?? true,
+      };
+
+      const timestamps = [
+        player.updatedAt ? new Date(player.updatedAt).getTime() : null,
+        walletSnapshot?.asOfDate ? new Date(walletSnapshot.asOfDate).getTime() : null,
+        profileData?.dfkSnapshot?.updatedAt ? new Date(profileData.dfkSnapshot.updatedAt).getTime() : null,
+      ].filter((t) => t !== null);
+
+      const lastUpdatedAt = timestamps.length > 0 ? new Date(Math.max(...timestamps)).toISOString() : null;
+
+      const snapshotPayload = Object.keys(dfkSnapshot).length > 0 ? dfkSnapshot : null;
+
+      res.json({
+        success: true,
+        user: {
+          id: player.id,
+          discordId: player.discordId,
+          discordUsername: player.discordUsername,
+          walletAddress: player.primaryWallet,
+          tier: tierNum,
+          archetype: profileData?.archetype || 'GUEST',
+          state: profileData?.state || 'CURIOUS',
+          flags: profileData?.flags || {},
+          behaviorTags: profileData?.behaviorTags || [],
+          dfkSnapshot: snapshotPayload,
+          recentOptimizations: optimizations,
+          userSettings: userSettingsData,
+          lastUpdatedAt,
+        },
+      });
+    } catch (err) {
+      console.error('[API] Error building user summary:', err);
+      res.status(500).json({ error: 'Failed to load user summary' });
+    }
+  });
+
+  app.patch('/api/user/settings/:discordId', isAdmin, async (req, res) => {
+    try {
+      const { discordId } = req.params;
+      const { notifyOnAprDrop, notifyOnNewOptimization } = req.body || {};
+
+      const updates = {};
+
+      if (typeof notifyOnAprDrop !== 'undefined') {
+        if (typeof notifyOnAprDrop !== 'boolean') {
+          return res.status(400).json({ error: 'notifyOnAprDrop must be a boolean' });
+        }
+        updates.notifyOnAprDrop = notifyOnAprDrop;
+      }
+
+      if (typeof notifyOnNewOptimization !== 'undefined') {
+        if (typeof notifyOnNewOptimization !== 'boolean') {
+          return res.status(400).json({ error: 'notifyOnNewOptimization must be a boolean' });
+        }
+        updates.notifyOnNewOptimization = notifyOnNewOptimization;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'No valid settings provided' });
+      }
+
+      const playerRows = await db
+        .select()
+        .from(players)
+        .where(eq(players.discordId, discordId))
+        .limit(1);
+
+      if (!playerRows || playerRows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const player = playerRows[0];
+
+      const existing = await db
+        .select()
+        .from(userSettings)
+        .where(eq(userSettings.playerId, player.id))
+        .limit(1);
+
+      const nextSettings = {
+        notifyOnAprDrop: updates.notifyOnAprDrop ?? existing[0]?.notifyOnAprDrop ?? false,
+        notifyOnNewOptimization: updates.notifyOnNewOptimization ?? existing[0]?.notifyOnNewOptimization ?? true,
+      };
+
+      let saved;
+
+      if (existing.length > 0) {
+        [saved] = await db
+          .update(userSettings)
+          .set({
+            ...nextSettings,
+            updatedAt: new Date(),
+          })
+          .where(eq(userSettings.playerId, player.id))
+          .returning();
+      } else {
+        [saved] = await db
+          .insert(userSettings)
+          .values({
+            playerId: player.id,
+            ...nextSettings,
+          })
+          .returning();
+      }
+
+      res.json({
+        success: true,
+        userSettings: {
+          notifyOnAprDrop: saved.notifyOnAprDrop,
+          notifyOnNewOptimization: saved.notifyOnNewOptimization,
+        },
+      });
+    } catch (err) {
+      console.error('[API] Error updating user settings:', err);
+      res.status(500).json({ error: 'Failed to update user settings' });
     }
   });
 

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation } from 'wouter';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,13 +22,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RefreshCw, ChevronUp, ChevronDown, X, Copy } from 'lucide-react';
+import { Search, RefreshCw, ChevronUp, ChevronDown, Copy } from 'lucide-react';
 
 interface KPIs {
   engagementScore?: number;
@@ -135,7 +131,7 @@ export default function AdminUsers() {
   const [tierFilter, setTierFilter] = useState('ALL');
   const [sortField, setSortField] = useState<'discordUsername' | 'tier'>('discordUsername');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [, setLocation] = useLocation();
 
   const { data, isLoading, refetch, isRefetching } = useQuery<UsersResponse>({
     queryKey: ['/api/admin/users'],
@@ -176,7 +172,6 @@ export default function AdminUsers() {
   });
 
   const users = (data?.users ?? []) as User[];
-  const selectedUser = users.find(u => u.id === selectedUserId);
 
   const filteredUsers = users
     .filter((user) => {
@@ -365,7 +360,7 @@ export default function AdminUsers() {
                         key={user.id} 
                         className="cursor-pointer hover:bg-muted/50"
                         data-testid={`row-user-${user.id}`}
-                        onClick={() => setSelectedUserId(user.id)}
+                        onClick={() => setLocation(`/admin/users/${user.discordId}/dashboard`)}
                       >
                         <TableCell>
                           <div>
@@ -448,380 +443,6 @@ export default function AdminUsers() {
         </CardContent>
       </Card>
 
-      {/* Darkening overlay behind panel */}
-      {selectedUser && (
-        <div
-          className="fixed inset-0 pointer-events-none z-40"
-          style={{
-            background:
-              "radial-gradient(circle at right, rgba(0,0,0,0.4), transparent)",
-          }}
-        />
-      )}
-
-      {/* User Detail Panel */}
-      {selectedUser && (
-        <div
-          className="fixed right-0 top-0 bottom-0 w-96 z-50 flex flex-col border-l border-border shadow-2xl"
-          style={{
-            backgroundColor: "hsl(var(--background))",
-            backdropFilter: "none",
-          }}
-        >
-          <div
-            className="sticky top-0 border-b border-border p-4 flex items-center justify-between"
-            style={{ backgroundColor: "hsl(var(--background))" }}
-          >
-            <div>
-              <button
-                onClick={() =>
-                  window.open(
-                    `${window.location.origin}/admin/account?userId=${selectedUser.discordId}`,
-                    "_blank"
-                  )
-                }
-                className="text-lg font-semibold text-blue-600 dark:text-blue-400 hover:underline hover-elevate"
-                data-testid={`button-open-user-dashboard-${selectedUser.id}`}
-              >
-                {selectedUser.discordUsername}
-              </button>
-              <p className="text-xs text-muted-foreground">
-                {selectedUser.discordId}
-              </p>
-            </div>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setSelectedUserId(null)}
-              data-testid="button-close-detail"
-            >
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto space-y-6 p-4">
-            {/* Basic Info */}
-            <div className="space-y-3">
-              <h3 className="font-semibold text-sm">Basic Info</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Discord</span>
-                  <span className="font-medium truncate">
-                    {selectedUser.discordUsername}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Wallet</span>
-                  {selectedUser.walletAddress ? (
-                    <div className="flex items-center gap-1">
-                      <span className="font-medium text-xs truncate">
-                        {selectedUser.walletAddress.slice(0, 6)}...
-                        {selectedUser.walletAddress.slice(-4)}
-                      </span>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() =>
-                          copyToClipboard(selectedUser.walletAddress!)
-                        }
-                        data-testid="button-copy-wallet-detail"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <span className="font-medium text-xs">Not linked</span>
-                  )}
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Archetype</span>
-                  <Badge
-                    variant={getArchetypeBadgeVariant(selectedUser.archetype)}
-                  >
-                    {selectedUser.archetype}
-                  </Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tier</span>
-                  <Badge
-                    className={getTierBadgeClass(selectedUser.tier ?? 0)}
-                  >
-                    {tierNames[selectedUser.tier ?? 0]}
-                  </Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">State</span>
-                  <span className="font-medium">{selectedUser.state}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Influence</span>
-                  <span className="font-medium">
-                    {selectedUser.influence ?? 0}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* KPIs */}
-            <div className="space-y-3">
-              <h3 className="font-semibold text-sm">Performance KPIs</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Engagement</span>
-                  <span className="font-medium">
-                    {selectedUser.kpis?.engagementScore?.toFixed(0) || 0}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Financial</span>
-                  <span className="font-medium">
-                    {selectedUser.kpis?.financialScore?.toFixed(0) || 0}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Retention</span>
-                  <span className="font-medium">
-                    {selectedUser.kpis?.retentionScore?.toFixed(0) || 0}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Messages (7d)</span>
-                  <span className="font-medium">
-                    {selectedUser.kpis?.messagesLast7d || 0}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Wallet Balances - Debug */}
-            {selectedUser.walletBalances ? (
-              <div className="space-y-3">
-                <h3 className="font-semibold text-sm">Wallet Balances</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">JEWEL</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">
-                        {parseFloat(
-                          selectedUser.walletBalances.jewel
-                        ).toFixed(2)}
-                      </span>
-                      {selectedUser.walletBalances.change7d && (
-                        <span
-                          className={
-                            parseFloat(
-                              selectedUser.walletBalances.change7d
-                            ) >= 0
-                              ? "text-green-600 dark:text-green-400 text-xs font-medium"
-                              : "text-red-600 dark:text-red-400 text-xs font-medium"
-                          }
-                        >
-                          {parseFloat(
-                            selectedUser.walletBalances.change7d
-                          ) >= 0
-                            ? "+"
-                            : ""}
-                          {parseFloat(
-                            selectedUser.walletBalances.change7d
-                          ).toFixed(1)}
-                          %
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">CRYSTAL</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">
-                        {parseFloat(
-                          selectedUser.walletBalances.crystal
-                        ).toFixed(2)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        7d: —
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">cJEWEL</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">
-                        {parseFloat(
-                          selectedUser.walletBalances.cJewel
-                        ).toFixed(2)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        7d: —
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              selectedUser.walletAddress && (
-                <div className="text-xs text-muted-foreground p-2 bg-muted rounded">
-                  No wallet snapshot data yet
-                </div>
-              )
-            )}
-
-            {/* DFK Snapshot */}
-            {selectedUser.dfkSnapshot && (
-              <div className="space-y-3">
-                <h3 className="font-semibold text-sm">DFK Portfolio</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Heroes</span>
-                    <span className="font-medium">
-                      {selectedUser.dfkSnapshot.heroCount || 0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Gen0 Heroes</span>
-                    <span className="font-medium">
-                      {selectedUser.dfkSnapshot.gen0Count || 0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">DFK Age</span>
-                    <span className="font-medium">
-                      {selectedUser.dfkSnapshot.dfkAgeDays
-                        ? `${selectedUser.dfkSnapshot.dfkAgeDays} days`
-                        : "N/A"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      LP Positions
-                    </span>
-                    <span className="font-medium">
-                      {selectedUser.dfkSnapshot.lpPositionsCount || 0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Total LP Value
-                    </span>
-                    <span className="font-medium">
-                      $
-                      {selectedUser.dfkSnapshot.totalLPValue?.toFixed(2) ||
-                        0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      JEWEL Balance
-                    </span>
-                    <span className="font-medium">
-                      {selectedUser.dfkSnapshot.jewelBalance?.toFixed(0) ||
-                        0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      CRYSTAL Balance
-                    </span>
-                    <span className="font-medium">
-                      {selectedUser.dfkSnapshot.crystalBalance?.toFixed(2) ||
-                        0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      cJEWEL Balance
-                    </span>
-                    <span className="font-medium">
-                      {selectedUser.dfkSnapshot.cJewelBalance?.toFixed(2) ||
-                        0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Questing Streak
-                    </span>
-                    <span className="font-medium">
-                      {selectedUser.dfkSnapshot.questingStreakDays || 0}d
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Behavior Tags */}
-            {selectedUser.behaviorTags &&
-              selectedUser.behaviorTags.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="font-semibold text-sm">Behavior Tags</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedUser.behaviorTags.map((tag) => (
-                      <Tooltip key={tag}>
-                        <TooltipTrigger asChild>
-                          <Badge
-                            variant="outline"
-                            className="text-xs cursor-help"
-                          >
-                            {tag}
-                          </Badge>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="top"
-                          className="text-xs max-w-xs"
-                        >
-                          {behaviorTagDescriptions[tag] ||
-                            "Player behavior indicator"}
-                        </TooltipContent>
-                      </Tooltip>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-            {/* Flags */}
-            {(selectedUser.flags?.isWhale ||
-              selectedUser.flags?.isExtractor ||
-              selectedUser.flags?.isHighPotential) && (
-              <div className="space-y-3">
-                <h3 className="font-semibold text-sm">Flags</h3>
-                <div className="flex flex-wrap gap-2">
-                  {selectedUser.flags.isWhale && (
-                    <Badge variant="secondary" className="text-xs">
-                      Whale
-                    </Badge>
-                  )}
-                  {selectedUser.flags.isExtractor && (
-                    <Badge variant="destructive" className="text-xs">
-                      Extractor
-                    </Badge>
-                  )}
-                  {selectedUser.flags.isHighPotential && (
-                    <Badge variant="default" className="text-xs">
-                      High Potential
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="space-y-3 border-t pt-4">
-              <h3 className="font-semibold text-sm">Actions</h3>
-              <Button
-                className="w-full"
-                variant="secondary"
-                disabled={refreshSnapshotMutation.isPending}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  refreshSnapshotMutation.mutate(selectedUser.id);
-                }}
-              >
-                {refreshSnapshotMutation.isPending
-                  ? "Refreshing snapshot..."
-                  : "Refresh Snapshot (Admin)"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
