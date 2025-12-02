@@ -27,110 +27,74 @@ export async function detectWalletLPPositions(walletAddress) {
   try {
     console.log(`[LP Detector] Scanning wallet ${walletAddress} for LP positions...`);
     
-    // Step 1: Get total pool count from staking contract
-    let poolLength;
-    try {
-      poolLength = await stakingContract.getPoolLength();
-      console.log(`[LP Detector] Staking contract has ${poolLength} total pools`);
-    } catch (err) {
-      console.error('[LP Detector] Failed to get pool length:', err.message);
-      return [];
-    }
-    
-    // Step 2: Check each pool for user's staked balance (don't rely on cache, query contract directly)
-    const positions = [];
-    const poolMap = new Map(); // Cache pool details to avoid duplicates
-    
-    // Get cached analytics for enrichment
+    // Get cached pool analytics - this is the source of truth for garden pools
     const cached = getCachedPoolAnalytics();
     const cachedPools = cached?.data || [];
     
-    console.log(`[LP Detector] Checking ${poolLength} pools for user balances...`);
+    if (!cachedPools || cachedPools.length === 0) {
+      console.error('[LP Detector] Pool cache not available');
+      return [];
+    }
     
-    for (let pid = 0; pid < poolLength; pid++) {
+    console.log(`[LP Detector] Checking ${cachedPools.length} cached garden pools for user balances...`);
+    const positions = [];
+    
+    // For each pool in the analytics cache, check if user has staked balance
+    for (const cachedPool of cachedPools) {
       try {
-        // Query user's staked amount in this pool
+        const pid = cachedPool.pid;
+        
+        // Query user's staked amount in this specific pool
         const userInfo = await stakingContract.userInfo(pid, walletAddress);
         const stakedAmount = userInfo.amount;
         
         if (stakedAmount > 0n) {
-          console.log(`[LP Detector] ✅ Pool ${pid}: Found ${ethers.formatUnits(stakedAmount, 18)} LP tokens staked`);
+          const stakedFormatted = ethers.formatUnits(stakedAmount, 18);
           
-          // Find matching cached pool data for analytics
-          const cachedPool = cachedPools.find(p => p.pid === pid);
+          // Calculate USD value of position using BigInt arithmetic
+          const lpContract = new ethers.Contract(cachedPool.lpToken, erc20ABI, provider);
+          const totalSupply = await lpContract.totalSupply();
           
-          if (cachedPool) {
-            const stakedFormatted = ethers.formatUnits(stakedAmount, 18);
-            
-            // Calculate USD value
-            const lpContract = new ethers.Contract(cachedPool.lpToken, erc20ABI, provider);
-            const totalSupply = await lpContract.totalSupply();
-            
-            const PRECISION = 1000000n;
-            const userShareScaled = (stakedAmount * PRECISION) / totalSupply;
-            const userShareOfPool = Number(userShareScaled) / 1000000;
-            
-            const poolTVL = typeof cachedPool.totalTVL === 'number' 
-              ? cachedPool.totalTVL 
-              : parseFloat(cachedPool.totalTVL?.replace(/[^0-9.]/g, '') || '0');
-            const userTVL = poolTVL * userShareOfPool;
-            
-            positions.push({
-              pid,
-              pairName: cachedPool.pairName,
-              lpToken: cachedPool.lpToken,
-              lpBalance: stakedFormatted,
-              lpBalanceRaw: stakedAmount.toString(),
-              userTVL: userTVL.toFixed(2),
-              shareOfPool: (userShareOfPool * 100).toFixed(4) + '%',
-              poolData: {
-                totalTVL: cachedPool.totalTVL,
-                fee24hAPR: cachedPool.fee24hAPR,
-                harvesting24hAPR: cachedPool.harvesting24hAPR,
-                gardeningQuestAPR: cachedPool.gardeningQuestAPR,
-                totalAPR: cachedPool.totalAPR,
-                token0: cachedPool.token0,
-                token1: cachedPool.token1
-              }
-            });
-          } else {
-            // Pool not in cache - get LP token address from contract
-            try {
-              const poolInfo = await stakingContract.getPoolInfo(pid);
-              const lpTokenAddress = poolInfo.lpToken;
-              const stakedFormatted = ethers.formatUnits(stakedAmount, 18);
-              
-              console.log(`[LP Detector] ⚠️  Pool ${pid} not in cache, but user has ${stakedFormatted} staked. LP token: ${lpTokenAddress}`);
-              
-              positions.push({
-                pid,
-                pairName: `Pool ${pid}`,
-                lpToken: lpTokenAddress,
-                lpBalance: stakedFormatted,
-                lpBalanceRaw: stakedAmount.toString(),
-                userTVL: 'N/A',
-                shareOfPool: 'N/A',
-                poolData: {
-                  totalTVL: 'N/A',
-                  fee24hAPR: 'N/A',
-                  harvesting24hAPR: 'N/A',
-                  gardeningQuestAPR: { worst: 'N/A', best: 'N/A' },
-                  totalAPR: 'N/A',
-                  token0: { symbol: 'UNKNOWN' },
-                  token1: { symbol: 'UNKNOWN' }
-                }
-              });
-            } catch (innerErr) {
-              console.error(`[LP Detector] Failed to get pool info for pool ${pid}:`, innerErr.message);
+          // Avoid precision loss: scale by 1e6, divide, then convert
+          const PRECISION = 1000000n;
+          const userShareScaled = (stakedAmount * PRECISION) / totalSupply;
+          const userShareOfPool = Number(userShareScaled) / 1000000;
+          
+          // Parse TVL safely with fallback (handle both string and number)
+          const poolTVL = typeof cachedPool.totalTVL === 'number' 
+            ? cachedPool.totalTVL 
+            : parseFloat(cachedPool.totalTVL?.replace(/[^0-9.]/g, '') || '0');
+          const userTVL = poolTVL * userShareOfPool;
+          
+          positions.push({
+            pid,
+            pairName: cachedPool.pairName,
+            lpToken: cachedPool.lpToken,
+            lpBalance: stakedFormatted,
+            lpBalanceRaw: stakedAmount.toString(),
+            userTVL: userTVL.toFixed(2),
+            shareOfPool: (userShareOfPool * 100).toFixed(4) + '%',
+            poolData: {
+              totalTVL: cachedPool.totalTVL,
+              fee24hAPR: cachedPool.fee24hAPR,
+              harvesting24hAPR: cachedPool.harvesting24hAPR,
+              gardeningQuestAPR: cachedPool.gardeningQuestAPR,
+              totalAPR: cachedPool.totalAPR,
+              token0: cachedPool.token0,
+              token1: cachedPool.token1
             }
-          }
+          });
+          
+          console.log(`[LP Detector] ✅ Pool ${pid} (${cachedPool.pairName}): Found ${stakedFormatted} LP tokens staked`);
+        } else {
+          console.log(`[LP Detector] Pool ${pid} (${cachedPool.pairName}): No stake`);
         }
       } catch (err) {
-        console.error(`[LP Detector] Error checking pool ${pid}:`, err.message);
+        console.error(`[LP Detector] Error checking pool ${cachedPool.pid}:`, err.message);
       }
     }
     
-    console.log(`[LP Detector] ✅ Found ${positions.length} LP positions for wallet ${walletAddress}`);
+    console.log(`[LP Detector] ✅ Found ${positions.length}/${cachedPools.length} LP positions for wallet ${walletAddress}`);
     return positions;
     
   } catch (error) {
