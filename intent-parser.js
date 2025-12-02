@@ -36,29 +36,12 @@ export function parseGardenMenuIntent(message) {
 
 /**
  * Parse garden optimization requests
- * Examples:
- * - "Optimize my gardens" → { type: 'garden_optimization_tier2' }
- * - "Analyze my LP positions" → { type: 'garden_optimization_tier2' }
- * - "Garden recommendations" → { type: 'garden_optimization_tier2' }
+ *
+ * Legacy GPT-based routing for garden optimization is disabled. DM garden
+ * optimization now uses the deterministic handler directly instead of
+ * returning a garden_optimization_tier2 intent.
  */
 export function parseGardenOptimizationIntent(message) {
-  const lowerMsg = message.toLowerCase();
-  
-  // Keywords that indicate optimization requests
-  const optimizationKeywords = /\b(optimize|optimise|optimization|optimisation|maximize|maximise|best.*setup|fix.*gardeners?|hero.*assign|pet.*assign)\b/i;
-  const gardenKeywords = /\b(garden|gardens|lp|pool|pools|position|positions)\b/i;
-  
-  // Must have both optimization keywords AND garden/LP keywords
-  if (optimizationKeywords.test(message) && gardenKeywords.test(message)) {
-    return { type: 'garden_optimization_tier2' };
-  }
-  
-  // Specific phrases
-  const specificPhrases = /\b(garden optimization|lp optimization|pool optimization|optimize.*garden|garden.*recommendation)\b/i;
-  if (specificPhrases.test(message)) {
-    return { type: 'garden_optimization_tier2' };
-  }
-  
   return null;
 }
 
@@ -600,8 +583,6 @@ export function formatIntent(intent) {
   switch (intent.type) {
     case 'garden_menu':
       return 'Garden: Show menu';
-    case 'garden_optimization_tier2':
-      return 'Garden: Full Optimization (Tier 2 - 25 JEWEL)';
     case 'npc':
       if (intent.action) {
         return `NPC: ${intent.npc} (action: ${intent.action})`;
