@@ -14,8 +14,50 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 // Load Hedge personality
-const HEDGE_PROMPT_PATH = process.env.HEDGE_PROMPT_PATH || path.join(__dirname, 'prompt', 'hedge-ledger.md');
+const HEDGE_PROMPT_PATH =
+  process.env.HEDGE_PROMPT_PATH || path.join(__dirname, 'prompt', 'hedge-ledger.md');
 const hedgePersonality = fs.readFileSync(HEDGE_PROMPT_PATH, 'utf8');
+
+/**
+ * Default tool executor
+ *
+ * This is used when no custom toolExecutor is provided to routeAndExecute.
+ * It wires key tools (especially gardens) to the real backend engines.
+ */
+async function defaultToolExecutor(name, args) {
+  try {
+    switch (name) {
+      case 'get_wallet_gardens': {
+        const { detectWalletLPPositions } = await import('./wallet-lp-detector.js');
+        const wallet = args.wallet_address;
+        if (!wallet) {
+          throw new Error('wallet_address is required for get_wallet_gardens');
+        }
+        const positions = await detectWalletLPPositions(wallet);
+        return {
+          wallet,
+          positions,
+          count: positions.length,
+        };
+      }
+
+      case 'get_garden_pools_free':
+      case 'get_garden_pools_premium': {
+        const { getCachedPoolAnalytics } = await import('./pool-cache.js');
+        const cache = getCachedPoolAnalytics();
+        return cache?.data || [];
+      }
+
+      // You can map more tools (hero, FVE, summon) here later as needed.
+
+      default:
+        throw new Error(`No default executor implemented for tool: ${name}`);
+    }
+  } catch (err) {
+    console.error(`[defaultToolExecutor] Error executing tool ${name}:`, err.message);
+    throw err;
+  }
+}
 
 /**
  * Route a DM query through OpenAI function calling
@@ -32,13 +74,13 @@ async function routeIntent(userMessage, context = {}) {
     const messages = [
       {
         role: 'system',
-        content: hedgePersonality
+        content: hedgePersonality,
       },
       ...conversationHistory, // Include previous messages if available
       {
         role: 'user',
-        content: userMessage
-      }
+        content: userMessage,
+      },
     ];
 
     // Call OpenAI with function calling enabled
@@ -47,7 +89,7 @@ async function routeIntent(userMessage, context = {}) {
       messages,
       tools: ALL_TOOLS,
       tool_choice: 'auto', // Let GPT decide whether to call tools
-      temperature: 0.7
+      temperature: 0.7,
     });
 
     const responseMessage = completion.choices[0].message;
@@ -56,25 +98,31 @@ async function routeIntent(userMessage, context = {}) {
     // Check if GPT wants to call any tools
     if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
       return {
-        toolCalls: responseMessage.tool_calls.map(tc => {
+        toolCalls: responseMessage.tool_calls.map((tc) => {
           // Safely parse tool arguments with error handling
           let parsedArgs;
           try {
             parsedArgs = JSON.parse(tc.function.arguments);
           } catch (error) {
-            console.error(`Failed to parse tool arguments for ${tc.function.name}:`, error);
-            parsedArgs = { error: 'Invalid tool arguments', raw: tc.function.arguments };
+            console.error(
+              `Failed to parse tool arguments for ${tc.function.name}:`,
+              error
+            );
+            parsedArgs = {
+              error: 'Invalid tool arguments',
+              raw: tc.function.arguments,
+            };
           }
           return {
             id: tc.id,
             name: tc.function.name,
-            arguments: parsedArgs
+            arguments: parsedArgs,
           };
         }),
         response: null, // No direct response yet - need to execute tools first
         tokensUsed,
         assistantMessage: responseMessage, // Save for next round
-        userMessage // Save user message for second round
+        userMessage, // Save user message for second round
       };
     } else {
       // No tool calls - GPT answered directly
@@ -82,7 +130,7 @@ async function routeIntent(userMessage, context = {}) {
         toolCalls: [],
         response: responseMessage.content,
         tokensUsed,
-        assistantMessage: responseMessage
+        assistantMessage: responseMessage,
       };
     }
   } catch (error) {
@@ -101,7 +149,13 @@ async function routeIntent(userMessage, context = {}) {
  * @param {function} toolExecutor - Function that executes tools and returns results
  * @returns {object} - { response: string, tokensUsed: number }
  */
-async function executeToolsAndRespond(toolCalls, assistantMessage, userMessage, conversationHistory, toolExecutor) {
+async function executeToolsAndRespond(
+  toolCalls,
+  assistantMessage,
+  userMessage,
+  conversationHistory,
+  toolExecutor
+) {
   try {
     // Execute all tool calls
     const toolResults = await Promise.all(
@@ -112,7 +166,7 @@ async function executeToolsAndRespond(toolCalls, assistantMessage, userMessage, 
             tool_call_id: tc.id,
             role: 'tool',
             name: tc.name,
-            content: JSON.stringify(result)
+            content: JSON.stringify(result),
           };
         } catch (error) {
           console.error(`Tool execution error (${tc.name}):`, error);
@@ -120,7 +174,7 @@ async function executeToolsAndRespond(toolCalls, assistantMessage, userMessage, 
             tool_call_id: tc.id,
             role: 'tool',
             name: tc.name,
-            content: JSON.stringify({ error: error.message })
+            content: JSON.stringify({ error: error.message }),
           };
         }
       })
@@ -130,27 +184,27 @@ async function executeToolsAndRespond(toolCalls, assistantMessage, userMessage, 
     const messages = [
       {
         role: 'system',
-        content: hedgePersonality
+        content: hedgePersonality,
       },
       ...conversationHistory,
       {
         role: 'user',
-        content: userMessage  // Include original user question for context
+        content: userMessage, // Include original user question for context
       },
       assistantMessage, // Include the assistant's tool-calling message
-      ...toolResults     // Add tool results
+      ...toolResults, // Add tool results
     ];
 
     // Get final response from GPT
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages,
-      temperature: 0.7
+      temperature: 0.7,
     });
 
     return {
       response: completion.choices[0].message.content,
-      tokensUsed: completion.usage.total_tokens
+      tokensUsed: completion.usage.total_tokens,
     };
   } catch (error) {
     console.error('Tool execution and response error:', error);
@@ -163,19 +217,23 @@ async function executeToolsAndRespond(toolCalls, assistantMessage, userMessage, 
  * 
  * @param {string} userMessage - User's DM message
  * @param {object} context - Context (userId, conversationHistory)
- * @param {function} toolExecutor - Function to execute tools
+ * @param {function} toolExecutor - Function to execute tools (optional; defaults to built-in)
  * @returns {object} - { response: string, toolsUsed: array, totalTokens: number }
  */
-async function routeAndExecute(userMessage, context = {}, toolExecutor) {
+async function routeAndExecute(
+  userMessage,
+  context = {},
+  toolExecutor = defaultToolExecutor
+) {
   // Step 1: Route intent
   const routeResult = await routeIntent(userMessage, context);
 
   // Step 2: If no tools needed, return direct response
-  if (routeResult.toolCalls.length === 0) {
+  if (!routeResult.toolCalls || routeResult.toolCalls.length === 0) {
     return {
       response: routeResult.response,
       toolsUsed: [],
-      totalTokens: routeResult.tokensUsed
+      totalTokens: routeResult.tokensUsed,
     };
   }
 
@@ -191,13 +249,13 @@ async function routeAndExecute(userMessage, context = {}, toolExecutor) {
 
   return {
     response: finalResult.response,
-    toolsUsed: routeResult.toolCalls.map(tc => tc.name),
-    totalTokens: routeResult.tokensUsed + finalResult.tokensUsed
+    toolsUsed: routeResult.toolCalls.map((tc) => tc.name),
+    totalTokens: routeResult.tokensUsed + finalResult.tokensUsed,
   };
 }
 
 module.exports = {
   routeIntent,
   executeToolsAndRespond,
-  routeAndExecute
+  routeAndExecute,
 };

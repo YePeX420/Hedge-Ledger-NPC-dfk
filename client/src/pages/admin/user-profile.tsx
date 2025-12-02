@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
+import { queryClient } from "@/lib/queryClient";
 
 interface UserProfile {
   id: number;
@@ -30,7 +32,8 @@ interface UserProfile {
 
 export default function UserProfile() {
   const { userId } = useParams();
-  
+  const [refreshing, setRefreshing] = useState(false);
+
   const { data: profile, isLoading, error } = useQuery<UserProfile>({
     queryKey: [`/api/admin/users/${userId}/profile`],
   });
@@ -57,10 +60,40 @@ export default function UserProfile() {
     );
   }
 
-  const createdDate = profile.createdAt ? new Date(profile.createdAt).toISOString().split('T')[0] : 'N/A';
+  const createdDate = profile.createdAt
+    ? new Date(profile.createdAt).toISOString().split("T")[0]
+    : "N/A";
+
+  async function handleRefreshSnapshot() {
+    try {
+      setRefreshing(true);
+      const res = await fetch(`/api/admin/users/${userId}/refresh-snapshot`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to refresh snapshot");
+      }
+
+      // Invalidate this profile query so it reloads fresh data
+      queryClient.invalidateQueries({
+        queryKey: [`/api/admin/users/${userId}/profile`],
+      });
+
+      alert("Snapshot refreshed successfully.");
+    } catch (err: any) {
+      console.error("Snapshot refresh failed:", err.message);
+      alert("Failed to refresh snapshot.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   return (
-    <div className="container mx-auto p-6 space-y-6" data-testid="user-profile-container">
+    <div
+      className="container mx-auto p-6 space-y-6"
+      data-testid="user-profile-container"
+    >
       <div className="flex items-center gap-4">
         <Link href="/admin/users">
           <Button variant="ghost" size="icon" data-testid="button-back">
@@ -71,7 +104,10 @@ export default function UserProfile() {
           <h1 className="text-3xl font-bold" data-testid="profile-title">
             {profile.discordUsername}'s Account
           </h1>
-          <p className="text-muted-foreground" data-testid="profile-subtitle">
+          <p
+            className="text-muted-foreground"
+            data-testid="profile-subtitle"
+          >
             User ID: {profile.discordId}
           </p>
         </div>
@@ -80,40 +116,60 @@ export default function UserProfile() {
       <Card data-testid="card-profile">
         <CardHeader>
           <CardTitle>Your Hedge Ledger Account</CardTitle>
-          <CardDescription>Admin view of user account dashboard</CardDescription>
+          <CardDescription>
+            Admin view of user account dashboard
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Profile Section */}
           <div className="space-y-3">
-            <h3 className="font-semibold text-sm uppercase text-muted-foreground">Profile</h3>
+            <h3 className="font-semibold text-sm uppercase text-muted-foreground">
+              Profile
+            </h3>
             <div className="space-y-2 text-sm">
               <div>
-                <span className="text-muted-foreground">Discord:</span> {profile.discordUsername}
+                <span className="text-muted-foreground">Discord:</span>{" "}
+                {profile.discordUsername}
               </div>
               <div>
-                <span className="text-muted-foreground">Tier:</span> <Badge>{profile.tier}</Badge>
+                <span className="text-muted-foreground">Tier:</span>{" "}
+                <Badge>{profile.tier}</Badge>
               </div>
               <div>
-                <span className="text-muted-foreground">Total queries:</span> {profile.totalQueries}
+                <span className="text-muted-foreground">Total queries:</span>{" "}
+                {profile.totalQueries}
               </div>
               <div>
-                <span className="text-muted-foreground">Member since:</span> {createdDate}
+                <span className="text-muted-foreground">Member since:</span>{" "}
+                {createdDate}
               </div>
             </div>
           </div>
 
           {/* Wallets Section */}
           <div className="space-y-3 border-t pt-4">
-            <h3 className="font-semibold text-sm uppercase text-muted-foreground">Wallets</h3>
+            <h3 className="font-semibold text-sm uppercase text-muted-foreground">
+              Wallets
+            </h3>
             {profile.wallets && profile.wallets.length > 0 ? (
               <div className="space-y-2">
                 {profile.wallets.slice(0, 5).map((wallet, idx) => {
-                  const shortAddr = `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`;
-                  const verified = wallet.verified ? '✓ Verified' : '⚠ Not verified';
+                  const shortAddr = `${wallet.address.slice(
+                    0,
+                    6
+                  )}…${wallet.address.slice(-4)}`;
+                  const verified = wallet.verified
+                    ? "✓ Verified"
+                    : "⚠ Not verified";
                   return (
-                    <div key={wallet.id} className="text-sm p-2 bg-muted rounded">
+                    <div
+                      key={wallet.id}
+                      className="text-sm p-2 bg-muted rounded"
+                    >
                       <div>
-                        {idx + 1}. <code className="text-xs">{shortAddr}</code> ({wallet.chain}) – {verified}
+                        {idx + 1}.{" "}
+                        <code className="text-xs">{shortAddr}</code>{" "}
+                        ({wallet.chain}) – {verified}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1 break-all">
                         {wallet.address}
@@ -136,16 +192,22 @@ export default function UserProfile() {
 
           {/* LP Positions Section */}
           <div className="space-y-3 border-t pt-4">
-            <h3 className="font-semibold text-sm uppercase text-muted-foreground">LP Positions</h3>
+            <h3 className="font-semibold text-sm uppercase text-muted-foreground">
+              LP Positions
+            </h3>
             {profile.lpPositions && profile.lpPositions.length > 0 ? (
               <div className="space-y-3">
                 {profile.lpPositions.slice(0, 5).map((lp) => (
-                  <div key={lp.id} className="text-sm p-2 bg-muted rounded">
+                  <div
+                    key={lp.id}
+                    className="text-sm p-2 bg-muted rounded"
+                  >
                     <div className="font-medium">
                       {lp.poolName} ({lp.chain})
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      • {lp.lpAmount} LP<br />
+                      • {lp.lpAmount} LP
+                      <br />
                       • 24h APR (with quests): {lp.apr24h}%
                     </div>
                   </div>
@@ -164,16 +226,32 @@ export default function UserProfile() {
           </div>
 
           <div className="border-t pt-4 space-y-4">
-            <Button 
-              className="w-full" 
+            <Button
+              className="w-full"
               variant="default"
               data-testid="button-view-dashboard"
-              onClick={() => window.open(`${window.location.origin}/account?userId=${profile.discordId}`, '_blank')}
+              onClick={() =>
+                window.open(
+                  `${window.location.origin}/account?userId=${profile.discordId}`,
+                  "_blank"
+                )
+              }
             >
               View User Dashboard
             </Button>
+
+            <Button
+              className="w-full"
+              variant="secondary"
+              onClick={handleRefreshSnapshot}
+              disabled={refreshing}
+            >
+              {refreshing ? "Refreshing snapshot..." : "Refresh Snapshot (Admin)"}
+            </Button>
+
             <div className="text-xs text-muted-foreground">
-              Early Access – features and on-chain automation are still being rolled out.
+              Early Access – features and on-chain automation are still being
+              rolled out.
             </div>
           </div>
         </CardContent>

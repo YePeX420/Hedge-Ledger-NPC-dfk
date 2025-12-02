@@ -1,48 +1,73 @@
 // onchain-data.js
-// DeFi Kingdoms GraphQL API integration for real-time blockchain data
-// Includes garden pool APR and harvest data via blockchain RPC
+// DeFi Kingdoms GraphQL API + RPC integration for real-time blockchain and garden data
 
 import { GraphQLClient, gql } from 'graphql-request';
 import { ethers } from 'ethers';
 import { readFileSync } from 'fs';
-import { decodeHeroGenes, decodeMultipleHeroes } from './hero-genetics.js';
+import { decodeHeroGenes } from './hero-genetics.js';
 
+// ------------------------------
+// GraphQL client
+// ------------------------------
 const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
 const client = new GraphQLClient(DFK_GRAPHQL_ENDPOINT);
 
-// ========== GARDEN POOLS CONFIGURATION ==========
-
-// RPC Providers
+// ------------------------------
+// RPC endpoints & providers
+// ------------------------------
 const RPC_ENDPOINTS = {
-  dfk: 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc',
-  klaytn: 'https://public-en.node.kaia.io'
+  dfk: [
+    'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc',
+    // Potential future fallbacks (kept commented to avoid accidental breakage)
+    // 'https://dfk-chain.rpc.thirdparty.io',
+  ],
+  klaytn: [
+    'https://public-en.node.kaia.io',
+  ],
 };
 
-// LP Staking Contract Addresses
+function createProvider(endpoints) {
+  // Keep behavior simple: use first endpoint, but in the future we can add real fallback logic
+  const url = Array.isArray(endpoints) ? endpoints[0] : endpoints;
+  return new ethers.JsonRpcProvider(url);
+}
+
+const providers = {
+  dfk: createProvider(RPC_ENDPOINTS.dfk),
+  klaytn: createProvider(RPC_ENDPOINTS.klaytn),
+};
+
+// Simple safety wrapper so one bad call doesn’t crash everything
+async function safeContractCall(contract, method, args = [], fallback = null) {
+  try {
+    if (!contract || !contract[method]) return fallback;
+    const result = await contract[method](...args);
+    return result ?? fallback;
+  } catch (err) {
+    console.warn(`[safeContractCall] ${method} failed:`, err.message);
+    return fallback;
+  }
+}
+
+// ------------------------------
+// LP staking contracts & metadata
+// ------------------------------
 const LP_STAKING_ADDRESSES = {
   dfk: '0xB04e8D6aED037904B77A9F0b08002592925833b7',
-  klaytn: '0xcce557DF36a6E774694D5071FC1baF19B9b07Fdc'
+  klaytn: '0xcce557DF36a6E774694D5071FC1baF19B9b07Fdc',
 };
 
-// Load LP Staking ABI
 let LP_STAKING_ABI;
 try {
   LP_STAKING_ABI = JSON.parse(readFileSync('LPStakingDiamond.json', 'utf-8'));
 } catch (err) {
   console.warn('Could not load LP Staking ABI:', err.message);
-  LP_STAKING_ABI = []; // Fallback
+  LP_STAKING_ABI = [];
 }
 
-// Initialize providers
-const providers = {
-  dfk: new ethers.JsonRpcProvider(RPC_ENDPOINTS.dfk),
-  klaytn: new ethers.JsonRpcProvider(RPC_ENDPOINTS.klaytn)
-};
-
-// Initialize contracts
 const lpStakingContracts = {
   dfk: new ethers.Contract(LP_STAKING_ADDRESSES.dfk, LP_STAKING_ABI, providers.dfk),
-  klaytn: new ethers.Contract(LP_STAKING_ADDRESSES.klaytn, LP_STAKING_ABI, providers.klaytn)
+  klaytn: new ethers.Contract(LP_STAKING_ADDRESSES.klaytn, LP_STAKING_ABI, providers.klaytn),
 };
 
 // Garden pool metadata (from devs.defikingdoms.com)
@@ -55,13 +80,13 @@ const GARDEN_POOLS = {
     { pid: 4, pair: 'ETH-USDC', lpToken: '0x7d4daa9eB74264b082A92F3f559ff167224484aC', archived: false },
     { pid: 5, pair: 'wJEWEL-USDC', lpToken: '0xCF329b34049033dE26e4449aeBCb41f1992724D3', archived: false },
     { pid: 6, pair: 'CRYSTAL-ETH', lpToken: '0x78C893E262e2681Dbd6B6eBA6CCA2AaD45de19AD', archived: false },
-    { pid: 7, pair: 'CRYSTAL-BTC.b', lpToken: '0x00BD81c9bAC29a3b6aea7ABc92d2C9a3366Bb4dD', archived: false },
+    { pid: 7, pair: 'CRYSTAL-BTC.b', lpToken: '0x00BD81c9bAc29a3b6aea7ABc92d2C9a3366Bb4dD', archived: false },
     { pid: 8, pair: 'CRYSTAL-KLAY', lpToken: '0xaFC1fBc3F3fB517EB54Bb2472051A6f0b2105320', archived: false },
     { pid: 9, pair: 'wJEWEL-KLAY', lpToken: '0x561091E2385C90d41b4c0dAef651A4b33E1a5CfE', archived: false },
     { pid: 10, pair: 'wJEWEL-AVAX', lpToken: '0xF3EabeD6Bd905e0FcD68FC3dBCd6e3A4aEE55E98', archived: false },
     { pid: 11, pair: 'wJEWEL-BTC.b', lpToken: '0xfAa8507e822397bd56eFD4480Fb12ADC41ff940B', archived: false },
     { pid: 12, pair: 'wJEWEL-ETH', lpToken: '0x79724B6996502afc773feB3Ff8Bb3C23ADf2854B', archived: false },
-    { pid: 13, pair: 'BTC.b-USDC', lpToken: '0x59D642B471dd54207Cb1CDe2e7507b0Ce1b1a6a5', archived: false }
+    { pid: 13, pair: 'BTC.b-USDC', lpToken: '0x59D642B471dd54207Cb1CDe2e7507b0Ce1b1a6a5', archived: false },
   ],
   klaytn: [
     { pid: 0, pair: 'JADE-JEWEL', lpToken: '0x85DB3CC4BCDB8bffA073A3307D48Ed97C78Af0AE', archived: false },
@@ -74,33 +99,38 @@ const GARDEN_POOLS = {
     { pid: 7, pair: 'JEWEL-AVAX', lpToken: '0x6CE5bb25A4E7aBF7214309F7b8D7cceCEF60867E', archived: false },
     { pid: 8, pair: 'JEWEL-oUSDT', lpToken: '0xB32839faF3826158995aF72d7824802840187f19', archived: false },
     { pid: 9, pair: 'JEWEL-oWBTC', lpToken: '0x7828926761e7a6E1f9532914A282bf6631EA3C81', archived: false },
-    { pid: 10, pair: 'JEWEL-oETH', lpToken: '0xd3e2Fd9dB41Acea03f0E0c22d85D3076186f4f24', archived: false }
-  ]
+    { pid: 10, pair: 'JEWEL-oETH', lpToken: '0xd3e2Fd9dB41Acea03f0E0c22d85D3076186f4f24', archived: false },
+  ],
 };
 
-// Helper to convert wei to JEWEL/CRYSTAL (divide by 10^18)
+// ------------------------------
+// Helpers
+// ------------------------------
 export function weiToToken(wei) {
   if (!wei) return '0';
-  return (parseInt(wei) / 1e18).toFixed(4);
+  try {
+    const n = typeof wei === 'bigint' ? Number(wei) : parseFloat(wei);
+    if (!isFinite(n)) return '0';
+    return (n / 1e18).toFixed(4);
+  } catch {
+    return '0';
+  }
 }
 
-// Helper to format hero ID based on realm
+// Helper to format hero ID based on realm offsets
 export function normalizeHeroId(id) {
-  // Crystalvale heroes: +1 trillion
-  // Serendale 2.0 (Klaytn): +2 trillion
-  // Original Serendale: no offset
   const heroId = BigInt(id);
   if (heroId >= 2000000000000n) {
     return (heroId - 2000000000000n).toString();
   } else if (heroId >= 1000000000000n) {
     return (heroId - 1000000000000n).toString();
   }
-  return id.toString();
+  return heroId.toString();
 }
 
-/**
- * Get detailed info about a specific hero by ID
- */
+// ------------------------------
+// HERO FUNCTIONS
+// ------------------------------
 export async function getHeroById(heroId) {
   const query = gql`
     query GetHero($heroId: ID!) {
@@ -141,35 +171,15 @@ export async function getHeroById(heroId) {
         }
         salePrice
         assistingPrice
-        
-        # Raw gene data for full D/R1/R2/R3 decoding
         statGenes
         visualGenes
-        
-        # Parsed gene data
         advancedGenes
         eliteGenes
         exaltedGenes
-        passive1 {
-          id
-          name
-          tier
-        }
-        passive2 {
-          id
-          name
-          tier
-        }
-        active1 {
-          id
-          name
-          tier
-        }
-        active2 {
-          id
-          name
-          tier
-        }
+        passive1 { id name tier }
+        passive2 { id name tier }
+        active1 { id name tier }
+        active2 { id name tier }
       }
     }
   `;
@@ -183,22 +193,19 @@ export async function getHeroById(heroId) {
   }
 }
 
-/**
- * Search heroes by criteria (class, profession, for sale, etc.)
- */
-export async function searchHeroes({ 
-  mainClass, 
-  profession, 
-  forSale = false, 
+export async function searchHeroes({
+  mainClass,
+  profession,
+  forSale = false,
   maxPrice,
   minLevel,
   maxLevel,
   limit = 20,
   orderBy = 'id',
-  orderDirection = 'desc'
+  orderDirection = 'desc',
 }) {
   const where = {};
-  
+
   if (mainClass) where.mainClassStr = mainClass;
   if (profession) where.professionStr = profession;
   if (forSale) where.salePrice_not = null;
@@ -207,8 +214,18 @@ export async function searchHeroes({
   if (maxLevel) where.level_lte = maxLevel;
 
   const query = gql`
-    query SearchHeroes($where: HeroFilter, $first: Int!, $orderBy: HeroOrderBy!, $orderDirection: OrderDirection!) {
-      heroes(where: $where, first: $first, orderBy: $orderBy, orderDirection: $orderDirection) {
+    query SearchHeroes(
+      $where: HeroFilter
+      $first: Int!
+      $orderBy: HeroOrderBy!
+      $orderDirection: OrderDirection!
+    ) {
+      heroes(
+        where: $where
+        first: $first
+        orderBy: $orderBy
+        orderDirection: $orderDirection
+      ) {
         id
         normalizedId
         mainClassStr
@@ -240,7 +257,7 @@ export async function searchHeroes({
       where,
       first: limit,
       orderBy,
-      orderDirection
+      orderDirection,
     });
     return data.heroes;
   } catch (error) {
@@ -249,9 +266,6 @@ export async function searchHeroes({
   }
 }
 
-/**
- * Get cheapest heroes for sale by class
- */
 export async function getCheapestHeroes(mainClass = null, limit = 10) {
   const where = { salePrice_not: null, endedAt: null, winner: null };
   if (mainClass) where.mainClassStr = mainClass;
@@ -259,9 +273,9 @@ export async function getCheapestHeroes(mainClass = null, limit = 10) {
   const query = gql`
     query CheapestHeroes($where: HeroFilter, $first: Int!) {
       heroes(
-        where: $where,
-        first: $first,
-        orderBy: salePrice,
+        where: $where
+        first: $first
+        orderBy: salePrice
         orderDirection: asc
       ) {
         id
@@ -294,9 +308,6 @@ export async function getCheapestHeroes(mainClass = null, limit = 10) {
   }
 }
 
-/**
- * Get active sale auctions
- */
 export async function getActiveSales(limit = 20, minPrice = null, maxPrice = null) {
   const where = { endedAt: null, winner: null };
   if (minPrice) where.startingPrice_gte = (minPrice * 1e18).toString();
@@ -305,9 +316,9 @@ export async function getActiveSales(limit = 20, minPrice = null, maxPrice = nul
   const query = gql`
     query ActiveSales($where: AuctionFilter, $first: Int!) {
       saleAuctions(
-        where: $where,
-        first: $first,
-        orderBy: startingPrice,
+        where: $where
+        first: $first
+        orderBy: startingPrice
         orderDirection: asc
       ) {
         id
@@ -338,13 +349,15 @@ export async function getActiveSales(limit = 20, minPrice = null, maxPrice = nul
   }
 }
 
-/**
- * Get heroes owned by a specific address
- */
 export async function getHeroesByOwner(ownerAddress, limit = 50) {
   const query = gql`
     query HeroesByOwner($owner: String!, $first: Int!) {
-      heroes(where: { owner: $owner }, first: $first, orderBy: level, orderDirection: desc) {
+      heroes(
+        where: { owner: $owner }
+        first: $first
+        orderBy: level
+        orderDirection: desc
+      ) {
         id
         normalizedId
         mainClassStr
@@ -370,7 +383,10 @@ export async function getHeroesByOwner(ownerAddress, limit = 50) {
   `;
 
   try {
-    const data = await client.request(query, { owner: ownerAddress.toLowerCase(), first: limit });
+    const data = await client.request(query, {
+      owner: ownerAddress.toLowerCase(),
+      first: limit,
+    });
     return data.heroes;
   } catch (error) {
     console.error('Error fetching heroes by owner:', error);
@@ -380,8 +396,6 @@ export async function getHeroesByOwner(ownerAddress, limit = 50) {
 
 /**
  * Get ALL heroes owned by a specific address across all realms (paginated)
- * This function handles wallets with 1000+ heroes by fetching in batches
- * Returns heroes from Serendale, Crystalvale, and Sundered Isles
  */
 export async function getAllHeroesByOwner(ownerAddress) {
   const PAGE_SIZE = 200;
@@ -389,17 +403,22 @@ export async function getAllHeroesByOwner(ownerAddress) {
   let fetched = 0;
   let keepGoing = true;
   const lower = ownerAddress.toLowerCase();
-  
-  // For case-insensitive matching (Metis subgraph uses mixed case)
-  const ownerVariants = [
-    lower,
-    ownerAddress,
-    ownerAddress.toUpperCase()
-  ];
+
+  const ownerVariants = [lower, ownerAddress, ownerAddress.toUpperCase()];
 
   const query = gql`
-    query HeroesByOwnerPaginated($owners: [String!]!, $first: Int!, $skip: Int!) {
-      heroes(where: { owner_in: $owners }, first: $first, skip: $skip, orderBy: level, orderDirection: desc) {
+    query HeroesByOwnerPaginated(
+      $owners: [String!]!
+      $first: Int!
+      $skip: Int!
+    ) {
+      heroes(
+        where: { owner_in: $owners }
+        first: $first
+        skip: $skip
+        orderBy: level
+        orderDirection: desc
+      ) {
         id
         normalizedId
         network
@@ -429,38 +448,37 @@ export async function getAllHeroesByOwner(ownerAddress) {
 
   try {
     while (keepGoing) {
-      console.log(`[getAllHeroesByOwner] Fetching heroes ${fetched}-${fetched + PAGE_SIZE}...`);
-      
-      const data = await client.request(query, { 
-        owners: ownerVariants, 
-        first: PAGE_SIZE, 
-        skip: fetched 
+      console.log(
+        `[getAllHeroesByOwner] Fetching heroes ${fetched}-${fetched + PAGE_SIZE}...`
+      );
+
+      const data = await client.request(query, {
+        owners: ownerVariants,
+        first: PAGE_SIZE,
+        skip: fetched,
       });
-      
+
       const batch = data.heroes || [];
       allHeroes.push(...batch);
-      
-      console.log(`[getAllHeroesByOwner] Got ${batch.length} heroes in this batch`);
-      
-      // If we got fewer than PAGE_SIZE, we've reached the end
-      if (batch.length < PAGE_SIZE) {
-        keepGoing = false;
-      }
-      
+
+      console.log(
+        `[getAllHeroesByOwner] Got ${batch.length} heroes in this batch`
+      );
+
+      if (batch.length < PAGE_SIZE) keepGoing = false;
       fetched += batch.length;
     }
 
-    // Deduplicate by id (just in case)
     const dedupMap = new Map();
     for (const hero of allHeroes) {
-      if (!dedupMap.has(hero.id)) {
-        dedupMap.set(hero.id, hero);
-      }
+      if (!dedupMap.has(hero.id)) dedupMap.set(hero.id, hero);
     }
 
     const dedupedHeroes = Array.from(dedupMap.values());
-    console.log(`[getAllHeroesByOwner] Total heroes after dedup: ${dedupedHeroes.length}`);
-    
+    console.log(
+      `[getAllHeroesByOwner] Total heroes after dedup: ${dedupedHeroes.length}`
+    );
+
     return dedupedHeroes;
   } catch (error) {
     console.error('[getAllHeroesByOwner] Error fetching all heroes:', error);
@@ -468,17 +486,14 @@ export async function getAllHeroesByOwner(ownerAddress) {
   }
 }
 
-/**
- * Get top heroes by profession skill
- */
 export async function getTopProfessionHeroes(profession, limit = 10) {
   const professionField = profession.toLowerCase(); // mining, gardening, foraging, fishing
-  
+
   const query = gql`
     query TopProfessionHeroes($first: Int!) {
       heroes(
-        first: $first,
-        orderBy: ${professionField},
+        first: $first
+        orderBy: ${professionField}
         orderDirection: desc
       ) {
         id
@@ -504,13 +519,14 @@ export async function getTopProfessionHeroes(profession, limit = 10) {
   }
 }
 
-/**
- * Get sale history for a specific hero
- */
 export async function getHeroSaleHistory(heroId) {
   const query = gql`
     query HeroSaleHistory($heroId: Int!) {
-      saleAuctions(where: { tokenId: $heroId }, orderBy: endedAt, orderDirection: desc) {
+      saleAuctions(
+        where: { tokenId: $heroId }
+        orderBy: endedAt
+        orderDirection: desc
+      ) {
         id
         startingPrice
         purchasePrice
@@ -530,7 +546,9 @@ export async function getHeroSaleHistory(heroId) {
 
   try {
     const normalizedId = normalizeHeroId(heroId);
-    const data = await client.request(query, { heroId: parseInt(normalizedId) });
+    const data = await client.request(query, {
+      heroId: parseInt(normalizedId, 10),
+    });
     return data.saleAuctions;
   } catch (error) {
     console.error('Error fetching hero sale history:', error);
@@ -538,13 +556,15 @@ export async function getHeroSaleHistory(heroId) {
   }
 }
 
-/**
- * Get marketplace statistics
- */
 export async function getMarketStats() {
   const query = gql`
     query MarketStats {
-      saleAuctions(first: 1000, where: { endedAt: null, winner: null }, orderBy: startingPrice, orderDirection: asc) {
+      saleAuctions(
+        first: 1000
+        where: { endedAt: null, winner: null }
+        orderBy: startingPrice
+        orderDirection: asc
+      ) {
         startingPrice
         tokenId {
           mainClassStr
@@ -559,15 +579,19 @@ export async function getMarketStats() {
     const data = await client.request(query);
     const auctions = data.saleAuctions;
 
-    // Calculate stats
-    const prices = auctions.map(a => parseInt(a.startingPrice) / 1e18).filter(p => p > 0);
-    const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
+    const prices = auctions
+      .map((a) => parseInt(a.startingPrice, 10) / 1e18)
+      .filter((p) => p > 0);
+
+    const avgPrice =
+      prices.length > 0
+        ? prices.reduce((a, b) => a + b, 0) / prices.length
+        : 0;
     const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
     const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
 
-    // Count by class
     const byClass = {};
-    auctions.forEach(a => {
+    auctions.forEach((a) => {
       const cls = a.tokenId.mainClassStr;
       byClass[cls] = (byClass[cls] || 0) + 1;
     });
@@ -577,7 +601,7 @@ export async function getMarketStats() {
       avgPrice: avgPrice.toFixed(2),
       minPrice: minPrice.toFixed(2),
       maxPrice: maxPrice.toFixed(2),
-      byClass
+      byClass,
     };
   } catch (error) {
     console.error('Error fetching market stats:', error);
@@ -585,21 +609,33 @@ export async function getMarketStats() {
   }
 }
 
-/**
- * Format hero data for display
- */
+// ------------------------------
+// Formatting helpers
+// ------------------------------
 export function formatHeroSummary(hero) {
   if (!hero) return 'Hero not found';
 
+  const rarityLabel =
+    ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero.rarity] ??
+    hero.rarity;
+
   const lines = [
     `**Hero #${hero.normalizedId || hero.id}**`,
-    `**Class:** ${hero.mainClassStr}${hero.subClassStr ? ` / ${hero.subClassStr}` : ''}`,
+    `**Class:** ${hero.mainClassStr}${
+      hero.subClassStr ? ` / ${hero.subClassStr}` : ''
+    }`,
     `**Profession:** ${hero.professionStr || 'Unknown'}`,
-    `**Rarity:** ${['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero.rarity] || hero.rarity}`,
+    `**Rarity:** ${rarityLabel}`,
     `**Level:** ${hero.level} | **Gen:** ${hero.generation}`,
     `**Stats:** STR ${hero.strength} | INT ${hero.intelligence} | WIS ${hero.wisdom} | LCK ${hero.luck}`,
-    `**Profession Skills:** ⛏️ ${(hero.mining / 10).toFixed(1)} | 🌱 ${(hero.gardening / 10).toFixed(1)} | 🌿 ${(hero.foraging / 10).toFixed(1)} | 🎣 ${(hero.fishing / 10).toFixed(1)}`,
-    `**Summons:** ${hero.summonsRemaining || (hero.maxSummons - hero.summons)}/${hero.maxSummons}`,
+    `**Profession Skills:** ⛏️ ${(
+      hero.mining / 10
+    ).toFixed(1)} | 🌱 ${(hero.gardening / 10).toFixed(1)} | 🌿 ${(
+      hero.foraging / 10
+    ).toFixed(1)} | 🎣 ${(hero.fishing / 10).toFixed(1)}`,
+    `**Summons:** ${
+      hero.summonsRemaining ?? hero.maxSummons - hero.summons
+    }/${hero.maxSummons}`,
   ];
 
   if (hero.salePrice) {
@@ -613,76 +649,72 @@ export function formatHeroSummary(hero) {
   return lines.join('\n');
 }
 
-/**
- * Format market listing for display
- */
 export function formatMarketListing(auction) {
   const hero = auction.tokenId;
   const price = weiToToken(auction.startingPrice);
-  const rarity = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero.rarity] || hero.rarity;
-  
+  const rarity =
+    ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero.rarity] ??
+    hero.rarity;
+
   return `**#${hero.normalizedId || hero.id}** - ${hero.mainClassStr} | ${rarity} | Lvl ${hero.level} | Gen ${hero.generation} → **${price}** JEWEL`;
 }
 
-// ========== HERO INDEX BUILDER ==========
-
-/**
- * Build a genetics-aware Hero Index for a wallet across all realms
- * Returns decoded genetics (dominant + R1/R2/R3) for all heroes
- * 
- * @param {string} ownerAddress - Wallet address (0x...)
- * @returns {Promise<Object>} Hero index with genetics, class breakdowns, and totals
- */
+// ------------------------------
+// HERO INDEX BUILDER
+// ------------------------------
 export async function buildHeroIndexForWallet(ownerAddress) {
-  console.log(`[HeroIndex] Building genetics-aware index for ${ownerAddress}...`);
-  
+  console.log(
+    `[HeroIndex] Building genetics-aware index for ${ownerAddress}...`
+  );
+
   try {
-    // Fetch all heroes across realms
     const allHeroes = await getAllHeroesByOwner(ownerAddress);
     console.log(`[HeroIndex] Found ${allHeroes.length} total heroes`);
-    
+
     if (allHeroes.length === 0) {
       return {
         wallet: ownerAddress.toLowerCase(),
         realms: {
           dfk: { heroes: [], totalsByClass: {} },
           met: { heroes: [], totalsByClass: {} },
-          kla: { heroes: [], totalsByClass: {} }
+          kla: { heroes: [], totalsByClass: {} },
         },
         totals: {
           dfk: 0,
           met: 0,
           kla: 0,
-          all: 0
+          all: 0,
         },
-        missingHeroes: []
+        missingHeroes: [],
       };
     }
-    
-    // Decode genetics for all heroes
+
     const decodedHeroes = [];
     const missingHeroes = [];
-    
+
     for (const hero of allHeroes) {
       try {
         const decoded = decodeHeroGenes(hero);
         decodedHeroes.push(decoded);
       } catch (err) {
-        console.error(`[HeroIndex] Failed to decode hero ${hero.id}:`, err.message);
+        console.error(
+          `[HeroIndex] Failed to decode hero ${hero.id}:`,
+          err.message
+        );
         missingHeroes.push(hero.id);
       }
     }
-    
-    console.log(`[HeroIndex] Successfully decoded ${decodedHeroes.length}/${allHeroes.length} heroes`);
-    
-    // Split by realm
+
+    console.log(
+      `[HeroIndex] Successfully decoded ${decodedHeroes.length}/${allHeroes.length} heroes`
+    );
+
     const heroesByRealm = {
-      dfk: decodedHeroes.filter(h => h.realm === 'dfk'),
-      met: decodedHeroes.filter(h => h.realm === 'met'),
-      kla: decodedHeroes.filter(h => h.realm === 'kla')
+      dfk: decodedHeroes.filter((h) => h.realm === 'dfk'),
+      met: decodedHeroes.filter((h) => h.realm === 'met'),
+      kla: decodedHeroes.filter((h) => h.realm === 'kla'),
     };
-    
-    // Build class totals per realm
+
     function buildClassTotals(heroes) {
       const totals = {};
       for (const hero of heroes) {
@@ -691,42 +723,444 @@ export async function buildHeroIndexForWallet(ownerAddress) {
       }
       return totals;
     }
-    
+
     const index = {
       wallet: ownerAddress.toLowerCase(),
       realms: {
         dfk: {
           heroes: heroesByRealm.dfk,
-          totalsByClass: buildClassTotals(heroesByRealm.dfk)
+          totalsByClass: buildClassTotals(heroesByRealm.dfk),
         },
         met: {
           heroes: heroesByRealm.met,
-          totalsByClass: buildClassTotals(heroesByRealm.met)
+          totalsByClass: buildClassTotals(heroesByRealm.met),
         },
         kla: {
           heroes: heroesByRealm.kla,
-          totalsByClass: buildClassTotals(heroesByRealm.kla)
-        }
+          totalsByClass: buildClassTotals(heroesByRealm.kla),
+        },
       },
       totals: {
         dfk: heroesByRealm.dfk.length,
         met: heroesByRealm.met.length,
         kla: heroesByRealm.kla.length,
-        all: decodedHeroes.length
+        all: decodedHeroes.length,
       },
-      missingHeroes: missingHeroes
+      missingHeroes,
     };
-    
-    console.log(`[HeroIndex] Index complete - DFK: ${index.totals.dfk}, MET: ${index.totals.met}, KLA: ${index.totals.kla}`);
-    
+
+    console.log(
+      `[HeroIndex] Index complete - DFK: ${index.totals.dfk}, MET: ${index.totals.met}, KLA: ${index.totals.kla}`
+    );
+
     return index;
-    
   } catch (err) {
     console.error('[HeroIndex] Error building hero index:', err);
     throw err;
   }
 }
 
+// ------------------------------
+// GARDEN POOLS FUNCTIONS
+// ------------------------------
+export async function getGardenPools(realm = 'dfk', limit = null) {
+  try {
+    const contract = lpStakingContracts[realm];
+    const poolMeta = GARDEN_POOLS[realm];
+
+    if (!contract || !poolMeta) {
+      throw new Error(`Invalid realm: ${realm}`);
+    }
+
+    const poolLength = await safeContractCall(
+      contract,
+      'getPoolLength',
+      [],
+      0n
+    );
+    const totalAllocPoint = await safeContractCall(
+      contract,
+      'getTotalAllocPoint',
+      [],
+      0n
+    );
+
+    const poolsToFetch = limit ? Math.min(Number(poolLength), limit) : Number(poolLength);
+    const pools = [];
+
+    for (let pid = 0; pid < poolsToFetch; pid++) {
+      try {
+        const poolInfo = await safeContractCall(contract, 'getPoolInfo', [pid]);
+        if (!poolInfo) continue;
+
+        const meta = poolMeta[pid];
+        if (!meta || meta.archived) continue;
+
+        const allocPoint = poolInfo.allocPoint ?? poolInfo[1];
+        const totalStaked = poolInfo.totalStaked ?? poolInfo[4];
+
+        const allocPercent =
+          Number(totalAllocPoint) > 0
+            ? ((Number(allocPoint) / Number(totalAllocPoint)) * 100).toFixed(2)
+            : '0.00';
+
+        const totalStakedFormatted = ethers.formatEther(totalStaked ?? '0');
+
+        pools.push({
+          pid,
+          pair: meta.pair,
+          lpToken: meta.lpToken,
+          allocPoint: Number(allocPoint),
+          allocPercent: `${allocPercent}%`,
+          totalStaked: totalStakedFormatted,
+          totalStakedRaw: totalStaked,
+          realm,
+        });
+      } catch (err) {
+        console.warn(`Error fetching pool ${pid}:`, err.message);
+      }
+    }
+
+    return pools;
+  } catch (error) {
+    console.error('Error fetching garden pools:', error);
+    return [];
+  }
+}
+
+export async function getPendingRewards(walletAddress, realm = 'dfk', pid = null) {
+  try {
+    const contract = lpStakingContracts[realm];
+    if (!contract) throw new Error(`Invalid realm: ${realm}`);
+
+    if (pid !== null) {
+      const pending = await safeContractCall(
+        contract,
+        'getPendingRewards',
+        [pid, walletAddress],
+        0n
+      );
+      return {
+        pid,
+        pending: ethers.formatEther(pending ?? 0n),
+        pendingRaw: pending ?? 0n,
+        realm,
+      };
+    } else {
+      const allPending = await safeContractCall(
+        contract,
+        'getAllPendingRewards',
+        [walletAddress],
+        0n
+      );
+      return {
+        totalPending: ethers.formatEther(allPending ?? 0n),
+        totalPendingRaw: allPending ?? 0n,
+        realm,
+      };
+    }
+  } catch (error) {
+    console.error('Error fetching pending rewards:', error);
+    return null;
+  }
+}
+
+export async function getUserGardenPositions(walletAddress, realm = 'dfk') {
+  try {
+    const contract = lpStakingContracts[realm];
+    const poolMeta = GARDEN_POOLS[realm];
+
+    if (!contract || !poolMeta) {
+      throw new Error(`Invalid realm: ${realm}`);
+    }
+
+    const poolLength = await safeContractCall(
+      contract,
+      'getPoolLength',
+      [],
+      0n
+    );
+    const positions = [];
+
+    for (let pid = 0; pid < Number(poolLength); pid++) {
+      try {
+        const userInfo = await safeContractCall(
+          contract,
+          'getUserInfo',
+          [pid, walletAddress],
+          null
+        );
+        if (!userInfo) continue;
+
+        const amount = userInfo.amount ?? userInfo[0];
+        if (!amount || Number(amount) <= 0) continue;
+
+        const pending = await safeContractCall(
+          contract,
+          'getPendingRewards',
+          [pid, walletAddress],
+          0n
+        );
+        const meta = poolMeta[pid];
+
+        positions.push({
+          pid,
+          pair: meta?.pair || `Pool ${pid}`,
+          stakedAmount: ethers.formatEther(amount),
+          stakedAmountRaw: amount,
+          pendingRewards: ethers.formatEther(pending ?? 0n),
+          pendingRewardsRaw: pending ?? 0n,
+          lastDeposit: userInfo.lastDepositTimestamp ?? userInfo[2],
+          realm,
+        });
+      } catch {
+        // skip pools that fail
+      }
+    }
+
+    return positions;
+  } catch (error) {
+    console.error('Error fetching user positions:', error);
+    return [];
+  }
+}
+
+export async function getGardenPoolByPid(pid, realm = 'dfk') {
+  try {
+    const contract = lpStakingContracts[realm];
+    const poolMeta = GARDEN_POOLS[realm];
+
+    if (!contract || !poolMeta || !poolMeta[pid]) {
+      return null;
+    }
+
+    const poolInfo = await safeContractCall(contract, 'getPoolInfo', [pid]);
+    const totalAllocPoint = await safeContractCall(
+      contract,
+      'getTotalAllocPoint',
+      [],
+      0n
+    );
+    if (!poolInfo) return null;
+
+    const meta = poolMeta[pid];
+
+    const allocPoint = poolInfo.allocPoint ?? poolInfo[1];
+    const totalStaked = poolInfo.totalStaked ?? poolInfo[4];
+    const allocPercent =
+      Number(totalAllocPoint) > 0
+        ? ((Number(allocPoint) / Number(totalAllocPoint)) * 100).toFixed(2)
+        : '0.00';
+
+    return {
+      pid,
+      pair: meta.pair,
+      lpToken: meta.lpToken,
+      allocPoint: Number(allocPoint),
+      allocPercent: `${allocPercent}%`,
+      totalStaked: ethers.formatEther(totalStaked ?? '0'),
+      totalStakedRaw: totalStaked,
+      archived: meta.archived,
+      realm,
+    };
+  } catch (error) {
+    console.error(`Error fetching pool ${pid}:`, error);
+    return null;
+  }
+}
+
+// ------------------------------
+// INFLUENCE (Metis)
+// ------------------------------
+export async function getPlayerInfluence(playerAddress) {
+  try {
+    const metisRpcEndpoints = [
+      'https://metis-mainnet.public.blastapi.io',
+      'https://andromeda.metis.io',
+      'https://rpc.metis.io',
+    ];
+
+    let metisProvider = null;
+    for (const endpoint of metisRpcEndpoints) {
+      try {
+        const prov = new ethers.JsonRpcProvider(endpoint);
+        await prov.getNetwork();
+        metisProvider = prov;
+        console.log(`[getPlayerInfluence] Using Metis RPC: ${endpoint}`);
+        break;
+      } catch (e) {
+        console.warn(
+          `[getPlayerInfluence] Failed to connect to ${endpoint}: ${e.message}`
+        );
+      }
+    }
+
+    if (!metisProvider) {
+      console.warn(
+        `[getPlayerInfluence] No working Metis RPC endpoint available`
+      );
+      return 0;
+    }
+
+    const PVP_DIAMOND_ADDRESS = '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B';
+    const abi = [
+      'function getPlayerInfluenceData(address _player) view returns (tuple(uint256 totalInfluence, uint256 availableInfluence, uint256 resetWeekNumber, uint256 spectatingBattleId))',
+    ];
+
+    const contract = new ethers.Contract(
+      PVP_DIAMOND_ADDRESS,
+      abi,
+      metisProvider
+    );
+    const influenceData = await contract.getPlayerInfluenceData(playerAddress);
+    const influence = Number(influenceData.totalInfluence || 0);
+    console.log(
+      `[getPlayerInfluence] ${playerAddress.slice(
+        0,
+        6
+      )}...${playerAddress.slice(-4)}: ${influence} INFLUENCE`
+    );
+    return influence;
+  } catch (err) {
+    console.warn(
+      `[getPlayerInfluence] Error fetching influence for ${playerAddress}:`,
+      err.message
+    );
+    return 0;
+  }
+}
+
+// ------------------------------
+// HERO METRICS & DFK AGE
+// ------------------------------
+export function calculateHeroMetrics(heroes) {
+  if (!heroes || heroes.length === 0) {
+    return { gen0Count: 0, heroAge: 0 };
+  }
+
+  const gen0Count = heroes.filter(
+    (h) => h.generation === 0 || h.generation === '0'
+  ).length;
+
+  const oldestHero = heroes.reduce((max, h) => {
+    const heroLevel = Number(h.level || 0);
+    const maxLevel = Number(max.level || 0);
+    return heroLevel > maxLevel ? h : max;
+  }, heroes[0]);
+
+  const heroAge = Math.floor((Number(oldestHero.level || 1) - 1) / 2.5);
+
+  return { gen0Count, heroAge };
+}
+
+export async function getFirstDfkTxTimestamp(walletAddress) {
+  try {
+    if (!walletAddress) return null;
+
+    const dfkProvider = providers.dfk;
+
+    const latestBlockNum = await dfkProvider.getBlockNumber();
+    console.log(`[DfkAge] Latest DFK block: ${latestBlockNum}`);
+
+    let searchStart = Math.max(0, latestBlockNum - 50000);
+    let searchEnd = latestBlockNum;
+    let firstTxBlock = null;
+
+    console.log(
+      `[DfkAge] Searching blocks ${searchStart} to ${searchEnd} for ${walletAddress.slice(
+        0,
+        6
+      )}...${walletAddress.slice(-4)}`
+    );
+
+    for (let blockNum = searchEnd; blockNum >= searchStart; blockNum--) {
+      try {
+        const block = await dfkProvider.getBlock(blockNum);
+        if (!block || !block.transactions?.length) continue;
+
+        for (const txHash of block.transactions) {
+          const tx = await dfkProvider.getTransaction(txHash);
+          if (
+            tx &&
+            (tx.from?.toLowerCase() === walletAddress.toLowerCase() ||
+              tx.to?.toLowerCase() === walletAddress.toLowerCase())
+          ) {
+            firstTxBlock = block;
+            console.log(
+              `[DfkAge] Found transaction in block ${blockNum} from wallet`
+            );
+            break;
+          }
+        }
+
+        if (firstTxBlock) break;
+        if ((searchEnd - blockNum) % 1000 === 0) {
+          console.log(
+            `[DfkAge] Searched back ${searchEnd - blockNum} blocks...`
+          );
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    if (!firstTxBlock) {
+      console.warn(
+        `[DfkAge] No transactions found for ${walletAddress} in recent blocks`
+      );
+      return null;
+    }
+
+    const timestampMs =
+      (firstTxBlock.timestamp || Math.floor(Date.now() / 1000)) * 1000;
+    console.log(
+      `[DfkAge] Found first tx for ${walletAddress.slice(
+        0,
+        6
+      )}...${walletAddress.slice(-4)}: ${new Date(
+        timestampMs
+      ).toISOString()}`
+    );
+
+    return timestampMs;
+  } catch (err) {
+    console.warn(
+      `[getFirstDfkTxTimestamp] Error fetching first tx for ${walletAddress}:`,
+      err.message
+    );
+    return null;
+  }
+}
+
+export function calculateDfkAgeDays(firstTxTimestampMs) {
+  if (!firstTxTimestampMs) return null;
+  const ageMs = Date.now() - firstTxTimestampMs;
+  return Math.floor(ageMs / (1000 * 60 * 60 * 24));
+}
+
+// ------------------------------
+// Garden summary formatting
+// ------------------------------
+export function formatGardenSummary(pool, rewards = null) {
+  let summary = `**${pool.pair}** (Pool #${pool.pid}) - ${pool.realm.toUpperCase()}\n`;
+  summary += `Allocation: ${pool.allocPercent} of emissions\n`;
+  summary += `Total Staked: ${parseFloat(pool.totalStaked).toFixed(
+    2
+  )} LP tokens\n`;
+
+  if (rewards) {
+    const pending = rewards.pending ?? rewards.totalPending ?? '0';
+    summary += `Harvestable: ${parseFloat(pending).toFixed(4)} ${
+      pool.realm === 'dfk' ? 'CRYSTAL' : 'JADE'
+    }`;
+  }
+
+  return summary;
+}
+
+// ------------------------------
+// Default export (backwards compat)
+// ------------------------------
 export default {
   getHeroById,
   searchHeroes,
@@ -741,382 +1175,14 @@ export default {
   formatMarketListing,
   buildHeroIndexForWallet,
   weiToToken,
-  normalizeHeroId
+  normalizeHeroId,
+  getGardenPools,
+  getPendingRewards,
+  getUserGardenPositions,
+  getGardenPoolByPid,
+  getPlayerInfluence,
+  calculateHeroMetrics,
+  getFirstDfkTxTimestamp,
+  calculateDfkAgeDays,
+  formatGardenSummary,
 };
-
-// ========== GARDEN POOLS FUNCTIONS ==========
-
-/**
- * Get all garden pools for a specific realm
- * @param {string} realm - 'dfk' or 'klaytn'
- * @param {number} limit - Max pools to return (default: all)
- * @returns {Array} Pool data with APR, TVL, and allocation
- */
-export async function getGardenPools(realm = 'dfk', limit = null) {
-  try {
-    const contract = lpStakingContracts[realm];
-    const poolMeta = GARDEN_POOLS[realm];
-    
-    if (!contract || !poolMeta) {
-      throw new Error(`Invalid realm: ${realm}`);
-    }
-
-    const poolLength = await contract.getPoolLength();
-    const totalAllocPoint = await contract.getTotalAllocPoint();
-    
-    const poolsToFetch = limit ? Math.min(limit, poolLength) : poolLength;
-    const pools = [];
-
-    for (let pid = 0; pid < poolsToFetch; pid++) {
-      try {
-        const poolInfo = await contract.getPoolInfo(pid);
-        const meta = poolMeta[pid];
-        
-        if (!meta || meta.archived) continue;
-
-        // Extract pool data
-        const allocPoint = poolInfo.allocPoint || poolInfo[1];
-        const totalStaked = poolInfo.totalStaked || poolInfo[4];
-        
-        // Calculate allocation percentage
-        const allocPercent = (Number(allocPoint) / Number(totalAllocPoint) * 100).toFixed(2);
-        
-        // Format total staked
-        const totalStakedFormatted = ethers.formatEther(totalStaked || '0');
-
-        pools.push({
-          pid,
-          pair: meta.pair,
-          lpToken: meta.lpToken,
-          allocPoint: Number(allocPoint),
-          allocPercent: `${allocPercent}%`,
-          totalStaked: totalStakedFormatted,
-          totalStakedRaw: totalStaked,
-          realm
-        });
-      } catch (err) {
-        console.warn(`Error fetching pool ${pid}:`, err.message);
-      }
-    }
-
-    return pools;
-  } catch (error) {
-    console.error('Error fetching garden pools:', error);
-    return [];
-  }
-}
-
-/**
- * Get pending rewards for a user across all pools or specific pool
- * @param {string} walletAddress - User's wallet address
- * @param {string} realm - 'dfk' or 'klaytn'
- * @param {number|null} pid - Specific pool ID (null for all pools)
- * @returns {Object} Pending rewards data
- */
-export async function getPendingRewards(walletAddress, realm = 'dfk', pid = null) {
-  try {
-    const contract = lpStakingContracts[realm];
-    
-    if (!contract) {
-      throw new Error(`Invalid realm: ${realm}`);
-    }
-
-    if (pid !== null) {
-      // Get rewards for specific pool
-      const pending = await contract.getPendingRewards(pid, walletAddress);
-      return {
-        pid,
-        pending: ethers.formatEther(pending),
-        pendingRaw: pending,
-        realm
-      };
-    } else {
-      // Get total rewards across all pools
-      const allPending = await contract.getAllPendingRewards(walletAddress);
-      return {
-        totalPending: ethers.formatEther(allPending),
-        totalPendingRaw: allPending,
-        realm
-      };
-    }
-  } catch (error) {
-    console.error('Error fetching pending rewards:', error);
-    return null;
-  }
-}
-
-/**
- * Get user's staked positions in garden pools
- * @param {string} walletAddress - User's wallet address
- * @param {string} realm - 'dfk' or 'klaytn'
- * @returns {Array} User's staking positions
- */
-export async function getUserGardenPositions(walletAddress, realm = 'dfk') {
-  try {
-    const contract = lpStakingContracts[realm];
-    const poolMeta = GARDEN_POOLS[realm];
-    
-    if (!contract || !poolMeta) {
-      throw new Error(`Invalid realm: ${realm}`);
-    }
-
-    const poolLength = await contract.getPoolLength();
-    const positions = [];
-
-    for (let pid = 0; pid < poolLength; pid++) {
-      try {
-        const userInfo = await contract.getUserInfo(pid, walletAddress);
-        const amount = userInfo.amount || userInfo[0];
-        
-        if (amount && Number(amount) > 0) {
-          const pending = await contract.getPendingRewards(pid, walletAddress);
-          const meta = poolMeta[pid];
-          
-          positions.push({
-            pid,
-            pair: meta?.pair || `Pool ${pid}`,
-            stakedAmount: ethers.formatEther(amount),
-            stakedAmountRaw: amount,
-            pendingRewards: ethers.formatEther(pending),
-            pendingRewardsRaw: pending,
-            lastDeposit: userInfo.lastDepositTimestamp || userInfo[2],
-            realm
-          });
-        }
-      } catch (err) {
-        // Skip pools with no position
-      }
-    }
-
-    return positions;
-  } catch (error) {
-    console.error('Error fetching user positions:', error);
-    return [];
-  }
-}
-
-/**
- * Get pool info by pool ID
- * @param {number} pid - Pool ID
- * @param {string} realm - 'dfk' or 'klaytn'
- * @returns {Object} Pool information
- */
-export async function getGardenPoolByPid(pid, realm = 'dfk') {
-  try {
-    const contract = lpStakingContracts[realm];
-    const poolMeta = GARDEN_POOLS[realm];
-    
-    if (!contract || !poolMeta || !poolMeta[pid]) {
-      return null;
-    }
-
-    const poolInfo = await contract.getPoolInfo(pid);
-    const totalAllocPoint = await contract.getTotalAllocPoint();
-    const meta = poolMeta[pid];
-    
-    const allocPoint = poolInfo.allocPoint || poolInfo[1];
-    const totalStaked = poolInfo.totalStaked || poolInfo[4];
-    const allocPercent = (Number(allocPoint) / Number(totalAllocPoint) * 100).toFixed(2);
-
-    return {
-      pid,
-      pair: meta.pair,
-      lpToken: meta.lpToken,
-      allocPoint: Number(allocPoint),
-      allocPercent: `${allocPercent}%`,
-      totalStaked: ethers.formatEther(totalStaked || '0'),
-      totalStakedRaw: totalStaked,
-      archived: meta.archived,
-      realm
-    };
-  } catch (error) {
-    console.error(`Error fetching pool ${pid}:`, error);
-    return null;
-  }
-}
-
-/**
- * Get player Influence token balance from PVP Diamond contract (Metis)
- * @param {string} playerAddress - Player wallet address
- * @returns {Promise<number>} Influence token balance or 0 if error
- */
-export async function getPlayerInfluence(playerAddress) {
-  try {
-    // Try multiple Metis RPC endpoints for redundancy
-    const metisRpcEndpoints = [
-      'https://metis-mainnet.public.blastapi.io',
-      'https://andromeda.metis.io',
-      'https://rpc.metis.io'
-    ];
-    
-    let metisProvider;
-    for (const endpoint of metisRpcEndpoints) {
-      try {
-        metisProvider = new ethers.JsonRpcProvider(endpoint);
-        // Test connection with a simple call
-        await metisProvider.getNetwork();
-        console.log(`[getPlayerInfluence] Using Metis RPC: ${endpoint}`);
-        break;
-      } catch (e) {
-        console.warn(`[getPlayerInfluence] Failed to connect to ${endpoint}: ${e.message}`);
-        continue;
-      }
-    }
-    
-    if (!metisProvider) {
-      console.warn(`[getPlayerInfluence] No working Metis RPC endpoint available`);
-      return 0;
-    }
-    
-    // PVP Diamond contract address on Metis (Sundered Isles)
-    const PVP_DIAMOND_ADDRESS = '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B';
-    
-    // Minimal ABI for getPlayerInfluenceData
-    const abi = [
-      'function getPlayerInfluenceData(address _player) view returns (tuple(uint256 totalInfluence, uint256 availableInfluence, uint256 resetWeekNumber, uint256 spectatingBattleId))'
-    ];
-    
-    const contract = new ethers.Contract(PVP_DIAMOND_ADDRESS, abi, metisProvider);
-    const influenceData = await contract.getPlayerInfluenceData(playerAddress);
-    
-    // Return totalInfluence converted from BigInt
-    const influence = Number(influenceData.totalInfluence || 0);
-    console.log(`[getPlayerInfluence] ${playerAddress.slice(0, 6)}...${playerAddress.slice(-4)}: ${influence} INFLUENCE`);
-    return influence;
-  } catch (err) {
-    console.warn(`[getPlayerInfluence] Error fetching influence for ${playerAddress}:`, err.message);
-    return 0;
-  }
-}
-
-/**
- * Calculate Gen0 count and hero age from hero data
- * @param {Array} heroes - Array of hero objects
- * @returns {Object} { gen0Count: number, heroAge: number }
- */
-export function calculateHeroMetrics(heroes) {
-  if (!heroes || heroes.length === 0) {
-    return { gen0Count: 0, heroAge: 0 };
-  }
-  
-  // Count Gen0 heroes (generation = 0)
-  const gen0Count = heroes.filter(h => h.generation === 0 || h.generation === '0').length;
-  
-  // Find oldest hero by highest level (proxy for age - older heroes are typically higher level)
-  const oldestHero = heroes.reduce((max, h) => {
-    const heroLevel = Number(h.level || 0);
-    const maxLevel = Number(max.level || 0);
-    return heroLevel > maxLevel ? h : max;
-  }, heroes[0]);
-  
-  // Hero age in days (approximate based on level - roughly 1 day per 2-3 levels)
-  const heroAge = Math.floor((Number(oldestHero.level || 1) - 1) / 2.5);
-  
-  return { gen0Count, heroAge };
-}
-
-/**
- * Get first transaction timestamp on DFK chain for a wallet
- * Uses DFK chain RPC to query block headers
- * @param {string} walletAddress - Wallet address to check
- * @returns {Promise<number|null>} Unix timestamp in milliseconds or null if error
- */
-export async function getFirstDfkTxTimestamp(walletAddress) {
-  try {
-    if (!walletAddress) return null;
-    
-    const dfkRpc = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
-    const provider = new ethers.JsonRpcProvider(dfkRpc);
-    
-    // Get latest block number
-    const latestBlockNum = await provider.getBlockNumber();
-    console.log(`[DfkAge] Latest DFK block: ${latestBlockNum}`);
-    
-    // Binary search for first transaction from wallet
-    let searchStart = 0;
-    let searchEnd = latestBlockNum;
-    let firstTxBlock = null;
-    
-    // Start from a reasonable block range (don't search all history, narrow down)
-    const searchLimit = 50000; // Search up to 50k blocks back first
-    searchEnd = Math.min(searchEnd, latestBlockNum);
-    searchStart = Math.max(0, latestBlockNum - searchLimit);
-    
-    console.log(`[DfkAge] Searching blocks ${searchStart} to ${searchEnd} for ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`);
-    
-    // Linear search backward from recent blocks (most wallets have recent activity)
-    for (let blockNum = searchEnd; blockNum >= searchStart; blockNum--) {
-      try {
-        const block = await provider.getBlock(blockNum);
-        if (!block) continue;
-        
-        // Check if block contains any transactions from this wallet
-        if (block.transactions && block.transactions.length > 0) {
-          for (const txHash of block.transactions) {
-            const tx = await provider.getTransaction(txHash);
-            if (tx && (tx.from?.toLowerCase() === walletAddress.toLowerCase() || tx.to?.toLowerCase() === walletAddress.toLowerCase())) {
-              // Found a transaction from this wallet in this block
-              firstTxBlock = block;
-              console.log(`[DfkAge] Found transaction in block ${blockNum} from wallet`);
-              break;
-            }
-          }
-        }
-        
-        if (firstTxBlock) break;
-        
-        // Log progress every 1000 blocks
-        if ((searchEnd - blockNum) % 1000 === 0) {
-          console.log(`[DfkAge] Searched back ${searchEnd - blockNum} blocks...`);
-        }
-      } catch (e) {
-        // Continue searching if block fetch fails
-        continue;
-      }
-    }
-    
-    if (!firstTxBlock) {
-      console.warn(`[DfkAge] No transactions found for ${walletAddress} in recent blocks`);
-      return null;
-    }
-    
-    // Convert block timestamp to milliseconds
-    const timestampMs = (firstTxBlock.timestamp || Math.floor(Date.now() / 1000)) * 1000;
-    console.log(`[DfkAge] Found first tx for ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}: ${new Date(timestampMs).toISOString()}`);
-    
-    return timestampMs;
-  } catch (err) {
-    console.warn(`[getFirstDfkTxTimestamp] Error fetching first tx for ${walletAddress}:`, err.message);
-    return null;
-  }
-}
-
-/**
- * Calculate DFK age in days from first transaction timestamp
- * @param {number|null} firstTxTimestampMs - First tx timestamp in milliseconds
- * @returns {number|null} Age in days or null
- */
-export function calculateDfkAgeDays(firstTxTimestampMs) {
-  if (!firstTxTimestampMs) return null;
-  const ageMs = Date.now() - firstTxTimestampMs;
-  const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
-  return ageDays;
-}
-
-/**
- * Format garden pool summary for Discord display
- * @param {Object} pool - Pool data
- * @param {Object} rewards - Pending rewards (optional)
- * @returns {string} Formatted summary
- */
-export function formatGardenSummary(pool, rewards = null) {
-  let summary = `**${pool.pair}** (Pool #${pool.pid}) - ${pool.realm.toUpperCase()}\n`;
-  summary += `Allocation: ${pool.allocPercent} of emissions\n`;
-  summary += `Total Staked: ${parseFloat(pool.totalStaked).toFixed(2)} LP tokens\n`;
-  
-  if (rewards) {
-    summary += `Harvestable: ${parseFloat(rewards.pending || rewards.totalPending).toFixed(4)} ${pool.realm === 'dfk' ? 'CRYSTAL' : 'JADE'}`;
-  }
-  
-  return summary;
-}

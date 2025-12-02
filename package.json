@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "tsx bot.js",
-    "register": "tsx register-commands.js"
+    "register": "tsx register-commands.js",
+    "build": "vite build"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -46,6 +47,7 @@
     "graphql-request": "^7.3.3",
     "lucide-react": "^0.554.0",
     "nanoid": "^5.1.6",
+    "node-cron": "^4.2.1",
     "openai": "^4.56.0",
     "postcss": "^8.5.6",
     "postgres": "^3.4.7",

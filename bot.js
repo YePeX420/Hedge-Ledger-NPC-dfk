@@ -33,6 +33,8 @@ import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
 import { isPaymentBypassEnabled, getDebugSettings, setDebugSettings } from './debug-settings.js';
+import { detectWalletLPPositions, generatePoolOptimizations, formatOptimizationReport } from './wallet-lp-detector.js';
+import { getAllHeroesByOwner } from './onchain-data.js';
 
 // Player User Model System imports
 import { 
@@ -872,440 +874,313 @@ client.on(Events.GuildMemberAdd, async (member) => {
   }
 });
 
-// 📨 DM conversation mode (no slash commands in DMs)
-client.on('messageCreate', async (message) => {
-  // Ignore bots (including Hedge himself)
-  if (message.author.bot) return;
+      // 📨 DM conversation mode (no slash commands in DMs)
+      client.on('messageCreate', async (message) => {
+        // Ignore bots (including Hedge himself)
+        if (message.author.bot) return;
 
-  // Only handle DMs (no guild)
-  if (message.guild) return;
+        // Only handle DMs (no guild)
+        if (message.guild) return;
 
-  try {
-    // 📝 Register user in database if first time
-    const discordId = message.author.id;
-    const username = message.author.username;
-
-    console.log(`[messageCreate] Attempting to register user: ${username} (${discordId})`);
-    let isNewUser = false;
-    let playerData = null;
-    try {
-      const result = await ensureUserRegistered(discordId, username);
-      isNewUser = result.isNewUser;
-      playerData = result.player;
-      console.log(`[messageCreate] Registration completed successfully, isNewUser: ${isNewUser}`);
-
-      // 🎁 If this is a new user, send wallet request prompt
-      if (isNewUser) {
-        const walletRequestMessage =
-          `*yawns* Welcome to my ledger, ${username}.\n\n` +
-          `So... are you familiar with DeFi Kingdoms, or are you brand new to Crystalvale? Either way, I can help—navigation guides for beginners, or even advanced queries for the OGs... for the right price, hehehe.\n\n` +
-          `If you give me your wallet address, I can provide much better support—optimization strategies tailored to your heroes, help you track onboarding milestones, and even send you rewards as you complete them. ` +
-          `Don't worry, I only have view-only rights on-chain with that address. Completely read-only.\n\n` +
-          `If you'd rather not share it, that's fine too. You can still use the free walkthrough guides and basic help. Your choice.\n\n` +
-          `What brings you to my ledger today? Need any help getting started?`;
-
-        await message.reply(walletRequestMessage);
-        console.log(`💼 Sent wallet request to new user: ${username}`);
-        return; // Don't send a second AI response
-      }
-    } catch (regError) {
-      // Log registration error but don't block bot response
-      console.error(`[messageCreate] ⚠️  Registration failed but continuing with response:`, regError);
-      console.error(`[messageCreate] Registration error stack:`, regError.stack);
-    }
-
-    // 📊 Log message to Player Profile System for classification tracking
-    try {
-      await logDiscordMessage(discordId, message.content, username);
-      console.log(`[ProfileSystem] Logged message for classification: ${username}`);
-    } catch (profileError) {
-      // Don't block response if profile logging fails
-      console.warn(`[ProfileSystem] ⚠️ Failed to log message for profile:`, profileError.message);
-    }
-
-    // 🔐 Check for transaction hash with tx: prefix for payment verification
-    const txPrefixRegex = /tx:\s*0[xX][a-fA-F0-9]{64}/i;
-    const txPrefixMatch = message.content.match(txPrefixRegex);
-
-    if (txPrefixMatch && playerData) {
-      const txHash = txPrefixMatch[0].replace(/tx:\s*/i, '').trim();
-      console.log(`🔐 Detected transaction hash with tx: prefix: ${txHash}`);
-
-      try {
-        const pendingOpt = await db.select()
-          .from(gardenOptimizations)
-          .where(and(
-            eq(gardenOptimizations.playerId, playerData.id),
-            eq(gardenOptimizations.status, 'awaiting_payment'),
-            gt(gardenOptimizations.expiresAt, new Date())
-          ))
-          .orderBy(desc(gardenOptimizations.createdAt))
-          .limit(1);
-
-        if (pendingOpt && pendingOpt.length > 0) {
-          await message.reply(`🔍 Verifying your transaction...`);
-
-          const result = await verifyTransactionHash(txHash, pendingOpt[0].id);
-
-          if (result.success) {
-            await message.reply(
-              `✅ **Payment Verified!**\n\n` +
-              `**Amount:** ${result.payment.amount} JEWEL\n` +
-              `**Block:** ${result.payment.blockNumber}\n\n` +
-              `Your optimization is now being processed. You'll receive your personalized recommendations in a few minutes! 🌿`
-            );
-          } else {
-            await message.reply(`❌ **Verification Failed**\n\n${result.error}\n\nPlease check your transaction hash and try again.`);
-          }
-        } else {
-          await message.reply(`No pending garden optimization found. Use your wallet's DM to request optimization first!`);
-        }
-        return;
-      } catch (txError) {
-        console.error(`❌ Failed to verify transaction:`, txError);
-        await message.reply(`Hmm, I had trouble verifying that transaction. Try again or use \`/verify-payment\` command.`);
-        return;
-      }
-    }
-
-    // 💼 Check if message contains a wallet address (42 chars only, not 66-char tx hashes)
-    // Using negative lookahead to ensure no more hex chars follow (prevents matching tx hashes)
-    const walletRegex = /0[xX][a-fA-F0-9]{40}(?![a-fA-F0-9])/;
-    const walletMatch = message.content.match(walletRegex);
-
-    if (walletMatch && playerData) {
-      const walletAddress = walletMatch[0];
-      console.log(`💼 Detected wallet address in message: ${walletAddress}`);
-
-      try {
-        const updatedPlayer = await updatePlayerWallet(discordId, walletAddress);
-        const isFirstWallet = updatedPlayer.wallets.length === 1;
-
-        if (isFirstWallet) {
-          const confirmMessage =
-            `Perfect! I've saved your wallet address: \`${walletAddress}\`\n\n` +
-            `Now I can give you personalized hero optimization advice and track your milestones. ` +
-            `Feel free to ask me anything about your account, heroes, or how to navigate the game!`;
-          await message.reply(confirmMessage);
-          console.log(`✅ Confirmed wallet save to user: ${username}`);
-        } else {
-          await message.reply(`Got it! I've added \`${walletAddress}\` to your account.`);
-        }
-
-        // Don't process this message further - wallet was saved
-        return;
-      } catch (walletError) {
-        console.error(`❌ Failed to save wallet:`, walletError);
-        await message.reply(`Hmm, I had trouble saving that wallet address. Try again?`);
-        return;
-      }
-    }
-
-    let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
-
-    // Normal conversation - send to OpenAI
-    console.log(`💬 Processing DM from ${username}: ${message.content}`);
-
-    // Show typing indicator
-    await message.channel.sendTyping();
-
-    // 🦸 HERO DATA LOOKUP - Check if user is asking about a specific hero
-    const heroIdRegex = /(?:hero\s*#?|#)(\d+)/i;
-    const heroMatch = message.content.match(heroIdRegex);
-
-    if (heroMatch) {
-      const heroId = heroMatch[1];
-      console.log(`🦸 Detected hero lookup request for hero #${heroId}`);
-
-      try {
-        const heroData = await onchain.getHeroById(heroId);
-        
-        if (heroData) {
-          // Save to conversation context for follow-up questions
-          dmConversationContext.set(discordId, {
-            lastHeroId: heroId,
-            lastHeroData: heroData,
-            timestamp: Date.now()
-          });
-          
-          // Format hero data for display
-          const rarities = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
-          const rarity = rarities[heroData.rarity] || 'Unknown';
-          
-          const lines = [];
-          lines.push(`**Hero #${heroData.normalizedId || heroId}** — ${heroData.mainClassStr || 'Unknown'}`);
-          lines.push(`Rarity: **${rarity}** | Level: **${heroData.level}** | Generation: **${heroData.generation}**`);
-          lines.push('');
-          lines.push('**Stats:**');
-          lines.push(`STR ${heroData.strength} • INT ${heroData.intelligence} • WIS ${heroData.wisdom} • AGI ${heroData.agility}`);
-          lines.push(`VIT ${heroData.vitality} • END ${heroData.endurance} • DEX ${heroData.dexterity} • LCK ${heroData.luck}`);
-          
-          if (heroData.professionStr) {
-            lines.push('');
-            lines.push(`**Profession:** ${heroData.professionStr}`);
-            lines.push(`Mining: ${heroData.mining} • Gardening: ${heroData.gardening} • Foraging: ${heroData.foraging} • Fishing: ${heroData.fishing}`);
-          }
-          
-          if (heroData.summonsRemaining !== undefined) {
-            lines.push('');
-            lines.push(`**Breeding:** ${heroData.summonsRemaining}/${heroData.maxSummons} summons remaining`);
-          }
-          
-          if (heroData.passive1 || heroData.active1) {
-            lines.push('');
-            lines.push('**Abilities:**');
-            if (heroData.passive1) lines.push(`Passive 1: ${heroData.passive1.name}`);
-            if (heroData.passive2) lines.push(`Passive 2: ${heroData.passive2.name}`);
-            if (heroData.active1) lines.push(`Active 1: ${heroData.active1.name}`);
-            if (heroData.active2) lines.push(`Active 2: ${heroData.active2.name}`);
-          }
-          
-          // Tier 1: Basic lookup - no payment reminder (free tier)
-          
-          const heroInfo = lines.join('\n');
-          
-          // Discord has a 2000 char limit
-          if (heroInfo.length <= 1900) {
-            await message.reply(heroInfo);
-          } else {
-            await message.reply(heroInfo.slice(0, 1900) + '\n...');
-          }
-          
-          console.log(`✅ Sent hero data for #${heroId}`);
-          return; // Don't send to OpenAI
-        } else {
-          console.log(`❌ Hero #${heroId} not found`);
-          await message.reply(`Hmm, I can't find hero #${heroId} on the blockchain. Sure you got the right ID?`);
-          return;
-        }
-      } catch (heroError) {
-        console.error(`❌ Error fetching hero #${heroId}:`, heroError.message);
-        await message.reply(`*squints at ledger* Had trouble pulling that hero's data. Try again?`);
-        return;
-      }
-    }
-
-    // 🧬 TIER 2: GENETICS REQUEST - Check if user is asking about genetics
-    const geneticsKeywords = ['genetic', 'genes', 'gene', 'genetica', 'recessive', 'dominant', 'r1', 'r2', 'r3', 'breeding trait', 'mutation chance'];
-    const userContentLower = message.content.toLowerCase();
-    const isGeneticsQuestion = geneticsKeywords.some(k => userContentLower.includes(k));
-    
-    // Check for hero ID in the genetics request (e.g., "genetics for hero 1569")
-    const geneticsHeroMatch = message.content.match(/(?:hero\s*#?|#)(\d+)/i);
-    
-    // Check if we have a recent hero context (within 30 minutes)
-    const context = dmConversationContext.get(discordId);
-    const contextAge = context ? (Date.now() - context.timestamp) / 1000 / 60 : Infinity;
-    const hasRecentContext = context && contextAge < 30;
-    
-    // Genetics request can be: 1) Direct with hero ID, or 2) Follow-up with context
-    if (isGeneticsQuestion && (geneticsHeroMatch || (hasRecentContext && context.lastHeroData))) {
-      let heroData;
-      let heroId;
-      
-      // If hero ID in message, fetch fresh data (direct request)
-      if (geneticsHeroMatch) {
-        heroId = geneticsHeroMatch[1];
-        console.log(`🧬 Detected direct genetics request for hero #${heroId}`);
-        
         try {
-          heroData = await onchain.getHeroById(heroId);
-          if (!heroData) {
-            await message.reply(`Hmm, I can't find hero #${heroId} on the blockchain. Sure you got the right ID?`);
+          // 📝 Register user in database if first time
+          const discordId = message.author.id;
+          const username = message.author.username;
+
+          console.log(`[messageCreate] Attempting to register user: ${username} (${discordId})`);
+          let isNewUser = false;
+          let playerData = null;
+          try {
+            const result = await ensureUserRegistered(discordId, username);
+            isNewUser = result.isNewUser;
+            playerData = result.player;
+            console.log(`[messageCreate] Registration completed successfully, isNewUser: ${isNewUser}`);
+
+            // 🎁 If this is a new user, send wallet request prompt
+            if (isNewUser) {
+              const walletRequestMessage =
+                `*yawns* Welcome to my ledger, ${username}.\n\n` +
+                `So... are you familiar with DeFi Kingdoms, or are you brand new to Crystalvale? Either way, I can help—navigation guides for beginners, or even advanced queries for the OGs... for the right price, hehehe.\n\n` +
+                `If you give me your wallet address, I can provide much better support—optimization strategies tailored to your heroes, help you track onboarding milestones, and even send you rewards as you complete them. ` +
+                `Don't worry, I only have view-only rights on-chain with that address. Completely read-only.\n\n` +
+                `If you'd rather not share it, that's fine too. You can still use the free walkthrough guides and basic help. Your choice.\n\n` +
+                `What brings you to my ledger today? Need any help getting started?`;
+
+              await message.reply(walletRequestMessage);
+              console.log(`💼 Sent wallet request to new user: ${username}`);
+              return; // Don't send a second AI response
+            }
+          } catch (regError) {
+            // Log registration error but don't block bot response
+            console.error(`[messageCreate] ⚠️  Registration failed but continuing with response:`, regError);
+            console.error(`[messageCreate] Registration error stack:`, regError.stack);
+          }
+
+          // 📊 Log message to Player Profile System for classification tracking
+          try {
+            await logDiscordMessage(discordId, message.content, username);
+            console.log(`[ProfileSystem] Logged message for classification: ${username}`);
+          } catch (profileError) {
+            // Don't block response if profile logging fails
+            console.warn(`[ProfileSystem] ⚠️ Failed to log message for profile:`, profileError.message);
+          }
+
+          // 🔐 Check for transaction hash with tx: prefix for payment verification
+          const txPrefixRegex = /tx:\s*0[xX][a-fA-F0-9]{64}/i;
+          const txPrefixMatch = message.content.match(txPrefixRegex);
+
+          if (txPrefixMatch && playerData) {
+            const txHash = txPrefixMatch[0].replace(/tx:\s*/i, '').trim();
+            console.log(`🔐 Detected transaction hash with tx: prefix: ${txHash}`);
+
+            try {
+              const pendingOpt = await db.select()
+                .from(gardenOptimizations)
+                .where(and(
+                  eq(gardenOptimizations.playerId, playerData.id),
+                  eq(gardenOptimizations.status, 'awaiting_payment'),
+                  gt(gardenOptimizations.expiresAt, new Date())
+                ))
+                .orderBy(desc(gardenOptimizations.createdAt))
+                .limit(1);
+
+              if (pendingOpt && pendingOpt.length > 0) {
+                await message.reply(`🔍 Verifying your transaction...`);
+
+                const result = await verifyTransactionHash(txHash, pendingOpt[0].id);
+
+                if (result.success) {
+                  await message.reply(
+                    `✅ **Payment Verified!**\n\n` +
+                    `**Amount:** ${result.payment.amount} JEWEL\n` +
+                    `**Block:** ${result.payment.blockNumber}\n\n` +
+                    `Your optimization is now being processed. You'll receive your personalized recommendations in a few minutes!\n\n` +
+                    `If you don't see anything after a while, ping me again.`
+                  );
+                } else {
+                  await message.reply(
+                    `❌ I couldn't verify that transaction. Double-check the hash and make sure it was sent to the correct Hedge wallet.`
+                  );
+                }
+              } else {
+                await message.reply(
+                  `I don't see any pending optimizations for you right now. Use your wallet's DM to request optimization first!`
+                );
+              }
+              return;
+            } catch (txError) {
+              console.error(`❌ Failed to verify transaction:`, txError);
+              await message.reply(`Hmm, I had trouble verifying that transaction. Try again or use \`/verify-payment\` command.`);
+              return;
+            }
+          }
+
+          // 💼 Check if message contains a wallet address (42 chars only, not 66-char tx hashes)
+          const walletRegex = /0[xX][a-fA-F0-9]{40}(?![a-fA-F0-9])/;
+          const walletMatch = message.content.match(walletRegex);
+
+          if (walletMatch && playerData) {
+            const walletAddress = walletMatch[0];
+            console.log(`💼 Detected wallet address in message: ${walletAddress}`);
+
+            try {
+              const updatedPlayer = await updatePlayerWallet(discordId, walletAddress);
+              const isFirstWallet = updatedPlayer.wallets.length === 1;
+
+              if (isFirstWallet) {
+                const confirmMessage =
+                  `Perfect! I've saved your wallet address: \`${walletAddress}\`\n\n` +
+                  `Now I can give you personalized hero optimization advice and track your milestones. ` +
+                  `Feel free to ask me anything about your account, heroes, or how to navigate the game!`;
+                await message.reply(confirmMessage);
+                console.log(`✅ Confirmed wallet save to user: ${username}`);
+              } else {
+                await message.reply(`Got it! I've added \`${walletAddress}\` to your account.`);
+              }
+
+              // Don't process this message further - wallet was saved
+              return;
+            } catch (walletError) {
+              console.error(`❌ Failed to save wallet:`, walletError);
+              await message.reply(`Hmm, I had trouble saving that wallet address. Try again?`);
+              return;
+            }
+          }
+
+          // 🌿 NEW: direct optimization handler (with bypass support)
+          const lowerContent = message.content.toLowerCase();
+          if (
+            lowerContent.includes('optimize my gardens') ||
+            lowerContent.match(/\boptimi[sz]e\b.*\bgarden/)
+          ) {
+            await handleGardenOptimizationDM(message, playerData);
             return;
           }
-          // Update context for future follow-ups
-          dmConversationContext.set(discordId, {
-            lastHeroId: heroId,
-            lastHeroData: heroData,
-            timestamp: Date.now()
-          });
-        } catch (fetchError) {
-          console.error(`❌ Error fetching hero #${heroId}:`, fetchError.message);
-          await message.reply(`*squints at ledger* Had trouble pulling that hero's data. Try again?`);
-          return;
-        }
-      } else {
-        // Use context from previous conversation
-        heroData = context.lastHeroData;
-        heroId = context.lastHeroId;
-        console.log(`🧬 Detected genetics follow-up for hero #${heroId}`);
-      }
-      
-      try {
-        // Decode full genetics
-        const genetics = decodeHeroGenes(heroData);
-        
-        if (genetics._note) {
-          // Raw genes not available - explain
-          await message.reply(`I'd love to show you the full genetics for Hero #${heroId}, but the raw gene data isn't available right now. Try asking about a different hero?`);
-          return;
-        }
-        
-        // Format genetics for display
-        const lines = [];
-        lines.push(`**🧬 Full Genetics for Hero #${genetics.normalizedId || heroId}**`);
-        lines.push('');
-        lines.push('**Classes & Profession:**');
-        lines.push(`Main Class: **${genetics.mainClass.dominant}** | R1: ${genetics.mainClass.R1} | R2: ${genetics.mainClass.R2} | R3: ${genetics.mainClass.R3}`);
-        lines.push(`Sub Class: **${genetics.subClass.dominant}** | R1: ${genetics.subClass.R1} | R2: ${genetics.subClass.R2} | R3: ${genetics.subClass.R3}`);
-        lines.push(`Profession: **${genetics.profession.dominant}** | R1: ${genetics.profession.R1} | R2: ${genetics.profession.R2} | R3: ${genetics.profession.R3}`);
-        lines.push('');
-        lines.push('**Abilities:**');
-        lines.push(`Passive 1: **${genetics.passive1.dominant}** | R1: ${genetics.passive1.R1} | R2: ${genetics.passive1.R2} | R3: ${genetics.passive1.R3}`);
-        lines.push(`Passive 2: **${genetics.passive2.dominant}** | R1: ${genetics.passive2.R1} | R2: ${genetics.passive2.R2} | R3: ${genetics.passive2.R3}`);
-        lines.push(`Active 1: **${genetics.active1.dominant}** | R1: ${genetics.active1.R1} | R2: ${genetics.active1.R2} | R3: ${genetics.active1.R3}`);
-        lines.push(`Active 2: **${genetics.active2.dominant}** | R1: ${genetics.active2.R1} | R2: ${genetics.active2.R2} | R3: ${genetics.active2.R3}`);
-        lines.push('');
-        lines.push('**Stat Boosts & Element:**');
-        lines.push(`Stat Boost 1: **${genetics.statBoost1.dominant}** | R1: ${genetics.statBoost1.R1} | R2: ${genetics.statBoost1.R2} | R3: ${genetics.statBoost1.R3}`);
-        lines.push(`Stat Boost 2: **${genetics.statBoost2.dominant}** | R1: ${genetics.statBoost2.R1} | R2: ${genetics.statBoost2.R2} | R3: ${genetics.statBoost2.R3}`);
-        lines.push(`Element: **${genetics.element.dominant}** | R1: ${genetics.element.R1} | R2: ${genetics.element.R2} | R3: ${genetics.element.R3}`);
-        
-        // Add visual traits summary if available
-        if (genetics.visual) {
-          lines.push('');
-          lines.push('**Visual Traits:**');
-          lines.push(`Gender: **${genetics.visual.gender.dominant}** | Hair: ${genetics.visual.hairStyle.dominant} | Head: ${genetics.visual.headAppendage.dominant} | Back: ${genetics.visual.backAppendage.dominant}`);
-        }
-        
-        // Analyst reminder
-        lines.push('');
-        lines.push('---');
-        lines.push('*Decoding all those recessive genes made my analysts need a coffee break.* **Even 1 JEWEL** covers several more genetic analyses. Keep the data flowing? 😏');
-        
-        const geneticsInfo = lines.join('\n');
-        
-        // Discord has a 2000 char limit - may need to split
-        if (geneticsInfo.length <= 1900) {
-          await message.reply(geneticsInfo);
-        } else {
-          // Split into two messages
-          const splitPoint = geneticsInfo.indexOf('**Stat Boosts');
-          if (splitPoint > 0) {
-            await message.reply(geneticsInfo.slice(0, splitPoint));
-            await message.reply(geneticsInfo.slice(splitPoint));
-          } else {
-            await message.reply(geneticsInfo.slice(0, 1900) + '\n...');
+
+          // Normal conversation - send to OpenAI (hero quick path + generic DM)
+          let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
+
+          console.log(`💬 Processing DM from ${username}: ${message.content}`);
+          await message.channel.sendTyping();
+
+          // 🦸 HERO DATA LOOKUP - Check if user is asking about a specific hero
+          const heroIdRegex = /(?:hero\s*#?|#)(\d+)/i;
+          const heroMatch = message.content.match(heroIdRegex);
+
+          if (heroMatch) {
+            const heroId = heroMatch[1];
+            console.log(`🦸 Detected hero lookup request for hero #${heroId}`);
+
+            try {
+              const heroData = await onchain.getHeroById(heroId);
+
+              if (heroData) {
+                // Save to conversation context for follow-up questions
+                dmConversationContext.set(discordId, {
+                  lastHeroId: heroId,
+                  lastHeroData: heroData,
+                  timestamp: Date.now()
+                });
+
+                // Format hero data for display
+                const rarities = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+                const rarity = rarities[heroData.rarity] || 'Unknown';
+
+                const lines = [];
+                lines.push(`**Hero #${heroData.normalizedId || heroId}** — ${heroData.mainClassStr || 'Unknown'}`);
+                lines.push(`Rarity: **${rarity}** | Level: **${heroData.level}** | Generation: **${heroData.generation}**`);
+                lines.push('');
+                lines.push('**Stats:**');
+                lines.push(`STR ${heroData.strength} • INT ${heroData.intelligence} • WIS ${heroData.wisdom} • AGI ${heroData.agility}`);
+                lines.push(`VIT ${heroData.vitality} • END ${heroData.endurance} • DEX ${heroData.dexterity} • LCK ${heroData.luck}`);
+
+                if (heroData.professionStr) {
+                  lines.push('');
+                  lines.push(`**Profession:** ${heroData.professionStr}`);
+                  lines.push(`Mining: ${heroData.mining} • Gardening: ${heroData.gardening} • Foraging: ${heroData.foraging} • Fishing: ${heroData.fishing}`);
+                }
+
+                if (heroData.summonsRemaining !== undefined) {
+                  lines.push('');
+                  lines.push(`**Breeding:** ${heroData.summonsRemaining}/${heroData.maxSummons} summons remaining`);
+                }
+
+                if (heroData.passive1 || heroData.active1) {
+                  lines.push('');
+                  lines.push('**Abilities:**');
+                  if (heroData.passive1) lines.push(`Passive 1: ${heroData.passive1.name}`);
+                  if (heroData.passive2) lines.push(`Passive 2: ${heroData.passive2.name}`);
+                  if (heroData.active1) lines.push(`Active 1: ${heroData.active1.name}`);
+                  if (heroData.active2) lines.push(`Active 2: ${heroData.active2.name}`);
+                }
+
+                const heroInfo = lines.join('\n');
+                await message.reply(heroInfo);
+                return;
+              } else {
+                await message.reply(`I couldn't find that hero on-chain. Double-check the ID and try again.`);
+                return;
+              }
+            } catch (heroError) {
+              console.error(`❌ Error fetching hero data:`, heroError);
+              await message.reply(`I had trouble pulling that hero from the chain. Try again in a bit.`);
+              return;
+            }
+          }
+
+          // Fallback: send to OpenAI (askHedge)
+          try {
+            const aiMessages = [
+              { role: 'user', content: enrichedContent }
+            ];
+
+            const finalResponse = await askHedge(aiMessages, { mode: 'dm' });
+
+            await message.reply(finalResponse);
+            console.log(`✅ Sent AI response to ${username}`);
+          } catch (aiError) {
+            console.error("❌ OpenAI error in DM:", aiError);
+            await message.reply("*yawns* My ledger seems stuck... give me a moment and try again.");
+          }
+
+        } catch (err) {
+          console.error("DM error:", err);
+          try {
+            await message.reply("*yawns* Something went wrong. Try again later.");
+          } catch {
+            // swallow reply error
           }
         }
-        
-        console.log(`✅ Sent genetics for hero #${heroId}`);
-        return;
-      } catch (geneticsError) {
-        console.error(`❌ Error decoding genetics:`, geneticsError.message);
-        // Fall through to OpenAI for a general response
-      }
-    }
+      });
 
-    try {
-      const response = await askHedge([
-        { role: 'user', content: message.content }
-      ]);
 
-      // 💼 Wallet capture nudge system - append prompt if user has no wallet (frequency control: ~30% chance every message)
-      let finalResponse = response;
-      const hasWallet = playerData?.wallets && playerData.wallets.length > 0;
-      const shouldNudge = !hasWallet && Math.random() < 0.3; // ~30% chance to nudge
-      
-      if (shouldNudge) {
-        finalResponse += `\n\n---\n*By the way, if you share your wallet address, I can give you much more personalized advice—analyzing your heroes, checking your garden yields, the whole ledger. Might even set up some rewarded quests for you if you're new around the kingdoms!*`;
-      }
+async function handleGardenOptimizationDM(message, playerData) {
+  const discordId = message.author.id;
+  const username = message.author.username;
 
-      // 🎨 Intelligent chart attachment system
-      const userContent = message.content.toLowerCase();
-      const aiResponse = response.toLowerCase();
-      const combined = userContent + ' ' + aiResponse;
-      
-      // Visual genetics keyword detection
-      const hairstyleKeywords = ['hairstyle', 'hair style', 'hair mutation', 'hair breeding', 'hair genetic', 'hair gene'];
-      const headAppendageKeywords = ['head appendage', 'cat ear', 'dragon horn', 'royal crown', 'demon horn', 'elven ear', 'fae chisel'];
-      const backAppendageKeywords = ['back appendage', 'wing', 'phoenix wing', 'dragon wing', 'butterfly wing', 'gryphon wing'];
-      const hairColorKeywords = ['hair color', 'hair colour'];
-      const appendageColorKeywords = ['appendage color', 'appendage colour', 'wing color', 'ear color'];
-      
-      // Hero summoning keyword detection
-      const heroSummoningKeywords = [
-        'hero class', 'class breeding', 'class mutation', 'class tree',
-        'summoning cost', 'summoning cooldown', 'summoning rarity',
-        'hero summoning', 'summon hero', 'what class can i breed'
-      ];
-      
-      // General triggers that attach multiple charts
-      const generalVisualKeywords = ['visual trait', 'visual gene', 'visual genetic', 'visual breeding', 'visual mutation'];
-      const generalBreedingKeywords = ['breeding chart', 'summoning tree', 'mutation chart', 'what can i breed'];
-      
-      // Check which categories match
-      const matchHairstyle = hairstyleKeywords.some(k => combined.includes(k));
-      const matchHeadAppendage = headAppendageKeywords.some(k => combined.includes(k)) || combined.includes('appendage') && !combined.includes('back');
-      const matchBackAppendage = backAppendageKeywords.some(k => combined.includes(k));
-      const matchHairColor = hairColorKeywords.some(k => combined.includes(k));
-      const matchAppendageColor = appendageColorKeywords.some(k => combined.includes(k));
-      const matchHeroSummoning = heroSummoningKeywords.some(k => combined.includes(k));
-      const matchGeneralVisual = generalVisualKeywords.some(k => combined.includes(k));
-      const matchGeneralBreeding = generalBreedingKeywords.some(k => combined.includes(k));
-      
-      const attachments = [];
-      let chartTypes = [];
-      
-      // Hairstyle charts (gender-specific)
-      if (matchHairstyle || matchGeneralVisual || matchGeneralBreeding) {
-        attachments.push(new AttachmentBuilder('knowledge/female-hairstyle-chart.png'));
-        attachments.push(new AttachmentBuilder('knowledge/male-hairstyle-chart.png'));
-        chartTypes.push('hairstyles');
-      }
-      
-      // Head appendage chart
-      if (matchHeadAppendage || matchGeneralVisual || matchGeneralBreeding) {
-        attachments.push(new AttachmentBuilder('knowledge/head-appendage-chart.png'));
-        chartTypes.push('head-appendages');
-      }
-      
-      // Back appendage chart
-      if (matchBackAppendage || matchGeneralVisual || matchGeneralBreeding) {
-        attachments.push(new AttachmentBuilder('knowledge/back-appendage-chart.png'));
-        chartTypes.push('back-appendages');
-      }
-      
-      // Hair color chart
-      if (matchHairColor || matchGeneralVisual || matchGeneralBreeding) {
-        attachments.push(new AttachmentBuilder('knowledge/hair-color-chart.png'));
-        chartTypes.push('hair-colors');
-      }
-      
-      // Appendage color chart
-      if (matchAppendageColor || matchGeneralVisual || matchGeneralBreeding) {
-        attachments.push(new AttachmentBuilder('knowledge/appendage-color-chart.png'));
-        chartTypes.push('appendage-colors');
-      }
-      
-      // Hero class summoning chart
-      if (matchHeroSummoning || matchGeneralBreeding) {
-        attachments.push(new AttachmentBuilder('knowledge/hero-class-summoning-chart.png'));
-        chartTypes.push('hero-summoning');
-      }
-
-      if (attachments.length > 0) {
-        console.log(`🎨 Detected breeding question - attaching ${attachments.length} chart(s): ${chartTypes.join(', ')}`);
-        await message.reply({
-          content: finalResponse,
-          files: attachments
-        });
-        console.log(`✅ Sent AI response with ${attachments.length} chart(s) to ${username}`);
-      } else {
-        await message.reply(finalResponse);
-        console.log(`✅ Sent AI response to ${username}`);
-      }
-    } catch (aiError) {
-      console.error("❌ OpenAI error in DM:", aiError);
-      await message.reply("*yawns* My ledger seems stuck... give me a moment and try again.");
-    }
-
-  } catch (err) {
-    console.error("DM error:", err);
-    await message.reply("*yawns* Something went wrong. Try again later.");
+  if (!playerData || !playerData.primaryWallet) {
+    await message.reply(
+      "I don't have a wallet linked for you yet. Send me your DFK wallet address first and I'll scan your gardens."
+    );
+    return;
   }
-});
+
+  const wallet = playerData.primaryWallet;
+  console.log(`[GardenOpt] Running optimization for ${username} / ${wallet}`);
+
+  await message.reply(
+    "Hold on a moment while I scan for your garden pools.\n\n[Scanning your wallet on DFK Chain...]"
+  );
+
+  // 1) Real LP positions
+  const positions = await detectWalletLPPositions(wallet);
+
+  if (!positions || positions.length === 0) {
+    await message.reply(
+      "I couldn't find any LP tokens staked in the Crystalvale gardens for your linked wallet."
+    );
+    return;
+  }
+
+  // Summary for context
+  const poolNames = positions.map((p) => p.pairName).join(', ');
+  const totalValueNum = positions.reduce(
+    (sum, p) => sum + parseFloat(p.userTVL || 0),
+    0
+  );
+  const totalValueStr = isNaN(totalValueNum)
+    ? 'N/A'
+    : `$${totalValueNum.toFixed(0)}`;
+
+  const bypass = isPaymentBypassEnabled?.() ?? false;
+
+  if (!bypass) {
+    // Paid path – teaser only
+    await message.reply(
+      `I found you're staking in ${positions.length} pool${
+        positions.length > 1 ? 's' : ''
+      }: ${poolNames} (Total value: ${totalValueStr}).\n\n` +
+        `Full optimization (hero & pet assignments + APR uplift) costs **25 JEWEL**.\n` +
+        `If you want to proceed, send 25 JEWEL to my wallet and paste the transaction hash here with \`tx:<hash>\`.`
+    );
+    return;
+  }
+
+  // BYPASS path – full optimization now
+  await message.reply(
+    `🧪 Payment bypass is enabled for testing, so I'm skipping the 25 JEWEL step and running your optimization now.`
+  );
+
+  const heroes = await getAllHeroesByOwner(wallet);
+  const optimization = generatePoolOptimizations(positions, heroes, {
+    hasLinkedWallet: true,
+  });
+  const report = formatOptimizationReport(optimization);
+
+  await message.reply(report);
+}
+
+
 
 // Helper: Check if user is admin for Discord interactions
 function isUserAdmin(interaction) {
@@ -3051,663 +2926,729 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 // === Initialize Economic System (BEFORE Discord client logs in) ===
-console.log('💰 Initializing pricing config...');
-await initializePricingConfig();
+async function initializeEconomicSystem() {
+  console.log('💰 Initializing pricing config...');
+  await initializePricingConfig();
 
-console.log('📡 Starting payment monitor (V2: Per-job fast scanner)...');
-await initializeExistingJobs();
-await startMonitoring();
-paymentMonitorStarted = true;
-console.log('✅ Economic system initialized');
+  console.log('📡 Starting payment monitor (V2: Per-job fast scanner)...');
+  await initializeExistingJobs();
+  await startMonitoring();
+  paymentMonitorStarted = true;
+  console.log('✅ Economic system initialized');
+}
 
 // === Create Express App and HTTP Server ===
-const app = express();
-app.use(express.json());
+async function startAdminWebServer() {
+  const app = express();
+  app.use(express.json());
 
-// Session management middleware
-app.use((req, res, next) => {
-  const cookies = (req.headers.cookie || '')
-    .split(';')
-    .reduce((acc, cookie) => {
-      const [key, value] = cookie.trim().split('=');
-      if (key && value) acc[key] = decodeURIComponent(value);
-      return acc;
-    }, {});
-  
-  req.cookies = cookies;
-  
-  // Set cookie helper
-  res.setCookie = (name, value, options = {}) => {
-    const cookieStr = `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax${
-      options.maxAge ? `; Max-Age=${options.maxAge}` : ''
-    }${options.secure ? '; Secure' : ''}`;
-    
-    const existing = res.getHeader('Set-Cookie') || [];
-    const setCookieArray = Array.isArray(existing) ? existing : [existing].filter(Boolean);
-    res.setHeader('Set-Cookie', [...setCookieArray, cookieStr]);
-  };
-  
-  next();
-});
+  // Session management middleware
+  app.use((req, res, next) => {
+    const cookies = (req.headers.cookie || '')
+      .split(';')
+      .reduce((acc, cookie) => {
+        const [key, value] = cookie.trim().split('=');
+        if (key && value) acc[key] = decodeURIComponent(value);
+        return acc;
+      }, {});
 
-// Admin list
-const ADMIN_USER_IDS = ['426019696916168714']; // yepex
+    req.cookies = cookies;
 
-// Admin middleware - database-backed sessions
-async function isAdmin(req, res, next) {
-  try {
-    const sessionToken = req.cookies.session_token;
-    console.log(`[AdminAuth] Checking session. Cookie: ${sessionToken ? sessionToken.substring(0, 16) + '...' : 'NONE'}`);
-    
-    if (!sessionToken) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-    
-    // Fetch session from database
-    const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
-    console.log(`[AdminAuth] Found ${sessions.length} session(s) in DB`);
-    
-    if (!sessions || sessions.length === 0) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-    
-    const session = sessions[0];
-    console.log(`[AdminAuth] Session found: discordId=${session.discordId}, expires=${session.expiresAt}`);
-    
-    // Check expiration
-    if (new Date(session.expiresAt) < new Date()) {
-      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
-      return res.status(401).json({ error: 'Session expired' });
-    }
-    
-    console.log(`🔍 Admin check - userId: ${session.discordId}, admins: [${ADMIN_USER_IDS.join(', ')}], match: ${ADMIN_USER_IDS.includes(session.discordId)}`);
-    if (!ADMIN_USER_IDS.includes(session.discordId)) {
-      return res.status(403).json({ error: 'Access denied: Administrator only' });
-    }
-    
-    req.user = { userId: session.discordId, username: session.username, avatar: session.avatar };
-    next();
-  } catch (err) {
-    console.error('❌ Admin middleware error:', err);
-    res.status(500).json({ error: 'Authentication check failed' });
-  }
-}
-
-// Debug endpoint - no auth required
-app.get('/api/admin/debug-status', async (req, res) => {
-  try {
-    const sessionToken = req.cookies.session_token;
-    console.log(`[Debug] Session token from cookie: ${sessionToken ? sessionToken.substring(0, 16) + '...' : 'NONE'}`);
-    
-    const debug = {
-      timestamp: new Date().toISOString(),
-      hasCookie: !!sessionToken,
-      cookiePreview: sessionToken ? sessionToken.substring(0, 32) + '...' : null,
-      adminIds: ADMIN_USER_IDS,
-      dbConnected: true
+    // Set cookie helper
+    res.setCookie = (name, value, options = {}) => {
+      const cookieParts = [`${name}=${encodeURIComponent(value)}`];
+      if (options.httpOnly) cookieParts.push('HttpOnly');
+      if (options.secure) cookieParts.push('Secure');
+      if (options.sameSite) cookieParts.push(`SameSite=${options.sameSite}`);
+      if (options.maxAge) cookieParts.push(`Max-Age=${options.maxAge}`);
+      res.setHeader('Set-Cookie', cookieParts.join('; '));
     };
-    
-    if (sessionToken) {
-      const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
-      debug.sessionInDb = sessions.length > 0;
-      
-      if (sessions.length > 0) {
-        const sess = sessions[0];
-        debug.discordId = sess.discordId;
-        debug.username = sess.username;
-        debug.isAdmin = ADMIN_USER_IDS.includes(sess.discordId);
-        debug.expiresAt = sess.expiresAt;
-        debug.isExpired = new Date(sess.expiresAt) < new Date();
-      }
-    }
-    
-    res.json(debug);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-})
 
-// GET /api/admin/hedge-wallet - Get Hedge's wallet balance (admin only)
-app.get('/api/admin/hedge-wallet', isAdmin, async (req, res) => {
-  try {
-    const balances = await fetchWalletBalances(HEDGE_WALLET);
-    res.json({
-      success: true,
-      wallet: HEDGE_WALLET,
-      balances: {
-        jewel: balances.jewel,
-        crystal: balances.crystal,
-        cjewel: balances.cjewel
-      }
-    });
-  } catch (err) {
-    console.error('[API] Error fetching hedge wallet balance:', err);
-    res.status(500).json({ error: 'Failed to fetch wallet balance' });
-  }
-});
+    next();
+  });
 
-// GET /api/admin/users - List all users with profiles
-app.get('/api/admin/users', isAdmin, async (req, res) => {
-  try {
-    const playerRows = await db.select().from(players);
-    console.log(`[API] /api/admin/users fetched ${playerRows.length} players`);
-    if (playerRows.length > 0) {
-      console.log(`[API] First player raw:`, JSON.stringify(playerRows[0], null, 2));
-    }
-    
-    const usersWithProfiles = await Promise.all(
-      playerRows.map(async (player) => {
-        try {
-          // Parse profile data from the JSON column
-          let profileData = null;
-          try {
-            if (player.profileData) {
-              profileData = typeof player.profileData === 'string' 
-                ? JSON.parse(player.profileData)
-                : player.profileData;
-            }
-          } catch (e) {
-            console.warn(`Failed to parse profileData for player ${player.id}`);
-          }
-          
-          // Fetch blockchain data if wallet exists
-          let influence = 0;
-          let dfkSnapshot = profileData?.dfkSnapshot || null;
-          
-          if (player.primaryWallet) {
-            try {
-              // Fetch influence token
-              influence = await onchain.getPlayerInfluence(player.primaryWallet);
-              
-              // Fetch all heroes and calculate metrics
-              const heroes = await onchain.getAllHeroesByOwner(player.primaryWallet);
-              const { gen0Count, heroAge } = onchain.calculateHeroMetrics(heroes);
-              
-              // Fetch wallet balances
-              const balances = await fetchWalletBalances(player.primaryWallet);
-              
-              // Fetch incentivized LP positions (gardens)
-              const dfkGardens = await onchain.getUserGardenPositions(player.primaryWallet, 'dfk');
-              const klaytnGardens = await onchain.getUserGardenPositions(player.primaryWallet, 'klaytn');
-              const allGardens = [...(dfkGardens || []), ...(klaytnGardens || [])];
-              const lpPositionsCount = allGardens.length;
-              
-              // Calculate LP value using JEWEL price (~$0.10) per LP token
-              const jewelPrice = 0.10;
-              const totalLPValue = allGardens.reduce((sum, pos) => {
-                const staked = parseFloat(pos.stakedAmount || '0');
-                return sum + (staked * jewelPrice);
-              }, 0);
-              
-              // Calculate questing streak - count heroes with active/recent quests
-              const questingHeroes = heroes.filter(h => h.currentQuest !== null && h.currentQuest !== undefined);
-              const questingStreakDays = questingHeroes.length > 0 ? 1 : 0;
-              
-              // Use cached DFK age from database (computed in background)
-              let dfkAgeDays = null;
-              let firstTxAt = null;
-              if (player.firstDfkTxTimestamp) {
-                const firstTxTimestampMs = new Date(player.firstDfkTxTimestamp).getTime();
-                dfkAgeDays = onchain.calculateDfkAgeDays(firstTxTimestampMs);
-                firstTxAt = player.firstDfkTxTimestamp.toISOString();
-              }
-              
-              dfkSnapshot = {
-                heroCount: heroes.length,
-                gen0Count,
-                heroAge,
-                petCount: 0,
-                lpPositionsCount,
-                totalLPValue,
-                jewelBalance: parseFloat(balances.jewel || '0'),
-                crystalBalance: parseFloat(balances.crystal || '0'),
-                cJewelBalance: parseFloat(balances.cjewel || '0'),
-                questingStreakDays,
-                dfkAgeDays,
-                firstTxAt
-              };
-              
-              console.log(`[API] User ${player.discordUsername}: Influence=${influence}, Gen0=${gen0Count}, HeroAge=${heroAge}d, DFKAge=${dfkAgeDays}d, LP=${lpPositionsCount}, LPValue=$${totalLPValue.toFixed(2)}, QuestHeroes=${questingHeroes.length}`);
-            } catch (err) {
-              console.warn(`[API] Failed to fetch blockchain data for ${player.primaryWallet}:`, err.message);
-            }
-          }
-          
-          // Ensure tier is a number, not a string
-          const tierNum = typeof profileData?.tier === 'string' ? parseInt(profileData.tier, 10) : (profileData?.tier || 0);
-          
-          return {
-            id: player.id,
-            discordId: player.discordId,
-            discordUsername: player.discordUsername,
-            walletAddress: player.primaryWallet,
-            // Profile fields extracted from profileData JSON
-            archetype: profileData?.archetype || 'GUEST',
-            tier: tierNum,
-            state: profileData?.state || 'CURIOUS',
-            behaviorTags: profileData?.behaviorTags || [],
-            kpis: profileData?.kpis || {},
-            dfkSnapshot,
-            influence,
-            flags: profileData?.flags || {},
-            // Legacy profile field for backward compatibility
-            profile: {
-              archetype: profileData?.archetype || 'GUEST',
-              tier: tierNum,
-              state: profileData?.state || 'CURIOUS',
-              tags: profileData?.behaviorTags || [],
-              flags: profileData?.flags || {}
-            }
-          };
-        } catch (err) {
-          console.error(`Error fetching profile for ${player.discordId}:`, err);
-          return {
-            id: player.id,
-            discordId: player.discordId,
-            discordUsername: player.discordUsername,
-            walletAddress: player.primaryWallet,
-            archetype: 'ERROR',
-            tier: 0,
-            state: 'VISITOR',
-            behaviorTags: [],
-            kpis: {},
-            dfkSnapshot: null,
-            influence: 0,
-            flags: {},
-            profile: {
-              archetype: 'ERROR',
-              tier: 0,
-              state: 'VISITOR',
-              tags: [],
-              flags: {}
-            }
-          };
-        }
-      })
-    );
-    
-    res.json({ success: true, users: usersWithProfiles });
-  } catch (err) {
-    console.error('❌ Error fetching users:', err);
-    res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
+  // Admin list
+  const ADMIN_USER_IDS = ['426019696916168714']; // yepex
 
-// GET /api/admin/users/:userId/profile - Get single user's account profile
-app.get('/api/admin/users/:userId/profile', isAdmin, async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { getOrCreateUserProfile } = await import('./user-account-service.js');
-    
-    const player = await db.select().from(players).where(eq(players.id, parseInt(userId))).limit(1);
-    
-    if (!player || player.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    const p = player[0];
-    const profile = await getOrCreateUserProfile(p.discordId, p.discordUsername);
-    
-    res.json({
-      success: true,
-      id: p.id,
-      discordId: p.discordId,
-      discordUsername: p.discordUsername,
-      tier: profile.tier,
-      totalQueries: profile.totalQueries,
-      wallets: profile.wallets,
-      lpPositions: profile.lpPositions,
-      createdAt: profile.createdAt
-    });
-  } catch (err) {
-    console.error('❌ Error fetching user profile:', err);
-    res.status(500).json({ error: 'Failed to fetch user profile' });
-  }
-});
-
-// PATCH /api/admin/users/:id/tier - Update user tier
-app.patch('/api/admin/users/:id/tier', isAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { tier } = req.body;
-    
-    if (typeof tier !== 'number' || tier < 0 || tier > 4) {
-      return res.status(400).json({ error: 'Tier must be a number between 0-4' });
-    }
-    
-    const player = await db.select().from(players).where(eq(players.id, parseInt(id)));
-    
-    if (!player || player.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    const discordId = player[0].discordId; // Fixed: was player[0].discord_id
-    
-    // Update tier using the profile service
-    await setTierOverride(discordId, tier);
-    
-    const updatedProfile = await getQuickProfileSummary(discordId);
-    
-    res.json({ 
-      success: true, 
-      message: `Tier updated to ${tier}`,
-      profile: updatedProfile 
-    });
-  } catch (err) {
-    console.error('❌ Error updating tier:', err);
-    res.status(500).json({ error: 'Failed to update tier' });
-  }
-});
-
-// GET /api/admin/lp-positions/:wallet - Fetch LP positions for a wallet
-app.get('/api/admin/lp-positions/:wallet', isAdmin, async (req, res) => {
-  try {
-    const { wallet } = req.params;
-    
-    if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
-      return res.status(400).json({ error: 'Invalid wallet address' });
-    }
-    
-    console.log(`[API] Fetching LP positions for wallet: ${wallet}`);
-    const { detectWalletLPPositions } = await import('./wallet-lp-detector.js');
-    const positions = await detectWalletLPPositions(wallet);
-    
-    res.json({ 
-      success: true, 
-      wallet,
-      positions: positions || [],
-      totalPositions: positions?.length || 0,
-      totalValue: (positions || []).reduce((sum, p) => sum + parseFloat(p.userTVL || '0'), 0).toFixed(2)
-    });
-  } catch (error) {
-    console.error('[API] Error fetching LP positions:', error);
-    res.status(500).json({ error: 'Failed to fetch LP positions' });
-  }
-});
-
-// GET /api/admin/debug-settings - Get debug settings
-app.get('/api/admin/debug-settings', async (req, res) => {
-  try {
-    res.json(getDebugSettings());
-  } catch (error) {
-    console.error('[API] Error fetching debug settings:', error);
-    res.status(500).json({ error: 'Failed to fetch debug settings' });
-  }
-});
-
-// POST /api/admin/debug-settings - Update debug settings
-app.post('/api/admin/debug-settings', async (req, res) => {
-  try {
-    const { paymentBypass } = req.body;
-    
-    if (typeof paymentBypass !== 'boolean') {
-      return res.status(400).json({ error: 'paymentBypass must be a boolean' });
-    }
-    
-    setDebugSettings({ paymentBypass });
-    
-    res.json({ success: true, settings: getDebugSettings() });
-  } catch (error) {
-    console.error('[API] Error updating debug settings:', error);
-    res.status(500).json({ error: 'Failed to update debug settings' });
-  }
-});
-
-// GET /api/debug/recent-errors - Get recent error logs
-app.get('/api/debug/recent-errors', async (req, res) => {
-  try {
-    const fs = await import('fs');
-    const path = await import('path');
-    const { readdir, readFile } = fs.promises;
-    
-    const logDir = '/tmp/logs';
-    const errors = [];
-    
+  // Admin middleware - database-backed sessions
+  async function isAdmin(req, res, next) {
     try {
-      const files = await readdir(logDir);
-      const workflowLogs = files
-        .filter(f => f.startsWith('Start_application_'))
-        .sort()
-        .reverse()
-        .slice(0, 3);
-      
-      for (const logFile of workflowLogs) {
-        const logPath = path.join(logDir, logFile);
-        const content = await readFile(logPath, 'utf-8');
-        const lines = content.split('\n');
-        
-        for (const line of lines) {
-          if (line.match(/❌|ERROR|Error:|Failed|Exception|CRITICAL|WARNING/i)) {
-            errors.push({
-              timestamp: new Date().toISOString(),
-              message: line.trim(),
-              file: logFile
-            });
-          }
-        }
+      const sessionToken = req.cookies.session_token;
+      console.log(
+        `[AdminAuth] Checking session. Cookie: ${
+          sessionToken ? sessionToken.substring(0, 16) + '...' : 'NONE'
+        }`
+      );
+
+      if (!sessionToken) {
+        return res.status(401).json({ error: 'Not authenticated' });
       }
-    } catch (err) {
-      console.log('[Debug] Could not read log files:', err.message);
-    }
-    
-    const recentErrors = errors.slice(0, 50);
-    
-    res.json({ 
-      success: true,
-      count: recentErrors.length,
-      errors: recentErrors
-    });
-  } catch (error) {
-    console.error('[Debug] Error fetching recent errors:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
 
-// Discord OAuth Routes
-app.get('/auth/discord', (req, res) => {
-  if (!DISCORD_CLIENT_ID) {
-    return res.status(400).json({ error: 'Discord OAuth not configured' });
-  }
-  
-  const state = crypto.randomBytes(16).toString('hex');
-  const scopes = 'identify guilds';
-  const authorizeUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent(scopes)}&state=${state}`;
-  
-  res.setCookie('oauth_state', state, { maxAge: 600 }); // 10 minutes
-  res.redirect(authorizeUrl);
-});
+      // Fetch session from database
+      const sessions = await db
+        .select()
+        .from(adminSessions)
+        .where(eq(adminSessions.sessionToken, sessionToken));
+      console.log(`[AdminAuth] Found ${sessions.length} session(s) in DB`);
 
-app.get('/auth/discord/callback', async (req, res) => {
-  try {
-    if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
-      return res.status(400).json({ error: 'Discord OAuth not configured' });
-    }
-    
-    const { code, state } = req.query;
-    
-    if (!code || !state) {
-      return res.status(400).json({ error: 'Missing code or state' });
-    }
-    
-    if (state !== req.cookies.oauth_state) {
-      return res.status(403).json({ error: 'State mismatch - potential CSRF attack' });
-    }
-    
-    // Exchange code for token
-    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: DISCORD_CLIENT_ID,
-        client_secret: DISCORD_CLIENT_SECRET,
-        code,
-        grant_type: 'authorization_code',
-        redirect_uri: REDIRECT_URI
-      })
-    });
-    
-    if (!tokenResponse.ok) {
-      const error = await tokenResponse.text();
-      console.error('❌ Discord token exchange failed:', error);
-      return res.status(401).json({ error: 'Failed to exchange code for token' });
-    }
-    
-    const tokenData = await tokenResponse.json();
-    
-    // Get user info
-    const userResponse = await fetch('https://discord.com/api/users/@me', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` }
-    });
-    
-    if (!userResponse.ok) {
-      return res.status(401).json({ error: 'Failed to fetch user info' });
-    }
-    
-    const user = await userResponse.json();
-    console.log(`🔐 OAuth Success - Discord User ID: ${user.id}, Username: ${user.username}`);
-    
-    // Create session token
-    const sessionToken = crypto
-      .createHmac('sha256', SESSION_SECRET)
-      .update(`${user.id}:${Date.now()}`)
-      .digest('hex');
-    
-    // Store session in database (7-day expiration)
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await db.insert(adminSessions).values({
-      sessionToken,
-      discordId: user.id,
-      username: user.username,
-      avatar: user.avatar,
-      accessToken: tokenData.access_token,
-      expiresAt
-    });
-    
-    res.setCookie('session_token', sessionToken, { maxAge: 7 * 24 * 60 * 60 });
-    
-    // Check if user is an admin
-    const isAdmin = ADMIN_USER_IDS.includes(user.id);
-    
-    // Redirect to admin dashboard or login page with error
-    if (isAdmin) {
-      res.redirect('/admin');
-    } else {
-      res.redirect('/admin/login?error=not_admin');
-    }
-  } catch (err) {
-    console.error('❌ OAuth callback error:', err);
-    res.redirect('/admin/login?error=auth_failed');
-  }
-});
+      if (!sessions || sessions.length === 0) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
 
-app.get('/auth/status', async (req, res) => {
-  try {
-    const sessionToken = req.cookies.session_token;
-    
-    if (!sessionToken) {
-      return res.json({ authenticated: false });
-    }
-    
-    // Fetch from database
-    const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
-    
-    if (!sessions || sessions.length === 0) {
-      return res.json({ authenticated: false });
-    }
-    
-    const session = sessions[0];
-    
-    if (new Date(session.expiresAt) < new Date()) {
-      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
-      return res.json({ authenticated: false });
-    }
-    
-    const isAdmin = ADMIN_USER_IDS.includes(session.discordId);
-    
-    res.json({
-      authenticated: true,
-      user: {
-        discordId: session.discordId,
+      const session = sessions[0];
+      console.log(
+        `[AdminAuth] Session found: discordId=${session.discordId}, expires=${session.expiresAt}`
+      );
+
+      // Check expiration
+      if (new Date(session.expiresAt) < new Date()) {
+        await db
+          .delete(adminSessions)
+          .where(eq(adminSessions.sessionToken, sessionToken));
+        return res.status(401).json({ error: 'Session expired' });
+      }
+
+      console.log(
+        `🔍 Admin check - userId: ${session.discordId}, admins: [${ADMIN_USER_IDS.join(
+          ', '
+        )}], match: ${ADMIN_USER_IDS.includes(session.discordId)}`
+      );
+      if (!ADMIN_USER_IDS.includes(session.discordId)) {
+        return res
+          .status(403)
+          .json({ error: 'Access denied: Administrator only' });
+      }
+
+      req.user = {
+        userId: session.discordId,
         username: session.username,
         avatar: session.avatar,
-        isAdmin
+      };
+      next();
+    } catch (err) {
+      console.error('❌ Admin middleware error:', err);
+      res.status(500).json({ error: 'Authentication check failed' });
+    }
+  }
+
+  // Debug endpoint - no auth required
+  app.get('/api/admin/debug-status', async (req, res) => {
+    try {
+      const sessionToken = req.cookies.session_token;
+      console.log(
+        `[Debug] Session token from cookie: ${
+          sessionToken ? sessionToken.substring(0, 16) + '...' : 'NONE'
+        }`
+      );
+
+      const debug = {
+        timestamp: new Date().toISOString(),
+        hasCookie: !!sessionToken,
+        cookiePreview: sessionToken
+          ? sessionToken.substring(0, 32) + '...'
+          : null,
+        adminIds: ADMIN_USER_IDS,
+        dbConnected: true,
+      };
+
+      if (sessionToken) {
+        const sessions = await db
+          .select()
+          .from(adminSessions)
+          .where(eq(adminSessions.sessionToken, sessionToken));
+        debug.sessionInDb = sessions.length > 0;
+
+        if (sessions.length > 0) {
+          const sess = sessions[0];
+          debug.discordId = sess.discordId;
+          debug.username = sess.username;
+          debug.isAdmin = ADMIN_USER_IDS.includes(sess.discordId);
+          debug.expiresAt = sess.expiresAt;
+          debug.isExpired = new Date(sess.expiresAt) < new Date();
+        }
       }
-    });
-  } catch (err) {
-    console.error('❌ Auth status check failed:', err);
-    res.status(500).json({ error: 'Failed to check auth status' });
-  }
-});
 
-app.post('/auth/logout', async (req, res) => {
-  try {
-    const sessionToken = req.cookies.session_token;
-    if (sessionToken) {
-      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+      res.json(debug);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
-    
-    res.setCookie('session_token', '', { maxAge: 0 });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('❌ Logout error:', err);
-    res.status(500).json({ error: 'Logout failed' });
-  }
-});
+  });
 
-// Also support GET for backward compatibility
-app.get('/auth/logout', async (req, res) => {
-  try {
-    const sessionToken = req.cookies.session_token;
-    if (sessionToken) {
-      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+  // GET /api/admin/hedge-wallet - Get Hedge's wallet balance (admin only)
+  app.get('/api/admin/hedge-wallet', isAdmin, async (req, res) => {
+    try {
+      const balances = await fetchWalletBalances(HEDGE_WALLET);
+      res.json({
+        success: true,
+        wallet: HEDGE_WALLET,
+        balances: {
+          jewel: balances.jewel,
+          crystal: balances.crystal,
+          cjewel: balances.cjewel,
+        },
+      });
+    } catch (err) {
+      console.error('[API] Error fetching hedge wallet balance:', err);
+      res.status(500).json({ error: 'Failed to fetch wallet balance' });
     }
-    
-    res.setCookie('session_token', '', { maxAge: 0 });
-    res.redirect('/admin/login');
-  } catch (err) {
-    console.error('❌ Logout error:', err);
-    res.redirect('/admin/login');
-  }
-});
+  });
 
-const server = http.createServer(app);
+  // GET /api/admin/users - Fast paginated list using cached dfkSnapshot only
+  app.get("/api/admin/users", isAdmin, async (req, res) => {
+    try {
+      const page = Math.max(parseInt(req.query.page) || 1, 1);
+      const pageSize = Math.min(Math.max(parseInt(req.query.pageSize) || 25, 1), 100);
+      const offset = (page - 1) * pageSize;
 
-server.on('error', (err) => {
-  console.error('❌ Web server error:', err.message);
-  if (err.code === 'EADDRINUSE') {
-    console.log('Port 5000 already in use - web server disabled');
-  }
-});
+      // Total count
+      const [{ count }] = await db
+        .select({ count: sql`count(*)`.mapWith(Number) })
+        .from(players);
 
-// Serve static files AFTER API routes
-app.use(express.static('public'));
+      // Page of players
+      const playerRows = await db
+        .select()
+        .from(players)
+        .orderBy(desc(players.createdAt))
+        .limit(pageSize)
+        .offset(offset);
 
-// Try to set up Vite dev server, fallback to static serving
-try {
-  const { setupVite } = await import('./server/vite.js');
-  await setupVite(app, server);
-  console.log('✅ Vite dev server configured');
-} catch (err) {
-  console.log(`❌ Failed to setup Vite: ${err.message}`);
-  console.log('Falling back to static file serving from dist/public/');
+      const users = playerRows.map((player) => {
+        let profileData = null;
+        try {
+          if (player.profileData) {
+            profileData =
+              typeof player.profileData === "string"
+                ? JSON.parse(player.profileData)
+                : player.profileData;
+          }
+        } catch (err) {
+          console.warn(
+            `[API] Failed to parse profileData for player ${player.id}:`,
+            err.message
+          );
+        }
+
+        const tierNum =
+          typeof profileData?.tier === "string"
+            ? parseInt(profileData.tier, 10)
+            : profileData?.tier || 0;
+
+        return {
+          id: player.id,
+          discordId: player.discordId,
+          discordUsername: player.discordUsername,
+          walletAddress: player.primaryWallet,
+          archetype: profileData?.archetype || "GUEST",
+          tier: tierNum,
+          state: profileData?.state || "CURIOUS",
+          behaviorTags: profileData?.behaviorTags || [],
+          kpis: profileData?.kpis || {},
+          dfkSnapshot: profileData?.dfkSnapshot || null,
+          flags: profileData?.flags || {},
+        };
+      });
+
+      res.json({
+        success: true,
+        users,
+        page,
+        pageSize,
+        total: count,
+        totalPages: Math.ceil(count / pageSize),
+      });
+    } catch (err) {
+      console.error("❌ Error fetching users:", err);
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  // POST /api/admin/users/:id/refresh-snapshot - On-demand snapshot refresh for a single user
+  // This is the foundation for charging 1 CRYSTAL / JEWEL later.
+  app.post("/api/admin/users/:id/refresh-snapshot", isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const playerRows = await db
+        .select()
+        .from(players)
+        .where(eq(players.id, parseInt(id, 10)))
+        .limit(1);
+
+      if (!playerRows || playerRows.length === 0) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const player = playerRows[0];
+
+      if (!player.primaryWallet) {
+        return res
+          .status(400)
+          .json({ error: "Player has no primary wallet configured" });
+      }
+
+      const wallet = player.primaryWallet.toLowerCase();
+
+      // TODO: hook into your payment system here.
+      // Example: create a depositRequest for 1 CRYSTAL and verify tx before allowing this.
+      // For now, we just run it for free.
+
+      console.log(`[API] Refreshing snapshot for user ${player.id} / ${wallet}`);
+      const snapshot = await (await import("./snapshot-service.js")).buildPlayerSnapshot(wallet);
+
+      let profileData = {};
+      try {
+        if (player.profileData) {
+          profileData =
+            typeof player.profileData === "string"
+              ? JSON.parse(player.profileData)
+              : player.profileData;
+        }
+      } catch (err) {
+        console.warn(
+          `[API] Failed to parse profileData for player ${player.id}:`,
+          err.message
+        );
+        profileData = {};
+      }
+
+      profileData.dfkSnapshot = snapshot;
+      profileData.dfkSnapshotUpdatedAt = snapshot.updatedAt;
+
+      await db
+        .update(players)
+        .set({ profileData: JSON.stringify(profileData) })
+        .where(eq(players.id, player.id));
+
+      res.json({ success: true, snapshot });
+    } catch (err) {
+      console.error("❌ Error refreshing snapshot:", err);
+      res.status(500).json({ error: "Failed to refresh snapshot" });
+    }
+  });
+
   
-  // Serve built React app from dist/public
-  const distPath = path.resolve(import.meta.dirname, 'dist', 'public');
-  if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
-    // SPA fallback - serve index.html for all non-API routes
-    app.get(/^(?!\/api|\/auth).*$/, (req, res) => {
-      res.sendFile(path.resolve(distPath, 'index.html'));
-    });
-    console.log('✅ Serving React app from dist/public/');
-  } else {
-    console.log('⚠️ dist/public not found - run "npx vite build" to build the client');
+  // PATCH /api/admin/users/:id/tier - Update user tier
+  app.patch('/api/admin/users/:id/tier', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { tier } = req.body;
+
+      if (typeof tier !== 'number' || tier < 0 || tier > 4) {
+        return res
+          .status(400)
+          .json({ error: 'Tier must be a number between 0-4' });
+      }
+
+      const player = await db
+        .select()
+        .from(players)
+        .where(eq(players.id, parseInt(id)));
+
+      if (!player || player.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const discordId = player[0].discordId; // Fixed: was player[0].discord_id
+
+      // Update tier using the profile service
+      await setTierOverride(discordId, tier);
+
+      const updatedProfile = await getQuickProfileSummary(discordId);
+
+      res.json({
+        success: true,
+        message: `Tier updated to ${tier}`,
+        profile: updatedProfile,
+      });
+    } catch (err) {
+      console.error('❌ Error updating tier:', err);
+      res.status(500).json({ error: 'Failed to update tier' });
+    }
+  });
+
+  // GET /api/admin/lp-positions/:wallet - Fetch LP positions for a wallet
+  app.get('/api/admin/lp-positions/:wallet', isAdmin, async (req, res) => {
+    try {
+      const { wallet } = req.params;
+
+      if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+        return res.status(400).json({ error: 'Invalid wallet address' });
+      }
+
+      console.log(`[API] Fetching LP positions for wallet: ${wallet}`);
+      const { detectWalletLPPositions } = await import('./wallet-lp-detector.js');
+      const positions = await detectWalletLPPositions(wallet);
+
+      res.json({
+        success: true,
+        wallet,
+        positions: positions || [],
+        totalPositions: positions?.length || 0,
+        totalValue: (positions || [])
+          .reduce((sum, p) => sum + parseFloat(p.userTVL || '0'), 0)
+          .toFixed(2),
+      });
+    } catch (error) {
+      console.error('[API] Error fetching LP positions:', error);
+      res.status(500).json({ error: 'Failed to fetch LP positions' });
+    }
+  });
+
+  // GET /api/admin/debug-settings - Get debug settings
+  app.get('/api/admin/debug-settings', async (req, res) => {
+    try {
+      res.json(getDebugSettings());
+    } catch (error) {
+      console.error('[API] Error fetching debug settings:', error);
+      res.status(500).json({ error: 'Failed to fetch debug settings' });
+    }
+  });
+
+  // POST /api/admin/debug-settings - Update debug settings
+  app.post('/api/admin/debug-settings', async (req, res) => {
+    try {
+      const { paymentBypass, verboseLogging } = req.body;
+
+      const partial = {};
+
+      if (typeof paymentBypass !== 'undefined') {
+        if (typeof paymentBypass !== 'boolean') {
+          return res.status(400).json({ error: 'paymentBypass must be a boolean' });
+        }
+        partial.paymentBypass = paymentBypass;
+      }
+
+      if (typeof verboseLogging !== 'undefined') {
+        if (typeof verboseLogging !== 'boolean') {
+          return res.status(400).json({ error: 'verboseLogging must be a boolean' });
+        }
+        partial.verboseLogging = verboseLogging;
+      }
+
+      if (Object.keys(partial).length === 0) {
+        return res.status(400).json({ error: 'No valid debug settings provided' });
+      }
+
+      setDebugSettings(partial);
+
+      res.json({ success: true, settings: getDebugSettings() });
+    } catch (error) {
+      console.error('[API] Error updating debug settings:', error);
+      res.status(500).json({ error: 'Failed to update debug settings' });
+    }
+  });
+
+  // GET /api/debug/recent-errors - Get recent error logs
+  app.get('/api/debug/recent-errors', async (req, res) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const { readdir, readFile } = fs.promises;
+
+      const logDir = '/tmp/logs';
+      const errors = [];
+
+      try {
+        const files = await readdir(logDir);
+        const workflowLogs = files
+          .filter((f) => f.startsWith('Start_application_'))
+          .sort()
+          .reverse()
+          .slice(0, 3);
+
+        for (const logFile of workflowLogs) {
+          const logPath = path.join(logDir, logFile);
+          const content = await readFile(logPath, 'utf-8');
+          const lines = content.split('\n');
+
+          for (const line of lines) {
+            if (
+              line.match(
+                /❌|ERROR|Error:|Failed|Exception|CRITICAL|WARNING/i
+              )
+            ) {
+              errors.push({
+                timestamp: new Date().toISOString(),
+                message: line.trim(),
+                file: logFile,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.log('[Debug] Could not read log files:', err.message);
+      }
+
+      const recentErrors = errors.slice(0, 50);
+
+      res.json({
+        success: true,
+        count: recentErrors.length,
+        errors: recentErrors,
+      });
+    } catch (error) {
+      console.error('[Debug] Error fetching recent errors:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Discord OAuth Routes
+  app.get('/auth/discord', (req, res) => {
+    if (!DISCORD_CLIENT_ID) {
+      return res
+        .status(400)
+        .json({ error: 'Discord OAuth not configured' });
+    }
+
+    const state = crypto.randomBytes(16).toString('hex');
+    const scopes = 'identify guilds';
+    const authorizeUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(
+      REDIRECT_URI
+    )}&response_type=code&scope=${encodeURIComponent(
+      scopes
+    )}&state=${state}`;
+
+    res.setCookie('oauth_state', state, { maxAge: 600 }); // 10 minutes
+    res.redirect(authorizeUrl);
+  });
+
+  app.get('/auth/discord/callback', async (req, res) => {
+    try {
+      if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
+        return res
+          .status(400)
+          .json({ error: 'Discord OAuth not configured' });
+      }
+
+      const { code, state } = req.query;
+
+      if (!code || !state) {
+        return res.status(400).json({ error: 'Missing code or state' });
+      }
+
+      if (state !== req.cookies.oauth_state) {
+        return res
+          .status(403)
+          .json({ error: 'State mismatch - potential CSRF attack' });
+      }
+
+      // Exchange code for token
+      const tokenResponse = await fetch(
+        'https://discord.com/api/oauth2/token',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: DISCORD_CLIENT_ID,
+            client_secret: DISCORD_CLIENT_SECRET,
+            code,
+            grant_type: 'authorization_code',
+            redirect_uri: REDIRECT_URI,
+          }),
+        }
+      );
+
+      if (!tokenResponse.ok) {
+        const error = await tokenResponse.text();
+        console.error('❌ Discord token exchange failed:', error);
+        return res
+          .status(401)
+          .json({ error: 'Failed to exchange code for token' });
+      }
+
+      const tokenData = await tokenResponse.json();
+
+      // Get user info
+      const userResponse = await fetch(
+        'https://discord.com/api/users/@me',
+        {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        }
+      );
+
+      if (!userResponse.ok) {
+        return res
+          .status(401)
+          .json({ error: 'Failed to fetch user info' });
+      }
+
+      const user = await userResponse.json();
+      console.log(
+        `🔐 OAuth Success - Discord User ID: ${user.id}, Username: ${user.username}`
+      );
+
+      // Create session token
+      const sessionToken = crypto
+        .createHmac('sha256', SESSION_SECRET)
+        .update(`${user.id}:${Date.now()}`)
+        .digest('hex');
+
+      // Store session in database (7-day expiration)
+      const expiresAt = new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000
+      );
+      await db.insert(adminSessions).values({
+        sessionToken,
+        discordId: user.id,
+        username: user.username,
+        avatar: user.avatar,
+        accessToken: tokenData.access_token,
+        expiresAt,
+      });
+
+      res.setCookie('session_token', sessionToken, {
+        maxAge: 7 * 24 * 60 * 60,
+      });
+
+      // Check if user is an admin
+      const isAdmin = ADMIN_USER_IDS.includes(user.id);
+
+      // Redirect to admin dashboard or login page with error
+      if (isAdmin) {
+        res.redirect('/admin');
+      } else {
+        res.redirect('/admin/login?error=not_admin');
+      }
+    } catch (err) {
+      console.error('❌ OAuth callback error:', err);
+      res.redirect('/admin/login?error=auth_failed');
+    }
+  });
+
+  app.get('/auth/status', async (req, res) => {
+    try {
+      const sessionToken = req.cookies.session_token;
+
+      if (!sessionToken) {
+        return res.json({ authenticated: false });
+      }
+
+      // Fetch from database
+      const sessions = await db
+        .select()
+        .from(adminSessions)
+        .where(eq(adminSessions.sessionToken, sessionToken));
+
+      if (!sessions || sessions.length === 0) {
+        return res.json({ authenticated: false });
+      }
+
+      const session = sessions[0];
+
+      if (new Date(session.expiresAt) < new Date()) {
+        await db
+          .delete(adminSessions)
+          .where(eq(adminSessions.sessionToken, sessionToken));
+        return res.json({ authenticated: false });
+      }
+
+      const isAdmin = ADMIN_USER_IDS.includes(session.discordId);
+
+      res.json({
+        authenticated: true,
+        user: {
+          discordId: session.discordId,
+          username: session.username,
+          avatar: session.avatar,
+          isAdmin,
+        },
+      });
+    } catch (err) {
+      console.error('❌ Auth status check failed:', err);
+      res.status(500).json({ error: 'Failed to check auth status' });
+    }
+  });
+
+  app.post('/auth/logout', async (req, res) => {
+    try {
+      const sessionToken = req.cookies.session_token;
+      if (sessionToken) {
+        await db
+          .delete(adminSessions)
+          .where(eq(adminSessions.sessionToken, sessionToken));
+      }
+
+      res.setCookie('session_token', '', { maxAge: 0 });
+      res.json({ success: true });
+    } catch (err) {
+      console.error('❌ Logout error:', err);
+      res.status(500).json({ error: 'Logout failed' });
+    }
+  });
+
+  // Also support GET for backward compatibility
+  app.get('/auth/logout', async (req, res) => {
+    try {
+      const sessionToken = req.cookies.session_token;
+      if (sessionToken) {
+        await db
+          .delete(adminSessions)
+          .where(eq(adminSessions.sessionToken, sessionToken));
+      }
+
+      res.setCookie('session_token', '', { maxAge: 0 });
+      res.redirect('/admin/login');
+    } catch (err) {
+      console.error('❌ Logout error:', err);
+      res.redirect('/admin/login');
+    }
+  });
+
+  const server = http.createServer(app);
+
+  server.on('error', (err) => {
+    console.error('❌ Web server error:', err.message);
+    if (err.code === 'EADDRINUSE') {
+      console.log('Port 5000 already in use - web server disabled');
+    }
+  });
+
+  // Serve static files AFTER API routes
+  app.use(express.static('public'));
+
+  // Try to set up Vite dev server, fallback to static serving
+  try {
+    const { setupVite } = await import('./server/vite.js');
+    await setupVite(app, server);
+    console.log('✅ Vite dev server configured');
+  } catch (err) {
+    console.log(`❌ Failed to setup Vite: ${err.message}`);
+    console.log('Falling back to static file serving from dist/public/');
+
+    // Serve built React app from dist/public
+    const distPath = path.resolve(import.meta.dirname, 'dist', 'public');
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      // SPA fallback - serve index.html for all non-API routes
+      app.get(/^(?!\/api|\/auth).*$/, (req, res) => {
+        res.sendFile(path.resolve(distPath, 'index.html'));
+      });
+      console.log('✅ Serving React app from dist/public/');
+    } else {
+      console.log(
+        '⚠️ dist/public not found - run "npx vite build" to build the client'
+      );
+    }
   }
+
+  server.listen(5000, () => {
+    console.log('✅ Web server listening on port 5000');
+  });
 }
 
-server.listen(5000, () => {
-  console.log('✅ Web server listening on port 5000');
-});
+// === Login to Discord / Main startup ===
+async function startDiscordBot() {
+  await client.login(DISCORD_TOKEN);
+}
 
-// === Login to Discord ===
-client.login(DISCORD_TOKEN);
+async function main() {
+  await initializeEconomicSystem();
+  await startAdminWebServer();
+  await startDiscordBot();
+}
+
+main().catch((err) => {
+  console.error('❌ Fatal startup error:', err);
+  process.exit(1);
+});

@@ -88,13 +88,13 @@ const GARDEN_TOOLS = [
     type: "function",
     function: {
       name: "get_wallet_gardens",
-      description: "Analyze a user's wallet to show current garden positions, harvestable rewards, and recommendations for optimization.",
+      description: "Return REAL Crystalvale garden LP positions directly from the staking contract for a given wallet. Use this whenever a user asks about *their* gardens or LPs. Do NOT guess pool names.",
       parameters: {
         type: "object",
         properties: {
           wallet_address: {
             type: "string",
-            description: "Ethereum wallet address (0x...)"
+            description: "Ethereum wallet address (0x...) of the user whose gardens should be analyzed"
           }
         },
         required: ["wallet_address"]
@@ -223,19 +223,19 @@ const TOOL_BASE_PRICES = {
   // Hero Engine
   get_hero_info: 0.0,                // Free
   compare_heroes: 0.15,
-  
+
   // Garden Engine
   get_garden_pools_free: 0.0,        // Free for basic APRs
   get_garden_pools_premium: 0.15,    // Paid for optimization
   get_wallet_gardens: 0.20,
-  
+
   // Fair Value Engine
   get_hero_fair_value: 0.30,
   get_market_trends: 0.25,
-  
+
   // Summon Engine
   get_summon_odds: 0.25,
-  
+
   // Knowledge Base
   get_walkthrough: 0.0               // Always free
 };

@@ -1,9 +1,118 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
+import { useEffect, useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { queryClient } from "@/lib/queryClient";
+
+type DebugSettings = {
+  paymentBypass: boolean;
+  verboseLogging: boolean;
+};
+
+type LabeledSwitchProps = {
+  enabled: boolean;
+  onToggle: (value: boolean) => void;
+  accent?: "emerald" | "blue";
+  testId?: string;
+};
+
+/**
+ * Labeled pill switch with color blending + sliding knob.
+ * Shows ON/OFF inside the pill so it's always visible.
+ */
+function LabeledSwitch({
+  enabled,
+  onToggle,
+  accent = "emerald",
+  testId,
+}: LabeledSwitchProps) {
+  const accentOn =
+    accent === "emerald"
+      ? "from-emerald-400 via-emerald-500 to-emerald-600"
+      : "from-blue-400 via-blue-500 to-blue-600";
+
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(!enabled)}
+      data-testid={testId}
+      className={`relative inline-flex h-8 w-20 items-center rounded-full px-2 text-xs font-semibold tracking-wide transition-all duration-200
+        ${
+          enabled
+            ? "bg-gradient-to-r " + accentOn + " text-white"
+            : "bg-slate-500 text-slate-200"
+        }
+      `}
+    >
+      {/* Label inside pill */}
+      <span
+        className={`z-10 transition-opacity duration-200 ${
+          enabled ? "opacity-100" : "opacity-80"
+        }`}
+      >
+        {enabled ? "ON" : "OFF"}
+      </span>
+
+      {/* Sliding knob */}
+      <span
+        className={`absolute h-7 w-7 rounded-full bg-white shadow transform transition-transform duration-200
+          ${enabled ? "translate-x-6" : "-translate-x-1"}
+        `}
+      />
+    </button>
+  );
+}
 
 export default function AdminSettings() {
+  const [settings, setSettings] = useState<DebugSettings>({
+    paymentBypass: false,
+    verboseLogging: false,
+  });
+
+  // Load current settings from backend
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/admin/debug-settings");
+        if (!res.ok) return;
+        const data = await res.json();
+        setSettings((prev) => ({
+          ...prev,
+          ...data,
+        }));
+      } catch (err) {
+        console.error("Failed to load debug settings:", err);
+      }
+    }
+
+    loadSettings();
+  }, []);
+
+  async function updateSetting(key: keyof DebugSettings, value: boolean) {
+    const next = { ...settings, [key]: value };
+    setSettings(next);
+
+    try {
+      await fetch("/api/admin/debug-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+
+      // 🔄 Invalidate React Query cache so Dashboard sees fresh values
+      queryClient.invalidateQueries({
+        queryKey: ["/api/admin/debug-settings"],
+      });
+    } catch (err) {
+      console.error("Failed to update debug settings:", err);
+    }
+  }
+
   return (
     <div className="p-6 space-y-6" data-testid="admin-settings-page">
       <div>
@@ -16,11 +125,11 @@ export default function AdminSettings() {
       <Card>
         <CardHeader>
           <CardTitle>Debug Settings</CardTitle>
-          <CardDescription>
-            Options for testing and development
-          </CardDescription>
+          <CardDescription>Options for testing and development</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+
+        <CardContent className="space-y-6">
+          {/* Payment Bypass */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label>Payment Bypass</Label>
@@ -28,9 +137,16 @@ export default function AdminSettings() {
                 Skip JEWEL payment verification for garden optimization testing
               </p>
             </div>
-            <Switch data-testid="switch-payment-bypass" />
+
+            <LabeledSwitch
+              enabled={settings.paymentBypass}
+              onToggle={(val) => updateSetting("paymentBypass", val)}
+              accent="emerald"
+              testId="switch-payment-bypass"
+            />
           </div>
-          
+
+          {/* Verbose Logging */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label>Verbose Logging</Label>
@@ -38,7 +154,13 @@ export default function AdminSettings() {
                 Enable detailed console logging for debugging
               </p>
             </div>
-            <Switch data-testid="switch-verbose-logging" />
+
+            <LabeledSwitch
+              enabled={settings.verboseLogging}
+              onToggle={(val) => updateSetting("verboseLogging", val)}
+              accent="blue"
+              testId="switch-verbose-logging"
+            />
           </div>
         </CardContent>
       </Card>

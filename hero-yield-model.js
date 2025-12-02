@@ -1,4 +1,177 @@
 /**
+ * hero-yield-model.js
+ *
+ * Estimate gardening quest APR based on a wallet's hero roster.
+ * This is intentionally an approximation, not an exact replication
+ * of in-game formulas, but it's consistent and tunable.
+ *
+ * The goal: map hero stats → a multiplier between
+ *   gardeningQuestAPR.worst and gardeningQuestAPR.best
+ */
+
+function safeNum(v) {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Compute a normalized "gardener score" between 0 and 1
+ * based on:
+ * - level
+ * - gardening skill
+ * - INT + WIS
+ * - rarity
+ * - profession match (gardening)
+ */
+export function computeHeroGardeningScore(hero) {
+  if (!hero) return 0;
+
+  const level = safeNum(hero.level);
+  const gardening = safeNum(hero.gardening) / 10; // comes in tenths
+  const intStat = safeNum(hero.intelligence);
+  const wisStat = safeNum(hero.wisdom);
+
+  // Basic stat buckets
+  const gardeningScore = Math.min(gardening / 100, 1); // 0–1 if 0–100
+  const intWisScore = Math.min(((intStat + wisStat) / 2) / 100, 1); // average vs 100
+  const levelScore = Math.min(level / 100, 1); // cap at level 100
+
+  // Rarity bonus (0 → 0, 1 → +5%, 2 → +10%, 3 → +20%, 4 → +30%)
+  const rarity = safeNum(hero.rarity);
+  const rarityBonus = [0, 0.05, 0.1, 0.2, 0.3][rarity] ?? 0;
+
+  // Profession match bonus if hero is actually a gardener
+  const profession = (hero.professionStr || '').toLowerCase();
+  const professionBonus = profession === 'gardening' ? 0.15 : 0;
+
+  // Weighted combination
+  let baseScore =
+    0.45 * gardeningScore +
+    0.3 * intWisScore +
+    0.25 * levelScore;
+
+  baseScore *= 1 + rarityBonus + professionBonus;
+
+  // Clamp 0–1
+  if (baseScore < 0) baseScore = 0;
+  if (baseScore > 1.2) baseScore = 1.2; // allow slight overshoot
+  return Math.min(baseScore, 1);
+}
+
+/**
+ * Given a set of heroes, return the best gardening score (0–1)
+ * and the hero that produced it.
+ */
+export function getBestGardener(heroes = []) {
+  if (!heroes || heroes.length === 0) {
+    return { bestScore: 0, bestHero: null };
+  }
+
+  let bestScore = 0;
+  let bestHero = null;
+
+  for (const hero of heroes) {
+    const score = computeHeroGardeningScore(hero);
+    if (score > bestScore) {
+      bestScore = score;
+      bestHero = hero;
+    }
+  }
+
+  return { bestScore, bestHero };
+}
+
+/**
+ * Estimate the quest APR for a wallet in a given pool.
+ *
+ * Inputs:
+ *  - heroes: full hero roster (from GraphQL)
+ *  - gardeningQuestAPR: { worst, best } for the pool
+ *  - hasLinkedWallet: boolean, whether we're actually modeling for a real wallet
+ *
+ * Returns:
+ *  {
+ *    currentQuestAPR,   // what we estimate user is actually getting now
+ *    bestQuestAPR,      // theoretical best for that pool
+ *    baselineQuestAPR,  // generic baseline (worst)
+ *    bestHero           // hero object we used (can be null)
+ *  }
+ */
+export function estimateQuestAprForWallet(heroes = [], gardeningQuestAPR, hasLinkedWallet = true) {
+  const worst = safeNum(gardeningQuestAPR?.worst);
+  const best = safeNum(gardeningQuestAPR?.best);
+
+  // If we have no quest APR data at all, bail early
+  if (!Number.isFinite(worst) && !Number.isFinite(best)) {
+    return {
+      currentQuestAPR: 0,
+      bestQuestAPR: 0,
+      baselineQuestAPR: 0,
+      bestHero: null
+    };
+  }
+
+  // Ensure ordering makes sense
+  const questWorst = Math.min(worst, best);
+  const questBest = Math.max(worst, best);
+
+  // Generic baseline is always "worst" APR
+  const baselineQuestAPR = questWorst;
+
+  // If we don't have a linked wallet / heroes, fall back to baseline
+  if (!hasLinkedWallet || !heroes || heroes.length === 0) {
+    return {
+      currentQuestAPR: baselineQuestAPR,
+      bestQuestAPR: questBest,
+      baselineQuestAPR,
+      bestHero: null
+    };
+  }
+
+  const { bestScore, bestHero } = getBestGardener(heroes);
+
+  // Map 0–1 score to [worst, best] quest APR
+  const currentQuestAPR =
+    questWorst + (questBest - questWorst) * Math.max(0, Math.min(bestScore, 1));
+
+  return {
+    currentQuestAPR,
+    bestQuestAPR: questBest,
+    baselineQuestAPR,
+    bestHero
+  };
+}
+This module does not get used by anything yet until we plug it in. That keeps things safe.
+
+2️⃣ Update wallet-lp-detector.js to use hero model
+Now we wire hero-aware APR into generatePoolOptimizations.
+
+Below is a full replacement for wallet-lp-detector.js that:
+
+Keeps all exports the same:
+
+detectWalletLPPositions
+
+formatLPPositionsSummary
+
+generatePoolOptimizations
+
+getGenericPoolAprView
+
+formatGenericPoolAprAnswer
+
+formatOptimizationReport
+
+Uses getUserGardenPositions from onchain-data.js (already done)
+
+New: imports and uses estimateQuestAprForWallet from hero-yield-model.js
+
+Still works when heroes array is empty (falls back to old behavior)
+
+wallet-lp-detector.js
+js
+Copy code
+/**
  * Wallet LP Token Detection
  *
  * Scans user wallets for LP token holdings in Crystalvale garden pools.
@@ -9,6 +182,7 @@
 import { ethers } from 'ethers';
 import { getCachedPoolAnalytics } from './pool-cache.js';
 import { getUserGardenPositions } from './onchain-data.js';
+import { estimateQuestAprForWallet } from './hero-yield-model.js';
 import erc20ABI from './ERC20.json' with { type: 'json' };
 
 // DFK Chain configuration (for LP totalSupply)
@@ -74,7 +248,8 @@ export async function detectWalletLPPositions(walletAddress) {
         const stakedAmountRaw = BigInt(userPos.stakedAmountRaw ?? 0n);
         if (stakedAmountRaw <= 0n) continue;
 
-        const stakedFormatted = userPos.stakedAmount ?? ethers.formatUnits(stakedAmountRaw, 18);
+        const stakedFormatted =
+          userPos.stakedAmount ?? ethers.formatUnits(stakedAmountRaw, 18);
 
         // Cached analytics for this pool
         const cachedAnalytics = poolAnalyticsMap.get(pid);
@@ -216,8 +391,9 @@ function parseQuestAPRRange(gardeningQuestAPR) {
  * Generate hero/pet optimization recommendations for LP positions
  *
  * Modes:
- * - hasLinkedWallet = true  → "Before" APR = fee + harvesting + CURRENT quest APR (approx midpoint of range)
- * - hasLinkedWallet = false → "Before" APR = fee + harvesting + WORST quest APR (generic answer)
+ * - hasLinkedWallet = true  → "Before" APR = fee + harvesting + CURRENT quest APR
+ *   (derived from hero stats using hero-yield-model)
+ * - hasLinkedWallet = false → "Before" APR = fee + harvesting + WORST quest APR (generic)
  */
 export function generatePoolOptimizations(positions, heroes = [], options = {}) {
   const { hasLinkedWallet = true } = options;
@@ -229,19 +405,28 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
 
     const feeAPR = parseAPR(fee24hAPR);
     const harvestingAPR = parseAPR(harvesting24hAPR);
-    const { worst: worstQuestAPR, best: bestQuestAPR } =
-      parseQuestAPRRange(gardeningQuestAPR);
+    const questRange = parseQuestAPRRange(gardeningQuestAPR);
 
     const baseAPR = feeAPR + harvestingAPR;
 
-    // Current quest APR estimate
-    const currentQuestAPR = hasLinkedWallet
-      ? (worstQuestAPR + bestQuestAPR) / 2
-      : worstQuestAPR;
+    // Use hero-yield-model to estimate the wallet's current quest APR
+    const {
+      currentQuestAPR,
+      bestQuestAPR,
+      baselineQuestAPR,
+      bestHero
+    } = estimateQuestAprForWallet(
+      heroes,
+      { worst: questRange.worst, best: questRange.best },
+      hasLinkedWallet
+    );
 
+    // BEFORE = what user is likely getting now
     const beforeAPR = baseAPR + currentQuestAPR;
+    // AFTER = best-case hero/pet setup
     const afterAPR = baseAPR + bestQuestAPR;
 
+    // Determine pool strategy based on APR composition (fee vs emissions)
     const feeVsEmission = harvestingAPR === 0 ? Infinity : feeAPR / harvestingAPR;
     let poolType;
     let heroRecommendation;
@@ -256,7 +441,7 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
     } else if (feeVsEmission < 0.5) {
       poolType = 'Emission-Dominant (High Hero Boost Potential)';
       heroRecommendation =
-        'Prioritize your highest INT + WIS heroes. Best: high level (60+) gardeners with strong profession bonuses. These pools get a big lift from optimized questing.';
+        'Prioritize your highest INT + WIS gardeners (strong gardening stat and profession match). These pools get a big lift from optimized questing.';
       petRecommendation =
         'Gardening pets that boost CRYSTAL / JEWEL emissions are ideal. Look for pets with gardening yield bonuses or quest stamina reduction.';
     } else {
@@ -265,6 +450,15 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
         'Use mid to high level heroes (40–80) with decent INT/WIS and gardening profession. You don’t need your absolute best hero here, but a good gardener still matters.';
       petRecommendation =
         'Either trading or gardening pets work. Prefer gardening pets if you want to push the upper end of the APR range.';
+    }
+
+    // If we identified a "bestHero", add a more specific hint
+    if (bestHero) {
+      heroRecommendation += `\n\nBest candidate right now looks like **Hero #${
+        bestHero.normalizedId || bestHero.id
+      }** (Lvl ${bestHero.level}, Gardening ${(bestHero.gardening / 10).toFixed(
+        1
+      )}, INT ${bestHero.intelligence}, WIS ${bestHero.wisdom}).`;
     }
 
     const positionValue = (() => {
