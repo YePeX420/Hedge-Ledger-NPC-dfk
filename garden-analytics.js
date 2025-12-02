@@ -648,9 +648,9 @@ export async function getAllPoolAnalytics(limit = 100) {
     console.log(`[Analytics] ✓ Block range calculated`);
     
     // Stage 5: Process each pool with shared data
-    console.log(`[Analytics] Stage 5/5: Analyzing ${Math.min(allPools.length, limit)} pools...`);
+    const poolsToProcess = allPools.length; // ALWAYS process all pools, ignore limit
+    console.log(`[Analytics] Stage 5/5: Analyzing ${poolsToProcess} pools...`);
     const results = [];
-    const poolsToProcess = Math.min(allPools.length, limit);
     
     for (let i = 0; i < poolsToProcess; i++) {
       try {
