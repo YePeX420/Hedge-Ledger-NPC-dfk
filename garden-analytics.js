@@ -618,7 +618,7 @@ export async function getPoolAnalytics(pid, sharedData = null) {
 /**
  * Get analytics for all pools (optimized - builds price graph once)
  */
-export async function getAllPoolAnalytics(limit = 50) {
+export async function getAllPoolAnalytics(limit = 100) {
   try {
     const stageStart = Date.now();
     
