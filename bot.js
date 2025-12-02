@@ -9,10 +9,7 @@ import { Client, GatewayIntentBits, Partials, Events, AttachmentBuilder, EmbedBu
 import OpenAI from 'openai';
 import * as onchain from './onchain-data.js';
 import * as analytics from './garden-analytics.js';
-import * as quickData from './quick-data-fetcher.js';
-import { parseIntent, formatIntent } from './intent-parser.js';
 import { requestDeposit, HEDGE_WALLET } from './deposit-flow.js';
-import * as gardenMenu from './garden-menu.js';
 import { startMonitoring, stopMonitoring, initializeExistingJobs, verifyTransactionHash } from './transaction-monitor-v2.js';
 import { registerJob } from './payment-jobs.js';
 import { ethers } from 'ethers';
@@ -32,14 +29,8 @@ import { jewelBalances, players, depositRequests, queryCosts, interactionSession
 import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
-import {
-  isPaymentBypassEnabled,
-  getDebugSettings,
-  setDebugSettings,
-  isVerboseLoggingEnabled
-} from './debug-settings.js';
-import { detectWalletLPPositions, generatePoolOptimizations, formatOptimizationReport } from './wallet-lp-detector.js';
-import { getAllHeroesByOwner } from './onchain-data.js';
+import { getDebugSettings, setDebugSettings, isVerboseLoggingEnabled } from './debug-settings.js';
+import { handleGardenOptimizationDM } from './garden-optimization-handler.js';
 
 // Player User Model System imports
 import { 
@@ -1117,88 +1108,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
           }
         }
       });
-
-
-async function handleGardenOptimizationDM(message, playerData) {
-  const discordId = message.author.id;
-  const username = message.author.username;
-
-  if (!playerData || !playerData.primaryWallet) {
-    await message.reply(
-      "I don't have a wallet linked for you yet. Send me your DFK wallet address first and I'll scan your gardens."
-    );
-    return;
-  }
-
-  const wallet = playerData.primaryWallet;
-  console.log(`[GardenOpt] Running optimization for ${username} / ${wallet}`);
-
-  await message.reply(
-    "Hold on a moment while I scan for your garden pools.\n\n[Scanning your wallet on DFK Chain...]"
-  );
-
-  // 1) Real LP positions
-  const positions = await detectWalletLPPositions(wallet);
-
-  if (!positions || positions.length === 0) {
-    await message.reply(
-      "I couldn't find any LP tokens staked in the Crystalvale gardens for your linked wallet."
-    );
-    return;
-  }
-
-  // Summary for context
-  const poolNames = positions.map((p) => p.pairName).join(', ');
-  const totalValueNum = positions.reduce(
-    (sum, p) => sum + parseFloat(p.userTVL || 0),
-    0
-  );
-  const totalValueStr = isNaN(totalValueNum)
-    ? 'N/A'
-    : `$${totalValueNum.toFixed(0)}`;
-
-  const bypass = isPaymentBypassEnabled?.() ?? false;
-
-  if (!bypass) {
-    // Paid path – teaser only
-    await message.reply(
-      `I found you're staking in ${positions.length} pool${
-        positions.length > 1 ? 's' : ''
-      }: ${poolNames} (Total value: ${totalValueStr}).\n\n` +
-        `Full optimization (hero & pet assignments + APR uplift) costs **25 JEWEL**.\n` +
-        `If you want to proceed, send 25 JEWEL to my wallet and paste the transaction hash here with \`tx:<hash>\`.`
-    );
-    return;
-  }
-
-  // BYPASS path – full optimization now
-  await message.reply(
-    `🧪 Payment bypass is enabled for testing, so I'm skipping the 25 JEWEL step and running your optimization now.`
-  );
-
-  try {
-    if (!positions || positions.length === 0) {
-      await message.reply("I couldn't find any LP tokens staked in the Crystalvale gardens for your linked wallet.");
-      return;
-    }
-
-    const heroes = await getAllHeroesByOwner(wallet);
-    const optimization = generatePoolOptimizations(positions, heroes, {
-      hasLinkedWallet: true,
-    });
-
-    const report = formatOptimizationReport(optimization);
-    await message.reply(report);
-  } catch (err) {
-    if (isVerboseLoggingEnabled?.()) {
-      console.error('[GardenOpt] Error during bypass optimization:', err);
-    }
-    await message.reply(
-      "I hit a snag while running the optimization. Try again in a moment, or turn off payment bypass to use the standard flow."
-    );
-  }
-}
-
 
 
 // Helper: Check if user is admin for Discord interactions

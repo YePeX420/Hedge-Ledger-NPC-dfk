@@ -81,7 +81,7 @@ function parseMenuSelection(message) {
   if (lowerMsg === '2') return 'garden_IL';
   if (lowerMsg === '3') return 'garden_aprs';
   if (lowerMsg === '4') return 'garden_insights_tier1';
-  if (lowerMsg === '5') return 'garden_optimization_tier2';
+  if (lowerMsg === '5') return 'garden_optimization_dm_redirect';
 
   // Keyword matching for Option 1 (Walkthrough)
   if (/\b(walkthrough|tutorial|guide|learn|explain.*garden|how.*gardens?.*work)\b/i.test(message)) {
@@ -105,7 +105,7 @@ function parseMenuSelection(message) {
 
   // Keyword matching for Option 5 (Optimization)
   if (/\b(optimize|optimise|best|maximize|maximise|improve|fix.*garden)\b/i.test(message)) {
-    return 'garden_optimization_tier2';
+    return 'garden_optimization_dm_redirect';
   }
 
   return null;
@@ -248,12 +248,11 @@ async function routeMenuSelection(intent, interaction, discordId) {
         message: 'Garden Insights costs 2 JEWEL. I\'ll analyze your LP positions and hero assignments.'
       };
 
-    case 'garden_optimization_tier2':
+    case 'garden_optimization_dm_redirect':
       return {
-        type: 'payment_required',
-        service: 'garden_optimization_tier2',
-        amount: 25,
-        message: 'Full Garden Optimization costs 25 JEWEL. I\'ll provide expedition assignments and future yield projections.'
+        type: 'info',
+        message:
+          'Garden optimization now runs directly in DMs. Send "Optimize gardens" to start a scan and deterministic optimization.'
       };
 
     default:
