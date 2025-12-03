@@ -594,15 +594,23 @@ export async function fetchPetById(petId) {
  */
 export async function fetchPetForHero(heroId) {
   try {
-    const petId = await petContract.heroToPet(heroId);
+    // Normalize hero ID: strip chain prefix using modulo
+    // Crystalvale: 1000000XXXXXX, Serendale: 2000000XXXXXX
+    const rawHeroId = Number(heroId);
+    const normalizedHeroId = rawHeroId % 1000000;
+    
+    console.log(`[PetData] Looking up pet for hero #${heroId} (normalized: ${normalizedHeroId})`);
+    
+    const petId = await petContract.heroToPet(normalizedHeroId);
     const petIdNum = Number(petId);
     
     if (petIdNum === 0) {
       // No pet equipped to this hero
+      console.log(`[PetData] Hero #${normalizedHeroId} has no pet equipped`);
       return null;
     }
     
-    console.log(`[PetData] Hero #${heroId} has pet #${petIdNum} equipped (via heroToPet)`);
+    console.log(`[PetData] Hero #${normalizedHeroId} has pet #${petIdNum} equipped (via heroToPet)`);
     
     // Fetch the full pet data
     const pet = await fetchPetById(petIdNum);

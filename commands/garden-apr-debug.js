@@ -241,12 +241,26 @@ function computeHeroQuestApr(hero, pet, poolMeta, { hasGravityFeeder = false, ha
   // Find optimal stamina setting that maximizes daily yield
   const optimal = findOptimalAttempts(hero, factor, powerSurgeMultiplier, staminaPerDay, hasGardenGene);
   
+  // Calculate 25-stam values (what users typically expect/compare to)
+  // Show BASE (no pet) and WITH PET values for comparison to spreadsheets
+  const baseline25Base = {
+    crystalPerRun: CRYSTAL_BASE_PER_ATTEMPT * factor * 25,
+    jewelPerRun: JEWEL_BASE_PER_ATTEMPT * factor * 25,
+  };
+  const baseline25WithPet = {
+    crystalPerRun: CRYSTAL_BASE_PER_ATTEMPT * factor * powerSurgeMultiplier * 25,
+    jewelPerRun: JEWEL_BASE_PER_ATTEMPT * factor * powerSurgeMultiplier * 25,
+  };
+  // 25-stam runs per day: stamina regen / 25
+  const baseline25RunsPerDay = staminaPerDay / 25;
+  
   // Use optimal values for display
   const crystalPerQuest = optimal.crystalPerRun;
   const jewelPerQuest = optimal.jewelPerRun;
   
   // Calculate APR scale with Power Surge applied
-  const baselineFactor = 0.1 + (50 + 50) / 1222.22;
+  // Updated baseline using new formula: 0.5 + (50+50)/200 + 0/100 = 1.0
+  const baselineFactor = 0.5 + (50 + 50) / 200;
   const scale = (factor / baselineFactor) * powerSurgeMultiplier;
   
   const bestQuestAprStr = poolMeta?.gardeningQuestAPR?.best || '0%';
@@ -274,6 +288,12 @@ function computeHeroQuestApr(hero, pet, poolMeta, { hasGravityFeeder = false, ha
     optimalIterationMins: optimal.iterationMins,
     crystalPerDay: optimal.crystalPerDay,
     jewelPerDay: optimal.jewelPerDay,
+    // 25-stam values for comparison (base = no pet, withPet = with Power Surge if applicable)
+    baseline25BaseCrystal: baseline25Base.crystalPerRun,
+    baseline25BaseJewel: baseline25Base.jewelPerRun,
+    baseline25WithPetCrystal: baseline25WithPet.crystalPerRun,
+    baseline25WithPetJewel: baseline25WithPet.jewelPerRun,
+    baseline25RunsPerDay: baseline25RunsPerDay,
   };
 }
 
@@ -533,8 +553,9 @@ export async function execute(interaction) {
         let petInfo = 'None';
         if (result.pet) {
           const rawId = Number(result.pet.id);
-          const petIdNormalized = rawId > 2000000 ? rawId - 2000000 : 
-                                  rawId > 1000000 ? rawId - 1000000 : rawId;
+          // Normalize pet ID: use modulo 1000000 to strip chain prefix
+          // e.g., 1999998066514 -> 66514, 2000000123456 -> 123456
+          const petIdNormalized = rawId % 1000000;
           petInfo = `#${petIdNormalized}`;
           if (result.petSource === 'auto') {
             petInfo += ' (auto)';
@@ -561,6 +582,8 @@ export async function execute(interaction) {
           staminaPerDay: questData.staminaPerDay,
           questApr: questData.heroQuestApr,
           petInfo,
+          petBonus: questData.petBonus,
+          petBonusType: questData.petBonusType,
           // Optimal stamina settings
           optimalAttempts: questData.optimalAttempts,
           optimalRunsPerDay: questData.optimalRunsPerDay,
@@ -569,6 +592,11 @@ export async function execute(interaction) {
           jewelPerQuest: questData.jewelPerQuest,
           crystalPerDay: questData.crystalPerDay,
           jewelPerDay: questData.jewelPerDay,
+          // 25-stam values for comparison
+          baseline25BaseCrystal: questData.baseline25BaseCrystal,
+          baseline25BaseJewel: questData.baseline25BaseJewel,
+          baseline25WithPetCrystal: questData.baseline25WithPetCrystal,
+          baseline25WithPetJewel: questData.baseline25WithPetJewel,
         });
       }
       
@@ -583,14 +611,26 @@ export async function execute(interaction) {
           const geneIcon = hr.hasGardenGene ? ' [G]' : '';
           const rrIcon = hr.hasRapidRenewal ? ' [RR]' : '';
           
+          // Normalize hero ID for display
+          const displayHeroId = Number(hr.heroId) % 1000000;
+          
+          // Build yield lines - show base and with-pet if Power Surge active
+          const yieldLines = [];
+          yieldLines.push(`**@25 stam (base):** ${hr.baseline25BaseCrystal.toFixed(1)} CRYSTAL | ${hr.baseline25BaseJewel.toFixed(2)} JEWEL`);
+          
+          // Only show "with pet" line if there's actually a pet bonus
+          if (hr.petBonus > 0 && hr.petBonusType === 'Power Surge') {
+            yieldLines.push(`**@25 stam (+pet):** ${hr.baseline25WithPetCrystal.toFixed(1)} CRYSTAL | ${hr.baseline25WithPetJewel.toFixed(2)} JEWEL`);
+          }
+          
           embed.addFields({
-            name: `Hero ${hr.slot}: #${hr.heroId}${geneIcon}${rrIcon}`,
+            name: `Hero ${hr.slot}: #${displayHeroId}${geneIcon}${rrIcon}`,
             value: [
               `**Class:** ${hr.className} | **Rarity:** ${hr.rarity} | **Lvl:** ${hr.level}`,
-              `**Stats:** WIS ${hr.wis} | VIT ${hr.vit} | Grd ${hr.gardening}`,
+              `**Stats:** WIS ${hr.wis} | VIT ${hr.vit} | Grd ${hr.gardening} | Factor: ${hr.factor.toFixed(2)}`,
               `**Pet:** ${hr.petInfo}`,
-              `**Optimal Stam:** ${hr.optimalAttempts} stam | ${hr.optimalRunsPerDay.toFixed(1)} runs/day`,
-              `**Per Run:** ${hr.crystalPerQuest.toFixed(1)} CRYSTAL | ${hr.jewelPerQuest.toFixed(2)} JEWEL`,
+              ...yieldLines,
+              `**Optimal:** ${hr.optimalAttempts} stam | ${hr.optimalRunsPerDay.toFixed(1)} runs/day`,
               `**Daily:** ${hr.crystalPerDay.toFixed(1)} CRYSTAL | ${hr.jewelPerDay.toFixed(2)} JEWEL`,
               `**Quest APR:** ${hr.questApr.toFixed(4)}%`
             ].join('\n'),
