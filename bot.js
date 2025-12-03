@@ -29,7 +29,7 @@ import { jewelBalances, players, depositRequests, queryCosts, interactionSession
 import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
-import { getDebugSettings, setDebugSettings, isVerboseLoggingEnabled } from './debug-settings.js';
+import { getDebugSettings, setDebugSettings, isVerboseLoggingEnabled, isPaymentBypassEnabled } from './debug-settings.js';
 import { handleGardenOptimizationDM } from './garden-optimization-handler.js';
 
 // Player User Model System imports
