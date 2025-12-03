@@ -84,6 +84,17 @@ export async function execute(interaction) {
       if (heroId) heroMetaMap.set(Number(heroId), h);
     }
     
+    const gardeningHeroIds = poolPairs.flatMap(p => p.heroIds);
+    console.log(`[DebugPair] Checking pets for gardening heroes: ${gardeningHeroIds.join(', ')}`);
+    for (const heroId of gardeningHeroIds) {
+      const pet = pets.find(p => p.equippedTo === String(heroId));
+      if (pet) {
+        console.log(`[DebugPair] Hero #${heroId} has Pet #${pet.id} equipped (${pet.gatheringType}, fed=${pet.isFed})`);
+      } else {
+        console.log(`[DebugPair] Hero #${heroId} has NO pet in fetched list`);
+      }
+    }
+    
     if (poolPairs.length === 0) {
       return interaction.editReply(`No heroes currently gardening pool ${poolId} (${poolInfo.name})`);
     }
