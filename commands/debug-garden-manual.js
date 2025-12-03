@@ -55,7 +55,10 @@ export const data = new SlashCommandBuilder()
   );
 
 export async function execute(interaction) {
-  await interaction.deferReply();
+  // Note: deferReply is now called in bot.js before execute()
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply();
+  }
   
   try {
     const hero1Id = interaction.options.getInteger('hero1');

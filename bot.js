@@ -1437,6 +1437,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // If command is in the commands collection, execute it
       if (command) {
         try {
+          // Immediately defer reply to prevent Discord timeout (3 second limit)
+          // This must happen before ANY async work to avoid "Unknown interaction" errors
+          // Skip for commands that need ephemeral replies - they handle their own defer
+          const EPHEMERAL_COMMANDS = ['account'];
+          if (!EPHEMERAL_COMMANDS.includes(interaction.commandName)) {
+            await interaction.deferReply();
+          }
           await command.execute(interaction);
           return;
         } catch (err) {

@@ -192,7 +192,11 @@ function computeHeroQuestApr(hero, pet, poolMeta) {
 }
 
 export async function execute(interaction) {
-  await interaction.deferReply();
+  // Note: deferReply is now called in bot.js before execute() to prevent Discord timeout
+  // Only defer if not already deferred (for backward compatibility)
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply();
+  }
   
   try {
     const poolValue = interaction.options.getString('pool');
