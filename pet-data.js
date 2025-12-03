@@ -22,7 +22,8 @@ const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
 //         hungryAt, equippableAt, equippedTo, fedBy, foodType
 const petCoreABI = [
   'function getUserPetsV2(address owner) view returns (tuple(uint256 id, uint8 originId, string name, uint8 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint8 profBonusScalar, uint8 craftBonus, uint8 craftBonusScalar, uint8 combatBonus, uint8 combatBonusScalar, uint16 appearance, uint8 background, uint8 shiny, uint64 hungryAt, uint64 equippableAt, uint256 equippedTo, address fedBy, uint8 foodType)[])',
-  'function getPetV2(uint256 petId) view returns (tuple(uint256 id, uint8 originId, string name, uint8 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint8 profBonusScalar, uint8 craftBonus, uint8 craftBonusScalar, uint8 combatBonus, uint8 combatBonusScalar, uint16 appearance, uint8 background, uint8 shiny, uint64 hungryAt, uint64 equippableAt, uint256 equippedTo, address fedBy, uint8 foodType))'
+  'function getPetV2(uint256 petId) view returns (tuple(uint256 id, uint8 originId, string name, uint8 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint8 profBonusScalar, uint8 craftBonus, uint8 craftBonusScalar, uint8 combatBonus, uint8 combatBonusScalar, uint16 appearance, uint8 background, uint8 shiny, uint64 hungryAt, uint64 equippableAt, uint256 equippedTo, address fedBy, uint8 foodType))',
+  'function heroToPet(uint256 heroId) view returns (uint256)'
 ];
 
 const petContract = new ethers.Contract(PETCORE_ADDRESS, petCoreABI, provider);
@@ -113,6 +114,35 @@ export async function fetchPetsForWallet(walletAddress) {
     const pets = petTuples.map(parsePetData);
     
     console.log(`[PetData] Found ${pets.length} pets for wallet ${walletAddress}`);
+    
+    // Debug: Log pets with low IDs (old format) and check equippedTo values
+    const lowIdPets = pets.filter(p => Number(p.id) < 500000);
+    if (lowIdPets.length > 0) {
+      console.log(`[PetData] Found ${lowIdPets.length} old-format pets (ID < 500000):`);
+      for (const p of lowIdPets.slice(0, 10)) {
+        console.log(`[PetData]   Pet #${p.id} -> equippedTo: ${p.equippedTo} (${p.gatheringType})`);
+      }
+    }
+    
+    // Debug: Check for specific pet IDs we expect (user reported #196278)
+    const targetPetIds = ['196278', '32478', '12008'];
+    for (const targetId of targetPetIds) {
+      const found = pets.find(p => p.id === targetId);
+      if (found) {
+        console.log(`[PetData] ✓ Found target pet #${targetId} -> equippedTo: ${found.equippedTo}`);
+      } else {
+        console.log(`[PetData] ✗ Target pet #${targetId} NOT in fetched list!`);
+      }
+    }
+    
+    // Debug: Check specifically for pets that might belong to gardening heroes
+    const gardenHeroIds = ['5732', '94066', '272739', '327244', '489266', '56571'];
+    const equippedToGarden = pets.filter(p => gardenHeroIds.includes(p.equippedTo));
+    console.log(`[PetData] Pets equipped to target gardening heroes: ${equippedToGarden.length}`);
+    for (const p of equippedToGarden) {
+      console.log(`[PetData]   Pet #${p.id} equipped to Hero #${p.equippedTo}`);
+    }
+    
     return pets;
     
   } catch (error) {
@@ -140,6 +170,61 @@ export async function fetchPetById(petId) {
     console.error(`[PetData] Error fetching pet #${petId}:`, error.message);
     return null;
   }
+}
+
+/**
+ * Fetch the pet equipped to a specific hero using heroToPet mapping
+ * This is useful as a fallback when getUserPetsV2 doesn't return certain pets
+ * @param {number|string} heroId - Hero ID
+ * @returns {Promise<Object|null>} Pet object or null if no pet equipped
+ */
+export async function fetchPetForHero(heroId) {
+  try {
+    const petId = await petContract.heroToPet(heroId);
+    const petIdNum = Number(petId);
+    
+    if (petIdNum === 0) {
+      // No pet equipped to this hero
+      return null;
+    }
+    
+    console.log(`[PetData] Hero #${heroId} has pet #${petIdNum} equipped (via heroToPet)`);
+    
+    // Fetch the full pet data
+    const pet = await fetchPetById(petIdNum);
+    if (pet) {
+      // Override equippedTo to ensure it's set correctly
+      pet.equippedTo = String(heroId);
+    }
+    return pet;
+    
+  } catch (error) {
+    console.error(`[PetData] Error fetching pet for hero #${heroId}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Fetch pets for multiple heroes using heroToPet mapping
+ * Used as a fallback for heroes missing from getUserPetsV2 results
+ * @param {Array<string|number>} heroIds - Array of hero IDs
+ * @returns {Promise<Array>} Array of pet objects
+ */
+export async function fetchPetsForHeroes(heroIds) {
+  const results = [];
+  
+  for (const heroId of heroIds) {
+    try {
+      const pet = await fetchPetForHero(heroId);
+      if (pet) {
+        results.push(pet);
+      }
+    } catch (error) {
+      console.error(`[PetData] Error fetching pet for hero #${heroId}:`, error.message);
+    }
+  }
+  
+  return results;
 }
 
 /**
@@ -329,25 +414,30 @@ export function buildHeroPetBonusMap(heroes, allPets) {
 
 /**
  * Annotate heroes array with pet data and garden bonuses
+ * Uses heroToPet fallback for heroes missing from getUserPetsV2 results
  * @param {Array} heroes - Array of hero objects
  * @param {Array} allPets - All pets from wallet
  * @param {Object} options - Options for pet annotation
  * @param {boolean} options.gravityFeederActive - If true, treat all pets as fed (for expeditions)
- * @returns {Array} Heroes with heroMeta.petId and heroMeta.petGardenBonus set
+ * @param {Array<string>} options.targetHeroIds - Optional list of hero IDs to prioritize for pet fallback lookup
+ * @returns {Promise<Array>} Heroes with heroMeta.petId and heroMeta.petGardenBonus set
  */
-export function annotateHeroesWithPets(heroes, allPets, options = {}) {
-  const { gravityFeederActive = false } = options;
+export async function annotateHeroesWithPets(heroes, allPets, options = {}) {
+  const { gravityFeederActive = false, targetHeroIds = [] } = options;
   
   if (!heroes) return [];
+  
+  // Create a mutable copy of pets array that we can add to
+  const petsWithFallback = [...(allPets || [])];
+  
   if (!allPets || allPets.length === 0) {
-    console.log(`[PetData] No pets to annotate (${allPets?.length || 0} pets for ${heroes.length} heroes)`);
-    return heroes;
+    console.log(`[PetData] No pets from getUserPetsV2 (${allPets?.length || 0} pets for ${heroes.length} heroes)`);
   }
   
   // Log equipped pets for debugging
-  const equippedPets = allPets.filter(p => p.equippedTo);
+  const equippedPets = petsWithFallback.filter(p => p.equippedTo);
   const fedPets = equippedPets.filter(p => p.isFed || gravityFeederActive);
-  console.log(`[PetData] Found ${equippedPets.length} equipped pets out of ${allPets.length} total`);
+  console.log(`[PetData] Found ${equippedPets.length} equipped pets out of ${petsWithFallback.length} total`);
   console.log(`[PetData] Fed pets: ${fedPets.length} (gravityFeederActive=${gravityFeederActive})`);
   
   for (const pet of equippedPets.slice(0, 10)) { // Log first 10 to avoid spam
@@ -358,10 +448,46 @@ export function annotateHeroesWithPets(heroes, allPets, options = {}) {
     console.log(`[PetData] ... and ${equippedPets.length - 10} more equipped pets`);
   }
   
+  // Find heroes that don't have pets in the fetched list and need fallback lookup
+  // Priority: check targetHeroIds first (e.g., gardening heroes)
+  const heroIdsToCheck = targetHeroIds.length > 0 
+    ? targetHeroIds 
+    : heroes.map(h => String((h.hero || h).normalizedId || (h.hero || h).id));
+  
+  const heroesWithoutPets = heroIdsToCheck.filter(heroId => 
+    !petsWithFallback.some(p => p.equippedTo === heroId)
+  );
+  
+  if (heroesWithoutPets.length > 0) {
+    console.log(`[PetData] Using heroToPet fallback for ${heroesWithoutPets.length} heroes without pets in getUserPetsV2 results`);
+    
+    // Fetch pets via heroToPet fallback (in parallel for speed)
+    const fallbackPromises = heroesWithoutPets.map(async (heroId) => {
+      try {
+        const pet = await fetchPetForHero(heroId);
+        return pet;
+      } catch (error) {
+        console.error(`[PetData] Fallback error for hero #${heroId}:`, error.message);
+        return null;
+      }
+    });
+    
+    const fallbackPets = await Promise.all(fallbackPromises);
+    const foundPets = fallbackPets.filter(p => p !== null);
+    
+    if (foundPets.length > 0) {
+      console.log(`[PetData] ✓ Found ${foundPets.length} pets via heroToPet fallback:`);
+      for (const pet of foundPets) {
+        console.log(`[PetData]   Pet #${pet.id} -> Hero #${pet.equippedTo}: ${pet.gatheringType} (+${pet.gatheringBonusScalar}%)`);
+        petsWithFallback.push(pet);
+      }
+    }
+  }
+  
   return heroes.map(h => {
     const hero = h.hero || h;
     const heroId = String(hero.normalizedId || hero.id);
-    const pet = getPetForHero(heroId, allPets);
+    const pet = getPetForHero(heroId, petsWithFallback);
     
     // Calculate garden bonus - pet must be fed (naturally or via Gravity Feeder) to provide bonus
     const petIsFed = pet ? (pet.isFed || gravityFeederActive) : false;

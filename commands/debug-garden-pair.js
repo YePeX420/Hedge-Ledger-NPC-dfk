@@ -72,10 +72,18 @@ export async function execute(interaction) {
     
     const poolPairs = pairingResult.pools[poolId] || [];
     
-    const annotatedHeroes = annotateHeroesWithPets(
+    // Get gardening hero IDs for targeted pet fallback lookup
+    const gardeningHeroIds = poolPairs.flatMap(p => p.heroIds);
+    console.log(`[DebugPair] Checking pets for gardening heroes: ${gardeningHeroIds.join(', ')}`);
+    
+    // Use heroToPet fallback for gardening heroes that are missing from getUserPetsV2
+    const annotatedHeroes = await annotateHeroesWithPets(
       heroes.map(h => ({ hero: h, heroMeta: {} })),
       pets,
-      { gravityFeederActive: hasGravityFeeder }
+      { 
+        gravityFeederActive: hasGravityFeeder,
+        targetHeroIds: gardeningHeroIds.map(String)  // Priority lookup for gardening heroes
+      }
     );
     
     const heroMetaMap = new Map();
@@ -84,14 +92,14 @@ export async function execute(interaction) {
       if (heroId) heroMetaMap.set(Number(heroId), h);
     }
     
-    const gardeningHeroIds = poolPairs.flatMap(p => p.heroIds);
-    console.log(`[DebugPair] Checking pets for gardening heroes: ${gardeningHeroIds.join(', ')}`);
+    // Log final pet status for gardening heroes
     for (const heroId of gardeningHeroIds) {
-      const pet = pets.find(p => p.equippedTo === String(heroId));
-      if (pet) {
-        console.log(`[DebugPair] Hero #${heroId} has Pet #${pet.id} equipped (${pet.gatheringType}, fed=${pet.isFed})`);
+      const annotated = heroMetaMap.get(heroId);
+      if (annotated?.heroMeta?.pet) {
+        const pet = annotated.heroMeta.pet;
+        console.log(`[DebugPair] Hero #${heroId} has Pet #${pet.id} equipped (${pet.gatheringType}, fed=${annotated.heroMeta.petIsFed})`);
       } else {
-        console.log(`[DebugPair] Hero #${heroId} has NO pet in fetched list`);
+        console.log(`[DebugPair] Hero #${heroId} has NO pet equipped (confirmed via heroToPet)`);
       }
     }
     

@@ -334,7 +334,8 @@ export async function generatePoolOptimizations(
       });
       
       // Annotate heroes with pet data (pass Gravity Feeder status for fed status)
-      safeHeroes = annotateHeroesWithPets(safeHeroes, allPets, { gravityFeederActive: hasGravityFeeder });
+      // Uses heroToPet fallback for heroes missing from getUserPetsV2 results
+      safeHeroes = await annotateHeroesWithPets(safeHeroes, allPets, { gravityFeederActive: hasGravityFeeder });
       
       const rrCount = safeHeroes.filter(h => h.heroMeta?.hasRapidRenewal).length;
       const petCount = safeHeroes.filter(h => h.heroMeta?.petId).length;
