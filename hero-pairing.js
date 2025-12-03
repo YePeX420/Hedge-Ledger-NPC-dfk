@@ -37,9 +37,54 @@ const GARDEN_POOLS = {
 
 const GARDENING_QUEST_ADDRESS = '0x6FF019415Ee105aCF2Ac52483A33F5B43eaDB8d0'.toLowerCase();
 
+// Training quest contract addresses (Crystalvale)
+const TRAINING_QUEST_ADDRESSES = {
+  '0xad3cfe4b4a0f685a0f93e5ebba3e5a896be8d466': { type: 'training', stat: 'Strength' },
+  '0xe4154b6e5d240507f9699c730a496790a722e53e': { type: 'training', stat: 'Agility' },
+  '0x0594d86b2923076a2316eaea4e1ca286daa142c1': { type: 'training', stat: 'Endurance' },
+  '0x6c7b60d60ce5276ed70f42c8d3b929585a70cdcc': { type: 'training', stat: 'Wisdom' },
+  '0xb9e7889259f6d8c66f3ffb2ef8abaaf7a1c07ecc': { type: 'training', stat: 'Dexterity' },
+  '0xc3e0e22e2b028d63c96a1a39fe84e4e80d7085e1': { type: 'training', stat: 'Vitality' },
+  '0xc3c12dac81d6f6ab77d28c64e2c04c1b14062a86': { type: 'training', stat: 'Intelligence' },
+  '0xe7be1d2c2d2e8e47ac4e1e8c9916e6d8e5cba7c3': { type: 'training', stat: 'Luck' },
+};
+
+// Other expedition quest types
+const PROFESSION_QUEST_ADDRESSES = {
+  '0x569424c5ee13884a193773fdc5d1c5f79c443a51': { type: 'fishing', name: 'Fishing' },
+  '0x407ab39b3675f29a719476af6eb3b9e5d93969e6': { type: 'foraging', name: 'Foraging' },
+  '0xe259e8386d38467f0e7f2681d2c9e40625f44f63': { type: 'mining', name: 'Gold Mining' },
+  '0x6f64fccbe6ec6c8a4c7e122eede7c7dd6b5e1c19': { type: 'mining', name: 'JEWEL Mining' },
+};
+
+/**
+ * Get quest type info from quest address
+ * @param {string} questAddress - Quest contract address
+ * @returns {Object} Quest type info {type, name, stat, poolId}
+ */
+export function getQuestTypeFromAddress(questAddress) {
+  const addr = (questAddress || '').toLowerCase();
+  
+  if (addr === GARDENING_QUEST_ADDRESS) {
+    return { type: 'gardening', name: 'Gardening' };
+  }
+  
+  const training = TRAINING_QUEST_ADDRESSES[addr];
+  if (training) {
+    return { type: 'training', name: `${training.stat} Training`, stat: training.stat };
+  }
+  
+  const profession = PROFESSION_QUEST_ADDRESSES[addr];
+  if (profession) {
+    return profession;
+  }
+  
+  return { type: 'unknown', name: 'Unknown Quest' };
+}
+
 const QUESTCORE_ABI = [
   'function getActiveQuests(address _address) view returns (tuple(uint256 id, address questAddress, uint256[] heroes, address player, uint256 startTime, uint256 startBlock, uint256 completeAtTime, uint8 attempts, uint8 status)[])',
-  'function quests(uint256 questId) view returns (tuple(uint256 id, bytes20 questInstanceId, address questAddress, uint8 questType, uint256 level, uint256[] heroes, address player, uint256 startAtTime, uint256 startBlock, uint256 completeAtTime, uint8 attempts, uint8 status))',
+  'function quests(uint256 questId) view returns (uint256 id, bytes32 questInstanceId, address questAddress, uint8 questType, uint256 level, uint256[] heroes, address player, uint256 startBlock, uint256 startAtTime, uint256 completeAtTime, uint8 attempts, uint8 status)',
   'function getAccountExpeditionsWithAssociatedQuests(address _playerAddress) view returns (tuple(uint256 expeditionId, tuple(uint40 lastClaimedAt, uint24 iterationsToProcess, uint24 remainingIterations, uint16 escrowedPetTreats, uint32 escrowedStaminaPotions, uint16 globalSettings, uint40 iterationTime, uint40 claimStartBlock, uint24 feePerStamina) expedition, tuple(uint256 id, uint256 questInstanceId, uint8 level, uint256[] heroes, address player, uint256 startBlock, uint256 startAtTime, uint256 completeAtTime, uint8 attempts, uint8 status, uint8 questType) quest, uint256 escrowedFee, uint8 foodType)[])',
 ];
 
@@ -122,12 +167,149 @@ function normalizeHeroId(id) {
   return num;
 }
 
+// Training quest stat mappings (questType values for training when level=10, attempts=5)
+const TRAINING_STATS = {
+  0: 'Vitality',
+  1: 'Strength',
+  2: 'Agility',
+  3: 'Endurance',
+  4: 'Wisdom',
+  5: 'Dexterity',
+  6: 'Intelligence',
+  7: 'Luck',
+};
+
 /**
- * Fetch expedition data with hero pairs from the blockchain
- * This is the most accurate source for pairing information.
+ * Determine the quest type from expedition data patterns
+ * @param {Object} exp - Expedition object from contract
+ * @returns {Object} Quest type info {type, name, poolId, stat}
+ */
+function classifyExpeditionQuest(exp) {
+  const level = Number(exp.quest.level);
+  const attempts = Number(exp.quest.attempts);
+  const heroCount = exp.quest.heroes.length;
+  const questType = Number(exp.quest.questType);
+  
+  // Gardening pattern: level=10, attempts=25, heroes=2, questType 1-13
+  if (level === 10 && attempts === 25 && heroCount === 2 && questType >= 1 && questType <= 13) {
+    return {
+      type: 'gardening',
+      name: `Gardening: ${GARDEN_POOLS[questType] || 'Pool ' + questType}`,
+      poolId: questType,
+    };
+  }
+  
+  // Training pattern: level=10, attempts=5 (per iteration)
+  if (level === 10 && attempts === 5) {
+    const stat = TRAINING_STATS[questType] || `Stat ${questType}`;
+    return {
+      type: 'training',
+      name: `${stat} Training`,
+      stat,
+    };
+  }
+  
+  // Foraging/Fishing pattern: level=0, various attempts
+  if (level === 0) {
+    if (questType === 0) {
+      // Could be foraging or fishing - check by hero count patterns
+      return {
+        type: 'profession',
+        name: 'Foraging/Fishing',
+      };
+    }
+  }
+  
+  // Level 1 quests are typically low-level training or exploration
+  if (level === 1) {
+    if (attempts === 5) {
+      const stat = TRAINING_STATS[questType] || `Stat ${questType}`;
+      return {
+        type: 'training',
+        name: `${stat} Training (Lvl 1)`,
+        stat,
+      };
+    }
+  }
+  
+  return {
+    type: 'unknown',
+    name: `Unknown Quest (level=${level}, attempts=${attempts}, type=${questType})`,
+  };
+}
+
+/**
+ * Format iteration time as HH:MM:SS
+ */
+function formatIterationTime(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+/**
+ * Fetch ALL expedition data for a wallet (gardening, training, foraging, etc.)
+ * Used for hero debug to show what quest each hero is in.
  * 
  * @param {string} walletAddress - Player wallet address
- * @returns {Promise<Object>} Expedition data grouped by pool
+ * @returns {Promise<Object>} All expedition data grouped by type
+ */
+export async function getAllExpeditions(walletAddress) {
+  try {
+    console.log(`[HeroPairing] Fetching all expeditions for ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`);
+    
+    const expeditions = await questContract.getAccountExpeditionsWithAssociatedQuests(walletAddress);
+    
+    const all = [];
+    const heroToQuest = new Map();
+    const byType = { gardening: [], training: [], profession: [], unknown: [] };
+    
+    for (const exp of expeditions) {
+      const questInfo = classifyExpeditionQuest(exp);
+      const heroIds = exp.quest.heroes.map(h => normalizeHeroId(h));
+      const iterationTime = Number(exp.expedition.iterationTime);
+      
+      const questData = {
+        expeditionId: Number(exp.expeditionId),
+        questId: Number(exp.quest.id),
+        heroIds,
+        attempts: Number(exp.quest.attempts),
+        level: Number(exp.quest.level),
+        questType: Number(exp.quest.questType),
+        iterationTime,
+        iterationTimeStr: formatIterationTime(iterationTime),
+        remainingIterations: Number(exp.expedition.remainingIterations),
+        ...questInfo,
+      };
+      
+      all.push(questData);
+      byType[questInfo.type]?.push(questData) || byType.unknown.push(questData);
+      
+      for (const heroId of heroIds) {
+        heroToQuest.set(heroId, questData);
+      }
+    }
+    
+    console.log(`[HeroPairing] Found ${all.length} expeditions: ${byType.gardening.length} gardening, ${byType.training.length} training, ${byType.profession.length} profession`);
+    
+    return {
+      all,
+      byType,
+      heroToQuest,
+    };
+  } catch (err) {
+    console.error(`[HeroPairing] Error fetching all expeditions:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Fetch GARDENING expedition data with hero pairs from the blockchain
+ * This is the most accurate source for gardening pair information.
+ * 
+ * @param {string} walletAddress - Player wallet address
+ * @returns {Promise<Object>} Gardening expedition data grouped by pool
  */
 export async function getExpeditionPairs(walletAddress) {
   try {
@@ -138,25 +320,26 @@ export async function getExpeditionPairs(walletAddress) {
     const pairs = [];
     const poolPairs = {};
     const heroToPair = new Map();
+    let skippedCount = 0;
     
     for (const exp of expeditions) {
-      const poolId = Number(exp.quest.questType);
+      const level = Number(exp.quest.level);
+      const attempts = Number(exp.quest.attempts);
+      const heroCount = exp.quest.heroes.length;
+      const questType = Number(exp.quest.questType);
       
-      // Filter for gardening pools (1-13)
-      if (poolId < 1 || poolId > 13 || GARDEN_POOLS[poolId] === undefined) {
+      // Gardening pattern: level=10, attempts=25, heroes=2, questType 1-13
+      const isGardening = level === 10 && attempts === 25 && heroCount === 2 && questType >= 1 && questType <= 13;
+      
+      if (!isGardening) {
+        skippedCount++;
         continue;
       }
       
+      const poolId = questType;
       const heroIds = exp.quest.heroes.map(h => normalizeHeroId(h));
-      const attempts = Number(exp.quest.attempts);
       const iterationTime = Number(exp.expedition.iterationTime);
       const remainingIterations = Number(exp.expedition.remainingIterations);
-      
-      // Format iteration time as HH:MM:SS
-      const hours = Math.floor(iterationTime / 3600);
-      const mins = Math.floor((iterationTime % 3600) / 60);
-      const secs = iterationTime % 60;
-      const iterationTimeStr = `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
       
       const pairData = {
         expeditionId: Number(exp.expeditionId),
@@ -166,7 +349,7 @@ export async function getExpeditionPairs(walletAddress) {
         heroIds,
         attempts,
         iterationTime,
-        iterationTimeStr,
+        iterationTimeStr: formatIterationTime(iterationTime),
         remainingIterations,
         isGardening: true,
         detectionMethod: 'expedition_api',
@@ -184,7 +367,7 @@ export async function getExpeditionPairs(walletAddress) {
       }
     }
     
-    console.log(`[HeroPairing] ✅ Found ${pairs.length} gardening expeditions across ${Object.keys(poolPairs).length} pools`);
+    console.log(`[HeroPairing] ✅ Found ${pairs.length} gardening pairs across ${Object.keys(poolPairs).length} pools (skipped ${skippedCount} non-gardening)`);
     
     return {
       pools: poolPairs,

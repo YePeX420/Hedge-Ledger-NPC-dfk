@@ -279,13 +279,31 @@ export async function getGravityFeederStatus(walletAddress) {
 
 /**
  * Check if pets should be considered fed for a wallet
- * Returns true if Gravity Feeder is active (pets fed during expeditions)
+ * Returns object with fed status and whether it was assumed
  * @param {string} walletAddress - User's wallet address
- * @returns {Promise<boolean>} True if pets should be treated as fed
+ * @returns {Promise<{isFed: boolean, assumed: boolean, reason: string}>}
  */
 export async function arePetsFedByGravityFeeder(walletAddress) {
-  const status = await getGravityFeederStatus(walletAddress);
-  return status?.isActive || false;
+  try {
+    const status = await getGravityFeederStatus(walletAddress);
+    
+    // If status is null, contract failed - assume GF is active (most gardeners use it)
+    if (status === null) {
+      console.log(`[GravityFeeder] Contract call failed (null). Assuming pets are FED.`);
+      return { isFed: true, assumed: true, reason: 'Contract error - GF assumed' };
+    }
+    
+    if (status.isActive) {
+      return { isFed: true, assumed: false, reason: 'Gravity Feeder active' };
+    }
+    
+    // Contract returned but GF is not active
+    return { isFed: false, assumed: false, reason: 'Gravity Feeder not subscribed' };
+  } catch (err) {
+    // Contract call threw exception - assume GF is active
+    console.log(`[GravityFeeder] Contract exception. Assuming pets are FED.`);
+    return { isFed: true, assumed: true, reason: 'Contract error - GF assumed' };
+  }
 }
 
 export default {

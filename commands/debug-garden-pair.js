@@ -60,11 +60,14 @@ export async function execute(interaction) {
     
     console.log(`[DebugPair] Fetching heroes for wallet ${walletAddress}...`);
     
-    const [heroes, pets, hasGravityFeeder] = await Promise.all([
+    const [heroes, pets, gfStatus] = await Promise.all([
       getAllHeroesByOwner(walletAddress),
       fetchPetsForWallet(walletAddress),
-      arePetsFedByGravityFeeder(walletAddress).catch(() => false)
+      arePetsFedByGravityFeeder(walletAddress).catch(() => ({ isFed: true, assumed: true, reason: 'Error' }))
     ]);
+    
+    const hasGravityFeeder = gfStatus.isFed;
+    const gfAssumed = gfStatus.assumed;
     
     console.log(`[DebugPair] Found ${heroes.length} heroes, ${pets.length} pets, GF=${hasGravityFeeder}`);
     
@@ -114,10 +117,14 @@ export async function execute(interaction) {
         ? 'Active Quests (contract)'
         : 'CurrentQuest (fallback)';
     
+    const gfWarning = gfAssumed 
+      ? '\n⚠️ **Gravity Feeder assumed** - Contract check failed, pets shown as fed. Verify in-game.'
+      : '';
+    
     const embed = new EmbedBuilder()
       .setColor('#2ecc71')
       .setTitle(`Garden Debug: ${poolInfo.name} (Pool ${poolId})`)
-      .setDescription(`Found ${poolPairs.length} pairs gardening this pool\nPairing Source: ${detectionSource}`)
+      .setDescription(`Found ${poolPairs.length} pairs gardening this pool\nPairing Source: ${detectionSource}${gfWarning}`)
       .setTimestamp();
     
     let totalGardenScore = 0;
@@ -141,11 +148,11 @@ export async function execute(interaction) {
         const hasGardenGene = hero.professionStr?.toLowerCase() === 'gardening' || hero.hasGardeningGene;
         const level = hero.level || 1;
         
-        const petId = heroMeta.petId || null;
+        const pet = heroMeta.pet || null;
         const petBonus = heroMeta.petGardenBonus || {};
-        const petGatheringSkill = petBonus.gatheringSkill || 0;
+        const petGatheringSkill = pet?.gatheringBonusScalar || 0; // From pet object directly
         const petBonusPct = petBonus.questBonusPct || 0;
-        const petFed = petBonus.isFed !== false;
+        const petFed = heroMeta.petIsFed !== false; // From heroMeta, not petBonus
         
         const stamPerDay = computeStaminaPerDay(hero, { hasRapidRenewal: heroMeta?.hasRapidRenewal });
         const factor = computeHeroGardeningFactor(hero);
@@ -161,7 +168,7 @@ export async function execute(interaction) {
           hasGardenGene,
           hasRapidRenewal: heroMeta?.hasRapidRenewal || false,
           stamPerDay,
-          petId,
+          pet,
           petGatheringSkill,
           petBonusPct,
           petFed,
@@ -233,11 +240,12 @@ export async function execute(interaction) {
 
 function formatHeroLine(h) {
   const geneIcon = h.hasGardenGene ? ' [G]' : '';
-  const petInfo = h.petId 
-    ? ` | Pet #${h.petId} (G${h.petGatheringSkill.toFixed(1)}, +${h.petBonusPct.toFixed(1)}%)${h.petFed ? '' : ' [hungry]'}`
+  const rrIcon = h.hasRapidRenewal ? ' [RR]' : '';
+  const petInfo = h.pet 
+    ? ` | Pet #${h.pet.id} (${h.pet.gatheringType}, +${h.petBonusPct.toFixed(1)}%)${h.petFed ? '' : ' [hungry]'}`
     : ' | No pet';
   
-  return `Hero #${h.heroId}${geneIcon} L${h.level} | VIT:${h.vit} WIS:${h.wis} G:${h.gardeningSkill.toFixed(1)}${petInfo}`;
+  return `Hero #${h.heroId}${geneIcon}${rrIcon} L${h.level} | VIT:${h.vit} WIS:${h.wis} G:${h.gardeningSkill.toFixed(1)}${petInfo}`;
 }
 
 function findOptimalAttemptsForPair(h1, h2, hero1, hero2) {
