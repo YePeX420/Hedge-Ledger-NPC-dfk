@@ -31,12 +31,13 @@ export const data = new SlashCommandBuilder()
       .setDescription('Wallet address')
       .setRequired(true)
   )
-  .addIntegerOption(option =>
+  .addStringOption(option =>
     option.setName('pool')
-      .setDescription('Pool ID (0-13)')
+      .setDescription('Garden pool')
       .setRequired(true)
-      .setMinValue(0)
-      .setMaxValue(13)
+      .addChoices(
+        ...GARDEN_POOLS.map(p => ({ name: p.name, value: String(p.pid) }))
+      )
   );
 
 export async function execute(interaction) {
@@ -44,7 +45,7 @@ export async function execute(interaction) {
   
   try {
     const walletAddress = interaction.options.getString('wallet').toLowerCase();
-    const poolId = interaction.options.getInteger('pool');
+    const poolId = parseInt(interaction.options.getString('pool'), 10);
     
     if (!ethers.isAddress(walletAddress)) {
       return interaction.editReply('Invalid wallet address format');
