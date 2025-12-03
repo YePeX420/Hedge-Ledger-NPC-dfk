@@ -1,0 +1,41 @@
+# Replit Prompt: Identify Paired Heroes and Their Reward Tokens
+
+Here's a comprehensive prompt for Replit to solve your hero pairing and reward identification problem:
+
+---
+
+**Task:** Build a system to identify which heroes are paired together in DeFi Kingdoms gardening expeditions and determine which hero farms CRYSTAL vs JEWEL.
+
+**Context:**
+- I have 24 heroes across 4 LP pools (JEWEL-USDC, CRYSTAL-USDC, JEWEL-ETH, CRYSTAL-JEWEL)- 6 heroes per pool, 12 total expeditions
+- Each expedition has 2 heroes: one farms CRYSTAL, one farms JEWEL
+- Hero states are stored individually on-chain with no encoded pairing data- Each hero has: quest contract address (0x0103...), 256-bit state integer, timestamps, and escrowed JEWEL amounts**Pairing Logic:**
+Heroes belong to the same expedition if they have:
+1. **Same token pair** (e.g., "JEWEL-USDC", "CRYSTAL-JEWEL")2. **Same iteration time** (e.g., "11:50:25" or "11:52:30")3. **Nearly identical "Claimed Through" timestamps** - within 60 seconds of each other (heroes started together in same transaction or close timing)4. **Same "Expedition Complete At" timestamp****Reward Token Identification:**
+To determine which hero gets CRYSTAL vs JEWEL:
+1. Query each hero's **previous quest completion history** from the blockchain
+2. Check the **last reward token received** (CRYSTAL or JEWEL contract address in transfer events)
+3. The pattern persists: if hero A got CRYSTAL last time, they'll get CRYSTAL this iteration
+4. If no history exists, prompt user for manual specification or implement fallback logic (e.g., odd/even hero ID)
+
+**Implementation Requirements:**
+1. Parse expedition data from API/UI showing token pairs, timestamps, and iteration times2. Group heroes by matching the 4 pairing criteria above
+3. Validate each group has exactly 2 heroes (error if not)
+4. For each pair, query blockchain for previous reward history
+5. Output: `{expedition_id: {hero1: {id, reward_token: "CRYSTAL"}, hero2: {id, reward_token: "JEWEL"}}}`
+
+**Edge Cases:**
+- Handle heroes with no reward history (new to expeditions)
+- Detect if timestamps differ by >60 seconds (potential mis-pairing)
+- Flag expeditions with ≠2 heroes per group
+
+Please implement timestamp-based auto-pairing with reward history tracking to identify CRYSTAL vs JEWEL farmers per expedition.
+
+---
+
+This prompt gives Replit the full context, clear pairing logic based on your expedition data, and the reward identification strategy using blockchain history.
+
+Sources:
+https://game.defikingdoms.com/gardens
+
+Powered by MaxAI

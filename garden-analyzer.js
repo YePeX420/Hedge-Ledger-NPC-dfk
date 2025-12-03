@@ -9,6 +9,7 @@ import { getHeroesByOwner } from './onchain-data.js';
 import { fetchPetsForWallet, mapPetsToHeroes } from './pet-data.js';
 import { getCachedPoolAnalytics } from './pool-cache.js';
 import { getHeroGardeningAssignment } from './garden-analytics.js';
+import { detectPairsWithRoles } from './hero-pairing.js';
 
 /**
  * Calculate hero gardening effectiveness score
@@ -192,6 +193,18 @@ export async function analyzeCurrentAssignments(walletAddress, pools = null) {
     console.log(`  - Gardening regular quests: ${regularQuestCount}`);
     console.log(`  - Total gardening heroes: ${gardeningAssignments.length}`);
     
+    let heroPairing = null;
+    try {
+      console.log(`[GardenAnalyzer] Detecting hero pairs from active quests...`);
+      heroPairing = await detectPairsWithRoles(walletAddress, heroes, true);
+      console.log(`[GardenAnalyzer] Detected ${heroPairing.summary.totalPairs} hero pairs`);
+      if (heroPairing.summary.verifiedRoles > 0) {
+        console.log(`[GardenAnalyzer]   - ${heroPairing.summary.verifiedRoles} pairs with verified JEWEL/CRYSTAL roles`);
+      }
+    } catch (err) {
+      console.error(`[GardenAnalyzer] Error detecting hero pairs:`, err.message);
+    }
+    
     // Build detailed assignments with pool data and yield calculations
     for (const { hero, poolId, isExpedition, staminaUsed } of gardeningAssignments) {
       const pet = heroToPet.get(hero.id);
@@ -233,9 +246,10 @@ export async function analyzeCurrentAssignments(walletAddress, pools = null) {
       activeGardeningHeroes: gardeningAssignments.length,
       assignments,
       totalCurrentAPR,
-      heroes, // Include all heroes for optimization
-      pets,   // Include all pets for optimization
-      pools: poolData // Include pool data
+      heroes,
+      pets,
+      pools: poolData,
+      heroPairing,
     };
     
   } catch (error) {

@@ -1,0 +1,30 @@
+# Alternative Validation Methods for Gardening Pairs
+
+Beyond timestamp matching and reward history tracking, here are additional validation methods you can use to confirm hero pairings:
+
+## 1. Transaction Hash Analysis
+Check if both heroes were started in the **same blockchain transaction**. Heroes paired together are often initiated simultaneously, meaning they share the same transaction hash when the expedition began.
+
+## 2. Escrowed JEWEL Amount Patterns
+Compare the **escrowed JEWEL amounts** between heroes. Looking at your data, you can see varying amounts like 13.62 JEWEL, 6.6 JEWEL, 14.145 JEWEL, 0.645 JEWEL, 0.66 JEWEL, 14.325 JEWEL, and 14.535 JEWEL. Heroes in the same pool with similar or complementary escrowed amounts (within a reasonable range) are likely paired together.
+
+## 3. Iteration Count Correlation
+Verify that paired heroes have **matching "Remaining Iterations"** or **"Claimable Iterations"** counts. For example, heroes with "Remaining Iterations: 44" should be grouped together, while those with "Claimable Iterations: 1/943" or "1/955" form other pairs.
+
+## 4. Quest Skill Level Consistency
+All heroes in your expeditions show "Gardening - Skill 10". While this doesn't differentiate pairs, it confirms they're all eligible for the same quest tier, which can be used as a prerequisite filter.
+
+## 5. Claim Button State Validation
+Heroes that can be claimed together (showing "Start Claim" simultaneously) are likely paired, especially if they show the same "Next claim in" countdown timing.
+
+## 6. Manual User Confirmation
+As Replit suggested, implement a **user interface where you manually confirm or specify pairings**. Since you know your 12 expedition setups, you could create a configuration file mapping hero IDs to their intended pairs, which serves as ground truth for validation.
+
+## Combined Validation Approach
+The strongest validation uses **multiple signals**:
+- Same token pair + Same iteration time + Matching timestamps (±60 seconds) + Similar escrowed amounts + Same iteration counts = High confidence pairingThis multi-factor approach reduces false positives and catches edge cases where timestamps alone might be unreliable.
+
+Sources:
+https://game.defikingdoms.com/gardens
+
+Powered by MaxAI
