@@ -1,55 +1,231 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { ethers } from 'ethers';
 import { getCachedPoolAnalytics } from '../pool-cache.js';
 import { 
   computeFeeAprWithShare, 
   getHarvestAprPct, 
-  computeTotalBaseAprPct,
-  getFeeDistributionExplanation 
+  computeTotalBaseAprPct
 } from '../apr-utils.js';
+import { getHeroById } from '../onchain-data.js';
+import { fetchPetById, fetchPetForHero, calculatePetGardenBonus } from '../pet-data.js';
+import { 
+  computeHeroGardeningFactor, 
+  simulateGardeningDailyYield,
+  computeStaminaPerDay
+} from '../hero-yield-model.js';
+
+const POOL_CHOICES = [
+  { name: 'wJEWEL-xJEWEL', value: '0' },
+  { name: 'CRYSTAL-AVAX', value: '1' },
+  { name: 'CRYSTAL-wJEWEL', value: '2' },
+  { name: 'CRYSTAL-USDC', value: '3' },
+  { name: 'ETH-USDC', value: '4' },
+  { name: 'wJEWEL-USDC', value: '5' },
+  { name: 'CRYSTAL-ETH', value: '6' },
+  { name: 'CRYSTAL-BTC.b', value: '7' },
+  { name: 'CRYSTAL-KLAY', value: '8' },
+  { name: 'wJEWEL-KLAY', value: '9' },
+  { name: 'wJEWEL-AVAX', value: '10' },
+  { name: 'wJEWEL-BTC.b', value: '11' },
+  { name: 'wJEWEL-ETH', value: '12' },
+  { name: 'BTC.b-USDC', value: '13' },
+];
+
+const LP_TOKEN_ADDRESSES = {
+  0: '0x6AC38A4C112F125eac0eBDbaDBed0BC8F4575d0d',
+  1: '0x9f378F48d0c1328fd0C80d7Ae544c6CadB5Ba99E',
+  2: '0x48658E69D741024b4686C8f7b236D3F1D291f386',
+  3: '0x04Dec678825b8DfD2D0d9bD83B538bE3fbDA2926',
+  4: '0x7d4daa9eB74264b082A92F3f559ff167224484aC',
+  5: '0xCF329b34049033dE26e4449aeBCb41f1992724D3',
+  6: '0x78C893E262e2681Dbd6B6eBA6CCA2AaD45de19AD',
+  7: '0x00BD81c9bAc29a3b6aea7ABc92d2C9a3366Bb4dD',
+  8: '0xaFC1fBc3F3fB517EB54Bb2472051A6f0b2105320',
+  9: '0x561091E2385C90d41b4c0dAef651A4b33E1a5CfE',
+  10: '0xF3EabeD6Bd905e0FcD68FC3dBCd6e3A4aEE55E98',
+  11: '0xfAa8507e822397bd56eFD4480Fb12ADC41ff940B',
+  12: '0x79724B6996502afc773feB3Ff8Bb3C23ADf2854B',
+  13: '0x59D642B471dd54207Cb1CDe2e7507b0Ce1b1a6a5',
+};
+
+const LP_STAKING_ADDRESS = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
+const DFK_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
+const provider = new ethers.JsonRpcProvider(DFK_RPC);
+
+const LP_STAKING_ABI = [
+  'function getUserInfo(uint256 pid, address user) view returns (uint256 amount, int256 rewardDebt, uint256 lastDepositTimestamp)',
+  'function getPoolInfo(uint256 pid) view returns (address lpToken, uint256 allocPoint, uint256 lastRewardTime, uint256 accSushiPerShare, uint256 totalStaked)'
+];
+
+const lpStakingContract = new ethers.Contract(LP_STAKING_ADDRESS, LP_STAKING_ABI, provider);
 
 export const data = new SlashCommandBuilder()
   .setName('garden-apr-debug')
   .setDescription('Debug APR calculations for a garden pool with transparent math')
-  .addIntegerOption(option =>
-    option.setName('pid')
-      .setDescription('Pool ID (0-13)')
+  .addStringOption(option =>
+    option.setName('pool')
+      .setDescription('Garden pool (Token0-Token1)')
       .setRequired(true)
-      .setMinValue(0)
-      .setMaxValue(13)
+      .addChoices(...POOL_CHOICES)
   )
-  .addNumberOption(option =>
-    option.setName('user_tvl')
-      .setDescription('Your staked value in USD (optional, for pool share calculation)')
+  .addStringOption(option =>
+    option.setName('wallet')
+      .setDescription('Your wallet address to check staked LP position')
+      .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName('hero1')
+      .setDescription('First gardening hero ID')
+      .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName('pet1')
+      .setDescription('Pet ID equipped to hero 1 (or leave blank for auto-detect)')
+      .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName('hero2')
+      .setDescription('Second gardening hero ID')
+      .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName('pet2')
+      .setDescription('Pet ID equipped to hero 2 (or leave blank for auto-detect)')
       .setRequired(false)
   );
+
+async function getUserStakedPosition(pid, walletAddress, poolTvlUsd) {
+  try {
+    const userInfo = await lpStakingContract.getUserInfo(pid, walletAddress);
+    const poolInfo = await lpStakingContract.getPoolInfo(pid);
+    
+    const stakedAmount = userInfo[0];
+    const totalStaked = poolInfo[4];
+    
+    if (stakedAmount === 0n || totalStaked === 0n) {
+      return { stakedLp: 0, userTvlUsd: 0, poolShare: 0 };
+    }
+    
+    const stakedLpFormatted = parseFloat(ethers.formatEther(stakedAmount));
+    const totalStakedFormatted = parseFloat(ethers.formatEther(totalStaked));
+    
+    const poolShare = stakedLpFormatted / totalStakedFormatted;
+    const userTvlUsd = poolTvlUsd * poolShare;
+    
+    return { stakedLp: stakedLpFormatted, userTvlUsd, poolShare };
+  } catch (error) {
+    console.error(`[GardenAprDebug] Error fetching staked position:`, error.message);
+    return null;
+  }
+}
+
+function formatHeroForYield(hero) {
+  return {
+    id: hero.id,
+    wisdom: hero.wisdom || 0,
+    vitality: hero.vitality || 0,
+    gardening: hero.gardening || 0,
+    level: hero.level || 1,
+    professionStr: hero.professionStr,
+    hasGardeningGene: hero.professionStr?.toLowerCase() === 'gardening',
+  };
+}
+
+function computeHeroQuestApr(hero, pet, poolMeta) {
+  const formatted = formatHeroForYield(hero);
+  
+  let gardeningSkillBase = (hero.gardening || 0) / 10;
+  let petBonus = 0;
+  let petBonusType = null;
+  
+  if (pet) {
+    const gardenBonus = calculatePetGardenBonus(pet);
+    if (gardenBonus.isGardeningPet && gardenBonus.questBonusPct > 0) {
+      if (gardenBonus.description?.includes('Skilled Greenskeeper')) {
+        gardeningSkillBase += gardenBonus.questBonusPct / 10;
+        petBonus = gardenBonus.questBonusPct;
+        petBonusType = 'Skilled Greenskeeper';
+      } else if (gardenBonus.description?.includes('Power Surge')) {
+        petBonus = gardenBonus.questBonusPct;
+        petBonusType = 'Power Surge';
+      }
+    }
+  }
+  
+  const wis = hero.wisdom || 0;
+  const vit = hero.vitality || 0;
+  const hasGardenGene = formatted.hasGardeningGene;
+  
+  let baseFactor = 0.1 + (wis + vit) / 1222.22 + gardeningSkillBase / 244.44;
+  const geneMult = hasGardenGene ? 1.2 : 1.0;
+  let factor = baseFactor * geneMult;
+  
+  if (petBonusType === 'Power Surge' && petBonus > 0) {
+    factor = factor * (1 + petBonus / 100);
+  }
+  
+  const baselineFactor = 0.1 + (50 + 50) / 1222.22;
+  const scale = factor / baselineFactor;
+  
+  const bestQuestAprStr = poolMeta?.gardeningQuestAPR?.best || '0%';
+  const bestQuestApr = parseFloat(bestQuestAprStr.replace('%', ''));
+  
+  const heroQuestApr = bestQuestApr * scale;
+  
+  return {
+    heroQuestApr,
+    factor,
+    gardeningSkill: gardeningSkillBase,
+    hasGardenGene,
+    petBonus,
+    petBonusType,
+    wis,
+    vit,
+  };
+}
 
 export async function execute(interaction) {
   await interaction.deferReply();
   
   try {
-    const pid = interaction.options.getInteger('pid');
-    const userTvlUsd = interaction.options.getNumber('user_tvl');
+    const poolValue = interaction.options.getString('pool');
+    const pid = parseInt(poolValue, 10);
+    const walletAddress = interaction.options.getString('wallet');
+    const hero1Id = interaction.options.getString('hero1');
+    const pet1Id = interaction.options.getString('pet1');
+    const hero2Id = interaction.options.getString('hero2');
+    const pet2Id = interaction.options.getString('pet2');
     
-    console.log(`[GardenAprDebug] Fetching APR data for PID ${pid}...`);
+    console.log(`[GardenAprDebug] Pool=${pid}, Wallet=${walletAddress || 'none'}, Hero1=${hero1Id || 'none'}, Hero2=${hero2Id || 'none'}`);
     
     const cache = getCachedPoolAnalytics();
     
     if (!cache || !cache.data || cache.data.length === 0) {
-      return interaction.editReply('❌ Pool cache not available. Please try again in a few minutes.');
+      return interaction.editReply('Pool cache not available. Please try again in a few minutes.');
     }
     
     const pool = cache.data.find(p => p.pid === pid);
     
     if (!pool) {
-      return interaction.editReply(`❌ Pool with PID ${pid} not found in cache.`);
+      return interaction.editReply(`Pool ${POOL_CHOICES[pid]?.name || pid} not found in cache.`);
     }
     
-    const poolName = pool.pairName || `Pool ${pid}`;
+    const poolName = pool.pairName || POOL_CHOICES[pid]?.name || `Pool ${pid}`;
     const volume24hUsd = pool.volume24hUSD || 0;
     const poolTvlUsd = typeof pool.totalTVL === 'number' ? pool.totalTVL : 0;
     
     const harvestAprRaw = parseFloat(String(pool.harvesting24hAPR || '0').replace('%', ''));
     const harvestAprPct = getHarvestAprPct({ harvestAprPctFromAnalytics: harvestAprRaw });
+    
+    let userTvlUsd = null;
+    let userPosition = null;
+    
+    if (walletAddress) {
+      userPosition = await getUserStakedPosition(pid, walletAddress, poolTvlUsd);
+      if (userPosition && userPosition.userTvlUsd > 0) {
+        userTvlUsd = userPosition.userTvlUsd;
+      }
+    }
     
     const feeData = computeFeeAprWithShare({ 
       volume24hUsd, 
@@ -66,12 +242,12 @@ export async function execute(interaction) {
     
     const embed = new EmbedBuilder()
       .setColor('#00AA44')
-      .setTitle(`📊 APR Debug: ${poolName}`)
+      .setTitle(`APR Debug: ${poolName}`)
       .setDescription(`Pool ID: ${pid} | Data age: ${cacheAge} min`)
       .setTimestamp();
     
     embed.addFields({
-      name: '📈 Pool Metrics',
+      name: 'Pool Metrics',
       value: [
         `**24h Volume:** $${volume24hUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         `**Pool TVL:** $${poolTvlUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -79,20 +255,28 @@ export async function execute(interaction) {
       inline: false
     });
     
-    if (userTvlUsd !== undefined && userTvlUsd !== null) {
+    if (userPosition && userPosition.userTvlUsd > 0) {
       embed.addFields({
-        name: '👤 Your Position',
+        name: 'Your Position',
         value: [
-          `**Your TVL:** $${userTvlUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          `**Pool Share:** ${feeData.share !== undefined ? (feeData.share * 100).toFixed(6) + '%' : 'N/A'}`,
+          `**Wallet:** \`${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}\``,
+          `**Staked LP:** ${userPosition.stakedLp.toFixed(6)}`,
+          `**Your TVL:** $${userPosition.userTvlUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          `**Pool Share:** ${(userPosition.poolShare * 100).toFixed(6)}%`,
           `**Your Daily Fees:** $${feeData.userFees24hUsd !== undefined ? feeData.userFees24hUsd.toFixed(4) : 'N/A'}`
         ].join('\n'),
+        inline: false
+      });
+    } else if (walletAddress) {
+      embed.addFields({
+        name: 'Your Position',
+        value: `No staked LP found for \`${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}\` in this pool.`,
         inline: false
       });
     }
     
     embed.addFields({
-      name: '💰 Fee APR (LP share only, 0.20% of swaps)',
+      name: 'Fee APR (LP share: 0.20% of swaps)',
       value: [
         `**LP Fee Rate:** ${feeData.lpFeeRatePct.toFixed(2)}% (of 0.30% total)`,
         `**Daily Fees to LPs:** $${feeData.fees24hUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
@@ -102,7 +286,7 @@ export async function execute(interaction) {
     });
     
     embed.addFields({
-      name: '🌾 Harvest APR (emissions + LP staking rewards)',
+      name: 'Harvest APR (emissions + LP staking)',
       value: [
         `**Includes:** CRYSTAL emissions + 10% power-token fee rewards`,
         `**Harvest APR:** ${harvestAprPct.toFixed(4)}%`
@@ -111,38 +295,183 @@ export async function execute(interaction) {
     });
     
     embed.addFields({
-      name: '📊 Total Base APR (no questing)',
+      name: 'Total Base APR (passive, no questing)',
       value: [
-        `**Fee APR:** ${feeData.poolAprPct.toFixed(4)}%`,
-        `**Harvest APR:** ${harvestAprPct.toFixed(4)}%`,
-        `**────────────**`,
-        `**Total Base APR:** ${totalBaseApr.toFixed(4)}%`
+        `Fee APR: ${feeData.poolAprPct.toFixed(4)}%`,
+        `Harvest APR: ${harvestAprPct.toFixed(4)}%`,
+        `────────────`,
+        `**Total Base APR: ${totalBaseApr.toFixed(4)}%**`
       ].join('\n'),
       inline: false
     });
     
-    embed.addFields({
-      name: '📖 Fee Distribution Info',
-      value: [
-        '**Swap Fee (0.30% total):**',
-        '• 0.20% → LP Providers (Fee APR)',
-        '• 0.10% → Jeweler/Quest/Dev/Burn',
-        '',
-        '**Power Token Fees:**',
-        '• 10% → LP Staking (in Harvest APR)',
-        '• 30% → Quest Reward Fund',
-        '• 30% → Dev Fund',
-        '• 15% → Jeweler | 15% → Burn'
-      ].join('\n'),
-      inline: false
-    });
+    let questAprTotal = 0;
+    const heroResults = [];
     
-    console.log(`[GardenAprDebug] Generated APR debug for ${poolName}: Fee=${feeData.poolAprPct.toFixed(2)}%, Harvest=${harvestAprPct.toFixed(2)}%, Total=${totalBaseApr.toFixed(2)}%`);
+    if (hero1Id || hero2Id) {
+      const poolMeta = {
+        gardeningQuestAPR: pool.gardeningQuestAPR || { worst: '0%', best: '0%' }
+      };
+      
+      const fetchPromises = [];
+      
+      if (hero1Id) {
+        fetchPromises.push(
+          (async () => {
+            const hero = await getHeroById(hero1Id);
+            let pet = null;
+            let petSource = null;
+            if (pet1Id) {
+              pet = await fetchPetById(pet1Id);
+              petSource = 'manual';
+            } else {
+              pet = await fetchPetForHero(hero1Id);
+              petSource = pet ? 'auto' : null;
+            }
+            return { hero, pet, heroId: hero1Id, petId: pet1Id, petSource, slot: 1 };
+          })()
+        );
+      }
+      
+      if (hero2Id) {
+        fetchPromises.push(
+          (async () => {
+            const hero = await getHeroById(hero2Id);
+            let pet = null;
+            let petSource = null;
+            if (pet2Id) {
+              pet = await fetchPetById(pet2Id);
+              petSource = 'manual';
+            } else {
+              pet = await fetchPetForHero(hero2Id);
+              petSource = pet ? 'auto' : null;
+            }
+            return { hero, pet, heroId: hero2Id, petId: pet2Id, petSource, slot: 2 };
+          })()
+        );
+      }
+      
+      const results = await Promise.all(fetchPromises);
+      
+      for (const result of results) {
+        if (!result.hero) {
+          heroResults.push({ slot: result.slot, error: `Hero #${result.heroId} not found` });
+          continue;
+        }
+        
+        const questData = computeHeroQuestApr(result.hero, result.pet, poolMeta);
+        questAprTotal += questData.heroQuestApr;
+        
+        const className = result.hero.mainClassStr || result.hero.class || result.hero.heroClass || 'Unknown';
+        const rarity = result.hero.rarity || 'Common';
+        
+        let petInfo = 'None';
+        if (result.pet) {
+          const rawId = Number(result.pet.id);
+          const petIdNormalized = rawId > 2000000 ? rawId - 2000000 : 
+                                  rawId > 1000000 ? rawId - 1000000 : rawId;
+          petInfo = `#${petIdNormalized}`;
+          if (result.petSource === 'auto') {
+            petInfo += ' (auto)';
+          }
+          if (questData.petBonusType) {
+            petInfo += ` [${questData.petBonusType} +${questData.petBonus}%]`;
+          }
+        } else if (result.petSource === null && !result.petId) {
+          petInfo = 'None equipped';
+        }
+        
+        heroResults.push({
+          slot: result.slot,
+          heroId: result.heroId,
+          className,
+          rarity,
+          level: result.hero.level,
+          wis: questData.wis,
+          vit: questData.vit,
+          gardening: result.hero.gardening,
+          hasGardenGene: questData.hasGardenGene,
+          factor: questData.factor,
+          questApr: questData.heroQuestApr,
+          petInfo,
+        });
+      }
+      
+      for (const hr of heroResults) {
+        if (hr.error) {
+          embed.addFields({
+            name: `Hero ${hr.slot}`,
+            value: hr.error,
+            inline: false
+          });
+        } else {
+          embed.addFields({
+            name: `Hero ${hr.slot}: #${hr.heroId}`,
+            value: [
+              `**Class:** ${hr.className} | **Rarity:** ${hr.rarity} | **Lvl:** ${hr.level}`,
+              `**Stats:** WIS ${hr.wis} | VIT ${hr.vit} | Grd ${hr.gardening}`,
+              `**Garden Gene:** ${hr.hasGardenGene ? 'Yes (1.2x)' : 'No'}`,
+              `**Pet:** ${hr.petInfo}`,
+              `**Yield Factor:** ${hr.factor.toFixed(4)}`,
+              `**Quest APR:** ${hr.questApr.toFixed(4)}%`
+            ].join('\n'),
+            inline: true
+          });
+        }
+      }
+      
+      if (heroResults.length > 0 && heroResults.some(h => !h.error)) {
+        const validHeroes = heroResults.filter(h => !h.error);
+        const avgQuestApr = questAprTotal / validHeroes.length;
+        
+        const bestQuestAprStr = poolMeta.gardeningQuestAPR?.best || '0%';
+        const worstQuestAprStr = poolMeta.gardeningQuestAPR?.worst || '0%';
+        
+        embed.addFields({
+          name: 'Quest APR Summary',
+          value: [
+            `**Pool Quest APR Range:** ${worstQuestAprStr} - ${bestQuestAprStr}`,
+            `**Your Avg Quest APR:** ${avgQuestApr.toFixed(4)}%`,
+            `(Based on ${validHeroes.length} hero${validHeroes.length > 1 ? 's' : ''})`
+          ].join('\n'),
+          inline: false
+        });
+        
+        const grandTotalApr = totalBaseApr + avgQuestApr;
+        
+        embed.addFields({
+          name: 'TOTAL POOL + QUEST APR',
+          value: [
+            `Base APR: ${totalBaseApr.toFixed(4)}%`,
+            `Quest APR: ${avgQuestApr.toFixed(4)}%`,
+            `════════════════`,
+            `**TOTAL APR: ${grandTotalApr.toFixed(4)}%**`
+          ].join('\n'),
+          inline: false
+        });
+      }
+    }
+    
+    if (!hero1Id && !hero2Id) {
+      const bestQuestAprStr = pool.gardeningQuestAPR?.best || '0%';
+      const worstQuestAprStr = pool.gardeningQuestAPR?.worst || '0%';
+      
+      embed.addFields({
+        name: 'Quest APR (add heroes to calculate)',
+        value: [
+          `**Pool Quest APR Range:** ${worstQuestAprStr} - ${bestQuestAprStr}`,
+          `Add hero1/hero2 options to calculate your personalized quest APR.`
+        ].join('\n'),
+        inline: false
+      });
+    }
+    
+    console.log(`[GardenAprDebug] Generated APR debug for ${poolName}: Base=${totalBaseApr.toFixed(2)}%, Quest=${questAprTotal.toFixed(2)}%`);
     
     return interaction.editReply({ embeds: [embed] });
     
   } catch (error) {
     console.error('[GardenAprDebug] Error:', error);
-    return interaction.editReply(`❌ Error generating APR debug: ${error.message}`);
+    return interaction.editReply(`Error generating APR debug: ${error.message}`);
   }
 }
