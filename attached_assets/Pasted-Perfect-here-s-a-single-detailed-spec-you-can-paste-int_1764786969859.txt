@@ -1,0 +1,264 @@
+Perfect – here’s a **single, detailed spec** you can paste into Replit/Codex that focuses on the math side:
+
+* Fixing **Fee APR** everywhere (with **explicit pool share** & correct **0.20% LP fee**).
+* Making **Harvest APR** usage clear (and correctly labeled as emissions + 10% power-token fee rewards).
+* Wiring both into the **Garden APR Debug Tool** and any existing APR calculations.
+
+You’ve already debugged data fetching; this spec assumes you have 24h volume and TVL per pool available.
+
+---
+
+## 🔧 Codex Task: Correct Fee APR & Harvest APR math (explicit pool share, 0.20% LP fee, and LP staking rewards), and expose in Garden APR debug
+
+We want to ensure that **all Fee APR and Harvest APR values that Hedge uses are mathematically correct and consistently computed**, and that the debug tooling makes the math and pool share completely transparent.
+
+### Overview
+
+There are three distinct yield components we care about:
+
+1. **Fee APR (from DEX swaps)** – 0.30% swap fee, but only **0.20%** goes to LPs.
+2. **Harvest APR (emissions + LP staking rewards)** – CRYSTAL/JADE emissions to gardens, plus **10% of power-token in-game fees** routed to LP staking rewards.
+3. (Later) Quest APR – from hero+pet+RR; this is handled in a separate task. For this task, we focus on Fee APR and Harvest APR.
+
+All Fee APR and Harvest APR math should be centralized, documented, and wired into the garden APR debug tool and any existing analytics.
+
+---
+
+## 1. Implement centralized APR utility functions
+
+**Create a new module**, e.g. `src/utils/apr-utils.ts` (or similar, depending on your structure).
+
+### 1.1 Fee APR – explicit pool share, LP share = 0.20%
+
+Implement:
+
+```ts
+export interface FeeAprInput {
+  volume24hUsd: number;  // V: 24h swap volume for this pool in USD
+  poolTvlUsd: number;    // TVL_pool: pool TVL in USD
+  userTvlUsd?: number;   // optional: user position value; when provided we can show pool share
+}
+
+/**
+ * Computes the fee APR for liquidity providers from swap fees.
+ * Uses 0.20% LP share of swap fees, not 0.30% total fee.
+ *
+ * Conceptually:
+ *   userFees24h  = volume24hUsd * 0.002 * (userTvlUsd / poolTvlUsd)
+ *   aprUser      = userFees24h * 365 / userTvlUsd
+ * which simplifies to:
+ *   aprPool = volume24hUsd * 0.002 * 365 / poolTvlUsd
+ */
+export function computeFeeAprPct({ volume24hUsd, poolTvlUsd }: FeeAprInput): number {
+  if (!poolTvlUsd || poolTvlUsd <= 0 || !volume24hUsd || volume24hUsd <= 0) {
+    return 0;
+  }
+
+  const lpFeeRate = 0.002; // 0.20% LP share of swap fees
+  const apr = (volume24hUsd * lpFeeRate * 365) / poolTvlUsd;
+  return apr * 100;
+}
+
+/**
+ * Same as computeFeeAprPct, but returns some debug info, including explicit pool share.
+ */
+export function computeFeeAprWithShare({ volume24hUsd, poolTvlUsd, userTvlUsd }: FeeAprInput) {
+  const aprPct = computeFeeAprPct({ volume24hUsd, poolTvlUsd });
+  const share = userTvlUsd && poolTvlUsd > 0 ? userTvlUsd / poolTvlUsd : undefined;
+  const userAprPct = aprPct; // mathematically same when expressed as APR (fees/userTVL)
+  return { poolAprPct: aprPct, userAprPct, share };
+}
+```
+
+We will use this everywhere Fee APR is needed.
+
+### 1.2 Harvest APR – treat analytics as source of truth
+
+We know from the docs that power-token fees are distributed like this:
+
+* 15% – Burned
+* 10% – LP Staking Rewards
+* 15% – Jeweler Rewards
+* 30% – Quest Reward Fund
+* 30% – Dev Fund
+
+Typically, your analytics already compute `harvesting24hAPR` for each pool, which includes:
+
+* CRYSTAL/JADE block/epoch emissions
+* plus that 10% LP staking rewards stream
+
+We’ll treat that as a **black box** and just expose it clearly.
+
+```ts
+export interface HarvestAprInput {
+  harvestAprPctFromAnalytics?: number; // e.g., harvesting24hAPR from garden-analytics
+}
+
+/**
+ * Returns the harvest APR as provided by analytics.
+ * This is assumed to include block/epoch emissions + 10% power-token fee LP staking rewards.
+ */
+export function getHarvestAprPct({ harvestAprPctFromAnalytics }: HarvestAprInput): number {
+  if (!harvestAprPctFromAnalytics || !Number.isFinite(harvestAprPctFromAnalytics)) {
+    return 0;
+  }
+  return harvestAprPctFromAnalytics;
+}
+```
+
+Don’t try to re-derive the 10% LP staking rewards now; we just want to be explicit that `harvestAprPct` is “emissions + LP staking rewards from power-token fees”.
+
+---
+
+## 2. Replace all Fee APR calculations with `computeFeeAprPct`
+
+Search the codebase for all places where you compute or store Fee APR, e.g.:
+
+* `fee24hAPR`
+* `feeApr`, `feeAprPct`
+* any inline formulas using volume and TVL.
+
+For each location:
+
+1. Replace the home-rolled math with a call to `computeFeeAprPct({ volume24hUsd, poolTvlUsd })`.
+2. Ensure `volume24hUsd` and `poolTvlUsd` are **in USD**, not raw token amounts.
+3. If you need pool share or user-specific debug output, use `computeFeeAprWithShare`.
+
+Example in `garden-analytics.ts`:
+
+```ts
+import { computeFeeAprPct } from './utils/apr-utils';
+
+// after you have volume24hUsd and poolTvlUsd:
+const feeAprPct = computeFeeAprPct({ volume24hUsd, poolTvlUsd });
+
+// store as fee24hAPR or similar
+poolAnalytics.fee24hAPR = feeAprPct;
+```
+
+---
+
+## 3. Replace all Harvest APR usage with `getHarvestAprPct`
+
+Wherever you are using `harvesting24hAPR`:
+
+* Make sure it’s coming from your analytics layer.
+* Do **not** reapply 0.30%/0.20% logic; that’s for Fee APR, not Harvest.
+* Centralize all references through `getHarvestAprPct`.
+
+Example:
+
+```ts
+import { getHarvestAprPct } from './utils/apr-utils';
+
+const harvestAprPct = getHarvestAprPct({ harvestAprPctFromAnalytics: poolAnalytics.harvesting24hAPR });
+```
+
+That way, everything calling into the optimizer knows that:
+
+* Fee APR = `fee24hAPR` (from computeFeeAprPct)
+* Harvest APR = `getHarvestAprPct` (emissions + LP staking rewards)
+
+---
+
+## 4. Integrate these into the Garden APR Debug Tool
+
+There’s a `garden-apr-debug` tool being built; update it to use the new utilities.
+
+**File:** `src/tools/garden-apr-debug.ts` (or whichever file you created earlier).
+
+### 4.1 Inputs
+
+The tool should fetch:
+
+* 24h volume in USD: `volume24hUsd`
+* Pool TVL in USD: `poolTvlUsd`
+* User TVL in USD: `userTvlUsd` (if you know the wallet; if not, you can omit this)
+* Harvest APR from analytics: `harvesting24hAPR`
+
+### 4.2 Computations
+
+Use the new utilities:
+
+```ts
+import { computeFeeAprWithShare, getHarvestAprPct } from '../utils/apr-utils';
+
+const { poolAprPct: feeAprPct, share } = computeFeeAprWithShare({
+  volume24hUsd,
+  poolTvlUsd,
+  userTvlUsd,
+});
+const harvestAprPct = getHarvestAprPct({ harvestAprPctFromAnalytics: harvesting24hAPR });
+```
+
+### 4.3 Output
+
+Print everything explicitly so it’s easy to verify:
+
+```ts
+console.log('--- Garden APR Debug ---');
+console.log(`Pool: ${poolName}`);
+console.log(`24h Volume (USD): ${volume24hUsd.toFixed(2)}`);
+console.log(`Pool TVL (USD):   ${poolTvlUsd.toFixed(2)}`);
+if (userTvlUsd !== undefined) {
+  console.log(`Your TVL (USD):   ${userTvlUsd.toFixed(2)}`);
+  if (share !== undefined) {
+    console.log(`Your pool share:  ${(share * 100).toFixed(4)}%`);
+  }
+}
+
+console.log('\nFee APR (LP share only, 0.20% of swaps):');
+console.log(`  Fee APR (pool-level): ${feeAprPct.toFixed(4)}%`);
+
+console.log('\nHarvest APR (emissions + 10% power-token LP staking rewards):');
+console.log(`  Harvest APR: ${harvestAprPct.toFixed(4)}%`);
+
+const totalAprPct = feeAprPct + harvestAprPct;
+console.log('\nTotal Base APR (Fee + Harvest, no questing):');
+console.log(`  Total Base APR: ${totalAprPct.toFixed(4)}%`);
+```
+
+This gives you (and the user) a clear, math-traceable breakdown.
+
+---
+
+## 5. Optional: expose pool share & Jeweler share in educational text
+
+To support the Jeweler + fee distribution docs you’re using, add comments and optional debug lines explaining:
+
+* Swap fee = 0.30%
+
+  * 0.20% → LPs (used in Fee APR)
+  * 0.10% → Jeweler/Quest/Dev/Burn (depending on realm)
+
+* Power-token in-game fees distribution (for Harvest):
+
+  ```text
+  Power token fees:
+    15% Burn
+    10% LP Staking Rewards (boosts Harvest APR)
+    15% Jeweler Rewards
+    30% Quest Reward Fund
+    30% Dev Fund
+  ```
+
+You don’t need to compute these splits per user yet; just ensure the Fee APR and Harvest APR you display match these intentions.
+
+---
+
+## 6. Acceptance Criteria
+
+* All Fee APR calculations in the codebase now route through `computeFeeAprPct` / `computeFeeAprWithShare`, using **0.20%** LP share of swap fees and correct pool TVL.
+* Harvest APR is consistently obtained via `getHarvestAprPct` (which is wired to your analytics’ `harvesting24hAPR`), not recomputed ad hoc.
+* The Garden APR Debug Tool prints:
+
+  * 24h volume (USD), pool TVL, user TVL (if provided), **explicit pool share**.
+  * Fee APR with a note that it uses **0.20% LP share of swap fees**.
+  * Harvest APR as “emissions + 10% power-token LP staking rewards”.
+  * Combined Base APR (Fee + Harvest), clearly separated from Quest APR.
+* No regressions to existing data fetching code – only math and logging behavior changed.
+
+---
+
+You can now feed this prompt directly into Codex.
+Once it applies the changes, you’ll have a consistent, math-correct foundation for all your Fee APR / Harvest APR displays, and you can move on to layering the quest APR on top of that with confidence.

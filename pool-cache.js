@@ -40,7 +40,9 @@ function buildBasicCacheEntry(pool) {
     lpToken: pool.lpToken,
 
     // TVL & APR placeholders (basic fallback - no real values)
-    totalTVL: 'N/A',
+    totalTVL: 0,
+    volume24hUSD: 0,
+    fees24hUSD: 0,
     fee24hAPR: '0%',
     harvesting24hAPR: '0%',
     gardeningQuestAPR: { worst: '0%', best: '0%' },
@@ -65,6 +67,8 @@ function buildAnalyticsCacheEntry(pool) {
 
     // Real TVL and APR values from analytics
     totalTVL: pool.totalTVL || 0,
+    volume24hUSD: pool.volume24hUSD || 0,
+    fees24hUSD: pool.fees24hUSD || 0,
     fee24hAPR: pool.fee24hAPR || '0%',
     harvesting24hAPR: pool.harvesting24hAPR || '0%',
     gardeningQuestAPR: pool.gardeningQuestAPR || { worst: '0%', best: '0%' },

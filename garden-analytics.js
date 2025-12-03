@@ -4,6 +4,7 @@ import uniswapPairABI from './UniswapV2Pair.json' with { type: 'json' };
 import uniswapFactoryABI from './UniswapV2Factory.json' with { type: 'json' };
 import erc20ABI from './ERC20.json' with { type: 'json' };
 import questCoreABI from './QuestCoreV3.json' with { type: 'json' };
+import { computeFeeAprPct } from './apr-utils.js';
 
 // DFK Chain configuration
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
@@ -12,7 +13,10 @@ const QUEST_CORE_V3_ADDRESS = '0x530fff22987E137e7C8D2aDcC4c15eb45b4FA752';
 const UNISWAP_V2_FACTORY = '0x794C07912474351b3134E6D6B3B7b3b4A07cbAAa';
 const USDC_ADDRESS = '0x3AD9DFE640E1A9Cc1D9B0948620820D975c3803a'; // USDC.e on DFK Chain
 const BLOCKS_PER_DAY = 43200; // ~2 second blocks
-const FEE_RATE = 0.0025; // 0.25% swap fee
+
+// LP Fee Rate: 0.20% of swap volume goes to LPs (from 0.30% total swap fee)
+// See apr-utils.js for full fee distribution documentation
+const LP_FEE_RATE = 0.002; // 0.20% LP share of swap fees
 
 const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
 const stakingContract = new ethers.Contract(LP_STAKING_ADDRESS, lpStakingABI, provider);
@@ -456,12 +460,14 @@ export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stake
       totalVolumeUSD += volume0USD + volume1USD;
     }
     
-    // Calculate fee revenue
-    const dailyFeesUSD = totalVolumeUSD * FEE_RATE;
+    // Calculate fee revenue using LP fee rate (0.20% of 0.30% total swap fee)
+    const dailyFeesUSD = totalVolumeUSD * LP_FEE_RATE;
     
-    // Calculate APR
-    if (stakedLiquidity === 0) return 0;
-    const feeAPR = (dailyFeesUSD / stakedLiquidity) * 365 * 100;
+    // Calculate APR using centralized utility
+    if (stakedLiquidity === 0) return { feeAPR: 0, volume24hUSD: totalVolumeUSD, fees24hUSD: dailyFeesUSD, swapCount: swapEvents.length };
+    
+    // Use centralized APR calculation from apr-utils
+    const feeAPR = computeFeeAprPct({ volume24hUsd: totalVolumeUSD, poolTvlUsd: stakedLiquidity });
     
     return {
       feeAPR,
