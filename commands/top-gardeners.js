@@ -152,19 +152,17 @@ export async function execute(interaction) {
     console.log(`[TopGardeners] Analyzing wallet ${walletAddress}...`);
     
     // Fetch heroes and pets in parallel
-    const [heroes, petsResult] = await Promise.all([
+    const [heroes, pets] = await Promise.all([
       getHeroesByOwner(walletAddress),
-      fetchPetsForWallet(walletAddress)
+      fetchPetsForWallet(walletAddress)  // Returns array directly
     ]);
     
     if (!heroes || heroes.length === 0) {
       return interaction.editReply('❌ No heroes found for this wallet');
     }
     
-    const pets = petsResult?.pets || [];
-    
     // Filter for gardening pets only (eggType 2)
-    const gardeningPets = pets.filter(p => p.eggType === 2);
+    const gardeningPets = (pets || []).filter(p => p.eggType === 2);
     
     console.log(`[TopGardeners] Found ${heroes.length} heroes, ${gardeningPets.length} gardening pets`);
     
