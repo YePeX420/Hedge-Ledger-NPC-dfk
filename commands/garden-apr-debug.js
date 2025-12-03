@@ -15,6 +15,7 @@ import {
   computePerQuestYield
 } from '../hero-yield-model.js';
 import { getJewelPrice } from '../price-feed.js';
+import { getWalletPowerUpStatus } from '../rapid-renewal-service.js';
 
 const POOL_CHOICES = [
   { name: 'wJEWEL-xJEWEL', value: '0' },
@@ -139,7 +140,7 @@ function formatHeroForYield(hero) {
   };
 }
 
-function computeHeroQuestApr(hero, pet, poolMeta) {
+function computeHeroQuestApr(hero, pet, poolMeta, { hasGravityFeeder = false } = {}) {
   const formatted = formatHeroForYield(hero);
   
   let gardeningSkillBase = (hero.gardening || 0) / 10;
@@ -149,7 +150,8 @@ function computeHeroQuestApr(hero, pet, poolMeta) {
   
   if (pet) {
     const gardenBonus = calculatePetGardenBonus(pet);
-    petFed = pet.isFed || false;
+    // Pet is fed if manually fed OR if Gravity Feeder is active (auto-feeds during expeditions)
+    petFed = pet.isFed || hasGravityFeeder;
     if (gardenBonus.isGardeningPet && gardenBonus.questBonusPct > 0) {
       if (gardenBonus.description?.includes('Skilled Greenskeeper')) {
         gardeningSkillBase += gardenBonus.questBonusPct / 10;
@@ -252,12 +254,28 @@ export async function execute(interaction) {
     
     let userTvlUsd = null;
     let userPosition = null;
+    let hasGravityFeeder = false;
     
     if (walletAddress) {
-      userPosition = await getUserStakedPosition(pid, walletAddress, poolTvlUsd);
+      // Fetch staked position and power-up status in parallel
+      const [positionResult, powerUpStatus] = await Promise.all([
+        getUserStakedPosition(pid, walletAddress, poolTvlUsd),
+        getWalletPowerUpStatus(walletAddress).catch(err => {
+          console.warn(`[GardenAprDebug] Failed to fetch power-up status: ${err.message}`);
+          return null;
+        })
+      ]);
+      
+      userPosition = positionResult;
       if (userPosition && userPosition.userTvlUsd > 0) {
         userTvlUsd = userPosition.userTvlUsd;
       }
+      
+      // Check if Gravity Feeder is active (auto-feeds pets during expeditions)
+      // Note: For this gardening APR command, we assume the hero WILL be gardening,
+      // so Gravity Feeder bonus applies since gardening is an expedition quest type.
+      hasGravityFeeder = powerUpStatus?.gravityFeeder?.active || false;
+      console.log(`[GardenAprDebug] Gravity Feeder: ${hasGravityFeeder ? 'ACTIVE' : 'inactive'}`);
     }
     
     const feeData = computeFeeAprWithShare({ 
@@ -433,7 +451,7 @@ export async function execute(interaction) {
           continue;
         }
         
-        const questData = computeHeroQuestApr(result.hero, result.pet, poolMeta);
+        const questData = computeHeroQuestApr(result.hero, result.pet, poolMeta, { hasGravityFeeder });
         questAprTotal += questData.heroQuestApr;
         
         const className = result.hero.mainClassStr || result.hero.class || result.hero.heroClass || 'Unknown';
