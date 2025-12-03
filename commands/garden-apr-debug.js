@@ -14,6 +14,7 @@ import {
   computeStaminaPerDay
 } from '../hero-yield-model.js';
 import { getJewelPrice } from '../price-feed.js';
+import { getPoolCalibration } from '../pool-calibration.js';
 
 const POOL_CHOICES = [
   { name: 'wJEWEL-xJEWEL', value: '0' },
@@ -138,15 +139,17 @@ function formatHeroForYield(hero) {
   };
 }
 
-function computeHeroQuestApr(hero, pet, poolMeta) {
+function computeHeroQuestApr(hero, pet, poolMeta, poolId) {
   const formatted = formatHeroForYield(hero);
   
   let gardeningSkillBase = (hero.gardening || 0) / 10;
   let petBonus = 0;
   let petBonusType = null;
+  let petFed = false;
   
   if (pet) {
     const gardenBonus = calculatePetGardenBonus(pet);
+    petFed = pet.isFed || false;
     if (gardenBonus.isGardeningPet && gardenBonus.questBonusPct > 0) {
       if (gardenBonus.description?.includes('Skilled Greenskeeper')) {
         gardeningSkillBase += gardenBonus.questBonusPct / 10;
@@ -179,6 +182,12 @@ function computeHeroQuestApr(hero, pet, poolMeta) {
   
   const heroQuestApr = bestQuestApr * scale;
   
+  // Calculate per-quest JEWEL/CRYSTAL earnings
+  const calibration = getPoolCalibration(poolId);
+  const effectivePetBonus = petFed ? petBonus : 0;
+  const crystalPerQuest = calibration.crystalBase * 1 * factor * (1 + effectivePetBonus / 100);
+  const jewelPerQuest = calibration.jewelBase * 1 * factor * (1 + effectivePetBonus / 100);
+  
   return {
     heroQuestApr,
     factor,
@@ -186,8 +195,11 @@ function computeHeroQuestApr(hero, pet, poolMeta) {
     hasGardenGene,
     petBonus,
     petBonusType,
+    petFed,
     wis,
     vit,
+    crystalPerQuest,
+    jewelPerQuest,
   };
 }
 
@@ -411,7 +423,7 @@ export async function execute(interaction) {
           continue;
         }
         
-        const questData = computeHeroQuestApr(result.hero, result.pet, poolMeta);
+        const questData = computeHeroQuestApr(result.hero, result.pet, poolMeta, pid);
         questAprTotal += questData.heroQuestApr;
         
         const className = result.hero.mainClassStr || result.hero.class || result.hero.heroClass || 'Unknown';
@@ -446,6 +458,8 @@ export async function execute(interaction) {
           factor: questData.factor,
           questApr: questData.heroQuestApr,
           petInfo,
+          crystalPerQuest: questData.crystalPerQuest,
+          jewelPerQuest: questData.jewelPerQuest,
         });
       }
       
@@ -464,6 +478,7 @@ export async function execute(interaction) {
               `**Stats:** WIS ${hr.wis} | VIT ${hr.vit} | Grd ${hr.gardening}`,
               `**Garden Gene:** ${hr.hasGardenGene ? 'Yes (1.2x)' : 'No'}`,
               `**Pet:** ${hr.petInfo}`,
+              `**Per Quest:** ${hr.crystalPerQuest.toFixed(4)} CRYSTAL | ${hr.jewelPerQuest.toFixed(4)} JEWEL`,
               `**Quest APR:** ${hr.questApr.toFixed(4)}%`
             ].join('\n'),
             inline: true
