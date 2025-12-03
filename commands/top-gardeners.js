@@ -3,6 +3,20 @@ import { getHeroesByOwner } from '../onchain-data.js';
 import { fetchPetsForWallet } from '../pet-data.js';
 
 /**
+ * Normalize pet ID by removing realm prefix if present
+ * DFK pets have simple numeric IDs (e.g., 193469) but some APIs return 
+ * them with realm prefixes (e.g., 2000000193469)
+ */
+function normalizePetId(petId) {
+  const idStr = String(petId);
+  // Remove realm prefix: 1000000, 2000000 (7 digits starting with 1 or 2)
+  if (idStr.length > 7 && (idStr.startsWith('1000000') || idStr.startsWith('2000000'))) {
+    return idStr.slice(7);
+  }
+  return idStr;
+}
+
+/**
  * Power Surge skill IDs (gardening pets only, eggType 2)
  * Multiplies final yield by (1 + bonus%)
  */
@@ -227,17 +241,16 @@ export async function execute(interaction) {
       
       let petInfo = 'No yield-boosting pet available';
       if (p.pet) {
-        // Use full pet ID (not truncated)
-        const petId = p.pet.id;
+        // Normalize pet ID (remove realm prefix if present)
+        const petId = normalizePetId(p.pet.id);
         const skillIcon = p.skillType === 'power_surge' ? '⚡' : '🧑‍🌾';
         petInfo = `Pet #${petId} ${skillIcon}${p.skillName} +${p.bonus}%`;
       }
       
       const yieldDisplay = (p.finalYield * 100).toFixed(2);
-      const boostDisplay = p.yieldBoost > 0 ? ` (+${p.yieldBoost}%)` : '';
       
       return `**${p.rank}.** ${heroClass} Lv${heroLevel}${hasGene} #${heroId}\n` +
-             `   WIS:${WIS} VIT:${VIT} GRD:${grdSkill} → Yield: ${yieldDisplay}%${boostDisplay}\n` +
+             `   WIS:${WIS} VIT:${VIT} GRD:${grdSkill} → Yield: ${yieldDisplay}%\n` +
              `   └ ${petInfo}`;
     });
     
