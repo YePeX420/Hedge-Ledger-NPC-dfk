@@ -394,6 +394,10 @@ export async function generatePoolOptimizations(
             heroMeta: pair.jewel.heroMeta || {},
             gardenScore: pair.jewel.gardenScore || 0
           });
+          // Debug log pet data for this hero
+          if (pair.jewel.petId) {
+            console.log(`[Opt] Hero #${pair.jewel.heroId} has Pet #${pair.jewel.petId} (+${pair.jewel.petBonusPct || 0}%)`);
+          }
         }
         if (pair.crystal?.hero) {
           allocatedHeroes.push({
@@ -401,6 +405,10 @@ export async function generatePoolOptimizations(
             heroMeta: pair.crystal.heroMeta || {},
             gardenScore: pair.crystal.gardenScore || 0
           });
+          // Debug log pet data for this hero
+          if (pair.crystal.petId) {
+            console.log(`[Opt] Hero #${pair.crystal.heroId} has Pet #${pair.crystal.petId} (+${pair.crystal.petBonusPct || 0}%)`);
+          }
         }
       }
     }
@@ -410,10 +418,22 @@ export async function generatePoolOptimizations(
     
     console.log(`[Opt] Pool=${pairName}: Using ${allocatedHeroes.length} allocated heroes for APR calc`);
 
-    // BEFORE: Use worstQuestAPR as baseline (we don't know current hero assignments)
-    // AFTER: Use the heroes specifically allocated to THIS pool
+    // BEFORE: When wallet is linked, model current questing baseline using worst allocated hero
+    // AFTER: Use the heroes specifically allocated to THIS pool at optimal configuration
     const defaultAttempts = 25;
-    const beforeQuestAPR = worstQuestAPR;
+    
+    // Calculate before APR based on whether we have hero data
+    let beforeQuestAPR;
+    if (hasLinkedWallet && allocatedHeroes.length > 0) {
+      // Use the AVERAGE of allocated heroes at default (non-optimized) attempts
+      // This models "current setup" where user has these heroes but isn't optimizing quest attempts
+      beforeQuestAPR = averageQuestApr(allocatedHeroes, poolMeta, defaultAttempts);
+      console.log(`[Opt] Pool=${pairName}: BEFORE using allocated heroes avg APR: ${beforeQuestAPR.toFixed(2)}%`);
+    } else {
+      // Fallback to worst case when no heroes available
+      beforeQuestAPR = worstQuestAPR;
+      console.log(`[Opt] Pool=${pairName}: BEFORE using fallback worstQuestAPR: ${beforeQuestAPR.toFixed(2)}%`);
+    }
 
     const bestAttempt = allocatedHeroes.length
       ? findOptimalAttempts({

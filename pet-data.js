@@ -313,13 +313,27 @@ export function buildHeroPetBonusMap(heroes, allPets) {
  */
 export function annotateHeroesWithPets(heroes, allPets) {
   if (!heroes) return [];
-  if (!allPets || allPets.length === 0) return heroes;
+  if (!allPets || allPets.length === 0) {
+    console.log(`[PetData] No pets to annotate (${allPets?.length || 0} pets for ${heroes.length} heroes)`);
+    return heroes;
+  }
+  
+  // Log equipped pets for debugging
+  const equippedPets = allPets.filter(p => p.equippedTo);
+  console.log(`[PetData] Found ${equippedPets.length} equipped pets out of ${allPets.length} total`);
+  for (const pet of equippedPets) {
+    console.log(`[PetData] Pet #${pet.id} equipped to Hero #${pet.equippedTo}: ${pet.gatheringType} (+${pet.gatheringBonusScalar}%)`);
+  }
   
   return heroes.map(h => {
     const hero = h.hero || h;
     const heroId = String(hero.normalizedId || hero.id);
     const pet = getPetForHero(heroId, allPets);
     const gardenBonus = calculatePetGardenBonus(pet);
+    
+    if (pet) {
+      console.log(`[PetData] Annotating Hero #${heroId} with Pet #${pet.id} (${gardenBonus.questBonusPct}% bonus)`);
+    }
     
     return {
       ...h,
