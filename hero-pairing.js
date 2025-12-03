@@ -141,23 +141,51 @@ export async function detectHeroPairs(walletAddress, heroes = []) {
       continue;
     }
     
-    const isGardeningQuest = quest.questAddress?.toLowerCase() === GARDENING_QUEST_ADDRESS;
-    
-    if (!isGardeningQuest) {
-      console.log(`[HeroPairing] Quest ${quest.questId}: skipping (not a gardening quest, address=${quest.questAddress?.slice(0, 10)}...)`);
-      continue;
-    }
-    
     let poolId = null;
+    let isGardening = false;
     
     try {
       const fullQuestData = await getQuestById(quest.questId);
       if (fullQuestData && fullQuestData.questType !== undefined) {
-        poolId = fullQuestData.questType;
-        console.log(`[HeroPairing] Quest ${quest.questId}: poolId=${poolId} from questType`);
+        const questType = fullQuestData.questType;
+        if (questType >= 0 && questType <= 13 && GARDEN_POOLS[questType] !== undefined) {
+          poolId = questType;
+          isGardening = true;
+          console.log(`[HeroPairing] Quest ${quest.questId}: poolId=${poolId} (${GARDEN_POOLS[poolId]}) from questType`);
+        }
       }
     } catch (e) {
       console.warn(`[HeroPairing] Quest ${quest.questId}: failed to fetch full quest data: ${e.message}`);
+    }
+    
+    if (!isGardening) {
+      const addressMatch = quest.questAddress?.toLowerCase() === GARDENING_QUEST_ADDRESS;
+      if (addressMatch) {
+        isGardening = true;
+        console.log(`[HeroPairing] Quest ${quest.questId}: identified as gardening via questAddress`);
+      }
+    }
+    
+    if (!isGardening) {
+      const heroesInQuest = heroes.filter(h => {
+        const heroId = h.normalizedId || h.id;
+        return quest.heroIds.includes(Number(heroId));
+      });
+      
+      for (const hero of heroesInQuest) {
+        const decoded = decodeCurrentQuest(hero.currentQuest);
+        if (decoded.isGardening && decoded.poolId !== null) {
+          poolId = decoded.poolId;
+          isGardening = true;
+          console.log(`[HeroPairing] Quest ${quest.questId}: poolId=${poolId} from hero.currentQuest`);
+          break;
+        }
+      }
+    }
+    
+    if (!isGardening) {
+      console.log(`[HeroPairing] Quest ${quest.questId}: skipping (not a gardening quest)`);
+      continue;
     }
     
     if (poolId === null) {
@@ -168,9 +196,9 @@ export async function detectHeroPairs(walletAddress, heroes = []) {
       
       for (const hero of heroesInQuest) {
         const decoded = decodeCurrentQuest(hero.currentQuest);
-        if (decoded.isGardening && decoded.poolId !== null) {
+        if (decoded.poolId !== null) {
           poolId = decoded.poolId;
-          console.log(`[HeroPairing] Quest ${quest.questId}: poolId=${poolId} from hero.currentQuest`);
+          console.log(`[HeroPairing] Quest ${quest.questId}: poolId=${poolId} from hero.currentQuest (fallback)`);
           break;
         }
       }
