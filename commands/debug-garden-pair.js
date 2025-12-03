@@ -6,6 +6,7 @@ import { groupHeroesByGardenPool, computeGardenScore } from '../garden-pairs.js'
 import { computeHeroGardeningFactor, computeStaminaPerDay } from '../hero-yield-model.js';
 import { arePetsFedByGravityFeeder } from '../rapid-renewal-service.js';
 import { detectPairsWithRoles } from '../hero-pairing.js';
+import { getPoolCalibration, formatCalibrationInfo } from '../pool-calibration.js';
 
 const GARDEN_POOLS = [
   { pid: 0, name: 'wJEWEL-xJEWEL' },
@@ -174,7 +175,8 @@ export async function execute(interaction) {
       }
       
       const iterationAnalysis = calculateActualIteration(h1, h2, actualAttempts, pair);
-      const { crystalPerRun, jewelPerRun } = estimatePerRunYield(h1, h2, actualAttempts);
+      const yieldResult = estimatePerRunYield(h1, h2, actualAttempts, poolId);
+      const { crystalPerRun, jewelPerRun, calibration } = yieldResult;
       
       const roleSource = pair.rolesSource?.startsWith('reward_history') ? '(verified)' : '(heuristic)';
       const durationLabel = iterationAnalysis.isActualDuration ? '' : '~';
@@ -193,9 +195,13 @@ export async function execute(interaction) {
       });
     }
     
+    const poolCalibration = getPoolCalibration(poolId);
+    const calibratedNote = poolCalibration.isDefault 
+      ? '(default estimate - needs calibration)' 
+      : `(calibrated from ${poolCalibration.source})`;
     embed.addFields({
       name: 'Calibration Constants',
-      value: `CRYSTAL base: 2.8/attempt, JEWEL base: 0.2/attempt\n*Compare to your actual returns to validate*`,
+      value: `CRYSTAL: ${poolCalibration.crystalBase.toFixed(4)}/attempt\nJEWEL: ${poolCalibration.jewelBase.toFixed(4)}/attempt\n${calibratedNote}`,
       inline: false
     });
     
@@ -320,28 +326,38 @@ function calculateActualIteration(h1, h2, attempts, pair = null) {
   };
 }
 
-function estimatePerRunYield(h1, h2, attempts) {
-  const CRYSTAL_BASE_PER_ATTEMPT = 2.8;
-  const JEWEL_BASE_PER_ATTEMPT = 0.2;
+function estimatePerRunYield(h1, h2, attempts, poolId = null) {
+  const calibration = getPoolCalibration(poolId);
+  const CRYSTAL_BASE = calibration.crystalBase;
+  const JEWEL_BASE = calibration.jewelBase;
   
-  const factor1 = h1.factor;
-  const petBonus1 = h1.petFed ? h1.petBonusPct : 0;
+  let crystalPerRun, jewelPerRun;
   
-  const factor2 = h2 ? h2.factor : 0;
-  const petBonus2 = h2?.petFed ? h2.petBonusPct : 0;
-  
-  const hero1Crystal = CRYSTAL_BASE_PER_ATTEMPT * attempts * factor1 * (1 + petBonus1 / 100);
-  const hero1Jewel = JEWEL_BASE_PER_ATTEMPT * attempts * factor1 * (1 + petBonus1 / 100);
-  
-  const hero2Crystal = h2 ? CRYSTAL_BASE_PER_ATTEMPT * attempts * factor2 * (1 + petBonus2 / 100) : 0;
-  const hero2Jewel = h2 ? JEWEL_BASE_PER_ATTEMPT * attempts * factor2 * (1 + petBonus2 / 100) : 0;
+  if (h2 && (h1.role || h2.role)) {
+    const crystalFarmer = h1.role === 'CRYSTAL' ? h1 : h2;
+    const jewelFarmer = h1.role === 'JEWEL' ? h1 : h2;
+    
+    const cFactor = crystalFarmer.factor;
+    const cPetBonus = crystalFarmer.petFed ? crystalFarmer.petBonusPct : 0;
+    const jFactor = jewelFarmer.factor;
+    const jPetBonus = jewelFarmer.petFed ? jewelFarmer.petBonusPct : 0;
+    
+    crystalPerRun = CRYSTAL_BASE * attempts * cFactor * (1 + cPetBonus / 100);
+    jewelPerRun = JEWEL_BASE * attempts * jFactor * (1 + jPetBonus / 100);
+  } else {
+    const factor1 = h1.factor;
+    const petBonus1 = h1.petFed ? h1.petBonusPct : 0;
+    crystalPerRun = CRYSTAL_BASE * attempts * factor1 * (1 + petBonus1 / 100);
+    jewelPerRun = JEWEL_BASE * attempts * factor1 * (1 + petBonus1 / 100);
+  }
   
   return {
-    crystalPerRun: hero1Crystal + hero2Crystal,
-    jewelPerRun: hero1Jewel + hero2Jewel,
-    breakdown: {
-      hero1: { crystal: hero1Crystal, jewel: hero1Jewel },
-      hero2: h2 ? { crystal: hero2Crystal, jewel: hero2Jewel } : null
+    crystalPerRun,
+    jewelPerRun,
+    calibration: {
+      crystalBase: CRYSTAL_BASE,
+      jewelBase: JEWEL_BASE,
+      isCalibrated: !calibration.isDefault
     }
   };
 }
