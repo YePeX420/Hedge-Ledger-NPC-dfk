@@ -309,6 +309,8 @@ export async function execute(interaction) {
     const heroResults = [];
     
     if (hero1Id || hero2Id) {
+      console.log(`[GardenAprDebug] Processing heroes: hero1Id=${hero1Id}, hero2Id=${hero2Id}`);
+      
       const poolMeta = {
         gardeningQuestAPR: pool.gardeningQuestAPR || { worst: '0%', best: '0%' }
       };
@@ -316,42 +318,57 @@ export async function execute(interaction) {
       const fetchPromises = [];
       
       if (hero1Id) {
+        console.log(`[GardenAprDebug] Fetching hero1: ${hero1Id}`);
         fetchPromises.push(
           (async () => {
-            const hero = await getHeroById(hero1Id);
-            let pet = null;
-            let petSource = null;
-            if (pet1Id) {
-              pet = await fetchPetById(pet1Id);
-              petSource = 'manual';
-            } else {
-              pet = await fetchPetForHero(hero1Id);
-              petSource = pet ? 'auto' : null;
+            try {
+              const hero = await getHeroById(hero1Id);
+              console.log(`[GardenAprDebug] Hero1 result: ${hero ? `Found (class=${hero.mainClassStr})` : 'null'}`);
+              let pet = null;
+              let petSource = null;
+              if (pet1Id) {
+                pet = await fetchPetById(pet1Id);
+                petSource = 'manual';
+              } else if (hero) {
+                pet = await fetchPetForHero(hero1Id);
+                petSource = pet ? 'auto' : null;
+              }
+              return { hero, pet, heroId: hero1Id, petId: pet1Id, petSource, slot: 1 };
+            } catch (err) {
+              console.error(`[GardenAprDebug] Error fetching hero1:`, err.message);
+              return { hero: null, pet: null, heroId: hero1Id, petId: pet1Id, petSource: null, slot: 1 };
             }
-            return { hero, pet, heroId: hero1Id, petId: pet1Id, petSource, slot: 1 };
           })()
         );
       }
       
       if (hero2Id) {
+        console.log(`[GardenAprDebug] Fetching hero2: ${hero2Id}`);
         fetchPromises.push(
           (async () => {
-            const hero = await getHeroById(hero2Id);
-            let pet = null;
-            let petSource = null;
-            if (pet2Id) {
-              pet = await fetchPetById(pet2Id);
-              petSource = 'manual';
-            } else {
-              pet = await fetchPetForHero(hero2Id);
-              petSource = pet ? 'auto' : null;
+            try {
+              const hero = await getHeroById(hero2Id);
+              console.log(`[GardenAprDebug] Hero2 result: ${hero ? `Found (class=${hero.mainClassStr})` : 'null'}`);
+              let pet = null;
+              let petSource = null;
+              if (pet2Id) {
+                pet = await fetchPetById(pet2Id);
+                petSource = 'manual';
+              } else if (hero) {
+                pet = await fetchPetForHero(hero2Id);
+                petSource = pet ? 'auto' : null;
+              }
+              return { hero, pet, heroId: hero2Id, petId: pet2Id, petSource, slot: 2 };
+            } catch (err) {
+              console.error(`[GardenAprDebug] Error fetching hero2:`, err.message);
+              return { hero: null, pet: null, heroId: hero2Id, petId: pet2Id, petSource: null, slot: 2 };
             }
-            return { hero, pet, heroId: hero2Id, petId: pet2Id, petSource, slot: 2 };
           })()
         );
       }
       
       const results = await Promise.all(fetchPromises);
+      console.log(`[GardenAprDebug] All hero fetches complete. Results count: ${results.length}`);
       
       for (const result of results) {
         if (!result.hero) {
