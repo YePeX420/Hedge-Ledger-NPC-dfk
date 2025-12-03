@@ -2561,8 +2561,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const { getAllExpeditions } = await import('./onchain-data.js');
             const { getWalletPowerUpStatus } = await import('./rapid-renewal-service.js');
             
+            // Use the full hero ID for pet lookup (not normalizedId) since the PetCore contract uses full IDs
+            const fullHeroId = hero.id || heroId;
             const [pet, powerUpStatus] = await Promise.all([
-              fetchPetForHero(hero.normalizedId || heroId),
+              fetchPetForHero(fullHeroId),
               getWalletPowerUpStatus(ownerWallet).catch(() => null)
             ]);
             
