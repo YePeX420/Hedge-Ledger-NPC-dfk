@@ -1,0 +1,72 @@
+> Task: Make garden teaser honest when TVL isn’t ready
+
+We recently fixed two bugs:
+
+Missing import of isPaymentBypassEnabled
+
+Long optimization reports exceeding Discord’s 2000-char limit
+
+
+However, the initial “detected pools” teaser in handleGardenOptimizationDM still shows Total value: $0.00 whenever fast startup data doesn’t include TVL yet. That’s misleading.
+
+Goal:
+Update the teaser so Hedge:
+
+Only shows a dollar figure when we have a non-trivial TVL estimate from detectWalletLPPositions.
+
+Otherwise explicitly says that detailed $ value is still loading and will be in the full optimization report.
+
+
+Where to change it:
+
+bot.js → handleGardenOptimizationDM
+
+
+Current behavior (simplified):
+
+const poolNames = positions.map((p) => p.pairName).join(', ');
+const totalValueNum = positions.reduce(
+  (sum, p) => sum + parseFloat(p.userTVL || 0),
+  0
+);
+const totalValueStr = isNaN(totalValueNum)
+  ? 'N/A'
+  : `$${totalValueNum.toFixed(0)}`;
+
+await message.reply(
+  `I found you're staking in ${positions.length} pool${
+    positions.length > 1 ? 's' : ''
+  }: ${poolNames} (Total value: ${totalValueStr}).\n\n` +
+  `Full optimization (hero & pet assignments + APR uplift) costs **25 JEWEL**.\n` +
+  `If you want to proceed, send 25 JEWEL to my wallet and paste the transaction hash here with \`tx:<hash>\`.`
+);
+
+Desired behavior:
+
+Keep listing pools immediately (fast data).
+
+Compute totalValueNum as we do now, but:
+
+If totalValueNum is clearly non-zero (e.g. > 1), show an approximate total:
+
+(Approx. total value: $X)
+
+If totalValueNum is zero or NaN, avoid showing $0.00:
+
+(Detailed $ value is still loading — I’ll include it in your optimization report.)
+
+
+Use a helper like:
+
+const hasValue = totalValueNum > 1;
+
+to decide which branch to use.
+
+
+Acceptance:
+
+When fast path has no TVL yet, teaser shows pools + a “value is loading” message, not $0.00.
+
+When TVL is available, teaser shows an approximate $ value and matches debug tools within reason.
+
+Full optimization report still uses the full analytics and shows the true TVL (no regressions).
