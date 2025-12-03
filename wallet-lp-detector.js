@@ -173,6 +173,7 @@ export async function detectWalletLPPositions(walletAddress) {
 
 /**
  * Format LP positions for AI summary (no yields shown)
+ * Shows honest TVL status - approx value if available, or "still loading" if not
  */
 export function formatLPPositionsSummary(positions) {
   if (!positions || positions.length === 0) {
@@ -180,17 +181,20 @@ export function formatLPPositionsSummary(positions) {
   }
 
   const poolList = positions.map((p) => p.pairName).join(', ');
-  const totalValue = (() => {
-    const sum = positions.reduce((acc, p) => {
-      const val = parseFloat(p?.userTVL ?? '0');
-      return Number.isFinite(val) ? acc + val : acc;
-    }, 0);
-    return Number.isFinite(sum) ? sum.toFixed(2) : '0.00';
-  })();
+  const totalValueNum = positions.reduce((acc, p) => {
+    const val = parseFloat(p?.userTVL ?? '0');
+    return Number.isFinite(val) ? acc + val : acc;
+  }, 0);
+
+  // Only show dollar value if we have meaningful TVL data (> $1)
+  const hasValue = Number.isFinite(totalValueNum) && totalValueNum > 1;
+  const valueStr = hasValue
+    ? `(Approx. total value: $${totalValueNum.toFixed(0)})`
+    : `(Detailed $ value is still loading — I'll include it in your optimization report.)`;
 
   return `I found ${positions.length} garden pool${
     positions.length > 1 ? 's' : ''
-  }: **${poolList}** (Total value: $${totalValue})`;
+  }: **${poolList}** ${valueStr}`;
 }
 
 // -------------------------------
