@@ -205,26 +205,35 @@ export async function fetchPetForHero(heroId) {
 }
 
 /**
- * Fetch pets for multiple heroes using heroToPet mapping
+ * Fetch pets for multiple heroes using heroToPet mapping (parallel)
  * Used as a fallback for heroes missing from getUserPetsV2 results
  * @param {Array<string|number>} heroIds - Array of hero IDs
- * @returns {Promise<Array>} Array of pet objects
+ * @returns {Promise<Array>} Array of pet objects (de-duplicated by pet ID)
  */
 export async function fetchPetsForHeroes(heroIds) {
-  const results = [];
-  
-  for (const heroId of heroIds) {
+  // Fetch all pets in parallel
+  const promises = heroIds.map(async (heroId) => {
     try {
-      const pet = await fetchPetForHero(heroId);
-      if (pet) {
-        results.push(pet);
-      }
+      return await fetchPetForHero(heroId);
     } catch (error) {
       console.error(`[PetData] Error fetching pet for hero #${heroId}:`, error.message);
+      return null;
+    }
+  });
+  
+  const results = await Promise.all(promises);
+  
+  // Filter nulls and de-duplicate by pet ID
+  const seenPetIds = new Set();
+  const uniquePets = [];
+  for (const pet of results) {
+    if (pet && !seenPetIds.has(pet.id)) {
+      seenPetIds.add(pet.id);
+      uniquePets.push(pet);
     }
   }
   
-  return results;
+  return uniquePets;
 }
 
 /**
@@ -477,9 +486,19 @@ export async function annotateHeroesWithPets(heroes, allPets, options = {}) {
     
     if (foundPets.length > 0) {
       console.log(`[PetData] ✓ Found ${foundPets.length} pets via heroToPet fallback:`);
+      
+      // Build set of existing pet IDs for de-duplication
+      const existingPetIds = new Set(petsWithFallback.map(p => p.id));
+      
       for (const pet of foundPets) {
-        console.log(`[PetData]   Pet #${pet.id} -> Hero #${pet.equippedTo}: ${pet.gatheringType} (+${pet.gatheringBonusScalar}%)`);
-        petsWithFallback.push(pet);
+        // Only add if not already in the list (de-duplicate by pet ID)
+        if (!existingPetIds.has(pet.id)) {
+          console.log(`[PetData]   Pet #${pet.id} -> Hero #${pet.equippedTo}: ${pet.gatheringType} (+${pet.gatheringBonusScalar}%)`);
+          petsWithFallback.push(pet);
+          existingPetIds.add(pet.id);
+        } else {
+          console.log(`[PetData]   Pet #${pet.id} already in list (skipping duplicate)`);
+        }
       }
     }
   }
