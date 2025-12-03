@@ -2307,6 +2307,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
               level
               generation
               
+              # Owner info for pet lookup
+              owner {
+                id
+                name
+              }
+              
               # Basic stats
               strength
               intelligence
@@ -2428,29 +2434,62 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines2.push(`HP: ${hero.hp || 0} | MP: ${hero.mp || 0}`);
         lines2.push('');
         
-        // Profession Skills (stored as x10 in API)
+        // Profession Skills (stored as x10 in API) - Bold the one matching D-gene
         lines2.push('**🛠️ Profession Skills:**');
         const gardeningSkill = (hero.gardening || 0) / 10;
         const miningSkill = (hero.mining || 0) / 10;
         const foragingSkill = (hero.foraging || 0) / 10;
         const fishingSkill = (hero.fishing || 0) / 10;
-        lines2.push(`Gardening: ${gardeningSkill.toFixed(1)} | Mining: ${miningSkill.toFixed(1)} | Foraging: ${foragingSkill.toFixed(1)} | Fishing: ${fishingSkill.toFixed(1)}`);
+        const profDGene = decoded.profession.dominant;
+        
+        // Format each skill, bolding the one that matches D-gene profession
+        const formatSkill = (name, value) => {
+          const formatted = `${name}: ${value.toFixed(1)}`;
+          return profDGene === name ? `**${formatted}**` : formatted;
+        };
+        
+        lines2.push(`${formatSkill('Gardening', gardeningSkill)} | ${formatSkill('Mining', miningSkill)} | ${formatSkill('Foraging', foragingSkill)} | ${formatSkill('Fishing', fishingSkill)}`);
         lines2.push('');
         
-        // Summons
+        // Summons - show as "X/Y available" format
         lines2.push('**🔮 Summons:**');
         const summons = hero.summons ?? 0;
         const maxSummons = hero.maxSummons ?? 0;
         const remaining = maxSummons - summons;
-        lines2.push(`Used: ${summons}/${maxSummons} | Remaining: ${remaining}`);
+        lines2.push(`${remaining}/${maxSummons} available`);
         lines2.push('');
         
-        // Stamina info - show as used/max format (e.g., 25/35 means 25 used out of 35)
-        const maxStamina = 25; // Base max stamina for heroes
+        // Stamina info - show as current/max format (e.g., 9/34 means 9 remaining out of 34 max)
+        // Calculate max stamina from staminaFullAt if available, otherwise from level formula
         const currentStamina = hero.stamina ?? 0;
-        const usedStamina = maxStamina - currentStamina;
+        let maxStamina;
+        
+        if (hero.staminaFullAt) {
+          const fullAt = hero.staminaFullAt;
+          const now = Math.floor(Date.now() / 1000);
+          
+          if (fullAt > now) {
+            // Stamina regens at 1 per 20 minutes (1200 seconds)
+            // staminaToRegen = timeRemaining / 1200
+            const secondsRemaining = fullAt - now;
+            const staminaToRegen = Math.ceil(secondsRemaining / 1200);
+            maxStamina = currentStamina + staminaToRegen;
+          } else {
+            // staminaFullAt is in the past, hero is at full
+            maxStamina = currentStamina;
+          }
+        } else {
+          // No staminaFullAt means hero is at full stamina
+          maxStamina = currentStamina;
+        }
+        
+        // Ensure maxStamina is at least the level-based minimum (25 + floor(level/5))
+        const heroLevel = hero.level || 0;
+        const calculatedMinMax = 25 + Math.floor(heroLevel / 5);
+        maxStamina = Math.max(maxStamina, calculatedMinMax);
+        
         lines2.push('**🔋 Stamina:**');
-        lines2.push(`**Current:** ${usedStamina}/${maxStamina} (${currentStamina} remaining)`);
+        lines2.push(`**Current:** ${currentStamina}/${maxStamina}`);
         if (hero.staminaFullAt) {
           const fullAt = new Date(hero.staminaFullAt * 1000);
           const now = new Date();
@@ -2511,6 +2550,112 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await interaction.followUp(output2.slice(0, 1900) + '\n_...truncated_');
         } else {
           await interaction.followUp(output2);
+        }
+        
+        // === PET INFO FOLLOW-UP (Third message) ===
+        const ownerWallet = hero.owner?.id;
+        
+        if (ownerWallet) {
+          try {
+            const { fetchPetForHero } = await import('./pet-data.js');
+            const { getAllExpeditions } = await import('./onchain-data.js');
+            const { getWalletPowerUpStatus } = await import('./rapid-renewal-service.js');
+            
+            const [pet, powerUpStatus] = await Promise.all([
+              fetchPetForHero(hero.normalizedId || heroId),
+              getWalletPowerUpStatus(ownerWallet).catch(() => null)
+            ]);
+            
+            const petLines = [];
+            petLines.push('🐾 **Equipped Pet**');
+            petLines.push('');
+            
+            if (pet) {
+              const hasGF = powerUpStatus?.gravityFeeder?.active || false;
+              const fedReason = pet.isFed 
+                ? `Fed (${pet.hungryInHours}h remaining)` 
+                : (hasGF ? 'Fed (Gravity Feeder)' : 'Hungry');
+              
+              const shinyText = pet.shiny ? '✨ Shiny' : 'Non-Shiny';
+              petLines.push(`**Pet #${pet.id}** ${shinyText}`);
+              petLines.push(`Variant: ${pet.variant || 'Normal'}`);
+              petLines.push(`• Profession: ${pet.profession || pet.gatheringType}`);
+              petLines.push(`• Stars: ${pet.stars || pet.bonusCount || 0}`);
+              petLines.push(`• Rarity: ${pet.rarityName} | Element: ${pet.elementName}`);
+              petLines.push(`• Season: ${pet.seasonName}`);
+              petLines.push('');
+              
+              petLines.push('**Gathering Stats:**');
+              petLines.push(`• Skill: ${pet.gatheringSkillName || pet.gatheringBonusName}`);
+              if (pet.gatheringSkillDescription) {
+                petLines.push(`• Description: ${pet.gatheringSkillDescription}`);
+              }
+              petLines.push(`• Bonus: +${pet.gatheringBonusScalar}%`);
+              petLines.push(`• Bonus Rarity: ${pet.gatheringStarsDisplay || '⭐'} (${pet.gatheringStars || 1} stars)`);
+              petLines.push('');
+              
+              petLines.push('**Combat Stats:**');
+              petLines.push(`• Skill: ${pet.combatSkillName || pet.combatBonusName}`);
+              if (pet.combatSkillDescription) {
+                petLines.push(`• Description: ${pet.combatSkillDescription}`);
+              }
+              petLines.push(`• Bonus: +${pet.combatBonusScalar}%`);
+              petLines.push(`• Bonus Rarity: ${pet.combatStarsDisplay || '⭐'} (${pet.combatStars || 1} stars)`);
+              petLines.push('');
+              
+              petLines.push(`**Status:** ${fedReason}`);
+            } else {
+              petLines.push('*No pet equipped to this hero*');
+            }
+            
+            await interaction.followUp(petLines.join('\n').slice(0, 1900));
+            
+            // === POWER-UPS FOLLOW-UP (Fourth message) ===
+            const powerLines = [];
+            powerLines.push('⚡ **Power-ups**');
+            powerLines.push('');
+            
+            if (powerUpStatus) {
+              const hasRR = powerUpStatus.rapidRenewal?.heroIds?.includes(hero.normalizedId) ||
+                           powerUpStatus.rapidRenewal?.heroIds?.includes(Number(heroId)) || false;
+              
+              powerLines.push('**Active:**');
+              powerLines.push(`• Wild Unknown: ${powerUpStatus.wildUnknown?.active ? '✅' : '❌'}`);
+              powerLines.push(`• Quick Study: ${powerUpStatus.quickStudy?.active ? '✅' : '❌'}`);
+              powerLines.push(`• Gravity Feeder: ${powerUpStatus.gravityFeeder?.active ? '✅' : '❌'}`);
+              powerLines.push(`• Rapid Renewal: ${hasRR ? '✅ (this hero)' : '❌'}`);
+              powerLines.push(`• Premium Provisions: ${powerUpStatus.premiumProvisions?.active ? '✅' : '❌'}`);
+              
+              const recommendations = [];
+              if (!powerUpStatus.wildUnknown?.active) {
+                recommendations.push('• **Wild Unknown** - Send extra heroes on expeditions');
+              }
+              if (!powerUpStatus.quickStudy?.active) {
+                recommendations.push('• **Quick Study** - Increase XP gains from training');
+              }
+              if (!powerUpStatus.gravityFeeder?.active) {
+                recommendations.push('• **Gravity Feeder** - Auto-feed all pets during expeditions');
+              }
+              if (!hasRR) {
+                recommendations.push('• **Rapid Renewal** - Faster stamina regen (3s/level reduction)');
+              }
+              if (!powerUpStatus.premiumProvisions?.active) {
+                recommendations.push('• **Premium Provisions** - Bonus pet food quality');
+              }
+              
+              if (recommendations.length > 0) {
+                powerLines.push('');
+                powerLines.push('**Available Upgrades:**');
+                powerLines.push(...recommendations);
+              }
+            } else {
+              powerLines.push('*Unable to fetch power-up status*');
+            }
+            
+            await interaction.followUp(powerLines.join('\n').slice(0, 1900));
+          } catch (petErr) {
+            console.error('[debug-hero-genetics] Pet fetch error:', petErr.message);
+          }
         }
         
       } catch (err) {
