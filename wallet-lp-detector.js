@@ -309,27 +309,50 @@ export async function generatePoolOptimizations(
 
     const poolMeta = { gardeningQuestAPR: { best: `${bestQuestAPR}%` } };
 
-    const currentHeroes = hasLinkedWallet
-      ? heroProfiles.slice(0, 6)
-      : [];
+    // Find the per-pool hero allocation for this specific pool
+    const poolAlloc = poolAllocations.find(p => p.pairName === pairName);
+    
+    // Extract allocated heroes from the pool's pairs
+    const allocatedHeroes = [];
+    if (poolAlloc?.pairs) {
+      for (const pair of poolAlloc.pairs) {
+        if (pair.jewel?.hero) {
+          allocatedHeroes.push({
+            hero: pair.jewel.hero,
+            heroMeta: pair.jewel.heroMeta || {},
+            gardenScore: pair.jewel.gardenScore || 0
+          });
+        }
+        if (pair.crystal?.hero) {
+          allocatedHeroes.push({
+            hero: pair.crystal.hero,
+            heroMeta: pair.crystal.heroMeta || {},
+            gardenScore: pair.crystal.gardenScore || 0
+          });
+        }
+      }
+    }
+    
+    // Sort allocated heroes by garden score for APR calculations
+    allocatedHeroes.sort((a, b) => (b.gardenScore || 0) - (a.gardenScore || 0));
+    
+    console.log(`[Opt] Pool=${pairName}: Using ${allocatedHeroes.length} allocated heroes for APR calc`);
 
-    const optimizedHeroes = heroProfiles.slice(0, 6);
-
+    // BEFORE: Use worstQuestAPR as baseline (we don't know current hero assignments)
+    // AFTER: Use the heroes specifically allocated to THIS pool
     const defaultAttempts = 25;
-    const beforeQuestAPR = currentHeroes.length
-      ? averageQuestApr(currentHeroes, poolMeta, defaultAttempts)
-      : worstQuestAPR;
+    const beforeQuestAPR = worstQuestAPR;
 
-    const bestAttempt = optimizedHeroes.length
+    const bestAttempt = allocatedHeroes.length
       ? findOptimalAttempts({
-          hero: optimizedHeroes[0].hero,
-          heroMeta: optimizedHeroes[0].heroMeta,
+          hero: allocatedHeroes[0].hero,
+          heroMeta: allocatedHeroes[0].heroMeta,
           poolMeta,
         })
-      : { attempts: defaultAttempts, eff: beforeQuestAPR };
+      : { attempts: defaultAttempts, eff: worstQuestAPR };
 
-    const afterQuestAPR = optimizedHeroes.length
-      ? averageQuestApr(optimizedHeroes, poolMeta, bestAttempt.attempts)
+    const afterQuestAPR = allocatedHeroes.length
+      ? averageQuestApr(allocatedHeroes, poolMeta, bestAttempt.attempts)
       : bestQuestAPR;
 
     const beforeAPR = baseAPR + beforeQuestAPR;
@@ -365,9 +388,9 @@ export async function generatePoolOptimizations(
         'Either trading or gardening pets work. Gardening pets help push the upper end of the APR range.';
     }
 
-    if (optimizedHeroes[0]) {
-      const h = optimizedHeroes[0].hero;
-      heroRecommendation += `\n\nTop gardener right now looks like **Hero #${
+    if (allocatedHeroes[0]) {
+      const h = allocatedHeroes[0].hero;
+      heroRecommendation += `\n\nTop gardener for this pool: **Hero #${
         h.normalizedId || h.id
       }** (Lvl ${h.level || 0}, Gardening ${((h.gardening || 0) / 10).toFixed(
         1
@@ -404,19 +427,16 @@ export async function generatePoolOptimizations(
     const dailyBefore = computeDailyTokens(beforeQuestAPR);
     const dailyAfter = computeDailyTokens(afterQuestAPR);
 
-    const attemptDelta = optimizedHeroes.length
+    const attemptDelta = allocatedHeroes.length
       ? simulateGardeningDailyYield(
           {
-            hero: optimizedHeroes[0].hero,
-            heroMeta: optimizedHeroes[0].heroMeta,
+            hero: allocatedHeroes[0].hero,
+            heroMeta: allocatedHeroes[0].heroMeta,
             poolMeta,
           },
           bestAttempt.attempts
         )
       : null;
-
-    // Find the pool allocation for this position
-    const poolAlloc = poolAllocations.find(p => p.pairName === pairName);
     
     recommendations.push({
       pairName,
