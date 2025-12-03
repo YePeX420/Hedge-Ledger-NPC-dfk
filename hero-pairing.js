@@ -110,6 +110,86 @@ export async function getQuestById(questId) {
 }
 
 /**
+ * Fallback: Detect gardening heroes from hero.currentQuest field
+ * Used when getActiveQuests contract call fails
+ * 
+ * @param {Array} heroes - Array of hero objects with currentQuest field
+ * @returns {Object} Detected pairs grouped by pool
+ */
+function detectPairsFromCurrentQuest(heroes) {
+  const poolHeroes = new Map();
+  
+  console.log(`[HeroPairing] Using currentQuest fallback for ${heroes.length} heroes...`);
+  
+  for (const h of heroes) {
+    const hero = h.hero || h;
+    const questHex = hero.currentQuest;
+    const decoded = decodeCurrentQuest(questHex);
+    
+    if (decoded.isGardening && decoded.poolId !== null) {
+      if (!poolHeroes.has(decoded.poolId)) {
+        poolHeroes.set(decoded.poolId, []);
+      }
+      poolHeroes.get(decoded.poolId).push(h);
+    }
+  }
+  
+  console.log(`[HeroPairing] Found gardening heroes in ${poolHeroes.size} pools via currentQuest`);
+  
+  const pairs = [];
+  const poolPairs = {};
+  const heroToPair = new Map();
+  
+  for (const [poolId, poolHeroList] of poolHeroes.entries()) {
+    poolPairs[poolId] = [];
+    
+    for (let i = 0; i < poolHeroList.length; i += 2) {
+      const h1 = poolHeroList[i];
+      const h2 = poolHeroList[i + 1];
+      
+      const hero1 = h1.hero || h1;
+      const hero2 = h2 ? (h2.hero || h2) : null;
+      
+      const heroId1 = Number(hero1.normalizedId || hero1.id);
+      const heroId2 = hero2 ? Number(hero2.normalizedId || hero2.id) : null;
+      
+      const pairData = {
+        questId: null,
+        poolId,
+        poolName: GARDEN_POOLS[poolId] || `Pool ${poolId}`,
+        heroIds: hero2 ? [heroId1, heroId2] : [heroId1],
+        heroes: hero2 ? [h1, h2] : [h1],
+        startTime: null,
+        completeAtTime: null,
+        attempts: 25,
+        isGardening: true,
+        detectionMethod: 'currentQuest_fallback',
+      };
+      
+      pairs.push(pairData);
+      poolPairs[poolId].push(pairData);
+      
+      heroToPair.set(heroId1, pairData);
+      if (heroId2) heroToPair.set(heroId2, pairData);
+    }
+    
+    console.log(`[HeroPairing] Pool ${poolId} (${GARDEN_POOLS[poolId]}): ${poolHeroList.length} heroes -> ${poolPairs[poolId].length} pairs`);
+  }
+  
+  console.log(`[HeroPairing] ✅ Fallback Detection Summary:`);
+  console.log(`  - Total gardening heroes: ${[...poolHeroes.values()].reduce((a, b) => a + b.length, 0)}`);
+  console.log(`  - Total pairs: ${pairs.length}`);
+  console.log(`  - Pools with heroes: ${poolHeroes.size}`);
+  
+  return {
+    pools: poolPairs,
+    pairs,
+    unpairedHeroes: [],
+    heroToPair,
+  };
+}
+
+/**
  * Detect hero pairs from active gardening quests
  * Heroes in the same quest struct are paired together.
  * 
@@ -126,8 +206,8 @@ export async function detectHeroPairs(walletAddress, heroes = []) {
   const activeQuests = await getActiveQuests(walletAddress);
   
   if (activeQuests.length === 0) {
-    console.log(`[HeroPairing] No active quests found for wallet`);
-    return { pools: {}, pairs: [], unpairedHeroes: [] };
+    console.log(`[HeroPairing] No active quests from contract, falling back to hero.currentQuest detection`);
+    return detectPairsFromCurrentQuest(heroes);
   }
   
   const pairs = [];
