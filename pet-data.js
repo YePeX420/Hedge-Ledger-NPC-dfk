@@ -441,6 +441,10 @@ function parsePetData(petTuple) {
   const combatStars = getBonusStars(combatBonusRaw);
   const craftStars = getBonusStars(craftBonusRaw);
   
+  // Total stars = sum of all three bonus star ratings (gathering + combat + crafting)
+  // Pets can have up to 9 stars total (3 + 3 + 3)
+  const totalStars = gatheringStars + combatStars + craftStars;
+  
   // Variant based on shiny status
   const variant = shinyRaw === 1 ? 'Shiny' : 'Normal';
   
@@ -459,7 +463,7 @@ function parsePetData(petTuple) {
     seasonName: SEASON_NAMES[seasonRaw] || 'Unknown',
     eggType: eggTypeRaw,
     bonusCount,
-    stars: bonusCount, // Stars shown on pet card = bonusCount
+    stars: totalStars, // Total stars = gathering + combat + crafting stars (max 9)
     
     // Visual
     appearance,
