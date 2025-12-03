@@ -14,9 +14,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
-const POWERUP_MANAGER_ADDRESS = '0x5d23Af0548452c6AAe80a7e49a6faf4Ed534cfCc';
+const POWERUP_MANAGER_ADDRESS_RAW = '0x5d23af0548452c6aae80a7e49a6faf4ed534cfcc';
 
 let provider = null;
+let checksummedAddress = null;
+
+function getPowerUpManagerAddress() {
+  if (!checksummedAddress) {
+    checksummedAddress = ethers.getAddress(POWERUP_MANAGER_ADDRESS_RAW);
+  }
+  return checksummedAddress;
+}
 let powerUpContract = null;
 let rapidRenewalId = null;
 let gravityFeederId = null;
@@ -32,7 +40,7 @@ function getPowerUpContract() {
   if (!powerUpContract) {
     const abiPath = path.join(__dirname, 'abis', 'PowerUpManagerDiamond.json');
     const abi = JSON.parse(fs.readFileSync(abiPath, 'utf-8'));
-    powerUpContract = new ethers.Contract(POWERUP_MANAGER_ADDRESS, abi, getProvider());
+    powerUpContract = new ethers.Contract(getPowerUpManagerAddress(), abi, getProvider());
   }
   return powerUpContract;
 }
