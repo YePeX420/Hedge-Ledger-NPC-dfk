@@ -20,6 +20,9 @@ let priceGraphCache = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
+// Track if a build is already in progress to avoid concurrent builds
+let buildInProgress = null;
+
 /**
  * Get current price graph (with caching and validation)
  * @returns {Promise<Map>} Price graph (token address -> USD price)
@@ -32,9 +35,17 @@ async function getPriceGraph() {
     return priceGraphCache;
   }
   
-  // Build fresh price graph
+  // If a build is already in progress, wait for it
+  if (buildInProgress) {
+    return buildInProgress;
+  }
+  
+  // Build fresh price graph (mark as in progress to avoid concurrent builds)
   console.log('🔄 Building fresh price graph from on-chain data...');
-  const priceGraph = await buildPriceGraph();
+  buildInProgress = buildPriceGraph().finally(() => {
+    buildInProgress = null;
+  });
+  const priceGraph = await buildInProgress;
   
   // Validate that price graph has critical payment tokens
   const crystalPrice = priceGraph.get(TOKEN_ADDRESSES.CRYSTAL.toLowerCase());

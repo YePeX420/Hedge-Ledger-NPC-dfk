@@ -11,6 +11,79 @@
 import { computeHeroGardeningFactor, computeStaminaPerDay } from './hero-yield-model.js';
 
 /**
+ * Decode hero currentQuest field to extract quest type and pool ID
+ * 
+ * Format: 0x01 [questType] [profession] [poolId] 00...
+ * - questType 0x05 = expedition
+ * - profession 0x0a = gardening
+ * - poolId = garden pool ID (matches PID in GARDEN_POOLS)
+ * 
+ * @param {string} currentQuest - Hex string like "0x01050a0200000000000000000000000000000000"
+ * @returns {{isGardening: boolean, poolId: number|null, questType: string}}
+ */
+export function decodeCurrentQuest(currentQuest) {
+  if (!currentQuest || currentQuest === '0x0000000000000000000000000000000000000000') {
+    return { isGardening: false, poolId: null, questType: 'none' };
+  }
+  
+  const hex = currentQuest.toLowerCase().replace('0x', '');
+  if (hex.length < 8) {
+    return { isGardening: false, poolId: null, questType: 'unknown' };
+  }
+  
+  const byte1 = parseInt(hex.substring(2, 4), 16);
+  const byte2 = parseInt(hex.substring(4, 6), 16);
+  const byte3 = parseInt(hex.substring(6, 8), 16);
+  
+  const QUEST_EXPEDITION = 0x05;
+  const PROF_GARDENING = 0x0a;
+  const QUEST_TRAINING = 0x06;
+  const PROF_FORAGING = 0x02;
+  const PROF_FISHING = 0x03;
+  const PROF_MINING_GOLD = 0x01;
+  
+  if (byte1 === QUEST_EXPEDITION && byte2 === PROF_GARDENING) {
+    return { isGardening: true, poolId: byte3, questType: 'gardening' };
+  }
+  
+  if (byte1 === QUEST_TRAINING) {
+    return { isGardening: false, poolId: null, questType: 'training' };
+  }
+  
+  if (byte1 === QUEST_EXPEDITION) {
+    if (byte2 === PROF_FORAGING) return { isGardening: false, poolId: null, questType: 'foraging' };
+    if (byte2 === PROF_FISHING) return { isGardening: false, poolId: null, questType: 'fishing' };
+    if (byte2 === PROF_MINING_GOLD) return { isGardening: false, poolId: null, questType: 'mining' };
+    return { isGardening: false, poolId: null, questType: 'expedition' };
+  }
+  
+  return { isGardening: false, poolId: null, questType: 'other' };
+}
+
+/**
+ * Group heroes by the garden pool they are currently questing in
+ * @param {Array} heroes - Array of hero objects with currentQuest field
+ * @returns {Map<number, Array>} Map of poolId -> heroes currently gardening that pool
+ */
+export function groupHeroesByGardenPool(heroes) {
+  const poolHeroes = new Map();
+  
+  for (const h of heroes) {
+    const hero = h.hero || h;
+    const { isGardening, poolId } = decodeCurrentQuest(hero.currentQuest);
+    
+    if (isGardening && poolId !== null) {
+      if (!poolHeroes.has(poolId)) {
+        poolHeroes.set(poolId, []);
+      }
+      poolHeroes.get(poolId).push(h);
+    }
+  }
+  
+  return poolHeroes;
+}
+
+/**
  * @typedef {'JEWEL' | 'CRYSTAL'} GardenRole
  * 
  * @typedef {Object} GardenSlot
@@ -384,6 +457,8 @@ export function formatRRSuggestions(rrAnalysis) {
 }
 
 export default {
+  decodeCurrentQuest,
+  groupHeroesByGardenPool,
   computeGardenScore,
   buildGardenSlot,
   buildGardenPair,

@@ -20,6 +20,8 @@ import {
   analyzeRapidRenewal,
   formatPairsForDM,
   formatRRSuggestions,
+  groupHeroesByGardenPool,
+  computeGardenScore,
 } from './garden-pairs.js';
 // Price imports: Only used by generatePoolOptimizations (full optimization), not by detectWalletLPPositions (teaser).
 // The slow 577-pair build is acceptable during full optimization since user has already paid.
@@ -366,6 +368,15 @@ export async function generatePoolOptimizations(
   // Analyze Rapid Renewal status and suggestions
   const rrAnalysis = analyzeRapidRenewal(safeHeroes);
   console.log(`[Opt] RR Analysis: ${rrAnalysis.summary.totalWithRR} heroes with RR, ${rrAnalysis.summary.potentialCandidates} candidates for RR`);
+  
+  // Detect heroes currently gardening each pool (for BEFORE calculation)
+  const currentGardenHeroes = groupHeroesByGardenPool(safeHeroes);
+  const gardeningPoolCount = currentGardenHeroes.size;
+  let totalGardeningHeroes = 0;
+  for (const [pid, heroes] of currentGardenHeroes) {
+    totalGardeningHeroes += heroes.length;
+  }
+  console.log(`[Opt] Detected ${totalGardeningHeroes} heroes currently gardening across ${gardeningPoolCount} pools`);
 
   for (const position of safePositions) {
     const { pairName, poolData, userTVL } = position;
@@ -420,24 +431,38 @@ export async function generatePoolOptimizations(
       }
     }
     
-    // Sort allocated heroes by garden score for APR calculations
+    // Sort allocated heroes by garden score for APR calculations (AFTER = optimized)
     allocatedHeroes.sort((a, b) => (b.gardenScore || 0) - (a.gardenScore || 0));
     
-    console.log(`[Opt] Pool=${pairName}: Using ${allocatedHeroes.length} allocated heroes for APR calc`);
+    console.log(`[Opt] Pool=${pairName}: ${allocatedHeroes.length} optimized heroes for AFTER calc`);
 
-    // BEFORE: When wallet is linked, model current questing baseline using worst allocated hero
-    // AFTER: Use the heroes specifically allocated to THIS pool at optimal configuration
+    // Get pool ID from position (extract from pairName or use pid)
+    const pid = position.pid;
+    
+    // Get current gardening heroes for this pool (for BEFORE calculation)
+    const currentPoolHeroes = currentGardenHeroes.get(pid) || [];
+    const currentHeroesWithScores = currentPoolHeroes.map(h => {
+      const hero = h.hero || h;
+      const heroMeta = h.heroMeta || {};
+      const { score } = computeGardenScore(hero, heroMeta);
+      return { hero, heroMeta, gardenScore: score };
+    }).sort((a, b) => (b.gardenScore || 0) - (a.gardenScore || 0));
+    
+    console.log(`[Opt] Pool=${pairName} (pid=${pid}): ${currentHeroesWithScores.length} heroes currently gardening (BEFORE)`);
+
     const defaultAttempts = 25;
     
-    // Calculate before APR based on whether we have hero data
+    // BEFORE: Use heroes currently gardening this pool (from currentQuest detection)
+    // AFTER: Use optimized hero allocation
     let beforeQuestAPR;
-    if (hasLinkedWallet && allocatedHeroes.length > 0) {
-      // Use the AVERAGE of allocated heroes at default (non-optimized) attempts
-      // This models "current setup" where user has these heroes but isn't optimizing quest attempts
-      beforeQuestAPR = averageQuestApr(allocatedHeroes, poolMeta, defaultAttempts);
-      console.log(`[Opt] Pool=${pairName}: BEFORE using allocated heroes avg APR: ${beforeQuestAPR.toFixed(2)}%`);
+    if (currentHeroesWithScores.length > 0) {
+      beforeQuestAPR = averageQuestApr(currentHeroesWithScores, poolMeta, defaultAttempts);
+      console.log(`[Opt] Pool=${pairName}: BEFORE using ${currentHeroesWithScores.length} current heroes avg APR: ${beforeQuestAPR.toFixed(2)}%`);
+    } else if (hasLinkedWallet && allocatedHeroes.length > 0) {
+      // No heroes currently gardening this pool, fall back to 0 (no quest bonus)
+      beforeQuestAPR = 0;
+      console.log(`[Opt] Pool=${pairName}: BEFORE no heroes currently gardening, using 0% quest bonus`);
     } else {
-      // Fallback to worst case when no heroes available
       beforeQuestAPR = worstQuestAPR;
       console.log(`[Opt] Pool=${pairName}: BEFORE using fallback worstQuestAPR: ${beforeQuestAPR.toFixed(2)}%`);
     }
