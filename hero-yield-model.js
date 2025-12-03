@@ -6,6 +6,11 @@ function safeNum(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Base token yields per attempt (1 stamina) for a factor-1.0 hero
+// Empirically validated from actual claim data - this IS the formula
+export const CRYSTAL_BASE_PER_ATTEMPT = 1.82;
+export const JEWEL_BASE_PER_ATTEMPT = 0.14;
+
 // Hero gardening factor (per-stamina productivity)
 export function computeHeroGardeningFactor(hero) {
   const wis = hero?.wisdom ?? 0;
@@ -111,4 +116,63 @@ export function averageQuestApr(heroes, poolMeta, attemptsPerIteration = 25) {
 
   const total = sims.reduce((sum, s) => sum + safeNum(s.heroQuestApr), 0);
   return total / sims.length;
+}
+
+/**
+ * Calculate per-quest (1 stamina attempt) token yields for a hero
+ * Formula: baseTokenPerAttempt * heroFactor * (1 + petBonusPct/100)
+ * 
+ * @param {Object} hero - Hero with wisdom, vitality, gardening, professionStr
+ * @param {Object} options - Optional parameters:
+ *   - petBonusPct: Power Surge multiplicative bonus percentage
+ *   - petFed: Whether pet is fed (required for bonus to apply)
+ *   - hasRapidRenewal: Whether hero has RR power-up
+ *   - skilledGreenskeeperBonus: Additive gardening skill bonus from Skilled Greenskeeper pet
+ * @returns {Object} { crystalPerQuest, jewelPerQuest, factor, runsPerDay }
+ */
+export function computePerQuestYield(hero, options = {}) {
+  const { petBonusPct = 0, petFed = false, hasRapidRenewal = false, skilledGreenskeeperBonus = 0 } = options;
+  
+  // Calculate factor with Skilled Greenskeeper bonus added to gardening skill
+  let factor;
+  if (skilledGreenskeeperBonus > 0) {
+    // Recalculate factor with the additional gardening skill
+    const wis = hero?.wisdom ?? 0;
+    const vit = hero?.vitality ?? 0;
+    const baseGardeningSkill = (hero?.gardening ?? 0) / 10;
+    const adjustedGardeningSkill = baseGardeningSkill + (skilledGreenskeeperBonus / 10);
+    const hasGardenGene =
+      hero?.professionStr?.toLowerCase() === 'gardening' ||
+      hero?.hasGardeningGene === true;
+    
+    const baseFactor = 0.1 + (wis + vit) / 1222.22 + adjustedGardeningSkill / 244.44;
+    const geneMult = hasGardenGene ? 1.2 : 1.0;
+    factor = baseFactor * geneMult;
+  } else {
+    factor = computeHeroGardeningFactor(hero);
+  }
+  
+  const staminaPerDay = computeStaminaPerDay(hero, { hasRapidRenewal });
+  
+  // Pet bonus (Power Surge) only applies if pet is fed
+  const effectivePetBonus = petFed ? petBonusPct : 0;
+  const petMultiplier = 1 + effectivePetBonus / 100;
+  
+  // Per-quest yield = base * factor * petMultiplier
+  const crystalPerQuest = CRYSTAL_BASE_PER_ATTEMPT * factor * petMultiplier;
+  const jewelPerQuest = JEWEL_BASE_PER_ATTEMPT * factor * petMultiplier;
+  
+  // Runs per day based on stamina regen (assuming 25 stamina per run)
+  const runsPerDay = staminaPerDay / 25;
+  
+  return {
+    crystalPerQuest,
+    jewelPerQuest,
+    factor,
+    staminaPerDay,
+    runsPerDay,
+    // Daily totals (assuming all stamina used)
+    crystalPerDay: crystalPerQuest * staminaPerDay,
+    jewelPerDay: jewelPerQuest * staminaPerDay,
+  };
 }

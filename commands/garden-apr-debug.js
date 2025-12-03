@@ -11,10 +11,10 @@ import { fetchPetById, fetchPetForHero, calculatePetGardenBonus } from '../pet-d
 import { 
   computeHeroGardeningFactor, 
   simulateGardeningDailyYield,
-  computeStaminaPerDay
+  computeStaminaPerDay,
+  computePerQuestYield
 } from '../hero-yield-model.js';
 import { getJewelPrice } from '../price-feed.js';
-import { getPoolCalibration } from '../pool-calibration.js';
 
 const POOL_CHOICES = [
   { name: 'wJEWEL-xJEWEL', value: '0' },
@@ -139,7 +139,7 @@ function formatHeroForYield(hero) {
   };
 }
 
-function computeHeroQuestApr(hero, pet, poolMeta, poolId) {
+function computeHeroQuestApr(hero, pet, poolMeta) {
   const formatted = formatHeroForYield(hero);
   
   let gardeningSkillBase = (hero.gardening || 0) / 10;
@@ -166,27 +166,35 @@ function computeHeroQuestApr(hero, pet, poolMeta, poolId) {
   const vit = hero.vitality || 0;
   const hasGardenGene = formatted.hasGardeningGene;
   
-  let baseFactor = 0.1 + (wis + vit) / 1222.22 + gardeningSkillBase / 244.44;
-  const geneMult = hasGardenGene ? 1.2 : 1.0;
-  let factor = baseFactor * geneMult;
+  // Use hero-yield-model for factor calculation (single source of truth)
+  // Skilled Greenskeeper adds to gardening skill (affecting factor) - ADDITIVE
+  // Power Surge is a multiplicative bonus applied to yields/APR - MULTIPLICATIVE (applied ONCE below)
+  const yieldData = computePerQuestYield(hero, {
+    petBonusPct: 0, // Don't apply Power Surge here - we'll apply it once below for consistency
+    petFed: petFed,
+    hasRapidRenewal: false, // Not tracked in this context
+    skilledGreenskeeperBonus: petBonusType === 'Skilled Greenskeeper' ? petBonus : 0
+  });
   
-  if (petBonusType === 'Power Surge' && petBonus > 0) {
-    factor = factor * (1 + petBonus / 100);
-  }
+  const factor = yieldData.factor;
   
+  // Calculate Power Surge multiplier (applied ONCE to both yields and APR)
+  const powerSurgeMultiplier = (petBonusType === 'Power Surge' && petBonus > 0 && petFed) 
+    ? (1 + petBonus / 100) 
+    : 1;
+  
+  // Apply Power Surge to yields
+  const crystalPerQuest = yieldData.crystalPerQuest * powerSurgeMultiplier;
+  const jewelPerQuest = yieldData.jewelPerQuest * powerSurgeMultiplier;
+  
+  // Calculate APR scale with Power Surge applied
   const baselineFactor = 0.1 + (50 + 50) / 1222.22;
-  const scale = factor / baselineFactor;
+  const scale = (factor / baselineFactor) * powerSurgeMultiplier;
   
   const bestQuestAprStr = poolMeta?.gardeningQuestAPR?.best || '0%';
   const bestQuestApr = parseFloat(bestQuestAprStr.replace('%', ''));
   
   const heroQuestApr = bestQuestApr * scale;
-  
-  // Calculate per-quest JEWEL/CRYSTAL earnings
-  const calibration = getPoolCalibration(poolId);
-  const effectivePetBonus = petFed ? petBonus : 0;
-  const crystalPerQuest = calibration.crystalBase * 1 * factor * (1 + effectivePetBonus / 100);
-  const jewelPerQuest = calibration.jewelBase * 1 * factor * (1 + effectivePetBonus / 100);
   
   return {
     heroQuestApr,
@@ -200,6 +208,8 @@ function computeHeroQuestApr(hero, pet, poolMeta, poolId) {
     vit,
     crystalPerQuest,
     jewelPerQuest,
+    staminaPerDay: yieldData.staminaPerDay,
+    runsPerDay: yieldData.runsPerDay,
   };
 }
 
@@ -423,7 +433,7 @@ export async function execute(interaction) {
           continue;
         }
         
-        const questData = computeHeroQuestApr(result.hero, result.pet, poolMeta, pid);
+        const questData = computeHeroQuestApr(result.hero, result.pet, poolMeta);
         questAprTotal += questData.heroQuestApr;
         
         const className = result.hero.mainClassStr || result.hero.class || result.hero.heroClass || 'Unknown';

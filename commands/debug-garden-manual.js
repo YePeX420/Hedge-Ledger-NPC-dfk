@@ -2,8 +2,12 @@ import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { getHeroById } from '../onchain-data.js';
 import { fetchPetById } from '../pet-data.js';
 import { computeGardenScore } from '../garden-pairs.js';
-import { computeHeroGardeningFactor, computeStaminaPerDay } from '../hero-yield-model.js';
-import { getPoolCalibration } from '../pool-calibration.js';
+import { 
+  computeHeroGardeningFactor, 
+  computeStaminaPerDay,
+  CRYSTAL_BASE_PER_ATTEMPT,
+  JEWEL_BASE_PER_ATTEMPT
+} from '../hero-yield-model.js';
 
 const GARDEN_POOLS = [
   { pid: 0, name: 'wJEWEL-xJEWEL' },
@@ -108,8 +112,8 @@ export async function execute(interaction) {
       pairText += '\n' + formatHeroLine(h2Details);
     }
     
-    const optimalAttempts = findOptimalAttemptsForPair(h1Details, h2Details, hero1, hero2, poolId);
-    const { crystalPerRun, jewelPerRun } = estimatePerRunYield(h1Details, h2Details, optimalAttempts.attempts, poolId);
+    const optimalAttempts = findOptimalAttemptsForPair(h1Details, h2Details, hero1, hero2);
+    const { crystalPerRun, jewelPerRun } = estimatePerRunYield(h1Details, h2Details, optimalAttempts.attempts);
     
     if (h2Details) {
       pairText += `\n\n**Roles (assumed):** Hero1=CRYSTAL, Hero2=JEWEL`;
@@ -135,13 +139,9 @@ export async function execute(interaction) {
       inline: true
     });
     
-    const poolCalibration = getPoolCalibration(poolId);
-    const calibratedNote = poolCalibration.isDefault 
-      ? '(default estimate)' 
-      : `(calibrated)`;
     embed.addFields({
-      name: 'Calibration',
-      value: `CRYSTAL: ${poolCalibration.crystalBase.toFixed(4)}/attempt\nJEWEL: ${poolCalibration.jewelBase.toFixed(4)}/attempt\n${calibratedNote}`,
+      name: 'Yield Formula',
+      value: `CRYSTAL: ${CRYSTAL_BASE_PER_ATTEMPT.toFixed(4)}/attempt\nJEWEL: ${JEWEL_BASE_PER_ATTEMPT.toFixed(4)}/attempt\n(empirically validated)`,
       inline: true
     });
     
@@ -208,7 +208,7 @@ function formatHeroLine(h) {
   return `Hero #${h.heroId}${geneIcon} L${h.level} | VIT:${h.vit} WIS:${h.wis} G:${h.gardeningSkill.toFixed(1)}${petInfo}`;
 }
 
-function findOptimalAttemptsForPair(h1, h2, hero1, hero2, poolId = null) {
+function findOptimalAttemptsForPair(h1, h2, hero1, hero2) {
   let best = { attempts: 25, iterationMins: 0, runsPerDay: 0, dailyYield: 0 };
   
   const stamPerDay1 = computeStaminaPerDay(hero1, { hasRapidRenewal: h1.hasRapidRenewal });
@@ -221,7 +221,7 @@ function findOptimalAttemptsForPair(h1, h2, hero1, hero2, poolId = null) {
     const iterationMins = calculateIterationTime(attempts, questDurationPerStam, avgStamPerDay);
     const runsPerDay = (24 * 60) / iterationMins;
     
-    const { crystalPerRun, jewelPerRun } = estimatePerRunYield(h1, h2, attempts, poolId);
+    const { crystalPerRun, jewelPerRun } = estimatePerRunYield(h1, h2, attempts);
     const dailyYield = (crystalPerRun + jewelPerRun) * runsPerDay;
     
     if (dailyYield > best.dailyYield) {
@@ -238,11 +238,7 @@ function calculateIterationTime(attempts, questDurationPerStam, stamPerDay) {
   return questDurationMins + regenMins;
 }
 
-function estimatePerRunYield(h1, h2, attempts, poolId = null) {
-  const calibration = getPoolCalibration(poolId);
-  const CRYSTAL_BASE = calibration.crystalBase;
-  const JEWEL_BASE = calibration.jewelBase;
-  
+function estimatePerRunYield(h1, h2, attempts) {
   let crystalPerRun, jewelPerRun;
   
   if (h2 && (h1.role || h2.role)) {
@@ -254,13 +250,13 @@ function estimatePerRunYield(h1, h2, attempts, poolId = null) {
     const jFactor = jewelFarmer.factor;
     const jPetBonus = jewelFarmer.petFed ? jewelFarmer.petBonusPct : 0;
     
-    crystalPerRun = CRYSTAL_BASE * attempts * cFactor * (1 + cPetBonus / 100);
-    jewelPerRun = JEWEL_BASE * attempts * jFactor * (1 + jPetBonus / 100);
+    crystalPerRun = CRYSTAL_BASE_PER_ATTEMPT * attempts * cFactor * (1 + cPetBonus / 100);
+    jewelPerRun = JEWEL_BASE_PER_ATTEMPT * attempts * jFactor * (1 + jPetBonus / 100);
   } else {
     const factor1 = h1.factor;
     const petBonus1 = h1.petFed ? h1.petBonusPct : 0;
-    crystalPerRun = CRYSTAL_BASE * attempts * factor1 * (1 + petBonus1 / 100);
-    jewelPerRun = JEWEL_BASE * attempts * factor1 * (1 + petBonus1 / 100);
+    crystalPerRun = CRYSTAL_BASE_PER_ATTEMPT * attempts * factor1 * (1 + petBonus1 / 100);
+    jewelPerRun = JEWEL_BASE_PER_ATTEMPT * attempts * factor1 * (1 + petBonus1 / 100);
   }
   
   return {
