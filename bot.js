@@ -2187,6 +2187,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
               foraging
               fishing
               
+              # Summons
+              summons
+              maxSummons
+              
               # Valid gene fields (confirmed by API)
               statGenes
               visualGenes
@@ -2259,68 +2263,99 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines.push(`**Skin Color:** D: ${decoded.visual.skinColor.dominant} | R1: ${decoded.visual.skinColor.R1} | R2: ${decoded.visual.skinColor.R2} | R3: ${decoded.visual.skinColor.R3}`);
         lines.push(`**Head Appendage:** D: ${decoded.visual.headAppendage.dominant} | R1: ${decoded.visual.headAppendage.R1} | R2: ${decoded.visual.headAppendage.R2} | R3: ${decoded.visual.headAppendage.R3}`);
         lines.push(`**Back Appendage:** D: ${decoded.visual.backAppendage.dominant} | R1: ${decoded.visual.backAppendage.R1} | R2: ${decoded.visual.backAppendage.R2} | R3: ${decoded.visual.backAppendage.R3}`);
-        lines.push('');
-        
-        // Quest Data Section
-        lines.push('**⚔️ Quest Data:**');
-        const questHex = hero.currentQuest || '0x0000000000000000000000000000000000000000';
-        lines.push(`**Raw Hex:** \`${questHex}\``);
-        
-        // Decode quest bytes for analysis
-        if (questHex && questHex !== '0x0000000000000000000000000000000000000000') {
-          const hex = questHex.toLowerCase().replace('0x', '');
-          lines.push(`**Hex Length:** ${hex.length} chars (${hex.length / 2} bytes)`);
-          
-          // Show first 8 bytes breakdown
-          if (hex.length >= 8) {
-            const byte0 = hex.substring(0, 2);
-            const byte1 = hex.substring(2, 4);
-            const byte2 = hex.substring(4, 6);
-            const byte3 = hex.substring(6, 8);
-            lines.push(`**Bytes 0-3:** 0x${byte0} | 0x${byte1} | 0x${byte2} | 0x${byte3}`);
-            lines.push(`**Decimal:** ${parseInt(byte0, 16)} | ${parseInt(byte1, 16)} | ${parseInt(byte2, 16)} | ${parseInt(byte3, 16)}`);
-          }
-          
-          // Show bytes 4-7 if present
-          if (hex.length >= 16) {
-            const byte4 = hex.substring(8, 10);
-            const byte5 = hex.substring(10, 12);
-            const byte6 = hex.substring(12, 14);
-            const byte7 = hex.substring(14, 16);
-            lines.push(`**Bytes 4-7:** 0x${byte4} | 0x${byte5} | 0x${byte6} | 0x${byte7}`);
-            lines.push(`**Decimal:** ${parseInt(byte4, 16)} | ${parseInt(byte5, 16)} | ${parseInt(byte6, 16)} | ${parseInt(byte7, 16)}`);
-          }
-          
-          lines.push('_Compare with other gardening heroes to find pool ID byte_');
-        } else {
-          lines.push('**Status:** Not on any quest');
-        }
-        lines.push('');
-        
-        // Stamina info
-        lines.push('**🔋 Stamina:**');
-        lines.push(`**Current:** ${hero.stamina}/25`);
-        if (hero.staminaFullAt) {
-          const fullAt = new Date(hero.staminaFullAt * 1000);
-          const now = new Date();
-          if (fullAt > now) {
-            const minsLeft = Math.round((fullAt - now) / 60000);
-            lines.push(`**Full in:** ${minsLeft} minutes`);
-          } else {
-            lines.push(`**Status:** Full`);
-          }
-        }
         
         const output = lines.join('\n');
         
         // Log full decoded genetics to console
         console.log('[debug-hero-genetics] Full decoded genetics:', JSON.stringify(decoded, null, 2));
         
-        // Discord message limit is 2000 chars
+        // Send first message (genetics) with character limit guard
         if (output.length > 1900) {
-          await interaction.editReply(output.slice(0, 1900) + '\n...\n_See console for full genetics_');
+          await interaction.editReply(output.slice(0, 1900) + '\n_...truncated_');
         } else {
           await interaction.editReply(output);
+        }
+        
+        // Build second message with stats, skills, quest data
+        const lines2 = [];
+        lines2.push(`**📊 Stats & Skills for Hero ${hero.normalizedId || hero.id}**`);
+        lines2.push('');
+        
+        // Base Stats
+        lines2.push('**💪 Base Stats:**');
+        lines2.push(`STR: ${hero.strength || 0} | INT: ${hero.intelligence || 0} | WIS: ${hero.wisdom || 0} | LCK: ${hero.luck || 0}`);
+        lines2.push(`AGI: ${hero.agility || 0} | VIT: ${hero.vitality || 0} | END: ${hero.endurance || 0} | DEX: ${hero.dexterity || 0}`);
+        lines2.push(`HP: ${hero.hp || 0} | MP: ${hero.mp || 0}`);
+        lines2.push('');
+        
+        // Profession Skills (stored as x10 in API)
+        lines2.push('**🛠️ Profession Skills:**');
+        const gardeningSkill = (hero.gardening || 0) / 10;
+        const miningSkill = (hero.mining || 0) / 10;
+        const foragingSkill = (hero.foraging || 0) / 10;
+        const fishingSkill = (hero.fishing || 0) / 10;
+        lines2.push(`Gardening: ${gardeningSkill.toFixed(1)} | Mining: ${miningSkill.toFixed(1)} | Foraging: ${foragingSkill.toFixed(1)} | Fishing: ${fishingSkill.toFixed(1)}`);
+        lines2.push('');
+        
+        // Summons
+        lines2.push('**🔮 Summons:**');
+        const summons = hero.summons ?? 0;
+        const maxSummons = hero.maxSummons ?? 0;
+        const remaining = maxSummons - summons;
+        lines2.push(`Used: ${summons}/${maxSummons} | Remaining: ${remaining}`);
+        lines2.push('');
+        
+        // Stamina info
+        lines2.push('**🔋 Stamina:**');
+        lines2.push(`**Current:** ${hero.stamina}/25`);
+        if (hero.staminaFullAt) {
+          const fullAt = new Date(hero.staminaFullAt * 1000);
+          const now = new Date();
+          if (fullAt > now) {
+            const minsLeft = Math.round((fullAt - now) / 60000);
+            lines2.push(`**Full in:** ${minsLeft} minutes`);
+          } else {
+            lines2.push(`**Status:** Full`);
+          }
+        }
+        lines2.push('');
+        
+        // Quest Data Section
+        lines2.push('**⚔️ Quest Data:**');
+        const questHex = hero.currentQuest || '0x0000000000000000000000000000000000000000';
+        lines2.push(`**Raw Hex:** \`${questHex}\``);
+        
+        if (questHex && questHex !== '0x0000000000000000000000000000000000000000') {
+          const hex = questHex.toLowerCase().replace('0x', '');
+          lines2.push(`**Hex Length:** ${hex.length} chars (${hex.length / 2} bytes)`);
+          
+          if (hex.length >= 8) {
+            const byte0 = hex.substring(0, 2);
+            const byte1 = hex.substring(2, 4);
+            const byte2 = hex.substring(4, 6);
+            const byte3 = hex.substring(6, 8);
+            lines2.push(`**Bytes 0-3:** 0x${byte0} | 0x${byte1} | 0x${byte2} | 0x${byte3}`);
+            lines2.push(`**Decimal:** ${parseInt(byte0, 16)} | ${parseInt(byte1, 16)} | ${parseInt(byte2, 16)} | ${parseInt(byte3, 16)}`);
+          }
+          
+          if (hex.length >= 16) {
+            const byte4 = hex.substring(8, 10);
+            const byte5 = hex.substring(10, 12);
+            const byte6 = hex.substring(12, 14);
+            const byte7 = hex.substring(14, 16);
+            lines2.push(`**Bytes 4-7:** 0x${byte4} | 0x${byte5} | 0x${byte6} | 0x${byte7}`);
+            lines2.push(`**Decimal:** ${parseInt(byte4, 16)} | ${parseInt(byte5, 16)} | ${parseInt(byte6, 16)} | ${parseInt(byte7, 16)}`);
+          }
+        } else {
+          lines2.push('**Status:** Not on any quest');
+        }
+        
+        // Send second message as followUp with character limit guard
+        const output2 = lines2.join('\n');
+        if (output2.length > 1900) {
+          await interaction.followUp(output2.slice(0, 1900) + '\n_...truncated_');
+        } else {
+          await interaction.followUp(output2);
         }
         
       } catch (err) {

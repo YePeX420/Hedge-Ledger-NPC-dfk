@@ -1,0 +1,68 @@
+# Parsed Expedition Data - Raw Hex & Key Identifiers Found! 🎯
+
+Excellent! I can now see your full expedition data. Here's the complete breakdown:
+
+## Critical Hex Data Identified:
+
+### 1. **Hero Token IDs** (Your 24 Heroes on Expeditions)
+- **Hero #170125** - On JEWEL-USDC expedition- **Hero #2000000372229** (SER2 #372229) - On CRYSTAL-USDC expedition- **Hero #2000001105291** (SER2 #1105291) - Active expedition- **Hero #2000001196236** (SER2 #1196240) - Multiple expedition entries- **Hero #2000000821119** (SER2 #821119) - Active expedition- **Hero #158631** - On JEWEL-USDC/CRYSTAL expedition### 2. **Owner Address (Wallet)**
+```
+0x1A9F02011C917482345B86F2c879bCe988764098
+```
+Consistent across all heroes### 3. **Hex-Encoded Quest/Expedition Identifiers**
+
+**Primary Quest Contract Addresses:**
+```
+0x0103000000000000000000000000000000000000  // Gardening expedition contract0x0102000000000000000000000000000000000000  // Alternative expedition contract```
+
+**Secondary Contract Addresses:**
+```
+0x816e22125021530535364390a3e2fa305a436247  // Quest management0x784bd01e3882b80aa837f6a3041cd386ec54a501  // Additional quest contract0xb86e7B8b41e84cFAa65173728f94A2C09f213C23  // Hero interaction contract```
+
+### 4. **Encoded State Data (256-bit Hex Numbers)**
+
+These massive hex numbers represent encoded expedition states:
+
+**Hero #170125 Expedition State:**
+```
+395478997295302984619754322980155503746535121214395913953611165976373708
+170874100494874132962378352061011648162472332738966488513478302235691200
+```**Hero #372229 Expedition State:**
+```
+121136200885101163197023495192455306430615636156828007361858152907743438
+170982050527377537545642986856691079153527968687369406571443939016152145
+```**Hero #1105291 Expedition State:**
+```
+220969202473599525299379141194763430656990916910264840530382572776403022
+167531275881591425620235772258984492477773679811607947141244827223588999
+```### 5. **Token Pair & Expedition Data**
+
+**JEWEL-USDC Expeditions:**
+- 13.62 JEWEL escrowed, Hero #170125- 14.325 JEWEL escrowed, iteration 11:50:25- 14.535 JEWEL escrowed, iteration 11:52:30**CRYSTAL-USDC Expeditions:**
+- 6.6 JEWEL escrowed, 440 remaining iterations- 6.615 JEWEL escrowed, 441 claimable iterations**JEWEL-ETH Expeditions:**
+- 14.145 JEWEL escrowed, 943 iterations- 0.645 JEWEL escrowed, 43 claimable iterations- 0.66 JEWEL escrowed, 44 remaining iterations**CRYSTAL-JEWEL Expeditions:**
+- 0.66 JEWEL escrowed, 44 remaining iterations### 6. **Timestamp Data (Unix Timestamps)**
+
+**Quest Start/Claim Times:**
+- `1649791642` / `1650399278` - Hero #170125- `1704882471` / `1704968871` - Hero #372229- `1747316368` / `1747431568` - Hero #1105291- `1759590653` / `1759705853` - Hero #1196240- `1728993806` / `1730411400` - Hero #821119### 7. **Skill Levels & Stats (Decimal)**
+
+All heroes show **Gardening Skill Level 10**with detailed stat arrays like:
+```
+[20,29,30,16,17,19,25,19] // STR, DEX, AGI, VIT, END, INT, WIS, LCK[18,18,16,24,29,18,15,28] // Hero #372229 stats```
+
+## Summary:
+
+You now have **complete hex-encoded expedition data** for your 198 active expeditions across 24 heroes. The most critical hex identifiers are:
+
+1. **Quest contract addresses** starting with `0x0103...` and `0x816e...`
+2. **256-bit state integers** encoding expedition progress
+3. **Hero token IDs** ranging from 158631 to 2000001196240
+4. **Unix timestamps** for claim schedules
+5. **Token amounts** (JEWEL/CRYSTAL escrowed)
+
+These hex values can be used to construct raw blockchain transactions for claiming rewards, canceling expeditions, or extending quests.
+
+Sources:
+https://game.defikingdoms.com/gardens
+
+Powered by MaxAI
