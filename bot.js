@@ -2152,7 +2152,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           'https://api.defikingdoms.com/graphql'
         );
         
-        // Query using only valid gene fields (statGenes, visualGenes)
+        // Query using only valid gene fields (statGenes, visualGenes) + quest data
         const extendedQuery = gql`
           query GetHeroExtendedGenetics($heroId: ID!) {
             hero(id: $heroId) {
@@ -2179,6 +2179,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
               hp
               mp
               stamina
+              staminaFullAt
               
               # Profession skills
               mining
@@ -2189,6 +2190,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
               # Valid gene fields (confirmed by API)
               statGenes
               visualGenes
+              
+              # Quest data
+              currentQuest
             }
           }
         `;
