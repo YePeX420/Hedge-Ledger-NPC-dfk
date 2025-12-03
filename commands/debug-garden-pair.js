@@ -66,6 +66,13 @@ export async function execute(interaction) {
     
     console.log(`[DebugPair] Found ${heroes.length} heroes, ${pets.length} pets, GF=${hasGravityFeeder}`);
     
+    // Debug: Log sample currentQuest values
+    const heroesWithQuests = heroes.filter(h => h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000');
+    console.log(`[DebugPair] Heroes with active quests: ${heroesWithQuests.length}`);
+    heroesWithQuests.slice(0, 5).forEach(h => {
+      console.log(`[DebugPair] Hero ${h.normalizedId || h.id} currentQuest: ${h.currentQuest}`);
+    });
+    
     const annotatedHeroes = annotateHeroesWithPets(
       heroes.map(h => ({ hero: h, heroMeta: {} })),
       pets,
