@@ -13,6 +13,7 @@ import {
   simulateGardeningDailyYield,
   computeStaminaPerDay
 } from '../hero-yield-model.js';
+import { getJewelPrice } from '../price-feed.js';
 
 const POOL_CHOICES = [
   { name: 'wJEWEL-xJEWEL', value: '0' },
@@ -96,13 +97,17 @@ export const data = new SlashCommandBuilder()
 
 async function getUserStakedPosition(pid, walletAddress, poolTvlUsd) {
   try {
+    console.log(`[GardenAprDebug] Fetching staked position for pid=${pid}, wallet=${walletAddress}`);
     const userInfo = await lpStakingContract.getUserInfo(pid, walletAddress);
     const poolInfo = await lpStakingContract.getPoolInfo(pid);
     
     const stakedAmount = userInfo[0];
     const totalStaked = poolInfo[4];
     
+    console.log(`[GardenAprDebug] User staked: ${stakedAmount}, Total staked: ${totalStaked}, Pool TVL: $${poolTvlUsd}`);
+    
     if (stakedAmount === 0n || totalStaked === 0n) {
+      console.log(`[GardenAprDebug] No staked LP found (stakedAmount=${stakedAmount}, totalStaked=${totalStaked})`);
       return { stakedLp: 0, userTvlUsd: 0, poolShare: 0 };
     }
     
@@ -111,6 +116,8 @@ async function getUserStakedPosition(pid, walletAddress, poolTvlUsd) {
     
     const poolShare = stakedLpFormatted / totalStakedFormatted;
     const userTvlUsd = poolTvlUsd * poolShare;
+    
+    console.log(`[GardenAprDebug] LP position found: ${stakedLpFormatted} LP, share=${(poolShare*100).toFixed(4)}%, TVL=$${userTvlUsd.toFixed(2)}`);
     
     return { stakedLp: stakedLpFormatted, userTvlUsd, poolShare };
   } catch (error) {
@@ -275,22 +282,46 @@ export async function execute(interaction) {
       });
     }
     
+    // Get JEWEL price for daily earnings calculation
+    let jewelPrice = 0;
+    try {
+      jewelPrice = await getJewelPrice();
+    } catch (e) {
+      console.log(`[GardenAprDebug] Could not fetch JEWEL price: ${e.message}`);
+    }
+    
+    // Calculate daily JEWEL earnings based on user position or pool TVL
+    const effectiveTvl = userTvlUsd || poolTvlUsd;
+    const feeJewelPerDay = jewelPrice > 0 && effectiveTvl > 0 
+      ? (effectiveTvl * (feeData.poolAprPct / 100) / 365) / jewelPrice 
+      : 0;
+    const harvestJewelPerDay = jewelPrice > 0 && effectiveTvl > 0 
+      ? (effectiveTvl * (harvestAprPct / 100) / 365) / jewelPrice 
+      : 0;
+    
+    const feeAprLines = [
+      `**Fee APR:** ${feeData.poolAprPct.toFixed(4)}%`
+    ];
+    if (userTvlUsd && feeJewelPerDay > 0) {
+      feeAprLines.push(`**Your Daily Fees:** ~${feeJewelPerDay.toFixed(4)} JEWEL`);
+    }
+    
     embed.addFields({
       name: 'Fee APR (LP share: 0.20% of swaps)',
-      value: [
-        `**LP Fee Rate:** ${feeData.lpFeeRatePct.toFixed(2)}% (of 0.30% total)`,
-        `**Daily Fees to LPs:** $${feeData.fees24hUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        `**Fee APR:** ${feeData.poolAprPct.toFixed(4)}%`
-      ].join('\n'),
+      value: feeAprLines.join('\n'),
       inline: false
     });
     
+    const harvestAprLines = [
+      `**Harvest APR:** ${harvestAprPct.toFixed(4)}%`
+    ];
+    if (userTvlUsd && harvestJewelPerDay > 0) {
+      harvestAprLines.push(`**Your Daily Harvest:** ~${harvestJewelPerDay.toFixed(4)} JEWEL`);
+    }
+    
     embed.addFields({
-      name: 'Harvest APR (emissions + LP staking)',
-      value: [
-        `**Includes:** CRYSTAL emissions + 10% power-token fee rewards`,
-        `**Harvest APR:** ${harvestAprPct.toFixed(4)}%`
-      ].join('\n'),
+      name: 'Harvest APR',
+      value: harvestAprLines.join('\n'),
       inline: false
     });
     
