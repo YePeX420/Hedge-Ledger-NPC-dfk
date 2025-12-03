@@ -185,10 +185,12 @@ export async function getHeroById(heroId) {
   `;
 
   try {
+    console.log(`[getHeroById] Fetching hero ID: ${heroId}`);
     const data = await client.request(query, { heroId: heroId.toString() });
+    console.log(`[getHeroById] Response for ${heroId}:`, data.hero ? `Found (id=${data.hero.id})` : 'null');
     return data.hero;
   } catch (error) {
-    console.error('Error fetching hero:', error);
+    console.error(`[getHeroById] Error fetching hero ${heroId}:`, error.message);
     return null;
   }
 }
