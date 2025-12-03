@@ -253,16 +253,24 @@ export async function generatePoolOptimizations(
   const recommendations = [];
 
   const safePositions = Array.isArray(positions) ? positions : [];
+  
+  // Debug logging
+  console.log(`[Opt] Starting optimization: positions=${safePositions.length}, heroes=${Array.isArray(heroes) ? heroes.length : 0}, hasLinkedWallet=${hasLinkedWallet}`);
+  
   const priceData = await Promise.all([
     getJewelPrice().catch(() => 0),
     getCrystalPrice().catch(() => 0),
   ]);
   const jewelPrice = priceData[0] || 0;
   const crystalPrice = priceData[1] || 0;
+  
+  console.log(`[Opt] Prices: JEWEL=$${jewelPrice.toFixed(4)}, CRYSTAL=$${crystalPrice.toFixed(4)}`);
 
   const heroProfiles = (Array.isArray(heroes) ? heroes : [])
     .map((hero) => buildGardenHeroProfile(hero, {}, hero.heroMeta || {}))
     .sort((a, b) => b.gardenScore - a.gardenScore);
+  
+  console.log(`[Opt] Built ${heroProfiles.length} hero profiles for gardening`);
 
   for (const position of safePositions) {
     const { pairName, poolData, userTVL } = position;
@@ -279,6 +287,9 @@ export async function generatePoolOptimizations(
       const n = parseFloat(userTVL);
       return Number.isFinite(n) ? n : 0;
     })();
+
+    // Per-pool logging
+    console.log(`[Opt] Pool=${pairName}: TVL=$${positionValue.toFixed(2)}, feeAPR=${feeAPR.toFixed(2)}%, harvestAPR=${harvestingAPR.toFixed(2)}%, questAPR=${worstQuestAPR.toFixed(2)}-${bestQuestAPR.toFixed(2)}%`);
 
     const poolMeta = { gardeningQuestAPR: { best: `${bestQuestAPR}%` } };
 
@@ -307,6 +318,11 @@ export async function generatePoolOptimizations(
 
     const beforeAPR = baseAPR + beforeQuestAPR;
     const afterAPR = baseAPR + afterQuestAPR;
+    
+    // Log improvement calculation
+    const absGainAPR = afterAPR - beforeAPR;
+    const annualGainUSD = positionValue * (absGainAPR / 100);
+    console.log(`[Opt] Pool=${pairName}: beforeAPR=${beforeAPR.toFixed(2)}%, afterAPR=${afterAPR.toFixed(2)}%, gain=${absGainAPR.toFixed(2)}% (~$${annualGainUSD.toFixed(2)}/yr)`);
 
     const feeVsEmission = harvestingAPR === 0 ? Infinity : feeAPR / harvestingAPR;
     let poolType;
@@ -416,8 +432,12 @@ export async function generatePoolOptimizations(
       },
       iterationSeconds: attemptDelta?.iterationSeconds || null,
     });
+    
+    console.log(`[Opt] ✓ Added recommendation for ${pairName}`);
   }
 
+  console.log(`[Opt] COMPLETE: Generated ${recommendations.length} recommendations for ${safePositions.length} positions`);
+  
   return {
     positions: safePositions.length,
     totalValueUSD: (() => {

@@ -126,9 +126,13 @@ export async function handleGardenOptimizationDM(message, playerData, options = 
 
     console.log(`[GardenOpt] Found ${positions.length} pools, ${heroes.length} heroes`);
 
-    const optimization = generatePoolOptimizations(positions, heroes, {
+    const optimization = await generatePoolOptimizations(positions, heroes, {
       hasLinkedWallet: true,
     });
+    
+    // Log what the optimizer returns so we can debug
+    console.log(`[GardenOpt] Optimizer returned: ${optimization?.recommendations?.length || 0} recommendations for ${optimization?.positions || 0} positions, TVL=$${optimization?.totalValueUSD || 0}`);
+    
     const report = formatOptimizationReport(optimization);
 
     // Split long reports into multiple messages to avoid Discord's 2000 char limit
