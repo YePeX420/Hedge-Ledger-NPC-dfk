@@ -180,9 +180,13 @@ export function formatLPPositionsSummary(positions) {
   }
 
   const poolList = positions.map((p) => p.pairName).join(', ');
-  const totalValue = positions
-    .reduce((sum, p) => sum + parseFloat(p.userTVL || 0), 0)
-    .toFixed(2);
+  const totalValue = (() => {
+    const sum = positions.reduce((acc, p) => {
+      const val = parseFloat(p?.userTVL ?? '0');
+      return Number.isFinite(val) ? acc + val : acc;
+    }, 0);
+    return Number.isFinite(sum) ? sum.toFixed(2) : '0.00';
+  })();
 
   return `I found ${positions.length} garden pool${
     positions.length > 1 ? 's' : ''
@@ -223,7 +227,9 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
   const { hasLinkedWallet = true } = options;
   const recommendations = [];
 
-  for (const position of positions) {
+  const safePositions = Array.isArray(positions) ? positions : [];
+
+  for (const position of safePositions) {
     const { pairName, poolData, userTVL } = position;
     const { fee24hAPR, harvesting24hAPR, gardeningQuestAPR } = poolData || {};
 
@@ -269,7 +275,7 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
 
     const positionValue = (() => {
       const n = parseFloat(userTVL);
-      return isNaN(n) ? 0 : n;
+      return Number.isFinite(n) ? n : 0;
     })();
 
     const currentYieldLow = Number.isFinite(beforeAPR) ? beforeAPR : 0;
@@ -301,8 +307,12 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
       yieldImprovementLabel = `${safeDelta >= 0 ? '+' : ''}${safeDelta.toFixed(1)}% absolute`;
     }
 
-    const annualGainLow = (positionValue * currentYieldLow) / 100;
-    const annualGainHigh = (positionValue * currentYieldHigh) / 100;
+    const annualGainLow = Number.isFinite(positionValue) && Number.isFinite(currentYieldLow)
+      ? (positionValue * currentYieldLow) / 100
+      : 0;
+    const annualGainHigh = Number.isFinite(positionValue) && Number.isFinite(currentYieldHigh)
+      ? (positionValue * currentYieldHigh) / 100
+      : 0;
     const additionalGain = annualGainHigh - annualGainLow;
 
     recommendations.push({
@@ -333,10 +343,14 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
   }
 
   return {
-    positions: positions.length,
-    totalValueUSD: positions
-      .reduce((sum, p) => sum + parseFloat(p.userTVL || 0), 0)
-      .toFixed(2),
+    positions: safePositions.length,
+    totalValueUSD: (() => {
+      const sum = safePositions.reduce((acc, p) => {
+        const val = parseFloat(p?.userTVL ?? '0');
+        return Number.isFinite(val) ? acc + val : acc;
+      }, 0);
+      return Number.isFinite(sum) ? sum.toFixed(2) : '0.00';
+    })(),
     recommendations
   };
 }
@@ -443,33 +457,46 @@ export function formatOptimizationReport(optimization) {
     return 'No optimization recommendations available.';
   }
 
+  const totalPositions = Number.isFinite(optimization.positions)
+    ? optimization.positions
+    : Array.isArray(optimization.recommendations)
+      ? optimization.recommendations.length
+      : 0;
+  const totalValue = optimization.totalValueUSD ?? '0.00';
+
   let report = `**📊 Summary**\n`;
-  report += `- Total Positions: ${optimization.positions}\n`;
-  report += `- Total Value: $${optimization.totalValueUSD}\n\n`;
+  report += `- Total Positions: ${totalPositions}\n`;
+  report += `- Total Value: $${totalValue}\n\n`;
 
   for (const rec of optimization.recommendations) {
-    report += `### ${rec.pairName}\n`;
-    report += `**Pool Type:** ${rec.poolType} | **Your Position:** $${rec.userTVL}\n\n`;
+    if (!rec) continue;
+
+    const currentYield = rec.currentYield || {};
+    const annualReturn = rec.annualReturn || {};
+    const aprBreakdown = rec.aprBreakdown || {};
+
+    report += `### ${rec.pairName || 'Unknown Pool'}\n`;
+    report += `**Pool Type:** ${rec.poolType || 'N/A'} | **Your Position:** $${rec.userTVL ?? '0.00'}\n\n`;
 
     report += `**📈 Before vs After**\n`;
     report += `\`\`\`\n`;
     report += `BEFORE (Current gardening setup):\n`;
-    report += `  APR: ${rec.currentYield.worst}\n`;
-    report += `  Annual Return: ${rec.annualReturn.worst}\n\n`;
+    report += `  APR: ${currentYield.worst ?? 'N/A'}\n`;
+    report += `  Annual Return: ${annualReturn.worst ?? 'N/A'}\n\n`;
     report += `AFTER (Optimized heroes + pets):\n`;
-    report += `  APR: ${rec.currentYield.best}\n`;
-    report += `  Annual Return: ${rec.annualReturn.best}\n\n`;
-    report += `GAIN: ${rec.annualReturn.additionalGain} (${rec.yieldImprovement})\n`;
+    report += `  APR: ${currentYield.best ?? 'N/A'}\n`;
+    report += `  Annual Return: ${annualReturn.best ?? 'N/A'}\n\n`;
+    report += `GAIN: ${annualReturn.additionalGain ?? 'N/A'} (${rec.yieldImprovement ?? 'N/A'})\n`;
     report += `\`\`\`\n\n`;
 
     report += `**🦸 Recommended Setup**\n`;
-    report += `${rec.heroRecommendation}\n`;
-    report += `${rec.petRecommendation}\n\n`;
+    report += `${rec.heroRecommendation || 'No hero recommendation available.'}\n`;
+    report += `${rec.petRecommendation || 'No pet recommendation available.'}\n\n`;
 
     report += `**APR Breakdown:**\n`;
-    report += `- Fee APR: ${rec.aprBreakdown.fee}\n`;
-    report += `- Harvesting APR: ${rec.aprBreakdown.harvesting}\n`;
-    report += `- Quest Boost Range: ${rec.aprBreakdown.questBoost}\n\n`;
+    report += `- Fee APR: ${aprBreakdown.fee ?? 'N/A'}\n`;
+    report += `- Harvesting APR: ${aprBreakdown.harvesting ?? 'N/A'}\n`;
+    report += `- Quest Boost Range: ${aprBreakdown.questBoost ?? 'N/A'}\n\n`;
     report += `---\n\n`;
   }
 
