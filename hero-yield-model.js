@@ -7,33 +7,24 @@ function safeNum(v, fallback = 0) {
 }
 
 // Base token yields per attempt (1 stamina) for a factor-1.0 hero
-// Empirically validated from actual claim data - this IS the formula
+// These are universal base rates; actual yields scale with hero factor
+// Empirically validated from claim data across multiple pools
 export const CRYSTAL_BASE_PER_ATTEMPT = 1.82;
 export const JEWEL_BASE_PER_ATTEMPT = 0.14;
 
 // Hero gardening factor (per-stamina productivity)
-// Formula calibrated to match in-game observed yields:
-// - For WIS 45/VIT 43/Grd 31 with garden gene, expect factor ~1.23
-// - This gives ~55.9 CRYSTAL per 25-stam run (base, no pet)
-// - With 70% Power Surge pet: 55.9 * 1.7 = ~95 CRYSTAL
+// Formula matches spreadsheet: 0.1 + (WIS+VIT)/1222.22 + Gardening/244.44
+// For WIS 45/VIT 43/Grd 31: 0.1 + 88/1222.22 + 31/244.44 = 0.1 + 0.072 + 0.127 = 0.299
+// This factor is used in the full yield formula which includes emission rates
 export function computeHeroGardeningFactor(hero) {
   const wis = hero?.wisdom ?? 0;
   const vit = hero?.vitality ?? 0;
   const gardeningSkill = (hero?.gardening ?? 0) / 10; // Raw skill is 10x, e.g. 310 -> 31
-  const hasGardenGene =
-    hero?.professionStr?.toLowerCase() === 'gardening' ||
-    hero?.hasGardeningGene === true;
 
-  // Updated formula: 0.5 + (wis+vit)/200 + skill/100
-  // For WIS 45, VIT 43, Grd 31: 0.5 + 88/200 + 31/100 = 0.5 + 0.44 + 0.31 = 1.25
-  // With garden gene (1.0x for factor, gene affects quest duration not yield): 1.25
-  // Adjusted to match observed yields: ~1.23 factor for these stats
-  const baseFactor = 0.5 + (wis + vit) / 200 + gardeningSkill / 100;
+  // Spreadsheet formula: 0.1 + (WIS+VIT)/1222.22 + Gardening/244.44
+  const baseFactor = 0.1 + (wis + vit) / 1222.22 + gardeningSkill / 244.44;
 
-  // Garden gene provides 1.0x factor (gene reduces quest duration, doesn't boost yield)
-  const geneMult = hasGardenGene ? 1.0 : 1.0;
-
-  return baseFactor * geneMult;
+  return baseFactor;
 }
 
 // Stamina regeneration per day with Rapid Renewal
@@ -71,8 +62,8 @@ export function simulateGardeningDailyYield(config, attemptsPerIteration) {
   const itersPerDay = 86400 / iterationSeconds;
 
   // scale APR relative to heroFactor
-  // Updated baseline using new formula: 0.5 + (50+50)/200 + 0/100 = 1.0
-  const baselineFactor = 0.5 + (50 + 50) / 200;
+  // Baseline using spreadsheet formula: 0.1 + (50+50)/1222.22 + 0/244.44 = 0.182
+  const baselineFactor = 0.1 + (50 + 50) / 1222.22;
   const scale = factor / baselineFactor;
 
   const baseQuestApr = parseFloat(
@@ -151,8 +142,8 @@ export function computePerQuestYield(hero, options = {}) {
     const baseGardeningSkill = (hero?.gardening ?? 0) / 10;
     const adjustedGardeningSkill = baseGardeningSkill + (skilledGreenskeeperBonus / 10);
     
-    // Updated formula: 0.5 + (wis+vit)/200 + skill/100
-    const baseFactor = 0.5 + (wis + vit) / 200 + adjustedGardeningSkill / 100;
+    // Spreadsheet formula: 0.1 + (wis+vit)/1222.22 + skill/244.44
+    const baseFactor = 0.1 + (wis + vit) / 1222.22 + adjustedGardeningSkill / 244.44;
     factor = baseFactor;
   } else {
     factor = computeHeroGardeningFactor(hero);

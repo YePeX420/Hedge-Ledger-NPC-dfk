@@ -259,8 +259,8 @@ function computeHeroQuestApr(hero, pet, poolMeta, { hasGravityFeeder = false, ha
   const jewelPerQuest = optimal.jewelPerRun;
   
   // Calculate APR scale with Power Surge applied
-  // Updated baseline using new formula: 0.5 + (50+50)/200 + 0/100 = 1.0
-  const baselineFactor = 0.5 + (50 + 50) / 200;
+  // Baseline using spreadsheet formula: 0.1 + (50+50)/1222.22 + 0/244.44 = 0.182
+  const baselineFactor = 0.1 + (50 + 50) / 1222.22;
   const scale = (factor / baselineFactor) * powerSurgeMultiplier;
   
   const bestQuestAprStr = poolMeta?.gardeningQuestAPR?.best || '0%';
@@ -654,6 +654,10 @@ export async function execute(interaction) {
             `**TOTAL APR: ${grandTotalApr.toFixed(4)}%**`
           ].join('\n'),
           inline: false
+        });
+        
+        embed.setFooter({ 
+          text: 'Factor: 0.1 + (WIS+VIT)/1222.22 + Grd/244.44 | Yields are relative (compare heroes)' 
         });
       }
     }
