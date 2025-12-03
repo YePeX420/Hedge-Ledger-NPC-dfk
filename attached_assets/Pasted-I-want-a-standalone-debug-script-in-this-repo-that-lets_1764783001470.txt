@@ -1,0 +1,207 @@
+I want a standalone debug script in this repo that lets me query and sanity-check the APR for a single garden pool. The primary goal is:
+
+Show Fee APR and Harvesting APR as clean numbers.
+
+Optionally accept hero1/pet1/hero2/pet2 inputs and compute an approximate gardening quest APR for those two heroes working as a pair on that pool.
+
+This is meant as a developer/debug tool, not user-facing UI.
+
+1. File & interface
+
+Create a new file, e.g.:
+
+tools/garden_apr_debug.ts (or .js if TS is painful)
+
+This script should:
+
+Be runnable from the root with something like:
+
+npx tsx tools/garden_apr_debug.ts --pool CRYSTAL-JEWEL
+
+
+Support optional hero/pet arguments, for example:
+
+npx tsx tools/garden_apr_debug.ts \
+  --pool CRYSTAL-JEWEL \
+  --hero1 184641 --pet1 123 --hero2 182639 --pet2 456
+
+2. Inputs
+
+Required:
+
+--pool (string or pid)
+
+You can support either:
+
+--pool CRYSTAL-JEWEL (by name, mapping to pid), or
+
+--pid 1 (raw pid).
+
+Optional:
+
+--hero1, --pet1, --hero2, --pet2 (numeric IDs)
+
+If hero/pet args are omitted, just show base Fee APR and Harvest APR.
+
+3. Outputs (console)
+3.1 Always print:
+Garden APR Debug – <POOL NAME> (pid: X)
+
+Fee APR:          <ff.ff> %
+Harvest APR:      <hh.hh> %
+
+Total Base APR:   <ff.ff + hh.hh> %
+
+
+Where:
+
+Fee APR = annualized fee income from swaps only.
+
+Harvest APR = garden token emission APR (CRYSTAL/JEWEL emissions) excluding questing.
+
+3.2 If hero/pets are provided, also print:
+Gardening Quest APR (Hero1 + Hero2):
+
+Hero #<hero1> + Pet #<pet1>
+Hero #<hero2> + Pet #<pet2>
+
+Estimated Quest APR: <qq.qq> %
+Estimated Tokens/day:
+  JEWEL:   <jj.jj>
+  CRYSTAL: <cc.cc>
+
+Total APR (Base + Quest): <ff.ff + hh.hh + qq.qq> %
+
+
+This doesn’t have to be perfect, but it must be internally consistent given your current APR / hero models.
+
+4. Logic for Fee APR & Harvest APR (single pool)
+
+Use the most accurate existing sources in this repo:
+
+Prefer the current garden analytics pipeline:
+
+pool-cache / garden-analytics / onchain-data
+
+Each pool should already have:
+
+fee24hAPR (or similar)
+
+harvesting24hAPR (24h emission APR)
+
+Fee APR formula:
+
+Fee APR ≈ (fees collected in last 24h ÷ pool TVL) × 365 × 100
+
+Use the existing fields rather than re-deriving from on-chain data if those fields are trusted.
+
+Harvest APR formula:
+
+Harvest APR ≈ (emission value in last 24h ÷ pool TVL) × 365 × 100
+
+Again, use the garden analytics’ harvesting24hAPR or equivalent.
+
+Total Base APR:
+
+totalBaseApr = feeApr + harvestApr;
+
+5. “JEWEL > USDC” bias / pricing
+
+When you need token prices to compute APR:
+
+Prefer JEWEL-denominated logic instead of USDC if there is ambiguity.
+
+Concrete rule:
+
+Use your existing price feed (whatever is in the repo now).
+
+When multiple quote references exist (e.g. JEWEL–USDC vs JEWEL–CRYSTAL), choose the path that privileges JEWEL:
+
+For example, if you need CRYSTAL price:
+
+Compute CRYSTAL/JEWEL → then JEWEL/USD, instead of CRYSTAL/USDC directly.
+
+The goal is not to distort numbers wildly, just to break ties in favor of JEWEL maxi perspective when choosing which reference to trust.
+
+Implementation hint:
+
+Add a simple helper like getJewelMaxiPrice(tokenSymbol) that:
+
+For JEWEL: use JEWEL/USD directly.
+
+For CRYSTAL:
+
+If CRYSTAL/JEWEL exists, use CRYSTAL/JEWEL × JEWEL/USD.
+
+Else fall back to CRYSTAL/USDC.
+
+Use these prices to calculate Fee/Harvest APR and (optionally) quest APR.
+
+6. Optional: hero1/hero2 quest APR formula
+
+If hero/pets are provided, we want a rough quest APR, not perfect simulation.
+
+Use a simplified model based on:
+
+Hero stats: VIT + WIS + gardeningSkill
+
+Gardening gene: multiplier
+
+Stamina/day: use your existing computeStaminaPerDay(hero, { hasRapidRenewal })
+
+Pet bonuses: JEWEL/CRYSTAL % (if you’ve wired pet metadata)
+
+Example logic:
+
+heroFactor = 0.1 + (wis + vit) / 1222.22 + gardeningSkill / 244.44;
+if (hasGardeningGene) heroFactor *= 1.2;
+
+staminaPerDay = computeStaminaPerDay(hero, { hasRapidRenewal });
+heroDailyPower = heroFactor * staminaPerDay;
+
+
+Then:
+
+Assume a baseline quest APR for the pool (e.g. from gardeningQuestAPR.best).
+
+Scale it by heroDailyPower relative to an “average hero”.
+
+Combine both heroes’ contributions for that pool (JEWEL side and power-token side).
+
+Convert tokens/day → USD/day using JEWEL-maxi price feed.
+
+Quest APR:
+
+questApr = (usdPerDay * 365 / userPositionUsd) * 100;
+
+
+You can either:
+
+Ask for --lpvalue <USD> as an extra arg, or
+
+Call the existing analytics that know the user’s LP position for this pool.
+
+7. Safety & debug mode
+
+Wrap the main function in a try/catch and log clear errors:
+
+console.error('[GardenAPRDebug] Error:', err);
+
+
+Do not modify DB or user state.
+
+Do not send anything to Discord — this is a terminal debug tool only.
+
+8. Acceptance criteria
+
+Running the tool WITHOUT heroes:
+
+Prints Fee APR, Harvest APR, and Base APR for the specified pool.
+
+Running WITH hero/pet inputs:
+
+Prints Fee APR, Harvest APR, Base APR + Quest APR, Tokens/day, and Total APR.
+
+Uses user position value (not pool TVL) in APR denominators if you decide to calculate quest APR.
+
+Uses JEWEL-maxi price resolution when needing USD.
