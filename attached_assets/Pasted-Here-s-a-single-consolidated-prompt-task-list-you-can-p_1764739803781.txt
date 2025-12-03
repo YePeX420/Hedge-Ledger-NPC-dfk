@@ -1,0 +1,456 @@
+Here’s a single consolidated prompt/task list you can paste into Codex.
+It merges everything we’ve been talking about: DM state, tx/wallet, gardening formula, Rapid Renewal, hero/pet pairs, optimizer math, per-pool DM output, and token/day view.
+
+You can literally copy–paste from the line below down into Codex:
+
+
+---
+
+Codex Task: Harden Hedge’s garden optimization flow (DM state, hero/pet/RR optimization, and dashboard token/day view)
+
+0. Context
+
+Hedge Ledger is a Discord bot + dashboard for DeFi Kingdoms gardening optimization.
+
+Recent changes have made the DM state machine more stable and “Proceed” now works, but:
+
+The optimizer often reports “No optimization recommendations available” or BEFORE=AFTER with $0.00/year gain even when that’s not credible.
+
+The optimizer and DM output treat a garden “pair” as a single hero instead of two heroes (JEWEL + power token).
+
+Rapid Renewal (RR) is not treated as an optimization dimension.
+
+APR math sometimes uses INT/WIS instead of the correct VIT/WIS for gardening.
+
+The DM output for optimization is too long and gets split awkwardly due to Discord’s 2000 char limit.
+
+The dashboard only shows APR% and TVL, but we want JEWEL/day and CRYSTAL/day views.
+
+
+This task is to upgrade the full garden optimizer, keeping the new DM state machine but fixing the math and presentation.
+
+
+---
+
+1. DM state / tx / wallet safety (baseline)
+
+Goal: ensure the DM state machine remains correct and tx or wallet actions don’t interfere with optimization.
+
+Keep the current DM state machine behavior where:
+
+"optimize gardens" or "optimize my gardens" routes only to handleGardenOptimizationDM and returns early.
+
+tx:<hash> is only accepted when a pending optimization / payment is active.
+
+Wallet detection never treats "tx:..." as a wallet, and never runs while an optimization is pending.
+
+
+Keep the import of isPaymentBypassEnabled and the splitMessage helper for long Discord messages.
+
+
+If you change any handlers, do not regress these protections.
+
+
+---
+
+2. Model gardening correctly (WIS/VIT, not INT/WIS) and add stamina regen with Rapid Renewal
+
+Files: hero-yield-model.js (create if missing), wallet-lp-detector.js
+
+2.1 Hero gardening factor
+
+Implement:
+
+export function computeHeroGardeningFactor(hero) {
+  const wis = hero.wisdom ?? 0;
+  const vit = hero.vitality ?? 0;
+  const gardeningSkill = (hero.gardening ?? 0) / 10; // skill stored in tenths
+
+  const hasGardenGene =
+    hero.professionStr?.toLowerCase() === 'gardening' ||
+    hero.hasGardeningGene === true;
+
+  const baseFactor =
+    0.1 + (wis + vit) / 1222.22 + gardeningSkill / 244.44;
+
+  const geneMult = hasGardenGene ? 1.2 : 1.0; // approximate geneBonus effect
+
+  return baseFactor * geneMult;
+}
+
+Remove any gardening scoring that uses INT/WIS.
+
+Update any narrative text for gardening to talk about VIT/WIS + gardening skill + gardening gene, not INT/WIS.
+
+
+2.2 Stamina regen per day with Rapid Renewal
+
+Implement:
+
+export function computeStaminaPerDay(hero, { hasRapidRenewal }: { hasRapidRenewal: boolean }) {
+  const baseTickSeconds = 20 * 60; // 20 minutes per stamina
+  let tickSeconds = baseTickSeconds;
+
+  if (hasRapidRenewal) {
+    const reduction = hero.level * 3;  // 3 seconds per level
+    tickSeconds = baseTickSeconds - reduction;
+
+    // floor to avoid absurdly small values
+    const minTickSeconds = 5 * 60;
+    if (tickSeconds < minTickSeconds) tickSeconds = minTickSeconds;
+  }
+
+  return (24 * 60 * 60) / tickSeconds;
+}
+
+Call this in the optimizer wherever stamina/day is needed.
+
+
+
+---
+
+3. Treat each garden “pair” as two heroes (JEWEL + power token) with their own pets
+
+Files: optimizer module (wallet-lp-detector.js or a new helper)
+
+Each pool has up to 3 garden pairs, each pair consisting of:
+
+1 hero (+ pet) farming JEWEL
+
+1 hero (+ pet) farming the power token (e.g. CRYSTAL)
+
+
+3.1 Data structures
+
+Introduce:
+
+type GardenRole = 'JEWEL' | 'CRYSTAL';
+
+interface GardenSlot {
+  heroId: number | null;
+  petId: number | null;
+  role: GardenRole;           // 'JEWEL' or 'CRYSTAL'
+  dailyJewel: number;         // estimated JEWEL/day from this hero+pet
+  dailyCrystal: number;       // estimated power token/day from this hero+pet
+}
+
+interface GardenPair {
+  pairIndex: number;          // 1, 2, 3
+  jewel: GardenSlot | null;   // hero slot for JEWEL
+  crystal: GardenSlot | null; // hero slot for power token
+}
+
+interface PoolAssignment {
+  pairName: string;           // e.g. 'CRYSTAL-wJEWEL'
+  before: GardenPair[];       // ≤ 3 pairs (current)
+  after: GardenPair[];        // ≤ 3 pairs (optimized)
+}
+
+3.2 Detect current pairs from quest data
+
+Implement a helper (pseudo):
+
+function detectCurrentGardenAssignments(heroes, pets, positions): PoolAssignment[] {
+  // For each pool:
+  // 1. Find heroes currently gardening that pool (via hero.currentQuest or existing quest mapping).
+  // 2. For that pool, partition heroes into JEWEL-side vs power-token-side.
+  // 3. Sort JEWEL heroes and power heroes by some productivity metric.
+  // 4. Build up to 3 GardenPair objects:
+  //    pairIndex 1: { jewel: jewelHeroes[0], crystal: powerHeroes[0] }
+  //    pairIndex 2: { jewel: jewelHeroes[1], crystal: powerHeroes[1] }
+  //    pairIndex 3: { jewel: jewelHeroes[2], crystal: powerHeroes[2] }
+  // 5. For each GardenSlot, attach petId (hero→pet mapping) and compute dailyJewel/dailyCrystal using heroFactor and token emission info.
+}
+
+Use this for the “Current assignments (detected via quest data)” DM section.
+
+3.3 Build optimized pairs (“after” assignments)
+
+From all heroes & pets:
+
+Compute gardenScore for each hero:
+gardenScore = computeHeroGardeningFactor(hero) * computeStaminaPerDay(hero, { hasRapidRenewal })
+
+
+Globally allocate heroes/pets to pools:
+
+Pools sorted by userTVL descending.
+
+For each pool:
+
+fill up to 3 JEWEL slots and 3 CRYSTAL slots, using highest gardenScore heroes not yet used.
+
+ensure:
+
+each hero appears in only one GardenSlot total,
+
+each pet appears in only one GardenSlot total.
+
+
+
+
+Build after: GardenPair[] with JEWEL/CRYSTAL slots populated.
+
+
+
+---
+
+4. Incorporate Rapid Renewal as an optimization dimension
+
+We must treat RR as a limited resource that can be reassigned.
+
+Model RR presence per hero via heroMeta.hasRapidRenewal (or similar).
+
+When computing gardenScore and daily yield, call computeStaminaPerDay(hero, { hasRapidRenewal }).
+
+Allow the optimizer to consider scenarios where RR is moved from one hero to another:
+
+e.g., strongly favor heroes with highest gardenScore when deciding which heroes “should” have RR.
+
+
+In the DM output, add a small section per pool and/or summary:
+
+
+**Rapid Renewal suggestions:**
+- Currently active on: Hero #A, Hero #B
+- Recommended to apply on: Hero #X (CRYSTAL-wJEWEL pool), Hero #Y (wJEWEL-ETH pool)
+- Estimated impact: +Δ JEWEL/day, +Δ CRYSTAL/day if RR is moved as suggested.
+
+Do not change actual RR status on-chain – just recommend.
+
+
+---
+
+5. Fix Before/After APR & gain math
+
+In generatePoolOptimizations (or wherever APR and gain are computed):
+
+For each position/pool, compute:
+
+
+beforeApr      // fee + harvest + quest APR under current assignments
+afterApr       // fee + harvest + quest APR under optimized assignments
+beforeAnnual   // userTvlUsd * (beforeApr / 100)
+afterAnnual    // userTvlUsd * (afterApr / 100)
+gainYear       // afterAnnual - beforeAnnual
+gainPct        // % vs current, when safe to compute
+
+Be defensive:
+
+const base = beforeApr;
+let gainPct = 0;
+if (base > 0.1) {
+  const raw = ((afterApr - beforeApr) / base) * 100;
+  gainPct = Number.isFinite(raw) ? raw : 0;
+} else {
+  // treat improvement as absolute APR gain
+  gainPct = 0;
+}
+
+const gainYear = Number.isFinite(afterAnnual - beforeAnnual)
+  ? (afterAnnual - beforeAnnual)
+  : 0;
+
+Update formatOptimizationReport to use rec.annualReturn.additionalGain instead of rec.additionalGain for the GAIN line.
+
+Even if gainYear is small, do not hide the pool; instead, annotate it as a “minor” improvement.
+
+
+---
+
+6. DM output: summary + one message per pool (no mid-pool splits)
+
+File: DM output logic (where the optimization report is assembled)
+
+6.1 Summary message (first DM)
+
+After optimization is computed, build a summary:
+
+{
+  totalTvlUsd,
+  totalBeforeJewelPerDay,
+  totalBeforeCrystalPerDay,
+  totalAfterJewelPerDay,
+  totalAfterCrystalPerDay,
+  poolSummaries: [
+    { pairName, gainJewelPerDay, gainCrystalPerDay, gainYear, gainPct, ... },
+    ...
+  ]
+}
+
+Send one message like:
+
+**Garden Optimization Summary (Bypass Enabled)**
+
+Pools analyzed: CRYSTAL-wJEWEL, CRYSTAL-USDC, wJEWEL-USDC, wJEWEL-ETH  
+Approx. total TVL: $33,092  
+
+Net effect if you apply all suggested changes:
+- +X JEWEL / day (~$A / year)
+- +Y CRYSTAL / day (~$B / year)
+
+Top pools by improvement:
+1. CRYSTAL-wJEWEL: +... JEWEL/day, ... CRYSTAL/day
+2. ...
+3. ...
+
+6.2 One message per pool
+
+For each pool in poolSummaries, render:
+
+Header (pool name, pool type, position)
+
+BEFORE vs AFTER APR & annual returns, including Tokens/day:
+
+
+📊 BEFORE (Current gardening setup):
+APR: 4.26%
+Annual Return: $422.81
+Tokens/day: 6.89 JEWEL, 28.27 CRYSTAL
+
+📈 AFTER (Optimized heroes + pets):
+APR: 4.55%
+Annual Return: $451.10
+Tokens/day: 7.39 JEWEL, 30.06 CRYSTAL
+
+GAIN: $28.29/year (+6.7% vs current)
+
+Current assignments using before: GardenPair[]:
+
+
+**Current assignments (detected via quest data):**
+- Pair 1:
+  - JEWEL:   Hero #A + Pet #X → ~J_A JEWEL/day, C_A CRYSTAL/day
+  - CRYSTAL: Hero #B + Pet #Y → ~J_B JEWEL/day, C_B CRYSTAL/day
+- Pair 2:
+  ...
+- Pair 3:
+  ...
+
+Recommended assignments using after: GardenPair[]:
+
+
+**Recommended assignments (3 hero pairs):**
+- Pair 1:
+  - JEWEL:   Hero #A' + Pet #X' → new JEWEL/day, CRYSTAL/day (Δ vs current)
+  - CRYSTAL: Hero #B' + Pet #Y'
+- Pair 2:
+  ...
+- Pair 3:
+  ...
+
+Rapid Renewal suggestions (if any).
+
+
+Only use splitMessage() if a single pool block exceeds ~1900 characters; do not split the pool’s description in half.
+
+If a pool is truly optimal, say so explicitly instead of generic “No optimizations”:
+
+This pool is already using your strongest fee/garden heroes given your roster. No changes recommended here. See assignments above for confirmation.
+
+
+---
+
+7. Dashboard: APR% vs Tokens/day view
+
+Files: dashboard React components, backend API that returns positions (e.g. /api/admin/lp-positions/:wallet).
+
+7.1 Backend additions
+
+For each user pool position, add:
+
+daily: {
+  jewel: number;    // JEWEL/day
+  crystal: number;  // CRYSTAL/day
+}
+
+You can compute these from the same optimization math:
+
+beforeTokensPerDay or afterTokensPerDay (for recommended config)
+
+Or approximate from APR% + TVL + token prices if necessary.
+
+
+7.2 Frontend toggle
+
+In the pools/positions table:
+
+Add a toggle:
+
+
+const [aprView, setAprView] = useState<'percent' | 'tokens'>(
+  localStorage.getItem('aprView') === 'tokens' ? 'tokens' : 'percent'
+);
+
+// Buttons: "APR %" and "Tokens / day"
+
+When aprView === 'percent', show:
+
+
+APR: XX.X%   Quest Boost: YY.Y%
+
+When aprView === 'tokens', show:
+
+
+JEWEL/day: X.XX   CRYSTAL/day: Y.YY
+
+Persist view preference in localStorage so it survives reloads.
+
+
+The goal is to keep users focused on power token output (JEWEL/CRYSTAL), with APR% as a secondary view.
+
+
+---
+
+8. Logging and diagnostics
+
+Under a verboseLogging or similar flag, log:
+
+Input counts:
+
+
+console.log('[Opt] positions=', positions?.length, 'heroes=', heroes?.length);
+
+Per-pool before/after metrics:
+
+
+console.log('[Opt][pool]', pairName, {
+  beforeApr,
+  afterApr,
+  beforeAnnual,
+  afterAnnual,
+  beforeTokensPerDay,
+  afterTokensPerDay,
+  gainYear,
+  gainPct,
+});
+
+This will make it easy to debug future issues.
+
+
+---
+
+Final Acceptance
+
+Optimize gardens with bypass ON yields:
+
+1. One summary DM.
+
+
+2. One per-pool DM, each with Before/After, hero+pet pairs (JEWEL+CRYSTAL), tokens/day, RR suggestions.
+
+
+
+The optimizer uses VIT/WIS + gardening skill + gene + RR and respects 6 hero slots per pool.
+
+RR is considered as an optimization axis (where to best apply it).
+
+Dashboard can toggle between APR% and tokens/day views.
+
+No regressions in DM state machine, tx handling, or message splitting.
+
+
+
+---
+
+*(End of prompt – you can give this whole block to Codex.)*
