@@ -68,9 +68,17 @@ export function decodeCurrentQuest(currentQuest) {
 export function groupHeroesByGardenPool(heroes) {
   const poolHeroes = new Map();
   
+  console.log(`[GroupHeroes] Scanning ${heroes.length} heroes for active garden quests...`);
+  
   for (const h of heroes) {
     const hero = h.hero || h;
-    const { isGardening, poolId } = decodeCurrentQuest(hero.currentQuest);
+    const questHex = hero.currentQuest;
+    const { isGardening, poolId, questType } = decodeCurrentQuest(questHex);
+    
+    // Debug first few heroes
+    if (poolHeroes.size < 3 || isGardening) {
+      console.log(`[GroupHeroes] Hero ${hero.normalizedId || hero.id}: quest=${questHex?.substring(0,18) || 'null'}, isGardening=${isGardening}, poolId=${poolId}, type=${questType}`);
+    }
     
     if (isGardening && poolId !== null) {
       if (!poolHeroes.has(poolId)) {
@@ -79,6 +87,8 @@ export function groupHeroesByGardenPool(heroes) {
       poolHeroes.get(poolId).push(h);
     }
   }
+  
+  console.log(`[GroupHeroes] Found gardening heroes in ${poolHeroes.size} pools: ${[...poolHeroes.entries()].map(([pid, arr]) => `Pool${pid}:${arr.length}`).join(', ')}`);
   
   return poolHeroes;
 }
