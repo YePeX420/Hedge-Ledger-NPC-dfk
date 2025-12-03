@@ -1,0 +1,250 @@
+import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { ethers } from 'ethers';
+import { getAllHeroesByOwner } from '../onchain-data.js';
+import { fetchPetsForWallet, annotateHeroesWithPets } from '../pet-data.js';
+import { groupHeroesByGardenPool, computeGardenScore } from '../garden-pairs.js';
+import { computeHeroGardeningFactor, computeStaminaPerDay } from '../hero-yield-model.js';
+import { arePetsFedByGravityFeeder } from '../rapid-renewal-service.js';
+
+const GARDEN_POOLS = [
+  { pid: 0, name: 'wJEWEL-xJEWEL' },
+  { pid: 1, name: 'CRYSTAL-AVAX' },
+  { pid: 2, name: 'CRYSTAL-wJEWEL' },
+  { pid: 3, name: 'CRYSTAL-USDC' },
+  { pid: 4, name: 'ETH-USDC' },
+  { pid: 5, name: 'wJEWEL-USDC' },
+  { pid: 6, name: 'CRYSTAL-ETH' },
+  { pid: 7, name: 'CRYSTAL-BTC.b' },
+  { pid: 8, name: 'CRYSTAL-KLAY' },
+  { pid: 9, name: 'wJEWEL-KLAY' },
+  { pid: 10, name: 'wJEWEL-AVAX' },
+  { pid: 11, name: 'wJEWEL-BTC.b' },
+  { pid: 12, name: 'wJEWEL-ETH' },
+  { pid: 13, name: 'BTC.b-USDC' }
+];
+
+export const data = new SlashCommandBuilder()
+  .setName('debug-garden-pair')
+  .setDescription('Debug gardening pair yields - show hero stats, pets, and per-run output')
+  .addStringOption(option =>
+    option.setName('wallet')
+      .setDescription('Wallet address')
+      .setRequired(true)
+  )
+  .addIntegerOption(option =>
+    option.setName('pool')
+      .setDescription('Pool ID (0-13)')
+      .setRequired(true)
+      .setMinValue(0)
+      .setMaxValue(13)
+  );
+
+export async function execute(interaction) {
+  await interaction.deferReply();
+  
+  try {
+    const walletAddress = interaction.options.getString('wallet').toLowerCase();
+    const poolId = interaction.options.getInteger('pool');
+    
+    if (!ethers.isAddress(walletAddress)) {
+      return interaction.editReply('Invalid wallet address format');
+    }
+    
+    const poolInfo = GARDEN_POOLS.find(p => p.pid === poolId);
+    if (!poolInfo) {
+      return interaction.editReply(`Invalid pool ID: ${poolId}`);
+    }
+    
+    console.log(`[DebugPair] Fetching heroes for wallet ${walletAddress}...`);
+    
+    const [heroes, pets, hasGravityFeeder] = await Promise.all([
+      getAllHeroesByOwner(walletAddress),
+      fetchPetsForWallet(walletAddress),
+      arePetsFedByGravityFeeder(walletAddress).catch(() => false)
+    ]);
+    
+    console.log(`[DebugPair] Found ${heroes.length} heroes, ${pets.length} pets, GF=${hasGravityFeeder}`);
+    
+    const annotatedHeroes = annotateHeroesWithPets(
+      heroes.map(h => ({ hero: h, heroMeta: {} })),
+      pets,
+      { gravityFeederActive: hasGravityFeeder }
+    );
+    
+    const poolHeroes = groupHeroesByGardenPool(annotatedHeroes);
+    const heroesOnPool = poolHeroes.get(poolId) || [];
+    
+    if (heroesOnPool.length === 0) {
+      return interaction.editReply(`No heroes currently gardening pool ${poolId} (${poolInfo.name})`);
+    }
+    
+    console.log(`[DebugPair] Found ${heroesOnPool.length} heroes on pool ${poolId}`);
+    
+    const embed = new EmbedBuilder()
+      .setColor('#2ecc71')
+      .setTitle(`Garden Debug: ${poolInfo.name} (Pool ${poolId})`)
+      .setDescription(`Found ${heroesOnPool.length} heroes gardening this pool`)
+      .setTimestamp();
+    
+    const heroDetails = [];
+    let totalGardenScore = 0;
+    
+    for (const h of heroesOnPool) {
+      const hero = h.hero || h;
+      const heroMeta = h.heroMeta || {};
+      
+      const heroId = hero.normalizedId || hero.id;
+      const vit = hero.vitality || 0;
+      const wis = hero.wisdom || 0;
+      const gardeningRaw = hero.gardening || 0;
+      const gardeningSkill = gardeningRaw / 10;
+      const hasGardenGene = hero.professionStr?.toLowerCase() === 'gardening' || hero.hasGardeningGene;
+      const level = hero.level || 1;
+      
+      const petId = heroMeta.petId || null;
+      const petBonus = heroMeta.petGardenBonus || {};
+      const petGatheringSkill = petBonus.gatheringSkill || 0;
+      const petBonusPct = petBonus.questBonusPct || 0;
+      const petFed = petBonus.isFed !== false;
+      
+      const stamPerDay = computeStaminaPerDay(hero, { hasRapidRenewal: heroMeta?.hasRapidRenewal });
+      const factor = computeHeroGardeningFactor(hero);
+      const { score: gardenScore } = computeGardenScore(hero, heroMeta);
+      totalGardenScore += gardenScore;
+      
+      heroDetails.push({
+        heroId,
+        level,
+        vit,
+        wis,
+        gardeningSkill,
+        hasGardenGene,
+        hasRapidRenewal: heroMeta?.hasRapidRenewal || false,
+        stamPerDay,
+        petId,
+        petGatheringSkill,
+        petBonusPct,
+        petFed,
+        factor,
+        gardenScore,
+        hero
+      });
+    }
+    
+    for (let i = 0; i < heroDetails.length; i += 2) {
+      const h1 = heroDetails[i];
+      const h2 = heroDetails[i + 1];
+      
+      let pairText = formatHeroLine(h1);
+      if (h2) {
+        pairText += '\n' + formatHeroLine(h2);
+      }
+      
+      const optimalAttempts = findOptimalAttemptsForPair(h1, h2, h1.hero, h2?.hero);
+      const { crystalPerRun, jewelPerRun } = estimatePerRunYield(h1, h2, optimalAttempts.attempts);
+      
+      pairText += `\n**Per Run:** ~${crystalPerRun.toFixed(1)} CRYSTAL, ~${jewelPerRun.toFixed(1)} JEWEL`;
+      pairText += `\n**Iteration:** ${formatTime(optimalAttempts.iterationMins)} (${optimalAttempts.attempts} stam)`;
+      pairText += `\n**Runs/Day:** ~${optimalAttempts.runsPerDay.toFixed(1)}`;
+      
+      embed.addFields({
+        name: `Pair ${Math.floor(i/2) + 1}`,
+        value: pairText,
+        inline: false
+      });
+    }
+    
+    const numPairs = Math.ceil(heroDetails.length / 2);
+    
+    embed.addFields({
+      name: 'Calibration Constants',
+      value: `CRYSTAL base: 2.8/attempt, JEWEL base: 0.2/attempt\n*Compare to your actual returns to validate*`,
+      inline: false
+    });
+    
+    embed.addFields({
+      name: 'Summary',
+      value: `Total Heroes: ${heroDetails.length}\nPairs: ${numPairs}\nTotal Garden Score: ${totalGardenScore.toFixed(2)}`,
+      inline: false
+    });
+    
+    return interaction.editReply({ embeds: [embed] });
+    
+  } catch (error) {
+    console.error('[DebugPair] Error:', error);
+    return interaction.editReply(`Error: ${error.message}`);
+  }
+}
+
+function formatHeroLine(h) {
+  const geneIcon = h.hasGardenGene ? ' [G]' : '';
+  const petInfo = h.petId 
+    ? ` | Pet #${h.petId} (G${h.petGatheringSkill.toFixed(1)}, +${h.petBonusPct.toFixed(1)}%)${h.petFed ? '' : ' [hungry]'}`
+    : ' | No pet';
+  
+  return `Hero #${h.heroId}${geneIcon} L${h.level} | VIT:${h.vit} WIS:${h.wis} G:${h.gardeningSkill.toFixed(1)}${petInfo}`;
+}
+
+function findOptimalAttemptsForPair(h1, h2, hero1, hero2) {
+  let best = { attempts: 25, iterationMins: 0, runsPerDay: 0 };
+  
+  const stamPerDay1 = computeStaminaPerDay(hero1, { hasRapidRenewal: h1.hasRapidRenewal });
+  const stamPerDay2 = hero2 ? computeStaminaPerDay(hero2, { hasRapidRenewal: h2?.hasRapidRenewal }) : stamPerDay1;
+  const avgStamPerDay = (stamPerDay1 + stamPerDay2) / 2;
+  
+  for (let attempts = 10; attempts <= 35; attempts++) {
+    const hasGardenGene = h1.hasGardenGene || h2?.hasGardenGene;
+    const questDurationPerStam = hasGardenGene ? 10 : 12;
+    const iterationMins = calculateIterationTime(attempts, questDurationPerStam, avgStamPerDay);
+    const runsPerDay = (24 * 60) / iterationMins;
+    
+    if (runsPerDay > best.runsPerDay) {
+      best = { attempts, iterationMins, runsPerDay, stamPerDay: avgStamPerDay };
+    }
+  }
+  
+  return best;
+}
+
+function calculateIterationTime(attempts, questDurationPerStam, stamPerDay) {
+  const questDurationMins = attempts * questDurationPerStam;
+  
+  const regenMins = (attempts / stamPerDay) * 1440;
+  
+  return questDurationMins + regenMins;
+}
+
+function estimatePerRunYield(h1, h2, attempts) {
+  const CRYSTAL_BASE_PER_ATTEMPT = 2.8;
+  const JEWEL_BASE_PER_ATTEMPT = 0.2;
+  
+  const factor1 = h1.factor;
+  const petBonus1 = h1.petFed ? h1.petBonusPct : 0;
+  
+  const factor2 = h2 ? h2.factor : 0;
+  const petBonus2 = h2?.petFed ? h2.petBonusPct : 0;
+  
+  const hero1Crystal = CRYSTAL_BASE_PER_ATTEMPT * attempts * factor1 * (1 + petBonus1 / 100);
+  const hero1Jewel = JEWEL_BASE_PER_ATTEMPT * attempts * factor1 * (1 + petBonus1 / 100);
+  
+  const hero2Crystal = h2 ? CRYSTAL_BASE_PER_ATTEMPT * attempts * factor2 * (1 + petBonus2 / 100) : 0;
+  const hero2Jewel = h2 ? JEWEL_BASE_PER_ATTEMPT * attempts * factor2 * (1 + petBonus2 / 100) : 0;
+  
+  return {
+    crystalPerRun: hero1Crystal + hero2Crystal,
+    jewelPerRun: hero1Jewel + hero2Jewel,
+    breakdown: {
+      hero1: { crystal: hero1Crystal, jewel: hero1Jewel },
+      hero2: h2 ? { crystal: hero2Crystal, jewel: hero2Jewel } : null
+    }
+  };
+}
+
+function formatTime(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  if (hours > 0) {
+    return `${hours}h ${mins}m`;
+  }
+  return `${mins}m`;
+}
