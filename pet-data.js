@@ -319,13 +319,14 @@ function parsePetData(petTuple) {
     hungryInHours = Math.round((hungryAt.getTime() - Date.now()) / (1000 * 60 * 60) * 10) / 10;
   }
   
-  // Bonus scalars are uint8 (0-255), divide by 10 for percentage
+  // Bonus IDs encode skill type + rarity tier (0-79 Common, 80-159 Rare, 160+ Mythic)
+  // Scalars are uint8 (0-255) and represent the whole percentage bonus directly (NOT divided by 10)
   const profBonusRaw = Number(petTuple.profBonus);
-  const profBonusScalar = Number(petTuple.profBonusScalar) / 10;
+  const profBonusScalar = Number(petTuple.profBonusScalar);  // Already whole percentage (e.g., 44 = 44%)
   const craftBonusRaw = Number(petTuple.craftBonus);
-  const craftBonusScalar = Number(petTuple.craftBonusScalar) / 10;
+  const craftBonusScalar = Number(petTuple.craftBonusScalar);  // Already whole percentage
   const combatBonusRaw = Number(petTuple.combatBonus);
-  const combatBonusScalar = Number(petTuple.combatBonusScalar) / 10;
+  const combatBonusScalar = Number(petTuple.combatBonusScalar);  // Already whole percentage (e.g., 2 = 2%)
   
   // Extract raw values
   const rarityRaw = Number(petTuple.rarity);
@@ -352,10 +353,11 @@ function parsePetData(petTuple) {
   const combatSkillName = getCombatSkillName(combatBonusRaw);
   const combatSkillDesc = getCombatSkillDescription(combatSkillName, combatBonusScalar);
   
-  // Stars based on raw bonus scalar (before dividing by 10)
-  const gatheringStars = getBonusStars(Number(petTuple.profBonusScalar));
-  const combatStars = getBonusStars(Number(petTuple.combatBonusScalar));
-  const craftStars = getBonusStars(Number(petTuple.craftBonusScalar));
+  // Stars based on bonus IDs which encode rarity tier (0-79=1★, 80-159=2★, 160+=3★)
+  // NOT based on scalar values - the IDs encode the tier
+  const gatheringStars = getBonusStars(profBonusRaw);
+  const combatStars = getBonusStars(combatBonusRaw);
+  const craftStars = getBonusStars(craftBonusRaw);
   
   // Variant based on shiny status
   const variant = shinyRaw === 1 ? 'Shiny' : 'Normal';
