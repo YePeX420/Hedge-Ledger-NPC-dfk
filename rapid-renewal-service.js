@@ -46,6 +46,8 @@ const POWERUP_IDS = {
 let rapidRenewalId = POWERUP_IDS.RAPID_RENEWAL;
 let gravityFeederId = POWERUP_IDS.GRAVITY_FEEDER;
 let wildUnknownId = POWERUP_IDS.WILD_UNKNOWN;
+let quickStudyId = POWERUP_IDS.QUICK_STUDY;
+let premiumProvisionsId = POWERUP_IDS.PREMIUM_PROVISIONS;
 
 function getProvider() {
   if (!provider) {
@@ -303,16 +305,62 @@ export async function arePetsFedByGravityFeeder(walletAddress) {
 }
 
 /**
+ * Check if user has Quick Study power-up active
+ * Quick Study increases XP gains from training and quests
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<{isActive: boolean}>}
+ */
+export async function getQuickStudyStatus(walletAddress) {
+  try {
+    const contract = getPowerUpContract();
+    const qsId = POWERUP_IDS.QUICK_STUDY;
+    
+    const isActive = await contract.isUserPowerUpActive(walletAddress, qsId);
+    
+    console.log(`[QuickStudy] Wallet ${walletAddress.slice(0, 8)}... has Quick Study: ${isActive ? 'YES' : 'NO'}`);
+    
+    return { isActive };
+  } catch (error) {
+    console.error(`[QuickStudy] Error fetching QS status for ${walletAddress}:`, error.message);
+    return { isActive: false };
+  }
+}
+
+/**
+ * Check if user has Premium Provisions power-up active
+ * Premium Provisions grants bonus pet food quality
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<{isActive: boolean}>}
+ */
+export async function getPremiumProvisionsStatus(walletAddress) {
+  try {
+    const contract = getPowerUpContract();
+    const ppId = POWERUP_IDS.PREMIUM_PROVISIONS;
+    
+    const isActive = await contract.isUserPowerUpActive(walletAddress, ppId);
+    
+    console.log(`[PremiumProvisions] Wallet ${walletAddress.slice(0, 8)}... has Premium Provisions: ${isActive ? 'YES' : 'NO'}`);
+    
+    return { isActive };
+  } catch (error) {
+    console.error(`[PremiumProvisions] Error fetching PP status for ${walletAddress}:`, error.message);
+    return { isActive: false };
+  }
+}
+
+/**
  * Get comprehensive power-up status for a wallet
- * Returns Wild Unknown, Gravity Feeder, and Rapid Renewal status
+ * Returns Wild Unknown, Gravity Feeder, Quick Study, Premium Provisions, and Rapid Renewal status
  * @param {string} walletAddress - User's wallet address
  * @returns {Promise<Object>} Power-up status summary
  */
 export async function getWalletPowerUpStatus(walletAddress) {
   try {
-    const [wildUnknown, gravityFeeder, rapidRenewalHeroes] = await Promise.all([
+    const [wildUnknown, gravityFeeder, quickStudy, premiumProvisions, rapidRenewalHeroes] = await Promise.all([
       getWildUnknownStatus(walletAddress),
       getGravityFeederStatus(walletAddress),
+      getQuickStudyStatus(walletAddress),
+      getPremiumProvisionsStatus(walletAddress),
       getRapidRenewalHeroIds(walletAddress)
     ]);
     
@@ -324,6 +372,12 @@ export async function getWalletPowerUpStatus(walletAddress) {
       gravityFeeder: {
         active: gravityFeeder.isActive
       },
+      quickStudy: {
+        active: quickStudy.isActive
+      },
+      premiumProvisions: {
+        active: premiumProvisions.isActive
+      },
       rapidRenewal: {
         heroCount: rapidRenewalHeroes.size,
         heroIds: Array.from(rapidRenewalHeroes)
@@ -334,6 +388,8 @@ export async function getWalletPowerUpStatus(walletAddress) {
     return {
       wildUnknown: { active: false, heroSlots: 0 },
       gravityFeeder: { active: false },
+      quickStudy: { active: false },
+      premiumProvisions: { active: false },
       rapidRenewal: { heroCount: 0, heroIds: [] }
     };
   }
@@ -352,5 +408,7 @@ export default {
   arePetsFedByGravityFeeder,
   getWildUnknownPowerUpId,
   getWildUnknownStatus,
+  getQuickStudyStatus,
+  getPremiumProvisionsStatus,
   getWalletPowerUpStatus
 };

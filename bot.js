@@ -1911,28 +1911,34 @@ client.on(Events.InteractionCreate, async (interaction) => {
               ? `Fed (${pet.hungryInHours}h remaining)` 
               : (hasGF ? 'Fed (Gravity Feeder)' : 'Hungry');
             
-            petLines.push(`**Pet #${pet.id}** ${pet.shiny ? '✨ Shiny' : ''}`);
-            petLines.push(`• Name: ${pet.name || 'Unnamed'}`);
+            // Header with shiny status
+            const shinyText = pet.shiny ? '✨ Shiny' : 'Non-Shiny';
+            petLines.push(`**Pet #${pet.id}** ${shinyText}`);
+            petLines.push(`Variant: ${pet.variant || 'Normal'}`);
+            petLines.push(`• Profession: ${pet.profession || pet.gatheringType}`);
+            petLines.push(`• Stars: ${pet.stars || pet.bonusCount || 0}`);
             petLines.push(`• Rarity: ${pet.rarityName} | Element: ${pet.elementName}`);
             petLines.push(`• Season: ${pet.seasonName}`);
             petLines.push('');
             
+            // Gathering Stats with skill description and star rating
             petLines.push('**Gathering Stats:**');
-            petLines.push(`• Type: ${pet.gatheringType}`);
-            petLines.push(`• Skill: ${pet.gatheringBonusName}`);
-            petLines.push(`• Bonus: +${pet.gatheringBonusScalar}% (${pet.gatheringBonusRarity})`);
+            petLines.push(`• Skill: ${pet.gatheringSkillName || pet.gatheringBonusName}`);
+            if (pet.gatheringSkillDescription) {
+              petLines.push(`• Description: ${pet.gatheringSkillDescription}`);
+            }
+            petLines.push(`• Bonus: +${pet.gatheringBonusScalar}%`);
+            petLines.push(`• Bonus Rarity: ${pet.gatheringStarsDisplay || '⭐'} (${pet.gatheringStars || 1} stars)`);
             petLines.push('');
             
-            if (pet.craftBonusScalar > 0) {
-              petLines.push('**Crafting Stats:**');
-              petLines.push(`• Skill: ${pet.craftBonusName}`);
-              petLines.push(`• Bonus: +${pet.craftBonusScalar}% (${pet.craftBonusRarity})`);
-              petLines.push('');
-            }
-            
+            // Combat Stats with skill description and star rating
             petLines.push('**Combat Stats:**');
-            petLines.push(`• Skill: ${pet.combatBonusName}`);
-            petLines.push(`• Bonus: +${pet.combatBonusScalar}% (${pet.combatBonusRarity})`);
+            petLines.push(`• Skill: ${pet.combatSkillName || pet.combatBonusName}`);
+            if (pet.combatSkillDescription) {
+              petLines.push(`• Description: ${pet.combatSkillDescription}`);
+            }
+            petLines.push(`• Bonus: +${pet.combatBonusScalar}%`);
+            petLines.push(`• Bonus Rarity: ${pet.combatStarsDisplay || '⭐'} (${pet.combatStars || 1} stars)`);
             petLines.push('');
             
             petLines.push(`**Status:** ${fedReason}`);
@@ -1973,22 +1979,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const hasRR = powerUpStatus.rapidRenewal?.heroIds?.includes(hero.normalizedId) ||
                          powerUpStatus.rapidRenewal?.heroIds?.includes(Number(numericId)) || false;
             
-            // Current status
+            // Current status - show all power-ups
             questLines.push('**Active:**');
             questLines.push(`• Wild Unknown: ${powerUpStatus.wildUnknown?.active ? '✅' : '❌'}`);
+            questLines.push(`• Quick Study: ${powerUpStatus.quickStudy?.active ? '✅' : '❌'}`);
             questLines.push(`• Gravity Feeder: ${powerUpStatus.gravityFeeder?.active ? '✅' : '❌'}`);
             questLines.push(`• Rapid Renewal: ${hasRR ? '✅ (this hero)' : '❌'}`);
+            questLines.push(`• Premium Provisions: ${powerUpStatus.premiumProvisions?.active ? '✅' : '❌'}`);
             
             // Recommendations for inactive power-ups
             const recommendations = [];
             if (!powerUpStatus.wildUnknown?.active) {
               recommendations.push('• **Wild Unknown** - Send extra heroes on expeditions');
             }
+            if (!powerUpStatus.quickStudy?.active) {
+              recommendations.push('• **Quick Study** - Increase XP gains from training');
+            }
             if (!powerUpStatus.gravityFeeder?.active) {
               recommendations.push('• **Gravity Feeder** - Auto-feed all pets during expeditions');
             }
             if (!hasRR) {
               recommendations.push('• **Rapid Renewal** - Faster stamina regen (3s/level reduction)');
+            }
+            if (!powerUpStatus.premiumProvisions?.active) {
+              recommendations.push('• **Premium Provisions** - Bonus pet food quality');
             }
             
             if (recommendations.length > 0) {
@@ -2431,9 +2445,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines2.push(`Used: ${summons}/${maxSummons} | Remaining: ${remaining}`);
         lines2.push('');
         
-        // Stamina info
+        // Stamina info - show as used/max format (e.g., 25/35 means 25 used out of 35)
+        const maxStamina = 25; // Base max stamina for heroes
+        const currentStamina = hero.stamina ?? 0;
+        const usedStamina = maxStamina - currentStamina;
         lines2.push('**🔋 Stamina:**');
-        lines2.push(`**Current:** ${hero.stamina}/25`);
+        lines2.push(`**Current:** ${usedStamina}/${maxStamina} (${currentStamina} remaining)`);
         if (hero.staminaFullAt) {
           const fullAt = new Date(hero.staminaFullAt * 1000);
           const now = new Date();
@@ -2446,34 +2463,46 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         lines2.push('');
         
-        // Quest Data Section
+        // Quest Data Section - decode the quest hex into meaningful info
         lines2.push('**⚔️ Quest Data:**');
         const questHex = hero.currentQuest || '0x0000000000000000000000000000000000000000';
-        lines2.push(`**Raw Hex:** \`${questHex}\``);
         
         if (questHex && questHex !== '0x0000000000000000000000000000000000000000') {
           const hex = questHex.toLowerCase().replace('0x', '');
-          lines2.push(`**Hex Length:** ${hex.length} chars (${hex.length / 2} bytes)`);
           
-          if (hex.length >= 8) {
-            const byte0 = hex.substring(0, 2);
-            const byte1 = hex.substring(2, 4);
-            const byte2 = hex.substring(4, 6);
-            const byte3 = hex.substring(6, 8);
-            lines2.push(`**Bytes 0-3:** 0x${byte0} | 0x${byte1} | 0x${byte2} | 0x${byte3}`);
-            lines2.push(`**Decimal:** ${parseInt(byte0, 16)} | ${parseInt(byte1, 16)} | ${parseInt(byte2, 16)} | ${parseInt(byte3, 16)}`);
+          // Decode quest bytes
+          const byte0 = parseInt(hex.substring(0, 2), 16);  // Quest instance ID
+          const byte1 = parseInt(hex.substring(2, 4), 16);  // Pool ID / Type
+          const byte2 = parseInt(hex.substring(4, 6), 16);  // Sub-type
+          const byte3 = parseInt(hex.substring(6, 8), 16);  // Quest type
+          
+          // Quest instance ID mapping
+          const questInstances = {
+            1: 'Fishing', 2: 'Foraging', 3: 'Gold Mining',
+            4: 'Token Mining', 5: 'Gardening', 6: 'Training'
+          };
+          
+          const questType = questInstances[byte0] || `Unknown (${byte0})`;
+          lines2.push(`**Quest Type:** ${questType}`);
+          
+          if (byte0 === 5) {
+            // Gardening quest - byte1 is pool ID
+            lines2.push(`**Garden Pool:** ${byte1}`);
+          } else if (byte0 === 6) {
+            // Training quest
+            const trainingTypes = { 0: 'Strength', 1: 'Intelligence', 2: 'Wisdom', 3: 'Luck',
+                                   4: 'Agility', 5: 'Vitality', 6: 'Endurance', 7: 'Dexterity' };
+            lines2.push(`**Training:** ${trainingTypes[byte1] || `Stat ${byte1}`}`);
           }
           
-          if (hex.length >= 16) {
-            const byte4 = hex.substring(8, 10);
-            const byte5 = hex.substring(10, 12);
-            const byte6 = hex.substring(12, 14);
-            const byte7 = hex.substring(14, 16);
-            lines2.push(`**Bytes 4-7:** 0x${byte4} | 0x${byte5} | 0x${byte6} | 0x${byte7}`);
-            lines2.push(`**Decimal:** ${parseInt(byte4, 16)} | ${parseInt(byte5, 16)} | ${parseInt(byte6, 16)} | ${parseInt(byte7, 16)}`);
+          // Check if it's an expedition (byte2 = 0x05)
+          if (byte2 === 5) {
+            lines2.push(`**Mode:** Expedition`);
           }
+          
+          lines2.push(`**Status:** Active`);
         } else {
-          lines2.push('**Status:** Not on any quest');
+          lines2.push('**Status:** Idle (not on any quest)');
         }
         
         // Send second message as followUp with character limit guard

@@ -69,33 +69,149 @@ const SEASON_NAMES = {
   4: 'Season 4'
 };
 
-// Profession bonus ID to skill name mapping (gathering skills)
-const PROF_BONUS_NAMES = {
-  // Fishing skills
-  0: 'None',
-  1: 'Fisher',
-  2: 'Expert Angler',
-  3: 'Bait Maker',
-  4: 'Net Caster',
-  5: 'Deep Sea Fisher',
-  // Foraging skills
-  6: 'Forager',
-  7: 'Expert Forager',
-  8: 'Herbalist',
-  9: 'Tracker',
-  10: 'Nature\'s Ally',
-  // Gardening skills
-  11: 'Gardener',
-  12: 'Expert Gardener',
-  13: 'Soil Specialist',
-  14: 'Harvest Master',
-  15: 'Green Thumb',
-  // Mining skills
-  16: 'Miner',
-  17: 'Expert Miner',
-  18: 'Gemologist',
-  19: 'Ore Finder',
-  20: 'Deep Delver'
+// Variant names based on appearance ranges
+const VARIANT_NAMES = {
+  0: 'Normal',
+  1: 'Normal',
+  2: 'Shiny'
+};
+
+// Gathering skill names by egg type and bonus ID
+// Format: { eggType: { bonusId: 'Skill Name' } }
+const GATHERING_SKILL_NAMES = {
+  0: { // Fishing (Blue Egg)
+    1: 'Unrevealed', 2: 'Efficient Angler', 3: 'Bountiful Catch', 4: 'Keen Eye',
+    5: 'Fortune Seeker', 6: 'Clutch Collector', 7: 'Runic Discoveries',
+    8: 'Skilled Angler', 9: 'Astute Angler', 10: 'Bonus Bounty', 11: "Gaia's Chosen",
+    80: 'Unrevealed', 81: 'Efficient Angler', 82: 'Bountiful Catch', 83: 'Keen Eye',
+    84: 'Fortune Seeker', 85: 'Clutch Collector', 86: 'Runic Discoveries',
+    87: 'Skilled Angler', 88: 'Astute Angler', 89: 'Bonus Bounty', 90: "Gaia's Chosen",
+    160: 'Unrevealed', 161: 'Efficient Angler', 162: 'Bountiful Catch', 163: 'Keen Eye',
+    164: 'Fortune Seeker', 165: 'Clutch Collector', 166: 'Runic Discoveries',
+    167: 'Skilled Angler', 168: 'Astute Angler', 169: 'Bonus Bounty', 170: "Gaia's Chosen",
+    171: 'Innate Angler'
+  },
+  1: { // Foraging (Grey Egg)
+    1: 'Unrevealed', 2: 'Efficient Scavenger', 3: 'Bountiful Haul', 4: 'Keen Eye',
+    5: 'Fortune Seeker', 6: 'Clutch Collector', 7: 'Runic Discoveries',
+    8: 'Skilled Scavenger', 9: 'Astute Scavenger', 10: 'Bonus Bounty', 11: "Gaia's Chosen",
+    80: 'Unrevealed', 81: 'Efficient Scavenger', 82: 'Bountiful Haul', 83: 'Keen Eye',
+    84: 'Fortune Seeker', 85: 'Clutch Collector', 86: 'Runic Discoveries',
+    87: 'Skilled Scavenger', 88: 'Astute Scavenger', 89: 'Bonus Bounty', 90: "Gaia's Chosen",
+    160: 'Unrevealed', 161: 'Efficient Scavenger', 162: 'Bountiful Haul', 163: 'Keen Eye',
+    164: 'Fortune Seeker', 165: 'Clutch Collector', 166: 'Runic Discoveries',
+    167: 'Skilled Scavenger', 168: 'Astute Scavenger', 169: 'Bonus Bounty', 170: "Gaia's Chosen",
+    171: 'Innate Scavenger'
+  },
+  2: { // Gardening (Green Egg)
+    1: 'Unrevealed', 2: 'Efficient Greenskeeper', 3: 'Bountiful Harvest', 4: 'Second Chance',
+    5: 'Clutch Collector', 6: 'Runic Discoveries', 7: 'Skilled Greenskeeper',
+    8: 'Astute Greenskeeper', 9: 'Bonus Bounty', 10: "Gaia's Chosen",
+    80: 'Unrevealed', 81: 'Efficient Greenskeeper', 82: 'Bountiful Harvest', 83: 'Second Chance',
+    84: 'Clutch Collector', 85: 'Runic Discoveries', 86: 'Skilled Greenskeeper',
+    87: 'Astute Greenskeeper', 88: 'Bonus Bounty', 89: "Gaia's Chosen", 90: 'Power Surge',
+    160: 'Unrevealed', 161: 'Efficient Greenskeeper', 162: 'Bountiful Harvest', 163: 'Second Chance',
+    164: 'Clutch Collector', 165: 'Runic Discoveries', 166: 'Skilled Greenskeeper',
+    167: 'Astute Greenskeeper', 168: 'Bonus Bounty', 169: "Gaia's Chosen", 170: 'Power Surge',
+    171: 'Innate Greenskeeper'
+  }
+};
+
+// Gathering skill description templates by skill name
+// {bonus} is replaced with the actual bonus percentage
+const GATHERING_SKILL_DESCRIPTIONS = {
+  'Efficient Angler': 'Reduce stamina cost by {bonus}% while fishing',
+  'Efficient Scavenger': 'Reduce stamina cost by {bonus}% while foraging',
+  'Efficient Greenskeeper': 'Reduce stamina cost by {bonus}% while gardening',
+  'Bountiful Catch': 'Increase item yield by {bonus}% while fishing',
+  'Bountiful Haul': 'Increase item yield by {bonus}% while foraging',
+  'Bountiful Harvest': 'Increase item yield by {bonus}% while gardening',
+  'Keen Eye': 'Increase chance of finding rare items by {bonus}%',
+  'Fortune Seeker': 'Increase gold earned by {bonus}%',
+  'Clutch Collector': 'Increase chance of finding eggs by {bonus}%',
+  'Runic Discoveries': 'Increase chance of finding runes by {bonus}%',
+  'Skilled Angler': 'Increase fishing skill gains by {bonus}%',
+  'Skilled Scavenger': 'Increase foraging skill gains by {bonus}%',
+  'Skilled Greenskeeper': 'Increase gardening skill gains by {bonus}%',
+  'Astute Angler': 'Increase fishing XP by {bonus}%',
+  'Astute Scavenger': 'Increase foraging XP by {bonus}%',
+  'Astute Greenskeeper': 'Increase gardening XP by {bonus}%',
+  'Bonus Bounty': 'Increase bonus item drop rate by {bonus}%',
+  "Gaia's Chosen": 'Increase all gathering bonuses by {bonus}%',
+  'Innate Angler': 'Grants fishing profession bonus of {bonus}%',
+  'Innate Scavenger': 'Grants foraging profession bonus of {bonus}%',
+  'Innate Greenskeeper': 'Grants gardening profession bonus of {bonus}%',
+  'Second Chance': 'Chance to preserve LP on failed harvest by {bonus}%',
+  'Power Surge': 'Increase power token yield by {bonus}%',
+  'Unrevealed': 'Skill not yet revealed'
+};
+
+// Combat skill base names (IDs repeat at +79 for Rare and +159 for Mythic tiers)
+const COMBAT_SKILL_BASE_NAMES = {
+  0: 'None', 1: 'Unused', 2: 'Stone Hide', 3: 'Arcane Shell', 4: 'Recuperate',
+  5: 'Magical Shell', 6: 'Heavy Hide', 7: 'Vorpal Soul', 8: 'Sharpened Claws',
+  9: 'Attuned', 10: 'Hard Head', 11: 'Harder Head', 12: 'Graceful',
+  13: 'Diamond Hands', 14: 'Impenetrable', 15: 'Resilient', 16: 'Relentless',
+  17: 'Outspoken', 18: 'Lucid', 19: 'Brave', 20: 'Confident',
+  21: 'Befuddle', 22: 'Poison Touch', 23: 'Sleep Touch', 24: 'Paralyze Touch',
+  25: 'Stun Touch', 26: 'Blind Touch', 27: 'Silence Touch', 28: 'Freeze Touch',
+  29: 'Burn Touch', 30: 'Bleed Touch', 31: 'Weaken Touch', 32: 'Slow Touch',
+  33: 'Curse Touch', 34: 'Doom Touch'
+};
+
+// Get combat skill name handling rarity tier offsets
+// Common: 0-79, Rare: 80-159 (base+79), Mythic: 160+ (base+159)
+function getCombatSkillName(rawId) {
+  if (rawId >= 160) {
+    const baseId = rawId - 159;
+    return COMBAT_SKILL_BASE_NAMES[baseId] || `Unknown (${rawId})`;
+  } else if (rawId >= 80) {
+    const baseId = rawId - 79;
+    return COMBAT_SKILL_BASE_NAMES[baseId] || `Unknown (${rawId})`;
+  }
+  return COMBAT_SKILL_BASE_NAMES[rawId] || `Unknown (${rawId})`;
+}
+
+// Legacy alias for backwards compatibility
+const COMBAT_SKILL_NAMES = COMBAT_SKILL_BASE_NAMES;
+
+// Combat skill description templates
+const COMBAT_SKILL_DESCRIPTIONS = {
+  'Stone Hide': 'Increase physical defense by {bonus}%',
+  'Arcane Shell': 'Increase magic defense by {bonus}%',
+  'Recuperate': 'Restore {bonus}% HP at end of each turn',
+  'Magical Shell': 'Reduce magic damage taken by {bonus}%',
+  'Heavy Hide': 'Reduce physical damage taken by {bonus}%',
+  'Vorpal Soul': 'Increase critical hit damage by {bonus}%',
+  'Sharpened Claws': 'Increase physical attack by {bonus}%',
+  'Attuned': 'Increase magic attack by {bonus}%',
+  'Hard Head': 'Reduce stun duration by {bonus}%',
+  'Harder Head': 'Immune to stun {bonus}% of the time',
+  'Graceful': 'Increase evasion by {bonus}%',
+  'Diamond Hands': 'Reduce fumble chance by {bonus}%',
+  'Impenetrable': 'Reduce critical hits received by {bonus}%',
+  'Resilient': 'Reduce debuff duration by {bonus}%',
+  'Relentless': 'Increase attack speed by {bonus}%',
+  'Outspoken': 'Increase taunt effectiveness by {bonus}%',
+  'Lucid': 'Reduce confusion duration by {bonus}%',
+  'Brave': 'Reduce fear effects by {bonus}%',
+  'Confident': 'Increase hit chance by {bonus}%',
+  'Befuddle': 'On hit, {bonus}% chance to Confuse target',
+  'Poison Touch': 'On hit, {bonus}% chance to Poison target',
+  'Sleep Touch': 'On hit, {bonus}% chance to Sleep target',
+  'Paralyze Touch': 'On hit, {bonus}% chance to Paralyze target',
+  'Stun Touch': 'On hit, {bonus}% chance to Stun target',
+  'Blind Touch': 'On hit, {bonus}% chance to Blind target',
+  'Silence Touch': 'On hit, {bonus}% chance to Silence target',
+  'Freeze Touch': 'On hit, {bonus}% chance to Freeze target',
+  'Burn Touch': 'On hit, {bonus}% chance to Burn target',
+  'Bleed Touch': 'On hit, {bonus}% chance to cause Bleed',
+  'Weaken Touch': 'On hit, {bonus}% chance to Weaken target',
+  'Slow Touch': 'On hit, {bonus}% chance to Slow target',
+  'Curse Touch': 'On hit, {bonus}% chance to Curse target',
+  'Doom Touch': 'On hit, {bonus}% chance to apply Doom',
+  'None': 'No combat skill',
+  'Unused': 'Unused skill slot'
 };
 
 // Crafting bonus ID to name mapping
@@ -111,30 +227,17 @@ const CRAFT_BONUS_NAMES = {
   8: 'Woodworker'
 };
 
-// Combat bonus ID to name mapping
-const COMBAT_BONUS_NAMES = {
-  0: 'None',
-  1: 'Unused',
-  2: 'Stone Hide',
-  3: 'Arcane Shell',
-  4: 'Recuperate',
-  5: 'Magical Shell',
-  6: 'Heavy Hide',
-  7: 'Vorpal Soul',
-  8: 'Sharpened Claws',
-  9: 'Attuned',
-  10: 'Hard Head',
-  11: 'Harder Head',
-  12: 'Graceful',
-  13: 'Diamond Hands',
-  14: 'Impenetrable',
-  15: 'Resilient',
-  16: 'Relentless',
-  17: 'Outspoken',
-  18: 'Lucid',
-  19: 'Brave',
-  20: 'Confident'
+// Legacy profession bonus names (fallback)
+const PROF_BONUS_NAMES = {
+  0: 'None', 1: 'Fisher', 2: 'Expert Angler', 3: 'Bait Maker',
+  4: 'Net Caster', 5: 'Deep Sea Fisher', 6: 'Forager', 7: 'Expert Forager',
+  8: 'Herbalist', 9: 'Tracker', 10: "Nature's Ally", 11: 'Gardener',
+  12: 'Expert Gardener', 13: 'Soil Specialist', 14: 'Harvest Master', 15: 'Green Thumb',
+  16: 'Miner', 17: 'Expert Miner', 18: 'Gemologist', 19: 'Ore Finder', 20: 'Deep Delver'
 };
+
+// Combat bonus ID to name mapping (legacy)
+const COMBAT_BONUS_NAMES = COMBAT_SKILL_NAMES;
 
 // Food type ID to name mapping
 const FOOD_TYPE_NAMES = {
@@ -144,10 +247,48 @@ const FOOD_TYPE_NAMES = {
   3: 'Gourmet Treats'
 };
 
-// Bonus scalar to rarity tier (for display)
+// Get gathering skill name based on egg type and bonus ID
+function getGatheringSkillName(eggType, bonusId) {
+  const skills = GATHERING_SKILL_NAMES[eggType];
+  if (skills && skills[bonusId]) {
+    return skills[bonusId];
+  }
+  return PROF_BONUS_NAMES[bonusId] || 'Unknown';
+}
+
+// Get gathering skill description with bonus value filled in
+function getGatheringSkillDescription(skillName, bonusScalar, profession) {
+  const template = GATHERING_SKILL_DESCRIPTIONS[skillName];
+  if (!template) return null;
+  return template
+    .replace('{bonus}', bonusScalar.toFixed(0))
+    .replace('{profession}', profession?.toLowerCase() || 'questing');
+}
+
+// Get combat skill description with bonus value filled in
+function getCombatSkillDescription(skillName, bonusScalar) {
+  const template = COMBAT_SKILL_DESCRIPTIONS[skillName];
+  if (!template) return null;
+  return template.replace('{bonus}', bonusScalar.toFixed(0));
+}
+
+// Bonus scalar to star rating (for display)
+// Based on DFK bonus rarity: 1-79 = Common (1 star), 80-159 = Rare (2 stars), 160+ = Mythic (3 stars)
+function getBonusStars(rawScalar) {
+  if (rawScalar >= 160) return 3;
+  if (rawScalar >= 80) return 2;
+  if (rawScalar >= 1) return 1;
+  return 0;
+}
+
+// Format stars as emoji string
+function formatBonusStars(stars) {
+  if (stars === 0) return '';
+  return '⭐'.repeat(stars);
+}
+
+// Legacy bonus rarity function (for backwards compatibility)
 function getBonusRarity(scalar) {
-  // Bonus scalars range from 0-255 (raw), we divide by 10 for percentage
-  // Higher bonuses are rarer
   if (scalar >= 8) return 'Mythic';
   if (scalar >= 6) return 'Legendary';
   if (scalar >= 4) return 'Rare';
@@ -202,6 +343,23 @@ function parsePetData(petTuple) {
   const equippableAtUnix = Number(petTuple.equippableAt);
   const equippableAt = equippableAtUnix > 0 ? new Date(equippableAtUnix * 1000) : null;
   
+  // Get proper skill names and descriptions
+  const gatheringSkillName = getGatheringSkillName(eggTypeRaw, profBonusRaw);
+  const gatheringType = EGG_TYPE_TO_GATHERING[eggTypeRaw] || 'Unknown';
+  const gatheringSkillDesc = getGatheringSkillDescription(gatheringSkillName, profBonusScalar, gatheringType);
+  
+  // Use tier-aware combat skill name lookup
+  const combatSkillName = getCombatSkillName(combatBonusRaw);
+  const combatSkillDesc = getCombatSkillDescription(combatSkillName, combatBonusScalar);
+  
+  // Stars based on raw bonus scalar (before dividing by 10)
+  const gatheringStars = getBonusStars(Number(petTuple.profBonusScalar));
+  const combatStars = getBonusStars(Number(petTuple.combatBonusScalar));
+  const craftStars = getBonusStars(Number(petTuple.craftBonusScalar));
+  
+  // Variant based on shiny status
+  const variant = shinyRaw === 1 ? 'Shiny' : 'Normal';
+  
   return {
     // Basic Info
     id: String(Number(petTuple.id)),
@@ -217,30 +375,43 @@ function parsePetData(petTuple) {
     seasonName: SEASON_NAMES[seasonRaw] || 'Unknown',
     eggType: eggTypeRaw,
     bonusCount,
+    stars: bonusCount, // Stars shown on pet card = bonusCount
     
     // Visual
     appearance,
     background,
     shiny: shinyRaw === 1,
+    variant, // Normal or Shiny
     
     // Gathering (Profession) Stats
-    gatheringType: EGG_TYPE_TO_GATHERING[eggTypeRaw] || 'Unknown',
+    gatheringType,
+    profession: gatheringType, // Alias for convenience
     gatheringBonus: profBonusRaw,
-    gatheringBonusName: PROF_BONUS_NAMES[profBonusRaw] || 'Unknown',
+    gatheringBonusName: gatheringSkillName,
     gatheringBonusScalar: profBonusScalar,
     gatheringBonusRarity: getBonusRarity(profBonusScalar),
+    gatheringSkillName,
+    gatheringSkillDescription: gatheringSkillDesc,
+    gatheringStars,
+    gatheringStarsDisplay: formatBonusStars(gatheringStars),
     
     // Crafting Stats
     craftBonus: craftBonusRaw,
     craftBonusName: CRAFT_BONUS_NAMES[craftBonusRaw] || 'Unknown',
     craftBonusScalar: craftBonusScalar,
     craftBonusRarity: getBonusRarity(craftBonusScalar),
+    craftStars,
+    craftStarsDisplay: formatBonusStars(craftStars),
     
     // Combat Stats
     combatBonus: combatBonusRaw,
-    combatBonusName: COMBAT_BONUS_NAMES[combatBonusRaw] || 'Unknown',
+    combatBonusName: combatSkillName,
     combatBonusScalar: combatBonusScalar,
     combatBonusRarity: getBonusRarity(combatBonusScalar),
+    combatSkillName,
+    combatSkillDescription: combatSkillDesc,
+    combatStars,
+    combatStarsDisplay: formatBonusStars(combatStars),
     
     // Equipment Status
     equippedTo,
