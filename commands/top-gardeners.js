@@ -64,6 +64,8 @@ function calculateYieldWithPowerSurge(hero, petBonus) {
 
 /**
  * Determine if pet has Power Surge or Skilled Greenskeeper skill
+ * Only these two skills actually boost yield - other skills (Astute Greenskeeper, etc.)
+ * only affect skill gain chance, not yield
  */
 function getPetGardenSkillType(pet) {
   if (!pet || pet.eggType !== 2) return null; // Must be gardening pet
@@ -77,8 +79,9 @@ function getPetGardenSkillType(pet) {
     return { type: 'skilled_greenskeeper', bonus: pet.gatheringBonusScalar };
   }
   
-  // Other gardening skills still provide general bonus
-  return { type: 'other', bonus: pet.gatheringBonusScalar, skillName: pet.gatheringSkillName };
+  // Other gardening skills (Astute Greenskeeper, etc.) don't boost yield
+  // They only affect skill gain chance which is negligible at high skill levels
+  return null;
 }
 
 /**
@@ -106,8 +109,8 @@ function findBestPetForHero(hero, gardeningPets, usedPetIds) {
     } else if (skillInfo.type === 'skilled_greenskeeper') {
       yieldWithPet = calculateYieldWithSkilledGreenskeeper(hero, skillInfo.bonus);
     } else {
-      // Other skills: apply as general multiplier
-      yieldWithPet = calculateBaseYieldFactor(hero) * (1 + skillInfo.bonus / 100);
+      // Should not reach here since getPetGardenSkillType returns null for non-yield skills
+      continue;
     }
     
     if (yieldWithPet > bestPairing.yield) {
@@ -212,26 +215,28 @@ export async function execute(interaction) {
     
     // Format pairings
     const pairingLines = topPairings.map(p => {
-      const heroName = `#${p.hero.id.slice(-4)}`;
-      const heroClass = p.hero.mainClass || 'Unknown';
+      // Use full hero ID (not truncated)
+      const heroId = p.hero.id;
+      // Get class name with proper fallback
+      const heroClass = p.hero.mainClass || p.hero.class || p.hero.heroClass || 'Hero';
       const heroLevel = p.hero.level || 1;
       const hasGene = p.hero.professionStr === 'Gardening' ? '🌱' : '';
       const WIS = p.hero.wisdom || 0;
       const VIT = p.hero.vitality || 0;
       const grdSkill = Math.floor((p.hero.gardening || 0) / 10);
       
-      let petInfo = 'No pet';
+      let petInfo = 'No yield-boosting pet available';
       if (p.pet) {
-        const petName = `Pet #${p.pet.id.slice(-4)}`;
-        const skillIcon = p.skillType === 'power_surge' ? '⚡' : 
-                         p.skillType === 'skilled_greenskeeper' ? '🧑‍🌾' : '✨';
-        petInfo = `${petName} ${skillIcon}${p.skillName} +${p.bonus}%`;
+        // Use full pet ID (not truncated)
+        const petId = p.pet.id;
+        const skillIcon = p.skillType === 'power_surge' ? '⚡' : '🧑‍🌾';
+        petInfo = `Pet #${petId} ${skillIcon}${p.skillName} +${p.bonus}%`;
       }
       
       const yieldDisplay = (p.finalYield * 100).toFixed(2);
       const boostDisplay = p.yieldBoost > 0 ? ` (+${p.yieldBoost}%)` : '';
       
-      return `**${p.rank}.** ${heroClass} Lv${heroLevel}${hasGene} ${heroName}\n` +
+      return `**${p.rank}.** ${heroClass} Lv${heroLevel}${hasGene} #${heroId}\n` +
              `   WIS:${WIS} VIT:${VIT} GRD:${grdSkill} → Yield: ${yieldDisplay}%${boostDisplay}\n` +
              `   └ ${petInfo}`;
     });
@@ -251,7 +256,7 @@ export async function execute(interaction) {
     // Add legend
     embed.addFields({
       name: 'Legend',
-      value: '🌱 = Gardening Gene | ⚡ = Power Surge | 🧑‍🌾 = Skilled Greenskeeper | ✨ = Other Skill',
+      value: '🌱 = Gardening Gene | ⚡ = Power Surge | 🧑‍🌾 = Skilled Greenskeeper',
       inline: false
     });
     
