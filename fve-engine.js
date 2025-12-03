@@ -109,30 +109,11 @@ export async function fetchHeroSnapshot(heroId) {
         statBoost1
         statBoost2
         
-        # Gene data
-        advancedGenes
-        eliteGenes
-        exaltedGenes
-        passive1 {
-          id
-          name
-          tier
-        }
-        passive2 {
-          id
-          name
-          tier
-        }
-        active1 {
-          id
-          name
-          tier
-        }
-        active2 {
-          id
-          name
-          tier
-        }
+        # Gene data (passive/active are skill IDs as integers)
+        passive1
+        passive2
+        active1
+        active2
       }
     }
   `;
@@ -145,7 +126,7 @@ export async function fetchHeroSnapshot(heroId) {
       throw new Error(`Hero ${heroId} not found`);
     }
 
-    // Parse gene data (GraphQL now returns gene objects)
+    // Parse gene data (GraphQL returns skill IDs as integers)
     const passive1Gene = parseGeneData(hero.passive1);
     const passive2Gene = parseGeneData(hero.passive2);
     const active1Gene = parseGeneData(hero.active1);
@@ -167,10 +148,10 @@ export async function fetchHeroSnapshot(heroId) {
       intelligence: hero.intelligence || 0,
       wisdom: hero.wisdom || 0,
       luck: hero.luck || 0,
-      // Use GraphQL-provided gene counts instead of manual calculation
-      advancedGenes: hero.advancedGenes || 0,
-      eliteGenes: hero.eliteGenes || 0,
-      exaltedGenes: hero.exaltedGenes || 0,
+      // Gene counts not available from API - default to 0
+      advancedGenes: 0,
+      eliteGenes: 0,
+      exaltedGenes: 0,
       passive1: passive1Gene,
       passive2: passive2Gene,
       active1: active1Gene,
@@ -184,27 +165,17 @@ export async function fetchHeroSnapshot(heroId) {
 
 /**
  * Parse gene data from GraphQL response
- * @param {Object|null} geneObj - Gene object from GraphQL { id, name, tier }
- * @returns {Object|null} Parsed gene object { geneId, name, tier }
+ * @param {number|null} skillId - Skill ID as integer from GraphQL
+ * @returns {Object|null} Parsed gene object { geneId }
  */
-function parseGeneData(geneObj) {
-  // GraphQL now returns gene objects with { id, name, tier }
-  if (!geneObj || !geneObj.id) {
+function parseGeneData(skillId) {
+  // GraphQL returns passive/active skills as integers (skill IDs)
+  if (skillId === null || skillId === undefined) {
     return null;
   }
 
-  // GraphQL tier values: 1=basic, 2=advanced, 3=elite, 4=exalted
-  const tierMap = {
-    1: 'basic',
-    2: 'advanced',
-    3: 'elite',
-    4: 'exalted'
-  };
-
   return {
-    geneId: geneObj.id.toString(),
-    name: geneObj.name || 'Unknown',
-    tier: tierMap[geneObj.tier] || 'basic'
+    geneId: skillId.toString(),
   };
 }
 

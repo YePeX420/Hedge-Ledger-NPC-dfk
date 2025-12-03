@@ -173,13 +173,10 @@ export async function getHeroById(heroId) {
         assistingPrice
         statGenes
         visualGenes
-        advancedGenes
-        eliteGenes
-        exaltedGenes
-        passive1 { id name tier }
-        passive2 { id name tier }
-        active1 { id name tier }
-        active2 { id name tier }
+        passive1
+        passive2
+        active1
+        active2
       }
     }
   `;
