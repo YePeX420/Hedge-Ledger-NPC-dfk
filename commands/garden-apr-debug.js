@@ -460,7 +460,6 @@ export async function execute(interaction) {
               `**Stats:** WIS ${hr.wis} | VIT ${hr.vit} | Grd ${hr.gardening}`,
               `**Garden Gene:** ${hr.hasGardenGene ? 'Yes (1.2x)' : 'No'}`,
               `**Pet:** ${hr.petInfo}`,
-              `**Yield Factor:** ${hr.factor.toFixed(4)}`,
               `**Quest APR:** ${hr.questApr.toFixed(4)}%`
             ].join('\n'),
             inline: true
@@ -471,19 +470,6 @@ export async function execute(interaction) {
       if (heroResults.length > 0 && heroResults.some(h => !h.error)) {
         const validHeroes = heroResults.filter(h => !h.error);
         const avgQuestApr = questAprTotal / validHeroes.length;
-        
-        const bestQuestAprStr = poolMeta.gardeningQuestAPR?.best || '0%';
-        const worstQuestAprStr = poolMeta.gardeningQuestAPR?.worst || '0%';
-        
-        embed.addFields({
-          name: 'Quest APR Summary',
-          value: [
-            `**Pool Quest APR Range:** ${worstQuestAprStr} - ${bestQuestAprStr}`,
-            `**Your Avg Quest APR:** ${avgQuestApr.toFixed(4)}%`,
-            `(Based on ${validHeroes.length} hero${validHeroes.length > 1 ? 's' : ''})`
-          ].join('\n'),
-          inline: false
-        });
         
         const grandTotalApr = totalBaseApr + avgQuestApr;
         
