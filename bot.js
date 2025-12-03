@@ -1979,37 +1979,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const hasRR = powerUpStatus.rapidRenewal?.heroIds?.includes(hero.normalizedId) ||
                          powerUpStatus.rapidRenewal?.heroIds?.includes(Number(numericId)) || false;
             
-            // Current status - show all power-ups
-            questLines.push('**Active:**');
+            // Show all power-ups with status
             questLines.push(`• Wild Unknown: ${powerUpStatus.wildUnknown?.active ? '✅' : '❌'}`);
             questLines.push(`• Quick Study: ${powerUpStatus.quickStudy?.active ? '✅' : '❌'}`);
-            questLines.push(`• Gravity Feeder: ${powerUpStatus.gravityFeeder?.active ? '✅' : '❌'}`);
             questLines.push(`• Rapid Renewal: ${hasRR ? '✅ (this hero)' : '❌'}`);
+            questLines.push(`• Gravity Feeder: ${powerUpStatus.gravityFeeder?.active ? '✅' : '❌'}`);
             questLines.push(`• Premium Provisions: ${powerUpStatus.premiumProvisions?.active ? '✅' : '❌'}`);
-            
-            // Recommendations for inactive power-ups
-            const recommendations = [];
-            if (!powerUpStatus.wildUnknown?.active) {
-              recommendations.push('• **Wild Unknown** - Send extra heroes on expeditions');
-            }
-            if (!powerUpStatus.quickStudy?.active) {
-              recommendations.push('• **Quick Study** - Increase XP gains from training');
-            }
-            if (!powerUpStatus.gravityFeeder?.active) {
-              recommendations.push('• **Gravity Feeder** - Auto-feed all pets during expeditions');
-            }
-            if (!hasRR) {
-              recommendations.push('• **Rapid Renewal** - Faster stamina regen (3s/level reduction)');
-            }
-            if (!powerUpStatus.premiumProvisions?.active) {
-              recommendations.push('• **Premium Provisions** - Bonus pet food quality');
-            }
-            
-            if (recommendations.length > 0) {
-              questLines.push('');
-              questLines.push('**Available Upgrades:**');
-              questLines.push(...recommendations);
-            }
+            questLines.push(`• Thrifty: ${powerUpStatus.thrifty?.active ? '✅' : '❌'}`);
+            questLines.push(`• Perpetual Potion: ${powerUpStatus.perpetualPotion?.active ? '✅' : '❌'}`);
+            questLines.push(`• Unscathed: ${powerUpStatus.unscathed?.active ? '✅' : '❌'}`);
+            questLines.push(`• Backstage Pass: ${powerUpStatus.backstagePass?.active ? '✅' : '❌'}`);
+            questLines.push(`• Master Merchant: ${powerUpStatus.masterMerchant?.active ? '✅' : '❌'}`);
           } else {
             questLines.push('*Unable to fetch power-up status*');
           }
@@ -2621,35 +2601,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
               const hasRR = powerUpStatus.rapidRenewal?.heroIds?.includes(hero.normalizedId) ||
                            powerUpStatus.rapidRenewal?.heroIds?.includes(Number(heroId)) || false;
               
-              powerLines.push('**Active:**');
+              // Show all power-ups with status
               powerLines.push(`• Wild Unknown: ${powerUpStatus.wildUnknown?.active ? '✅' : '❌'}`);
               powerLines.push(`• Quick Study: ${powerUpStatus.quickStudy?.active ? '✅' : '❌'}`);
-              powerLines.push(`• Gravity Feeder: ${powerUpStatus.gravityFeeder?.active ? '✅' : '❌'}`);
               powerLines.push(`• Rapid Renewal: ${hasRR ? '✅ (this hero)' : '❌'}`);
+              powerLines.push(`• Gravity Feeder: ${powerUpStatus.gravityFeeder?.active ? '✅' : '❌'}`);
               powerLines.push(`• Premium Provisions: ${powerUpStatus.premiumProvisions?.active ? '✅' : '❌'}`);
-              
-              const recommendations = [];
-              if (!powerUpStatus.wildUnknown?.active) {
-                recommendations.push('• **Wild Unknown** - Send extra heroes on expeditions');
-              }
-              if (!powerUpStatus.quickStudy?.active) {
-                recommendations.push('• **Quick Study** - Increase XP gains from training');
-              }
-              if (!powerUpStatus.gravityFeeder?.active) {
-                recommendations.push('• **Gravity Feeder** - Auto-feed all pets during expeditions');
-              }
-              if (!hasRR) {
-                recommendations.push('• **Rapid Renewal** - Faster stamina regen (3s/level reduction)');
-              }
-              if (!powerUpStatus.premiumProvisions?.active) {
-                recommendations.push('• **Premium Provisions** - Bonus pet food quality');
-              }
-              
-              if (recommendations.length > 0) {
-                powerLines.push('');
-                powerLines.push('**Available Upgrades:**');
-                powerLines.push(...recommendations);
-              }
+              powerLines.push(`• Thrifty: ${powerUpStatus.thrifty?.active ? '✅' : '❌'}`);
+              powerLines.push(`• Perpetual Potion: ${powerUpStatus.perpetualPotion?.active ? '✅' : '❌'}`);
+              powerLines.push(`• Unscathed: ${powerUpStatus.unscathed?.active ? '✅' : '❌'}`);
+              powerLines.push(`• Backstage Pass: ${powerUpStatus.backstagePass?.active ? '✅' : '❌'}`);
+              powerLines.push(`• Master Merchant: ${powerUpStatus.masterMerchant?.active ? '✅' : '❌'}`);
             } else {
               powerLines.push('*Unable to fetch power-up status*');
             }

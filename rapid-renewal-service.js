@@ -349,19 +349,117 @@ export async function getPremiumProvisionsStatus(walletAddress) {
 }
 
 /**
+ * Check if user has Thrifty power-up active
+ * Provides a chance to randomly recover used items after combat
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<{isActive: boolean}>}
+ */
+export async function getThriftyStatus(walletAddress) {
+  try {
+    const contract = getPowerUpContract();
+    const isActive = await contract.isUserPowerUpActive(walletAddress, POWERUP_IDS.THRIFTY);
+    console.log(`[Thrifty] Wallet ${walletAddress.slice(0, 8)}... has Thrifty: ${isActive ? 'YES' : 'NO'}`);
+    return { isActive };
+  } catch (error) {
+    console.error(`[Thrifty] Error:`, error.message);
+    return { isActive: false };
+  }
+}
+
+/**
+ * Check if user has Perpetual Potion Machine power-up active
+ * Allows the use of Stamina Vials in Expeditions
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<{isActive: boolean}>}
+ */
+export async function getPerpetualPotionStatus(walletAddress) {
+  try {
+    const contract = getPowerUpContract();
+    const isActive = await contract.isUserPowerUpActive(walletAddress, POWERUP_IDS.PERPETUAL_POTION);
+    console.log(`[PerpetualPotion] Wallet ${walletAddress.slice(0, 8)}... has Perpetual Potion: ${isActive ? 'YES' : 'NO'}`);
+    return { isActive };
+  } catch (error) {
+    console.error(`[PerpetualPotion] Error:`, error.message);
+    return { isActive: false };
+  }
+}
+
+/**
+ * Check if user has Unscathed power-up active
+ * Reduces the Hero's chance of receiving durability damage by 10% on first roll
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<{isActive: boolean}>}
+ */
+export async function getUnscathedStatus(walletAddress) {
+  try {
+    const contract = getPowerUpContract();
+    const isActive = await contract.isUserPowerUpActive(walletAddress, POWERUP_IDS.UNSCATHED);
+    console.log(`[Unscathed] Wallet ${walletAddress.slice(0, 8)}... has Unscathed: ${isActive ? 'YES' : 'NO'}`);
+    return { isActive };
+  } catch (error) {
+    console.error(`[Unscathed] Error:`, error.message);
+    return { isActive: false };
+  }
+}
+
+/**
+ * Check if user has Backstage Pass power-up active
+ * Grants access to the Combat Testing Grounds
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<{isActive: boolean}>}
+ */
+export async function getBackstagePassStatus(walletAddress) {
+  try {
+    const contract = getPowerUpContract();
+    const isActive = await contract.isUserPowerUpActive(walletAddress, POWERUP_IDS.BACKSTAGE_PASS);
+    console.log(`[BackstagePass] Wallet ${walletAddress.slice(0, 8)}... has Backstage Pass: ${isActive ? 'YES' : 'NO'}`);
+    return { isActive };
+  } catch (error) {
+    console.error(`[BackstagePass] Error:`, error.message);
+    return { isActive: false };
+  }
+}
+
+/**
+ * Check if user has Master Merchant power-up active
+ * Provides a discount on Bazaar Trading Fees
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<{isActive: boolean}>}
+ */
+export async function getMasterMerchantStatus(walletAddress) {
+  try {
+    const contract = getPowerUpContract();
+    const isActive = await contract.isUserPowerUpActive(walletAddress, POWERUP_IDS.MASTER_MERCHANT);
+    console.log(`[MasterMerchant] Wallet ${walletAddress.slice(0, 8)}... has Master Merchant: ${isActive ? 'YES' : 'NO'}`);
+    return { isActive };
+  } catch (error) {
+    console.error(`[MasterMerchant] Error:`, error.message);
+    return { isActive: false };
+  }
+}
+
+/**
  * Get comprehensive power-up status for a wallet
- * Returns Wild Unknown, Gravity Feeder, Quick Study, Premium Provisions, and Rapid Renewal status
+ * Returns all power-up statuses
  * @param {string} walletAddress - User's wallet address
  * @returns {Promise<Object>} Power-up status summary
  */
 export async function getWalletPowerUpStatus(walletAddress) {
   try {
-    const [wildUnknown, gravityFeeder, quickStudy, premiumProvisions, rapidRenewalHeroes] = await Promise.all([
+    const [
+      wildUnknown, gravityFeeder, quickStudy, premiumProvisions, rapidRenewalHeroes,
+      thrifty, perpetualPotion, unscathed, backstagePass, masterMerchant
+    ] = await Promise.all([
       getWildUnknownStatus(walletAddress),
       getGravityFeederStatus(walletAddress),
       getQuickStudyStatus(walletAddress),
       getPremiumProvisionsStatus(walletAddress),
-      getRapidRenewalHeroIds(walletAddress)
+      getRapidRenewalHeroIds(walletAddress),
+      getThriftyStatus(walletAddress),
+      getPerpetualPotionStatus(walletAddress),
+      getUnscathedStatus(walletAddress),
+      getBackstagePassStatus(walletAddress),
+      getMasterMerchantStatus(walletAddress)
     ]);
     
     return {
@@ -369,19 +467,18 @@ export async function getWalletPowerUpStatus(walletAddress) {
         active: wildUnknown.isActive,
         heroSlots: wildUnknown.heroSlots
       },
-      gravityFeeder: {
-        active: gravityFeeder.isActive
-      },
-      quickStudy: {
-        active: quickStudy.isActive
-      },
-      premiumProvisions: {
-        active: premiumProvisions.isActive
-      },
+      gravityFeeder: { active: gravityFeeder.isActive },
+      quickStudy: { active: quickStudy.isActive },
+      premiumProvisions: { active: premiumProvisions.isActive },
       rapidRenewal: {
         heroCount: rapidRenewalHeroes.size,
         heroIds: Array.from(rapidRenewalHeroes)
-      }
+      },
+      thrifty: { active: thrifty.isActive },
+      perpetualPotion: { active: perpetualPotion.isActive },
+      unscathed: { active: unscathed.isActive },
+      backstagePass: { active: backstagePass.isActive },
+      masterMerchant: { active: masterMerchant.isActive }
     };
   } catch (error) {
     console.error(`[PowerUps] Error fetching power-up status:`, error.message);
@@ -390,7 +487,12 @@ export async function getWalletPowerUpStatus(walletAddress) {
       gravityFeeder: { active: false },
       quickStudy: { active: false },
       premiumProvisions: { active: false },
-      rapidRenewal: { heroCount: 0, heroIds: [] }
+      rapidRenewal: { heroCount: 0, heroIds: [] },
+      thrifty: { active: false },
+      perpetualPotion: { active: false },
+      unscathed: { active: false },
+      backstagePass: { active: false },
+      masterMerchant: { active: false }
     };
   }
 }
