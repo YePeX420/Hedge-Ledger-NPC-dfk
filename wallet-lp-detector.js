@@ -291,29 +291,22 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
       return `$${safe.toFixed(2)}`;
     };
 
-    let yieldImprovementLabel;
-    if (currentYieldLow > 0.1) {
-      const pct = ((currentYieldHigh - currentYieldLow) / currentYieldLow) * 100;
-      if (Number.isFinite(pct)) {
-        yieldImprovementLabel = `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs current`;
-      } else {
-        const absoluteDelta = currentYieldHigh - currentYieldLow;
-        const safeDelta = Number.isFinite(absoluteDelta) ? absoluteDelta : 0;
-        yieldImprovementLabel = `${safeDelta >= 0 ? '+' : ''}${safeDelta.toFixed(1)}% absolute`;
-      }
-    } else {
-      const absoluteDelta = currentYieldHigh - currentYieldLow;
-      const safeDelta = Number.isFinite(absoluteDelta) ? absoluteDelta : 0;
-      yieldImprovementLabel = `${safeDelta >= 0 ? '+' : ''}${safeDelta.toFixed(1)}% absolute`;
+    const abs = currentYieldHigh - currentYieldLow;
+    const safeAbs = Number.isFinite(abs) ? abs : 0;
+    const base = currentYieldLow;
+    let rel = 0;
+    if (base > 0.1) {
+      const raw = ((currentYieldHigh - currentYieldLow) / base) * 100;
+      rel = Number.isFinite(raw) ? raw : 0;
     }
+    const yieldImprovementLabel = base > 0.1
+      ? `${rel.toFixed(1)}% vs current`
+      : `${safeAbs.toFixed(1)}% absolute`;
 
-    const annualGainLow = Number.isFinite(positionValue) && Number.isFinite(currentYieldLow)
-      ? (positionValue * currentYieldLow) / 100
-      : 0;
-    const annualGainHigh = Number.isFinite(positionValue) && Number.isFinite(currentYieldHigh)
-      ? (positionValue * currentYieldHigh) / 100
-      : 0;
-    const additionalGain = annualGainHigh - annualGainLow;
+    const safe = (n) => (Number.isFinite(n) ? n : 0);
+    const annualGainLow = safe(positionValue * (currentYieldLow / 100));
+    const annualGainHigh = safe(positionValue * (currentYieldHigh / 100));
+    const additionalGain = safe(annualGainHigh - annualGainLow);
 
     recommendations.push({
       pairName,
@@ -486,7 +479,8 @@ export function formatOptimizationReport(optimization) {
     report += `AFTER (Optimized heroes + pets):\n`;
     report += `  APR: ${currentYield.best ?? 'N/A'}\n`;
     report += `  Annual Return: ${annualReturn.best ?? 'N/A'}\n\n`;
-    report += `GAIN: ${annualReturn.additionalGain ?? 'N/A'} (${rec.yieldImprovement ?? 'N/A'})\n`;
+    const gain = rec?.annualReturn?.additionalGain ?? '$0.00';
+    report += `GAIN: ${gain}/year (${rec.yieldImprovement || ''})\n`;
     report += `\`\`\`\n\n`;
 
     report += `**🦸 Recommended Setup**\n`;
