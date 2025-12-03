@@ -1881,9 +1881,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const output = lines.join('\n').slice(0, 1900);
       await interaction.editReply(output);
       
-      // Fetch pet and quest data for follow-up message
-      const followUp = [];
-      
+      // Fetch pet and quest data for follow-up messages
       try {
         // Get owner wallet for expedition/power-up lookup
         const ownerWallet = hero.owner?.id;
@@ -1892,66 +1890,117 @@ client.on(Events.InteractionCreate, async (interaction) => {
           // Import required functions dynamically
           const { fetchPetForHero } = await import('./pet-data.js');
           const { getAllExpeditions } = await import('./hero-pairing.js');
-          const { getWalletPowerUpStatus, isHeroRapidRenewalActive } = await import('./rapid-renewal-service.js');
+          const { getWalletPowerUpStatus } = await import('./rapid-renewal-service.js');
           
           // Fetch pet and quest info in parallel
           const [pet, expeditions, powerUpStatus] = await Promise.all([
             fetchPetForHero(hero.normalizedId || numericId),
             getAllExpeditions(ownerWallet).catch(() => null),
-            getWalletPowerUpStatus(ownerWallet)
+            getWalletPowerUpStatus(ownerWallet).catch(() => null)
           ]);
           
-          followUp.push('');
-          followUp.push('🐾 **Pet & Quest Info**');
-          followUp.push('');
+          // === PET INFO FOLLOW-UP ===
+          const petLines = [];
+          petLines.push('🐾 **Equipped Pet**');
+          petLines.push('');
           
-          // Pet info
           if (pet) {
-            const hasGF = powerUpStatus.gravityFeeder.active;
+            const hasGF = powerUpStatus?.gravityFeeder?.active || false;
             const petFed = pet.isFed || hasGF;
-            const fedReason = pet.isFed ? 'fed' : (hasGF ? 'fed (Gravity Feeder)' : 'hungry');
-            followUp.push(`**Equipped Pet:** #${pet.id}`);
-            followUp.push(`• Type: ${pet.gatheringType}`);
-            followUp.push(`• Bonus: +${pet.gatheringBonusScalar}%`);
-            followUp.push(`• Status: ${fedReason}`);
+            const fedReason = pet.isFed 
+              ? `Fed (${pet.hungryInHours}h remaining)` 
+              : (hasGF ? 'Fed (Gravity Feeder)' : 'Hungry');
+            
+            petLines.push(`**Pet #${pet.id}** ${pet.shiny ? '✨ Shiny' : ''}`);
+            petLines.push(`• Name: ${pet.name || 'Unnamed'}`);
+            petLines.push(`• Rarity: ${pet.rarityName} | Element: ${pet.elementName}`);
+            petLines.push(`• Season: ${pet.seasonName}`);
+            petLines.push('');
+            
+            petLines.push('**Gathering Stats:**');
+            petLines.push(`• Type: ${pet.gatheringType}`);
+            petLines.push(`• Skill: ${pet.gatheringBonusName}`);
+            petLines.push(`• Bonus: +${pet.gatheringBonusScalar}% (${pet.gatheringBonusRarity})`);
+            petLines.push('');
+            
+            if (pet.craftBonusScalar > 0) {
+              petLines.push('**Crafting Stats:**');
+              petLines.push(`• Skill: ${pet.craftBonusName}`);
+              petLines.push(`• Bonus: +${pet.craftBonusScalar}% (${pet.craftBonusRarity})`);
+              petLines.push('');
+            }
+            
+            petLines.push('**Combat Stats:**');
+            petLines.push(`• Skill: ${pet.combatBonusName}`);
+            petLines.push(`• Bonus: +${pet.combatBonusScalar}% (${pet.combatBonusRarity})`);
+            petLines.push('');
+            
+            petLines.push(`**Status:** ${fedReason}`);
           } else {
-            followUp.push('**Equipped Pet:** None');
+            petLines.push('*No pet equipped to this hero*');
           }
           
-          followUp.push('');
+          await interaction.followUp(petLines.join('\n').slice(0, 1900));
           
-          // Quest info
+          // === QUEST INFO FOLLOW-UP ===
+          const questLines = [];
+          questLines.push('⚔️ **Current Quest**');
+          questLines.push('');
+          
           if (expeditions?.heroToQuest) {
             const questData = expeditions.heroToQuest.get(hero.normalizedId) || 
                              expeditions.heroToQuest.get(Number(numericId));
             
             if (questData) {
-              followUp.push(`**Current Quest:** ${questData.name}`);
-              followUp.push(`• Type: ${questData.type}`);
-              if (questData.poolId) followUp.push(`• Pool: ${questData.poolId}`);
-              followUp.push(`• Heroes: ${questData.heroIds.join(', ')}`);
-              followUp.push(`• Iteration: ${questData.iterationTimeStr}`);
-              followUp.push(`• Remaining: ${questData.remainingIterations} iterations`);
+              questLines.push(`**${questData.name}**`);
+              questLines.push(`• Type: ${questData.type}`);
+              if (questData.poolId) questLines.push(`• Pool: ${questData.poolId}`);
+              questLines.push(`• Heroes: ${questData.heroIds.join(', ')}`);
+              questLines.push(`• Iteration: ${questData.iterationTimeStr}`);
+              questLines.push(`• Remaining: ${questData.remainingIterations} iterations`);
             } else {
-              followUp.push('**Current Quest:** None (not on expedition)');
+              questLines.push('*Not on any expedition*');
             }
           } else {
-            followUp.push('**Current Quest:** Unable to fetch expedition data');
+            questLines.push('*Unable to fetch expedition data*');
           }
           
-          followUp.push('');
+          questLines.push('');
+          questLines.push('⚡ **Power-ups**');
+          questLines.push('');
           
-          // Power-up status
-          const hasRR = powerUpStatus.rapidRenewal.heroIds.includes(hero.normalizedId) ||
-                       powerUpStatus.rapidRenewal.heroIds.includes(Number(numericId));
-          followUp.push('**Power-ups:**');
-          followUp.push(`• Wild Unknown: ${powerUpStatus.wildUnknown.active ? '✅' : '❌'}`);
-          followUp.push(`• Gravity Feeder: ${powerUpStatus.gravityFeeder.active ? '✅' : '❌'}`);
-          followUp.push(`• Rapid Renewal: ${hasRR ? '✅ (this hero)' : '❌'}`);
+          if (powerUpStatus) {
+            const hasRR = powerUpStatus.rapidRenewal?.heroIds?.includes(hero.normalizedId) ||
+                         powerUpStatus.rapidRenewal?.heroIds?.includes(Number(numericId)) || false;
+            
+            // Current status
+            questLines.push('**Active:**');
+            questLines.push(`• Wild Unknown: ${powerUpStatus.wildUnknown?.active ? '✅' : '❌'}`);
+            questLines.push(`• Gravity Feeder: ${powerUpStatus.gravityFeeder?.active ? '✅' : '❌'}`);
+            questLines.push(`• Rapid Renewal: ${hasRR ? '✅ (this hero)' : '❌'}`);
+            
+            // Recommendations for inactive power-ups
+            const recommendations = [];
+            if (!powerUpStatus.wildUnknown?.active) {
+              recommendations.push('• **Wild Unknown** - Send extra heroes on expeditions');
+            }
+            if (!powerUpStatus.gravityFeeder?.active) {
+              recommendations.push('• **Gravity Feeder** - Auto-feed all pets during expeditions');
+            }
+            if (!hasRR) {
+              recommendations.push('• **Rapid Renewal** - Faster stamina regen (3s/level reduction)');
+            }
+            
+            if (recommendations.length > 0) {
+              questLines.push('');
+              questLines.push('**Available Upgrades:**');
+              questLines.push(...recommendations);
+            }
+          } else {
+            questLines.push('*Unable to fetch power-up status*');
+          }
           
-          // Send follow-up
-          const followUpText = followUp.join('\n').slice(0, 1900);
-          await interaction.followUp(followUpText);
+          await interaction.followUp(questLines.join('\n').slice(0, 1900));
         }
       } catch (err) {
         console.error('[DebugHeroId] Error fetching pet/quest data:', err);

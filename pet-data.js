@@ -39,8 +39,81 @@ const EGG_TYPE_TO_GATHERING = {
   3: 'Mining'
 };
 
-// Combat bonus ID to name mapping (from your script)
+// Rarity ID to name mapping
+const RARITY_NAMES = {
+  0: 'Common',
+  1: 'Uncommon',
+  2: 'Rare',
+  3: 'Legendary',
+  4: 'Mythic'
+};
+
+// Element ID to name mapping
+const ELEMENT_NAMES = {
+  0: 'Fire',
+  1: 'Water',
+  2: 'Earth',
+  3: 'Wind',
+  4: 'Lightning',
+  5: 'Ice',
+  6: 'Light',
+  7: 'Dark'
+};
+
+// Season ID to name mapping
+const SEASON_NAMES = {
+  0: 'Genesis',
+  1: 'Season 1',
+  2: 'Season 2',
+  3: 'Season 3',
+  4: 'Season 4'
+};
+
+// Profession bonus ID to skill name mapping (gathering skills)
+const PROF_BONUS_NAMES = {
+  // Fishing skills
+  0: 'None',
+  1: 'Fisher',
+  2: 'Expert Angler',
+  3: 'Bait Maker',
+  4: 'Net Caster',
+  5: 'Deep Sea Fisher',
+  // Foraging skills
+  6: 'Forager',
+  7: 'Expert Forager',
+  8: 'Herbalist',
+  9: 'Tracker',
+  10: 'Nature\'s Ally',
+  // Gardening skills
+  11: 'Gardener',
+  12: 'Expert Gardener',
+  13: 'Soil Specialist',
+  14: 'Harvest Master',
+  15: 'Green Thumb',
+  // Mining skills
+  16: 'Miner',
+  17: 'Expert Miner',
+  18: 'Gemologist',
+  19: 'Ore Finder',
+  20: 'Deep Delver'
+};
+
+// Crafting bonus ID to name mapping
+const CRAFT_BONUS_NAMES = {
+  0: 'None',
+  1: 'Blacksmith',
+  2: 'Jeweler',
+  3: 'Alchemist',
+  4: 'Leatherworker',
+  5: 'Tailor',
+  6: 'Enchanter',
+  7: 'Stone Mason',
+  8: 'Woodworker'
+};
+
+// Combat bonus ID to name mapping
 const COMBAT_BONUS_NAMES = {
+  0: 'None',
   1: 'Unused',
   2: 'Stone Hide',
   3: 'Arcane Shell',
@@ -63,8 +136,28 @@ const COMBAT_BONUS_NAMES = {
   20: 'Confident'
 };
 
+// Food type ID to name mapping
+const FOOD_TYPE_NAMES = {
+  0: 'None',
+  1: 'Pet Treats',
+  2: 'Premium Treats',
+  3: 'Gourmet Treats'
+};
+
+// Bonus scalar to rarity tier (for display)
+function getBonusRarity(scalar) {
+  // Bonus scalars range from 0-255 (raw), we divide by 10 for percentage
+  // Higher bonuses are rarer
+  if (scalar >= 8) return 'Mythic';
+  if (scalar >= 6) return 'Legendary';
+  if (scalar >= 4) return 'Rare';
+  if (scalar >= 2) return 'Uncommon';
+  if (scalar > 0) return 'Common';
+  return 'None';
+}
+
 /**
- * Parse raw pet tuple into friendly object
+ * Parse raw pet tuple into friendly object with ALL attributes
  * Matches PetV2 struct from contract
  */
 function parsePetData(petTuple) {
@@ -79,28 +172,87 @@ function parsePetData(petTuple) {
   const hungryAt = hungryAtUnix > 0 ? new Date(hungryAtUnix * 1000) : null;
   const isFed = hungryAt ? hungryAt > new Date() : false;
   
-  // profBonusScalar is uint8 (0-255), divide by 10 for percentage (matching reference impl)
+  // Calculate time until hungry (for fed display)
+  let hungryInHours = null;
+  if (hungryAt && isFed) {
+    hungryInHours = Math.round((hungryAt.getTime() - Date.now()) / (1000 * 60 * 60) * 10) / 10;
+  }
+  
+  // Bonus scalars are uint8 (0-255), divide by 10 for percentage
+  const profBonusRaw = Number(petTuple.profBonus);
   const profBonusScalar = Number(petTuple.profBonusScalar) / 10;
+  const craftBonusRaw = Number(petTuple.craftBonus);
+  const craftBonusScalar = Number(petTuple.craftBonusScalar) / 10;
+  const combatBonusRaw = Number(petTuple.combatBonus);
+  const combatBonusScalar = Number(petTuple.combatBonusScalar) / 10;
+  
+  // Extract raw values
+  const rarityRaw = Number(petTuple.rarity);
+  const elementRaw = Number(petTuple.element);
+  const seasonRaw = Number(petTuple.season);
+  const eggTypeRaw = Number(petTuple.eggType);
+  const foodTypeRaw = Number(petTuple.foodType);
+  const bonusCount = Number(petTuple.bonusCount);
+  const originId = Number(petTuple.originId);
+  const appearance = Number(petTuple.appearance);
+  const background = Number(petTuple.background);
+  const shinyRaw = Number(petTuple.shiny);
+  
+  // Calculate equipped at timestamp
+  const equippableAtUnix = Number(petTuple.equippableAt);
+  const equippableAt = equippableAtUnix > 0 ? new Date(equippableAtUnix * 1000) : null;
   
   return {
+    // Basic Info
     id: String(Number(petTuple.id)),
     name: petTuple.name || '',
-    season: Number(petTuple.season),
-    eggType: Number(petTuple.eggType),
-    rarity: Number(petTuple.rarity),
-    element: Number(petTuple.element),
-    gatheringType: EGG_TYPE_TO_GATHERING[Number(petTuple.eggType)] || 'Unknown',
-    gatheringBonus: Number(petTuple.profBonus),
+    originId,
+    
+    // Rarity & Classification
+    rarity: rarityRaw,
+    rarityName: RARITY_NAMES[rarityRaw] || 'Unknown',
+    element: elementRaw,
+    elementName: ELEMENT_NAMES[elementRaw] || 'Unknown',
+    season: seasonRaw,
+    seasonName: SEASON_NAMES[seasonRaw] || 'Unknown',
+    eggType: eggTypeRaw,
+    bonusCount,
+    
+    // Visual
+    appearance,
+    background,
+    shiny: shinyRaw === 1,
+    
+    // Gathering (Profession) Stats
+    gatheringType: EGG_TYPE_TO_GATHERING[eggTypeRaw] || 'Unknown',
+    gatheringBonus: profBonusRaw,
+    gatheringBonusName: PROF_BONUS_NAMES[profBonusRaw] || 'Unknown',
     gatheringBonusScalar: profBonusScalar,
-    combatBonus: Number(petTuple.combatBonus),
-    combatBonusName: COMBAT_BONUS_NAMES[Number(petTuple.combatBonus)] || 'Unknown',
-    combatBonusScalar: Number(petTuple.combatBonusScalar) / 10,
-    shiny: Number(petTuple.shiny) === 1,
+    gatheringBonusRarity: getBonusRarity(profBonusScalar),
+    
+    // Crafting Stats
+    craftBonus: craftBonusRaw,
+    craftBonusName: CRAFT_BONUS_NAMES[craftBonusRaw] || 'Unknown',
+    craftBonusScalar: craftBonusScalar,
+    craftBonusRarity: getBonusRarity(craftBonusScalar),
+    
+    // Combat Stats
+    combatBonus: combatBonusRaw,
+    combatBonusName: COMBAT_BONUS_NAMES[combatBonusRaw] || 'Unknown',
+    combatBonusScalar: combatBonusScalar,
+    combatBonusRarity: getBonusRarity(combatBonusScalar),
+    
+    // Equipment Status
     equippedTo,
+    equippableAt,
+    
+    // Feeding Status
     hungryAt,
     isFed,
+    hungryInHours,
     fedBy: petTuple.fedBy || null,
-    foodType: Number(petTuple.foodType)
+    foodType: foodTypeRaw,
+    foodTypeName: FOOD_TYPE_NAMES[foodTypeRaw] || 'Unknown'
   };
 }
 
