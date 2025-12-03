@@ -9,6 +9,32 @@ import {
 import { getAllHeroesByOwner } from './onchain-data.js';
 import { isPaymentBypassEnabled } from './debug-settings.js';
 
+/**
+ * Split a long message into chunks that fit within Discord's 2000 char limit
+ */
+function splitMessage(text, maxLength = 1900) {
+  if (text.length <= maxLength) return [text];
+  
+  const chunks = [];
+  const lines = text.split('\n');
+  let currentChunk = '';
+  
+  for (const line of lines) {
+    if ((currentChunk + '\n' + line).length > maxLength && currentChunk.length > 0) {
+      chunks.push(currentChunk.trim());
+      currentChunk = line;
+    } else {
+      currentChunk += (currentChunk ? '\n' : '') + line;
+    }
+  }
+  
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  return chunks;
+}
+
 export async function handleGardenOptimizationDM(message, playerData) {
   const username = message.author.username;
 
@@ -69,7 +95,11 @@ export async function handleGardenOptimizationDM(message, playerData) {
     });
     const report = formatOptimizationReport(optimization);
 
-    await message.reply(report);
+    // Split long reports into multiple messages to avoid Discord's 2000 char limit
+    const chunks = splitMessage(report);
+    for (const chunk of chunks) {
+      await message.reply(chunk);
+    }
   } catch (err) {
     console.error('[GardenOpt][bypass] ERROR:', err?.stack || err);
     await message.reply(
