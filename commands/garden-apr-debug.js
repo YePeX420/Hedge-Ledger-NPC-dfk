@@ -185,9 +185,11 @@ function computeHeroQuestApr(hero, pet, poolMeta, { hasGravityFeeder = false } =
     ? (1 + petBonus / 100) 
     : 1;
   
-  // Apply Power Surge to yields
-  const crystalPerQuest = yieldData.crystalPerQuest * powerSurgeMultiplier;
-  const jewelPerQuest = yieldData.jewelPerQuest * powerSurgeMultiplier;
+  // Per-quest yields: yieldData returns per-ATTEMPT values, multiply by 25 for full quest (25 stam)
+  // Note: This is per HERO, not per pair
+  const ATTEMPTS_PER_QUEST = 25;
+  const crystalPerQuest = yieldData.crystalPerQuest * powerSurgeMultiplier * ATTEMPTS_PER_QUEST;
+  const jewelPerQuest = yieldData.jewelPerQuest * powerSurgeMultiplier * ATTEMPTS_PER_QUEST;
   
   // Calculate APR scale with Power Surge applied
   const baselineFactor = 0.1 + (50 + 50) / 1222.22;
