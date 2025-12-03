@@ -1,0 +1,341 @@
+Perfect. Here’s a single, ready-to-paste Codex prompt that tells it to:
+
+Integrate Rapid Renewal using the PowerUpManagerDiamond ABI you provided.
+
+Fix the pet bonus integration (before & after).
+
+Wire both into the gardening optimizer and DM output.
+
+
+You can paste this whole thing into Codex as your next task.
+
+
+---
+
+🔧 Codex Task: Integrate Rapid Renewal (RR) via PowerUpManagerDiamond + Fix Pet Bonuses in Garden Optimizer
+
+We now have two key pieces of missing data:
+
+1. The PowerUpManagerDiamond ABI – needed to detect which heroes have Rapid Renewal. 
+
+
+2. Existing pet debug tooling that can fetch full pet metadata from pets.defikingdoms.com / GraphQL.
+
+
+
+We need to wire both into the garden optimizer so that:
+
+BEFORE vs AFTER actually reflects current hero+pet+RR setup.
+
+RR is treated as an optimizable resource.
+
+Pet garden bonuses are applied in both BEFORE and AFTER calculations.
+
+
+
+---
+
+1. Rapid Renewal Integration (using PowerUpManagerDiamond)
+
+Goal: determine, for a given wallet, which hero IDs have Rapid Renewal active, and how many RR slots the user actually has.
+
+Files to add/modify (suggested names):
+
+onchain/powerups/rapid-renewal-service.ts
+
+hero-yield-model.ts (or wherever computeStaminaPerDay lives)
+
+wallet-lp-detector.js or optimizer service (where hero meta is built)
+
+
+1.1 Identify the Rapid Renewal powerUpId
+
+Using the powerUps(uint256) mapping and getActivePowerUps() from the ABI, find the powerUpId for Rapid Renewal by name. 
+
+Call getActivePowerUps():
+
+const powerUps = await powerUpManager.getActivePowerUps();
+// powerUps[i].name is a string like "Rapid Renewal"
+
+Find the element where name equals "Rapid Renewal" (or contains "Rapid Renewal" case-insensitive).
+
+Store its id as RR_POWERUP_ID.
+
+
+Cache this result (in memory) to avoid re-querying on every optimization.
+
+1.2 Fetch heroes with RR for a given user
+
+Use:
+
+getAssignedHeroIds(address _account, uint256 _powerUpId) or
+
+getAssignedHeroes(address _account, uint256 _powerUpId)
+
+
+from the ABI. 
+
+Implement:
+
+export async function fetchRapidRenewalHeroIds(userAddress: string): Promise<number[]> {
+  const rrId = await getRapidRenewalPowerUpId(); // from 1.1
+  const heroIds: bigint[] = await powerUpManager.getAssignedHeroIds(userAddress, rrId);
+  return heroIds.map((h) => Number(h)); // normalize to JS number
+}
+
+Optionally, support isHeroPowerUpActive(user, rrId, heroId) for spot checks. 
+
+1.3 Attach RR to hero metadata
+
+When building hero meta (where you already fetch hero stats and professions):
+
+Add hasRapidRenewal: boolean field:
+
+
+const rrHeroIds = await fetchRapidRenewalHeroIds(walletAddress);
+const rrSet = new Set(rrHeroIds);
+
+for (const hero of heroes) {
+  heroMeta[hero.id] = {
+    ...existingStuff,
+    hasRapidRenewal: rrSet.has(hero.id),
+  };
+}
+
+1.4 Use RR in computeStaminaPerDay
+
+Update your stamina regen logic:
+
+export function computeStaminaPerDay(hero, { hasRapidRenewal }: { hasRapidRenewal: boolean }) {
+  const baseTickSeconds = 20 * 60; // 20 minutes per stamina
+  let tickSeconds = baseTickSeconds;
+
+  if (hasRapidRenewal) {
+    const reduction = hero.level * 3;  // 3 seconds per level
+    tickSeconds = baseTickSeconds - reduction;
+
+    // Safety floor so it doesn't get absurdly small
+    const minTickSeconds = 5 * 60;
+    if (tickSeconds < minTickSeconds) tickSeconds = minTickSeconds;
+  }
+
+  return (24 * 60 * 60) / tickSeconds;
+}
+
+Pass heroMeta[heroId].hasRapidRenewal into this function wherever stamina/day is used.
+
+1.5 Use RR as an optimization dimension
+
+In the optimizer:
+
+When computing gardenScore for each hero, multiply by staminaPerDay from computeStaminaPerDay.
+
+Consider RR assignment as something that can be reallocated:
+
+For now, we can:
+
+Mark current RR heroes.
+
+Compute what would happen if RR were given to top N heroes by gardenScore instead.
+
+
+Emit DM suggestions like:
+
+> “Rapid Renewal: move from Hero #612345 to Hero #620146 for ~+0.9 JEWEL/day and +4.2 CRYSTAL/day.”
+
+
+
+
+
+(We don’t need to change chain state; just recommend.)
+
+
+---
+
+2. Pet Metadata & Garden Bonus Integration
+
+Goal: use pet bonuses for both BEFORE & AFTER hero slots, and show hero+pet mappings in DM.
+
+Files to add/modify (suggested):
+
+pets/pet-metadata-service.ts
+
+wallet-lp-detector.js / optimizer module
+
+DM output generator
+
+
+2.1 Implement fetchPetMetadata(petId)
+
+Reuse your existing pet debug logic, but refactor into a service:
+
+export interface PetMeta {
+  id: number;
+  name: string;
+  bonusType: string;
+  bonusValue: number;
+  bonusSubType?: string;
+  // include any fields needed for mapping
+}
+
+export async function fetchPetMetadata(petId: string): Promise<PetMeta> {
+  const res = await fetch(`https://pets.defikingdoms.com/token/${petId}`);
+  const json = await res.json();
+  return normalizePetMeta(json); // map raw JSON → PetMeta
+}
+
+Alternatively, use the pet GraphQL query if that’s already in your codebase.
+
+2.2 Map pet metadata to garden bonuses
+
+Implement:
+
+export interface PetGardenBonus {
+  jewelBonusPct: number;
+  crystalBonusPct: number;
+  staminaReductionPct: number;
+}
+
+export function getPetGardenBonus(meta: PetMeta, role: 'JEWEL' | 'CRYSTAL'): PetGardenBonus {
+  // Example logic:
+  // - If meta.bonusType == 'GARDEN_JEWEL', set jewelBonusPct = meta.bonusValue
+  // - If meta.bonusType == 'GARDEN_CRYSTAL', set crystalBonusPct = meta.bonusValue
+  // - If meta.bonusType == 'GARDEN_STAMINA', set staminaReductionPct = meta.bonusValue
+  // - Otherwise, all zeros for garden yield modeling.
+
+  return { jewelBonusPct, crystalBonusPct, staminaReductionPct };
+}
+
+You can refine the mapping with the exact schema from the pet metadata JSON.
+
+2.3 Use pet bonuses in per-slot yield
+
+In whatever function computes per-slot yield (GardenSlot):
+
+const baseJewel = heroBaseJewelPerDay;      // derived from heroFactor, stamina/day, pool emissions
+const baseCrystal = heroBaseCrystalPerDay;
+
+const bonus = getPetGardenBonus(petMeta, slot.role);
+
+const jewel = baseJewel * (1 + bonus.jewelBonusPct);
+const crystal = baseCrystal * (1 + bonus.crystalBonusPct);
+
+If the pet affects stamina instead, adjust computeStaminaPerDay for that hero accordingly.
+
+
+---
+
+3. BEFORE must use actual heroes + pets currently questing that pool
+
+Right now, “BEFORE” often shows APR > 0 but tokens/day = 0, which is wrong.
+
+Fix:
+
+1. Implement detectCurrentGardenAssignments(heroes, pets, positions):
+
+For each pool:
+
+Use hero.currentQuest or quest-data to determine which heroes are gardening that pool.
+
+Split into JEWEL-side vs CRYSTAL-side.
+
+Pair them into up to 3 GardenPairs:
+
+pairIndex 1: first JEWEL hero + first CRYSTAL hero
+
+pairIndex 2: second JEWEL hero + second CRYSTAL hero
+
+pairIndex 3: third JEWEL hero + third CRYSTAL hero
+
+
+Attach petId per hero (hero→pet).
+
+For each GardenSlot, compute dailyJewel and dailyCrystal using:
+
+computeHeroGardeningFactor
+
+computeStaminaPerDay(hero, { hasRapidRenewal })
+
+getPetGardenBonus
+
+
+
+Store as before: GardenPair[] for each pool.
+
+
+
+2. Use before: GardenPair[] to compute:
+
+beforeTokensJewelPerDay = sum of all slots.dailyJewel
+
+beforeTokensCrystalPerDay = sum of all slots.dailyCrystal
+
+beforeAnnual via token prices.
+
+
+
+3. Ensure tokens/day are never 0 when APR > 0; if some analytics are missing, note it in the DM but still show non-zero estimates from what we do know.
+
+
+
+
+---
+
+4. DM output: show hero A+petA and heroB+petB, plus stamina/iteration
+
+Update the per-pool DM output to show:
+
+**Current assignments (detected via quest data):**
+- Pair 1:
+  • JEWEL:   Hero #A (Lx, VIT y, WIS z, skill s) + Pet #P1 (Power Surge, +J% JEWEL) → ~J_A JEWEL/day
+  • CRYSTAL: Hero #B (...) + Pet #P2 (...) → ~C_B CRYSTAL/day
+- Pair 2:
+  ...
+- Pair 3:
+  ...
+
+**Recommended assignments (3 pairs):**
+- Pair 1:
+  • JEWEL:   Hero #A' + Pet #P1' → new JEWEL/day (Δ vs current)
+  • CRYSTAL: Hero #B' + Pet #P2' → ...
+...
+
+Also add a small “Stamina / iteration” section:
+
+**Stamina / iteration:**
+- Current: 25 attempts/run (iteration time ~11:50:25)
+- Recommended: 23 attempts/run (iteration time ~10:30:00, +3.2% tokens/day)
+
+Using the stamina/iteration simulator you already have or will build.
+
+
+---
+
+5. Acceptance Criteria
+
+For each pool, BEFORE and AFTER show non-zero tokens/day when APR > 0.
+
+“BEFORE” uses actual heroes + pets that are currently questing that pool.
+
+Pet garden bonuses affect yield in both BEFORE and AFTER.
+
+RR is detected using PowerUpManagerDiamond and changes stamina/day.
+
+DM output shows, per pair:
+
+Hero A + Pet A on JEWEL
+
+Hero B + Pet B on power token
+
+tokens/day for each slot
+
+
+“Stamina per iteration” and “optimal attempts/run” appear in the pool report.
+
+No regressions in DM state machine, tx handling, or message splitting.
+
+
+
+---
+
+You can give this entire prompt to Codex. It has all the context it needs about the ABI and the pet metadata expectations, and focuses exactly on the issues you’re seeing in that CRYSTAL-wJEWEL screenshot.

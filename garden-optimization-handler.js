@@ -129,6 +129,7 @@ export async function handleGardenOptimizationDM(message, playerData, options = 
 
     const optimization = await generatePoolOptimizations(positions, heroes, {
       hasLinkedWallet: true,
+      walletAddress: wallet,
     });
     
     // Log what the optimizer returns so we can debug

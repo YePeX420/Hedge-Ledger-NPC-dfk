@@ -1,0 +1,99 @@
+[
+  {
+    "inputs": [],
+    "name": "getActivePowerUps",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "uint256", "name": "id", "type": "uint256" },
+          { "internalType": "string", "name": "name", "type": "string" },
+          { "internalType": "uint256", "name": "powerUpType", "type": "uint256" },
+          { "internalType": "uint256", "name": "tiers", "type": "uint256" },
+          { "internalType": "uint256", "name": "heroesPerTier", "type": "uint256" },
+          { "internalType": "uint256", "name": "lockTimeRequiredToAcquire", "type": "uint256" },
+          { "internalType": "uint256", "name": "cancelDelay", "type": "uint256" }
+        ],
+        "internalType": "struct PowerUpData[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "_powerUpId", "type": "uint256" }
+    ],
+    "name": "powerUps",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "uint256", "name": "id", "type": "uint256" },
+          { "internalType": "string", "name": "name", "type": "string" },
+          { "internalType": "uint256", "name": "powerUpType", "type": "uint256" },
+          { "internalType": "uint256", "name": "tiers", "type": "uint256" },
+          { "internalType": "uint256", "name": "heroesPerTier", "type": "uint256" },
+          { "internalType": "uint256", "name": "lockTimeRequiredToAcquire", "type": "uint256" },
+          { "internalType": "uint256", "name": "cancelDelay", "type": "uint256" }
+        ],
+        "internalType": "struct PowerUpData",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "_account", "type": "address" },
+      { "internalType": "uint256", "name": "_powerUpId", "type": "uint256" }
+    ],
+    "name": "getAssignedHeroIds",
+    "outputs": [
+      { "internalType": "uint256[]", "name": "", "type": "uint256[]" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "_account", "type": "address" },
+      { "internalType": "uint256", "name": "_powerUpId", "type": "uint256" },
+      { "internalType": "uint256", "name": "_heroId", "type": "uint256" }
+    ],
+    "name": "isHeroPowerUpActive",
+    "outputs": [
+      { "internalType": "bool", "name": "", "type": "bool" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "_account", "type": "address" },
+      { "internalType": "uint256", "name": "_powerUpId", "type": "uint256" }
+    ],
+    "name": "getUserPowerUp",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "bool", "name": "isActivated", "type": "bool" },
+          { "internalType": "bool", "name": "emergencyWithdrawHappened", "type": "bool" },
+          { "internalType": "uint256", "name": "tier", "type": "uint256" },
+          { "internalType": "uint256", "name": "openHeroSlots", "type": "uint256" },
+          { "internalType": "uint256", "name": "cancellationHeldSlots", "type": "uint256" },
+          { "internalType": "uint256", "name": "heldSlotExpiration", "type": "uint256" },
+          { "internalType": "uint256", "name": "govTokenHoldExpiration", "type": "uint256" },
+          { "internalType": "address", "name": "owner", "type": "address" }
+        ],
+        "internalType": "struct PowerUpUserData",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

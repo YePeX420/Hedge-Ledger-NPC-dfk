@@ -24,6 +24,17 @@ import {
 // Price imports: Only used by generatePoolOptimizations (full optimization), not by detectWalletLPPositions (teaser).
 // The slow 577-pair build is acceptable during full optimization since user has already paid.
 import { getCrystalPrice, getJewelPrice } from './price-feed.js';
+// Rapid Renewal and Pet services for hero metadata enrichment
+import { 
+  getRapidRenewalHeroIds, 
+  getRapidRenewalStatus,
+  formatRapidRenewalSummary 
+} from './rapid-renewal-service.js';
+import { 
+  fetchPetsForWallet, 
+  annotateHeroesWithPets,
+  calculatePetGardenBonus 
+} from './pet-data.js';
 import erc20ABI from './ERC20.json' with { type: 'json' };
 
 // DFK Chain configuration (for LP totalSupply)
@@ -249,20 +260,81 @@ function parseQuestAPRRange(gardeningQuestAPR) {
  * Modes:
  * - hasLinkedWallet = true  → "Before" APR models current hero roster
  * - hasLinkedWallet = false → "Before" APR falls back to worst quest APR
+ * 
+ * @param {Array} positions - LP positions from detectWalletLPPositions
+ * @param {Array} heroes - Heroes from getAllHeroesByOwner
+ * @param {Object} options - Options including walletAddress for RR/pet fetching
  */
 export async function generatePoolOptimizations(
   positions,
   heroes = [],
   options = {}
 ) {
-  const { hasLinkedWallet = true } = options;
+  const { hasLinkedWallet = true, walletAddress = null } = options;
   const recommendations = [];
 
   const safePositions = Array.isArray(positions) ? positions : [];
-  const safeHeroes = Array.isArray(heroes) ? heroes : [];
+  let safeHeroes = Array.isArray(heroes) ? heroes : [];
   
   // Debug logging
-  console.log(`[Opt] Starting optimization: positions=${safePositions.length}, heroes=${safeHeroes.length}, hasLinkedWallet=${hasLinkedWallet}`);
+  console.log(`[Opt] Starting optimization: positions=${safePositions.length}, heroes=${safeHeroes.length}, hasLinkedWallet=${hasLinkedWallet}, wallet=${walletAddress?.slice(0,10) || 'none'}`);
+  
+  // Fetch RR and pet data in parallel for hero metadata enrichment
+  let rrHeroIds = new Set();
+  let rrStatus = null;
+  let allPets = [];
+  
+  if (walletAddress && safeHeroes.length > 0) {
+    try {
+      console.log(`[Opt] Fetching Rapid Renewal + Pet data for ${walletAddress.slice(0,10)}...`);
+      
+      const [rrHeroIdsResult, rrStatusResult, petsResult] = await Promise.all([
+        getRapidRenewalHeroIds(walletAddress).catch(err => {
+          console.warn('[Opt] Failed to fetch RR hero IDs:', err.message);
+          return new Set();
+        }),
+        getRapidRenewalStatus(walletAddress).catch(err => {
+          console.warn('[Opt] Failed to fetch RR status:', err.message);
+          return null;
+        }),
+        fetchPetsForWallet(walletAddress).catch(err => {
+          console.warn('[Opt] Failed to fetch pets:', err.message);
+          return [];
+        })
+      ]);
+      
+      rrHeroIds = rrHeroIdsResult;
+      rrStatus = rrStatusResult;
+      allPets = petsResult;
+      
+      console.log(`[Opt] RR Heroes: ${rrHeroIds.size}, RR Status: ${rrStatus?.isActivated ? `Tier ${rrStatus.tier}` : 'inactive'}, Pets: ${allPets.length}`);
+      
+      // Annotate heroes with RR flag
+      safeHeroes = safeHeroes.map(h => {
+        const hero = h.hero || h;
+        const heroId = Number(hero.normalizedId || hero.id);
+        const hasRR = rrHeroIds.has(heroId);
+        return {
+          ...h,
+          hero: h.hero || hero,
+          heroMeta: {
+            ...(h.heroMeta || {}),
+            hasRapidRenewal: hasRR
+          }
+        };
+      });
+      
+      // Annotate heroes with pet data
+      safeHeroes = annotateHeroesWithPets(safeHeroes, allPets);
+      
+      const rrCount = safeHeroes.filter(h => h.heroMeta?.hasRapidRenewal).length;
+      const petCount = safeHeroes.filter(h => h.heroMeta?.petId).length;
+      console.log(`[Opt] Annotated heroes: ${rrCount} with RR, ${petCount} with equipped pets`);
+      
+    } catch (err) {
+      console.error('[Opt] Error fetching RR/pet data:', err.message);
+    }
+  }
   
   const priceData = await Promise.all([
     getJewelPrice().catch(() => 0),
@@ -504,6 +576,18 @@ export async function generatePoolOptimizations(
         jewel: totalJewelAfter - totalJewelBefore, 
         crystal: totalCrystalAfter - totalCrystalBefore 
       }
+    },
+    // Rapid Renewal subscription info
+    rapidRenewal: {
+      status: rrStatus,
+      heroIds: Array.from(rrHeroIds),
+      summary: formatRapidRenewalSummary(rrStatus, rrHeroIds)
+    },
+    // Pet data for DM output
+    pets: {
+      total: allPets.length,
+      gardeningPets: allPets.filter(p => p.gatheringType === 'Gardening').length,
+      equippedCount: allPets.filter(p => p.equippedTo).length
     }
   };
 }
@@ -615,6 +699,23 @@ export function formatOptimizationSummary(optimization) {
   summary += `Pools analyzed: ${poolNames}\n`;
   summary += `Approx. total TVL: $${totalValue}\n\n`;
   
+  // RR subscription status (if available)
+  if (optimization.rapidRenewal?.status) {
+    const rr = optimization.rapidRenewal;
+    if (rr.status.isActivated) {
+      summary += `**Rapid Renewal:** Tier ${rr.status.tier} (${rr.status.usedSlots}/${rr.status.totalSlots} slots)\n`;
+    } else {
+      summary += `**Rapid Renewal:** Not subscribed\n`;
+    }
+  }
+  
+  // Pets summary (if available)
+  if (optimization.pets && optimization.pets.total > 0) {
+    summary += `**Pets:** ${optimization.pets.total} total (${optimization.pets.gardeningPets} gardening, ${optimization.pets.equippedCount} equipped)\n`;
+  }
+  
+  summary += '\n';
+  
   if (dt.gain) {
     const jewelGain = dt.gain.jewel?.toFixed?.(2) || '0.00';
     const crystalGain = dt.gain.crystal?.toFixed?.(2) || '0.00';
@@ -678,22 +779,40 @@ export function formatPoolRecommendation(rec) {
   msg += `GAIN: ${annualReturn.additionalGain || '$0'}/year (${rec.yieldImprovement || ''})\n`;
   msg += `\`\`\`\n\n`;
   
-  // Recommended hero pairs
+  // Recommended hero pairs with pet info
   if (pairs.length > 0) {
     msg += `**Recommended Hero Assignments (${pairs.length} pairs):**\n`;
     for (const pair of pairs) {
       msg += `- **Pair ${pair.pairIndex}:**\n`;
       if (pair.jewel) {
         const j = pair.jewel;
+        const hero = j.hero || {};
+        const level = hero.level || 0;
+        const gardening = ((hero.gardening || 0) / 10).toFixed(1);
         const rrIcon = j.hasRapidRenewal ? ' [RR]' : '';
         const geneIcon = j.hasGardeningGene ? ' [G]' : '';
-        msg += `  - JEWEL: Hero #${j.heroId}${rrIcon}${geneIcon}\n`;
+        let petStr = '';
+        if (j.petId && j.petBonusPct > 0) {
+          petStr = ` + Pet #${j.petId} (+${j.petBonusPct}%)`;
+        } else if (j.petId) {
+          petStr = ` + Pet #${j.petId}`;
+        }
+        msg += `  - JEWEL: Hero #${j.heroId}${rrIcon}${geneIcon} (L${level}, G${gardening})${petStr}\n`;
       }
       if (pair.crystal) {
         const c = pair.crystal;
+        const hero = c.hero || {};
+        const level = hero.level || 0;
+        const gardening = ((hero.gardening || 0) / 10).toFixed(1);
         const rrIcon = c.hasRapidRenewal ? ' [RR]' : '';
         const geneIcon = c.hasGardeningGene ? ' [G]' : '';
-        msg += `  - CRYSTAL: Hero #${c.heroId}${rrIcon}${geneIcon}\n`;
+        let petStr = '';
+        if (c.petId && c.petBonusPct > 0) {
+          petStr = ` + Pet #${c.petId} (+${c.petBonusPct}%)`;
+        } else if (c.petId) {
+          petStr = ` + Pet #${c.petId}`;
+        }
+        msg += `  - CRYSTAL: Hero #${c.heroId}${rrIcon}${geneIcon} (L${level}, G${gardening})${petStr}\n`;
       }
     }
     msg += `\n`;
@@ -707,18 +826,30 @@ export function formatPoolRecommendation(rec) {
 
 /**
  * Format Rapid Renewal suggestions (separate DM)
+ * @param {Object} rrAnalysis - From analyzeRapidRenewal
+ * @param {Object} rapidRenewal - From optimization.rapidRenewal (subscription status)
  */
-export function formatRRReport(rrAnalysis) {
-  if (!rrAnalysis) return '';
+export function formatRRReport(rrAnalysis, rapidRenewal = null) {
+  let msg = `**Rapid Renewal Status:**\n`;
+  
+  // Show subscription status if available
+  if (rapidRenewal?.status) {
+    const status = rapidRenewal.status;
+    if (status.isActivated) {
+      msg += `Subscription: Tier ${status.tier} (${status.usedSlots}/${status.totalSlots} slots used)\n`;
+    } else {
+      msg += `Subscription: Not active\n`;
+    }
+  }
+  
+  if (!rrAnalysis) return msg;
   
   const { currentRR, recommended } = rrAnalysis;
   
-  let msg = `**Rapid Renewal Status:**\n`;
-  
   if (currentRR && currentRR.length > 0) {
-    msg += `Currently active on: ${currentRR.map(h => `Hero #${h.heroId}`).join(', ')}\n\n`;
+    msg += `Currently assigned: ${currentRR.map(h => `Hero #${h.heroId}`).join(', ')}\n\n`;
   } else {
-    msg += `No heroes currently have Rapid Renewal equipped.\n\n`;
+    msg += `No heroes currently have Rapid Renewal assigned.\n\n`;
   }
   
   if (recommended && recommended.length > 0) {
@@ -726,7 +857,7 @@ export function formatRRReport(rrAnalysis) {
     for (const rec of recommended) {
       msg += `- Hero #${rec.heroId}: +${rec.improvement}% productivity if RR applied\n`;
     }
-  } else {
+  } else if (currentRR && currentRR.length > 0) {
     msg += `Your current RR placement is optimal.\n`;
   }
   
@@ -750,7 +881,7 @@ export function formatOptimizationReport(optimization) {
   // The handler will use formatOptimizationMessages for multi-message output
   const summary = formatOptimizationSummary(optimization);
   const poolMsgs = optimization.recommendations.map(rec => formatPoolRecommendation(rec));
-  const rrMsg = formatRRReport(optimization.rrAnalysis);
+  const rrMsg = formatRRReport(optimization.rrAnalysis, optimization.rapidRenewal);
   
   return [summary, ...poolMsgs, rrMsg].filter(Boolean).join('\n\n---\n\n');
 }
@@ -775,7 +906,7 @@ export function formatOptimizationMessages(optimization) {
   }
   
   // 3. RR suggestions
-  const rrMsg = formatRRReport(optimization.rrAnalysis);
+  const rrMsg = formatRRReport(optimization.rrAnalysis, optimization.rapidRenewal);
   if (rrMsg) {
     messages.push(rrMsg);
   }

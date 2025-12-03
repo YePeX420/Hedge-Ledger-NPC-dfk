@@ -220,3 +220,132 @@ export function formatPetSummary(pet) {
   
   return `Pet #${pet.id} ${shinyIcon}(${bonusStr})`;
 }
+
+/**
+ * Calculate garden-specific bonuses from a pet
+ * 
+ * Gardening pets (eggType 2) provide:
+ * - Gathering bonus that increases quest rewards
+ * 
+ * @param {Object} pet - Pet object from parsePetData or fetchPetById
+ * @returns {Object} Garden bonus breakdown
+ */
+export function calculatePetGardenBonus(pet) {
+  if (!pet) {
+    return {
+      questBonusPct: 0,
+      staminaReductionPct: 0,
+      isGardeningPet: false,
+      petId: null,
+      description: null
+    };
+  }
+  
+  const isGardeningPet = pet.gatheringType === 'Gardening' || pet.eggType === 2;
+  
+  if (!isGardeningPet) {
+    return {
+      questBonusPct: 0,
+      staminaReductionPct: 0,
+      isGardeningPet: false,
+      petId: pet.id,
+      description: `${pet.gatheringType} pet (no garden bonus)`
+    };
+  }
+  
+  const bonusPct = pet.gatheringBonusScalar || 0;
+  
+  return {
+    questBonusPct: bonusPct,
+    staminaReductionPct: 0,
+    isGardeningPet: true,
+    petId: pet.id,
+    description: `+${bonusPct}% gardening quest rewards`
+  };
+}
+
+/**
+ * Get pet equipped to a specific hero from the pets array
+ * @param {number|string} heroId - Hero ID
+ * @param {Array} allPets - All pets from wallet
+ * @returns {Object|null} Pet object or null
+ */
+export function getPetForHero(heroId, allPets) {
+  if (!allPets || !heroId) return null;
+  
+  const heroIdStr = String(heroId);
+  return allPets.find(p => p.equippedTo === heroIdStr) || null;
+}
+
+/**
+ * Build hero-to-pet mapping with garden bonuses
+ * @param {Array} heroes - Array of hero objects  
+ * @param {Array} allPets - All pets from wallet
+ * @returns {Map<string, Object>} Map of heroId -> { pet, gardenBonus }
+ */
+export function buildHeroPetBonusMap(heroes, allPets) {
+  const map = new Map();
+  
+  if (!heroes || !allPets) return map;
+  
+  for (const h of heroes) {
+    const hero = h.hero || h;
+    const heroId = String(hero.normalizedId || hero.id);
+    const pet = getPetForHero(heroId, allPets);
+    const gardenBonus = calculatePetGardenBonus(pet);
+    
+    map.set(heroId, {
+      pet,
+      gardenBonus,
+      petId: pet?.id || null,
+      questBonusPct: gardenBonus.questBonusPct
+    });
+  }
+  
+  return map;
+}
+
+/**
+ * Annotate heroes array with pet data and garden bonuses
+ * @param {Array} heroes - Array of hero objects
+ * @param {Array} allPets - All pets from wallet
+ * @returns {Array} Heroes with heroMeta.petId and heroMeta.petGardenBonus set
+ */
+export function annotateHeroesWithPets(heroes, allPets) {
+  if (!heroes) return [];
+  if (!allPets || allPets.length === 0) return heroes;
+  
+  return heroes.map(h => {
+    const hero = h.hero || h;
+    const heroId = String(hero.normalizedId || hero.id);
+    const pet = getPetForHero(heroId, allPets);
+    const gardenBonus = calculatePetGardenBonus(pet);
+    
+    return {
+      ...h,
+      hero: h.hero || hero,
+      heroMeta: {
+        ...(h.heroMeta || {}),
+        petId: pet?.id || null,
+        pet: pet || null,
+        petGardenBonus: gardenBonus
+      }
+    };
+  });
+}
+
+/**
+ * Format pet bonus for DM output
+ * @param {Object} pet - Pet object
+ * @returns {string} Short formatted string
+ */
+export function formatPetBonusShort(pet) {
+  if (!pet) return '';
+  
+  const bonus = calculatePetGardenBonus(pet);
+  if (!bonus.isGardeningPet || bonus.questBonusPct === 0) {
+    return '';
+  }
+  
+  return `+${bonus.questBonusPct}%`;
+}

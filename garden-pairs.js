@@ -53,6 +53,9 @@ export function computeGardenScore(hero, heroMeta = {}) {
 
 /**
  * Build a GardenSlot from a hero
+ * 
+ * Applies pet garden bonuses to yield calculations when the hero has an equipped
+ * gardening pet. Pet bonus increases quest rewards by the pet's gathering bonus %.
  */
 export function buildGardenSlot(hero, heroMeta, role, tokenPrices = {}) {
   if (!hero) return null;
@@ -60,23 +63,38 @@ export function buildGardenSlot(hero, heroMeta, role, tokenPrices = {}) {
   const { factor, staminaPerDay, score } = computeGardenScore(hero, heroMeta);
   const { jewelPrice = 0, crystalPrice = 0 } = tokenPrices;
   
-  const dailyQuestUsd = score * 0.1;
+  // Base daily quest USD value from hero stats
+  let dailyQuestUsd = score * 0.1;
+  
+  // Apply pet garden bonus if hero has a gardening pet equipped
+  const petBonus = heroMeta?.petGardenBonus || {};
+  const petBonusPct = petBonus?.questBonusPct || 0;
+  if (petBonusPct > 0) {
+    dailyQuestUsd *= (1 + petBonusPct / 100);
+  }
+  
   const dailyJewel = jewelPrice > 0 ? (dailyQuestUsd * 0.5) / jewelPrice : 0;
   const dailyCrystal = crystalPrice > 0 ? (dailyQuestUsd * 0.5) / crystalPrice : 0;
+  
+  // Calculate effective garden score with pet bonus
+  const effectiveScore = score * (1 + petBonusPct / 100);
   
   return {
     heroId: hero.normalizedId || hero.id,
     petId: heroMeta?.petId || null,
+    pet: heroMeta?.pet || null,
     role,
     dailyJewel,
     dailyCrystal,
     hero,
     heroMeta: heroMeta || {},
     gardenScore: score,
+    effectiveScore,
     factor,
     staminaPerDay,
     hasRapidRenewal: !!heroMeta?.hasRapidRenewal,
-    hasGardeningGene: !!hero.hasGardeningGene || hero.professionStr?.toLowerCase() === 'gardening'
+    hasGardeningGene: !!hero.hasGardeningGene || hero.professionStr?.toLowerCase() === 'gardening',
+    petBonusPct
   };
 }
 
@@ -287,7 +305,41 @@ export function analyzeRapidRenewal(heroes) {
 }
 
 /**
+ * Format a hero slot with pet info for DM output
+ */
+function formatSlotWithPet(slot, tokenLabel) {
+  if (!slot) return `  - ${tokenLabel}: (empty slot)\n`;
+  
+  const hero = slot.hero || {};
+  const heroId = slot.heroId;
+  const level = hero.level || 0;
+  const gardening = ((hero.gardening || 0) / 10).toFixed(1);
+  
+  // Build status icons
+  const icons = [];
+  if (slot.hasRapidRenewal) icons.push('[RR]');
+  if (slot.hasGardeningGene) icons.push('[G]');
+  const iconStr = icons.length > 0 ? ' ' + icons.join('') : '';
+  
+  // Pet info
+  let petStr = '';
+  if (slot.petId && slot.petBonusPct > 0) {
+    petStr = ` + Pet #${slot.petId} (+${slot.petBonusPct}%)`;
+  } else if (slot.petId) {
+    petStr = ` + Pet #${slot.petId}`;
+  }
+  
+  // Token output
+  const tokenValue = tokenLabel === 'JEWEL' 
+    ? slot.dailyJewel?.toFixed(2) || '0.00'
+    : slot.dailyCrystal?.toFixed(2) || '0.00';
+  
+  return `  - ${tokenLabel}: Hero #${heroId}${iconStr} (L${level}, G${gardening})${petStr} → ~${tokenValue} ${tokenLabel}/day\n`;
+}
+
+/**
  * Format garden pairs for Discord DM output
+ * Shows hero+pet pairings with RR status and yield estimates
  */
 export function formatPairsForDM(pairs, label = 'Assignments') {
   if (!pairs || pairs.length === 0) {
@@ -298,24 +350,8 @@ export function formatPairsForDM(pairs, label = 'Assignments') {
   
   for (const pair of pairs) {
     output += `- **Pair ${pair.pairIndex}:**\n`;
-    
-    if (pair.jewel) {
-      const j = pair.jewel;
-      const rrIcon = j.hasRapidRenewal ? ' [RR]' : '';
-      const geneIcon = j.hasGardeningGene ? ' [G]' : '';
-      output += `  - JEWEL: Hero #${j.heroId}${rrIcon}${geneIcon} → ~${j.dailyJewel.toFixed(2)} JEWEL/day\n`;
-    } else {
-      output += `  - JEWEL: (empty slot)\n`;
-    }
-    
-    if (pair.crystal) {
-      const c = pair.crystal;
-      const rrIcon = c.hasRapidRenewal ? ' [RR]' : '';
-      const geneIcon = c.hasGardeningGene ? ' [G]' : '';
-      output += `  - CRYSTAL: Hero #${c.heroId}${rrIcon}${geneIcon} → ~${c.dailyCrystal.toFixed(2)} CRYSTAL/day\n`;
-    } else {
-      output += `  - CRYSTAL: (empty slot)\n`;
-    }
+    output += formatSlotWithPet(pair.jewel, 'JEWEL');
+    output += formatSlotWithPet(pair.crystal, 'CRYSTAL');
   }
   
   return output;
