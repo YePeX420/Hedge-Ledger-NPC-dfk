@@ -2259,6 +2259,57 @@ client.on(Events.InteractionCreate, async (interaction) => {
         lines.push(`**Skin Color:** D: ${decoded.visual.skinColor.dominant} | R1: ${decoded.visual.skinColor.R1} | R2: ${decoded.visual.skinColor.R2} | R3: ${decoded.visual.skinColor.R3}`);
         lines.push(`**Head Appendage:** D: ${decoded.visual.headAppendage.dominant} | R1: ${decoded.visual.headAppendage.R1} | R2: ${decoded.visual.headAppendage.R2} | R3: ${decoded.visual.headAppendage.R3}`);
         lines.push(`**Back Appendage:** D: ${decoded.visual.backAppendage.dominant} | R1: ${decoded.visual.backAppendage.R1} | R2: ${decoded.visual.backAppendage.R2} | R3: ${decoded.visual.backAppendage.R3}`);
+        lines.push('');
+        
+        // Quest Data Section
+        lines.push('**⚔️ Quest Data:**');
+        const questHex = hero.currentQuest || '0x0000000000000000000000000000000000000000';
+        lines.push(`**Raw Hex:** \`${questHex}\``);
+        
+        // Decode quest bytes for analysis
+        if (questHex && questHex !== '0x0000000000000000000000000000000000000000') {
+          const hex = questHex.toLowerCase().replace('0x', '');
+          lines.push(`**Hex Length:** ${hex.length} chars (${hex.length / 2} bytes)`);
+          
+          // Show first 8 bytes breakdown
+          if (hex.length >= 8) {
+            const byte0 = hex.substring(0, 2);
+            const byte1 = hex.substring(2, 4);
+            const byte2 = hex.substring(4, 6);
+            const byte3 = hex.substring(6, 8);
+            lines.push(`**Bytes 0-3:** 0x${byte0} | 0x${byte1} | 0x${byte2} | 0x${byte3}`);
+            lines.push(`**Decimal:** ${parseInt(byte0, 16)} | ${parseInt(byte1, 16)} | ${parseInt(byte2, 16)} | ${parseInt(byte3, 16)}`);
+          }
+          
+          // Show bytes 4-7 if present
+          if (hex.length >= 16) {
+            const byte4 = hex.substring(8, 10);
+            const byte5 = hex.substring(10, 12);
+            const byte6 = hex.substring(12, 14);
+            const byte7 = hex.substring(14, 16);
+            lines.push(`**Bytes 4-7:** 0x${byte4} | 0x${byte5} | 0x${byte6} | 0x${byte7}`);
+            lines.push(`**Decimal:** ${parseInt(byte4, 16)} | ${parseInt(byte5, 16)} | ${parseInt(byte6, 16)} | ${parseInt(byte7, 16)}`);
+          }
+          
+          lines.push('_Compare with other gardening heroes to find pool ID byte_');
+        } else {
+          lines.push('**Status:** Not on any quest');
+        }
+        lines.push('');
+        
+        // Stamina info
+        lines.push('**🔋 Stamina:**');
+        lines.push(`**Current:** ${hero.stamina}/25`);
+        if (hero.staminaFullAt) {
+          const fullAt = new Date(hero.staminaFullAt * 1000);
+          const now = new Date();
+          if (fullAt > now) {
+            const minsLeft = Math.round((fullAt - now) / 60000);
+            lines.push(`**Full in:** ${minsLeft} minutes`);
+          } else {
+            lines.push(`**Status:** Full`);
+          }
+        }
         
         const output = lines.join('\n');
         
