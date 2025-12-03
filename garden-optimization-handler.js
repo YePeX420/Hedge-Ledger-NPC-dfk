@@ -2,6 +2,7 @@
 
 import {
   detectWalletLPPositions,
+  formatLPPositionsSummary,
   generatePoolOptimizations,
   formatOptimizationReport,
 } from './wallet-lp-detector.js';
@@ -42,48 +43,37 @@ export async function handleGardenOptimizationDM(message, playerData) {
     return;
   }
 
-  const poolNames = positions.map((p) => p.pairName).join(', ');
-  const totalValueNum = positions.reduce((sum, p) => {
-    const val = parseFloat(p?.userTVL ?? '0');
-    return Number.isFinite(val) ? sum + val : sum;
-  }, 0);
-  const totalValueStr = Number.isFinite(totalValueNum) ? `$${totalValueNum.toFixed(0)}` : 'N/A';
+  const summary = formatLPPositionsSummary(positions);
 
   const bypass = isPaymentBypassEnabled?.() ?? false;
 
   if (!bypass) {
     await message.reply(
-      `I found you're staking in ${positions.length} pool${
-        positions.length > 1 ? 's' : ''
-      }: ${poolNames} (Total value: ${totalValueStr}).\n\n` +
+      `${summary}\n\n` +
         `Full optimization (hero & pet assignments + APR uplift) costs **25 JEWEL**. ` +
-        `If you want to proceed, send 25 JEWEL to my wallet and paste the transaction hash here.`
+        `If you want to proceed, send 25 JEWEL to my wallet and paste the transaction hash here with \`tx:<hash>\`.`
     );
     return;
   }
 
-  await message.reply(
-    `🧪 Payment bypass is enabled for testing, so I'll skip the 25 JEWEL step and run your optimization now.`
-  );
-
   try {
-    const heroesData = await getAllHeroesByOwner(wallet);
-    const heroes = Array.isArray(heroesData) ? heroesData : [];
+    await message.reply(
+      `🧪 Payment bypass is enabled for testing, so I'm skipping the 25 JEWEL step and running your optimization now.`
+    );
+
+    const heroesRaw = await getAllHeroesByOwner(wallet);
+    const heroes = Array.isArray(heroesRaw) ? heroesRaw : [];
+
     const optimization = generatePoolOptimizations(positions, heroes, {
       hasLinkedWallet: true,
     });
     const report = formatOptimizationReport(optimization);
 
-    console.log(
-      `[GardenOptimization][Bypass] positions=${positions.length} totalTVL=${Number.isFinite(totalValueNum) ? totalValueNum.toFixed(2) : 'N/A'} heroes=${heroes.length} recs=${optimization?.recommendations?.length ?? 0} reportLen=${report?.length ?? 0}`
-    );
-
     await message.reply(report);
   } catch (err) {
-    console.error('[GardenOptimization][Bypass] Error running optimization:', err?.message || err);
-    if (err?.stack) {
-      console.error('[GardenOptimization][Bypass] Stack:', err.stack);
-    }
-    await message.reply('I hit a snag while running the optimization. Try again in a minute or ping an admin if it keeps failing.');
+    console.error('[GardenOpt][bypass] ERROR:', err?.stack || err);
+    await message.reply(
+      'I hit a snag while running the optimization. Try again in a moment, or turn off payment bypass to use the standard flow.'
+    );
   }
 }
