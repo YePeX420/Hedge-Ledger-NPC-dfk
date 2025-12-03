@@ -108,10 +108,16 @@ export async function execute(interaction) {
       return interaction.editReply(`No heroes currently gardening pool ${poolId} (${poolInfo.name})`);
     }
     
+    const detectionSource = pairingResult.source === 'expedition_api' 
+      ? 'Expedition API (accurate)' 
+      : pairingResult.source === 'active_quests'
+        ? 'Active Quests (contract)'
+        : 'CurrentQuest (fallback)';
+    
     const embed = new EmbedBuilder()
       .setColor('#2ecc71')
       .setTitle(`Garden Debug: ${poolInfo.name} (Pool ${poolId})`)
-      .setDescription(`Found ${poolPairs.length} pairs gardening this pool`)
+      .setDescription(`Found ${poolPairs.length} pairs gardening this pool\nPairing Source: ${detectionSource}`)
       .setTimestamp();
     
     let totalGardenScore = 0;
@@ -184,7 +190,13 @@ export async function execute(interaction) {
       
       pairText += `\n**Roles:** JEWEL:#${pair.jewelHeroId} CRYSTAL:#${pair.crystalHeroId} ${roleSource}`;
       pairText += `\n**Per Run:** ~${crystalPerRun.toFixed(1)} CRYSTAL, ~${jewelPerRun.toFixed(1)} JEWEL`;
-      pairText += `\n**Iteration:** ${durationLabel}${formatTime(iterationAnalysis.iterationMins)} (${actualAttempts} stam/hero = ${iterationAnalysis.totalStaminaUsed} total)${gatingNote}`;
+      
+      if (pair.iterationTimeStr) {
+        pairText += `\n**Iteration:** ${pair.iterationTimeStr} (${actualAttempts} stam/hero = ${iterationAnalysis.totalStaminaUsed} total)`;
+      } else {
+        pairText += `\n**Iteration:** ${durationLabel}${formatTime(iterationAnalysis.iterationMins)} (${actualAttempts} stam/hero = ${iterationAnalysis.totalStaminaUsed} total)${gatingNote}`;
+      }
+      
       pairText += `\n**Regen:** ${iterationAnalysis.staminaRegen.toFixed(1)}/${iterationAnalysis.totalStaminaUsed} stam (${iterationAnalysis.sustainable ? 'sustainable' : 'deficit'})`;
       pairText += `\n**Runs/Day:** ~${iterationAnalysis.runsPerDay.toFixed(1)}`;
       

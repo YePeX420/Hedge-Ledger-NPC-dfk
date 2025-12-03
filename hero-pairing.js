@@ -40,6 +40,7 @@ const GARDENING_QUEST_ADDRESS = '0x6FF019415Ee105aCF2Ac52483A33F5B43eaDB8d0'.toL
 const QUESTCORE_ABI = [
   'function getActiveQuests(address _address) view returns (tuple(uint256 id, address questAddress, uint256[] heroes, address player, uint256 startTime, uint256 startBlock, uint256 completeAtTime, uint8 attempts, uint8 status)[])',
   'function quests(uint256 questId) view returns (tuple(uint256 id, bytes20 questInstanceId, address questAddress, uint8 questType, uint256 level, uint256[] heroes, address player, uint256 startAtTime, uint256 startBlock, uint256 completeAtTime, uint8 attempts, uint8 status))',
+  'function getAccountExpeditionsWithAssociatedQuests(address _playerAddress) view returns (tuple(uint256 expeditionId, tuple(uint40 lastClaimedAt, uint24 iterationsToProcess, uint24 remainingIterations, uint16 escrowedPetTreats, uint32 escrowedStaminaPotions, uint16 globalSettings, uint40 iterationTime, uint40 claimStartBlock, uint24 feePerStamina) expedition, tuple(uint256 id, uint256 questInstanceId, uint8 level, uint256[] heroes, address player, uint256 startBlock, uint256 startAtTime, uint256 completeAtTime, uint8 attempts, uint8 status, uint8 questType) quest, uint256 escrowedFee, uint8 foodType)[])',
 ];
 
 const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
@@ -105,6 +106,94 @@ export async function getQuestById(questId) {
     };
   } catch (err) {
     console.error(`[HeroPairing] Error fetching quest ${questId}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Normalize hero ID by removing chain prefixes
+ * @param {number|bigint} id - Hero ID (may include chain prefix)
+ * @returns {number} Normalized hero ID
+ */
+function normalizeHeroId(id) {
+  const num = Number(id);
+  if (num >= 2_000_000_000_000) return num - 2_000_000_000_000;
+  if (num >= 1_000_000_000_000) return num - 1_000_000_000_000;
+  return num;
+}
+
+/**
+ * Fetch expedition data with hero pairs from the blockchain
+ * This is the most accurate source for pairing information.
+ * 
+ * @param {string} walletAddress - Player wallet address
+ * @returns {Promise<Object>} Expedition data grouped by pool
+ */
+export async function getExpeditionPairs(walletAddress) {
+  try {
+    console.log(`[HeroPairing] Fetching expeditions for ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`);
+    
+    const expeditions = await questContract.getAccountExpeditionsWithAssociatedQuests(walletAddress);
+    
+    const pairs = [];
+    const poolPairs = {};
+    const heroToPair = new Map();
+    
+    for (const exp of expeditions) {
+      const poolId = Number(exp.quest.questType);
+      
+      // Filter for gardening pools (1-13)
+      if (poolId < 1 || poolId > 13 || GARDEN_POOLS[poolId] === undefined) {
+        continue;
+      }
+      
+      const heroIds = exp.quest.heroes.map(h => normalizeHeroId(h));
+      const attempts = Number(exp.quest.attempts);
+      const iterationTime = Number(exp.expedition.iterationTime);
+      const remainingIterations = Number(exp.expedition.remainingIterations);
+      
+      // Format iteration time as HH:MM:SS
+      const hours = Math.floor(iterationTime / 3600);
+      const mins = Math.floor((iterationTime % 3600) / 60);
+      const secs = iterationTime % 60;
+      const iterationTimeStr = `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      
+      const pairData = {
+        expeditionId: Number(exp.expeditionId),
+        questId: Number(exp.quest.id),
+        poolId,
+        poolName: GARDEN_POOLS[poolId] || `Pool ${poolId}`,
+        heroIds,
+        attempts,
+        iterationTime,
+        iterationTimeStr,
+        remainingIterations,
+        isGardening: true,
+        detectionMethod: 'expedition_api',
+      };
+      
+      pairs.push(pairData);
+      
+      if (!poolPairs[poolId]) {
+        poolPairs[poolId] = [];
+      }
+      poolPairs[poolId].push(pairData);
+      
+      for (const heroId of heroIds) {
+        heroToPair.set(heroId, pairData);
+      }
+    }
+    
+    console.log(`[HeroPairing] ✅ Found ${pairs.length} gardening expeditions across ${Object.keys(poolPairs).length} pools`);
+    
+    return {
+      pools: poolPairs,
+      pairs,
+      heroToPair,
+      source: 'expedition_api',
+    };
+  } catch (err) {
+    console.error(`[HeroPairing] Error fetching expeditions:`, err.message);
     return null;
   }
 }
@@ -193,16 +282,31 @@ function detectPairsFromCurrentQuest(heroes) {
  * Detect hero pairs from active gardening quests
  * Heroes in the same quest struct are paired together.
  * 
- * Pool ID detection priority:
- * 1. Query full quest data via getQuestById() to get questType (= pool ID for gardening)
- * 2. Check if questAddress matches gardening quest address
- * 3. Fall back to hero.currentQuest decoding
+ * Detection priority:
+ * 1. Try getAccountExpeditionsWithAssociatedQuests() for accurate expedition data
+ * 2. Fall back to getActiveQuests() for regular quests
+ * 3. Fall back to hero.currentQuest decoding (least accurate)
  * 
  * @param {string} walletAddress - Player wallet address
  * @param {Array} heroes - Array of hero objects with currentQuest field
  * @returns {Promise<Object>} Detected pairs grouped by pool
  */
 export async function detectHeroPairs(walletAddress, heroes = []) {
+  // First try the expedition API (most accurate for long-running gardening)
+  const expeditionResult = await getExpeditionPairs(walletAddress);
+  
+  if (expeditionResult && expeditionResult.pairs.length > 0) {
+    console.log(`[HeroPairing] Using expedition API data (${expeditionResult.pairs.length} pairs)`);
+    return {
+      pools: expeditionResult.pools,
+      pairs: expeditionResult.pairs,
+      unpairedHeroes: [],
+      heroToPair: expeditionResult.heroToPair,
+      source: 'expedition_api',
+    };
+  }
+  
+  // Fall back to active quests (for non-expedition questing)
   const activeQuests = await getActiveQuests(walletAddress);
   
   if (activeQuests.length === 0) {
