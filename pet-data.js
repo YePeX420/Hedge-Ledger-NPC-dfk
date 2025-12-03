@@ -15,10 +15,14 @@ const PET_METADATA_BASE = 'https://pets.defikingdoms.com';
 // Initialize provider
 const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
 
-// PetCore ABI (minimal interface)
+// PetCore ABI (minimal interface) - matches actual PetV2 struct from contract
+// Fields: id, originId, name, season, eggType, rarity, element, bonusCount,
+//         profBonus, profBonusScalar, craftBonus, craftBonusScalar, 
+//         combatBonus, combatBonusScalar, appearance, background, shiny,
+//         hungryAt, equippableAt, equippedTo, fedBy, foodType
 const petCoreABI = [
-  'function getUserPetsV2(address owner) view returns (tuple(uint256 id, uint256 originId, uint256 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint16 profBonusScalar, uint8 craftBonus, uint16 craftBonusScalar, uint8 combatBonus, uint16 combatBonusScalar, uint8 appearance, uint8 background, uint8 shiny, uint256 statBoost1, uint256 statBoost2, uint256 equippedTo, uint256 hatchedDate, uint256 fedDate, uint256 equippedDate)[])',
-  'function getPetV2(uint256 petId) view returns (tuple(uint256 id, uint256 originId, uint256 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint16 profBonusScalar, uint8 craftBonus, uint16 craftBonusScalar, uint8 combatBonus, uint16 combatBonusScalar, uint8 appearance, uint8 background, uint8 shiny, uint256 statBoost1, uint256 statBoost2, uint256 equippedTo, uint256 hatchedDate, uint256 fedDate, uint256 equippedDate))'
+  'function getUserPetsV2(address owner) view returns (tuple(uint256 id, uint8 originId, string name, uint8 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint8 profBonusScalar, uint8 craftBonus, uint8 craftBonusScalar, uint8 combatBonus, uint8 combatBonusScalar, uint16 appearance, uint8 background, uint8 shiny, uint64 hungryAt, uint64 equippableAt, uint256 equippedTo, address fedBy, uint8 foodType)[])',
+  'function getPetV2(uint256 petId) view returns (tuple(uint256 id, uint8 originId, string name, uint8 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint8 profBonusScalar, uint8 craftBonus, uint8 craftBonusScalar, uint8 combatBonus, uint8 combatBonusScalar, uint16 appearance, uint8 background, uint8 shiny, uint64 hungryAt, uint64 equippableAt, uint256 equippedTo, address fedBy, uint8 foodType))'
 ];
 
 const petContract = new ethers.Contract(PETCORE_ADDRESS, petCoreABI, provider);
@@ -57,24 +61,42 @@ const COMBAT_BONUS_NAMES = {
 
 /**
  * Parse raw pet tuple into friendly object
+ * Matches PetV2 struct from contract
  */
 function parsePetData(petTuple) {
+  // equippedTo is uint256 - convert to Number for hero ID matching
+  // Note: Hero IDs are small enough to safely use Number()
+  const equippedToRaw = petTuple.equippedTo;
+  const equippedToNum = Number(equippedToRaw);
+  const equippedTo = equippedToNum === 0 ? null : String(equippedToNum);
+  
+  // hungryAt is unix timestamp - pet is fed if hungryAt > now
+  const hungryAtUnix = Number(petTuple.hungryAt);
+  const hungryAt = hungryAtUnix > 0 ? new Date(hungryAtUnix * 1000) : null;
+  const isFed = hungryAt ? hungryAt > new Date() : false;
+  
+  // profBonusScalar is uint8 (0-255), divide by 10 for percentage (matching reference impl)
+  const profBonusScalar = Number(petTuple.profBonusScalar) / 10;
+  
   return {
-    id: petTuple.id.toString(),
+    id: String(Number(petTuple.id)),
+    name: petTuple.name || '',
     season: Number(petTuple.season),
     eggType: Number(petTuple.eggType),
     rarity: Number(petTuple.rarity),
     element: Number(petTuple.element),
     gatheringType: EGG_TYPE_TO_GATHERING[Number(petTuple.eggType)] || 'Unknown',
     gatheringBonus: Number(petTuple.profBonus),
-    gatheringBonusScalar: Number(petTuple.profBonusScalar) / 100, // Convert to percentage
+    gatheringBonusScalar: profBonusScalar,
     combatBonus: Number(petTuple.combatBonus),
     combatBonusName: COMBAT_BONUS_NAMES[Number(petTuple.combatBonus)] || 'Unknown',
-    combatBonusScalar: Number(petTuple.combatBonusScalar) / 100, // Convert to percentage
+    combatBonusScalar: Number(petTuple.combatBonusScalar) / 10,
     shiny: Number(petTuple.shiny) === 1,
-    equippedTo: petTuple.equippedTo.toString() === '0' ? null : petTuple.equippedTo.toString(),
-    hatchedDate: Number(petTuple.hatchedDate),
-    equippedDate: Number(petTuple.equippedDate)
+    equippedTo,
+    hungryAt,
+    isFed,
+    fedBy: petTuple.fedBy || null,
+    foodType: Number(petTuple.foodType)
   };
 }
 
@@ -309,9 +331,13 @@ export function buildHeroPetBonusMap(heroes, allPets) {
  * Annotate heroes array with pet data and garden bonuses
  * @param {Array} heroes - Array of hero objects
  * @param {Array} allPets - All pets from wallet
+ * @param {Object} options - Options for pet annotation
+ * @param {boolean} options.gravityFeederActive - If true, treat all pets as fed (for expeditions)
  * @returns {Array} Heroes with heroMeta.petId and heroMeta.petGardenBonus set
  */
-export function annotateHeroesWithPets(heroes, allPets) {
+export function annotateHeroesWithPets(heroes, allPets, options = {}) {
+  const { gravityFeederActive = false } = options;
+  
   if (!heroes) return [];
   if (!allPets || allPets.length === 0) {
     console.log(`[PetData] No pets to annotate (${allPets?.length || 0} pets for ${heroes.length} heroes)`);
@@ -320,19 +346,30 @@ export function annotateHeroesWithPets(heroes, allPets) {
   
   // Log equipped pets for debugging
   const equippedPets = allPets.filter(p => p.equippedTo);
+  const fedPets = equippedPets.filter(p => p.isFed || gravityFeederActive);
   console.log(`[PetData] Found ${equippedPets.length} equipped pets out of ${allPets.length} total`);
-  for (const pet of equippedPets) {
-    console.log(`[PetData] Pet #${pet.id} equipped to Hero #${pet.equippedTo}: ${pet.gatheringType} (+${pet.gatheringBonusScalar}%)`);
+  console.log(`[PetData] Fed pets: ${fedPets.length} (gravityFeederActive=${gravityFeederActive})`);
+  
+  for (const pet of equippedPets.slice(0, 10)) { // Log first 10 to avoid spam
+    const fedStatus = pet.isFed ? 'fed' : (gravityFeederActive ? 'fed(GF)' : 'hungry');
+    console.log(`[PetData] Pet #${pet.id} -> Hero #${pet.equippedTo}: ${pet.gatheringType} (+${pet.gatheringBonusScalar}%) [${fedStatus}]`);
+  }
+  if (equippedPets.length > 10) {
+    console.log(`[PetData] ... and ${equippedPets.length - 10} more equipped pets`);
   }
   
   return heroes.map(h => {
     const hero = h.hero || h;
     const heroId = String(hero.normalizedId || hero.id);
     const pet = getPetForHero(heroId, allPets);
-    const gardenBonus = calculatePetGardenBonus(pet);
+    
+    // Calculate garden bonus - pet must be fed (naturally or via Gravity Feeder) to provide bonus
+    const petIsFed = pet ? (pet.isFed || gravityFeederActive) : false;
+    const gardenBonus = petIsFed ? calculatePetGardenBonus(pet) : calculatePetGardenBonus(null);
     
     if (pet) {
-      console.log(`[PetData] Annotating Hero #${heroId} with Pet #${pet.id} (${gardenBonus.questBonusPct}% bonus)`);
+      const bonusStr = petIsFed ? `${gardenBonus.questBonusPct}%` : '0% (hungry)';
+      console.log(`[PetData] Annotating Hero #${heroId} with Pet #${pet.id} (${bonusStr} bonus)`);
     }
     
     return {
@@ -342,6 +379,7 @@ export function annotateHeroesWithPets(heroes, allPets) {
         ...(h.heroMeta || {}),
         petId: pet?.id || null,
         pet: pet || null,
+        petIsFed,
         petGardenBonus: gardenBonus
       }
     };

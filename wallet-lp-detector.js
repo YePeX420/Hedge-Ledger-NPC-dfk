@@ -24,11 +24,12 @@ import {
 // Price imports: Only used by generatePoolOptimizations (full optimization), not by detectWalletLPPositions (teaser).
 // The slow 577-pair build is acceptable during full optimization since user has already paid.
 import { getCrystalPrice, getJewelPrice } from './price-feed.js';
-// Rapid Renewal and Pet services for hero metadata enrichment
+// Rapid Renewal, Gravity Feeder, and Pet services for hero metadata enrichment
 import { 
   getRapidRenewalHeroIds, 
   getRapidRenewalStatus,
-  formatRapidRenewalSummary 
+  formatRapidRenewalSummary,
+  arePetsFedByGravityFeeder
 } from './rapid-renewal-service.js';
 import { 
   fetchPetsForWallet, 
@@ -279,16 +280,17 @@ export async function generatePoolOptimizations(
   // Debug logging
   console.log(`[Opt] Starting optimization: positions=${safePositions.length}, heroes=${safeHeroes.length}, hasLinkedWallet=${hasLinkedWallet}, wallet=${walletAddress?.slice(0,10) || 'none'}`);
   
-  // Fetch RR and pet data in parallel for hero metadata enrichment
+  // Fetch RR, Gravity Feeder, and pet data in parallel for hero metadata enrichment
   let rrHeroIds = new Set();
   let rrStatus = null;
   let allPets = [];
+  let hasGravityFeeder = false;
   
   if (walletAddress && safeHeroes.length > 0) {
     try {
-      console.log(`[Opt] Fetching Rapid Renewal + Pet data for ${walletAddress.slice(0,10)}...`);
+      console.log(`[Opt] Fetching Rapid Renewal + Pet + Gravity Feeder data for ${walletAddress.slice(0,10)}...`);
       
-      const [rrHeroIdsResult, rrStatusResult, petsResult] = await Promise.all([
+      const [rrHeroIdsResult, rrStatusResult, petsResult, gravityFeederResult] = await Promise.all([
         getRapidRenewalHeroIds(walletAddress).catch(err => {
           console.warn('[Opt] Failed to fetch RR hero IDs:', err.message);
           return new Set();
@@ -300,14 +302,19 @@ export async function generatePoolOptimizations(
         fetchPetsForWallet(walletAddress).catch(err => {
           console.warn('[Opt] Failed to fetch pets:', err.message);
           return [];
+        }),
+        arePetsFedByGravityFeeder(walletAddress).catch(err => {
+          console.warn('[Opt] Failed to check Gravity Feeder:', err.message);
+          return false;
         })
       ]);
       
       rrHeroIds = rrHeroIdsResult;
       rrStatus = rrStatusResult;
       allPets = petsResult;
+      hasGravityFeeder = gravityFeederResult;
       
-      console.log(`[Opt] RR Heroes: ${rrHeroIds.size}, RR Status: ${rrStatus?.isActivated ? `Tier ${rrStatus.tier}` : 'inactive'}, Pets: ${allPets.length}`);
+      console.log(`[Opt] RR Heroes: ${rrHeroIds.size}, RR Status: ${rrStatus?.isActivated ? `Tier ${rrStatus.tier}` : 'inactive'}, Pets: ${allPets.length}, Gravity Feeder: ${hasGravityFeeder ? 'ACTIVE' : 'inactive'}`);
       
       // Annotate heroes with RR flag
       safeHeroes = safeHeroes.map(h => {
@@ -324,8 +331,8 @@ export async function generatePoolOptimizations(
         };
       });
       
-      // Annotate heroes with pet data
-      safeHeroes = annotateHeroesWithPets(safeHeroes, allPets);
+      // Annotate heroes with pet data (pass Gravity Feeder status for fed status)
+      safeHeroes = annotateHeroesWithPets(safeHeroes, allPets, { gravityFeederActive: hasGravityFeeder });
       
       const rrCount = safeHeroes.filter(h => h.heroMeta?.hasRapidRenewal).length;
       const petCount = safeHeroes.filter(h => h.heroMeta?.petId).length;

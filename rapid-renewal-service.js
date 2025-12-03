@@ -19,6 +19,7 @@ const POWERUP_MANAGER_ADDRESS = '0x5d23Af0548452c6AAe80a7e49a6faf4Ed534cfCc';
 let provider = null;
 let powerUpContract = null;
 let rapidRenewalId = null;
+let gravityFeederId = null;
 
 function getProvider() {
   if (!provider) {
@@ -79,14 +80,32 @@ export async function getRapidRenewalHeroIds(walletAddress) {
     const contract = getPowerUpContract();
     const rrId = await getRapidRenewalPowerUpId();
     
+    console.log(`[RapidRenewal] Fetching hero IDs for wallet ${walletAddress.slice(0, 8)}... with power-up ID: ${rrId}`);
+    
     const heroIdsBigInt = await contract.getAssignedHeroIds(walletAddress, rrId);
-    const heroIds = new Set(heroIdsBigInt.map(id => Number(id)));
+    console.log(`[RapidRenewal] Raw hero IDs returned: ${heroIdsBigInt.length} heroes`);
+    
+    // Use BigInt for comparison since hero IDs can be large
+    const heroIds = new Set(heroIdsBigInt.map(id => {
+      const numId = Number(id);
+      // Log if there's potential overflow
+      if (numId > Number.MAX_SAFE_INTEGER) {
+        console.warn(`[RapidRenewal] Hero ID ${id.toString()} may overflow Number`);
+      }
+      return numId;
+    }));
+    
+    if (heroIds.size > 0) {
+      const sampleIds = Array.from(heroIds).slice(0, 5);
+      console.log(`[RapidRenewal] Sample hero IDs: ${sampleIds.join(', ')}`);
+    }
     
     console.log(`[RapidRenewal] Wallet ${walletAddress.slice(0, 8)}... has ${heroIds.size} heroes with RR`);
     return heroIds;
     
   } catch (error) {
     console.error(`[RapidRenewal] Error fetching RR heroes for ${walletAddress}:`, error.message);
+    console.error(`[RapidRenewal] Full error:`, error);
     return new Set();
   }
 }
@@ -184,11 +203,91 @@ export function formatRapidRenewalSummary(rrStatus, rrHeroIds) {
          `- Active on: ${heroStr || 'none'}`;
 }
 
+// ============================================
+// GRAVITY FEEDER POWER-UP FUNCTIONS
+// ============================================
+
+/**
+ * Find the Gravity Feeder power-up ID by scanning active power-ups
+ * Caches result in memory for subsequent calls
+ */
+export async function getGravityFeederPowerUpId() {
+  if (gravityFeederId !== null) {
+    return gravityFeederId;
+  }
+
+  try {
+    const contract = getPowerUpContract();
+    const powerUps = await contract.getActivePowerUps();
+    
+    for (const pu of powerUps) {
+      const name = pu.name?.toLowerCase() || '';
+      if (name.includes('gravity feeder') || name.includes('gravityfeeder')) {
+        gravityFeederId = Number(pu.id);
+        console.log(`[GravityFeeder] Found Gravity Feeder power-up ID: ${gravityFeederId}`);
+        return gravityFeederId;
+      }
+    }
+    
+    // If not found, try ID 3 (common default for Gravity Feeder)
+    gravityFeederId = 3;
+    console.log(`[GravityFeeder] Gravity Feeder not found by name, using default ID: ${gravityFeederId}`);
+    return gravityFeederId;
+    
+  } catch (error) {
+    console.error('[GravityFeeder] Error fetching power-ups:', error.message);
+    gravityFeederId = 3;
+    return gravityFeederId;
+  }
+}
+
+/**
+ * Check if user has Gravity Feeder power-up active
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<Object|null>} Power-up status or null
+ */
+export async function getGravityFeederStatus(walletAddress) {
+  try {
+    const contract = getPowerUpContract();
+    const gfId = await getGravityFeederPowerUpId();
+    
+    const userData = await contract.getUserPowerUp(walletAddress, gfId);
+    
+    const isActive = userData.isActivated && Number(userData.tier) > 0;
+    
+    console.log(`[GravityFeeder] Wallet ${walletAddress.slice(0, 8)}... has Gravity Feeder: ${isActive ? 'YES' : 'NO'}`);
+    
+    return {
+      isActivated: userData.isActivated,
+      isActive,
+      tier: Number(userData.tier)
+    };
+    
+  } catch (error) {
+    console.error(`[GravityFeeder] Error fetching GF status for ${walletAddress}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Check if pets should be considered fed for a wallet
+ * Returns true if Gravity Feeder is active (pets fed during expeditions)
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<boolean>} True if pets should be treated as fed
+ */
+export async function arePetsFedByGravityFeeder(walletAddress) {
+  const status = await getGravityFeederStatus(walletAddress);
+  return status?.isActive || false;
+}
+
 export default {
   getRapidRenewalPowerUpId,
   getRapidRenewalHeroIds,
   getRapidRenewalStatus,
   isHeroRapidRenewalActive,
   annotateHeroesWithRapidRenewal,
-  formatRapidRenewalSummary
+  formatRapidRenewalSummary,
+  getGravityFeederPowerUpId,
+  getGravityFeederStatus,
+  arePetsFedByGravityFeeder
 };
