@@ -35,62 +35,98 @@ function splitMessage(text, maxLength = 1900) {
   return chunks;
 }
 
-export async function handleGardenOptimizationDM(message, playerData) {
+/**
+ * Handle garden optimization DM flow
+ * 
+ * @param {Object} message - Discord message object
+ * @param {Object} playerData - Player data from database
+ * @param {Object} options - Options
+ * @param {boolean} options.runOptimization - If true, run full optimization. If false, just show teaser.
+ */
+export async function handleGardenOptimizationDM(message, playerData, options = {}) {
+  const { runOptimization = false } = options;
   const username = message.author.username;
-
   const wallet = playerData?.primaryWallet;
 
   if (!wallet) {
     await message.reply(
       "I don't have a wallet linked for you yet. Send me your DFK wallet address and I'll scan your gardens."
     );
-    return;
+    return { success: false, reason: 'no_wallet' };
   }
 
-  console.log(`[GardenOpt] Running optimization for ${username} / ${wallet}`);
+  console.log(`[GardenOpt] ${runOptimization ? 'Running' : 'Scanning'} for ${username} / ${wallet}`);
 
-  await message.reply(
-    'Hold on a moment while I scan for your garden pools.\n\n[Scanning your wallet on DFK Chain...]'
-  );
+  // --- TEASER MODE (runOptimization: false) ---
+  // Just scan wallet and show pool summary + payment instructions
+  if (!runOptimization) {
+    await message.reply(
+      'Hold on a moment while I scan for your garden pools.\n\n[Scanning your wallet on DFK Chain...]'
+    );
 
-  let positions;
+    let positions;
+    try {
+      positions = await detectWalletLPPositions(wallet);
+    } catch (err) {
+      console.error('[GardenOpt] Failed to detect LP positions:', err);
+      await message.reply('Something went wrong while scanning your wallet. Please try again.');
+      return { success: false, reason: 'scan_error' };
+    }
+
+    if (!positions || positions.length === 0) {
+      await message.reply(
+        "I couldn't find any LP tokens staked in the Crystalvale gardens for your linked wallet."
+      );
+      return { success: false, reason: 'no_positions' };
+    }
+
+    const summary = formatLPPositionsSummary(positions);
+    const bypass = isPaymentBypassEnabled?.() ?? false;
+
+    if (bypass) {
+      await message.reply(
+        `${summary}\n\n` +
+        `🧪 Payment bypass is enabled. Say **proceed** to run your optimization now!`
+      );
+    } else {
+      await message.reply(
+        `${summary}\n\n` +
+        `Full optimization (hero & pet assignments + APR uplift) costs **25 JEWEL**.\n\n` +
+        `Say **proceed** to confirm, then send 25 JEWEL to my wallet and paste the transaction hash with \`tx:<hash>\`.`
+      );
+    }
+    
+    return { success: true, positions };
+  }
+
+  // --- OPTIMIZATION MODE (runOptimization: true) ---
+  // Run full hero/pet optimization and generate report
   try {
-    positions = await detectWalletLPPositions(wallet);
-  } catch (err) {
-    console.error('[GardenOptimization] Failed to detect LP positions:', err);
-    await message.reply('Something went wrong while scanning your wallet. Please try again.');
-    return;
-  }
+    await message.reply('⏳ Running garden optimization... analyzing your heroes and pools...');
 
-  if (!positions || positions.length === 0) {
-    await message.reply(
-      "I couldn't find any LP tokens staked in the Crystalvale gardens for your linked wallet."
-    );
-    return;
-  }
+    // Re-scan positions to ensure we have fresh data
+    let positions;
+    try {
+      positions = await detectWalletLPPositions(wallet);
+    } catch (err) {
+      console.error('[GardenOpt] Failed to detect LP positions:', err);
+      await message.reply('Something went wrong while scanning your wallet. Please try again.');
+      return { success: false, reason: 'scan_error' };
+    }
 
-  const summary = formatLPPositionsSummary(positions);
-
-  const bypass = isPaymentBypassEnabled?.() ?? false;
-
-  if (!bypass) {
-    await message.reply(
-      `${summary}\n\n` +
-        `Full optimization (hero & pet assignments + APR uplift) costs **25 JEWEL**. ` +
-        `If you want to proceed, send 25 JEWEL to my wallet and paste the transaction hash here with \`tx:<hash>\`.`
-    );
-    return;
-  }
-
-  try {
-    await message.reply(
-      `🧪 Payment bypass is enabled for testing, so I'm skipping the 25 JEWEL step and running your optimization now.`
-    );
+    if (!positions || positions.length === 0) {
+      await message.reply(
+        "I couldn't find any LP tokens staked in the Crystalvale gardens for your linked wallet."
+      );
+      return { success: false, reason: 'no_positions' };
+    }
 
     const heroesRaw = await getAllHeroesByOwner(wallet);
     const heroes = Array.isArray(heroesRaw) ? heroesRaw : [];
 
-    const optimization = await generatePoolOptimizations(positions, heroes, {
+    console.log(`[GardenOpt] Found ${positions.length} pools, ${heroes.length} heroes`);
+
+    const optimization = generatePoolOptimizations(positions, heroes, {
       hasLinkedWallet: true,
     });
     const report = formatOptimizationReport(optimization);
@@ -100,10 +136,14 @@ export async function handleGardenOptimizationDM(message, playerData) {
     for (const chunk of chunks) {
       await message.reply(chunk);
     }
+
+    await message.reply('✅ Optimization complete! Let me know if you have any questions.');
+    return { success: true, optimization };
   } catch (err) {
-    console.error('[GardenOpt][bypass] ERROR:', err?.stack || err);
+    console.error('[GardenOpt] ERROR:', err?.stack || err);
     await message.reply(
-      'I hit a snag while running the optimization. Try again in a moment, or turn off payment bypass to use the standard flow.'
+      'I hit a snag while running the optimization. Try again in a moment.'
     );
+    return { success: false, reason: 'optimization_error' };
   }
 }

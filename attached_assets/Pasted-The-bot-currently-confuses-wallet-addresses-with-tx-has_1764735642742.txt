@@ -1,0 +1,172 @@
+The bot currently confuses wallet addresses with tx hashes, forgets pending optimization jobs, and allows multiple handlers to fire for one message. Users cannot complete optimization because the bot loses context.
+
+Goals
+
+1. Add a DM conversation state machine so only one handler runs at a time.
+
+
+2. Prevent wallet-detection from hijacking tx hashes.
+
+
+3. Ensure optimization requests create a proper pending job in DB or memory.
+
+
+4. Ensure tx hashes are only processed when a pending optimization exists.
+
+
+5. Ensure bypass mode runs optimization immediately and still clears state.
+
+
+6. Ensure “Proceed” is ONLY valid when optimization request is active.
+
+
+7. Ensure GPT fallback NEVER triggers during optimization.
+
+
+
+
+---
+
+Implement DM State Machine
+
+Add a dmContext Map keyed by userId:
+
+{
+  state: "idle" | "pending_optimization" | "awaiting_payment" | "running_optimization",
+  wallet: string,
+  positions: [...],
+  createdAt: number,
+  paymentRequired: boolean,
+}
+
+DM Routing Rules (hard gates)
+
+Inside messageCreate DM handler:
+
+ORDER OF HANDLING MUST BE:
+
+1. If context.state === "pending_optimization":
+
+Only allow:
+
+“proceed”
+
+“tx:<hash>”
+
+“cancel”
+
+
+Everything else ignored.
+
+Do NOT run wallet detector.
+
+Do NOT run GPT fallback.
+
+
+
+2. If message starts with "tx:" but NO pending optimization exists:
+
+Reply: “You don’t have any active optimization requests.”
+
+
+
+3. Wallet-detection should be DISABLED unless:
+
+context.state === "idle"
+
+and message matches wallet format AND NOT tx-hash format
+
+
+
+4. “optimize gardens”:
+
+Only runs if context.state === "idle"
+
+Creates pending_optimization state with positions and paymentRequired flags.
+
+Returns early.
+
+
+
+
+
+---
+
+Payment Verification Fix
+
+In tx handler:
+
+Only execute if context.state === "awaiting_payment"
+
+Validate:
+
+tx.amount === requiredAmount (25 JEWEL)
+
+tx.recipient === hedge wallet
+
+tx.sender === user wallet (from db)
+
+
+On success → move to running_optimization
+
+
+
+---
+
+Bypass Mode Fix
+
+If bypass = true:
+
+Skip paymentRequired
+
+Immediately transition to running_optimization
+
+Run optimizer
+
+Clear state → return to idle
+
+
+
+---
+
+Prevent Wallet Override
+
+Inside wallet detector:
+
+if (message.content.toLowerCase().startsWith("tx:")) return; // never treat tx as wallet
+
+if (context.state !== "idle") return; // never override wallet during optimization
+
+
+---
+
+Cleanup After Optimization
+
+Set:
+
+dmContext.delete(userId)
+
+Then reply “Optimization complete.”
+
+
+---
+
+Acceptance Criteria
+
+Sending a tx hash when idle → “No pending optimization.”
+
+Sending a tx hash during pending optimization → triggers verification.
+
+Wallet is never overwritten by tx hash.
+
+“Proceed” only works when requested.
+
+Optimization bypass runs immediately & correctly.
+
+GPT fallback NEVER fires during optimization.
+
+
+
+---
+
+Please implement these changes across bot.js and any helper files so the DM flow is fully deterministic and safe.

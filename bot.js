@@ -54,9 +54,59 @@ let optimizationProcessorStarted = false;
 let snapshotJobStarted = false;
 let cacheQueueInitialized = false;
 
-// --- DM Conversation Context ---
-// Tracks the last hero ID discussed per user for follow-up questions
-const dmConversationContext = new Map(); // userId -> { lastHeroId, lastHeroData, timestamp }
+// --- DM State Machine ---
+// States: idle | pending_optimization | awaiting_payment | running_optimization
+const DM_STATES = {
+  IDLE: 'idle',
+  PENDING_OPTIMIZATION: 'pending_optimization',
+  AWAITING_PAYMENT: 'awaiting_payment',
+  RUNNING_OPTIMIZATION: 'running_optimization'
+};
+
+// DM context map: userId -> { state, wallet, positions, createdAt, lastHeroId, lastHeroData, heroTimestamp }
+const dmContext = new Map();
+
+// State machine TTL: 30 minutes for optimization flow
+const DM_STATE_TTL_MS = 30 * 60 * 1000;
+
+function getDmState(userId) {
+  const ctx = dmContext.get(userId);
+  if (!ctx) return { state: DM_STATES.IDLE };
+  
+  // Check TTL - reset to idle if expired
+  if (ctx.createdAt && Date.now() - ctx.createdAt > DM_STATE_TTL_MS) {
+    console.log(`[DM State] TTL expired for ${userId}, resetting to idle`);
+    dmContext.set(userId, { state: DM_STATES.IDLE });
+    return { state: DM_STATES.IDLE };
+  }
+  
+  return ctx;
+}
+
+function setDmState(userId, newState, extraData = {}) {
+  const current = dmContext.get(userId) || {};
+  const updated = {
+    ...current,
+    ...extraData,
+    state: newState,
+    createdAt: extraData.resetTimer ? Date.now() : (current.createdAt || Date.now())
+  };
+  dmContext.set(userId, updated);
+  console.log(`[DM State] ${userId} -> ${newState}`);
+  return updated;
+}
+
+function clearDmState(userId) {
+  // Keep hero context but clear optimization state
+  const current = dmContext.get(userId) || {};
+  dmContext.set(userId, { 
+    state: DM_STATES.IDLE,
+    lastHeroId: current.lastHeroId,
+    lastHeroData: current.lastHeroData,
+    heroTimestamp: current.heroTimestamp
+  });
+  console.log(`[DM State] ${userId} -> idle (cleared)`);
+}
 
 // RPC + HTTP helpers for /health
 async function checkJsonRpcEndpoint(url) {
@@ -921,60 +971,157 @@ client.on(Events.GuildMemberAdd, async (member) => {
             console.warn(`[ProfileSystem] ⚠️ Failed to log message for profile:`, profileError.message);
           }
 
-          // 🔐 Check for transaction hash with tx: prefix for payment verification
+          // ============================================
+          // 🎛️ DM STATE MACHINE ROUTING
+          // ============================================
+          const dmState = getDmState(discordId);
+          const lowerContent = message.content.toLowerCase();
+          const bypass = isPaymentBypassEnabled?.() ?? false;
+          
+          console.log(`[DM State] Current state for ${username}: ${dmState.state}, bypass=${bypass}`);
+
+          // --- Regex patterns ---
           const txPrefixRegex = /tx:\s*0[xX][a-fA-F0-9]{64}/i;
           const txPrefixMatch = message.content.match(txPrefixRegex);
-
-          if (txPrefixMatch && playerData) {
-            const txHash = txPrefixMatch[0].replace(/tx:\s*/i, '').trim();
-            console.log(`🔐 Detected transaction hash with tx: prefix: ${txHash}`);
-
-            try {
-              const pendingOpt = await db.select()
-                .from(gardenOptimizations)
-                .where(and(
-                  eq(gardenOptimizations.playerId, playerData.id),
-                  eq(gardenOptimizations.status, 'awaiting_payment'),
-                  gt(gardenOptimizations.expiresAt, new Date())
-                ))
-                .orderBy(desc(gardenOptimizations.createdAt))
-                .limit(1);
-
-              if (pendingOpt && pendingOpt.length > 0) {
-                await message.reply(`🔍 Verifying your transaction...`);
-
-                const result = await verifyTransactionHash(txHash, pendingOpt[0].id);
-
-                if (result.success) {
-                  await message.reply(
-                    `✅ **Payment Verified!**\n\n` +
-                    `**Amount:** ${result.payment.amount} JEWEL\n` +
-                    `**Block:** ${result.payment.blockNumber}\n\n` +
-                    `Your optimization is now being processed. You'll receive your personalized recommendations in a few minutes!\n\n` +
-                    `If you don't see anything after a while, ping me again.`
-                  );
-                } else {
-                  await message.reply(
-                    `❌ I couldn't verify that transaction. Double-check the hash and make sure it was sent to the correct Hedge wallet.`
-                  );
-                }
-              } else {
-                await message.reply(
-                  `I don't see any pending optimizations for you right now. Use your wallet's DM to request optimization first!`
-                );
-              }
-              return;
-            } catch (txError) {
-              console.error(`❌ Failed to verify transaction:`, txError);
-              await message.reply(`Hmm, I had trouble verifying that transaction. Try again or use \`/verify-payment\` command.`);
-              return;
-            }
-          }
-
-          // 💼 Check if message contains a wallet address (42 chars only, not 66-char tx hashes)
           const walletRegex = /0[xX][a-fA-F0-9]{40}(?![a-fA-F0-9])/;
           const walletMatch = message.content.match(walletRegex);
+          const confirmPhrases = ['proceed', 'go ahead', 'yes', 'confirm', 'do it', 'lets go', "let's go", 'start', 'run it', 'continue'];
+          const isConfirmation = confirmPhrases.some(phrase => lowerContent.includes(phrase));
+          const isCancelRequest = lowerContent.includes('cancel') || lowerContent.includes('nevermind') || lowerContent.includes('stop');
+          const isOptimizeRequest = lowerContent.includes('optimize my gardens') || /\boptimi[sz]e\b.*\bgarden/.test(lowerContent);
 
+          // --- STATE: pending_optimization or awaiting_payment ---
+          // Hard gate: only allow proceed/tx/cancel during optimization flow
+          if (dmState.state === DM_STATES.PENDING_OPTIMIZATION || dmState.state === DM_STATES.AWAITING_PAYMENT) {
+            
+            // Cancel request
+            if (isCancelRequest) {
+              clearDmState(discordId);
+              await message.reply("Alright, I've cancelled the optimization request. Let me know if you need anything else!");
+              return;
+            }
+            
+            // tx: hash submitted
+            if (txPrefixMatch && playerData) {
+              const txHash = txPrefixMatch[0].replace(/tx:\s*/i, '').trim();
+              console.log(`[DM State] tx: hash received in ${dmState.state}: ${txHash}`);
+              
+              try {
+                const pendingOpt = await db.select()
+                  .from(gardenOptimizations)
+                  .where(and(
+                    eq(gardenOptimizations.playerId, playerData.id),
+                    eq(gardenOptimizations.status, 'awaiting_payment'),
+                    gt(gardenOptimizations.expiresAt, new Date())
+                  ))
+                  .orderBy(desc(gardenOptimizations.createdAt))
+                  .limit(1);
+
+                if (pendingOpt && pendingOpt.length > 0) {
+                  await message.reply(`🔍 Verifying your transaction...`);
+                  setDmState(discordId, DM_STATES.RUNNING_OPTIMIZATION);
+
+                  const result = await verifyTransactionHash(txHash, pendingOpt[0].id);
+
+                  if (result.success) {
+                    await message.reply(
+                      `✅ **Payment Verified!**\n\n` +
+                      `**Amount:** ${result.payment.amount} JEWEL\n` +
+                      `**Block:** ${result.payment.blockNumber}\n\n` +
+                      `Your optimization is now being processed. You'll receive your personalized recommendations shortly!`
+                    );
+                    // Optimization processor will handle the actual work
+                    clearDmState(discordId);
+                  } else {
+                    // Stay in awaiting_payment state
+                    setDmState(discordId, DM_STATES.AWAITING_PAYMENT);
+                    await message.reply(
+                      `❌ I couldn't verify that transaction. Double-check the hash and make sure it was sent to the correct Hedge wallet.\n\n` +
+                      `Hedge Wallet: \`0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1\``
+                    );
+                  }
+                } else {
+                  clearDmState(discordId);
+                  await message.reply(
+                    `I don't see any pending optimizations in the database. Let's start fresh - say "optimize my gardens" to begin!`
+                  );
+                }
+              } catch (txError) {
+                console.error(`[DM State] tx verification error:`, txError);
+                await message.reply(`Hmm, I had trouble verifying that transaction. Try again?`);
+              }
+              return;
+            }
+            
+            // "Proceed" confirmation with bypass enabled
+            if (isConfirmation && bypass) {
+              console.log(`[DM State] Proceed + bypass in ${dmState.state} - running optimization`);
+              setDmState(discordId, DM_STATES.RUNNING_OPTIMIZATION);
+              await message.reply('🧪 Payment bypass is enabled. Running your garden optimization now...');
+              
+              try {
+                await handleGardenOptimizationDM(message, playerData, { runOptimization: true });
+                clearDmState(discordId);
+              } catch (err) {
+                console.error('[DM State] Optimization error:', err);
+                clearDmState(discordId);
+              }
+              return;
+            }
+            
+            // "Proceed" confirmation without bypass - remind about payment
+            if (isConfirmation && !bypass) {
+              setDmState(discordId, DM_STATES.AWAITING_PAYMENT);
+              await message.reply(
+                "I'm ready to optimize once I receive payment! Send **25 JEWEL** to my wallet and paste the transaction hash here.\n\n" +
+                "Hedge Wallet: `0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1`\n\n" +
+                "Format: `tx:0x...your_transaction_hash`"
+              );
+              return;
+            }
+            
+            // Block wallet detection during optimization flow
+            if (walletMatch) {
+              await message.reply(
+                "I see a wallet address, but you're in the middle of an optimization request. " +
+                "Say **proceed** to continue, paste a **tx:hash** after payment, or say **cancel** to start over."
+              );
+              return;
+            }
+            
+            // Block everything else during optimization flow - don't fall through to GPT
+            await message.reply(
+              "You have a pending optimization request. Your options:\n" +
+              "• Say **proceed** or **go ahead** to continue\n" +
+              "• Paste **tx:0x...** after sending payment\n" +
+              "• Say **cancel** to abort\n\n" +
+              "I won't respond to other questions until you complete or cancel the optimization."
+            );
+            return;
+          }
+
+          // --- STATE: running_optimization ---
+          // Block everything while optimization is running
+          if (dmState.state === DM_STATES.RUNNING_OPTIMIZATION) {
+            await message.reply(
+              "I'm currently running your garden optimization. Please wait for it to complete!"
+            );
+            return;
+          }
+
+          // ============================================
+          // STATE: idle - Normal routing
+          // ============================================
+
+          // 🔐 tx: hash when idle - no pending optimization
+          if (txPrefixMatch) {
+            await message.reply(
+              "You don't have any active optimization requests. Say **optimize my gardens** first, then submit payment."
+            );
+            return;
+          }
+
+          // 💼 Wallet address detection (only in idle state)
           if (walletMatch && playerData) {
             const walletAddress = walletMatch[0];
             console.log(`💼 Detected wallet address in message: ${walletAddress}`);
@@ -993,8 +1140,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
               } else {
                 await message.reply(`Got it! I've added \`${walletAddress}\` to your account.`);
               }
-
-              // Don't process this message further - wallet was saved
               return;
             } catch (walletError) {
               console.error(`❌ Failed to save wallet:`, walletError);
@@ -1003,57 +1148,26 @@ client.on(Events.GuildMemberAdd, async (member) => {
             }
           }
 
-          // 🌿 NEW: direct optimization handler (with bypass support)
-          const lowerContent = message.content.toLowerCase();
-          if (
-            lowerContent.includes('optimize my gardens') ||
-            lowerContent.match(/\boptimi[sz]e\b.*\bgarden/)
-          ) {
-            console.log('[DM][optimize] optimizer route chosen. bypass =', isPaymentBypassEnabled?.());
-            // Mark that we're showing the optimization offer (for "proceed" handling)
-            dmConversationContext.set(discordId, {
-              ...dmConversationContext.get(discordId),
-              pendingGardenOptimization: true,
-              pendingTimestamp: Date.now()
+          // 🌿 "Optimize gardens" request (only in idle state)
+          if (isOptimizeRequest) {
+            console.log(`[DM State] Optimize request, bypass=${bypass}`);
+            setDmState(discordId, DM_STATES.PENDING_OPTIMIZATION, { 
+              wallet: playerData?.primaryWallet,
+              resetTimer: true 
             });
-            await handleGardenOptimizationDM(message, playerData);
+            await handleGardenOptimizationDM(message, playerData, { runOptimization: false });
             return;
           }
 
-          // 🌿 PROCEED/CONFIRM detection - check if user is confirming garden optimization
-          const confirmPhrases = ['proceed', 'go ahead', 'yes', 'confirm', 'do it', 'lets go', "let's go", 'start', 'run it', 'continue'];
-          const isConfirmation = confirmPhrases.some(phrase => lowerContent.includes(phrase));
-          
+          // 🌿 "Proceed" when idle - no pending optimization
           if (isConfirmation) {
-            const context = dmConversationContext.get(discordId);
-            const pendingAge = context?.pendingTimestamp ? (Date.now() - context.pendingTimestamp) / 1000 / 60 : Infinity;
-            const hasPendingOptimization = context?.pendingGardenOptimization && pendingAge < 30; // 30 min window
-            
-            console.log(`[DM][confirm] Confirmation detected. pending=${hasPendingOptimization}, bypass=${isPaymentBypassEnabled?.()}, age=${pendingAge.toFixed(1)}min`);
-            
-            if (hasPendingOptimization && isPaymentBypassEnabled?.()) {
-              // Clear the pending state
-              dmConversationContext.set(discordId, {
-                ...context,
-                pendingGardenOptimization: false
-              });
-              
-              console.log('[DM][confirm] Bypass enabled + pending optimization - running optimization');
-              await message.reply('🧪 Payment bypass is enabled. Running your garden optimization now...');
-              await handleGardenOptimizationDM(message, playerData);
-              return;
-            } else if (hasPendingOptimization && !isPaymentBypassEnabled?.()) {
-              // No bypass - remind user about payment
-              await message.reply(
-                "I'm ready to optimize once I receive payment! Send **25 JEWEL** to my wallet and paste the transaction hash here.\n\n" +
-                "Hedge Wallet: `0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1`"
-              );
-              return;
-            }
-            // No pending optimization - fall through to normal AI response
+            // Fall through to GPT - not in optimization flow
+            console.log(`[DM State] Confirmation phrase but idle - passing to GPT`);
           }
 
-          // Normal conversation - send to OpenAI (hero quick path + generic DM)
+          // ============================================
+          // Normal conversation - hero lookup + GPT fallback
+          // ============================================
           let enrichedContent = `DM from ${message.author.username}: ${message.content}`;
 
           console.log(`💬 Processing DM from ${username}: ${message.content}`);
@@ -1071,11 +1185,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
               const heroData = await onchain.getHeroById(heroId);
 
               if (heroData) {
-                // Save to conversation context for follow-up questions
-                dmConversationContext.set(discordId, {
+                // Save to DM context for follow-up questions
+                setDmState(discordId, DM_STATES.IDLE, {
                   lastHeroId: heroId,
                   lastHeroData: heroData,
-                  timestamp: Date.now()
+                  heroTimestamp: Date.now()
                 });
 
                 // Format hero data for display

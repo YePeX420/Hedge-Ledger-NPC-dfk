@@ -15,6 +15,8 @@ import {
   findOptimalAttempts,
   simulateGardeningDailyYield,
 } from './hero-yield-model.js';
+// Price imports: Only used by generatePoolOptimizations (full optimization), not by detectWalletLPPositions (teaser).
+// The slow 577-pair build is acceptable during full optimization since user has already paid.
 import { getCrystalPrice, getJewelPrice } from './price-feed.js';
 import erc20ABI from './ERC20.json' with { type: 'json' };
 
@@ -48,10 +50,8 @@ export async function detectWalletLPPositions(walletAddress) {
   try {
     console.log(`[LP Detector] Scanning wallet ${walletAddress} for LP positions...`);
 
-    const [jewelPrice, crystalPrice] = await Promise.all([
-      getJewelPrice().catch(() => 0),
-      getCrystalPrice().catch(() => 0),
-    ]);
+    // NOTE: This teaser path uses cached pool analytics for TVL/APR - no price fetches needed.
+    // Price fetches are only used by generatePoolOptimizations for full optimization reports.
 
     // Get user's staked positions from the canonical onchain layer (DFK realm only)
     const userPositions = await getUserGardenPositions(walletAddress, 'dfk');
@@ -154,20 +154,9 @@ export async function detectWalletLPPositions(walletAddress) {
           };
         }
 
-        const questAprForDaily = parseAPR(poolData?.gardeningQuestAPR?.best);
-        const poolValueNum = parseFloat(userTVL);
-        if (Number.isFinite(poolValueNum) && poolValueNum > 0) {
-          const annualQuestUsd = (poolValueNum * questAprForDaily) / 100;
-          const dailyQuestUsd = annualQuestUsd / 365;
-          const jewelPerDay = jewelPrice > 0 ? (dailyQuestUsd * 0.5) / jewelPrice : 0;
-          const crystalPerDay = crystalPrice > 0 ? (dailyQuestUsd * 0.5) / crystalPrice : 0;
-          poolData.daily = {
-            jewel: jewelPerDay,
-            crystal: crystalPerDay,
-          };
-        } else {
-          poolData.daily = { jewel: 0, crystal: 0 };
-        }
+        // Daily yields are computed in generatePoolOptimizations with full price data
+        // For the teaser, we just need TVL and APR from cached analytics
+        poolData.daily = { jewel: 0, crystal: 0 };
 
         positions.push({
           pid,
