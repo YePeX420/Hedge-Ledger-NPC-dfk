@@ -12,10 +12,12 @@ import {
   computeHeroGardeningFactor, 
   simulateGardeningDailyYield,
   computeStaminaPerDay,
-  computePerQuestYield
+  computePerQuestYield,
+  CRYSTAL_BASE_PER_ATTEMPT,
+  JEWEL_BASE_PER_ATTEMPT
 } from '../hero-yield-model.js';
 import { getJewelPrice } from '../price-feed.js';
-import { getWalletPowerUpStatus } from '../rapid-renewal-service.js';
+import { getWalletPowerUpStatus, isHeroRapidRenewalActive } from '../rapid-renewal-service.js';
 
 const POOL_CHOICES = [
   { name: 'wJEWEL-xJEWEL', value: '0' },
@@ -140,7 +142,57 @@ function formatHeroForYield(hero) {
   };
 }
 
-function computeHeroQuestApr(hero, pet, poolMeta, { hasGravityFeeder = false } = {}) {
+/**
+ * Find optimal stamina per quest that maximizes daily yield
+ * Tests 10-35 stamina options and picks the best based on:
+ * - Quest duration (10s/stam with garden gene, 12s without)
+ * - Stamina regeneration time (affected by Rapid Renewal)
+ * - Total iteration time = max(quest time, regen time)
+ */
+function findOptimalAttempts(hero, factor, powerSurgeMultiplier, staminaPerDay, hasGardenGene) {
+  let best = { attempts: 25, runsPerDay: 0, dailyYield: 0, iterationMins: 0 };
+  
+  const questDurationPerStamMins = hasGardenGene ? (10 / 60) : (12 / 60); // seconds to minutes
+  
+  for (let attempts = 10; attempts <= 35; attempts++) {
+    // Quest duration in minutes
+    const questDurationMins = attempts * questDurationPerStamMins;
+    
+    // Regen time in minutes (how long to recover 'attempts' stamina)
+    const regenMins = (attempts / staminaPerDay) * 24 * 60;
+    
+    // Iteration time: quest and regen overlap - whichever takes longer is the bottleneck
+    // Can only start next quest when BOTH quest completes AND stamina is ready
+    const iterationMins = Math.max(questDurationMins, regenMins);
+    
+    // Runs per day
+    const runsPerDay = (24 * 60) / iterationMins;
+    
+    // Per-run yield (per-attempt * attempts * power surge)
+    const crystalPerRun = CRYSTAL_BASE_PER_ATTEMPT * factor * powerSurgeMultiplier * attempts;
+    const jewelPerRun = JEWEL_BASE_PER_ATTEMPT * factor * powerSurgeMultiplier * attempts;
+    
+    // Daily yield
+    const dailyYield = (crystalPerRun + jewelPerRun) * runsPerDay;
+    
+    if (dailyYield > best.dailyYield) {
+      best = { 
+        attempts, 
+        runsPerDay, 
+        dailyYield, 
+        iterationMins,
+        crystalPerRun,
+        jewelPerRun,
+        crystalPerDay: crystalPerRun * runsPerDay,
+        jewelPerDay: jewelPerRun * runsPerDay
+      };
+    }
+  }
+  
+  return best;
+}
+
+function computeHeroQuestApr(hero, pet, poolMeta, { hasGravityFeeder = false, hasRapidRenewal = false } = {}) {
   const formatted = formatHeroForYield(hero);
   
   let gardeningSkillBase = (hero.gardening || 0) / 10;
@@ -174,22 +226,24 @@ function computeHeroQuestApr(hero, pet, poolMeta, { hasGravityFeeder = false } =
   const yieldData = computePerQuestYield(hero, {
     petBonusPct: 0, // Don't apply Power Surge here - we'll apply it once below for consistency
     petFed: petFed,
-    hasRapidRenewal: false, // Not tracked in this context
+    hasRapidRenewal: hasRapidRenewal,
     skilledGreenskeeperBonus: petBonusType === 'Skilled Greenskeeper' ? petBonus : 0
   });
   
   const factor = yieldData.factor;
+  const staminaPerDay = yieldData.staminaPerDay;
   
   // Calculate Power Surge multiplier (applied ONCE to both yields and APR)
   const powerSurgeMultiplier = (petBonusType === 'Power Surge' && petBonus > 0 && petFed) 
     ? (1 + petBonus / 100) 
     : 1;
   
-  // Per-quest yields: yieldData returns per-ATTEMPT values, multiply by 25 for full quest (25 stam)
-  // Note: This is per HERO, not per pair
-  const ATTEMPTS_PER_QUEST = 25;
-  const crystalPerQuest = yieldData.crystalPerQuest * powerSurgeMultiplier * ATTEMPTS_PER_QUEST;
-  const jewelPerQuest = yieldData.jewelPerQuest * powerSurgeMultiplier * ATTEMPTS_PER_QUEST;
+  // Find optimal stamina setting that maximizes daily yield
+  const optimal = findOptimalAttempts(hero, factor, powerSurgeMultiplier, staminaPerDay, hasGardenGene);
+  
+  // Use optimal values for display
+  const crystalPerQuest = optimal.crystalPerRun;
+  const jewelPerQuest = optimal.jewelPerRun;
   
   // Calculate APR scale with Power Surge applied
   const baselineFactor = 0.1 + (50 + 50) / 1222.22;
@@ -212,8 +266,14 @@ function computeHeroQuestApr(hero, pet, poolMeta, { hasGravityFeeder = false } =
     vit,
     crystalPerQuest,
     jewelPerQuest,
-    staminaPerDay: yieldData.staminaPerDay,
-    runsPerDay: yieldData.runsPerDay,
+    staminaPerDay,
+    hasRapidRenewal,
+    // Optimal stamina settings
+    optimalAttempts: optimal.attempts,
+    optimalRunsPerDay: optimal.runsPerDay,
+    optimalIterationMins: optimal.iterationMins,
+    crystalPerDay: optimal.crystalPerDay,
+    jewelPerDay: optimal.jewelPerDay,
   };
 }
 
@@ -453,7 +513,18 @@ export async function execute(interaction) {
           continue;
         }
         
-        const questData = computeHeroQuestApr(result.hero, result.pet, poolMeta, { hasGravityFeeder });
+        // Check if hero has Rapid Renewal active (if wallet provided)
+        let hasRapidRenewal = false;
+        if (walletAddress) {
+          try {
+            hasRapidRenewal = await isHeroRapidRenewalActive(walletAddress, result.heroId);
+            console.log(`[GardenAprDebug] Hero ${result.heroId} RR status: ${hasRapidRenewal}`);
+          } catch (err) {
+            console.warn(`[GardenAprDebug] Failed to check RR for hero ${result.heroId}: ${err.message}`);
+          }
+        }
+        
+        const questData = computeHeroQuestApr(result.hero, result.pet, poolMeta, { hasGravityFeeder, hasRapidRenewal });
         questAprTotal += questData.heroQuestApr;
         
         const className = result.hero.mainClassStr || result.hero.class || result.hero.heroClass || 'Unknown';
@@ -485,11 +556,19 @@ export async function execute(interaction) {
           vit: questData.vit,
           gardening: result.hero.gardening,
           hasGardenGene: questData.hasGardenGene,
+          hasRapidRenewal: questData.hasRapidRenewal,
           factor: questData.factor,
+          staminaPerDay: questData.staminaPerDay,
           questApr: questData.heroQuestApr,
           petInfo,
+          // Optimal stamina settings
+          optimalAttempts: questData.optimalAttempts,
+          optimalRunsPerDay: questData.optimalRunsPerDay,
+          optimalIterationMins: questData.optimalIterationMins,
           crystalPerQuest: questData.crystalPerQuest,
           jewelPerQuest: questData.jewelPerQuest,
+          crystalPerDay: questData.crystalPerDay,
+          jewelPerDay: questData.jewelPerDay,
         });
       }
       
@@ -501,14 +580,18 @@ export async function execute(interaction) {
             inline: false
           });
         } else {
+          const geneIcon = hr.hasGardenGene ? ' [G]' : '';
+          const rrIcon = hr.hasRapidRenewal ? ' [RR]' : '';
+          
           embed.addFields({
-            name: `Hero ${hr.slot}: #${hr.heroId}`,
+            name: `Hero ${hr.slot}: #${hr.heroId}${geneIcon}${rrIcon}`,
             value: [
               `**Class:** ${hr.className} | **Rarity:** ${hr.rarity} | **Lvl:** ${hr.level}`,
               `**Stats:** WIS ${hr.wis} | VIT ${hr.vit} | Grd ${hr.gardening}`,
-              `**Garden Gene:** ${hr.hasGardenGene ? 'Yes (1.2x)' : 'No'}`,
               `**Pet:** ${hr.petInfo}`,
-              `**Per Quest:** ${hr.crystalPerQuest.toFixed(4)} CRYSTAL | ${hr.jewelPerQuest.toFixed(4)} JEWEL`,
+              `**Optimal Stam:** ${hr.optimalAttempts} stam | ${hr.optimalRunsPerDay.toFixed(1)} runs/day`,
+              `**Per Run:** ${hr.crystalPerQuest.toFixed(1)} CRYSTAL | ${hr.jewelPerQuest.toFixed(2)} JEWEL`,
+              `**Daily:** ${hr.crystalPerDay.toFixed(1)} CRYSTAL | ${hr.jewelPerDay.toFixed(2)} JEWEL`,
               `**Quest APR:** ${hr.questApr.toFixed(4)}%`
             ].join('\n'),
             inline: true
