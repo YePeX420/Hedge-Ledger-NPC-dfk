@@ -5,6 +5,7 @@ import { fetchPetsForWallet, annotateHeroesWithPets } from '../pet-data.js';
 import { groupHeroesByGardenPool, computeGardenScore } from '../garden-pairs.js';
 import { computeHeroGardeningFactor, computeStaminaPerDay } from '../hero-yield-model.js';
 import { arePetsFedByGravityFeeder } from '../rapid-renewal-service.js';
+import { detectPairsWithRoles } from '../hero-pairing.js';
 
 const GARDEN_POOLS = [
   { pid: 0, name: 'wJEWEL-xJEWEL' },
@@ -66,12 +67,10 @@ export async function execute(interaction) {
     
     console.log(`[DebugPair] Found ${heroes.length} heroes, ${pets.length} pets, GF=${hasGravityFeeder}`);
     
-    // Debug: Log sample currentQuest values
-    const heroesWithQuests = heroes.filter(h => h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000');
-    console.log(`[DebugPair] Heroes with active quests: ${heroesWithQuests.length}`);
-    heroesWithQuests.slice(0, 5).forEach(h => {
-      console.log(`[DebugPair] Hero ${h.normalizedId || h.id} currentQuest: ${h.currentQuest}`);
-    });
+    const pairingResult = await detectPairsWithRoles(walletAddress, heroes, true);
+    console.log(`[DebugPair] Detected ${pairingResult.pairs.length} pairs total`);
+    
+    const poolPairs = pairingResult.pools[poolId] || [];
     
     const annotatedHeroes = annotateHeroesWithPets(
       heroes.map(h => ({ hero: h, heroMeta: {} })),
@@ -79,90 +78,101 @@ export async function execute(interaction) {
       { gravityFeederActive: hasGravityFeeder }
     );
     
-    const poolHeroes = groupHeroesByGardenPool(annotatedHeroes);
-    const heroesOnPool = poolHeroes.get(poolId) || [];
-    
-    if (heroesOnPool.length === 0) {
-      return interaction.editReply(`No heroes currently gardening pool ${poolId} (${poolInfo.name})`);
+    const heroMetaMap = new Map();
+    for (const h of annotatedHeroes) {
+      const heroId = h.hero?.normalizedId || h.hero?.id;
+      if (heroId) heroMetaMap.set(Number(heroId), h);
     }
     
-    console.log(`[DebugPair] Found ${heroesOnPool.length} heroes on pool ${poolId}`);
+    if (poolPairs.length === 0) {
+      return interaction.editReply(`No heroes currently gardening pool ${poolId} (${poolInfo.name})`);
+    }
     
     const embed = new EmbedBuilder()
       .setColor('#2ecc71')
       .setTitle(`Garden Debug: ${poolInfo.name} (Pool ${poolId})`)
-      .setDescription(`Found ${heroesOnPool.length} heroes gardening this pool`)
+      .setDescription(`Found ${poolPairs.length} pairs gardening this pool`)
       .setTimestamp();
     
-    const heroDetails = [];
     let totalGardenScore = 0;
     
-    for (const h of heroesOnPool) {
-      const hero = h.hero || h;
-      const heroMeta = h.heroMeta || {};
+    for (let i = 0; i < poolPairs.length; i++) {
+      const pair = poolPairs[i];
+      const actualAttempts = pair.attempts || 25;
       
-      const heroId = hero.normalizedId || hero.id;
-      const vit = hero.vitality || 0;
-      const wis = hero.wisdom || 0;
-      const gardeningRaw = hero.gardening || 0;
-      const gardeningSkill = gardeningRaw / 10;
-      const hasGardenGene = hero.professionStr?.toLowerCase() === 'gardening' || hero.hasGardeningGene;
-      const level = hero.level || 1;
+      const heroDetails = [];
+      for (const heroId of pair.heroIds) {
+        const annotated = heroMetaMap.get(heroId);
+        if (!annotated) continue;
+        
+        const hero = annotated.hero || annotated;
+        const heroMeta = annotated.heroMeta || {};
+        
+        const vit = hero.vitality || 0;
+        const wis = hero.wisdom || 0;
+        const gardeningRaw = hero.gardening || 0;
+        const gardeningSkill = gardeningRaw / 10;
+        const hasGardenGene = hero.professionStr?.toLowerCase() === 'gardening' || hero.hasGardeningGene;
+        const level = hero.level || 1;
+        
+        const petId = heroMeta.petId || null;
+        const petBonus = heroMeta.petGardenBonus || {};
+        const petGatheringSkill = petBonus.gatheringSkill || 0;
+        const petBonusPct = petBonus.questBonusPct || 0;
+        const petFed = petBonus.isFed !== false;
+        
+        const stamPerDay = computeStaminaPerDay(hero, { hasRapidRenewal: heroMeta?.hasRapidRenewal });
+        const factor = computeHeroGardeningFactor(hero);
+        const { score: gardenScore } = computeGardenScore(hero, heroMeta);
+        totalGardenScore += gardenScore;
+        
+        heroDetails.push({
+          heroId,
+          level,
+          vit,
+          wis,
+          gardeningSkill,
+          hasGardenGene,
+          hasRapidRenewal: heroMeta?.hasRapidRenewal || false,
+          stamPerDay,
+          petId,
+          petGatheringSkill,
+          petBonusPct,
+          petFed,
+          factor,
+          gardenScore,
+          hero,
+          role: heroId === pair.jewelHeroId ? 'JEWEL' : 'CRYSTAL'
+        });
+      }
       
-      const petId = heroMeta.petId || null;
-      const petBonus = heroMeta.petGardenBonus || {};
-      const petGatheringSkill = petBonus.gatheringSkill || 0;
-      const petBonusPct = petBonus.questBonusPct || 0;
-      const petFed = petBonus.isFed !== false;
-      
-      const stamPerDay = computeStaminaPerDay(hero, { hasRapidRenewal: heroMeta?.hasRapidRenewal });
-      const factor = computeHeroGardeningFactor(hero);
-      const { score: gardenScore } = computeGardenScore(hero, heroMeta);
-      totalGardenScore += gardenScore;
-      
-      heroDetails.push({
-        heroId,
-        level,
-        vit,
-        wis,
-        gardeningSkill,
-        hasGardenGene,
-        hasRapidRenewal: heroMeta?.hasRapidRenewal || false,
-        stamPerDay,
-        petId,
-        petGatheringSkill,
-        petBonusPct,
-        petFed,
-        factor,
-        gardenScore,
-        hero
-      });
-    }
-    
-    for (let i = 0; i < heroDetails.length; i += 2) {
-      const h1 = heroDetails[i];
-      const h2 = heroDetails[i + 1];
+      const h1 = heroDetails[0];
+      const h2 = heroDetails[1];
       
       let pairText = formatHeroLine(h1);
       if (h2) {
         pairText += '\n' + formatHeroLine(h2);
       }
       
-      const optimalAttempts = findOptimalAttemptsForPair(h1, h2, h1.hero, h2?.hero);
-      const { crystalPerRun, jewelPerRun } = estimatePerRunYield(h1, h2, optimalAttempts.attempts);
+      const iterationAnalysis = calculateActualIteration(h1, h2, actualAttempts, pair);
+      const { crystalPerRun, jewelPerRun } = estimatePerRunYield(h1, h2, actualAttempts);
       
+      const roleSource = pair.rolesSource?.startsWith('reward_history') ? '(verified)' : '(heuristic)';
+      const durationLabel = iterationAnalysis.isActualDuration ? '' : '~';
+      const gatingNote = iterationAnalysis.gatingFactor === 'regen' ? ' [regen-gated]' : '';
+      
+      pairText += `\n**Roles:** JEWEL:#${pair.jewelHeroId} CRYSTAL:#${pair.crystalHeroId} ${roleSource}`;
       pairText += `\n**Per Run:** ~${crystalPerRun.toFixed(1)} CRYSTAL, ~${jewelPerRun.toFixed(1)} JEWEL`;
-      pairText += `\n**Iteration:** ${formatTime(optimalAttempts.iterationMins)} (${optimalAttempts.attempts} stam)`;
-      pairText += `\n**Runs/Day:** ~${optimalAttempts.runsPerDay.toFixed(1)}`;
+      pairText += `\n**Iteration:** ${durationLabel}${formatTime(iterationAnalysis.iterationMins)} (${actualAttempts} stam/hero = ${iterationAnalysis.totalStaminaUsed} total)${gatingNote}`;
+      pairText += `\n**Regen:** ${iterationAnalysis.staminaRegen.toFixed(1)}/${iterationAnalysis.totalStaminaUsed} stam (${iterationAnalysis.sustainable ? 'sustainable' : 'deficit'})`;
+      pairText += `\n**Runs/Day:** ~${iterationAnalysis.runsPerDay.toFixed(1)}`;
       
       embed.addFields({
-        name: `Pair ${Math.floor(i/2) + 1}`,
+        name: `Pair ${i + 1}`,
         value: pairText,
         inline: false
       });
     }
-    
-    const numPairs = Math.ceil(heroDetails.length / 2);
     
     embed.addFields({
       name: 'Calibration Constants',
@@ -172,7 +182,7 @@ export async function execute(interaction) {
     
     embed.addFields({
       name: 'Summary',
-      value: `Total Heroes: ${heroDetails.length}\nPairs: ${numPairs}\nTotal Garden Score: ${totalGardenScore.toFixed(2)}`,
+      value: `Total Pairs: ${poolPairs.length}\nTotal Garden Score: ${totalGardenScore.toFixed(2)}`,
       inline: false
     });
     
@@ -223,6 +233,72 @@ function calculateIterationTime(attempts, questDurationPerStam, stamPerDay) {
   const regenMins = (attempts / stamPerDay) * 1440;
   
   return questDurationMins + regenMins;
+}
+
+/**
+ * Calculate actual iteration time and stamina analysis based on quest data
+ * 
+ * DFK Gardening stamina mechanics:
+ * - quest.attempts = stamina per hero per iteration (e.g., 25)
+ * - Each hero in the quest uses `attempts` stamina per iteration
+ * - For a 2-hero quest at 25 attempts: each hero uses 25 stamina = 50 total
+ * 
+ * Iteration timing:
+ * - Gardening iteration = max(questDuration, regenTime) 
+ * - Quest runs for X minutes (10-12 min per stamina depending on gene)
+ * - Regen happens in parallel
+ * - Next iteration starts when BOTH quest completes AND stamina is ready
+ * 
+ * @param {Object} h1 - First hero details
+ * @param {Object} h2 - Second hero details (optional)
+ * @param {number} attempts - Stamina per hero per iteration from quest.attempts
+ * @param {Object} pair - Pair data with timing info
+ * @returns {Object} Iteration analysis with time, stamina usage, and runs per day
+ */
+function calculateActualIteration(h1, h2, attempts, pair = null) {
+  const numHeroes = h2 ? 2 : 1;
+  
+  const stamPerDay1 = h1?.stamPerDay || 72;
+  const stamPerDay2 = h2?.stamPerDay || stamPerDay1;
+  const totalStamPerDay = stamPerDay1 + (h2 ? stamPerDay2 : 0);
+  
+  let questDurationMins;
+  let isActualDuration = false;
+  
+  if (pair && pair.startTime && pair.completeAtTime && pair.completeAtTime > pair.startTime) {
+    questDurationMins = (pair.completeAtTime - pair.startTime) / 60;
+    isActualDuration = true;
+  } else {
+    const hero1HasGene = h1?.hasGardenGene;
+    const hero2HasGene = h2?.hasGardenGene;
+    const bothHaveGene = hero1HasGene && (h2 ? hero2HasGene : true);
+    const questDurationPerStam = bothHaveGene ? 10 : 12;
+    questDurationMins = attempts * questDurationPerStam;
+  }
+  
+  const totalStaminaUsed = attempts * numHeroes;
+  
+  const regenMins = (totalStaminaUsed / totalStamPerDay) * 1440;
+  
+  const iterationMins = Math.max(questDurationMins, regenMins);
+  const runsPerDay = (24 * 60) / iterationMins;
+  
+  const staminaRegenDuringIteration = (iterationMins / 1440) * totalStamPerDay;
+  
+  return {
+    iterationMins,
+    questDurationMins,
+    regenMins,
+    runsPerDay,
+    staminaPerHero: attempts,
+    totalStaminaUsed,
+    staminaRegen: staminaRegenDuringIteration,
+    totalStamPerDay,
+    numHeroes,
+    isActualDuration,
+    gatingFactor: questDurationMins >= regenMins ? 'quest' : 'regen',
+    sustainable: staminaRegenDuringIteration >= totalStaminaUsed,
+  };
 }
 
 function estimatePerRunYield(h1, h2, attempts) {
