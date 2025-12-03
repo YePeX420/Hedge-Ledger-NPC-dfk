@@ -1010,8 +1010,47 @@ client.on(Events.GuildMemberAdd, async (member) => {
             lowerContent.match(/\boptimi[sz]e\b.*\bgarden/)
           ) {
             console.log('[DM][optimize] optimizer route chosen. bypass =', isPaymentBypassEnabled?.());
+            // Mark that we're showing the optimization offer (for "proceed" handling)
+            dmConversationContext.set(discordId, {
+              ...dmConversationContext.get(discordId),
+              pendingGardenOptimization: true,
+              pendingTimestamp: Date.now()
+            });
             await handleGardenOptimizationDM(message, playerData);
             return;
+          }
+
+          // 🌿 PROCEED/CONFIRM detection - check if user is confirming garden optimization
+          const confirmPhrases = ['proceed', 'go ahead', 'yes', 'confirm', 'do it', 'lets go', "let's go", 'start', 'run it', 'continue'];
+          const isConfirmation = confirmPhrases.some(phrase => lowerContent.includes(phrase));
+          
+          if (isConfirmation) {
+            const context = dmConversationContext.get(discordId);
+            const pendingAge = context?.pendingTimestamp ? (Date.now() - context.pendingTimestamp) / 1000 / 60 : Infinity;
+            const hasPendingOptimization = context?.pendingGardenOptimization && pendingAge < 30; // 30 min window
+            
+            console.log(`[DM][confirm] Confirmation detected. pending=${hasPendingOptimization}, bypass=${isPaymentBypassEnabled?.()}, age=${pendingAge.toFixed(1)}min`);
+            
+            if (hasPendingOptimization && isPaymentBypassEnabled?.()) {
+              // Clear the pending state
+              dmConversationContext.set(discordId, {
+                ...context,
+                pendingGardenOptimization: false
+              });
+              
+              console.log('[DM][confirm] Bypass enabled + pending optimization - running optimization');
+              await message.reply('🧪 Payment bypass is enabled. Running your garden optimization now...');
+              await handleGardenOptimizationDM(message, playerData);
+              return;
+            } else if (hasPendingOptimization && !isPaymentBypassEnabled?.()) {
+              // No bypass - remind user about payment
+              await message.reply(
+                "I'm ready to optimize once I receive payment! Send **25 JEWEL** to my wallet and paste the transaction hash here.\n\n" +
+                "Hedge Wallet: `0x498BC270C4215Ca62D9023a3D97c5CAdCD7c99e1`"
+              );
+              return;
+            }
+            // No pending optimization - fall through to normal AI response
           }
 
           // Normal conversation - send to OpenAI (hero quick path + generic DM)

@@ -229,8 +229,101 @@ export async function getLPTokenDetails(lpAddress) {
 }
 
 /**
+ * Build FOCUSED price graph using only the 14 garden pool LPs + key bridging pairs
+ * MUCH faster than enumerating all 577 factory pairs
+ */
+export async function buildFocusedPriceGraph(gardenPools) {
+  const priceGraph = new Map(); // token address -> USD price
+  const edges = new Map(); // token -> [{partner, rate}]
+  
+  // Set USDC anchor price
+  priceGraph.set(USDC_ADDRESS.toLowerCase(), 1.0);
+  
+  // Key bridging pairs for price propagation (USDC pairs to bootstrap pricing)
+  const KEY_PAIRS = [
+    '0x98c3E14aC0C4f0b2E3D45Df02A2E23F47a0E4B10', // JEWEL-USDC
+    '0xa92a6E4f36Cd692f7ca16FB06A2ef9C26BD02F45', // CRYSTAL-USDC
+    '0x30a68A7Be0B33A86F8c02c90C0F51C15A5C79Fe2', // WETH-USDC
+    '0x11dF2e6C6be6a0F1d7bFc1a2A1C0C4C6C0B6A7A8', // AVAX-USDC (if exists)
+  ];
+  
+  // Collect LP tokens from garden pools + key bridging pairs
+  const lpTokens = new Set();
+  
+  // Add garden pool LP tokens
+  for (const pool of gardenPools) {
+    if (pool.lpToken) {
+      lpTokens.add(pool.lpToken.toLowerCase());
+    }
+  }
+  
+  // Add key bridging pairs
+  for (const pair of KEY_PAIRS) {
+    lpTokens.add(pair.toLowerCase());
+  }
+  
+  console.log(`Building focused price graph from ${lpTokens.size} LP tokens...`);
+  
+  // Fetch LP details in parallel batches (batch size 6 for RPC friendliness)
+  const BATCH_SIZE = 6;
+  const lpArray = Array.from(lpTokens);
+  const allDetails = [];
+  
+  for (let i = 0; i < lpArray.length; i += BATCH_SIZE) {
+    const batch = lpArray.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(lp => getLPTokenDetails(lp).catch(() => null))
+    );
+    allDetails.push(...batchResults.filter(d => d !== null));
+  }
+  
+  // Build edges from LP details
+  for (const details of allDetails) {
+    const token0 = details.token0.address.toLowerCase();
+    const token1 = details.token1.address.toLowerCase();
+    
+    const reserve0Float = parseFloat(ethers.formatUnits(details.reserve0, details.token0.decimals));
+    const reserve1Float = parseFloat(ethers.formatUnits(details.reserve1, details.token1.decimals));
+    
+    if (reserve0Float === 0 || reserve1Float === 0) continue;
+    
+    const rate01 = reserve0Float / reserve1Float;
+    const rate10 = reserve1Float / reserve0Float;
+    
+    if (!edges.has(token0)) edges.set(token0, []);
+    if (!edges.has(token1)) edges.set(token1, []);
+    
+    edges.get(token0).push({ partner: token1, rate: rate01 });
+    edges.get(token1).push({ partner: token0, rate: rate10 });
+  }
+  
+  // BFS to propagate prices from USDC
+  const queue = [USDC_ADDRESS.toLowerCase()];
+  const visited = new Set([USDC_ADDRESS.toLowerCase()]);
+  
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const currentPrice = priceGraph.get(current);
+    
+    const neighbors = edges.get(current) || [];
+    for (const { partner, rate } of neighbors) {
+      if (!visited.has(partner)) {
+        visited.add(partner);
+        priceGraph.set(partner, currentPrice * rate);
+        queue.push(partner);
+      }
+    }
+  }
+  
+  console.log(`Focused price graph built: ${priceGraph.size} tokens priced`);
+  
+  return priceGraph;
+}
+
+/**
  * Build on-chain price graph using BFS from USDC anchor
  * Enumerates ALL LP pairs from factory for accurate pricing
+ * NOTE: This is SLOW (~2-5 min). Use buildFocusedPriceGraph for fast results.
  */
 export async function buildPriceGraph() {
   const priceGraph = new Map(); // token address -> USD price
@@ -628,12 +721,12 @@ export async function getAllPoolAnalytics(limit = 100) {
     const stage1Duration = ((Date.now() - stageStart) / 1000).toFixed(1);
     console.log(`[Analytics] ✓ Discovered ${allPools.length} pools (${stage1Duration}s)`);
     
-    // Stage 2: Build price graph ONCE for all pools
-    console.log('[Analytics] Stage 2/5: Building price graph...');
+    // Stage 2: Build FOCUSED price graph from garden pools (FAST)
+    console.log('[Analytics] Stage 2/5: Building focused price graph...');
     const stage2Start = Date.now();
-    const priceGraph = await buildPriceGraph();
+    const priceGraph = await buildFocusedPriceGraph(allPools);
     const stage2Duration = ((Date.now() - stage2Start) / 1000).toFixed(1);
-    console.log(`[Analytics] ✓ Price graph built (${stage2Duration}s)`);
+    console.log(`[Analytics] ✓ Focused price graph built (${stage2Duration}s)`);
     
     // Stage 3: Get CRYSTAL price and metadata ONCE
     console.log('[Analytics] Stage 3/5: Getting token prices...');
