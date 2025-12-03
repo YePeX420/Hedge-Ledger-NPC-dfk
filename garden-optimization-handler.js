@@ -5,6 +5,7 @@ import {
   formatLPPositionsSummary,
   generatePoolOptimizations,
   formatOptimizationReport,
+  formatOptimizationMessages,
 } from './wallet-lp-detector.js';
 import { getAllHeroesByOwner } from './onchain-data.js';
 import { isPaymentBypassEnabled } from './debug-settings.js';
@@ -133,12 +134,16 @@ export async function handleGardenOptimizationDM(message, playerData, options = 
     // Log what the optimizer returns so we can debug
     console.log(`[GardenOpt] Optimizer returned: ${optimization?.recommendations?.length || 0} recommendations for ${optimization?.positions || 0} positions, TVL=$${optimization?.totalValueUSD || 0}`);
     
-    const report = formatOptimizationReport(optimization);
-
-    // Split long reports into multiple messages to avoid Discord's 2000 char limit
-    const chunks = splitMessage(report);
-    for (const chunk of chunks) {
-      await message.reply(chunk);
+    // Use multi-message format: summary + one message per pool
+    const messages = formatOptimizationMessages(optimization);
+    console.log(`[GardenOpt] Formatted ${messages.length} messages for DM output`);
+    
+    for (const msg of messages) {
+      // Split if any individual message exceeds Discord's limit
+      const chunks = splitMessage(msg);
+      for (const chunk of chunks) {
+        await message.reply(chunk);
+      }
     }
 
     await message.reply('✅ Optimization complete! Let me know if you have any questions.');

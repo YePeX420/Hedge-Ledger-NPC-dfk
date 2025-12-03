@@ -15,6 +15,12 @@ import {
   findOptimalAttempts,
   simulateGardeningDailyYield,
 } from './hero-yield-model.js';
+import {
+  allocateHeroesToPools,
+  analyzeRapidRenewal,
+  formatPairsForDM,
+  formatRRSuggestions,
+} from './garden-pairs.js';
 // Price imports: Only used by generatePoolOptimizations (full optimization), not by detectWalletLPPositions (teaser).
 // The slow 577-pair build is acceptable during full optimization since user has already paid.
 import { getCrystalPrice, getJewelPrice } from './price-feed.js';
@@ -253,9 +259,10 @@ export async function generatePoolOptimizations(
   const recommendations = [];
 
   const safePositions = Array.isArray(positions) ? positions : [];
+  const safeHeroes = Array.isArray(heroes) ? heroes : [];
   
   // Debug logging
-  console.log(`[Opt] Starting optimization: positions=${safePositions.length}, heroes=${Array.isArray(heroes) ? heroes.length : 0}, hasLinkedWallet=${hasLinkedWallet}`);
+  console.log(`[Opt] Starting optimization: positions=${safePositions.length}, heroes=${safeHeroes.length}, hasLinkedWallet=${hasLinkedWallet}`);
   
   const priceData = await Promise.all([
     getJewelPrice().catch(() => 0),
@@ -263,14 +270,23 @@ export async function generatePoolOptimizations(
   ]);
   const jewelPrice = priceData[0] || 0;
   const crystalPrice = priceData[1] || 0;
+  const tokenPrices = { jewelPrice, crystalPrice };
   
   console.log(`[Opt] Prices: JEWEL=$${jewelPrice.toFixed(4)}, CRYSTAL=$${crystalPrice.toFixed(4)}`);
 
-  const heroProfiles = (Array.isArray(heroes) ? heroes : [])
+  const heroProfiles = safeHeroes
     .map((hero) => buildGardenHeroProfile(hero, {}, hero.heroMeta || {}))
     .sort((a, b) => b.gardenScore - a.gardenScore);
   
   console.log(`[Opt] Built ${heroProfiles.length} hero profiles for gardening`);
+  
+  // Allocate heroes to pools optimally using garden pairs model
+  const poolAllocations = allocateHeroesToPools(safeHeroes, safePositions, tokenPrices);
+  console.log(`[Opt] Allocated heroes to ${poolAllocations.length} pools`);
+  
+  // Analyze Rapid Renewal status and suggestions
+  const rrAnalysis = analyzeRapidRenewal(safeHeroes);
+  console.log(`[Opt] RR Analysis: ${rrAnalysis.summary.totalWithRR} heroes with RR, ${rrAnalysis.summary.potentialCandidates} candidates for RR`);
 
   for (const position of safePositions) {
     const { pairName, poolData, userTVL } = position;
@@ -399,6 +415,9 @@ export async function generatePoolOptimizations(
         )
       : null;
 
+    // Find the pool allocation for this position
+    const poolAlloc = poolAllocations.find(p => p.pairName === pairName);
+    
     recommendations.push({
       pairName,
       poolType,
@@ -431,12 +450,20 @@ export async function generatePoolOptimizations(
         after: dailyAfter,
       },
       iterationSeconds: attemptDelta?.iterationSeconds || null,
+      // Garden pairs data
+      gardenPairs: poolAlloc?.pairs || [],
     });
     
-    console.log(`[Opt] ✓ Added recommendation for ${pairName}`);
+    console.log(`[Opt] ✓ Added recommendation for ${pairName} with ${poolAlloc?.pairs?.length || 0} hero pairs`);
   }
 
   console.log(`[Opt] COMPLETE: Generated ${recommendations.length} recommendations for ${safePositions.length} positions`);
+  
+  // Calculate totals for summary
+  const totalJewelBefore = recommendations.reduce((sum, r) => sum + (r.daily?.before?.jewel || 0), 0);
+  const totalCrystalBefore = recommendations.reduce((sum, r) => sum + (r.daily?.before?.crystal || 0), 0);
+  const totalJewelAfter = recommendations.reduce((sum, r) => sum + (r.daily?.after?.jewel || 0), 0);
+  const totalCrystalAfter = recommendations.reduce((sum, r) => sum + (r.daily?.after?.crystal || 0), 0);
   
   return {
     positions: safePositions.length,
@@ -448,6 +475,16 @@ export async function generatePoolOptimizations(
       return Number.isFinite(sum) ? sum.toFixed(2) : '0.00';
     })(),
     recommendations,
+    rrAnalysis,
+    tokenPrices,
+    dailyTotals: {
+      before: { jewel: totalJewelBefore, crystal: totalCrystalBefore },
+      after: { jewel: totalJewelAfter, crystal: totalCrystalAfter },
+      gain: { 
+        jewel: totalJewelAfter - totalJewelBefore, 
+        crystal: totalCrystalAfter - totalCrystalBefore 
+      }
+    }
   };
 }
 
@@ -542,7 +579,143 @@ export function formatGenericPoolAprAnswer(poolsView, maxPools = 6) {
 }
 
 /**
+ * Format optimization summary message (first DM)
+ */
+export function formatOptimizationSummary(optimization) {
+  if (!optimization || !optimization.recommendations || optimization.recommendations.length === 0) {
+    return 'No optimization recommendations available.';
+  }
+
+  const totalPositions = optimization.positions || optimization.recommendations.length;
+  const totalValue = optimization.totalValueUSD ?? '0.00';
+  const dt = optimization.dailyTotals || {};
+  const poolNames = optimization.recommendations.map(r => r.pairName).join(', ');
+  
+  let summary = `**Garden Optimization Summary**\n\n`;
+  summary += `Pools analyzed: ${poolNames}\n`;
+  summary += `Approx. total TVL: $${totalValue}\n\n`;
+  
+  if (dt.gain) {
+    const jewelGain = dt.gain.jewel?.toFixed?.(2) || '0.00';
+    const crystalGain = dt.gain.crystal?.toFixed?.(2) || '0.00';
+    const jewelAnnual = (parseFloat(jewelGain) * 365 * (optimization.tokenPrices?.jewelPrice || 0)).toFixed(0);
+    const crystalAnnual = (parseFloat(crystalGain) * 365 * (optimization.tokenPrices?.crystalPrice || 0)).toFixed(0);
+    
+    summary += `**Net effect if you apply all suggested changes:**\n`;
+    summary += `- +${jewelGain} JEWEL/day (~$${jewelAnnual}/year)\n`;
+    summary += `- +${crystalGain} CRYSTAL/day (~$${crystalAnnual}/year)\n\n`;
+  }
+  
+  // Top pools by improvement
+  const sortedRecs = [...optimization.recommendations].sort((a, b) => {
+    const gainA = parseFloat((a.annualReturn?.additionalGain || '$0').replace(/[^0-9.-]/g, ''));
+    const gainB = parseFloat((b.annualReturn?.additionalGain || '$0').replace(/[^0-9.-]/g, ''));
+    return gainB - gainA;
+  });
+  
+  summary += `**Top pools by improvement:**\n`;
+  for (let i = 0; i < Math.min(3, sortedRecs.length); i++) {
+    const rec = sortedRecs[i];
+    const gain = rec.annualReturn?.additionalGain || '$0';
+    summary += `${i + 1}. ${rec.pairName}: ${gain}/year\n`;
+  }
+  
+  return summary;
+}
+
+/**
+ * Format a single pool recommendation (one DM per pool)
+ */
+export function formatPoolRecommendation(rec) {
+  if (!rec) return '';
+  
+  const currentYield = rec.currentYield || {};
+  const annualReturn = rec.annualReturn || {};
+  const aprBreakdown = rec.aprBreakdown || {};
+  const dailyBefore = rec.daily?.before;
+  const dailyAfter = rec.daily?.after;
+  const pairs = rec.gardenPairs || [];
+  
+  let msg = `### ${rec.pairName}\n`;
+  msg += `**Pool Type:** ${rec.poolType || 'Balanced'} | **Your Position:** $${rec.userTVL || '0.00'}\n\n`;
+  
+  // Before vs After block
+  msg += `\`\`\`\n`;
+  msg += `BEFORE (Current setup):\n`;
+  msg += `  APR: ${currentYield.worst || 'N/A'}\n`;
+  msg += `  Annual: ${annualReturn.worst || 'N/A'}\n`;
+  if (dailyBefore) {
+    msg += `  Tokens/day: ${dailyBefore.jewel?.toFixed(2) || '0'} JEWEL, ${dailyBefore.crystal?.toFixed(2) || '0'} CRYSTAL\n`;
+  }
+  msg += `\n`;
+  msg += `AFTER (Optimized):\n`;
+  msg += `  APR: ${currentYield.best || 'N/A'}\n`;
+  msg += `  Annual: ${annualReturn.best || 'N/A'}\n`;
+  if (dailyAfter) {
+    msg += `  Tokens/day: ${dailyAfter.jewel?.toFixed(2) || '0'} JEWEL, ${dailyAfter.crystal?.toFixed(2) || '0'} CRYSTAL\n`;
+  }
+  msg += `\n`;
+  msg += `GAIN: ${annualReturn.additionalGain || '$0'}/year (${rec.yieldImprovement || ''})\n`;
+  msg += `\`\`\`\n\n`;
+  
+  // Recommended hero pairs
+  if (pairs.length > 0) {
+    msg += `**Recommended Hero Assignments (${pairs.length} pairs):**\n`;
+    for (const pair of pairs) {
+      msg += `- **Pair ${pair.pairIndex}:**\n`;
+      if (pair.jewel) {
+        const j = pair.jewel;
+        const rrIcon = j.hasRapidRenewal ? ' [RR]' : '';
+        const geneIcon = j.hasGardeningGene ? ' [G]' : '';
+        msg += `  - JEWEL: Hero #${j.heroId}${rrIcon}${geneIcon}\n`;
+      }
+      if (pair.crystal) {
+        const c = pair.crystal;
+        const rrIcon = c.hasRapidRenewal ? ' [RR]' : '';
+        const geneIcon = c.hasGardeningGene ? ' [G]' : '';
+        msg += `  - CRYSTAL: Hero #${c.heroId}${rrIcon}${geneIcon}\n`;
+      }
+    }
+    msg += `\n`;
+  }
+  
+  // APR breakdown
+  msg += `**APR Breakdown:** Fee ${aprBreakdown.fee || 'N/A'} + Harvest ${aprBreakdown.harvesting || 'N/A'} + Quest ${aprBreakdown.questBoost || 'N/A'}\n`;
+  
+  return msg;
+}
+
+/**
+ * Format Rapid Renewal suggestions (separate DM)
+ */
+export function formatRRReport(rrAnalysis) {
+  if (!rrAnalysis) return '';
+  
+  const { currentRR, recommended } = rrAnalysis;
+  
+  let msg = `**Rapid Renewal Status:**\n`;
+  
+  if (currentRR && currentRR.length > 0) {
+    msg += `Currently active on: ${currentRR.map(h => `Hero #${h.heroId}`).join(', ')}\n\n`;
+  } else {
+    msg += `No heroes currently have Rapid Renewal equipped.\n\n`;
+  }
+  
+  if (recommended && recommended.length > 0) {
+    msg += `**Suggested RR Placements:**\n`;
+    for (const rec of recommended) {
+      msg += `- Hero #${rec.heroId}: +${rec.improvement}% productivity if RR applied\n`;
+    }
+  } else {
+    msg += `Your current RR placement is optimal.\n`;
+  }
+  
+  return msg;
+}
+
+/**
  * Format optimization recommendations for AI response
+ * Returns an array of messages: [summary, pool1, pool2, ..., rrReport]
  */
 export function formatOptimizationReport(optimization) {
   if (
@@ -553,68 +726,39 @@ export function formatOptimizationReport(optimization) {
     return 'No optimization recommendations available.';
   }
 
-  const totalPositions = Number.isFinite(optimization.positions)
-    ? optimization.positions
-    : Array.isArray(optimization.recommendations)
-      ? optimization.recommendations.length
-      : 0;
-  const totalValue = optimization.totalValueUSD ?? '0.00';
+  // For backwards compatibility, return single string
+  // The handler will use formatOptimizationMessages for multi-message output
+  const summary = formatOptimizationSummary(optimization);
+  const poolMsgs = optimization.recommendations.map(rec => formatPoolRecommendation(rec));
+  const rrMsg = formatRRReport(optimization.rrAnalysis);
+  
+  return [summary, ...poolMsgs, rrMsg].filter(Boolean).join('\n\n---\n\n');
+}
 
-  let report = `**📊 Summary**\n`;
-  report += `- Total Positions: ${totalPositions}\n`;
-  report += `- Total Value: $${totalValue}\n\n`;
-
-  for (const rec of optimization.recommendations) {
-    if (!rec) continue;
-
-    const currentYield = rec.currentYield || {};
-    const annualReturn = rec.annualReturn || {};
-    const aprBreakdown = rec.aprBreakdown || {};
-    const dailyBefore = rec?.daily?.before;
-    const dailyAfter = rec?.daily?.after;
-
-    report += `### ${rec.pairName || 'Unknown Pool'}\n`;
-    report += `**Pool Type:** ${rec.poolType || 'N/A'} | **Your Position:** $${rec.userTVL ?? '0.00'}\n\n`;
-
-    report += `**📈 Before vs After**\n`;
-    report += `\`\`\`\n`;
-    report += `BEFORE (Current gardening setup):\n`;
-    report += `  APR: ${currentYield.worst ?? 'N/A'}\n`;
-    report += `  Annual Return: ${annualReturn.worst ?? 'N/A'}\n`;
-    if (dailyBefore) {
-      report += `  Tokens/day: ${dailyBefore.jewel?.toFixed?.(2) ?? '0.00'} JEWEL, ${
-        dailyBefore.crystal?.toFixed?.(2) ?? '0.00'
-      } CRYSTAL\n\n`;
-    } else {
-      report += `\n`;
-    }
-    report += `AFTER (Optimized heroes + pets):\n`;
-    report += `  APR: ${currentYield.best ?? 'N/A'}\n`;
-    report += `  Annual Return: ${annualReturn.best ?? 'N/A'}\n`;
-    if (dailyAfter) {
-      report += `  Tokens/day: ${dailyAfter.jewel?.toFixed?.(2) ?? '0.00'} JEWEL, ${
-        dailyAfter.crystal?.toFixed?.(2) ?? '0.00'
-      } CRYSTAL\n\n`;
-    } else {
-      report += `\n`;
-    }
-    const gain = rec?.annualReturn?.additionalGain ?? '$0.00';
-    report += `GAIN: ${gain}/year (${rec.yieldImprovement || ''})\n`;
-    report += `\`\`\`\n\n`;
-
-    report += `**🦸 Recommended Setup**\n`;
-    report += `${rec.heroRecommendation || 'No hero recommendation available.'}\n`;
-    report += `${rec.petRecommendation || 'No pet recommendation available.'}\n\n`;
-
-    report += `**APR Breakdown:**\n`;
-    report += `- Fee APR: ${aprBreakdown.fee ?? 'N/A'}\n`;
-    report += `- Harvesting APR: ${aprBreakdown.harvesting ?? 'N/A'}\n`;
-    report += `- Quest Boost Range: ${aprBreakdown.questBoost ?? 'N/A'}\n\n`;
-    if (rec?.optimalAttempts?.attempts) {
-      report += `- Optimal attempts/run: ${rec.optimalAttempts.attempts} (vs 25 baseline)\n`;
-    }
-    report += `---\n\n`;
+/**
+ * Format optimization as array of messages (one per pool)
+ * For use by handler to send multiple DMs
+ */
+export function formatOptimizationMessages(optimization) {
+  if (!optimization || !optimization.recommendations || optimization.recommendations.length === 0) {
+    return ['No optimization recommendations available.'];
   }
-
-  return report;
+  
+  const messages = [];
+  
+  // 1. Summary message
+  messages.push(formatOptimizationSummary(optimization));
+  
+  // 2. One message per pool
+  for (const rec of optimization.recommendations) {
+    messages.push(formatPoolRecommendation(rec));
+  }
+  
+  // 3. RR suggestions
+  const rrMsg = formatRRReport(optimization.rrAnalysis);
+  if (rrMsg) {
+    messages.push(rrMsg);
+  }
+  
+  return messages.filter(Boolean);
 }
