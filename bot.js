@@ -1009,6 +1009,8 @@ client.on(Events.GuildMemberAdd, async (member) => {
             lowerContent.includes('optimize my gardens') ||
             lowerContent.match(/\boptimi[sz]e\b.*\bgarden/)
           ) {
+            const bypass = isPaymentBypassEnabled?.() ?? false;
+            console.log(`[DM][optimize] NEW optimizer route chosen. bypass=${bypass}`);
             await handleGardenOptimizationDM(message, playerData);
             return;
           }

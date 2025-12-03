@@ -43,8 +43,11 @@ export async function handleGardenOptimizationDM(message, playerData) {
   }
 
   const poolNames = positions.map((p) => p.pairName).join(', ');
-  const totalValueNum = positions.reduce((sum, p) => sum + parseFloat(p.userTVL || 0), 0);
-  const totalValueStr = isNaN(totalValueNum) ? 'N/A' : `$${totalValueNum.toFixed(0)}`;
+  const totalValueNum = positions.reduce((sum, p) => {
+    const val = parseFloat(p?.userTVL ?? '0');
+    return Number.isFinite(val) ? sum + val : sum;
+  }, 0);
+  const totalValueStr = Number.isFinite(totalValueNum) ? `$${totalValueNum.toFixed(0)}` : 'N/A';
 
   const bypass = isPaymentBypassEnabled?.() ?? false;
 
@@ -70,9 +73,17 @@ export async function handleGardenOptimizationDM(message, playerData) {
       hasLinkedWallet: true,
     });
     const report = formatOptimizationReport(optimization);
+
+    console.log(
+      `[GardenOptimization][Bypass] positions=${positions.length} totalTVL=${Number.isFinite(totalValueNum) ? totalValueNum.toFixed(2) : 'N/A'} heroes=${heroes.length} recs=${optimization?.recommendations?.length ?? 0} reportLen=${report?.length ?? 0}`
+    );
+
     await message.reply(report);
   } catch (err) {
-    console.error('[GardenOptimization] Error:', err);
-    await message.reply('Something went wrong during optimization. Please try again.');
+    console.error('[GardenOptimization][Bypass] Error running optimization:', err?.message || err);
+    if (err?.stack) {
+      console.error('[GardenOptimization][Bypass] Stack:', err.stack);
+    }
+    await message.reply('I hit a snag while running the optimization. Try again in a minute or ping an admin if it keeps failing.');
   }
 }
