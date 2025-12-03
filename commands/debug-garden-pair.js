@@ -187,7 +187,7 @@ function formatHeroLine(h) {
 }
 
 function findOptimalAttemptsForPair(h1, h2, hero1, hero2) {
-  let best = { attempts: 25, iterationMins: 0, runsPerDay: 0 };
+  let best = { attempts: 25, iterationMins: 0, runsPerDay: 0, dailyYield: 0 };
   
   const stamPerDay1 = computeStaminaPerDay(hero1, { hasRapidRenewal: h1.hasRapidRenewal });
   const stamPerDay2 = hero2 ? computeStaminaPerDay(hero2, { hasRapidRenewal: h2?.hasRapidRenewal }) : stamPerDay1;
@@ -199,8 +199,11 @@ function findOptimalAttemptsForPair(h1, h2, hero1, hero2) {
     const iterationMins = calculateIterationTime(attempts, questDurationPerStam, avgStamPerDay);
     const runsPerDay = (24 * 60) / iterationMins;
     
-    if (runsPerDay > best.runsPerDay) {
-      best = { attempts, iterationMins, runsPerDay, stamPerDay: avgStamPerDay };
+    const { crystalPerRun, jewelPerRun } = estimatePerRunYield(h1, h2, attempts);
+    const dailyYield = (crystalPerRun + jewelPerRun) * runsPerDay;
+    
+    if (dailyYield > best.dailyYield) {
+      best = { attempts, iterationMins, runsPerDay, stamPerDay: avgStamPerDay, dailyYield };
     }
   }
   
