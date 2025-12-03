@@ -23,6 +23,18 @@
   },
   {
     "inputs": [
+      { "internalType": "address", "name": "_user", "type": "address" },
+      { "internalType": "uint256", "name": "_powerUpId", "type": "uint256" }
+    ],
+    "name": "isUserPowerUpActive",
+    "outputs": [
+      { "internalType": "bool", "name": "", "type": "bool" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
       { "internalType": "uint256", "name": "_powerUpId", "type": "uint256" }
     ],
     "name": "powerUps",

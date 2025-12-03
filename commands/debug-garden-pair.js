@@ -4,7 +4,7 @@ import { getAllHeroesByOwner } from '../onchain-data.js';
 import { fetchPetsForWallet, annotateHeroesWithPets } from '../pet-data.js';
 import { groupHeroesByGardenPool, computeGardenScore } from '../garden-pairs.js';
 import { computeHeroGardeningFactor, computeStaminaPerDay } from '../hero-yield-model.js';
-import { arePetsFedByGravityFeeder } from '../rapid-renewal-service.js';
+import { arePetsFedByGravityFeeder, getWalletPowerUpStatus } from '../rapid-renewal-service.js';
 import { detectPairsWithRoles } from '../hero-pairing.js';
 import { getPoolCalibration, formatCalibrationInfo } from '../pool-calibration.js';
 
@@ -60,14 +60,16 @@ export async function execute(interaction) {
     
     console.log(`[DebugPair] Fetching heroes for wallet ${walletAddress}...`);
     
-    const [heroes, pets, gfStatus] = await Promise.all([
+    const [heroes, pets, powerUpStatus] = await Promise.all([
       getAllHeroesByOwner(walletAddress),
       fetchPetsForWallet(walletAddress),
-      arePetsFedByGravityFeeder(walletAddress).catch(() => ({ isFed: true, assumed: true, reason: 'Error' }))
+      getWalletPowerUpStatus(walletAddress)
     ]);
     
-    const hasGravityFeeder = gfStatus.isFed;
-    const gfAssumed = gfStatus.assumed;
+    // Wild Unknown = access to Expeditions (required for gardening expeditions)
+    // Gravity Feeder = auto-feeds pets during expeditions
+    const hasWildUnknown = powerUpStatus.wildUnknown.active;
+    const hasGravityFeeder = powerUpStatus.gravityFeeder.active;
     
     console.log(`[DebugPair] Found ${heroes.length} heroes, ${pets.length} pets, GF=${hasGravityFeeder}`);
     
@@ -117,14 +119,23 @@ export async function execute(interaction) {
         ? 'Active Quests (contract)'
         : 'CurrentQuest (fallback)';
     
-    const gfWarning = gfAssumed 
-      ? '\n⚠️ **Gravity Feeder assumed** - Contract check failed, pets shown as fed. Verify in-game.'
-      : '';
+    // Build power-up status summary
+    const powerUpInfo = [];
+    if (hasWildUnknown) {
+      powerUpInfo.push(`Wild Unknown: ✅ (${powerUpStatus.wildUnknown.heroSlots} slots)`);
+    } else {
+      powerUpInfo.push(`Wild Unknown: ❌ (no expeditions)`);
+    }
+    if (hasGravityFeeder) {
+      powerUpInfo.push(`Gravity Feeder: ✅ (pets auto-fed)`);
+    } else {
+      powerUpInfo.push(`Gravity Feeder: ❌ (pets need manual feeding)`);
+    }
     
     const embed = new EmbedBuilder()
       .setColor('#2ecc71')
       .setTitle(`Garden Debug: ${poolInfo.name} (Pool ${poolId})`)
-      .setDescription(`Found ${poolPairs.length} pairs gardening this pool\nPairing Source: ${detectionSource}${gfWarning}`)
+      .setDescription(`Found ${poolPairs.length} pairs gardening this pool\nPairing Source: ${detectionSource}\n${powerUpInfo.join(' | ')}`)
       .setTimestamp();
     
     let totalGardenScore = 0;

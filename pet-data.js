@@ -23,7 +23,10 @@ const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
 const petCoreABI = [
   'function getUserPetsV2(address owner) view returns (tuple(uint256 id, uint8 originId, string name, uint8 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint8 profBonusScalar, uint8 craftBonus, uint8 craftBonusScalar, uint8 combatBonus, uint8 combatBonusScalar, uint16 appearance, uint8 background, uint8 shiny, uint64 hungryAt, uint64 equippableAt, uint256 equippedTo, address fedBy, uint8 foodType)[])',
   'function getPetV2(uint256 petId) view returns (tuple(uint256 id, uint8 originId, string name, uint8 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint8 profBonusScalar, uint8 craftBonus, uint8 craftBonusScalar, uint8 combatBonus, uint8 combatBonusScalar, uint16 appearance, uint8 background, uint8 shiny, uint64 hungryAt, uint64 equippableAt, uint256 equippedTo, address fedBy, uint8 foodType))',
-  'function heroToPet(uint256 heroId) view returns (uint256)'
+  'function heroToPet(uint256 heroId) view returns (uint256)',
+  'function isPetHungry(uint256 petId) view returns (bool)',
+  'function isHeroPetHungry(uint256 heroId) view returns (bool)',
+  'function getPetFedState(uint256 petId) view returns (bool)'
 ];
 
 const petContract = new ethers.Contract(PETCORE_ADDRESS, petCoreABI, provider);

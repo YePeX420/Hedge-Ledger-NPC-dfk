@@ -14,7 +14,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
-const POWERUP_MANAGER_ADDRESS_RAW = '0x5d23af0548452c6aae80a7e49a6faf4ed534cfcc';
+// Updated PowerUpManager address from official DFK docs (Nov 2024)
+const POWERUP_MANAGER_ADDRESS_RAW = '0xc20a268bc7c4dB28f1f6e1703676513Db06C1B93';
 
 let provider = null;
 let checksummedAddress = null;
@@ -26,8 +27,25 @@ function getPowerUpManagerAddress() {
   return checksummedAddress;
 }
 let powerUpContract = null;
-let rapidRenewalId = null;
-let gravityFeederId = null;
+
+// Power-up IDs from official DFK docs
+const POWERUP_IDS = {
+  QUICK_STUDY: 1,
+  RAPID_RENEWAL: 2,
+  THRIFTY: 3,
+  WILD_UNKNOWN: 4,      // Grants access to Expedition system
+  GRAVITY_FEEDER: 5,    // Auto-feeds pets during expeditions (300 cJEWEL)
+  PERPETUAL_POTION: 6,
+  PREMEDITATED: 7,
+  UNSCATHED: 8,
+  PREMIUM_PROVISIONS: 1001,
+  BACKSTAGE_PASS: 2001,
+  MASTER_MERCHANT: 3001
+};
+
+let rapidRenewalId = POWERUP_IDS.RAPID_RENEWAL;
+let gravityFeederId = POWERUP_IDS.GRAVITY_FEEDER;
+let wildUnknownId = POWERUP_IDS.WILD_UNKNOWN;
 
 function getProvider() {
   if (!provider) {
@@ -46,36 +64,25 @@ function getPowerUpContract() {
 }
 
 /**
- * Find the Rapid Renewal power-up ID by scanning active power-ups
- * Caches result in memory for subsequent calls
+ * Get Rapid Renewal power-up ID (known: 2)
  */
-export async function getRapidRenewalPowerUpId() {
-  if (rapidRenewalId !== null) {
-    return rapidRenewalId;
-  }
+export function getRapidRenewalPowerUpId() {
+  return POWERUP_IDS.RAPID_RENEWAL;
+}
 
-  try {
-    const contract = getPowerUpContract();
-    const powerUps = await contract.getActivePowerUps();
-    
-    for (const pu of powerUps) {
-      const name = pu.name?.toLowerCase() || '';
-      if (name.includes('rapid renewal') || name.includes('rapidrenewal')) {
-        rapidRenewalId = Number(pu.id);
-        console.log(`[RapidRenewal] Found Rapid Renewal power-up ID: ${rapidRenewalId}`);
-        return rapidRenewalId;
-      }
-    }
-    
-    rapidRenewalId = 1;
-    console.log(`[RapidRenewal] Rapid Renewal not found by name, using default ID: ${rapidRenewalId}`);
-    return rapidRenewalId;
-    
-  } catch (error) {
-    console.error('[RapidRenewal] Error fetching power-ups:', error.message);
-    rapidRenewalId = 1;
-    return rapidRenewalId;
-  }
+/**
+ * Get Gravity Feeder power-up ID (known: 5)
+ */
+export function getGravityFeederPowerUpId() {
+  return POWERUP_IDS.GRAVITY_FEEDER;
+}
+
+/**
+ * Get Wild Unknown power-up ID (known: 4)
+ * Wild Unknown grants access to the Expedition system
+ */
+export function getWildUnknownPowerUpId() {
+  return POWERUP_IDS.WILD_UNKNOWN;
 }
 
 /**
@@ -212,101 +219,128 @@ export function formatRapidRenewalSummary(rrStatus, rrHeroIds) {
 }
 
 // ============================================
-// GRAVITY FEEDER POWER-UP FUNCTIONS
+// WILD UNKNOWN & GRAVITY FEEDER POWER-UP FUNCTIONS
 // ============================================
 
 /**
- * Find the Gravity Feeder power-up ID by scanning active power-ups
- * Caches result in memory for subsequent calls
+ * Check if user has Wild Unknown power-up active (required for Expeditions)
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<{isActive: boolean}>}
  */
-export async function getGravityFeederPowerUpId() {
-  if (gravityFeederId !== null) {
-    return gravityFeederId;
-  }
-
+export async function getWildUnknownStatus(walletAddress) {
   try {
     const contract = getPowerUpContract();
-    const powerUps = await contract.getActivePowerUps();
+    const wuId = getWildUnknownPowerUpId();
     
-    for (const pu of powerUps) {
-      const name = pu.name?.toLowerCase() || '';
-      if (name.includes('gravity feeder') || name.includes('gravityfeeder')) {
-        gravityFeederId = Number(pu.id);
-        console.log(`[GravityFeeder] Found Gravity Feeder power-up ID: ${gravityFeederId}`);
-        return gravityFeederId;
+    const isActive = await contract.isUserPowerUpActive(walletAddress, wuId);
+    
+    // Get assigned heroes count if active
+    let heroSlots = 0;
+    if (isActive) {
+      try {
+        const heroIds = await contract.getAssignedHeroIds(walletAddress, wuId);
+        heroSlots = heroIds.length;
+      } catch (e) {
+        heroSlots = -1; // Unknown
       }
     }
     
-    // If not found, try ID 3 (common default for Gravity Feeder)
-    gravityFeederId = 3;
-    console.log(`[GravityFeeder] Gravity Feeder not found by name, using default ID: ${gravityFeederId}`);
-    return gravityFeederId;
+    console.log(`[WildUnknown] Wallet ${walletAddress.slice(0, 8)}... has Wild Unknown: ${isActive ? `YES (${heroSlots} heroes)` : 'NO'}`);
     
+    return {
+      isActive,
+      heroSlots
+    };
   } catch (error) {
-    console.error('[GravityFeeder] Error fetching power-ups:', error.message);
-    gravityFeederId = 3;
-    return gravityFeederId;
+    console.error(`[WildUnknown] Error fetching WU status for ${walletAddress}:`, error.message);
+    return { isActive: false, heroSlots: 0 };
   }
 }
 
 /**
  * Check if user has Gravity Feeder power-up active
+ * Gravity Feeder auto-feeds pets during expeditions (costs 300 cJEWEL)
  * @param {string} walletAddress - User's wallet address
- * @returns {Promise<Object|null>} Power-up status or null
+ * @returns {Promise<{isActive: boolean}>}
  */
 export async function getGravityFeederStatus(walletAddress) {
   try {
     const contract = getPowerUpContract();
-    const gfId = await getGravityFeederPowerUpId();
+    const gfId = getGravityFeederPowerUpId();
     
-    const userData = await contract.getUserPowerUp(walletAddress, gfId);
-    
-    const isActive = userData.isActivated && Number(userData.tier) > 0;
+    const isActive = await contract.isUserPowerUpActive(walletAddress, gfId);
     
     console.log(`[GravityFeeder] Wallet ${walletAddress.slice(0, 8)}... has Gravity Feeder: ${isActive ? 'YES' : 'NO'}`);
     
-    return {
-      isActivated: userData.isActivated,
-      isActive,
-      tier: Number(userData.tier)
-    };
-    
+    return { isActive };
   } catch (error) {
     console.error(`[GravityFeeder] Error fetching GF status for ${walletAddress}:`, error.message);
-    return null;
+    return { isActive: false };
   }
 }
 
 /**
- * Check if pets should be considered fed for a wallet
- * Returns object with fed status and whether it was assumed
+ * Check if pets should be considered fed for a wallet via Gravity Feeder
+ * Returns object with fed status and whether it was confirmed
  * @param {string} walletAddress - User's wallet address
- * @returns {Promise<{isFed: boolean, assumed: boolean, reason: string}>}
+ * @returns {Promise<{isFed: boolean, confirmed: boolean, reason: string}>}
  */
 export async function arePetsFedByGravityFeeder(walletAddress) {
   try {
     const status = await getGravityFeederStatus(walletAddress);
     
-    // If status is null, contract failed - assume GF is active (most gardeners use it)
-    if (status === null) {
-      console.log(`[GravityFeeder] Contract call failed (null). Assuming pets are FED.`);
-      return { isFed: true, assumed: true, reason: 'Contract error - GF assumed' };
-    }
-    
     if (status.isActive) {
-      return { isFed: true, assumed: false, reason: 'Gravity Feeder active' };
+      return { isFed: true, confirmed: true, reason: 'Gravity Feeder active' };
     }
     
-    // Contract returned but GF is not active
-    return { isFed: false, assumed: false, reason: 'Gravity Feeder not subscribed' };
+    // Contract returned but GF is not active - pets need manual feeding
+    return { isFed: false, confirmed: true, reason: 'No Gravity Feeder' };
   } catch (err) {
-    // Contract call threw exception - assume GF is active
-    console.log(`[GravityFeeder] Contract exception. Assuming pets are FED.`);
-    return { isFed: true, assumed: true, reason: 'Contract error - GF assumed' };
+    // Contract call failed - return unknown status
+    console.log(`[GravityFeeder] Contract error. Cannot determine GF status.`);
+    return { isFed: false, confirmed: false, reason: 'Contract error' };
+  }
+}
+
+/**
+ * Get comprehensive power-up status for a wallet
+ * Returns Wild Unknown, Gravity Feeder, and Rapid Renewal status
+ * @param {string} walletAddress - User's wallet address
+ * @returns {Promise<Object>} Power-up status summary
+ */
+export async function getWalletPowerUpStatus(walletAddress) {
+  try {
+    const [wildUnknown, gravityFeeder, rapidRenewalHeroes] = await Promise.all([
+      getWildUnknownStatus(walletAddress),
+      getGravityFeederStatus(walletAddress),
+      getRapidRenewalHeroIds(walletAddress)
+    ]);
+    
+    return {
+      wildUnknown: {
+        active: wildUnknown.isActive,
+        heroSlots: wildUnknown.heroSlots
+      },
+      gravityFeeder: {
+        active: gravityFeeder.isActive
+      },
+      rapidRenewal: {
+        heroCount: rapidRenewalHeroes.size,
+        heroIds: Array.from(rapidRenewalHeroes)
+      }
+    };
+  } catch (error) {
+    console.error(`[PowerUps] Error fetching power-up status:`, error.message);
+    return {
+      wildUnknown: { active: false, heroSlots: 0 },
+      gravityFeeder: { active: false },
+      rapidRenewal: { heroCount: 0, heroIds: [] }
+    };
   }
 }
 
 export default {
+  POWERUP_IDS,
   getRapidRenewalPowerUpId,
   getRapidRenewalHeroIds,
   getRapidRenewalStatus,
@@ -315,5 +349,8 @@ export default {
   formatRapidRenewalSummary,
   getGravityFeederPowerUpId,
   getGravityFeederStatus,
-  arePetsFedByGravityFeeder
+  arePetsFedByGravityFeeder,
+  getWildUnknownPowerUpId,
+  getWildUnknownStatus,
+  getWalletPowerUpStatus
 };
