@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,10 @@ interface LPPosition {
     totalAPR?: string;
     token0?: { symbol: string };
     token1?: { symbol: string };
+    daily?: {
+      jewel?: number;
+      crystal?: number;
+    };
   };
 }
 
@@ -75,6 +80,20 @@ export default function AccountPage() {
   const params = new URLSearchParams(searchString);
   const userId = params.get("userId");
   const { toast } = useToast();
+  const [lpViewMode, setLpViewMode] = useState<"apr" | "tokens">("apr");
+
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("lpViewMode") : null;
+    if (saved === "tokens" || saved === "apr") {
+      setLpViewMode(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("lpViewMode", lpViewMode);
+    }
+  }, [lpViewMode]);
 
   const { data: user, isLoading, error } = useQuery<UserAccountData>({
     queryKey: ["/api/admin/users", userId, "account"],
@@ -126,6 +145,11 @@ export default function AccountPage() {
   if (lpError) {
     console.error("[LP Fetch] Query error:", lpError);
   }
+
+  const formatTokenPerDay = (value?: number) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num.toFixed(2) : "0.00";
+  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -336,11 +360,27 @@ export default function AccountPage() {
         </div>
 
         <Card data-testid="card-lp-positions" className="mt-4">
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
               <Leaf className="h-5 w-5" />
               LP Positions (Garden Pools)
             </CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={lpViewMode === "apr" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setLpViewMode("apr")}
+              >
+                APR %
+              </Button>
+              <Button
+                variant={lpViewMode === "tokens" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setLpViewMode("tokens")}
+              >
+                Tokens / day
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {!user.walletAddress ? (
@@ -374,30 +414,59 @@ export default function AccountPage() {
                         </span>
                       </div>
                       
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">Total APR</span>
-                          <div className="font-medium text-green-600 dark:text-green-400">
-                            {pos.poolData.totalAPR || 'N/A'}
+                      {lpViewMode === "apr" ? (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                          <div>
+                            <span className="text-muted-foreground">Total APR</span>
+                            <div className="font-medium text-green-600 dark:text-green-400">
+                              {pos.poolData.totalAPR || 'N/A'}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Fee APR</span>
+                            <div className="font-medium">{pos.poolData.fee24hAPR || 'N/A'}</div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Harvesting APR</span>
+                            <div className="font-medium">{pos.poolData.harvesting24hAPR || 'N/A'}</div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Quest Boost</span>
+                            <div className="font-medium">
+                              {pos.poolData.gardeningQuestAPR?.worst && pos.poolData.gardeningQuestAPR?.best
+                                ? `${pos.poolData.gardeningQuestAPR.worst} - ${pos.poolData.gardeningQuestAPR.best}`
+                                : 'N/A'}
+                            </div>
                           </div>
                         </div>
-                        <div>
-                          <span className="text-muted-foreground">Fee APR</span>
-                          <div className="font-medium">{pos.poolData.fee24hAPR || 'N/A'}</div>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Harvesting APR</span>
-                          <div className="font-medium">{pos.poolData.harvesting24hAPR || 'N/A'}</div>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Quest Boost</span>
-                          <div className="font-medium">
-                            {pos.poolData.gardeningQuestAPR?.worst && pos.poolData.gardeningQuestAPR?.best
-                              ? `${pos.poolData.gardeningQuestAPR.worst} - ${pos.poolData.gardeningQuestAPR.best}`
-                              : 'N/A'}
+                      ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                          <div>
+                            <span className="text-muted-foreground">JEWEL / day</span>
+                            <div className="font-medium text-green-600 dark:text-green-400">
+                              {formatTokenPerDay(pos.poolData.daily?.jewel)}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">CRYSTAL / day</span>
+                            <div className="font-medium text-green-600 dark:text-green-400">
+                              {formatTokenPerDay(pos.poolData.daily?.crystal)}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Quest Boost</span>
+                            <div className="font-medium">
+                              {pos.poolData.gardeningQuestAPR?.worst && pos.poolData.gardeningQuestAPR?.best
+                                ? `${pos.poolData.gardeningQuestAPR.worst} - ${pos.poolData.gardeningQuestAPR.best}`
+                                : 'N/A'}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Share</span>
+                            <div className="font-medium">{pos.shareOfPool}</div>
                           </div>
                         </div>
-                      </div>
+                      )}
                       
                       <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t">
                         <span>Pool Share: {pos.shareOfPool}</span>

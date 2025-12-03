@@ -90,7 +90,7 @@ export async function handleGardenOptimizationDM(message, playerData) {
     const heroesRaw = await getAllHeroesByOwner(wallet);
     const heroes = Array.isArray(heroesRaw) ? heroesRaw : [];
 
-    const optimization = generatePoolOptimizations(positions, heroes, {
+    const optimization = await generatePoolOptimizations(positions, heroes, {
       hasLinkedWallet: true,
     });
     const report = formatOptimizationReport(optimization);

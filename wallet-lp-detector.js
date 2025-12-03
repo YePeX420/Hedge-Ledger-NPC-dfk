@@ -9,6 +9,13 @@
 import { ethers } from 'ethers';
 import { getCachedPoolAnalytics } from './pool-cache.js';
 import { getUserGardenPositions } from './onchain-data.js';
+import {
+  averageQuestApr,
+  buildGardenHeroProfile,
+  findOptimalAttempts,
+  simulateGardeningDailyYield,
+} from './hero-yield-model.js';
+import { getCrystalPrice, getJewelPrice } from './price-feed.js';
 import erc20ABI from './ERC20.json' with { type: 'json' };
 
 // DFK Chain configuration (for LP totalSupply)
@@ -40,6 +47,11 @@ const OFFICIAL_GARDEN_POOLS = [
 export async function detectWalletLPPositions(walletAddress) {
   try {
     console.log(`[LP Detector] Scanning wallet ${walletAddress} for LP positions...`);
+
+    const [jewelPrice, crystalPrice] = await Promise.all([
+      getJewelPrice().catch(() => 0),
+      getCrystalPrice().catch(() => 0),
+    ]);
 
     // Get user's staked positions from the canonical onchain layer (DFK realm only)
     const userPositions = await getUserGardenPositions(walletAddress, 'dfk');
@@ -142,6 +154,21 @@ export async function detectWalletLPPositions(walletAddress) {
           };
         }
 
+        const questAprForDaily = parseAPR(poolData?.gardeningQuestAPR?.best);
+        const poolValueNum = parseFloat(userTVL);
+        if (Number.isFinite(poolValueNum) && poolValueNum > 0) {
+          const annualQuestUsd = (poolValueNum * questAprForDaily) / 100;
+          const dailyQuestUsd = annualQuestUsd / 365;
+          const jewelPerDay = jewelPrice > 0 ? (dailyQuestUsd * 0.5) / jewelPrice : 0;
+          const crystalPerDay = crystalPrice > 0 ? (dailyQuestUsd * 0.5) / crystalPrice : 0;
+          poolData.daily = {
+            jewel: jewelPerDay,
+            crystal: crystalPerDay,
+          };
+        } else {
+          poolData.daily = { jewel: 0, crystal: 0 };
+        }
+
         positions.push({
           pid,
           pairName: name,
@@ -221,17 +248,32 @@ function parseQuestAPRRange(gardeningQuestAPR) {
 }
 
 /**
- * Generate hero/pet optimization recommendations for LP positions
+ * Generate hero/pet optimization recommendations for LP positions using real
+ * gardening simulation (VIT/WIS + gardening skill + gene + stamina regen).
  *
  * Modes:
- * - hasLinkedWallet = true  → "Before" APR = fee + harvesting + CURRENT quest APR (approx midpoint of range)
- * - hasLinkedWallet = false → "Before" APR = fee + harvesting + WORST quest APR (generic answer)
+ * - hasLinkedWallet = true  → "Before" APR models current hero roster
+ * - hasLinkedWallet = false → "Before" APR falls back to worst quest APR
  */
-export function generatePoolOptimizations(positions, heroes = [], options = {}) {
+export async function generatePoolOptimizations(
+  positions,
+  heroes = [],
+  options = {}
+) {
   const { hasLinkedWallet = true } = options;
   const recommendations = [];
 
   const safePositions = Array.isArray(positions) ? positions : [];
+  const priceData = await Promise.all([
+    getJewelPrice().catch(() => 0),
+    getCrystalPrice().catch(() => 0),
+  ]);
+  const jewelPrice = priceData[0] || 0;
+  const crystalPrice = priceData[1] || 0;
+
+  const heroProfiles = (Array.isArray(heroes) ? heroes : [])
+    .map((hero) => buildGardenHeroProfile(hero, {}, hero.heroMeta || {}))
+    .sort((a, b) => b.gardenScore - a.gardenScore);
 
   for (const position of safePositions) {
     const { pairName, poolData, userTVL } = position;
@@ -244,13 +286,38 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
 
     const baseAPR = feeAPR + harvestingAPR;
 
-    // Current quest APR estimate
-    const currentQuestAPR = hasLinkedWallet
-      ? (worstQuestAPR + bestQuestAPR) / 2
+    const positionValue = (() => {
+      const n = parseFloat(userTVL);
+      return Number.isFinite(n) ? n : 0;
+    })();
+
+    const poolMeta = { gardeningQuestAPR: { best: `${bestQuestAPR}%` } };
+
+    const currentHeroes = hasLinkedWallet
+      ? heroProfiles.slice(0, 6)
+      : [];
+
+    const optimizedHeroes = heroProfiles.slice(0, 6);
+
+    const defaultAttempts = 25;
+    const beforeQuestAPR = currentHeroes.length
+      ? averageQuestApr(currentHeroes, poolMeta, defaultAttempts)
       : worstQuestAPR;
 
-    const beforeAPR = baseAPR + currentQuestAPR;
-    const afterAPR = baseAPR + bestQuestAPR;
+    const bestAttempt = optimizedHeroes.length
+      ? findOptimalAttempts({
+          hero: optimizedHeroes[0].hero,
+          heroMeta: optimizedHeroes[0].heroMeta,
+          poolMeta,
+        })
+      : { attempts: defaultAttempts, eff: beforeQuestAPR };
+
+    const afterQuestAPR = optimizedHeroes.length
+      ? averageQuestApr(optimizedHeroes, poolMeta, bestAttempt.attempts)
+      : bestQuestAPR;
+
+    const beforeAPR = baseAPR + beforeQuestAPR;
+    const afterAPR = baseAPR + afterQuestAPR;
 
     const feeVsEmission = harvestingAPR === 0 ? Infinity : feeAPR / harvestingAPR;
     let poolType;
@@ -260,70 +327,85 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
     if (feeVsEmission > 2.0) {
       poolType = 'Fee-Dominant (Stable Passive Income)';
       heroRecommendation =
-        'Any available hero works well. Focus on maximizing gardening skill for a small but steady boost.';
+        'Any available hero works well. Focus on maximizing VIT/WIS plus gardening skill for consistent quest boosts.';
       petRecommendation =
-        'Trading or fee-boosting pets are optimal. Gardening pets are a plus but not mandatory here.';
+        'Trading or fee-boosting pets are optimal. Gardening pets still add a small bonus.';
     } else if (feeVsEmission < 0.5) {
       poolType = 'Emission-Dominant (High Hero Boost Potential)';
       heroRecommendation =
-        'Prioritize your highest INT + WIS heroes. Best: high level (60+) gardeners with strong profession bonuses. These pools get a big lift from optimized questing.';
+        'Prioritize high VIT/WIS gardeners with strong gardening skill and the gardening gene. These stats directly amplify gardening rewards.';
       petRecommendation =
         'Gardening pets that boost CRYSTAL / JEWEL emissions are ideal. Look for pets with gardening yield bonuses or quest stamina reduction.';
     } else {
       poolType = 'Balanced (Fees + Emissions)';
       heroRecommendation =
-        'Use mid to high level heroes (40–80) with decent INT/WIS and gardening profession. You don’t need your absolute best hero here, but a good gardener still matters.';
+        'Use mid to high level heroes with solid VIT/WIS, gardening skill, and (ideally) the gardening gene for steady boosts.';
       petRecommendation =
-        'Either trading or gardening pets work. Prefer gardening pets if you want to push the upper end of the APR range.';
+        'Either trading or gardening pets work. Gardening pets help push the upper end of the APR range.';
     }
 
-    const positionValue = (() => {
-      const n = parseFloat(userTVL);
-      return Number.isFinite(n) ? n : 0;
-    })();
-
-    const currentYieldLow = Number.isFinite(beforeAPR) ? beforeAPR : 0;
-    const currentYieldHigh = Number.isFinite(afterAPR) ? afterAPR : 0;
-
-    const formatAPR = (value) => {
-      const safe = Number.isFinite(value) ? value : 0;
-      return `${safe.toFixed(2)}%`;
-    };
-
-    const formatDollars = (value) => {
-      const safe = Number.isFinite(value) ? value : 0;
-      return `$${safe.toFixed(2)}`;
-    };
-
-    const abs = currentYieldHigh - currentYieldLow;
-    const safeAbs = Number.isFinite(abs) ? abs : 0;
-    const base = currentYieldLow;
-    let rel = 0;
-    if (base > 0.1) {
-      const raw = ((currentYieldHigh - currentYieldLow) / base) * 100;
-      rel = Number.isFinite(raw) ? raw : 0;
+    if (optimizedHeroes[0]) {
+      const h = optimizedHeroes[0].hero;
+      heroRecommendation += `\n\nTop gardener right now looks like **Hero #${
+        h.normalizedId || h.id
+      }** (Lvl ${h.level || 0}, Gardening ${((h.gardening || 0) / 10).toFixed(
+        1
+      )}, VIT ${h.vitality || 0}, WIS ${h.wisdom || 0}).`;
     }
-    const yieldImprovementLabel = base > 0.1
-      ? `${rel.toFixed(1)}% vs current`
-      : `${safeAbs.toFixed(1)}% absolute`;
 
     const safe = (n) => (Number.isFinite(n) ? n : 0);
+    const currentYieldLow = safe(beforeAPR);
+    const currentYieldHigh = safe(afterAPR);
+
+    const absGain = currentYieldHigh - currentYieldLow;
+    const relGain = currentYieldLow > 0.1
+      ? ((currentYieldHigh - currentYieldLow) / currentYieldLow) * 100
+      : absGain;
+
+    const yieldImprovementLabel = currentYieldLow > 0.1
+      ? `${safe(relGain).toFixed(1)}% vs current`
+      : `${safe(absGain).toFixed(1)}% absolute`;
+
     const annualGainLow = safe(positionValue * (currentYieldLow / 100));
     const annualGainHigh = safe(positionValue * (currentYieldHigh / 100));
-    const additionalGain = safe(annualGainHigh - annualGainLow);
+
+    const computeDailyTokens = (questApr) => {
+      const annualQuestUsd = safe(positionValue * (questApr / 100));
+      const dailyQuestUsd = annualQuestUsd / 365;
+      const jewelPerDay = jewelPrice > 0 ? (dailyQuestUsd * 0.5) / jewelPrice : 0;
+      const crystalPerDay = crystalPrice > 0 ? (dailyQuestUsd * 0.5) / crystalPrice : 0;
+      return {
+        jewel: jewelPerDay,
+        crystal: crystalPerDay,
+      };
+    };
+
+    const dailyBefore = computeDailyTokens(beforeQuestAPR);
+    const dailyAfter = computeDailyTokens(afterQuestAPR);
+
+    const attemptDelta = optimizedHeroes.length
+      ? simulateGardeningDailyYield(
+          {
+            hero: optimizedHeroes[0].hero,
+            heroMeta: optimizedHeroes[0].heroMeta,
+            poolMeta,
+          },
+          bestAttempt.attempts
+        )
+      : null;
 
     recommendations.push({
       pairName,
       poolType,
       userTVL: positionValue.toFixed(2),
       currentYield: {
-        worst: formatAPR(currentYieldLow),
-        best: formatAPR(currentYieldHigh)
+        worst: `${currentYieldLow.toFixed(2)}%`,
+        best: `${currentYieldHigh.toFixed(2)}%`,
       },
       annualReturn: {
-        worst: formatDollars(annualGainLow),
-        best: formatDollars(annualGainHigh),
-        additionalGain: formatDollars(additionalGain)
+        worst: `$${annualGainLow.toFixed(2)}`,
+        best: `$${annualGainHigh.toFixed(2)}`,
+        additionalGain: `$${(annualGainHigh - annualGainLow).toFixed(2)}`,
       },
       yieldImprovement: yieldImprovementLabel,
       heroRecommendation,
@@ -334,8 +416,16 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
         questBoost:
           gardeningQuestAPR?.worst && gardeningQuestAPR?.best
             ? `${gardeningQuestAPR.worst} - ${gardeningQuestAPR.best}`
-            : 'N/A'
-      }
+            : 'N/A',
+      },
+      optimalAttempts: bestAttempt,
+      beforeQuestAPR,
+      afterQuestAPR,
+      daily: {
+        before: dailyBefore,
+        after: dailyAfter,
+      },
+      iterationSeconds: attemptDelta?.iterationSeconds || null,
     });
   }
 
@@ -348,7 +438,7 @@ export function generatePoolOptimizations(positions, heroes = [], options = {}) 
       }, 0);
       return Number.isFinite(sum) ? sum.toFixed(2) : '0.00';
     })(),
-    recommendations
+    recommendations,
   };
 }
 
@@ -471,6 +561,8 @@ export function formatOptimizationReport(optimization) {
     const currentYield = rec.currentYield || {};
     const annualReturn = rec.annualReturn || {};
     const aprBreakdown = rec.aprBreakdown || {};
+    const dailyBefore = rec?.daily?.before;
+    const dailyAfter = rec?.daily?.after;
 
     report += `### ${rec.pairName || 'Unknown Pool'}\n`;
     report += `**Pool Type:** ${rec.poolType || 'N/A'} | **Your Position:** $${rec.userTVL ?? '0.00'}\n\n`;
@@ -479,10 +571,24 @@ export function formatOptimizationReport(optimization) {
     report += `\`\`\`\n`;
     report += `BEFORE (Current gardening setup):\n`;
     report += `  APR: ${currentYield.worst ?? 'N/A'}\n`;
-    report += `  Annual Return: ${annualReturn.worst ?? 'N/A'}\n\n`;
+    report += `  Annual Return: ${annualReturn.worst ?? 'N/A'}\n`;
+    if (dailyBefore) {
+      report += `  Tokens/day: ${dailyBefore.jewel?.toFixed?.(2) ?? '0.00'} JEWEL, ${
+        dailyBefore.crystal?.toFixed?.(2) ?? '0.00'
+      } CRYSTAL\n\n`;
+    } else {
+      report += `\n`;
+    }
     report += `AFTER (Optimized heroes + pets):\n`;
     report += `  APR: ${currentYield.best ?? 'N/A'}\n`;
-    report += `  Annual Return: ${annualReturn.best ?? 'N/A'}\n\n`;
+    report += `  Annual Return: ${annualReturn.best ?? 'N/A'}\n`;
+    if (dailyAfter) {
+      report += `  Tokens/day: ${dailyAfter.jewel?.toFixed?.(2) ?? '0.00'} JEWEL, ${
+        dailyAfter.crystal?.toFixed?.(2) ?? '0.00'
+      } CRYSTAL\n\n`;
+    } else {
+      report += `\n`;
+    }
     const gain = rec?.annualReturn?.additionalGain ?? '$0.00';
     report += `GAIN: ${gain}/year (${rec.yieldImprovement || ''})\n`;
     report += `\`\`\`\n\n`;
@@ -495,6 +601,9 @@ export function formatOptimizationReport(optimization) {
     report += `- Fee APR: ${aprBreakdown.fee ?? 'N/A'}\n`;
     report += `- Harvesting APR: ${aprBreakdown.harvesting ?? 'N/A'}\n`;
     report += `- Quest Boost Range: ${aprBreakdown.questBoost ?? 'N/A'}\n\n`;
+    if (rec?.optimalAttempts?.attempts) {
+      report += `- Optimal attempts/run: ${rec.optimalAttempts.attempts} (vs 25 baseline)\n`;
+    }
     report += `---\n\n`;
   }
 
