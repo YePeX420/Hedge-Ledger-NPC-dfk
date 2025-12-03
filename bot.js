@@ -1881,6 +1881,83 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const output = lines.join('\n').slice(0, 1900);
       await interaction.editReply(output);
       
+      // Fetch pet and quest data for follow-up message
+      const followUp = [];
+      
+      try {
+        // Get owner wallet for expedition/power-up lookup
+        const ownerWallet = hero.owner?.id;
+        
+        if (ownerWallet) {
+          // Import required functions dynamically
+          const { fetchPetForHero } = await import('./pet-data.js');
+          const { getAllExpeditions } = await import('./hero-pairing.js');
+          const { getWalletPowerUpStatus, isHeroRapidRenewalActive } = await import('./rapid-renewal-service.js');
+          
+          // Fetch pet and quest info in parallel
+          const [pet, expeditions, powerUpStatus] = await Promise.all([
+            fetchPetForHero(hero.normalizedId || numericId),
+            getAllExpeditions(ownerWallet).catch(() => null),
+            getWalletPowerUpStatus(ownerWallet)
+          ]);
+          
+          followUp.push('');
+          followUp.push('🐾 **Pet & Quest Info**');
+          followUp.push('');
+          
+          // Pet info
+          if (pet) {
+            const hasGF = powerUpStatus.gravityFeeder.active;
+            const petFed = pet.isFed || hasGF;
+            const fedReason = pet.isFed ? 'fed' : (hasGF ? 'fed (Gravity Feeder)' : 'hungry');
+            followUp.push(`**Equipped Pet:** #${pet.id}`);
+            followUp.push(`• Type: ${pet.gatheringType}`);
+            followUp.push(`• Bonus: +${pet.gatheringBonusScalar}%`);
+            followUp.push(`• Status: ${fedReason}`);
+          } else {
+            followUp.push('**Equipped Pet:** None');
+          }
+          
+          followUp.push('');
+          
+          // Quest info
+          if (expeditions?.heroToQuest) {
+            const questData = expeditions.heroToQuest.get(hero.normalizedId) || 
+                             expeditions.heroToQuest.get(Number(numericId));
+            
+            if (questData) {
+              followUp.push(`**Current Quest:** ${questData.name}`);
+              followUp.push(`• Type: ${questData.type}`);
+              if (questData.poolId) followUp.push(`• Pool: ${questData.poolId}`);
+              followUp.push(`• Heroes: ${questData.heroIds.join(', ')}`);
+              followUp.push(`• Iteration: ${questData.iterationTimeStr}`);
+              followUp.push(`• Remaining: ${questData.remainingIterations} iterations`);
+            } else {
+              followUp.push('**Current Quest:** None (not on expedition)');
+            }
+          } else {
+            followUp.push('**Current Quest:** Unable to fetch expedition data');
+          }
+          
+          followUp.push('');
+          
+          // Power-up status
+          const hasRR = powerUpStatus.rapidRenewal.heroIds.includes(hero.normalizedId) ||
+                       powerUpStatus.rapidRenewal.heroIds.includes(Number(numericId));
+          followUp.push('**Power-ups:**');
+          followUp.push(`• Wild Unknown: ${powerUpStatus.wildUnknown.active ? '✅' : '❌'}`);
+          followUp.push(`• Gravity Feeder: ${powerUpStatus.gravityFeeder.active ? '✅' : '❌'}`);
+          followUp.push(`• Rapid Renewal: ${hasRR ? '✅ (this hero)' : '❌'}`);
+          
+          // Send follow-up
+          const followUpText = followUp.join('\n').slice(0, 1900);
+          await interaction.followUp(followUpText);
+        }
+      } catch (err) {
+        console.error('[DebugHeroId] Error fetching pet/quest data:', err);
+        // Don't fail the command, just skip follow-up
+      }
+      
       return;
     }
 
