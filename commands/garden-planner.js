@@ -568,7 +568,7 @@ export async function execute(interaction) {
         `KAIA: $${prices.KAIA.toFixed(4)} | xJEWEL: $${prices.xJEWEL.toFixed(4)}`,
         ``,
         `**Pool TVLs (Current → After Deposit):**`,
-        poolResults.map(p => `PID ${p.pid} ${p.name.replace(/wJEWEL/g, 'JEWEL')}: $${p.tvl.toLocaleString(undefined, {maximumFractionDigits: 0})} → $${p.afterTVL.toLocaleString(undefined, {maximumFractionDigits: 0})} (${p.allocPercent.toFixed(1)}% alloc)`).join('\n'),
+        poolResults.map(p => `(PID ${p.pid}) ${p.name.replace(/wJEWEL/g, 'JEWEL')}: $${p.tvl.toLocaleString(undefined, {maximumFractionDigits: 0})} → $${p.afterTVL.toLocaleString(undefined, {maximumFractionDigits: 0})} (${p.allocPercent.toFixed(1)}% alloc)`).join('\n'),
         ``,
         `**Reward Fund:** ${(crystalPoolNum/1e6).toFixed(2)}M CRYSTAL | ${(jewelPoolNum/1e3).toFixed(0)}K JEWEL`
       ].join('\n'))

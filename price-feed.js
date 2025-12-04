@@ -7,11 +7,12 @@ import { ethers } from 'ethers';
 import Decimal from 'decimal.js';
 
 // Token addresses on DFK Chain (Crystalvale)
+// Note: ETH address is from the LP pools (0xfbdf...58852), not the old WETH.e (0xfBDF...d3f8)
 const TOKEN_ADDRESSES = {
   CRYSTAL: '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb',
   JEWEL: '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260',
   USDC: '0x3AD9DFE640E1A9Cc1D9B0948620820D975c3803a',
-  WETH: '0xfBDF0E31808d0aa7b9509AA6aBC9F6985eABd3f8',
+  WETH: '0xfbdf0e31808d0aa7b9509aa6abc9754e48c58852', // Correct ETH address from LP pools
   WAVAX: '0xB57B60DeBDB0b8172bb6316a9164bd3C695F133a',
 };
 

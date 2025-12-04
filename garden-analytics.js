@@ -244,11 +244,12 @@ export async function buildFocusedPriceGraph(gardenPools) {
   priceGraph.set(USDC_ADDRESS.toLowerCase(), 1.0);
   
   // Key bridging pairs for price propagation (USDC pairs to bootstrap pricing)
+  // These are the correct LP addresses from DFK staking contract
   const KEY_PAIRS = [
-    '0x98c3E14aC0C4f0b2E3D45Df02A2E23F47a0E4B10', // JEWEL-USDC
-    '0xa92a6E4f36Cd692f7ca16FB06A2ef9C26BD02F45', // CRYSTAL-USDC
-    '0x30a68A7Be0B33A86F8c02c90C0F51C15A5C79Fe2', // WETH-USDC
-    '0x11dF2e6C6be6a0F1d7bFc1a2A1C0C4C6C0B6A7A8', // AVAX-USDC (if exists)
+    '0xCF329b34049033dE26e4449aeBCb41f1992724D3', // wJEWEL-USDC (pid 5)
+    '0x04Dec678825b8DfD2D0d9bD83B538bE3fbDA2926', // CRYSTAL-USDC (pid 3)
+    '0x7d4daa9eB74264b082A92F3f559ff167224484aC', // ETH-USDC (pid 4)
+    '0x59D642B471dd54207Cb1CDe2e7507b0Ce1b1a6a5', // BTC.b-USDC (pid 13)
   ];
   
   // Collect LP tokens from garden pools + key bridging pairs
@@ -333,47 +334,99 @@ export async function buildPriceGraph() {
   const priceGraph = new Map(); // token address -> USD price
   const edges = new Map(); // token -> [{partner, rate}]
   
+  // Known token addresses for debugging
+  const KNOWN_TOKENS = {
+    USDC: USDC_ADDRESS.toLowerCase(),
+    WETH: '0xfbdf0e31808d0aa7b9509aa6abc9754e48c58852'.toLowerCase(), // Correct ETH address from LP pools
+    WAVAX: '0xB57B60DeBDB0b8172bb6316a9164bd3C695F133a'.toLowerCase(),
+    CRYSTAL: '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb'.toLowerCase(),
+    JEWEL: '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260'.toLowerCase(),
+  };
+  
+  // Priority direct USDC pairs for accurate pricing (processed first)
+  const PRIORITY_PAIRS = [
+    '0x7d4daa9eB74264b082A92F3f559ff167224484aC', // ETH-USDC (pid 4)
+    '0x04Dec678825b8DfD2D0d9bD83B538bE3fbDA2926', // CRYSTAL-USDC (pid 3)
+    '0xCF329b34049033dE26e4449aeBCb41f1992724D3', // wJEWEL-USDC (pid 5)
+    '0x59D642B471dd54207Cb1CDe2e7507b0Ce1b1a6a5', // BTC.b-USDC (pid 13)
+  ];
+  
+  // Secondary pairs for tokens not directly paired with USDC
+  const SECONDARY_PAIRS = [
+    '0x9f378F48d0c1328fd0C80d7Ae544c6CadB5Ba99E', // CRYSTAL-AVAX (pid 1) - for AVAX pricing via CRYSTAL
+    '0x78C893E262e2681Dbd6B6eBA6CCA2AaD45de19AD', // CRYSTAL-ETH (pid 6) - backup for ETH
+    '0xF3EabeD6Bd905e0FcD68FC3dBCd6e3A4aEE55E98', // wJEWEL-AVAX (pid 10) - backup for AVAX
+  ];
+  
   // Set USDC anchor price
   priceGraph.set(USDC_ADDRESS.toLowerCase(), 1.0);
   
-  // Enumerate all LP pairs from factory
-  const allPairs = await enumerateAllPairs();
-  
-  console.log(`Building price graph from ${allPairs.length} LP pairs...`);
-  
-  // Build edges from ALL LP pairs (not just staked ones)
-  for (const pairAddress of allPairs) {
+  // Process priority pairs FIRST to establish accurate base prices
+  console.log('[PriceGraph] Processing priority USDC pairs first...');
+  for (const pairAddress of [...PRIORITY_PAIRS, ...SECONDARY_PAIRS]) {
     try {
       const details = await getLPTokenDetails(pairAddress);
       const token0 = details.token0.address.toLowerCase();
       const token1 = details.token1.address.toLowerCase();
       
-      // Calculate exchange rates (price propagation)
-      // In a constant product AMM: if we know token0 price, token1 price = token0 price * (reserve0 / reserve1)
-      // This is because: 1 token1 = (reserve0 / reserve1) token0
+      const reserve0Float = parseFloat(ethers.formatUnits(details.reserve0, details.token0.decimals));
+      const reserve1Float = parseFloat(ethers.formatUnits(details.reserve1, details.token1.decimals));
+      
+      if (reserve0Float === 0 || reserve1Float === 0) {
+        console.log(`[PriceGraph] Skipping ${details.pairName} - zero reserves`);
+        continue;
+      }
+      
+      const rate01 = reserve0Float / reserve1Float;
+      const rate10 = reserve1Float / reserve0Float;
+      
+      if (!edges.has(token0)) edges.set(token0, []);
+      if (!edges.has(token1)) edges.set(token1, []);
+      
+      // Add to FRONT of edges array to prioritize these rates
+      edges.get(token0).unshift({ partner: token1, rate: rate01 });
+      edges.get(token1).unshift({ partner: token0, rate: rate10 });
+      
+      console.log(`[PriceGraph] Priority: ${details.pairName} r0=${reserve0Float.toFixed(4)} r1=${reserve1Float.toFixed(4)}`);
+    } catch (err) {
+      console.log(`[PriceGraph] Failed to load priority pair ${pairAddress}: ${err.message}`);
+    }
+  }
+  
+  // Enumerate all LP pairs from factory
+  const allPairs = await enumerateAllPairs();
+  console.log(`[PriceGraph] Building from ${allPairs.length} factory LP pairs...`);
+  
+  // Build edges from ALL LP pairs (not just staked ones)
+  for (const pairAddress of allPairs) {
+    // Skip priority pairs (already processed)
+    if (PRIORITY_PAIRS.includes(pairAddress) || SECONDARY_PAIRS.includes(pairAddress)) continue;
+    
+    try {
+      const details = await getLPTokenDetails(pairAddress);
+      const token0 = details.token0.address.toLowerCase();
+      const token1 = details.token1.address.toLowerCase();
+      
       const reserve0Float = parseFloat(ethers.formatUnits(details.reserve0, details.token0.decimals));
       const reserve1Float = parseFloat(ethers.formatUnits(details.reserve1, details.token1.decimals));
       
       if (reserve0Float === 0 || reserve1Float === 0) continue;
       
-      // Price multiplier when propagating from token0 to token1
-      const rate01 = reserve0Float / reserve1Float; // token1Price = token0Price * rate01
-      // Price multiplier when propagating from token1 to token0  
-      const rate10 = reserve1Float / reserve0Float; // token0Price = token1Price * rate10
+      const rate01 = reserve0Float / reserve1Float;
+      const rate10 = reserve1Float / reserve0Float;
       
-      // Add bidirectional edges
+      // Add to END of edges array (lower priority than direct USDC pairs)
       if (!edges.has(token0)) edges.set(token0, []);
       if (!edges.has(token1)) edges.set(token1, []);
       
       edges.get(token0).push({ partner: token1, rate: rate01 });
       edges.get(token1).push({ partner: token0, rate: rate10 });
     } catch (err) {
-      // Skip pairs with errors (likely invalid or deprecated pairs)
       continue;
     }
   }
   
-  // BFS to propagate prices from USDC
+  // BFS to propagate prices from USDC (priority edges processed first due to unshift)
   const queue = [USDC_ADDRESS.toLowerCase()];
   const visited = new Set([USDC_ADDRESS.toLowerCase()]);
   
@@ -391,7 +444,15 @@ export async function buildPriceGraph() {
     }
   }
   
-  console.log(`Price graph built: ${priceGraph.size} tokens priced`);
+  // Debug: Log prices for key tokens
+  console.log(`[PriceGraph] Key token prices:`);
+  console.log(`  USDC: $${priceGraph.get(KNOWN_TOKENS.USDC)?.toFixed(4) || 'N/A'}`);
+  console.log(`  CRYSTAL: $${priceGraph.get(KNOWN_TOKENS.CRYSTAL)?.toFixed(4) || 'N/A'}`);
+  console.log(`  JEWEL: $${priceGraph.get(KNOWN_TOKENS.JEWEL)?.toFixed(4) || 'N/A'}`);
+  console.log(`  ETH: $${priceGraph.get(KNOWN_TOKENS.WETH)?.toFixed(2) || 'N/A'}`);
+  console.log(`  AVAX: $${priceGraph.get(KNOWN_TOKENS.WAVAX)?.toFixed(4) || 'N/A'}`);
+  
+  console.log(`[PriceGraph] Built: ${priceGraph.size} tokens priced`);
   
   return priceGraph;
 }
