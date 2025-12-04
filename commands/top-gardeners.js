@@ -46,6 +46,27 @@ const GARDEN_POOLS = [
 ];
 
 /**
+ * Pool choices for dropdown (auto = detect highest value position)
+ */
+const POOL_CHOICES = [
+  { name: 'Auto-detect best position', value: 'auto' },
+  { name: 'wJEWEL-xJEWEL', value: '0' },
+  { name: 'CRYSTAL-AVAX', value: '1' },
+  { name: 'CRYSTAL-wJEWEL', value: '2' },
+  { name: 'CRYSTAL-USDC', value: '3' },
+  { name: 'ETH-USDC', value: '4' },
+  { name: 'wJEWEL-USDC', value: '5' },
+  { name: 'CRYSTAL-ETH', value: '6' },
+  { name: 'CRYSTAL-BTC.b', value: '7' },
+  { name: 'CRYSTAL-KLAY', value: '8' },
+  { name: 'wJEWEL-KLAY', value: '9' },
+  { name: 'wJEWEL-AVAX', value: '10' },
+  { name: 'wJEWEL-BTC.b', value: '11' },
+  { name: 'wJEWEL-ETH', value: '12' },
+  { name: 'BTC.b-USDC', value: '13' }
+];
+
+/**
  * Calculate hero gardening factor
  * Formula: 0.1 + (WIS+VIT)/1222.22 + GrdSkl/244.44
  */
@@ -183,6 +204,68 @@ function scoreHeroForGardening(hero) {
 }
 
 /**
+ * Get data for a specific pool by pid
+ * Returns pool info with user's staked position (if any) or 0 if not staked
+ */
+async function getPoolByPid(pid, walletAddress) {
+  try {
+    const poolInfo = GARDEN_POOLS.find(p => p.pid === pid);
+    if (!poolInfo) return null;
+    
+    // Get pool details from contract
+    const poolDetails = await getGardenPoolByPid(pid, 'dfk');
+    if (!poolDetails) return null;
+    
+    const totalStakedRaw = poolDetails.totalStakedRaw;
+    if (!totalStakedRaw || BigInt(totalStakedRaw) <= 0n) {
+      return null;
+    }
+    
+    // Get cached analytics for TVL
+    const cached = getCachedPoolAnalytics();
+    const poolData = cached?.data || [];
+    const analytics = poolData.find(p => p.pid === pid);
+    const tvl = analytics?.totalTVL || 0;
+    
+    // Check if user has a position in this pool
+    const positions = await getUserGardenPositions(walletAddress, 'dfk');
+    const userPosition = (positions || []).find(p => p.pid === pid);
+    
+    let stakedAmount = '0';
+    let stakedAmountRaw = '0';
+    let userShare = 0;
+    let userValue = 0;
+    
+    if (userPosition && userPosition.stakedAmountRaw && BigInt(userPosition.stakedAmountRaw) > 0n) {
+      stakedAmount = userPosition.stakedAmount;
+      stakedAmountRaw = userPosition.stakedAmountRaw;
+      userShare = Number(stakedAmountRaw) / Number(totalStakedRaw);
+      userValue = tvl * userShare;
+    }
+    
+    const allocPercent = parseFloat(poolDetails.allocPercent) || 0;
+    
+    return {
+      pid,
+      name: poolInfo.name,
+      lpToken: poolInfo.lpToken,
+      stakedAmount,
+      stakedAmountRaw,
+      totalStaked: poolDetails.totalStaked,
+      totalStakedRaw,
+      userShare,
+      userValue,
+      tvl,
+      allocPercent,
+      allocDecimal: allocPercent / 100
+    };
+  } catch (err) {
+    console.error(`[TopGardeners] Error getting pool ${pid}:`, err.message);
+    return null;
+  }
+}
+
+/**
  * Get user's highest-value pool position
  * Uses totalStakedRaw from pool info (not LP totalSupply) for correct LP share
  */
@@ -260,6 +343,12 @@ export const data = new SlashCommandBuilder()
     option.setName('wallet')
       .setDescription('Wallet address to analyze')
       .setRequired(true)
+  )
+  .addStringOption(option =>
+    option.setName('pool')
+      .setDescription('Garden pool to calculate yields for (default: auto-detect best position)')
+      .setRequired(false)
+      .addChoices(...POOL_CHOICES)
   );
 
 export async function execute(interaction) {
@@ -269,30 +358,48 @@ export async function execute(interaction) {
   
   try {
     const walletAddress = interaction.options.getString('wallet').toLowerCase();
+    const poolSelection = interaction.options.getString('pool') || 'auto';
     
-    console.log(`[TopGardeners] Analyzing wallet ${walletAddress}...`);
+    console.log(`[TopGardeners] Analyzing wallet ${walletAddress}, pool=${poolSelection}...`);
     
-    // Fetch all data in parallel
-    const [heroes, pets, rewardFund, bestPool] = await Promise.all([
+    // Fetch heroes, pets, and reward fund in parallel
+    const [heroes, pets, rewardFund] = await Promise.all([
       getHeroesByOwner(walletAddress),
       fetchPetsForWallet(walletAddress),
-      getQuestRewardFundBalances(),
-      getBestPoolPosition(walletAddress)
+      getQuestRewardFundBalances()
     ]);
     
     if (!heroes || heroes.length === 0) {
       return interaction.editReply('No heroes found for this wallet');
     }
     
-    if (!bestPool) {
-      return interaction.editReply('No LP positions found. Stake LP tokens in a garden to see yield estimates.');
+    // Get pool data based on selection
+    let selectedPool;
+    if (poolSelection === 'auto') {
+      selectedPool = await getBestPoolPosition(walletAddress);
+      if (!selectedPool) {
+        return interaction.editReply('No LP positions found. Stake LP tokens in a garden to see yield estimates, or select a specific pool to see potential yields.');
+      }
+    } else {
+      const pid = parseInt(poolSelection, 10);
+      selectedPool = await getPoolByPid(pid, walletAddress);
+      if (!selectedPool) {
+        return interaction.editReply(`Could not fetch data for pool ${poolSelection}. Please try again.`);
+      }
     }
+    
+    // If user has no position in manually selected pool, use a reference share for theoretical yields
+    const hasPosition = selectedPool.userShare > 0;
+    
+    // For theoretical yields (no position), use 0.01% reference share
+    // This gives meaningful comparison numbers rather than all zeros
+    const effectiveLpShare = hasPosition ? selectedPool.userShare : 0.0001;
     
     // Filter for gardening pets
     const gardeningPets = (pets || []).filter(p => p.eggType === 2);
     
     console.log(`[TopGardeners] Found ${heroes.length} heroes, ${gardeningPets.length} gardening pets`);
-    console.log(`[TopGardeners] Best pool: ${bestPool.name} (${(bestPool.userShare * 100).toFixed(4)}% share, ${bestPool.allocPercent}% alloc)`);
+    console.log(`[TopGardeners] Selected pool: ${selectedPool.name} (${(selectedPool.userShare * 100).toFixed(4)}% share, ${selectedPool.allocPercent}% alloc, hasPosition=${hasPosition})`);
     console.log(`[TopGardeners] Reward Fund: ${rewardFund.crystalPool.toLocaleString()} CRYSTAL, ${rewardFund.jewelPool.toLocaleString()} JEWEL`);
     
     // Score and rank heroes
@@ -332,8 +439,8 @@ export async function execute(interaction) {
         hasGardeningGene,
         gardeningSkill,
         rewardPool: rewardFund.crystalPool,
-        poolAllocation: bestPool.allocDecimal,
-        lpOwned: bestPool.userShare,
+        poolAllocation: selectedPool.allocDecimal,
+        lpOwned: effectiveLpShare,
         staminaPerDay,
         petMultiplier: bestMatch.petMultiplier
       });
@@ -344,8 +451,8 @@ export async function execute(interaction) {
         hasGardeningGene,
         gardeningSkill,
         rewardPool: rewardFund.jewelPool,
-        poolAllocation: bestPool.allocDecimal,
-        lpOwned: bestPool.userShare,
+        poolAllocation: selectedPool.allocDecimal,
+        lpOwned: effectiveLpShare,
         staminaPerDay,
         petMultiplier: bestMatch.petMultiplier
       });
@@ -368,6 +475,11 @@ export async function execute(interaction) {
     }
     
     // Build embed
+    const poolMode = poolSelection === 'auto' ? '(auto-detected)' : '(selected)';
+    const shareInfo = hasPosition 
+      ? `**Your Share:** ${(selectedPool.userShare * 100).toFixed(4)}%` 
+      : `**Your Share:** 0.01% reference (theoretical yields)`;
+    
     const embed = new EmbedBuilder()
       .setColor('#00FF88')
       .setTitle('Top 12 Gardener-Pet Pairings')
@@ -375,8 +487,8 @@ export async function execute(interaction) {
         `Wallet: \`${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}\``,
         `Heroes: ${heroes.length} | Gardening Pets: ${gardeningPets.length}`,
         ``,
-        `**Pool:** ${bestPool.name}`,
-        `**Your Share:** ${(bestPool.userShare * 100).toFixed(4)}% | **Alloc:** ${bestPool.allocPercent}%`,
+        `**Pool:** ${selectedPool.name} ${poolMode}`,
+        `${shareInfo} | **Alloc:** ${selectedPool.allocPercent}%`,
         `**Reward Fund:** ${(rewardFund.crystalPool/1e6).toFixed(2)}M CRYSTAL | ${(rewardFund.jewelPool/1e3).toFixed(0)}K JEWEL`
       ].join('\n'))
       .setTimestamp();
