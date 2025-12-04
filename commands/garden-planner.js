@@ -5,6 +5,7 @@ import { getQuestRewardFundBalances } from '../quest-reward-fund.js';
 import { getCachedPoolAnalytics } from '../pool-cache.js';
 import { getCrystalPrice, getJewelPrice, getBatchPrices, TOKEN_ADDRESSES } from '../price-feed.js';
 import { getLPTokenDetails } from '../garden-analytics.js';
+import { isHeroRapidRenewalActive } from '../rapid-renewal-service.js';
 
 /**
  * Official garden pools with LP token addresses and token pair info
@@ -398,8 +399,24 @@ export async function execute(interaction) {
     const hasGardeningGene = bestHero.professionStr === 'Gardening';
     const gardeningSkill = bestHero.gardening || 0;
     
-    console.log(`[GardenPlanner] Best hero: #${bestHero.id} (Lv${bestHero.level}, Grd:${Math.floor(gardeningSkill/10)}, Gene:${hasGardeningGene})`);
+    // Check if best hero has Rapid Renewal power-up
+    const hasRapidRenewal = await isHeroRapidRenewalActive(walletAddress, bestHero.id);
+    
+    // Calculate full cycle time (quest duration + regen time)
+    // Quest: 10 min/stam with Gardening gene, 12 min/stam without
+    // Regen: 20 min/stam base, reduced by (level * 3) seconds with RR (min 5 min)
+    const questMinPerStam = hasGardeningGene ? 10 : 12;
+    let regenMinPerStam = 20; // base: 20 min per stamina
+    if (hasRapidRenewal) {
+      const regenSeconds = Math.max(300, 1200 - (bestHero.level * 3)); // min 5 min = 300s
+      regenMinPerStam = regenSeconds / 60;
+    }
+    const cycleMinutes = stamina * (questMinPerStam + regenMinPerStam);
+    const runsPerDay = 1440 / cycleMinutes;
+    
+    console.log(`[GardenPlanner] Best hero: #${bestHero.id} (Lv${bestHero.level}, Grd:${Math.floor(gardeningSkill/10)}, Gene:${hasGardeningGene}, RR:${hasRapidRenewal})`);
     console.log(`[GardenPlanner] Best pet: ${bestPairing.pet ? `#${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'None'}`);
+    console.log(`[GardenPlanner] Cycle: ${cycleMinutes.toFixed(0)} min (${questMinPerStam}+${regenMinPerStam.toFixed(1)} min/stam) = ${runsPerDay.toFixed(2)} runs/day`);
     console.log(`[GardenPlanner] Reward Fund: ${Number(rewardFund.crystalPool).toLocaleString()} CRYSTAL, ${Number(rewardFund.jewelPool).toLocaleString()} JEWEL`);
     
     // Calculate yields for each pool
@@ -469,8 +486,7 @@ export async function execute(interaction) {
       });
     }
     
-    // Calculate APR for each pool (assume ~3 runs per day with pet feeding)
-    const runsPerDay = 3;
+    // Calculate APR for each pool using actual runs per day
     poolResults.forEach(p => {
       const dailyYield = (p.crystalPerRunPet * prices.CRYSTAL + p.jewelPerRunPet * prices.JEWEL) * runsPerDay;
       p.apr = (dailyYield * 365) / depositUSD * 100;
@@ -501,9 +517,10 @@ export async function execute(interaction) {
     }).join('\n');
     
     // Update description with cleaner table
+    const rrLabel = hasRapidRenewal ? ' [RR]' : '';
     embed.setDescription([
-      `**Deposit:** $${depositUSD.toLocaleString()} | **Stamina/Run:** ${stamina}`,
-      `**Best Pair:** Hero #${bestHero.id} (Lv${bestHero.level}${hasGardeningGene ? ' [G]' : ''}) + ${bestPairing.pet ? `Pet #${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'No Pet'}`,
+      `**Deposit:** $${depositUSD.toLocaleString()} | **Stamina/Run:** ${stamina} | **Runs/Day:** ${runsPerDay.toFixed(2)}`,
+      `**Best Pair:** Hero #${bestHero.id} (Lv${bestHero.level}${hasGardeningGene ? ' [G]' : ''}${rrLabel}) + ${bestPairing.pet ? `Pet #${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'No Pet'}`,
       ``,
       `\`\`\``,
       `Pool          │Alloc│   Base C/J   │   +Pet C/J   │  APR`,
