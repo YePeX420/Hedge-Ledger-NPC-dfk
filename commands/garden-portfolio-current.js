@@ -307,20 +307,40 @@ export async function execute(interaction) {
     const poolsWithTVL = pools.filter(p => p.tvl > 0);
     const cacheReady = poolsWithTVL.length > 0;
     
+    if (!cacheReady) {
+      console.log('[GardenPortfolioCurrent] Warning: Pool cache not ready, TVL data unavailable');
+    }
+    
     const heroMap = new Map();
     for (const hero of heroes) {
-      const rawId = Number(hero.id);
-      const normalizedId = hero.normalizedId ? Number(hero.normalizedId) : 
-        (rawId >= 2_000_000_000_000 ? rawId - 2_000_000_000_000 :
-         rawId >= 1_000_000_000_000 ? rawId - 1_000_000_000_000 : rawId);
-      heroMap.set(normalizedId, hero);
-      if (normalizedId !== rawId) {
-        heroMap.set(rawId, hero);
+      const rawId = hero.id;
+      const rawIdNum = Number(rawId);
+      const normalizedIdStr = hero.normalizedId;
+      const normalizedIdNum = normalizedIdStr ? Number(normalizedIdStr) : 
+        (rawIdNum >= 2_000_000_000_000 ? rawIdNum - 2_000_000_000_000 :
+         rawIdNum >= 1_000_000_000_000 ? rawIdNum - 1_000_000_000_000 : rawIdNum);
+      
+      heroMap.set(normalizedIdNum, hero);
+      heroMap.set(String(normalizedIdNum), hero);
+      if (normalizedIdStr && normalizedIdStr !== String(normalizedIdNum)) {
+        heroMap.set(normalizedIdStr, hero);
       }
+      if (normalizedIdNum !== rawIdNum) {
+        heroMap.set(rawIdNum, hero);
+        heroMap.set(String(rawIdNum), hero);
+      }
+      heroMap.set(rawId, hero);
     }
+    
+    const lookupHero = (id) => {
+      return heroMap.get(id) || heroMap.get(Number(id)) || heroMap.get(String(id));
+    };
+    
     console.log(`[GardenPortfolioCurrent] HeroMap has ${heroMap.size} entries for ${heroes.length} heroes`);
-    console.log(`[GardenPortfolioCurrent] Sample heroMap keys: [${[...heroMap.keys()].slice(0, 5).join(', ')}]`);
-    console.log(`[GardenPortfolioCurrent] Gardening hero IDs from expedition: [${[...Object.values(gardeningPools).flatMap(p => p.flatMap(pair => pair.heroIds))].join(', ')}]`);
+    const sampleKeys = [...heroMap.keys()].slice(0, 8);
+    console.log(`[GardenPortfolioCurrent] Sample heroMap keys: [${sampleKeys.map(k => `${k}(${typeof k})`).join(', ')}]`);
+    const gardeningIds = [...Object.values(gardeningPools).flatMap(p => p.flatMap(pair => pair.heroIds))];
+    console.log(`[GardenPortfolioCurrent] Gardening hero IDs from expedition: [${gardeningIds.map(id => `${id}(${typeof id})`).join(', ')}]`);
     
     const petMap = new Map();
     for (const pet of (pets || [])) {
@@ -331,20 +351,26 @@ export async function execute(interaction) {
     
     const heroPetMap = new Map();
     for (const hero of heroes) {
-      const rawId = Number(hero.id);
-      const normalizedId = hero.normalizedId ? Number(hero.normalizedId) : 
-        (rawId >= 2_000_000_000_000 ? rawId - 2_000_000_000_000 :
-         rawId >= 1_000_000_000_000 ? rawId - 1_000_000_000_000 : rawId);
+      const rawIdNum = Number(hero.id);
+      const normalizedIdNum = hero.normalizedId ? Number(hero.normalizedId) : 
+        (rawIdNum >= 2_000_000_000_000 ? rawIdNum - 2_000_000_000_000 :
+         rawIdNum >= 1_000_000_000_000 ? rawIdNum - 1_000_000_000_000 : rawIdNum);
       if (hero.equippedPetId) {
         const pet = petMap.get(Number(hero.equippedPetId));
         if (pet) {
-          heroPetMap.set(normalizedId, pet);
-          if (normalizedId !== rawId) {
-            heroPetMap.set(rawId, pet);
+          heroPetMap.set(normalizedIdNum, pet);
+          heroPetMap.set(String(normalizedIdNum), pet);
+          if (normalizedIdNum !== rawIdNum) {
+            heroPetMap.set(rawIdNum, pet);
+            heroPetMap.set(String(rawIdNum), pet);
           }
         }
       }
     }
+    
+    const lookupPet = (id) => {
+      return heroPetMap.get(id) || heroPetMap.get(Number(id)) || heroPetMap.get(String(id));
+    };
     
     const existingByPid = new Map();
     for (const pos of (existingPositions || [])) {
@@ -413,20 +439,20 @@ export async function execute(interaction) {
       for (const pairData of poolPairs) {
         const heroId1 = pairData.heroIds[0];
         const heroId2 = pairData.heroIds[1];
-        const hero1 = heroMap.get(heroId1);
-        const hero2 = heroMap.get(heroId2);
+        const hero1 = lookupHero(heroId1);
+        const hero2 = lookupHero(heroId2);
         
-        console.log(`[GardenPortfolioCurrent] Looking for heroes ${heroId1}, ${heroId2}: found ${!!hero1}, ${!!hero2}`);
+        console.log(`[GardenPortfolioCurrent] Looking for heroes ${heroId1}(${typeof heroId1}), ${heroId2}(${typeof heroId2}): found ${!!hero1}, ${!!hero2}`);
         
         if (!hero1 || !hero2) {
-          console.log(`[GardenPortfolioCurrent] Missing hero data for pair in pool ${pid}: heroIds=${pairData.heroIds}, heroMap keys sample: ${[...heroMap.keys()].slice(0, 5)}`);
+          console.log(`[GardenPortfolioCurrent] Missing hero data for pair in pool ${pid}: heroIds=[${heroId1}, ${heroId2}]`);
           continue;
         }
         
-        const pet1 = heroPetMap.get(pairData.heroIds[0]);
-        const pet2 = heroPetMap.get(pairData.heroIds[1]);
-        const rr1 = rrMap.get(pairData.heroIds[0]) || false;
-        const rr2 = rrMap.get(pairData.heroIds[1]) || false;
+        const pet1 = lookupPet(heroId1);
+        const pet2 = lookupPet(heroId2);
+        const rr1 = rrMap.get(heroId1) || rrMap.get(Number(heroId1)) || rrMap.get(String(heroId1)) || false;
+        const rr2 = rrMap.get(heroId2) || rrMap.get(Number(heroId2)) || rrMap.get(String(heroId2)) || false;
         
         const h1Data = buildHeroData(hero1, pet1, rr1, stamina);
         const h2Data = buildHeroData(hero2, pet2, rr2, stamina);
