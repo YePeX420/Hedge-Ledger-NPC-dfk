@@ -353,7 +353,7 @@ export async function buildPriceGraph() {
   
   // Secondary pairs for tokens not directly paired with USDC
   const SECONDARY_PAIRS = [
-    '0x9f378F48d0c1328fd0C80d7Ae544c6CadB5Ba99E', // CRYSTAL-AVAX (pid 1) - for AVAX pricing via CRYSTAL
+    '0x9f378F48d0c1328fd0C80d7Ae544C6CadB5Ba99E', // CRYSTAL-AVAX (pid 1) - for AVAX pricing via CRYSTAL
     '0x78C893E262e2681Dbd6B6eBA6CCA2AaD45de19AD', // CRYSTAL-ETH (pid 6) - backup for ETH
     '0xF3EabeD6Bd905e0FcD68FC3dBCd6e3A4aEE55E98', // wJEWEL-AVAX (pid 10) - backup for AVAX
   ];
