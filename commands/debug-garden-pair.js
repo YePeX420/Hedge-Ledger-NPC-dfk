@@ -233,15 +233,13 @@ export async function execute(interaction) {
     }
     
     embed.addFields({
-      name: 'Yield Formula Constants',
-      value: `CRYSTAL: ${CRYSTAL_BASE_PER_ATTEMPT.toFixed(4)}/attempt\nJEWEL: ${JEWEL_BASE_PER_ATTEMPT.toFixed(4)}/attempt\n(empirically validated)`,
-      inline: false
-    });
-    
-    embed.addFields({
       name: 'Summary',
       value: `Total Pairs: ${poolPairs.length}\nTotal Garden Score: ${totalGardenScore.toFixed(2)}`,
       inline: false
+    });
+    
+    embed.setFooter({ 
+      text: 'Factor: 0.1 + (WIS+VIT)/1222.22 + Grd/244.44 | Yields are relative (compare heroes)' 
     });
     
     return interaction.editReply({ embeds: [embed] });
@@ -259,7 +257,8 @@ function formatHeroLine(h) {
     ? ` | Pet #${h.pet.id} (${h.pet.gatheringType}, +${h.petBonusPct.toFixed(1)}%)${h.petFed ? '' : ' [hungry]'}`
     : ' | No pet';
   
-  return `Hero #${h.heroId}${geneIcon}${rrIcon} L${h.level} | VIT:${h.vit} WIS:${h.wis} G:${h.gardeningSkill.toFixed(1)}${petInfo}`;
+  // Show gardening skill and calculated factor
+  return `Hero #${h.heroId}${geneIcon}${rrIcon} L${h.level} | VIT:${h.vit} WIS:${h.wis} Grd:${h.gardeningSkill.toFixed(0)} F:${h.factor.toFixed(2)}${petInfo}`;
 }
 
 function findOptimalAttemptsForPair(h1, h2, hero1, hero2) {
