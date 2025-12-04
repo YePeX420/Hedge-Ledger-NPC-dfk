@@ -28,12 +28,6 @@ const GARDEN_POOLS = [
 ];
 
 /**
- * Additional token addresses not in price-feed.js
- * These will be discovered from LP token details at runtime
- */
-const ADDITIONAL_TOKEN_SYMBOLS = ['BTC', 'KAIA', 'xJEWEL'];
-
-/**
  * Power Surge skill IDs (gardening pets only, eggType 2)
  */
 const POWER_SURGE_IDS = [90, 170]; // Rare, Mythic
@@ -69,9 +63,6 @@ function calculateHeroFactor(hero, additionalGrdSkill = 0) {
 
 /**
  * Calculate yield per stamina spent using full DFK formula
- * 
- * earnRate = annealingFactor × (rewardPool × poolAllocation × LPowned × heroFactor) / divisor
- * divisor = (300 - 50*geneBonus) × rewardModBase
  */
 function calculateYieldPerStamina({ 
   heroFactor, 
@@ -85,19 +76,12 @@ function calculateYieldPerStamina({
   const annealingFactor = 1.0;
   const geneBonus = hasGardeningGene ? 1 : 0;
   
-  // Gardening skill from API is 0-100, formula uses 0-10
   const grdSkillForFormula = gardeningSkill / 10;
-  
-  // rewardModBase: 72 for level 10+ gardening quests, 144 for lower
   const rewardModBase = grdSkillForFormula >= 10 ? 72 : 144;
-  
-  // Divisor: (300 - 50*geneBonus) × rewardModBase
   const divisor = (300 - (50 * geneBonus)) * rewardModBase;
   
-  // Earn rate per stamina
   const earnRatePerStam = annealingFactor * (rewardPool * poolAllocation * lpOwned * heroFactor) / divisor;
   
-  // Apply pet multiplier
   return earnRatePerStam * petMultiplier;
 }
 
@@ -120,59 +104,87 @@ function getPetGardenSkillType(pet) {
 }
 
 /**
- * Find best pet for hero and calculate multipliers
+ * Score a hero-pet pairing for gardening effectiveness
  */
-function findBestPetForHero(hero, gardeningPets, usedPetIds) {
-  const baseHeroFactor = calculateHeroFactor(hero);
+function scoreHeroPetPairing(hero, pet) {
+  let heroFactor = calculateHeroFactor(hero);
+  let petMultiplier = 1.0;
+  let petBonus = 0;
+  let skillType = 'none';
   
-  let bestPairing = {
-    pet: null,
-    heroFactor: baseHeroFactor,
-    petMultiplier: 1.0,
-    skillType: 'none',
-    bonus: 0
-  };
-  
-  for (const pet of gardeningPets) {
-    if (usedPetIds.has(pet.id)) continue;
-    
+  if (pet) {
     const skillInfo = getPetGardenSkillType(pet);
-    if (!skillInfo) continue;
-    
-    let heroFactor = baseHeroFactor;
-    let petMultiplier = 1.0;
-    
-    if (skillInfo.type === 'power_surge') {
-      petMultiplier = 1 + skillInfo.bonus / 100;
-    } else if (skillInfo.type === 'skilled_greenskeeper') {
-      heroFactor = calculateHeroFactor(hero, skillInfo.bonus / 10);
-    }
-    
-    const effectiveYield = heroFactor * petMultiplier;
-    const bestEffective = bestPairing.heroFactor * bestPairing.petMultiplier;
-    
-    if (effectiveYield > bestEffective) {
-      bestPairing = {
-        pet,
-        heroFactor,
-        petMultiplier,
-        skillType: skillInfo.type,
-        bonus: skillInfo.bonus,
-        skillName: pet.gatheringSkillName
-      };
+    if (skillInfo) {
+      if (skillInfo.type === 'power_surge') {
+        petMultiplier = 1 + skillInfo.bonus / 100;
+      } else if (skillInfo.type === 'skilled_greenskeeper') {
+        heroFactor = calculateHeroFactor(hero, skillInfo.bonus / 10);
+      }
+      petBonus = skillInfo.bonus;
+      skillType = skillInfo.type;
     }
   }
   
-  return bestPairing;
+  const hasGardeningGene = hero.professionStr === 'Gardening';
+  const geneMultiplier = hasGardeningGene ? 1.2 : 1.0; // Gene bonus effect approximation
+  const level = hero.level || 1;
+  
+  // Effective score considers heroFactor, pet multiplier, gene, and level
+  const effectiveScore = heroFactor * petMultiplier * geneMultiplier * Math.sqrt(level);
+  
+  return {
+    hero,
+    pet,
+    heroFactor,
+    petMultiplier,
+    petBonus,
+    skillType,
+    effectiveScore,
+    hasGardeningGene,
+    gardeningSkill: hero.gardening || 0
+  };
 }
 
 /**
- * Score hero for initial ranking
+ * Find top 6 unique hero-pet pairings (3 pairs = 6 heroes)
  */
-function scoreHeroForGardening(hero) {
-  const baseYield = calculateHeroFactor(hero);
-  const level = hero.level || 1;
-  return baseYield * Math.sqrt(level);
+function findTop6HeroPetPairings(heroes, gardeningPets) {
+  const pairings = [];
+  const usedHeroIds = new Set();
+  const usedPetIds = new Set();
+  
+  // Score all possible hero-pet combinations
+  const allCombos = [];
+  
+  for (const hero of heroes) {
+    // Hero without pet
+    allCombos.push(scoreHeroPetPairing(hero, null));
+    
+    // Hero with each available gardening pet
+    for (const pet of gardeningPets) {
+      const skillInfo = getPetGardenSkillType(pet);
+      if (skillInfo) {
+        allCombos.push(scoreHeroPetPairing(hero, pet));
+      }
+    }
+  }
+  
+  // Sort by effectiveness
+  allCombos.sort((a, b) => b.effectiveScore - a.effectiveScore);
+  
+  // Greedily pick top 6 unique heroes with their best pets
+  for (const combo of allCombos) {
+    if (usedHeroIds.has(combo.hero.id)) continue;
+    if (combo.pet && usedPetIds.has(combo.pet.id)) continue;
+    
+    pairings.push(combo);
+    usedHeroIds.add(combo.hero.id);
+    if (combo.pet) usedPetIds.add(combo.pet.id);
+    
+    if (pairings.length >= 6) break;
+  }
+  
+  return pairings;
 }
 
 /**
@@ -191,10 +203,8 @@ async function getAllPoolsData() {
       const totalStakedRaw = poolDetails.totalStakedRaw;
       if (!totalStakedRaw || BigInt(totalStakedRaw) <= 0n) continue;
       
-      // Get cached analytics for TVL
       const analytics = cachedData.find(p => p.pid === poolInfo.pid);
       const tvl = analytics?.totalTVL || 0;
-      
       const allocPercent = parseFloat(poolDetails.allocPercent) || 0;
       
       pools.push({
@@ -209,7 +219,7 @@ async function getAllPoolsData() {
         allocDecimal: allocPercent / 100
       });
     } catch (err) {
-      console.error(`[GardenPlanner] Error getting pool ${poolInfo.pid}:`, err.message);
+      console.error(`[GardenPlanner3Pair] Error getting pool ${poolInfo.pid}:`, err.message);
     }
   }
   
@@ -218,17 +228,14 @@ async function getAllPoolsData() {
 
 /**
  * Get token prices from price-feed module
- * Fetches core prices and discovers additional token prices from LP details
  */
 async function getTokenPrices() {
   try {
-    // Get core token prices from price-feed (uses cached price graph)
     const [crystalPrice, jewelPrice] = await Promise.all([
       getCrystalPrice(),
       getJewelPrice()
     ]);
     
-    // Get additional prices via batch (ETH, AVAX, USDC from known addresses)
     const batchPrices = await getBatchPrices([
       TOKEN_ADDRESSES.USDC,
       TOKEN_ADDRESSES.WETH,
@@ -246,7 +253,7 @@ async function getTokenPrices() {
       xJEWEL: 0
     };
     
-    // Discover BTC price from BTC.b-USDC pool (pid 13)
+    // Discover BTC price from BTC.b-USDC pool
     try {
       const btcUsdcLP = '0x59D642B471dd54207Cb1CDe2e7507b0Ce1b1a6a5';
       const btcDetails = await getLPTokenDetails(btcUsdcLP);
@@ -255,8 +262,6 @@ async function getTokenPrices() {
         const dec1 = Number(btcDetails.token1.decimals);
         const r0 = parseFloat(btcDetails.reserve0.toString()) / Math.pow(10, dec0);
         const r1 = parseFloat(btcDetails.reserve1.toString()) / Math.pow(10, dec1);
-        
-        // One token is USDC ($1), so BTC price = USDC_reserve / BTC_reserve
         if (btcDetails.token0.symbol.includes('USDC')) {
           prices.BTC = r0 / r1;
         } else {
@@ -264,10 +269,10 @@ async function getTokenPrices() {
         }
       }
     } catch (e) {
-      console.warn('[GardenPlanner] Could not get BTC price from LP:', e.message);
+      console.warn('[GardenPlanner3Pair] Could not get BTC price from LP:', e.message);
     }
     
-    // Discover KAIA price from CRYSTAL-KLAY pool (pid 8)
+    // Discover KAIA price from CRYSTAL-KLAY pool
     try {
       const crystalKaiaLP = '0xaFC1fBc3F3fB517EB54Bb2472051A6f0b2105320';
       const kaiaDetails = await getLPTokenDetails(crystalKaiaLP);
@@ -276,8 +281,6 @@ async function getTokenPrices() {
         const dec1 = Number(kaiaDetails.token1.decimals);
         const r0 = parseFloat(kaiaDetails.reserve0.toString()) / Math.pow(10, dec0);
         const r1 = parseFloat(kaiaDetails.reserve1.toString()) / Math.pow(10, dec1);
-        
-        // price = CRYSTAL_price * (CRYSTAL_reserve / KAIA_reserve)
         const sym0 = kaiaDetails.token0.symbol.toUpperCase();
         if (sym0.includes('CRYSTAL')) {
           prices.KAIA = prices.CRYSTAL * (r0 / r1);
@@ -286,40 +289,15 @@ async function getTokenPrices() {
         }
       }
     } catch (e) {
-      console.warn('[GardenPlanner] Could not get KAIA price from LP:', e.message);
+      console.warn('[GardenPlanner3Pair] Could not get KAIA price from LP:', e.message);
     }
     
-    // Discover xJEWEL price from wJEWEL-xJEWEL pool (pid 0)
-    // xJEWEL is staked JEWEL and typically trades at ~1:1 with JEWEL
-    try {
-      const jewelXjewelLP = '0x6AC38A4C112F125eac0eBDbaDBed0BC8F4575d0d';
-      const xjDetails = await getLPTokenDetails(jewelXjewelLP);
-      if (xjDetails && prices.JEWEL > 0) {
-        const dec0 = Number(xjDetails.token0.decimals);
-        const dec1 = Number(xjDetails.token1.decimals);
-        const r0 = parseFloat(xjDetails.reserve0.toString()) / Math.pow(10, dec0);
-        const r1 = parseFloat(xjDetails.reserve1.toString()) / Math.pow(10, dec1);
-        
-        // price = JEWEL_price * (JEWEL_reserve / xJEWEL_reserve)
-        const sym0 = xjDetails.token0.symbol.toUpperCase();
-        if (sym0.includes('JEWEL') && !sym0.includes('XJEWEL')) {
-          prices.xJEWEL = prices.JEWEL * (r0 / r1);
-        } else {
-          prices.xJEWEL = prices.JEWEL * (r1 / r0);
-        }
-      }
-    } catch (e) {
-      console.warn('[GardenPlanner] Could not get xJEWEL price from LP:', e.message);
-      // Fallback: xJEWEL ≈ JEWEL
-      prices.xJEWEL = prices.JEWEL;
-    }
-    
-    console.log(`[GardenPlanner] Prices: CRYSTAL=$${prices.CRYSTAL.toFixed(4)}, JEWEL=$${prices.JEWEL.toFixed(4)}, BTC=$${prices.BTC.toFixed(0)}, KAIA=$${prices.KAIA.toFixed(4)}, xJEWEL=$${prices.xJEWEL.toFixed(4)}`);
+    // xJEWEL ≈ JEWEL
+    prices.xJEWEL = prices.JEWEL;
     
     return prices;
   } catch (err) {
-    console.error('[GardenPlanner] Error getting prices:', err.message);
-    // Fallback to reasonable defaults
+    console.error('[GardenPlanner3Pair] Error getting prices:', err.message);
     return {
       CRYSTAL: 0.0045,
       JEWEL: 0.0175,
@@ -334,11 +312,11 @@ async function getTokenPrices() {
 }
 
 export const data = new SlashCommandBuilder()
-  .setName('garden-planner')
-  .setDescription('Compare all garden pools for a given deposit amount')
+  .setName('garden-planner-3pair')
+  .setDescription('Compare pools using your 6 best unique hero/pet combos (realistic 3-pair setup)')
   .addStringOption(option =>
     option.setName('wallet')
-      .setDescription('Wallet address (to identify best hero-pet pair)')
+      .setDescription('Wallet address')
       .setRequired(true)
   )
   .addNumberOption(option =>
@@ -367,9 +345,9 @@ export async function execute(interaction) {
     const depositUSD = interaction.options.getNumber('deposit_usd');
     const stamina = interaction.options.getInteger('stamina') || 25;
     
-    console.log(`[GardenPlanner] Analyzing wallet ${walletAddress}, deposit=$${depositUSD}, stamina=${stamina}...`);
+    console.log(`[GardenPlanner3Pair] Analyzing wallet ${walletAddress}, deposit=$${depositUSD}, stamina=${stamina}...`);
     
-    // Fetch heroes, pets, pools, prices, reward fund, and existing positions in parallel
+    // Fetch all data in parallel
     const [heroes, pets, allPools, prices, rewardFund, existingPositions] = await Promise.all([
       getHeroesByOwner(walletAddress),
       fetchPetsForWallet(walletAddress),
@@ -379,10 +357,10 @@ export async function execute(interaction) {
       getUserGardenPositions(walletAddress, 'dfk')
     ]);
     
-    // Filter out pid 0 (JEWEL-xJEWEL pool) as requested
+    // Filter out pid 0
     const pools = allPools.filter(p => p.pid !== 0);
     
-    // Build map of existing positions by pid for quick lookup (safe default if fetch fails)
+    // Build map of existing positions
     const existingByPid = new Map();
     for (const pos of (existingPositions || [])) {
       existingByPid.set(pos.pid, pos);
@@ -392,14 +370,18 @@ export async function execute(interaction) {
       return interaction.editReply('No heroes found for this wallet. A wallet with heroes is required to calculate yields.');
     }
     
+    if (heroes.length < 6) {
+      return interaction.editReply(`You need at least 6 heroes to run 3 pairs. Found: ${heroes.length} heroes.`);
+    }
+    
     if (!pools || pools.length === 0) {
       return interaction.editReply('Could not fetch pool data. Please try again later.');
     }
     
-    // Check if cache is ready (pools should have valid TVL data)
+    // Check if cache is ready
     const poolsWithTVL = pools.filter(p => p.tvl > 0);
     if (poolsWithTVL.length === 0) {
-      console.log('[GardenPlanner] Cache not ready - no pools have TVL data yet');
+      console.log('[GardenPlanner3Pair] Cache not ready - no pools have TVL data yet');
       const runtime = ((Date.now() - startTime) / 1000).toFixed(1);
       return interaction.editReply(
         '**Pool analytics are still loading...**\n\n' +
@@ -412,51 +394,72 @@ export async function execute(interaction) {
     // Filter for gardening pets
     const gardeningPets = (pets || []).filter(p => p.eggType === 2);
     
-    // Find best hero-pet pair
-    const scoredHeroes = heroes
-      .map(hero => ({ hero, score: scoreHeroForGardening(hero) }))
-      .sort((a, b) => b.score - a.score);
+    // Find top 6 unique hero-pet pairings
+    const top6 = findTop6HeroPetPairings(heroes, gardeningPets);
     
-    const bestHero = scoredHeroes[0].hero;
-    const usedPetIds = new Set();
-    const bestPairing = findBestPetForHero(bestHero, gardeningPets, usedPetIds);
-    
-    const hasGardeningGene = bestHero.professionStr === 'Gardening';
-    const gardeningSkill = bestHero.gardening || 0;
-    
-    // Check if best hero has Rapid Renewal power-up
-    const hasRapidRenewal = await isHeroRapidRenewalActive(walletAddress, bestHero.id);
-    
-    // Calculate full cycle time (quest duration + regen time)
-    // Quest: 10 min/stam with Gardening gene, 12 min/stam without
-    // Regen: 20 min/stam base, reduced by (level * 3) seconds with RR (min 5 min)
-    const questMinPerStam = hasGardeningGene ? 10 : 12;
-    let regenMinPerStam = 20; // base: 20 min per stamina
-    if (hasRapidRenewal) {
-      const regenSeconds = Math.max(300, 1200 - (bestHero.level * 3)); // min 5 min = 300s
-      regenMinPerStam = regenSeconds / 60;
+    if (top6.length < 6) {
+      return interaction.editReply(`Could only find ${top6.length} valid hero-pet pairings. Need 6 for 3 pairs.`);
     }
-    const cycleMinutes = stamina * (questMinPerStam + regenMinPerStam);
-    const runsPerHeroPerDay = 1440 / cycleMinutes;
     
-    // Default to 3 pairs running simultaneously (standard gardening setup)
-    const PAIRS_PER_POOL = 3;
-    const runsPerDay = runsPerHeroPerDay * PAIRS_PER_POOL;
+    // Check Rapid Renewal for each hero in parallel
+    const rrChecks = await Promise.all(
+      top6.map(p => isHeroRapidRenewalActive(walletAddress, p.hero.id))
+    );
+    top6.forEach((p, i) => { p.hasRR = rrChecks[i]; });
     
-    console.log(`[GardenPlanner] Best hero: #${bestHero.id} (Lv${bestHero.level}, Grd:${Math.floor(gardeningSkill/10)}, Gene:${hasGardeningGene}, RR:${hasRapidRenewal})`);
-    console.log(`[GardenPlanner] Best pet: ${bestPairing.pet ? `#${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'None'}`);
-    console.log(`[GardenPlanner] Cycle: ${cycleMinutes.toFixed(0)} min (${questMinPerStam}+${regenMinPerStam.toFixed(1)} min/stam) = ${runsPerDay.toFixed(2)} runs/day`);
-    console.log(`[GardenPlanner] Reward Fund: ${Number(rewardFund.crystalPool).toLocaleString()} CRYSTAL, ${Number(rewardFund.jewelPool).toLocaleString()} JEWEL`);
+    // Group into 3 pairs
+    const pairs = [
+      { heroes: [top6[0], top6[1]], pairNum: 1 },
+      { heroes: [top6[2], top6[3]], pairNum: 2 },
+      { heroes: [top6[4], top6[5]], pairNum: 3 }
+    ];
     
-    // Calculate yields for each pool
+    // Calculate per-hero stats: runs/day (theoretical), yields per run
+    for (const pairing of top6) {
+      const hasGene = pairing.hasGardeningGene;
+      const questMinPerStam = hasGene ? 10 : 12;
+      let regenMinPerStam = 20;
+      if (pairing.hasRR) {
+        const regenSeconds = Math.max(300, 1200 - (pairing.hero.level * 3));
+        regenMinPerStam = regenSeconds / 60;
+      }
+      const cycleMinutes = stamina * (questMinPerStam + regenMinPerStam);
+      pairing.runsPerDay = 1440 / cycleMinutes;
+      pairing.cycleMinutes = cycleMinutes;
+      
+      // Binary gene bonus for divisor calculation
+      const geneBonus = hasGene ? 1 : 0;
+      const grdSkillForFormula = pairing.gardeningSkill / 10;
+      const rewardModBase = grdSkillForFormula >= 10 ? 72 : 144;
+      pairing.divisor = (300 - (50 * geneBonus)) * rewardModBase;
+    }
+    
+    // For gardening pairs, both heroes quest together
+    // Pair run rate is limited by the SLOWER hero's cycle time
+    // Calculate per-pair run rates
+    for (const pair of pairs) {
+      const h1 = pair.heroes[0];
+      const h2 = pair.heroes[1];
+      pair.runsPerDay = Math.min(h1.runsPerDay, h2.runsPerDay);
+    }
+    
+    // Total runs/day = sum of 3 pairs' run rates
+    const totalRunsPerDay = pairs.reduce((sum, p) => sum + p.runsPerDay, 0);
+    
+    console.log(`[GardenPlanner3Pair] Top 6 heroes: ${top6.map(p => `#${p.hero.id}`).join(', ')}`);
+    console.log(`[GardenPlanner3Pair] Total runs/day: ${totalRunsPerDay.toFixed(2)} (6 heroes)`);
+    
+    // Count gardening gene heroes for stats
+    const gardeningGeneCount = top6.filter(p => p.hasGardeningGene).length;
+    
+    // Calculate yields for each pool using per-hero stats (summed, not averaged)
     const poolResults = [];
     
     for (const pool of pools) {
-      // Calculate existing position value in USD (if any)
+      // Calculate existing position value
       const existingPos = existingByPid.get(pool.pid);
       let existingUSD = 0;
       if (existingPos && pool.tvl > 0 && pool.totalStakedRaw > 0n) {
-        // User's LP share of pool TVL
         const userLPRaw = BigInt(existingPos.stakedAmountRaw || 0);
         const totalStakedRaw = BigInt(pool.totalStakedRaw);
         if (totalStakedRaw > 0n) {
@@ -464,54 +467,45 @@ export async function execute(interaction) {
         }
       }
       
-      // Calculate LP share after deposit: (existing + deposit) / (currentTVL + deposit)
       const currentTVL = pool.tvl || 0;
       const afterTVL = currentTVL + depositUSD;
       const totalPosition = existingUSD + depositUSD;
       const lpShare = afterTVL > 0 ? totalPosition / afterTVL : 0;
       
-      // Calculate CRYSTAL yield per run (without pet)
-      const crystalPerRunBase = calculateYieldPerStamina({
-        heroFactor: calculateHeroFactor(bestHero),
-        hasGardeningGene,
-        gardeningSkill,
-        rewardPool: rewardFund.crystalPool,
-        poolAllocation: pool.allocDecimal,
-        lpOwned: lpShare,
-        petMultiplier: 1.0
-      }) * stamina;
+      // Sum daily yields from all 3 pairs (each pair runs at slower hero's rate)
+      // Per run, both heroes in the pair contribute their yields
+      let dailyCrystalBase = 0;
+      let dailyJewelBase = 0;
+      let dailyCrystalPet = 0;
+      let dailyJewelPet = 0;
       
-      // Calculate JEWEL yield per run (without pet)
-      const jewelPerRunBase = calculateYieldPerStamina({
-        heroFactor: calculateHeroFactor(bestHero),
-        hasGardeningGene,
-        gardeningSkill,
-        rewardPool: rewardFund.jewelPool,
-        poolAllocation: pool.allocDecimal,
-        lpOwned: lpShare,
-        petMultiplier: 1.0
-      }) * stamina;
-      
-      // Calculate with pet bonus
-      const crystalPerRunPet = calculateYieldPerStamina({
-        heroFactor: bestPairing.heroFactor,
-        hasGardeningGene,
-        gardeningSkill,
-        rewardPool: rewardFund.crystalPool,
-        poolAllocation: pool.allocDecimal,
-        lpOwned: lpShare,
-        petMultiplier: bestPairing.petMultiplier
-      }) * stamina;
-      
-      const jewelPerRunPet = calculateYieldPerStamina({
-        heroFactor: bestPairing.heroFactor,
-        hasGardeningGene,
-        gardeningSkill,
-        rewardPool: rewardFund.jewelPool,
-        poolAllocation: pool.allocDecimal,
-        lpOwned: lpShare,
-        petMultiplier: bestPairing.petMultiplier
-      }) * stamina;
+      for (const pair of pairs) {
+        const h1 = pair.heroes[0];
+        const h2 = pair.heroes[1];
+        const pairRunsPerDay = pair.runsPerDay;
+        
+        // Calculate per-run yields for each hero in the pair
+        // Hero 1 yields
+        const h1BaseHeroFactor = calculateHeroFactor(h1.hero);
+        const h1CrystalBase = (rewardFund.crystalPool * pool.allocDecimal * lpShare * h1BaseHeroFactor * stamina) / h1.divisor;
+        const h1JewelBase = (rewardFund.jewelPool * pool.allocDecimal * lpShare * h1BaseHeroFactor * stamina) / h1.divisor;
+        const h1CrystalPet = (rewardFund.crystalPool * pool.allocDecimal * lpShare * h1.heroFactor * h1.petMultiplier * stamina) / h1.divisor;
+        const h1JewelPet = (rewardFund.jewelPool * pool.allocDecimal * lpShare * h1.heroFactor * h1.petMultiplier * stamina) / h1.divisor;
+        
+        // Hero 2 yields
+        const h2BaseHeroFactor = calculateHeroFactor(h2.hero);
+        const h2CrystalBase = (rewardFund.crystalPool * pool.allocDecimal * lpShare * h2BaseHeroFactor * stamina) / h2.divisor;
+        const h2JewelBase = (rewardFund.jewelPool * pool.allocDecimal * lpShare * h2BaseHeroFactor * stamina) / h2.divisor;
+        const h2CrystalPet = (rewardFund.crystalPool * pool.allocDecimal * lpShare * h2.heroFactor * h2.petMultiplier * stamina) / h2.divisor;
+        const h2JewelPet = (rewardFund.jewelPool * pool.allocDecimal * lpShare * h2.heroFactor * h2.petMultiplier * stamina) / h2.divisor;
+        
+        // Per run, pair produces sum of both heroes' yields
+        // Daily = pair's yields per run × pair's runs per day
+        dailyCrystalBase += (h1CrystalBase + h2CrystalBase) * pairRunsPerDay;
+        dailyJewelBase += (h1JewelBase + h2JewelBase) * pairRunsPerDay;
+        dailyCrystalPet += (h1CrystalPet + h2CrystalPet) * pairRunsPerDay;
+        dailyJewelPet += (h1JewelPet + h2JewelPet) * pairRunsPerDay;
+      }
       
       poolResults.push({
         pid: pool.pid,
@@ -521,88 +515,98 @@ export async function execute(interaction) {
         allocPercent: pool.allocPercent,
         lpShare,
         totalPositionUSD: totalPosition,
-        crystalPerRun: crystalPerRunBase,
-        jewelPerRun: jewelPerRunBase,
-        crystalPerRunPet: crystalPerRunPet,
-        jewelPerRunPet: jewelPerRunPet
+        dailyCrystal: dailyCrystalBase,
+        dailyJewel: dailyJewelBase,
+        dailyCrystalPet: dailyCrystalPet,
+        dailyJewelPet: dailyJewelPet
       });
     }
     
-    // Calculate APR for each pool using actual runs per day
-    // APR = (annual yield in USD) / (total position in USD) * 100
+    // Calculate APR for each pool using summed daily yields
     poolResults.forEach(p => {
-      const dailyYield = (p.crystalPerRunPet * prices.CRYSTAL + p.jewelPerRunPet * prices.JEWEL) * runsPerDay;
-      p.apr = (dailyYield * 365) / p.totalPositionUSD * 100;
+      const dailyYieldUSD = p.dailyCrystalPet * prices.CRYSTAL + p.dailyJewelPet * prices.JEWEL;
+      p.apr = (dailyYieldUSD * 365) / p.totalPositionUSD * 100;
+      p.dailyYieldUSD = dailyYieldUSD;
     });
     
-    // Sort by total yield (Crystal + Jewel value with pet) descending
-    poolResults.sort((a, b) => {
-      const aValue = a.crystalPerRunPet * prices.CRYSTAL + a.jewelPerRunPet * prices.JEWEL;
-      const bValue = b.crystalPerRunPet * prices.CRYSTAL + b.jewelPerRunPet * prices.JEWEL;
-      return bValue - aValue;
-    });
+    // Sort by APR
+    poolResults.sort((a, b) => b.apr - a.apr);
     
-    // Build main embed with comparison table
+    // Build hero pairs summary with per-pair run rates
+    // Pair run rate = min of the two heroes (limited by slower hero)
+    const pairsSummary = pairs.map(pair => {
+      const h1 = pair.heroes[0];
+      const h2 = pair.heroes[1];
+      const h1Label = `#${h1.hero.id} Lv${h1.hero.level}${h1.hasGardeningGene ? '[G]' : ''}${h1.hasRR ? '[RR]' : ''}`;
+      const h2Label = `#${h2.hero.id} Lv${h2.hero.level}${h2.hasGardeningGene ? '[G]' : ''}${h2.hasRR ? '[RR]' : ''}`;
+      const p1 = h1.pet ? `+Pet(${h1.petBonus}%)` : '';
+      const p2 = h2.pet ? `+Pet(${h2.petBonus}%)` : '';
+      // Pair run rate is limited by slower hero
+      const pairRuns = pair.runsPerDay.toFixed(2);
+      return `P${pair.pairNum}: ${h1Label}${p1} + ${h2Label}${p2} = ${pairRuns} runs/day`;
+    }).join('\n');
+    
+    // Build main embed
     const embed = new EmbedBuilder()
       .setColor('#00FF88')
-      .setTitle('Garden Investment Planner')
+      .setTitle('Garden Investment Planner (3-Pair Mode)')
       .setTimestamp();
     
-    // Build table rows - 5 columns: Pool | Share | Base C/J | +Pet C/J | APR
-    // Rename wJEWEL to JEWEL for display
+    // Build table rows with daily yields (summed from all 6 heroes)
     const tableRows = poolResults.map(p => {
       const displayName = p.name.replace(/wJEWEL/g, 'JEWEL');
       const poolStr = displayName.padEnd(13).slice(0, 13);
       const shareStr = `${(p.lpShare * 100).toFixed(2)}%`.padStart(6);
-      const baseStr = `${p.crystalPerRun.toFixed(2)}C ${p.jewelPerRun.toFixed(2)}J`.padStart(13);
-      const petStr = `${p.crystalPerRunPet.toFixed(2)}C ${p.jewelPerRunPet.toFixed(2)}J`.padStart(13);
+      const baseStr = `${p.dailyCrystal.toFixed(2)}C ${p.dailyJewel.toFixed(2)}J`.padStart(14);
+      const petStr = `${p.dailyCrystalPet.toFixed(2)}C ${p.dailyJewelPet.toFixed(2)}J`.padStart(14);
       const aprStr = `${p.apr.toFixed(1)}%`.padStart(6);
       
-      return `${poolStr}│${shareStr}│${baseStr}│${petStr}│${aprStr}`;
+      return `${poolStr}|${shareStr}|${baseStr}|${petStr}|${aprStr}`;
     }).join('\n');
     
-    // Update description with cleaner table
-    const rrLabel = hasRapidRenewal ? ' [RR]' : '';
     embed.setDescription([
-      `**Deposit:** $${depositUSD.toLocaleString()} | **Stamina/Run:** ${stamina} | **Pairs:** 3 | **Runs/Day:** ${runsPerDay.toFixed(2)}`,
-      `**Best Hero:** #${bestHero.id} (Lv${bestHero.level}${hasGardeningGene ? ' [G]' : ''}${rrLabel}) + ${bestPairing.pet ? `Pet #${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'No Pet'}`,
+      `**Deposit:** $${depositUSD.toLocaleString()} | **Stamina:** ${stamina} | **6 Heroes** | **Runs/Day:** ${totalRunsPerDay.toFixed(1)}`,
+      ``,
+      `**Your Best 3 Pairs (6 unique heroes):**`,
+      `\`\`\`${pairsSummary}\`\`\``,
       ``,
       `\`\`\``,
-      `Pool         │ Share│   Base C/J  │   +Pet C/J  │  APR`,
-      `─────────────┼──────┼─────────────┼─────────────┼──────`,
+      `Pool         | Share| Daily C/J   | +Pets C/J   |  APR`,
+      `-------------|------|-------------|-------------|------`,
       tableRows,
       `\`\`\``
     ].join('\n'));
     
-    // Build second embed with token prices and TVLs
-    // Convert rewardFund to Number safely (in case they're BigInt)
+    // Build prices embed
     const crystalPoolNum = Number(rewardFund.crystalPool);
     const jewelPoolNum = Number(rewardFund.jewelPool);
     
+    // Best pool daily yield summary
+    const bestPool = poolResults[0];
+    const bestDailyUSD = bestPool ? `$${bestPool.dailyYieldUSD.toFixed(2)}/day` : 'N/A';
+    
     const pricesEmbed = new EmbedBuilder()
       .setColor('#FFD700')
-      .setTitle('Token Prices & Pool TVLs (for validation)')
+      .setTitle('Token Prices & Yields')
       .setDescription([
         `**Token Prices:**`,
-        `CRYSTAL: $${prices.CRYSTAL.toFixed(4)} | JEWEL: $${prices.JEWEL.toFixed(4)} | USDC: $${prices.USDC.toFixed(2)}`,
-        `ETH: $${prices.ETH.toFixed(2)} | AVAX: $${prices.AVAX.toFixed(2)} | BTC: $${prices.BTC.toFixed(0)}`,
-        `KAIA: $${prices.KAIA.toFixed(4)} | xJEWEL: $${prices.xJEWEL.toFixed(4)}`,
+        `CRYSTAL: $${prices.CRYSTAL.toFixed(4)} | JEWEL: $${prices.JEWEL.toFixed(4)}`,
         ``,
-        `**Pool TVLs (Current → After Deposit):**`,
-        poolResults.map(p => `(PID ${p.pid}) ${p.name.replace(/wJEWEL/g, 'JEWEL')}: $${p.tvl.toLocaleString(undefined, {maximumFractionDigits: 0})} → $${p.afterTVL.toLocaleString(undefined, {maximumFractionDigits: 0})} (${p.allocPercent.toFixed(1)}% alloc)`).join('\n'),
+        `**Team Stats:** ${gardeningGeneCount}/6 with Gardening Gene`,
+        `**Best Pool Daily Yield:** ${bestDailyUSD} (${bestPool?.name.replace(/wJEWEL/g, 'JEWEL') || 'N/A'})`,
         ``,
         `**Reward Fund:** ${(crystalPoolNum/1e6).toFixed(2)}M CRYSTAL | ${(jewelPoolNum/1e3).toFixed(0)}K JEWEL`
       ].join('\n'))
       .setFooter({ 
-        text: `Runtime: ${((Date.now() - startTime) / 1000).toFixed(1)}s | Formula: rewardPool × poolAlloc × LPshare × heroFactor × stamina / ((300-50g) × modBase)` 
+        text: `Runtime: ${((Date.now() - startTime) / 1000).toFixed(1)}s | Daily yields summed from 6 heroes` 
       });
     
-    console.log(`[GardenPlanner] Generated comparison for ${poolResults.length} pools in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    console.log(`[GardenPlanner3Pair] Generated comparison for ${poolResults.length} pools in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     
     return interaction.editReply({ embeds: [embed, pricesEmbed] });
     
   } catch (error) {
-    console.error('[GardenPlanner] Error:', error);
+    console.error('[GardenPlanner3Pair] Error:', error);
     return interaction.editReply(`Error analyzing gardens: ${error.message}`);
   }
 }
