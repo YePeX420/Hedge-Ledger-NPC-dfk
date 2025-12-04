@@ -516,6 +516,7 @@ export async function execute(interaction) {
         afterTVL,
         allocPercent: pool.allocPercent,
         lpShare,
+        totalPositionUSD: totalPosition,
         crystalPerRun: crystalPerRunBase,
         jewelPerRun: jewelPerRunBase,
         crystalPerRunPet: crystalPerRunPet,
@@ -524,9 +525,10 @@ export async function execute(interaction) {
     }
     
     // Calculate APR for each pool using actual runs per day
+    // APR = (annual yield in USD) / (total position in USD) * 100
     poolResults.forEach(p => {
       const dailyYield = (p.crystalPerRunPet * prices.CRYSTAL + p.jewelPerRunPet * prices.JEWEL) * runsPerDay;
-      p.apr = (dailyYield * 365) / depositUSD * 100;
+      p.apr = (dailyYield * 365) / p.totalPositionUSD * 100;
     });
     
     // Sort by total yield (Crystal + Jewel value with pet) descending
