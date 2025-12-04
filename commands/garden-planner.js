@@ -469,46 +469,45 @@ export async function execute(interaction) {
       });
     }
     
-    // Sort by Crystal reward (with pet) descending
-    poolResults.sort((a, b) => b.crystalPerRunPet - a.crystalPerRunPet);
+    // Calculate APR for each pool (assume ~3 runs per day with pet feeding)
+    const runsPerDay = 3;
+    poolResults.forEach(p => {
+      const dailyYield = (p.crystalPerRunPet * prices.CRYSTAL + p.jewelPerRunPet * prices.JEWEL) * runsPerDay;
+      p.apr = (dailyYield * 365) / depositUSD * 100;
+    });
+    
+    // Sort by total yield (Crystal + Jewel value with pet) descending
+    poolResults.sort((a, b) => {
+      const aValue = a.crystalPerRunPet * prices.CRYSTAL + a.jewelPerRunPet * prices.JEWEL;
+      const bValue = b.crystalPerRunPet * prices.CRYSTAL + b.jewelPerRunPet * prices.JEWEL;
+      return bValue - aValue;
+    });
     
     // Build main embed with comparison table
     const embed = new EmbedBuilder()
       .setColor('#00FF88')
       .setTitle('Garden Investment Planner')
-      .setDescription([
-        `**Deposit:** $${depositUSD.toLocaleString()} | **Stamina/Run:** ${stamina}`,
-        `**Best Pair:** Hero #${bestHero.id} (Lv${bestHero.level}${hasGardeningGene ? ' [G]' : ''}) + ${bestPairing.pet ? `Pet #${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'No Pet'}`,
-        `**Hero Factor:** ${bestPairing.heroFactor.toFixed(3)} | **Pet Mult:** ${bestPairing.petMultiplier.toFixed(2)}x`,
-        ``,
-        `\`\`\``,
-        `PID │ Pool          │ Share  │ CRYSTAL │ JEWEL │ +Pet CR │ +Pet JW`,
-        `────┼───────────────┼────────┼─────────┼───────┼─────────┼────────`
-      ].join('\n'))
       .setTimestamp();
     
-    // Build table rows
+    // Build table rows - 5 columns: Pool | Alloc | Base C/J | +Pet C/J | APR
     const tableRows = poolResults.map(p => {
-      const pidStr = String(p.pid).padStart(2);
-      const nameStr = p.name.padEnd(13).slice(0, 13);
-      const shareStr = `${(p.lpShare * 100).toFixed(2)}%`.padStart(6);
-      const crystalStr = p.crystalPerRun.toFixed(2).padStart(7);
-      const jewelStr = p.jewelPerRun.toFixed(3).padStart(5);
-      const crystalPetStr = p.crystalPerRunPet.toFixed(2).padStart(7);
-      const jewelPetStr = p.jewelPerRunPet.toFixed(3).padStart(6);
+      const poolStr = `${p.name}`.padEnd(14).slice(0, 14);
+      const allocStr = `${p.allocPercent.toFixed(1)}%`.padStart(5);
+      const baseStr = `${p.crystalPerRun.toFixed(2)}C ${p.jewelPerRun.toFixed(3)}J`.padStart(14);
+      const petStr = `${p.crystalPerRunPet.toFixed(2)}C ${p.jewelPerRunPet.toFixed(3)}J`.padStart(14);
+      const aprStr = `${p.apr.toFixed(1)}%`.padStart(6);
       
-      return `${pidStr}  │ ${nameStr} │ ${shareStr} │ ${crystalStr} │ ${jewelStr} │ ${crystalPetStr} │ ${jewelPetStr}`;
+      return `${poolStr}│${allocStr}│${baseStr}│${petStr}│${aprStr}`;
     }).join('\n');
     
-    // Update description with table
+    // Update description with cleaner table
     embed.setDescription([
       `**Deposit:** $${depositUSD.toLocaleString()} | **Stamina/Run:** ${stamina}`,
       `**Best Pair:** Hero #${bestHero.id} (Lv${bestHero.level}${hasGardeningGene ? ' [G]' : ''}) + ${bestPairing.pet ? `Pet #${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'No Pet'}`,
-      `**Hero Factor:** ${bestPairing.heroFactor.toFixed(3)} | **Pet Mult:** ${bestPairing.petMultiplier.toFixed(2)}x`,
       ``,
       `\`\`\``,
-      `PID │ Pool          │ Share  │ CRYSTAL │ JEWEL │ +Pet CR │ +Pet JW`,
-      `────┼───────────────┼────────┼─────────┼───────┼─────────┼────────`,
+      `Pool          │Alloc│   Base C/J   │   +Pet C/J   │  APR`,
+      `──────────────┼─────┼──────────────┼──────────────┼──────`,
       tableRows,
       `\`\`\``
     ].join('\n'));
