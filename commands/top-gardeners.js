@@ -3,6 +3,7 @@ import { getHeroesByOwner, getUserGardenPositions, getGardenPoolByPid } from '..
 import { fetchPetsForWallet } from '../pet-data.js';
 import { getQuestRewardFundBalances } from '../quest-reward-fund.js';
 import { getCachedPoolAnalytics } from '../pool-cache.js';
+import { isHeroRapidRenewalActive } from '../rapid-renewal-service.js';
 
 /**
  * Normalize pet ID by removing realm prefix if present
@@ -424,12 +425,19 @@ export async function execute(interaction) {
       
       const hasGardeningGene = hero.professionStr === 'Gardening';
       const gardeningSkill = hero.gardening || 0; // Raw 0-100 scale from API
-      
-      // Stamina per day based on hero level
-      // Level 20 = 20 min regen = 72 stam/day
-      // Lower levels have slower regen, approximate: 72 * (level / 20)
       const heroLevel = hero.level || 1;
-      const staminaPerDay = Math.min(72, Math.max(36, 72 * (heroLevel / 20)));
+      
+      // Check if hero has Rapid Renewal power-up
+      const hasRR = await isHeroRapidRenewalActive(walletAddress, hero.id);
+      
+      // Stamina per day calculation:
+      // Base regen: 20 min/stam for ALL heroes = 72 stam/day
+      // With Rapid Renewal: regenSeconds = max(300, 1200 - level*3)
+      let staminaPerDay = 72; // Base: 20 min regen = 72 stam/day
+      if (hasRR) {
+        const regenSeconds = Math.max(300, 1200 - (heroLevel * 3)); // min 5 min = 300s
+        staminaPerDay = 86400 / regenSeconds; // seconds per day / seconds per stamina
+      }
       
       // Calculate daily CRYSTAL yield (primary reward in Crystalvale pools)
       // First hero in pair earns CRYSTAL; second earns JEWEL
@@ -461,6 +469,7 @@ export async function execute(interaction) {
         rank: i + 1,
         hero,
         hasGardeningGene,
+        hasRapidRenewal: hasRR,
         gardeningSkill,
         heroFactor: bestMatch.heroFactor,
         pet: bestMatch.pet,
@@ -498,6 +507,7 @@ export async function execute(interaction) {
       const heroId = p.hero.id;
       const heroLevel = p.hero.level || 1;
       const geneIcon = p.hasGardeningGene ? ' [G]' : '';
+      const rrIcon = p.hasRapidRenewal ? ' [RR]' : '';
       const WIS = p.hero.wisdom || 0;
       const VIT = p.hero.vitality || 0;
       const grdSkill = Math.floor((p.hero.gardening || 0) / 10);
@@ -510,8 +520,11 @@ export async function execute(interaction) {
         petInfo = `Pet #${petId} ${skillIcon}+${p.bonus}%`;
       }
       
+      // Show stamina/day info for RR heroes
+      const stamInfo = p.hasRapidRenewal ? ` (${p.staminaPerDay.toFixed(0)} stam/day)` : '';
+      
       // Show CRYSTAL as primary (1st hero role), JEWEL as secondary (2nd hero role)
-      return `**${p.rank}.** Lv${heroLevel}${geneIcon} #${heroId}\n` +
+      return `**${p.rank}.** Lv${heroLevel}${geneIcon}${rrIcon} #${heroId}${stamInfo}\n` +
              `   WIS:${WIS} VIT:${VIT} Grd:${grdSkill} F:${p.heroFactor.toFixed(2)}\n` +
              `   └ ${petInfo}\n` +
              `   └ **${p.crystalPerDay.toFixed(1)} CRYSTAL**/day (1st) | ${p.jewelPerDay.toFixed(2)} JEWEL/day (2nd)`;
@@ -532,7 +545,7 @@ export async function execute(interaction) {
     // Add legend and formula info
     embed.addFields({
       name: 'Legend',
-      value: '[G] = Gardening Gene | ⚡ = Power Surge | 🧑‍🌾 = Skilled Greenskeeper',
+      value: '[G] = Gardening Gene | [RR] = Rapid Renewal | ⚡ = Power Surge | 🧑‍🌾 = Skilled Greenskeeper',
       inline: false
     });
     
