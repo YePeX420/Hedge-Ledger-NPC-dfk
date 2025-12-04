@@ -356,6 +356,8 @@ export const data = new SlashCommandBuilder()
   );
 
 export async function execute(interaction) {
+  const startTime = Date.now();
+  
   if (!interaction.deferred && !interaction.replied) {
     await interaction.deferReply();
   }
@@ -573,10 +575,10 @@ export async function execute(interaction) {
         `**Reward Fund:** ${(crystalPoolNum/1e6).toFixed(2)}M CRYSTAL | ${(jewelPoolNum/1e3).toFixed(0)}K JEWEL`
       ].join('\n'))
       .setFooter({ 
-        text: `Formula: rewardPool × poolAlloc × LPshare × heroFactor × stamina / ((300-50g) × modBase)` 
+        text: `Runtime: ${((Date.now() - startTime) / 1000).toFixed(1)}s | Formula: rewardPool × poolAlloc × LPshare × heroFactor × stamina / ((300-50g) × modBase)` 
       });
     
-    console.log(`[GardenPlanner] Generated comparison for ${poolResults.length} pools`);
+    console.log(`[GardenPlanner] Generated comparison for ${poolResults.length} pools in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     
     return interaction.editReply({ embeds: [embed, pricesEmbed] });
     
