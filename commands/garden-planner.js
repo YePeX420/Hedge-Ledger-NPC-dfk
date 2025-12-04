@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { getHeroesByOwner, getGardenPoolByPid } from '../onchain-data.js';
+import { getHeroesByOwner, getGardenPoolByPid, getUserGardenPositions } from '../onchain-data.js';
 import { fetchPetsForWallet } from '../pet-data.js';
 import { getQuestRewardFundBalances } from '../quest-reward-fund.js';
 import { getCachedPoolAnalytics } from '../pool-cache.js';
@@ -367,14 +367,24 @@ export async function execute(interaction) {
     
     console.log(`[GardenPlanner] Analyzing wallet ${walletAddress}, deposit=$${depositUSD}, stamina=${stamina}...`);
     
-    // Fetch heroes, pets, pools, prices, and reward fund in parallel
-    const [heroes, pets, pools, prices, rewardFund] = await Promise.all([
+    // Fetch heroes, pets, pools, prices, reward fund, and existing positions in parallel
+    const [heroes, pets, allPools, prices, rewardFund, existingPositions] = await Promise.all([
       getHeroesByOwner(walletAddress),
       fetchPetsForWallet(walletAddress),
       getAllPoolsData(),
       getTokenPrices(),
-      getQuestRewardFundBalances()
+      getQuestRewardFundBalances(),
+      getUserGardenPositions(walletAddress, 'dfk')
     ]);
+    
+    // Filter out pid 0 (JEWEL-xJEWEL pool) as requested
+    const pools = allPools.filter(p => p.pid !== 0);
+    
+    // Build map of existing positions by pid for quick lookup (safe default if fetch fails)
+    const existingByPid = new Map();
+    for (const pos of (existingPositions || [])) {
+      existingByPid.set(pos.pid, pos);
+    }
     
     if (!heroes || heroes.length === 0) {
       return interaction.editReply('No heroes found for this wallet. A wallet with heroes is required to calculate yields.');
@@ -423,11 +433,23 @@ export async function execute(interaction) {
     const poolResults = [];
     
     for (const pool of pools) {
-      // Calculate LP share after deposit
-      // If TVL is 0 or very small, assume deposit would be significant portion
+      // Calculate existing position value in USD (if any)
+      const existingPos = existingByPid.get(pool.pid);
+      let existingUSD = 0;
+      if (existingPos && pool.tvl > 0 && pool.totalStakedRaw > 0n) {
+        // User's LP share of pool TVL
+        const userLPRaw = BigInt(existingPos.stakedAmountRaw || 0);
+        const totalStakedRaw = BigInt(pool.totalStakedRaw);
+        if (totalStakedRaw > 0n) {
+          existingUSD = (Number(userLPRaw) / Number(totalStakedRaw)) * pool.tvl;
+        }
+      }
+      
+      // Calculate LP share after deposit: (existing + deposit) / (currentTVL + deposit)
       const currentTVL = pool.tvl || 0;
       const afterTVL = currentTVL + depositUSD;
-      const lpShare = afterTVL > 0 ? depositUSD / afterTVL : 0;
+      const totalPosition = existingUSD + depositUSD;
+      const lpShare = afterTVL > 0 ? totalPosition / afterTVL : 0;
       
       // Calculate CRYSTAL yield per run (without pet)
       const crystalPerRunBase = calculateYieldPerStamina({
@@ -505,15 +527,17 @@ export async function execute(interaction) {
       .setTitle('Garden Investment Planner')
       .setTimestamp();
     
-    // Build table rows - 5 columns: Pool | Alloc | Base C/J | +Pet C/J | APR
+    // Build table rows - 5 columns: Pool | Share | Base C/J | +Pet C/J | APR
+    // Rename wJEWEL to JEWEL for display
     const tableRows = poolResults.map(p => {
-      const poolStr = `${p.name}`.padEnd(14).slice(0, 14);
-      const allocStr = `${p.allocPercent.toFixed(1)}%`.padStart(5);
-      const baseStr = `${p.crystalPerRun.toFixed(2)}C ${p.jewelPerRun.toFixed(3)}J`.padStart(14);
-      const petStr = `${p.crystalPerRunPet.toFixed(2)}C ${p.jewelPerRunPet.toFixed(3)}J`.padStart(14);
+      const displayName = p.name.replace(/wJEWEL/g, 'JEWEL');
+      const poolStr = displayName.padEnd(13).slice(0, 13);
+      const shareStr = `${(p.lpShare * 100).toFixed(2)}%`.padStart(6);
+      const baseStr = `${p.crystalPerRun.toFixed(2)}C ${p.jewelPerRun.toFixed(2)}J`.padStart(13);
+      const petStr = `${p.crystalPerRunPet.toFixed(2)}C ${p.jewelPerRunPet.toFixed(2)}J`.padStart(13);
       const aprStr = `${p.apr.toFixed(1)}%`.padStart(6);
       
-      return `${poolStr}│${allocStr}│${baseStr}│${petStr}│${aprStr}`;
+      return `${poolStr}│${shareStr}│${baseStr}│${petStr}│${aprStr}`;
     }).join('\n');
     
     // Update description with cleaner table
@@ -523,8 +547,8 @@ export async function execute(interaction) {
       `**Best Pair:** Hero #${bestHero.id} (Lv${bestHero.level}${hasGardeningGene ? ' [G]' : ''}${rrLabel}) + ${bestPairing.pet ? `Pet #${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'No Pet'}`,
       ``,
       `\`\`\``,
-      `Pool          │Alloc│   Base C/J   │   +Pet C/J   │  APR`,
-      `──────────────┼─────┼──────────────┼──────────────┼──────`,
+      `Pool         │ Share│   Base C/J  │   +Pet C/J  │  APR`,
+      `─────────────┼──────┼─────────────┼─────────────┼──────`,
       tableRows,
       `\`\`\``
     ].join('\n'));
@@ -544,7 +568,7 @@ export async function execute(interaction) {
         `KAIA: $${prices.KAIA.toFixed(4)} | xJEWEL: $${prices.xJEWEL.toFixed(4)}`,
         ``,
         `**Pool TVLs (Current → After Deposit):**`,
-        poolResults.map(p => `PID ${p.pid} ${p.name}: $${p.tvl.toLocaleString(undefined, {maximumFractionDigits: 0})} → $${p.afterTVL.toLocaleString(undefined, {maximumFractionDigits: 0})} (${p.allocPercent}% alloc)`).join('\n'),
+        poolResults.map(p => `PID ${p.pid} ${p.name.replace(/wJEWEL/g, 'JEWEL')}: $${p.tvl.toLocaleString(undefined, {maximumFractionDigits: 0})} → $${p.afterTVL.toLocaleString(undefined, {maximumFractionDigits: 0})} (${p.allocPercent.toFixed(1)}% alloc)`).join('\n'),
         ``,
         `**Reward Fund:** ${(crystalPoolNum/1e6).toFixed(2)}M CRYSTAL | ${(jewelPoolNum/1e3).toFixed(0)}K JEWEL`
       ].join('\n'))
