@@ -309,9 +309,18 @@ export async function execute(interaction) {
     
     const heroMap = new Map();
     for (const hero of heroes) {
-      const heroId = hero.normalizedId || hero.id;
-      heroMap.set(Number(heroId), hero);
+      const rawId = Number(hero.id);
+      const normalizedId = hero.normalizedId ? Number(hero.normalizedId) : 
+        (rawId >= 2_000_000_000_000 ? rawId - 2_000_000_000_000 :
+         rawId >= 1_000_000_000_000 ? rawId - 1_000_000_000_000 : rawId);
+      heroMap.set(normalizedId, hero);
+      if (normalizedId !== rawId) {
+        heroMap.set(rawId, hero);
+      }
     }
+    console.log(`[GardenPortfolioCurrent] HeroMap has ${heroMap.size} entries for ${heroes.length} heroes`);
+    console.log(`[GardenPortfolioCurrent] Sample heroMap keys: [${[...heroMap.keys()].slice(0, 5).join(', ')}]`);
+    console.log(`[GardenPortfolioCurrent] Gardening hero IDs from expedition: [${[...Object.values(gardeningPools).flatMap(p => p.flatMap(pair => pair.heroIds))].join(', ')}]`);
     
     const petMap = new Map();
     for (const pet of (pets || [])) {
@@ -322,10 +331,18 @@ export async function execute(interaction) {
     
     const heroPetMap = new Map();
     for (const hero of heroes) {
-      const heroId = hero.normalizedId || hero.id;
+      const rawId = Number(hero.id);
+      const normalizedId = hero.normalizedId ? Number(hero.normalizedId) : 
+        (rawId >= 2_000_000_000_000 ? rawId - 2_000_000_000_000 :
+         rawId >= 1_000_000_000_000 ? rawId - 1_000_000_000_000 : rawId);
       if (hero.equippedPetId) {
         const pet = petMap.get(Number(hero.equippedPetId));
-        if (pet) heroPetMap.set(Number(heroId), pet);
+        if (pet) {
+          heroPetMap.set(normalizedId, pet);
+          if (normalizedId !== rawId) {
+            heroPetMap.set(rawId, pet);
+          }
+        }
       }
     }
     
@@ -391,12 +408,18 @@ export async function execute(interaction) {
       let poolDailyJewel = 0;
       const pairDetails = [];
       
+      console.log(`[GardenPortfolioCurrent] Pool ${pid} has ${poolPairs.length} pairs, processing...`);
+      
       for (const pairData of poolPairs) {
-        const hero1 = heroMap.get(pairData.heroIds[0]);
-        const hero2 = heroMap.get(pairData.heroIds[1]);
+        const heroId1 = pairData.heroIds[0];
+        const heroId2 = pairData.heroIds[1];
+        const hero1 = heroMap.get(heroId1);
+        const hero2 = heroMap.get(heroId2);
+        
+        console.log(`[GardenPortfolioCurrent] Looking for heroes ${heroId1}, ${heroId2}: found ${!!hero1}, ${!!hero2}`);
         
         if (!hero1 || !hero2) {
-          console.log(`[GardenPortfolioCurrent] Missing hero data for pair in pool ${pid}`);
+          console.log(`[GardenPortfolioCurrent] Missing hero data for pair in pool ${pid}: heroIds=${pairData.heroIds}, heroMap keys sample: ${[...heroMap.keys()].slice(0, 5)}`);
           continue;
         }
         
