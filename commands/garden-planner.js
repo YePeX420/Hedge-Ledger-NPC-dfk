@@ -396,6 +396,18 @@ export async function execute(interaction) {
       return interaction.editReply('Could not fetch pool data. Please try again later.');
     }
     
+    // Check if cache is ready (pools should have valid TVL data)
+    const poolsWithTVL = pools.filter(p => p.tvl > 0);
+    if (poolsWithTVL.length === 0) {
+      console.log('[GardenPlanner] Cache not ready - no pools have TVL data yet');
+      return interaction.editReply(
+        '📊 **Pool analytics are still loading...**\n\n' +
+        'The garden data cache is warming up after a recent restart. ' +
+        'Please check back in **2-3 minutes** and try again.\n\n' +
+        '*This only happens right after the bot restarts.*'
+      );
+    }
+    
     // Filter for gardening pets
     const gardeningPets = (pets || []).filter(p => p.eggType === 2);
     

@@ -203,6 +203,17 @@ export async function execute(interaction) {
     const allocPercent = parseFloat(poolDetails.allocPercent) || 0;
     const allocDecimal = allocPercent / 100;
     
+    // Check if cache is ready
+    if (tvl <= 0) {
+      console.log('[StaminaCompare] Cache not ready - pool has no TVL data yet');
+      return interaction.editReply(
+        '📊 **Pool analytics are still loading...**\n\n' +
+        'The garden data cache is warming up after a recent restart. ' +
+        'Please check back in **2-3 minutes** and try again.\n\n' +
+        '*This only happens right after the bot restarts.*'
+      );
+    }
+    
     // Calculate user's LP share
     const existingPos = (existingPositions || []).find(p => p.pid === poolPid);
     let lpShare = 0.0001; // Default reference share
