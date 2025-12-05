@@ -95,7 +95,8 @@ function buildHeroData(hero, pet, hasRR, stamina) {
     gardeningSkill,
     divisor,
     runsPerDay,
-    hasRR
+    hasRR,
+    stamina
   };
 }
 
@@ -442,7 +443,10 @@ export async function execute(interaction) {
         const hero1 = lookupHero(heroId1);
         const hero2 = lookupHero(heroId2);
         
-        console.log(`[GardenPortfolioCurrent] Looking for heroes ${heroId1}(${typeof heroId1}), ${heroId2}(${typeof heroId2}): found ${!!hero1}, ${!!hero2}`);
+        // Use actual attempts from expedition data, fallback to command stamina
+        const pairStamina = pairData.attempts || stamina;
+        
+        console.log(`[GardenPortfolioCurrent] Looking for heroes ${heroId1}(${typeof heroId1}), ${heroId2}(${typeof heroId2}): found ${!!hero1}, ${!!hero2}, stamina=${pairStamina}`);
         
         if (!hero1 || !hero2) {
           console.log(`[GardenPortfolioCurrent] Missing hero data for pair in pool ${pid}: heroIds=[${heroId1}, ${heroId2}]`);
@@ -454,13 +458,13 @@ export async function execute(interaction) {
         const rr1 = rrMap.get(heroId1) || rrMap.get(Number(heroId1)) || rrMap.get(String(heroId1)) || false;
         const rr2 = rrMap.get(heroId2) || rrMap.get(Number(heroId2)) || rrMap.get(String(heroId2)) || false;
         
-        const h1Data = buildHeroData(hero1, pet1, rr1, stamina);
-        const h2Data = buildHeroData(hero2, pet2, rr2, stamina);
+        const h1Data = buildHeroData(hero1, pet1, rr1, pairStamina);
+        const h2Data = buildHeroData(hero2, pet2, rr2, pairStamina);
         
         const pairRunsPerDay = Math.min(h1Data.runsPerDay, h2Data.runsPerDay);
         
-        const h1Yield = scoreHeroForPool(h1Data, pool, rewardFund, lpShare, stamina);
-        const h2Yield = scoreHeroForPool(h2Data, pool, rewardFund, lpShare, stamina);
+        const h1Yield = scoreHeroForPool(h1Data, pool, rewardFund, lpShare, pairStamina);
+        const h2Yield = scoreHeroForPool(h2Data, pool, rewardFund, lpShare, pairStamina);
         
         const pairCrystal = (h1Yield.crystalPerRun + h2Yield.crystalPerRun) * pairRunsPerDay;
         const pairJewel = (h1Yield.jewelPerRun + h2Yield.jewelPerRun) * pairRunsPerDay;
@@ -470,7 +474,8 @@ export async function execute(interaction) {
         
         pairDetails.push({
           heroes: [h1Data, h2Data],
-          runsPerDay: pairRunsPerDay
+          runsPerDay: pairRunsPerDay,
+          stamina: pairStamina
         });
       }
       
@@ -506,29 +511,18 @@ export async function execute(interaction) {
     
     let description = [
       `**Wallet:** \`${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}\``,
-      `**Stamina:** ${stamina} | **Heroes Gardening:** ${totalGardeningHeroes} | **Pairs:** ${totalPairs}`,
+      `**Heroes Gardening:** ${totalGardeningHeroes} | **Pairs:** ${totalPairs}`,
       ``
     ];
     
     for (const result of poolResults) {
       const displayName = result.pool.name.replace(/wJEWEL/g, 'JEWEL');
       
-      const pairLines = result.pairs.map((pair, idx) => {
-        const h1 = pair.heroes[0];
-        const h2 = pair.heroes[1];
-        const h1Label = `#${h1.hero.normalizedId || h1.hero.id}${h1.hasGardeningGene ? '[G]' : ''}${h1.hasRR ? '[RR]' : ''}`;
-        const h2Label = `#${h2.hero.normalizedId || h2.hero.id}${h2.hasGardeningGene ? '[G]' : ''}${h2.hasRR ? '[RR]' : ''}`;
-        const p1 = h1.pet ? `+${h1.petBonus}%` : '';
-        const p2 = h2.pet ? `+${h2.petBonus}%` : '';
-        return `  P${idx + 1}: ${h1Label}${p1} + ${h2Label}${p2} (${pair.runsPerDay.toFixed(2)} runs/day)`;
-      }).join('\n');
-      
       description.push(
         `**${displayName}** (PID ${result.pool.pid})`,
         `Position: $${result.positionUSD.toFixed(0)} | Share: ${(result.lpShare * 100).toFixed(2)}%`,
         `Daily: ${result.dailyCrystal.toFixed(2)} C + ${result.dailyJewel.toFixed(2)} J = $${result.dailyUSD.toFixed(2)}`,
-        `APR: ${result.apr.toFixed(1)}% | Runs/day: ${result.totalRunsPerDay.toFixed(2)}`,
-        `\`\`\`${pairLines}\`\`\``,
+        `Quest APR: ${result.apr.toFixed(1)}% | Runs/day: ${result.totalRunsPerDay.toFixed(2)}`,
         ``
       );
     }
@@ -568,10 +562,10 @@ export async function execute(interaction) {
         
         const h1Id = h1.hero.normalizedId || h1.hero.id;
         const h2Id = h2.hero.normalizedId || h2.hero.id;
-        const h1Pet = h1.pet ? ` + Pet #${h1.pet.id}` : '';
-        const h2Pet = h2.pet ? ` + Pet #${h2.pet.id}` : '';
+        const h1Markers = `${h1.hasRR ? '[RR]' : ''}`;
+        const h2Markers = `${h2.hasRR ? '[RR]' : ''}`;
         
-        assignmentLines.push(`  Pair ${i + 1}: Hero #${h1Id}${h1Pet} + Hero #${h2Id}${h2Pet}`);
+        assignmentLines.push(`  P${i + 1}: #${h1Id}${h1Markers} + #${h2Id}${h2Markers} (${pair.stamina} stam, ${pair.runsPerDay.toFixed(2)} runs/day)`);
       }
       assignmentLines.push('');
     }
