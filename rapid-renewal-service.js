@@ -154,9 +154,24 @@ export async function getRapidRenewalStatus(walletAddress) {
 }
 
 /**
+ * Convert a hero ID to raw on-chain format (with chain prefix)
+ * Crystalvale heroes: 2,000,000,000,000 + heroId
+ * Serendale heroes: 1,000,000,000,000 + heroId
+ * @param {number|string} heroId - Hero ID (may be normalized or raw)
+ * @returns {number} Raw hero ID with chain prefix
+ */
+function toRawHeroId(heroId) {
+  const num = Number(heroId);
+  // Already has chain prefix
+  if (num >= 1_000_000_000_000) return num;
+  // Add Crystalvale prefix (most common case for this bot)
+  return num + 2_000_000_000_000;
+}
+
+/**
  * Check if a specific hero has Rapid Renewal active
  * @param {string} walletAddress - User's wallet address
- * @param {number} heroId - Hero ID to check
+ * @param {number} heroId - Hero ID to check (can be normalized or raw format)
  * @returns {Promise<boolean>} True if hero has RR active
  */
 export async function isHeroRapidRenewalActive(walletAddress, heroId) {
@@ -164,7 +179,16 @@ export async function isHeroRapidRenewalActive(walletAddress, heroId) {
     const contract = getPowerUpContract();
     const rrId = await getRapidRenewalPowerUpId();
     
-    return await contract.isHeroPowerUpActive(walletAddress, rrId, heroId);
+    // Convert to raw format - contract expects raw on-chain IDs with chain prefix
+    const rawId = toRawHeroId(heroId);
+    
+    const result = await contract.isHeroPowerUpActive(walletAddress, rrId, rawId);
+    
+    if (result) {
+      console.log(`[RapidRenewal] Hero ${heroId} (raw: ${rawId}) has RR active`);
+    }
+    
+    return result;
     
   } catch (error) {
     console.error(`[RapidRenewal] Error checking RR for hero ${heroId}:`, error.message);
