@@ -5,7 +5,7 @@ import { getQuestRewardFundBalances } from '../quest-reward-fund.js';
 import { getCachedPoolAnalytics } from '../pool-cache.js';
 import { getCrystalPrice, getJewelPrice, getBatchPrices, TOKEN_ADDRESSES } from '../price-feed.js';
 import { getLPTokenDetails } from '../garden-analytics.js';
-import { isHeroRapidRenewalActive } from '../rapid-renewal-service.js';
+import { getRapidRenewalHeroIds } from '../rapid-renewal-service.js';
 import { getExpeditionPairs } from '../hero-pairing.js';
 import { groupHeroesByGardenPool } from '../garden-pairs.js';
 
@@ -387,13 +387,29 @@ export async function execute(interaction) {
       }
     }
     
-    const rrChecks = await Promise.all(
-      [...gardeningHeroIds].map(async heroId => {
-        const hasRR = await isHeroRapidRenewalActive(walletAddress, heroId);
-        return [heroId, hasRR];
-      })
-    );
-    const rrMap = new Map(rrChecks);
+    // Fetch all RR hero IDs once from contract and normalize them
+    const rawRRHeroIds = await getRapidRenewalHeroIds(walletAddress);
+    const normalizedRRSet = new Set();
+    for (const rawId of rawRRHeroIds) {
+      const numId = Number(rawId);
+      // Normalize: remove chain prefix if present (same logic as normalizeHeroId)
+      const normalizedId = numId >= 2_000_000_000_000 ? numId - 2_000_000_000_000 :
+                           numId >= 1_000_000_000_000 ? numId - 1_000_000_000_000 : numId;
+      normalizedRRSet.add(normalizedId);
+      normalizedRRSet.add(String(normalizedId));
+    }
+    console.log(`[GardenPortfolioCurrent] RR detection: ${rawRRHeroIds.size} raw IDs -> ${normalizedRRSet.size / 2} normalized heroes`);
+    
+    // Build rrMap by checking if expedition heroIds are in the normalized RR set
+    const rrMap = new Map();
+    for (const heroId of gardeningHeroIds) {
+      const numId = Number(heroId);
+      const hasRR = normalizedRRSet.has(numId) || normalizedRRSet.has(String(numId));
+      rrMap.set(heroId, hasRR);
+      if (hasRR) {
+        console.log(`[GardenPortfolioCurrent] Hero ${heroId} has RR`);
+      }
+    }
     
     const poolResults = [];
     const poolsNoLP = [];
@@ -461,7 +477,18 @@ export async function execute(interaction) {
         const h1Data = buildHeroData(hero1, pet1, rr1, pairStamina);
         const h2Data = buildHeroData(hero2, pet2, rr2, pairStamina);
         
-        const pairRunsPerDay = Math.min(h1Data.runsPerDay, h2Data.runsPerDay);
+        // Use actual iterationTime from expedition if available, otherwise fall back to modeled formula
+        let pairRunsPerDay;
+        if (pairData.iterationTime && pairData.iterationTime > 0) {
+          // iterationTime is in seconds, convert to runs per day
+          const cycleMinutes = pairData.iterationTime / 60;
+          pairRunsPerDay = 1440 / cycleMinutes;
+          console.log(`[GardenPortfolioCurrent] Using expedition iterationTime: ${pairData.iterationTime}s = ${cycleMinutes.toFixed(1)}min -> ${pairRunsPerDay.toFixed(2)} runs/day`);
+        } else {
+          // Fallback to modeled formula (min of both heroes)
+          pairRunsPerDay = Math.min(h1Data.runsPerDay, h2Data.runsPerDay);
+          console.log(`[GardenPortfolioCurrent] Using modeled runsPerDay: ${pairRunsPerDay.toFixed(2)} runs/day`);
+        }
         
         const h1Yield = scoreHeroForPool(h1Data, pool, rewardFund, lpShare, pairStamina);
         const h2Yield = scoreHeroForPool(h2Data, pool, rewardFund, lpShare, pairStamina);
