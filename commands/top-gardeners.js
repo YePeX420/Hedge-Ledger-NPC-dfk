@@ -269,14 +269,18 @@ async function getPoolByPid(pid, walletAddress) {
 /**
  * Get user's highest-value pool position
  * Uses totalStakedRaw from pool info (not LP totalSupply) for correct LP share
+ * Falls back to largest staked amount if pool details/analytics are unavailable
  */
 async function getBestPoolPosition(walletAddress) {
   try {
     const positions = await getUserGardenPositions(walletAddress, 'dfk');
     
     if (!positions || positions.length === 0) {
+      console.log(`[TopGardeners] No positions returned from getUserGardenPositions`);
       return null;
     }
+    
+    console.log(`[TopGardeners] Found ${positions.length} LP positions from contract`);
     
     // Get pool analytics for TVL data
     const cached = getCachedPoolAnalytics();
@@ -284,34 +288,67 @@ async function getBestPoolPosition(walletAddress) {
     
     let bestPosition = null;
     let bestValue = 0;
+    let fallbackPosition = null;
+    let fallbackStaked = 0n;
     
     for (const pos of positions) {
-      if (!pos.stakedAmountRaw || BigInt(pos.stakedAmountRaw) <= 0n) continue;
+      if (!pos.stakedAmountRaw || BigInt(pos.stakedAmountRaw) <= 0n) {
+        console.log(`[TopGardeners] Skipping pool ${pos.pid}: no staked amount`);
+        continue;
+      }
       
       const poolInfo = GARDEN_POOLS.find(p => p.pid === pos.pid);
-      if (!poolInfo) continue;
+      if (!poolInfo) {
+        console.log(`[TopGardeners] Skipping pool ${pos.pid}: not in GARDEN_POOLS list`);
+        continue;
+      }
+      
+      // Track fallback position (largest staked amount) in case pool details fail
+      const stakedBigInt = BigInt(pos.stakedAmountRaw);
+      if (stakedBigInt > fallbackStaked) {
+        fallbackStaked = stakedBigInt;
+        fallbackPosition = {
+          pid: pos.pid,
+          name: poolInfo.name,
+          lpToken: poolInfo.lpToken,
+          stakedAmount: pos.stakedAmount,
+          stakedAmountRaw: pos.stakedAmountRaw,
+          totalStaked: '0',
+          totalStakedRaw: 0n,
+          userShare: 0.0001, // Reference share for theoretical yields
+          userValue: 0,
+          tvl: 0,
+          allocPercent: 10, // Default allocation
+          allocDecimal: 0.10
+        };
+      }
       
       // Get pool details including totalStaked from contract
       const poolDetails = await getGardenPoolByPid(pos.pid, 'dfk');
-      if (!poolDetails) continue;
+      if (!poolDetails) {
+        console.log(`[TopGardeners] Pool ${pos.pid}: getGardenPoolByPid returned null, using fallback`);
+        continue;
+      }
       
       // Get pool analytics for TVL
       const analytics = poolData.find(p => p.pid === pos.pid);
       const tvl = analytics?.totalTVL || 0;
       
       // Calculate user's share using totalStakedRaw (staked in garden, not LP totalSupply)
-      // This is the correct denominator for garden rewards
       const totalStakedRaw = poolDetails.totalStakedRaw;
-      if (!totalStakedRaw || BigInt(totalStakedRaw) <= 0n) continue;
+      if (!totalStakedRaw || BigInt(totalStakedRaw) <= 0n) {
+        console.log(`[TopGardeners] Pool ${pos.pid}: totalStakedRaw is 0, using fallback`);
+        continue;
+      }
       
       const userShare = Number(pos.stakedAmountRaw) / Number(totalStakedRaw);
-      const userValue = tvl * userShare;
+      const userValue = tvl > 0 ? tvl * userShare : Number(pos.stakedAmountRaw); // Use staked amount if no TVL
       
       console.log(`[TopGardeners] Pool ${pos.pid}: staked=${pos.stakedAmount}, totalStaked=${poolDetails.totalStaked}, share=${(userShare*100).toFixed(4)}%`);
       
       if (userValue > bestValue) {
         bestValue = userValue;
-        const allocPercent = parseFloat(poolDetails.allocPercent) || 0;
+        const allocPercent = parseFloat(poolDetails.allocPercent) || 10;
         
         bestPosition = {
           pid: pos.pid,
@@ -328,6 +365,12 @@ async function getBestPoolPosition(walletAddress) {
           allocDecimal: allocPercent / 100
         };
       }
+    }
+    
+    // If no fully-resolved position found, use fallback (largest staked amount with default values)
+    if (!bestPosition && fallbackPosition) {
+      console.log(`[TopGardeners] Using fallback position: pool ${fallbackPosition.pid} with reference share`);
+      return fallbackPosition;
     }
     
     return bestPosition;
