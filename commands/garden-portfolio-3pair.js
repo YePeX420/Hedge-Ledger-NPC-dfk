@@ -215,6 +215,16 @@ export const data = new SlashCommandBuilder()
       .setDescription('Wallet address')
       .setRequired(true)
   )
+  .addStringOption(option =>
+    option.setName('realm')
+      .setDescription('Which realm to pull heroes from (default: Crystalvale)')
+      .setRequired(false)
+      .addChoices(
+        { name: 'Crystalvale (DFK Chain)', value: 'crystalvale' },
+        { name: 'Serendale (Klaytn)', value: 'serendale' },
+        { name: 'All Realms', value: 'all' }
+      )
+  )
   .addIntegerOption(option =>
     option.setName('stamina')
       .setDescription('Stamina per run (default: 30)')
@@ -232,9 +242,10 @@ export async function execute(interaction) {
   
   try {
     const walletAddress = interaction.options.getString('wallet').toLowerCase();
+    const realm = interaction.options.getString('realm') || 'crystalvale';
     const stamina = interaction.options.getInteger('stamina') || 30;
     
-    console.log(`[GardenPortfolio3Pair] Analyzing wallet ${walletAddress}, stamina=${stamina}...`);
+    console.log(`[GardenPortfolio3Pair] Analyzing wallet ${walletAddress}, realm=${realm}, stamina=${stamina}...`);
     
     const [allHeroes, pets, allPools, prices, rewardFund, existingPositions] = await Promise.all([
       getAllHeroesByOwner(walletAddress),
@@ -245,16 +256,30 @@ export async function execute(interaction) {
       getUserGardenPositions(walletAddress, 'dfk')
     ]);
     
-    // Filter to Crystalvale heroes only (network='dfk' or ID with 2e12 prefix)
-    const heroes = (allHeroes || []).filter(hero => {
-      // Check network field if available
-      if (hero.network === 'dfk') return true;
-      // Fallback: check ID prefix (2e12 = Crystalvale)
+    // Helper to determine hero realm
+    function getHeroRealm(hero) {
+      if (hero.network === 'dfk') return 'crystalvale';
+      if (hero.network === 'kla' || hero.network === 'klaytn') return 'serendale';
+      // Fallback: check ID prefix
       const heroId = Number(hero.id);
-      return heroId >= 2_000_000_000_000 && heroId < 3_000_000_000_000;
+      if (heroId >= 2_000_000_000_000 && heroId < 3_000_000_000_000) return 'crystalvale';
+      if (heroId >= 1_000_000_000_000 && heroId < 2_000_000_000_000) return 'serendale';
+      return 'unknown';
+    }
+    
+    // Filter heroes based on realm selection
+    const heroes = (allHeroes || []).filter(hero => {
+      const heroRealm = getHeroRealm(hero);
+      hero._realm = heroRealm; // Store for later display
+      if (realm === 'all') return heroRealm !== 'unknown';
+      if (realm === 'crystalvale') return heroRealm === 'crystalvale';
+      if (realm === 'serendale') return heroRealm === 'serendale';
+      return false;
     });
     
-    console.log(`[GardenPortfolio3Pair] Filtered to ${heroes.length} Crystalvale heroes (from ${allHeroes?.length || 0} total)`);
+    const cvCount = heroes.filter(h => h._realm === 'crystalvale').length;
+    const sdCount = heroes.filter(h => h._realm === 'serendale').length;
+    console.log(`[GardenPortfolio3Pair] Filtered to ${heroes.length} heroes (${cvCount} CV, ${sdCount} SD) from ${allHeroes?.length || 0} total`);
     
     const pools = allPools.filter(p => p.pid !== 0);
     
@@ -273,7 +298,8 @@ export async function execute(interaction) {
     }
     
     if (!heroes || heroes.length === 0) {
-      return interaction.editReply('No Crystalvale heroes found for this wallet. This optimizer only works with DFK Chain heroes.');
+      const realmNames = { crystalvale: 'Crystalvale', serendale: 'Serendale', all: 'any realm' };
+      return interaction.editReply(`No heroes found in ${realmNames[realm]} for this wallet.`);
     }
     
     const poolsWithTVL = pools.filter(p => p.tvl > 0);
@@ -288,15 +314,22 @@ export async function execute(interaction) {
     
     const gardeningPets = (pets || []).filter(p => p.eggType === 2);
     
-    // CRITICAL FIX: Check RR status for ALL heroes BEFORE sorting/selection
-    // This ensures RR heroes get prioritized in scoring (RR = 3x more runs/day)
-    console.log(`[GardenPortfolio3Pair] Checking RR status for ${heroes.length} heroes...`);
+    // CRITICAL FIX: Check RR status BEFORE sorting/selection
+    // RR only exists on DFK Chain (Crystalvale), skip RR check for Serendale heroes
+    const cvHeroes = heroes.filter(h => h._realm === 'crystalvale');
+    const sdHeroes = heroes.filter(h => h._realm === 'serendale');
+    console.log(`[GardenPortfolio3Pair] Checking RR status for ${cvHeroes.length} Crystalvale heroes (skipping ${sdHeroes.length} Serendale)...`);
+    
     const rrChecks = await Promise.all(
-      heroes.map(hero => isHeroRapidRenewalActive(walletAddress, hero.id))
+      cvHeroes.map(hero => isHeroRapidRenewalActive(walletAddress, hero.id))
     );
     const heroRRMap = new Map();
-    heroes.forEach((hero, i) => {
+    cvHeroes.forEach((hero, i) => {
       heroRRMap.set(hero.id, rrChecks[i]);
+    });
+    // Serendale heroes have no RR power-up
+    sdHeroes.forEach(hero => {
+      heroRRMap.set(hero.id, false);
     });
     const rrCount = rrChecks.filter(Boolean).length;
     console.log(`[GardenPortfolio3Pair] Found ${rrCount} heroes with Rapid Renewal active`);
@@ -532,6 +565,8 @@ export async function execute(interaction) {
     const totalAssignedHeroes = assignedHeroIds.size;
     const totalPairs = poolResults.reduce((sum, p) => sum + p.pairs.length, 0);
     
+    const realmLabels = { crystalvale: 'Crystalvale', serendale: 'Serendale', all: 'All Realms' };
+    
     const embed = new EmbedBuilder()
       .setColor('#00FFAA')
       .setTitle('Garden Portfolio Optimizer (3-Pair Mode)')
@@ -539,7 +574,7 @@ export async function execute(interaction) {
     
     let description = [
       `**Wallet:** \`${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}\``,
-      `**Stamina:** ${stamina} | **Heroes Assigned:** ${totalAssignedHeroes} | **Pairs:** ${totalPairs}`,
+      `**Realm:** ${realmLabels[realm]} | **Stamina:** ${stamina} | **Heroes:** ${totalAssignedHeroes} | **Pairs:** ${totalPairs}`,
       ``
     ];
     
@@ -549,8 +584,11 @@ export async function execute(interaction) {
       const pairLines = result.pairs.map((pair, idx) => {
         const h1 = pair.heroes[0];
         const h2 = pair.heroes[1];
-        const h1Label = `#${h1.hero.id}${h1.hasGardeningGene ? '[G]' : ''}${h1.hasRR ? '[RR]' : ''}`;
-        const h2Label = `#${h2.hero.id}${h2.hasGardeningGene ? '[G]' : ''}${h2.hasRR ? '[RR]' : ''}`;
+        // Only show realm tag when viewing all realms
+        const r1 = realm === 'all' ? (h1.hero._realm === 'crystalvale' ? '[CV]' : '[SD]') : '';
+        const r2 = realm === 'all' ? (h2.hero._realm === 'crystalvale' ? '[CV]' : '[SD]') : '';
+        const h1Label = `#${h1.hero.normalizedId || h1.hero.id}${r1}${h1.hasGardeningGene ? '[G]' : ''}${h1.hasRR ? '[RR]' : ''}`;
+        const h2Label = `#${h2.hero.normalizedId || h2.hero.id}${r2}${h2.hasGardeningGene ? '[G]' : ''}${h2.hasRR ? '[RR]' : ''}`;
         const p1 = h1.pet ? `+${h1.petBonus}%` : '';
         const p2 = h2.pet ? `+${h2.petBonus}%` : '';
         return `  P${idx + 1}: ${h1Label}${p1} + ${h2Label}${p2} (${pair.runsPerDay.toFixed(2)} runs/day)`;
@@ -600,15 +638,23 @@ export async function execute(interaction) {
       .setTitle('Recommended Hero/Pet Assignments')
       .setDescription(assignmentLines.join('\n').trim() || 'No assignments');
     
+    // Stats breakdown
+    const cvHeroCount = heroes.filter(h => h._realm === 'crystalvale').length;
+    const sdHeroCount = heroes.filter(h => h._realm === 'serendale').length;
+    const heroCountStr = realm === 'all' 
+      ? `${heroes.length} total (${cvHeroCount} CV, ${sdHeroCount} SD)`
+      : `${heroes.length} total`;
+    
     const pricesEmbed = new EmbedBuilder()
       .setColor('#FFD700')
       .setTitle('Prices & Stats')
       .setDescription([
         `CRYSTAL: $${prices.CRYSTAL.toFixed(4)} | JEWEL: $${prices.JEWEL.toFixed(4)}`,
         ``,
-        `**Available Heroes:** ${heroes.length} total, ${allPairings.filter(p => p.hasGardeningGene).length} with Gardening gene`,
+        `**Available Heroes:** ${heroCountStr}, ${allPairings.filter(p => p.hasGardeningGene).length} with Gardening gene`,
         `**Gardening Pets:** ${gardeningPets.length} available`,
-        `**Pools with LP:** ${poolsWithLP.length}`
+        `**Pools with LP:** ${poolsWithLP.length}`,
+        realm !== 'crystalvale' ? `\n*Note: Gardens are Crystalvale-only. RR power-up only works on CV heroes.*` : ''
       ].join('\n'))
       .setFooter({ 
         text: `Runtime: ${((Date.now() - startTime) / 1000).toFixed(1)}s | Best heroes assigned to highest-yield pools first` 

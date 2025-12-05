@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { getHeroesByOwner, getUserGardenPositions, getGardenPoolByPid } from '../onchain-data.js';
+import { getAllHeroesByOwner, getUserGardenPositions, getGardenPoolByPid } from '../onchain-data.js';
 import { fetchPetsForWallet } from '../pet-data.js';
 import { getQuestRewardFundBalances } from '../quest-reward-fund.js';
 import { getCachedPoolAnalytics } from '../pool-cache.js';
@@ -390,6 +390,16 @@ export const data = new SlashCommandBuilder()
       .setRequired(true)
   )
   .addStringOption(option =>
+    option.setName('realm')
+      .setDescription('Which realm to pull heroes from (default: Crystalvale)')
+      .setRequired(false)
+      .addChoices(
+        { name: 'Crystalvale (DFK Chain)', value: 'crystalvale' },
+        { name: 'Serendale (Klaytn)', value: 'serendale' },
+        { name: 'All Realms', value: 'all' }
+      )
+  )
+  .addStringOption(option =>
     option.setName('pool')
       .setDescription('Garden pool to calculate yields for (default: auto-detect best position)')
       .setRequired(false)
@@ -413,21 +423,47 @@ export async function execute(interaction) {
   
   try {
     const walletAddress = interaction.options.getString('wallet').toLowerCase();
+    const realm = interaction.options.getString('realm') || 'crystalvale';
     const poolSelection = interaction.options.getString('pool') || 'auto';
     const scope = interaction.options.getString('scope') || 'all';
     
-    console.log(`[TopGardeners] Analyzing wallet ${walletAddress}, pool=${poolSelection}, scope=${scope}...`);
+    console.log(`[TopGardeners] Analyzing wallet ${walletAddress}, realm=${realm}, pool=${poolSelection}, scope=${scope}...`);
+    
+    // Helper to determine hero realm
+    function getHeroRealm(hero) {
+      if (hero.network === 'dfk') return 'crystalvale';
+      if (hero.network === 'kla' || hero.network === 'klaytn') return 'serendale';
+      const heroId = Number(hero.id);
+      if (heroId >= 2_000_000_000_000 && heroId < 3_000_000_000_000) return 'crystalvale';
+      if (heroId >= 1_000_000_000_000 && heroId < 2_000_000_000_000) return 'serendale';
+      return 'unknown';
+    }
     
     // Fetch heroes, pets, reward fund, and expeditions in parallel
-    const [heroes, pets, rewardFund, expeditionData] = await Promise.all([
-      getHeroesByOwner(walletAddress),
+    const [allHeroes, pets, rewardFund, expeditionData] = await Promise.all([
+      getAllHeroesByOwner(walletAddress),
       fetchPetsForWallet(walletAddress),
       getQuestRewardFundBalances(),
       getAllExpeditions(walletAddress)
     ]);
     
+    // Filter heroes by realm selection
+    const heroes = (allHeroes || []).filter(hero => {
+      const heroRealm = getHeroRealm(hero);
+      hero._realm = heroRealm;
+      if (realm === 'all') return heroRealm !== 'unknown';
+      if (realm === 'crystalvale') return heroRealm === 'crystalvale';
+      if (realm === 'serendale') return heroRealm === 'serendale';
+      return false;
+    });
+    
+    const cvCount = heroes.filter(h => h._realm === 'crystalvale').length;
+    const sdCount = heroes.filter(h => h._realm === 'serendale').length;
+    console.log(`[TopGardeners] Filtered to ${heroes.length} heroes (${cvCount} CV, ${sdCount} SD) from ${allHeroes?.length || 0} total`);
+    
     if (!heroes || heroes.length === 0) {
-      return interaction.editReply('No heroes found for this wallet');
+      const realmNames = { crystalvale: 'Crystalvale', serendale: 'Serendale', all: 'any realm' };
+      return interaction.editReply(`No heroes found in ${realmNames[realm]} for this wallet.`);
     }
     
     // Build set of active hero IDs from expeditions
@@ -530,8 +566,10 @@ export async function execute(interaction) {
       const gardeningSkill = hero.gardening || 0; // Raw 0-100 scale from API
       const heroLevel = hero.level || 1;
       
-      // Check if hero has Rapid Renewal power-up
-      const hasRR = await isHeroRapidRenewalActive(walletAddress, hero.id);
+      // Check if hero has Rapid Renewal power-up (only exists on Crystalvale/DFK Chain)
+      const hasRR = hero._realm === 'crystalvale' 
+        ? await isHeroRapidRenewalActive(walletAddress, hero.id)
+        : false;
       
       // Stamina per day calculation:
       // Base regen: 20 min/stam for ALL heroes = 72 stam/day
@@ -592,10 +630,15 @@ export async function execute(interaction) {
       ? `**Your Share:** ${(selectedPool.userShare * 100).toFixed(4)}%` 
       : `**Your Share:** 0.01% reference (theoretical yields)`;
     
-    // Scope display for heroes and pets
+    // Realm and scope display
+    const realmLabels = { crystalvale: 'Crystalvale', serendale: 'Serendale', all: 'All Realms' };
+    const heroCountStr = realm === 'all' 
+      ? `${heroes.length} (${cvCount} CV, ${sdCount} SD)`
+      : `${heroes.length}`;
+    
     const scopeInfo = scope === 'all' 
-      ? `Heroes: ${heroes.length}` 
-      : `Heroes: ${filteredHeroes.length}/${heroes.length} (${scopeLabel})`;
+      ? `Heroes: ${heroCountStr}` 
+      : `Heroes: ${filteredHeroes.length}/${heroCountStr} (${scopeLabel})`;
     
     const petInfo = scope === 'all'
       ? `Pets: ${gardeningPets.length}`
@@ -606,20 +649,23 @@ export async function execute(interaction) {
       .setTitle('Top 12 Gardener-Pet Pairings')
       .setDescription([
         `Wallet: \`${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}\``,
-        `${scopeInfo} | ${petInfo}`,
+        `**Realm:** ${realmLabels[realm]} | ${scopeInfo} | ${petInfo}`,
         ``,
         `**Pool:** ${selectedPool.name} ${poolMode}`,
         `${shareInfo} | **Alloc:** ${selectedPool.allocPercent}%`,
-        `**Reward Fund:** ${(rewardFund.crystalPool/1e6).toFixed(2)}M CRYSTAL | ${(rewardFund.jewelPool/1e3).toFixed(0)}K JEWEL`
+        `**Reward Fund:** ${(rewardFund.crystalPool/1e6).toFixed(2)}M CRYSTAL | ${(rewardFund.jewelPool/1e3).toFixed(0)}K JEWEL`,
+        realm !== 'crystalvale' ? `\n*Note: Gardens are Crystalvale-only. RR only works on CV heroes.*` : ''
       ].join('\n'))
       .setTimestamp();
     
     // Format pairings
     const pairingLines = topPairings.map(p => {
-      const heroId = p.hero.id;
+      const heroId = p.hero.normalizedId || p.hero.id;
       const heroLevel = p.hero.level || 1;
-      const geneIcon = p.hasGardeningGene ? ' [G]' : '';
-      const rrIcon = p.hasRapidRenewal ? ' [RR]' : '';
+      // Only show realm tag when viewing all realms
+      const realmTag = realm === 'all' ? (p.hero._realm === 'crystalvale' ? '[CV]' : '[SD]') : '';
+      const geneIcon = p.hasGardeningGene ? '[G]' : '';
+      const rrIcon = p.hasRapidRenewal ? '[RR]' : '';
       const WIS = p.hero.wisdom || 0;
       const VIT = p.hero.vitality || 0;
       const grdSkill = Math.floor((p.hero.gardening || 0) / 10);
@@ -635,8 +681,12 @@ export async function execute(interaction) {
       // Show stamina/day info for RR heroes
       const stamInfo = p.hasRapidRenewal ? ` (${p.staminaPerDay.toFixed(0)} stam/day)` : '';
       
+      // Combine tags: [CV] [G] [RR] - filter out empty strings
+      const tags = [realmTag, geneIcon, rrIcon].filter(t => t).join(' ');
+      const tagStr = tags ? ` ${tags}` : '';
+      
       // Show CRYSTAL as primary (1st hero role), JEWEL as secondary (2nd hero role)
-      return `**${p.rank}.** Lv${heroLevel}${geneIcon}${rrIcon} #${heroId}${stamInfo}\n` +
+      return `**${p.rank}.** Lv${heroLevel}${tagStr} #${heroId}${stamInfo}\n` +
              `   WIS:${WIS} VIT:${VIT} Grd:${grdSkill} F:${p.heroFactor.toFixed(2)}\n` +
              `   └ ${petInfo}\n` +
              `   └ **${p.crystalPerDay.toFixed(1)} CRYSTAL**/day (1st) | ${p.jewelPerDay.toFixed(2)} JEWEL/day (2nd)`;
@@ -655,9 +705,14 @@ export async function execute(interaction) {
     }
     
     // Add legend and formula info
+    const legendParts = [];
+    if (realm === 'all') legendParts.push('[CV] = Crystalvale | [SD] = Serendale');
+    legendParts.push('[G] = Gardening Gene | [RR] = Rapid Renewal');
+    legendParts.push('⚡ = Power Surge | 🧑‍🌾 = Skilled Greenskeeper');
+    
     embed.addFields({
       name: 'Legend',
-      value: '[G] = Gardening Gene | [RR] = Rapid Renewal | ⚡ = Power Surge | 🧑‍🌾 = Skilled Greenskeeper',
+      value: legendParts.join('\n'),
       inline: false
     });
     
