@@ -347,8 +347,9 @@ export async function getExpeditionPairs(walletAddress) {
         heroCountPatterns.get(heroCount).push({ level, attempts, questType, heroIds: heroIds.slice(0, 2) });
       }
       
-      // Gardening pattern: level=10, attempts=25, heroes=2, questType 1-13
-      const isGardening = level === 10 && attempts === 25 && heroCount === 2 && questType >= 1 && questType <= 13;
+      // Gardening pattern: 2 heroes + questType 1-13 (pool IDs)
+      // Level and attempts can vary, so we only check hero count and quest type
+      const isGardening = heroCount === 2 && questType >= 1 && questType <= 13;
       
       if (!isGardening) {
         skippedCount++;
