@@ -55,7 +55,7 @@ Command Invoked
 ┌─────────────────────────────────────────────────────────────┐
 │  DATA PROCESSING                                             │
 │  ├── Build hero lookup map (handles ID normalization)       │
-│  ├── Build pet lookup map                                   │
+│  ├── Build pet lookup map (pet.equippedTo → hero mapping)   │
 │  ├── Normalize RR hero IDs and build RR map                 │
 │  └── Match gardening heroes to expedition pairs             │
 └─────────────────────────────────────────────────────────────┘
@@ -142,7 +142,7 @@ The following data sources are shared with other tools. **Changes to these servi
 | **pool-cache.js** | `garden-portfolio-3pair`, `garden-planner`, `garden-apr-debug`, `top-gardeners` | Pool TVL and allocation % used across all yield calculations. Cache refresh timing affects data freshness. Background refresh runs on startup - if this fails, stale data may persist. |
 | **price-feed.js** | `garden-portfolio-3pair`, `garden-planner`, `top-gardeners`, multiple debug commands | Token prices affect all USD calculations. The `buildPriceGraph()` function is expensive (queries 577 LP pairs). Multiple tools may trigger parallel builds. |
 | **quest-reward-fund.js** | `garden-portfolio-3pair`, `garden-planner`, `top-gardeners`, `hero-yield-model` | CRYSTAL/JEWEL pool balances directly affect yield calculations. Live contract call - if contract changes, all yield calculations break. Current ratio ~12.97 CRYSTAL per JEWEL. |
-| **pet-data.js** | `garden-portfolio-3pair`, `garden-planner`, debug commands | Pet bonus detection (eggType, bonusIds) shared. The `getUserPetsV2()` function handles both old and new pet ID formats. Changes to pet bonus calculation affect yield accuracy. |
+| **pet-data.js** | `garden-portfolio-3pair`, `garden-planner`, debug commands | Pet bonus detection (eggType, bonusIds) shared. The `getUserPetsV2()` function handles both old and new pet ID formats. **IMPORTANT**: Pets have `equippedTo` field pointing to hero ID (not vice versa). Hero->pet mapping must iterate pets and check pet.equippedTo, normalizing the hero ID. Changes to pet bonus calculation affect yield accuracy. |
 | **onchain-data.js** | Nearly all commands | Hero fetching, LP positions, pool queries. The `getAllHeroesByOwner()` function is the primary hero data source. Changes to hero attribute parsing will cascade everywhere. |
 | **Hero ID Formats** | All garden/hero commands | Multiple ID formats in use (raw, normalized, string, number). Changes to normalization logic in ANY file may break lookups in OTHER files. Always test hero matching after ID-related changes. |
 
@@ -170,6 +170,24 @@ String vs Number:              "133347" vs 133347
 - Looking up heroes in maps
 - Calling contract functions (contracts expect raw IDs)
 - Matching expedition data (uses normalized IDs)
+
+#### Pet-to-Hero Mapping (CRITICAL)
+
+**Pets point to heroes, NOT heroes to pets.**
+
+```
+WRONG: hero.equippedPetId → pet  (heroes don't have this field)
+RIGHT: pet.equippedTo → hero    (pets have equippedTo field)
+```
+
+To build a hero→pet lookup map:
+1. Fetch all pets via `getUserPetsV2(wallet)`
+2. Filter for gardening pets: `pet.eggType === 2`
+3. For each pet with `pet.equippedTo > 0`:
+   - Normalize the hero ID from `pet.equippedTo`
+   - Map: `normalizedHeroId → pet`
+
+This is the **only correct way** to determine which pet a hero has equipped.
 
 ---
 
@@ -608,6 +626,8 @@ When validating this command, verify:
 
 | Date | Change |
 |------|--------|
+| 2025-12-05 | Fixed pet lookup to use pet.equippedTo (not hero.equippedPetId) - pets now display correctly and pet bonuses apply to yields |
+| 2025-12-05 | Added [Pet#ID] markers next to heroes in assignment display |
 | 2025-12-05 | Fixed RR detection using normalized ID matching |
 | 2025-12-05 | Fixed runsPerDay to use expedition iterationTime |
 | 2025-12-05 | Added per-pair stamina and runs/day display |
