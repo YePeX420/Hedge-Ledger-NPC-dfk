@@ -288,21 +288,61 @@ export async function execute(interaction) {
     
     const gardeningPets = (pets || []).filter(p => p.eggType === 2);
     
+    // CRITICAL FIX: Check RR status for ALL heroes BEFORE sorting/selection
+    // This ensures RR heroes get prioritized in scoring (RR = 3x more runs/day)
+    console.log(`[GardenPortfolio3Pair] Checking RR status for ${heroes.length} heroes...`);
+    const rrChecks = await Promise.all(
+      heroes.map(hero => isHeroRapidRenewalActive(walletAddress, hero.id))
+    );
+    const heroRRMap = new Map();
+    heroes.forEach((hero, i) => {
+      heroRRMap.set(hero.id, rrChecks[i]);
+    });
+    const rrCount = rrChecks.filter(Boolean).length;
+    console.log(`[GardenPortfolio3Pair] Found ${rrCount} heroes with Rapid Renewal active`);
+    
+    // Helper to calculate runsPerDay for a hero (with RR consideration)
+    function calculateRunsPerDay(hero, hasGardeningGene) {
+      const hasRR = heroRRMap.get(hero.id) || false;
+      const questMinPerStam = hasGardeningGene ? 10 : 12;
+      let regenMinPerStam = 20;
+      if (hasRR) {
+        const regenSeconds = Math.max(300, 1200 - (hero.level * 3));
+        regenMinPerStam = regenSeconds / 60;
+      }
+      const cycleMinutes = stamina * (questMinPerStam + regenMinPerStam);
+      return 1440 / cycleMinutes;
+    }
+    
     const allPairings = [];
     const usedHeroIds = new Set();
     const usedPetIds = new Set();
     
+    // Create all hero-pet combos with RR-aware scoring
     const allCombos = [];
     for (const hero of heroes) {
-      allCombos.push(scoreHeroPetPairing(hero, null));
+      const noPetCombo = scoreHeroPetPairing(hero, null);
+      noPetCombo.hasRR = heroRRMap.get(hero.id) || false;
+      noPetCombo.runsPerDay = calculateRunsPerDay(hero, noPetCombo.hasGardeningGene);
+      // RR-adjusted score: effectiveScore * runsPerDay (RR heroes run 3x more)
+      noPetCombo.adjustedScore = noPetCombo.effectiveScore * noPetCombo.runsPerDay;
+      allCombos.push(noPetCombo);
+      
       for (const pet of gardeningPets) {
         const skillInfo = getPetGardenSkillType(pet);
         if (skillInfo) {
-          allCombos.push(scoreHeroPetPairing(hero, pet));
+          const petCombo = scoreHeroPetPairing(hero, pet);
+          petCombo.hasRR = heroRRMap.get(hero.id) || false;
+          petCombo.runsPerDay = calculateRunsPerDay(hero, petCombo.hasGardeningGene);
+          petCombo.adjustedScore = petCombo.effectiveScore * petCombo.runsPerDay;
+          allCombos.push(petCombo);
         }
       }
     }
-    allCombos.sort((a, b) => b.effectiveScore - a.effectiveScore);
+    
+    // CRITICAL: Sort by RR-adjusted score (effectiveScore * runsPerDay)
+    // This prioritizes RR heroes because they produce 3x more runs/day
+    allCombos.sort((a, b) => b.adjustedScore - a.adjustedScore);
     
     for (const combo of allCombos) {
       if (usedHeroIds.has(combo.hero.id)) continue;
@@ -313,13 +353,9 @@ export async function execute(interaction) {
       if (combo.pet) usedPetIds.add(combo.pet.id);
     }
     
-    console.log(`[GardenPortfolio3Pair] Prepared ${allPairings.length} hero-pet pairings (best pets to best heroes)`);
+    console.log(`[GardenPortfolio3Pair] Prepared ${allPairings.length} hero-pet pairings (RR-weighted scoring)`);
     
-    const rrChecks = await Promise.all(
-      allPairings.map(p => isHeroRapidRenewalActive(walletAddress, p.hero.id))
-    );
-    allPairings.forEach((p, i) => { p.hasRR = rrChecks[i]; });
-    
+    // Calculate remaining fields for each pairing (runsPerDay already set, but ensure consistency)
     for (const pairing of allPairings) {
       const hasGene = pairing.hasGardeningGene;
       const questMinPerStam = hasGene ? 10 : 12;
@@ -329,8 +365,11 @@ export async function execute(interaction) {
         regenMinPerStam = regenSeconds / 60;
       }
       const cycleMinutes = stamina * (questMinPerStam + regenMinPerStam);
-      pairing.runsPerDay = 1440 / cycleMinutes;
       pairing.cycleMinutes = cycleMinutes;
+      // Ensure runsPerDay is set (should already be, but safety check)
+      if (!pairing.runsPerDay) {
+        pairing.runsPerDay = 1440 / cycleMinutes;
+      }
       
       const grdSkillForFormula = pairing.gardeningSkill / 10;
       const rewardModBase = grdSkillForFormula >= 10 ? 72 : 144;
