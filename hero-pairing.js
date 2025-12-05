@@ -322,11 +322,30 @@ export async function getExpeditionPairs(walletAddress) {
     const heroToPair = new Map();
     let skippedCount = 0;
     
+    // Debug: Collect all expedition patterns to understand what's being skipped
+    const patternCounts = new Map();
+    const heroCountPatterns = new Map();
+    
+    console.log(`[HeroPairing] Total expeditions from contract: ${expeditions.length}`);
+    
     for (const exp of expeditions) {
       const level = Number(exp.quest.level);
       const attempts = Number(exp.quest.attempts);
       const heroCount = exp.quest.heroes.length;
       const questType = Number(exp.quest.questType);
+      const heroIds = exp.quest.heroes.map(h => normalizeHeroId(h));
+      
+      // Debug: Log pattern for each expedition
+      const patternKey = `L${level}_A${attempts}_H${heroCount}_T${questType}`;
+      patternCounts.set(patternKey, (patternCounts.get(patternKey) || 0) + 1);
+      
+      // Track heroCount patterns specifically
+      if (!heroCountPatterns.has(heroCount)) {
+        heroCountPatterns.set(heroCount, []);
+      }
+      if (heroCountPatterns.get(heroCount).length < 3) {
+        heroCountPatterns.get(heroCount).push({ level, attempts, questType, heroIds: heroIds.slice(0, 2) });
+      }
       
       // Gardening pattern: level=10, attempts=25, heroes=2, questType 1-13
       const isGardening = level === 10 && attempts === 25 && heroCount === 2 && questType >= 1 && questType <= 13;
@@ -337,7 +356,6 @@ export async function getExpeditionPairs(walletAddress) {
       }
       
       const poolId = questType;
-      const heroIds = exp.quest.heroes.map(h => normalizeHeroId(h));
       const iterationTime = Number(exp.expedition.iterationTime);
       const remainingIterations = Number(exp.expedition.remainingIterations);
       
@@ -366,6 +384,19 @@ export async function getExpeditionPairs(walletAddress) {
         heroToPair.set(heroId, pairData);
       }
     }
+    
+    // Debug: Output pattern analysis
+    console.log(`[HeroPairing] === EXPEDITION PATTERN ANALYSIS ===`);
+    console.log(`[HeroPairing] Pattern counts (L=level, A=attempts, H=heroes, T=questType):`);
+    const sortedPatterns = [...patternCounts.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [pattern, count] of sortedPatterns.slice(0, 15)) {
+      console.log(`[HeroPairing]   ${pattern}: ${count} expeditions`);
+    }
+    console.log(`[HeroPairing] Hero count distribution:`);
+    for (const [hCount, samples] of heroCountPatterns.entries()) {
+      console.log(`[HeroPairing]   ${hCount} heroes: ${samples.length} sample(s) - first: L${samples[0]?.level}_A${samples[0]?.attempts}_T${samples[0]?.questType} heroIds=[${samples[0]?.heroIds?.join(',')}]`);
+    }
+    console.log(`[HeroPairing] === END PATTERN ANALYSIS ===`);
     
     console.log(`[HeroPairing] ✅ Found ${pairs.length} gardening pairs across ${Object.keys(poolPairs).length} pools (skipped ${skippedCount} non-gardening)`);
     
