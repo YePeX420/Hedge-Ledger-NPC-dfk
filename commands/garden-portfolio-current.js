@@ -447,8 +447,28 @@ export async function execute(interaction) {
       
       const userLPRaw = BigInt(pos.stakedAmountRaw || 0);
       const totalStakedRaw = BigInt(pool.totalStakedRaw);
-      const lpShare = totalStakedRaw > 0n ? Number(userLPRaw) / Number(totalStakedRaw) : 0;
-      const positionUSD = lpShare * pool.tvl;
+      
+      // V2 share: user's share of LP staked in V2 rewards pool (used for yield calculations)
+      const v2Share = totalStakedRaw > 0n ? Number(userLPRaw) / Number(totalStakedRaw) : 0;
+      
+      // Total pool share: user's share of ALL LP tokens (used for USD value calculation)
+      // This requires fetching the LP token's total supply from the contract
+      let totalPoolShare = v2Share; // Default to v2Share if we can't get total supply
+      let positionUSD = v2Share * pool.tvl;
+      
+      if (poolInfo?.lpToken) {
+        try {
+          const lpDetails = await getLPTokenDetails(poolInfo.lpToken);
+          if (lpDetails?.totalSupply && BigInt(lpDetails.totalSupply) > 0n) {
+            const lpTotalSupply = BigInt(lpDetails.totalSupply);
+            totalPoolShare = Number(userLPRaw) / Number(lpTotalSupply);
+            positionUSD = totalPoolShare * pool.tvl;
+            console.log(`[GardenPortfolioCurrent] Pool ${pid}: V2 share=${(v2Share*100).toFixed(4)}%, Total pool share=${(totalPoolShare*100).toFixed(4)}%`);
+          }
+        } catch (err) {
+          console.warn(`[GardenPortfolioCurrent] Could not get LP total supply for pool ${pid}: ${err.message}`);
+        }
+      }
       
       let poolDailyCrystal = 0;
       let poolDailyJewel = 0;
@@ -493,8 +513,8 @@ export async function execute(interaction) {
           console.log(`[GardenPortfolioCurrent] Using modeled runsPerDay: ${pairRunsPerDay.toFixed(2)} runs/day`);
         }
         
-        const h1Yield = scoreHeroForPool(h1Data, pool, rewardFund, lpShare, pairStamina);
-        const h2Yield = scoreHeroForPool(h2Data, pool, rewardFund, lpShare, pairStamina);
+        const h1Yield = scoreHeroForPool(h1Data, pool, rewardFund, v2Share, pairStamina);
+        const h2Yield = scoreHeroForPool(h2Data, pool, rewardFund, v2Share, pairStamina);
         
         const pairCrystal = (h1Yield.crystalPerRun + h2Yield.crystalPerRun) * pairRunsPerDay;
         const pairJewel = (h1Yield.jewelPerRun + h2Yield.jewelPerRun) * pairRunsPerDay;
@@ -516,7 +536,8 @@ export async function execute(interaction) {
         pool,
         pairs: pairDetails,
         positionUSD,
-        lpShare,
+        displayShare: totalPoolShare,  // Total pool share for display (matches position USD)
+        v2Share,                        // V2 share for yield calculations
         dailyCrystal: poolDailyCrystal,
         dailyJewel: poolDailyJewel,
         dailyUSD: poolDailyUSD,
@@ -550,7 +571,7 @@ export async function execute(interaction) {
       
       description.push(
         `**${displayName}** (PID ${result.pool.pid})`,
-        `Position: $${result.positionUSD.toFixed(0)} | Share: ${(result.lpShare * 100).toFixed(2)}%`,
+        `Position: $${result.positionUSD.toFixed(0)} | Share: ${(result.displayShare * 100).toFixed(2)}%`,
         `Daily: ${result.dailyCrystal.toFixed(2)} C + ${result.dailyJewel.toFixed(2)} J = $${result.dailyUSD.toFixed(2)}`,
         `Quest APR: ${result.apr.toFixed(1)}% | Runs/day: ${result.totalRunsPerDay.toFixed(2)}`,
         ``
