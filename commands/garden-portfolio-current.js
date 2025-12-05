@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { getHeroesByOwner, getGardenPoolByPid, getUserGardenPositions } from '../onchain-data.js';
+import { getAllHeroesByOwner, getGardenPoolByPid, getUserGardenPositions } from '../onchain-data.js';
 import { fetchPetsForWallet } from '../pet-data.js';
 import { getQuestRewardFundBalances } from '../quest-reward-fund.js';
 import { getCachedPoolAnalytics } from '../pool-cache.js';
@@ -245,7 +245,7 @@ export async function execute(interaction) {
     console.log(`[GardenPortfolioCurrent] Analyzing wallet ${walletAddress}, stamina=${stamina}...`);
     
     const [heroes, pets, allPools, prices, rewardFund, existingPositions, expeditionData] = await Promise.all([
-      getHeroesByOwner(walletAddress),
+      getAllHeroesByOwner(walletAddress),
       fetchPetsForWallet(walletAddress),
       getAllPoolsData(),
       getTokenPrices(),
