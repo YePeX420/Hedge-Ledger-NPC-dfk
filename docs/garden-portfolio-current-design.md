@@ -131,6 +131,46 @@ Command Invoked
 | Pet Data | `pet-data.js` | Pet attributes and bonuses |
 | Quest Reward Fund | `quest-reward-fund.js` | Live reward pool balances |
 
+### 4.4 Shared Dependencies (CAUTION)
+
+The following data sources are shared with other tools. **Changes to these services may affect multiple commands.**
+
+| Source | Shared With | Caution Notes |
+|--------|-------------|---------------|
+| **hero-pairing.js** | `garden-portfolio-3pair`, `debug-hero-pairs`, `garden-planner-3pair` | Hero ID normalization logic here affects all garden tools. The `normalizeHeroId()` function must remain consistent. Changes to expedition detection patterns will affect all tools that rely on gardening pair detection. |
+| **rapid-renewal-service.js** | `garden-portfolio-3pair`, `garden-planner`, `top-gardeners` | RR detection uses raw on-chain IDs. If changing ID handling, ensure all consumers normalize correctly. The `getRapidRenewalHeroIds()` returns raw IDs that must be normalized before matching. |
+| **pool-cache.js** | `garden-portfolio-3pair`, `garden-planner`, `garden-apr-debug`, `top-gardeners` | Pool TVL and allocation % used across all yield calculations. Cache refresh timing affects data freshness. Background refresh runs on startup - if this fails, stale data may persist. |
+| **price-feed.js** | `garden-portfolio-3pair`, `garden-planner`, `top-gardeners`, multiple debug commands | Token prices affect all USD calculations. The `buildPriceGraph()` function is expensive (queries 577 LP pairs). Multiple tools may trigger parallel builds. |
+| **quest-reward-fund.js** | `garden-portfolio-3pair`, `garden-planner`, `top-gardeners`, `hero-yield-model` | CRYSTAL/JEWEL pool balances directly affect yield calculations. Live contract call - if contract changes, all yield calculations break. Current ratio ~12.97 CRYSTAL per JEWEL. |
+| **pet-data.js** | `garden-portfolio-3pair`, `garden-planner`, debug commands | Pet bonus detection (eggType, bonusIds) shared. The `getUserPetsV2()` function handles both old and new pet ID formats. Changes to pet bonus calculation affect yield accuracy. |
+| **onchain-data.js** | Nearly all commands | Hero fetching, LP positions, pool queries. The `getAllHeroesByOwner()` function is the primary hero data source. Changes to hero attribute parsing will cascade everywhere. |
+| **Hero ID Formats** | All garden/hero commands | Multiple ID formats in use (raw, normalized, string, number). Changes to normalization logic in ANY file may break lookups in OTHER files. Always test hero matching after ID-related changes. |
+
+#### Critical Shared Formulas
+
+| Formula | Location | Used By |
+|---------|----------|---------|
+| `heroFactor = 0.1 + (WIS+VIT)/1222.22 + Grd/244.44` | `garden-portfolio-current.js`, `hero-yield-model.js` | All yield calculations. If this formula changes, update ALL locations. |
+| `divisor = (300 - 50*geneBonus) * rewardModBase` | `garden-portfolio-current.js`, `hero-yield-model.js`, `top-gardeners.js` | Yield per-run calculations. rewardModBase depends on gardening skill level. |
+| `runsPerDay = 1440 / cycleMinutes` | `garden-portfolio-current.js`, `hero-yield-model.js` | Daily yield multiplier. This tool uses iterationTime; others may use modeled formula. |
+
+#### ID Format Quick Reference
+
+When working with hero IDs across tools:
+
+```
+Raw On-Chain ID (Crystalvale): 2000000133347
+Raw On-Chain ID (Serendale):   1000000133347
+Normalized ID:                 133347
+String vs Number:              "133347" vs 133347
+```
+
+**Rule**: Always check ID format expectations when:
+- Passing IDs between services
+- Looking up heroes in maps
+- Calling contract functions (contracts expect raw IDs)
+- Matching expedition data (uses normalized IDs)
+
 ---
 
 ## 5. Key Calculations
