@@ -437,32 +437,70 @@ Gardening pools are identified by PID:
 | 12 | JEWEL-ETH | 0x... |
 | ... | ... | ... |
 
-### 8.2 Processing Flow
+### 8.2 Two-Share System (CRITICAL)
+
+**Problem**: There are two different "pool shares" that serve different purposes:
+
+| Share Type | Calculation | Purpose |
+|------------|-------------|---------|
+| **Total Pool Share** | `userLP / LP totalSupply` | Position USD value display |
+| **V2 Rewards Share** | `userLP / V2 total staked` | Yield calculations |
+
+**Why They Differ**:
+- LP tokens can exist outside the V2 rewards pool (unstaked in wallets, in other contracts)
+- V2 rewards pool only contains LP tokens staked for gardening
+- Using V2 share for position value would overstate your ownership of the total pool
+- Using total pool share for yields would understate your gardening rewards
+
+**Implementation**:
+```javascript
+// Fetch LP token total supply for position value
+const lpDetails = await getLPTokenDetails(pool.lpToken);
+const lpTotalSupply = lpDetails?.totalSupply ? BigInt(lpDetails.totalSupply) : 0n;
+
+// Calculate TWO shares
+const totalPoolShare = lpTotalSupply > 0n ? Number(userLPRaw) / Number(lpTotalSupply) : 0;
+const v2Share = totalStakedRaw > 0n ? Number(userLPRaw) / Number(totalStakedRaw) : 0;
+
+// Use correctly
+const positionUSD = totalPoolShare * pool.tvl;  // Total pool share for display
+// scoreHeroForPool uses v2Share for yield calculations
+```
+
+**Fallback**: If LP totalSupply fetch fails, fallback to v2Share for both (safe but may overstate position).
+
+### 8.3 Processing Flow
 
 ```javascript
 for (const [poolId, poolPairs] of Object.entries(gardeningPools)) {
   // 1. Get pool metadata
   const pool = pools.find(p => p.pid === poolId);
   
-  // 2. Get user's LP position
+  // 2. Get user's LP position and calculate TWO shares
   const userLPRaw = BigInt(position.stakedAmountRaw);
   const totalStakedRaw = BigInt(pool.totalStakedRaw);
-  const lpShare = Number(userLPRaw) / Number(totalStakedRaw);
+  const lpDetails = await getLPTokenDetails(pool.lpToken);
+  const lpTotalSupply = BigInt(lpDetails?.totalSupply || 0);
   
-  // 3. Calculate position value
-  const positionUSD = lpShare * pool.tvl;
+  // Total pool share for position USD
+  const totalPoolShare = lpTotalSupply > 0n ? Number(userLPRaw) / Number(lpTotalSupply) : 0;
+  // V2 share for yield calculations
+  const v2Share = totalStakedRaw > 0n ? Number(userLPRaw) / Number(totalStakedRaw) : 0;
   
-  // 4. Process each pair
+  // 3. Calculate position value using TOTAL pool share
+  const positionUSD = totalPoolShare * pool.tvl;
+  
+  // 4. Process each pair (using V2 share for yields)
   for (const pairData of poolPairs) {
-    // Get heroes, check RR, calculate yields
+    const yield = scoreHeroForPool(heroData, pool, rewardFund, v2Share, stamina);
   }
   
-  // 5. Aggregate pool totals
-  poolResults.push({ pool, pairs, positionUSD, dailyCrystal, dailyJewel, apr });
+  // 5. Aggregate pool totals with correct share for display
+  poolResults.push({ pool, pairs, positionUSD, displayShare: totalPoolShare, v2Share, ... });
 }
 ```
 
-### 8.3 Handling Pairs Without LP
+### 8.4 Handling Pairs Without LP
 
 If a pool has gardening pairs but no LP staked:
 - Pairs are still shown in output (for visibility)
@@ -514,13 +552,15 @@ If a pool has gardening pairs but no LP staked:
 
 | Field | Description |
 |-------|-------------|
-| Position | User's LP value in USD |
-| Share | User's LP as % of total pool |
-| Daily C/J | Daily CRYSTAL and JEWEL yield |
+| Position | User's LP value in USD (based on total pool share) |
+| Share | User's LP as % of total LP token supply (not V2 staked). Used for position display. |
+| Daily C/J | Daily CRYSTAL and JEWEL yield (calculated using V2 share internally) |
 | Quest APR | Annualized gardening yield % |
 | Runs/day | Total quest completions per day |
 | [RR] | Hero has Rapid Renewal active |
 | stam | Stamina (attempts) per quest |
+
+**Note**: The Share displayed matches the Position value. Internally, a separate V2 share (user LP / V2 total staked) is used for yield calculations because gardening rewards are distributed based on your share of the V2 rewards pool, not the total LP supply.
 
 ---
 
@@ -626,6 +666,7 @@ When validating this command, verify:
 
 | Date | Change |
 |------|--------|
+| 2025-12-05 | Implemented two-share system: total pool share (LP totalSupply) for position USD, V2 share for yield calculations. Fixes overstated position values. |
 | 2025-12-05 | Fixed pet lookup to use pet.equippedTo (not hero.equippedPetId) - pets now display correctly and pet bonuses apply to yields |
 | 2025-12-05 | Added [Pet#ID] markers next to heroes in assignment display |
 | 2025-12-05 | Fixed RR detection using normalized ID matching |
