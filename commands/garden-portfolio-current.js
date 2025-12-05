@@ -350,24 +350,27 @@ export async function execute(interaction) {
       }
     }
     
+    // Build heroPetMap using pet.equippedTo (pets point to heroes, not heroes to pets)
     const heroPetMap = new Map();
-    for (const hero of heroes) {
-      const rawIdNum = Number(hero.id);
-      const normalizedIdNum = hero.normalizedId ? Number(hero.normalizedId) : 
-        (rawIdNum >= 2_000_000_000_000 ? rawIdNum - 2_000_000_000_000 :
-         rawIdNum >= 1_000_000_000_000 ? rawIdNum - 1_000_000_000_000 : rawIdNum);
-      if (hero.equippedPetId) {
-        const pet = petMap.get(Number(hero.equippedPetId));
-        if (pet) {
-          heroPetMap.set(normalizedIdNum, pet);
-          heroPetMap.set(String(normalizedIdNum), pet);
-          if (normalizedIdNum !== rawIdNum) {
-            heroPetMap.set(rawIdNum, pet);
-            heroPetMap.set(String(rawIdNum), pet);
+    for (const pet of (pets || [])) {
+      if (pet.eggType === 2 && pet.equippedTo) {
+        const equippedToNum = Number(pet.equippedTo);
+        if (equippedToNum > 0) {
+          // Normalize the hero ID (remove chain prefix if present)
+          const normalizedHeroId = equippedToNum >= 2_000_000_000_000 ? equippedToNum - 2_000_000_000_000 :
+                                   equippedToNum >= 1_000_000_000_000 ? equippedToNum - 1_000_000_000_000 : equippedToNum;
+          
+          heroPetMap.set(normalizedHeroId, pet);
+          heroPetMap.set(String(normalizedHeroId), pet);
+          // Also store with raw ID in case expedition uses it
+          if (normalizedHeroId !== equippedToNum) {
+            heroPetMap.set(equippedToNum, pet);
+            heroPetMap.set(String(equippedToNum), pet);
           }
         }
       }
     }
+    console.log(`[GardenPortfolioCurrent] Built heroPetMap with ${heroPetMap.size / 2} hero->pet mappings from ${petMap.size} gardening pets`);
     
     const lookupPet = (id) => {
       return heroPetMap.get(id) || heroPetMap.get(Number(id)) || heroPetMap.get(String(id));
