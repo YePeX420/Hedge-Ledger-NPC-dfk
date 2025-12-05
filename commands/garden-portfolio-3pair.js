@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { getHeroesByOwner, getGardenPoolByPid, getUserGardenPositions } from '../onchain-data.js';
+import { getAllHeroesByOwner, getGardenPoolByPid, getUserGardenPositions } from '../onchain-data.js';
 import { fetchPetsForWallet } from '../pet-data.js';
 import { getQuestRewardFundBalances } from '../quest-reward-fund.js';
 import { getCachedPoolAnalytics } from '../pool-cache.js';
@@ -236,14 +236,25 @@ export async function execute(interaction) {
     
     console.log(`[GardenPortfolio3Pair] Analyzing wallet ${walletAddress}, stamina=${stamina}...`);
     
-    const [heroes, pets, allPools, prices, rewardFund, existingPositions] = await Promise.all([
-      getHeroesByOwner(walletAddress),
+    const [allHeroes, pets, allPools, prices, rewardFund, existingPositions] = await Promise.all([
+      getAllHeroesByOwner(walletAddress),
       fetchPetsForWallet(walletAddress),
       getAllPoolsData(),
       getTokenPrices(),
       getQuestRewardFundBalances(),
       getUserGardenPositions(walletAddress, 'dfk')
     ]);
+    
+    // Filter to Crystalvale heroes only (network='dfk' or ID with 2e12 prefix)
+    const heroes = (allHeroes || []).filter(hero => {
+      // Check network field if available
+      if (hero.network === 'dfk') return true;
+      // Fallback: check ID prefix (2e12 = Crystalvale)
+      const heroId = Number(hero.id);
+      return heroId >= 2_000_000_000_000 && heroId < 3_000_000_000_000;
+    });
+    
+    console.log(`[GardenPortfolio3Pair] Filtered to ${heroes.length} Crystalvale heroes (from ${allHeroes?.length || 0} total)`);
     
     const pools = allPools.filter(p => p.pid !== 0);
     
@@ -262,7 +273,7 @@ export async function execute(interaction) {
     }
     
     if (!heroes || heroes.length === 0) {
-      return interaction.editReply('No heroes found for this wallet.');
+      return interaction.editReply('No Crystalvale heroes found for this wallet. This optimizer only works with DFK Chain heroes.');
     }
     
     const poolsWithTVL = pools.filter(p => p.tvl > 0);
