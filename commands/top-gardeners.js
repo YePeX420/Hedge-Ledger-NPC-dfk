@@ -482,10 +482,27 @@ export async function execute(interaction) {
     // This gives meaningful comparison numbers rather than all zeros
     const effectiveLpShare = hasPosition ? selectedPool.userShare : 0.0001;
     
-    // Filter for gardening pets
-    const gardeningPets = (pets || []).filter(p => p.eggType === 2);
+    // Filter for gardening pets (eggType 2)
+    const allGardeningPets = (pets || []).filter(p => p.eggType === 2);
     
-    console.log(`[TopGardeners] Found ${filteredHeroes.length}/${heroes.length} heroes (${scopeLabel}), ${gardeningPets.length} gardening pets`);
+    // Filter pets based on scope (pets are "on quest" if their equipped hero is questing)
+    let gardeningPets = allGardeningPets;
+    if (scope === 'active') {
+      // Only pets equipped to heroes that are currently questing
+      gardeningPets = allGardeningPets.filter(p => {
+        const equippedTo = p.equippedTo ? String(p.equippedTo) : null;
+        return equippedTo && activeHeroIds.has(equippedTo);
+      });
+    } else if (scope === 'inactive') {
+      // Only pets NOT equipped to questing heroes (available pets)
+      gardeningPets = allGardeningPets.filter(p => {
+        const equippedTo = p.equippedTo ? String(p.equippedTo) : null;
+        // Available if: not equipped to anyone, OR equipped to a non-questing hero
+        return !equippedTo || !activeHeroIds.has(equippedTo);
+      });
+    }
+    
+    console.log(`[TopGardeners] Found ${filteredHeroes.length}/${heroes.length} heroes (${scopeLabel}), ${gardeningPets.length}/${allGardeningPets.length} gardening pets`);
     console.log(`[TopGardeners] Selected pool: ${selectedPool.name} (${(selectedPool.userShare * 100).toFixed(4)}% share, ${selectedPool.allocPercent}% alloc, hasPosition=${hasPosition})`);
     console.log(`[TopGardeners] Reward Fund: ${rewardFund.crystalPool.toLocaleString()} CRYSTAL, ${rewardFund.jewelPool.toLocaleString()} JEWEL`);
     
@@ -575,17 +592,21 @@ export async function execute(interaction) {
       ? `**Your Share:** ${(selectedPool.userShare * 100).toFixed(4)}%` 
       : `**Your Share:** 0.01% reference (theoretical yields)`;
     
-    // Scope display
+    // Scope display for heroes and pets
     const scopeInfo = scope === 'all' 
       ? `Heroes: ${heroes.length}` 
       : `Heroes: ${filteredHeroes.length}/${heroes.length} (${scopeLabel})`;
+    
+    const petInfo = scope === 'all'
+      ? `Pets: ${gardeningPets.length}`
+      : `Pets: ${gardeningPets.length}/${allGardeningPets.length}`;
     
     const embed = new EmbedBuilder()
       .setColor('#00FF88')
       .setTitle('Top 12 Gardener-Pet Pairings')
       .setDescription([
         `Wallet: \`${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}\``,
-        `${scopeInfo} | Gardening Pets: ${gardeningPets.length}`,
+        `${scopeInfo} | ${petInfo}`,
         ``,
         `**Pool:** ${selectedPool.name} ${poolMode}`,
         `${shareInfo} | **Alloc:** ${selectedPool.allocPercent}%`,
