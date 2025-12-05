@@ -11,7 +11,7 @@ This tool serves as the primary "what am I currently earning?" view for DFK play
 ### 1.3 Key Features
 - Detects all active gardening expeditions across multiple pools
 - Shows per-pool position values, LP share, and daily yields
-- Displays hero assignments with Rapid Renewal [RR] markers
+- Displays hero assignments with Rapid Renewal [RR] and Pet [Pet#ID] markers
 - Uses actual expedition cycle times for accurate runs/day calculations
 - Aggregates portfolio-wide totals (daily/weekly/monthly in tokens and USD)
 
@@ -484,9 +484,9 @@ If a pool has gardening pairs but no LP staked:
 │ Current Hero/Pet Assignments                                │
 ├─────────────────────────────────────────────────────────────┤
 │ CRYSTAL-JEWEL (PID 2):                                      │
-│   P1: #133347[RR] + #161286[RR] (10 stam, 4.65 runs/day)   │
-│   P2: #184641 + #182639 (11 stam, 4.09 runs/day)           │
-│   P3: #41746 + #85023[RR] (11 stam, 4.09 runs/day)         │
+│   P1: #133347[RR][Pet#234] + #161286[RR] (10 stam, 4.65/d) │
+│   P2: #184641[Pet#567] + #182639 (11 stam, 4.09 runs/day)  │
+│   P3: #41746 + #85023[RR][Pet#890] (11 stam, 4.09 runs/day)│
 │                                                             │
 │ ... (more pools)                                            │
 └─────────────────────────────────────────────────────────────┘
@@ -577,6 +577,7 @@ When validating this command, verify:
 
 - [ ] All gardening heroes show in output
 - [ ] All heroes with RR show [RR] marker
+- [ ] Heroes with equipped gardening pets show [Pet#ID] marker
 - [ ] iterationTime is used (check logs for "Using expedition iterationTime")
 - [ ] Runs/day values are reasonable (typically 1-5 for 10-25 stamina)
 - [ ] Yields decrease when using 10 stamina vs 25 stamina

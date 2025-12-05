@@ -591,8 +591,10 @@ export async function execute(interaction) {
         const h2Id = h2.hero.normalizedId || h2.hero.id;
         const h1Markers = `${h1.hasRR ? '[RR]' : ''}`;
         const h2Markers = `${h2.hasRR ? '[RR]' : ''}`;
+        const h1Pet = h1.pet ? `[Pet#${h1.pet.id}]` : '';
+        const h2Pet = h2.pet ? `[Pet#${h2.pet.id}]` : '';
         
-        assignmentLines.push(`  P${i + 1}: #${h1Id}${h1Markers} + #${h2Id}${h2Markers} (${pair.stamina} stam, ${pair.runsPerDay.toFixed(2)} runs/day)`);
+        assignmentLines.push(`  P${i + 1}: #${h1Id}${h1Markers}${h1Pet} + #${h2Id}${h2Markers}${h2Pet} (${pair.stamina} stam, ${pair.runsPerDay.toFixed(2)} runs/day)`);
       }
       assignmentLines.push('');
     }
