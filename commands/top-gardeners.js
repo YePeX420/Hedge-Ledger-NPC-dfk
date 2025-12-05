@@ -4,6 +4,7 @@ import { fetchPetsForWallet } from '../pet-data.js';
 import { getQuestRewardFundBalances } from '../quest-reward-fund.js';
 import { getCachedPoolAnalytics } from '../pool-cache.js';
 import { isHeroRapidRenewalActive } from '../rapid-renewal-service.js';
+import { getAllExpeditions } from '../hero-pairing.js';
 
 /**
  * Normalize pet ID by removing realm prefix if present
@@ -393,6 +394,16 @@ export const data = new SlashCommandBuilder()
       .setDescription('Garden pool to calculate yields for (default: auto-detect best position)')
       .setRequired(false)
       .addChoices(...POOL_CHOICES)
+  )
+  .addStringOption(option =>
+    option.setName('scope')
+      .setDescription('Filter heroes by quest status')
+      .setRequired(false)
+      .addChoices(
+        { name: 'All heroes', value: 'all' },
+        { name: 'Active (currently questing)', value: 'active' },
+        { name: 'Inactive (not questing)', value: 'inactive' }
+      )
   );
 
 export async function execute(interaction) {
@@ -403,18 +414,50 @@ export async function execute(interaction) {
   try {
     const walletAddress = interaction.options.getString('wallet').toLowerCase();
     const poolSelection = interaction.options.getString('pool') || 'auto';
+    const scope = interaction.options.getString('scope') || 'all';
     
-    console.log(`[TopGardeners] Analyzing wallet ${walletAddress}, pool=${poolSelection}...`);
+    console.log(`[TopGardeners] Analyzing wallet ${walletAddress}, pool=${poolSelection}, scope=${scope}...`);
     
-    // Fetch heroes, pets, and reward fund in parallel
-    const [heroes, pets, rewardFund] = await Promise.all([
+    // Fetch heroes, pets, reward fund, and expeditions in parallel
+    const [heroes, pets, rewardFund, expeditionData] = await Promise.all([
       getHeroesByOwner(walletAddress),
       fetchPetsForWallet(walletAddress),
-      getQuestRewardFundBalances()
+      getQuestRewardFundBalances(),
+      getAllExpeditions(walletAddress)
     ]);
     
     if (!heroes || heroes.length === 0) {
       return interaction.editReply('No heroes found for this wallet');
+    }
+    
+    // Build set of active hero IDs from expeditions
+    const activeHeroIds = new Set();
+    if (expeditionData?.heroToQuest) {
+      for (const heroId of expeditionData.heroToQuest.keys()) {
+        activeHeroIds.add(String(heroId));
+      }
+    }
+    console.log(`[TopGardeners] Found ${activeHeroIds.size} heroes currently on quests`);
+    
+    // Filter heroes based on scope
+    let filteredHeroes = heroes;
+    let scopeLabel = 'All Heroes';
+    
+    if (scope === 'active') {
+      filteredHeroes = heroes.filter(h => activeHeroIds.has(String(h.id)));
+      scopeLabel = 'Active (Questing)';
+    } else if (scope === 'inactive') {
+      filteredHeroes = heroes.filter(h => !activeHeroIds.has(String(h.id)));
+      scopeLabel = 'Inactive (Available)';
+    }
+    
+    console.log(`[TopGardeners] Scope ${scope}: ${filteredHeroes.length}/${heroes.length} heroes after filter`);
+    
+    if (filteredHeroes.length === 0) {
+      const scopeMsg = scope === 'active' 
+        ? 'No heroes are currently on quests.'
+        : 'All heroes are currently on quests.';
+      return interaction.editReply(scopeMsg);
     }
     
     // Get pool data based on selection
@@ -442,12 +485,12 @@ export async function execute(interaction) {
     // Filter for gardening pets
     const gardeningPets = (pets || []).filter(p => p.eggType === 2);
     
-    console.log(`[TopGardeners] Found ${heroes.length} heroes, ${gardeningPets.length} gardening pets`);
+    console.log(`[TopGardeners] Found ${filteredHeroes.length}/${heroes.length} heroes (${scopeLabel}), ${gardeningPets.length} gardening pets`);
     console.log(`[TopGardeners] Selected pool: ${selectedPool.name} (${(selectedPool.userShare * 100).toFixed(4)}% share, ${selectedPool.allocPercent}% alloc, hasPosition=${hasPosition})`);
     console.log(`[TopGardeners] Reward Fund: ${rewardFund.crystalPool.toLocaleString()} CRYSTAL, ${rewardFund.jewelPool.toLocaleString()} JEWEL`);
     
-    // Score and rank heroes
-    const scoredHeroes = heroes
+    // Score and rank heroes (using filtered set)
+    const scoredHeroes = filteredHeroes
       .map(hero => ({
         hero,
         score: scoreHeroForGardening(hero)
@@ -532,12 +575,17 @@ export async function execute(interaction) {
       ? `**Your Share:** ${(selectedPool.userShare * 100).toFixed(4)}%` 
       : `**Your Share:** 0.01% reference (theoretical yields)`;
     
+    // Scope display
+    const scopeInfo = scope === 'all' 
+      ? `Heroes: ${heroes.length}` 
+      : `Heroes: ${filteredHeroes.length}/${heroes.length} (${scopeLabel})`;
+    
     const embed = new EmbedBuilder()
       .setColor('#00FF88')
       .setTitle('Top 12 Gardener-Pet Pairings')
       .setDescription([
         `Wallet: \`${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}\``,
-        `Heroes: ${heroes.length} | Gardening Pets: ${gardeningPets.length}`,
+        `${scopeInfo} | Gardening Pets: ${gardeningPets.length}`,
         ``,
         `**Pool:** ${selectedPool.name} ${poolMode}`,
         `${shareInfo} | **Alloc:** ${selectedPool.allocPercent}%`,
