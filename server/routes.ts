@@ -5,7 +5,7 @@ import { players, jewelBalances, depositRequests, queryCosts, interactionSession
 import { desc, sql, eq, inArray, gte, lte } from "drizzle-orm";
 import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
 import { detectWalletLPPositions } from "../wallet-lp-detector.js";
-import { buildPlayerSnapshot } from "../snapshot-service.js";
+// buildPlayerSnapshot is imported dynamically in the route handler to avoid import issues
 import { indexWallet, runFullIndex, getLatestBlock } from "../bridge-tracker/bridge-indexer.js";
 import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics } from "../bridge-tracker/bridge-metrics.js";
 import { backfillAllTokens, fetchCurrentPrices } from "../bridge-tracker/price-history.js";
@@ -502,29 +502,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // POST /api/admin/refresh-snapshot/:wallet - Refresh DFK snapshot for a wallet
-  app.post("/api/admin/refresh-snapshot/:wallet", isAdmin, async (req: any, res: any) => {
-    try {
-      const { wallet } = req.params;
-      
-      if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
-        return res.status(400).json({ error: 'Invalid wallet address' });
-      }
-      
-      console.log(`[API] Refreshing snapshot for wallet: ${wallet}`);
-      const snapshot = await buildPlayerSnapshot(wallet);
-      
-      res.json({ 
-        success: true, 
-        wallet,
-        snapshot
-      });
-    } catch (error) {
-      console.error('[API] Error refreshing snapshot:', error);
-      res.status(500).json({ error: 'Failed to refresh snapshot' });
-    }
-  });
-
   // PATCH /api/admin/users/:id/tier - Update user tier manually
   app.patch("/api/admin/users/:id/tier", async (req: any, res: any) => {
     try {

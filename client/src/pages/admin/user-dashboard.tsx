@@ -192,8 +192,8 @@ export default function AdminUserDashboard() {
 
   const refreshSnapshotMutation = useMutation({
     mutationFn: async () => {
-      if (!user?.walletAddress) throw new Error("No wallet address");
-      return apiRequest("POST", `/api/admin/refresh-snapshot/${user.walletAddress}`);
+      if (!user?.id) throw new Error("No user ID");
+      return apiRequest("POST", `/api/admin/users/${user.id}/refresh-snapshot`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/user/summary", discordId] });
@@ -335,7 +335,7 @@ export default function AdminUserDashboard() {
               variant="outline"
               size="sm"
               onClick={() => refreshSnapshotMutation.mutate()}
-              disabled={refreshSnapshotMutation.isPending || !user?.walletAddress}
+              disabled={refreshSnapshotMutation.isPending || !user?.id}
               data-testid="button-refresh-snapshot"
             >
               <RefreshCw className={`h-4 w-4 mr-2 ${refreshSnapshotMutation.isPending ? 'animate-spin' : ''}`} />
