@@ -54,7 +54,9 @@ import {
   abortHistoricalSync,
   getIndexerProgress,
   startMaintenanceScheduler,
-  runMaintenanceSync
+  runMaintenanceSync,
+  runIncrementalBatch,
+  isIncrementalBatchRunning
 } from './bridge-tracker/bridge-indexer.js';
 import {
   runPriceEnrichment,
@@ -4355,6 +4357,21 @@ async function startAdminWebServer() {
     }
     abortHistoricalSync();
     res.json({ message: 'Historical sync stop requested' });
+  });
+
+  // POST /api/admin/bridge/run-incremental-batch - Index next 10K blocks
+  app.post('/api/admin/bridge/run-incremental-batch', isAdmin, async (req, res) => {
+    if (isIncrementalBatchRunning()) {
+      return res.status(409).json({ error: 'Incremental batch already running' });
+    }
+
+    try {
+      const result = await runIncrementalBatch();
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Incremental batch error:', error);
+      res.status(500).json({ error: 'Failed to run incremental batch', details: error.message });
+    }
   });
 
   // POST /api/admin/bridge/run-price-enrichment - Enrich events with USD prices
