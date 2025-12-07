@@ -126,10 +126,15 @@ export default function BridgeAnalytics() {
     },
   });
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (walletSearch.trim()) {
-      indexWalletMutation.mutate(walletSearch.trim());
-      setSelectedWallet(walletSearch.trim().toLowerCase());
+      const wallet = walletSearch.trim().toLowerCase();
+      try {
+        await indexWalletMutation.mutateAsync(wallet);
+        setSelectedWallet(wallet);
+      } catch {
+        // Error is handled by mutation's onError callback
+      }
     }
   };
 
