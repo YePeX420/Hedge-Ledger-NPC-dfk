@@ -80,6 +80,11 @@ function formatDate(value?: string | null) {
   return isNaN(date.getTime()) ? "N/A" : date.toLocaleString();
 }
 
+function formatUsd(value: number | undefined | null): string {
+  const num = typeof value === 'number' && isFinite(value) ? value : 0;
+  return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export default function AdminUserDashboard() {
   const { discordId } = useParams();
   const { toast } = useToast();
@@ -406,31 +411,31 @@ export default function AdminUserDashboard() {
                 <p className="text-sm text-muted-foreground">Bridged In</p>
                 <p className="text-xl font-semibold text-green-600 flex items-center gap-1" data-testid="text-bridge-in">
                   <ArrowDownRight className="h-4 w-4" />
-                  ${user.bridgeActivity.totalBridgedInUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${formatUsd(user.bridgeActivity.totalBridgedInUsd)}
                 </p>
-                <p className="text-xs text-muted-foreground">{user.bridgeActivity.heroesIn} heroes</p>
+                <p className="text-xs text-muted-foreground">{user.bridgeActivity.heroesIn ?? 0} heroes</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Bridged Out</p>
                 <p className="text-xl font-semibold text-red-600 flex items-center gap-1" data-testid="text-bridge-out">
                   <ArrowUpRight className="h-4 w-4" />
-                  ${user.bridgeActivity.totalBridgedOutUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${formatUsd(user.bridgeActivity.totalBridgedOutUsd)}
                 </p>
-                <p className="text-xs text-muted-foreground">{user.bridgeActivity.heroesOut} heroes</p>
+                <p className="text-xs text-muted-foreground">{user.bridgeActivity.heroesOut ?? 0} heroes</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Net Extracted</p>
-                <p className={`text-xl font-semibold ${user.bridgeActivity.netExtractedUsd > 0 ? 'text-orange-600' : 'text-green-600'}`} data-testid="text-net-extracted">
-                  ${user.bridgeActivity.netExtractedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <p className={`text-xl font-semibold ${(user.bridgeActivity.netExtractedUsd ?? 0) > 0 ? 'text-orange-600' : 'text-green-600'}`} data-testid="text-net-extracted">
+                  ${formatUsd(user.bridgeActivity.netExtractedUsd)}
                 </p>
-                <p className="text-xs text-muted-foreground">Score: {user.bridgeActivity.extractorScore}/10</p>
+                <p className="text-xs text-muted-foreground">Score: {user.bridgeActivity.extractorScore ?? 0}/10</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Last Bridge</p>
                 <p className="text-sm" data-testid="text-last-bridge">
                   {user.bridgeActivity.lastBridgeAt ? formatDate(user.bridgeActivity.lastBridgeAt) : 'N/A'}
                 </p>
-                {user.bridgeActivity.extractorFlags.length > 0 && (
+                {user.bridgeActivity.extractorFlags && user.bridgeActivity.extractorFlags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1">
                     {user.bridgeActivity.extractorFlags.map((flag) => (
                       <Badge key={flag} variant="outline" className="text-xs">
