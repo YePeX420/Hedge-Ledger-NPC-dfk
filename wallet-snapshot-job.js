@@ -1,10 +1,11 @@
 // wallet-snapshot-job.js
 // Daily background job to build dfkSnapshot for all players with a wallet.
+// Writes to both profileData.dfkSnapshot JSON AND wallet_snapshots table.
 
 import cron from "node-cron";
 import { db } from "./server/db.js";
-import { players } from "./shared/schema.ts";
-import { eq } from "drizzle-orm";
+import { players, walletSnapshots } from "./shared/schema.ts";
+import { eq, and } from "drizzle-orm";
 import { buildPlayerSnapshot } from "./snapshot-service.js";
 
 let task = null;
@@ -63,6 +64,30 @@ export async function startSnapshotJob() {
               .update(players)
               .set({ profileData: JSON.stringify(profileData) })
               .where(eq(players.id, p.id));
+
+            // Also write to wallet_snapshots table for dashboard queries
+            // Use upsert to update existing records for the same wallet+date
+            const asOfDate = new Date();
+            asOfDate.setUTCHours(0, 0, 0, 0); // Midnight UTC
+            
+            const snapshotValues = {
+              playerId: p.id,
+              wallet: wallet,
+              asOfDate,
+              jewelBalance: String(snapshot.jewelBalance || 0),
+              crystalBalance: String(snapshot.crystalBalance || 0),
+              cJewelBalance: String(snapshot.cJewelBalance || 0),
+            };
+            
+            await db.insert(walletSnapshots).values(snapshotValues)
+              .onConflictDoUpdate({
+                target: [walletSnapshots.wallet, walletSnapshots.asOfDate],
+                set: {
+                  jewelBalance: snapshotValues.jewelBalance,
+                  crystalBalance: snapshotValues.crystalBalance,
+                  cJewelBalance: snapshotValues.cJewelBalance,
+                }
+              });
 
             console.log(
               `[SnapshotJob] ✅ Snapshot saved for ${p.discordUsername || p.discordId}`

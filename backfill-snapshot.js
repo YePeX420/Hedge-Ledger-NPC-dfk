@@ -48,7 +48,7 @@ async function backfillSnapshot() {
       asOfDate,
       jewelBalance: balances.jewel,
       crystalBalance: balances.crystal,
-      cjewelBalance: balances.cjewel
+      cJewelBalance: balances.cjewel  // Fixed: capital J to match schema
     }).onConflictDoNothing();
     
     console.log('✅ Snapshot saved successfully!');

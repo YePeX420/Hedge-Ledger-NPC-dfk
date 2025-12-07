@@ -1052,75 +1052,57 @@ export function calculateHeroMetrics(heroes) {
   return { gen0Count, heroAge };
 }
 
+/**
+ * Get the timestamp of a wallet's first-ever transaction on DFK Chain
+ * Uses RouteScan Etherscan-compatible API with sort=asc for efficient lookup
+ * 
+ * @param {string} walletAddress - Wallet to check
+ * @returns {Promise<number|null>} - Timestamp in milliseconds or null
+ */
 export async function getFirstDfkTxTimestamp(walletAddress) {
   try {
     if (!walletAddress) return null;
-
-    const dfkProvider = providers.dfk;
-
-    const latestBlockNum = await dfkProvider.getBlockNumber();
-    console.log(`[DfkAge] Latest DFK block: ${latestBlockNum}`);
-
-    let searchStart = Math.max(0, latestBlockNum - 50000);
-    let searchEnd = latestBlockNum;
-    let firstTxBlock = null;
-
-    console.log(
-      `[DfkAge] Searching blocks ${searchStart} to ${searchEnd} for ${walletAddress.slice(
-        0,
-        6
-      )}...${walletAddress.slice(-4)}`
-    );
-
-    for (let blockNum = searchEnd; blockNum >= searchStart; blockNum--) {
-      try {
-        const block = await dfkProvider.getBlock(blockNum);
-        if (!block || !block.transactions?.length) continue;
-
-        for (const txHash of block.transactions) {
-          const tx = await dfkProvider.getTransaction(txHash);
-          if (
-            tx &&
-            (tx.from?.toLowerCase() === walletAddress.toLowerCase() ||
-              tx.to?.toLowerCase() === walletAddress.toLowerCase())
-          ) {
-            firstTxBlock = block;
-            console.log(
-              `[DfkAge] Found transaction in block ${blockNum} from wallet`
-            );
-            break;
-          }
-        }
-
-        if (firstTxBlock) break;
-        if ((searchEnd - blockNum) % 1000 === 0) {
-          console.log(
-            `[DfkAge] Searched back ${searchEnd - blockNum} blocks...`
-          );
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    if (!firstTxBlock) {
-      console.warn(
-        `[DfkAge] No transactions found for ${walletAddress} in recent blocks`
-      );
+    
+    const wallet = walletAddress.toLowerCase();
+    const shortWallet = `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+    
+    console.log(`[DfkAge] Fetching first tx for ${shortWallet} via RouteScan...`);
+    
+    // Use RouteScan Etherscan-compatible API with sort=asc to get oldest tx first
+    const DFK_CHAIN_ID = 53935;
+    const url = `https://api.routescan.io/v2/network/mainnet/evm/${DFK_CHAIN_ID}/etherscan/api?module=account&action=txlist&address=${wallet}&startblock=0&endblock=99999999&page=1&offset=1&sort=asc`;
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      console.warn(`[DfkAge] RouteScan API returned ${response.status} for ${shortWallet}`);
       return null;
     }
-
-    const timestampMs =
-      (firstTxBlock.timestamp || Math.floor(Date.now() / 1000)) * 1000;
-    console.log(
-      `[DfkAge] Found first tx for ${walletAddress.slice(
-        0,
-        6
-      )}...${walletAddress.slice(-4)}: ${new Date(
-        timestampMs
-      ).toISOString()}`
-    );
-
+    
+    const data = await response.json();
+    
+    // Etherscan-compatible API returns { status: "1", result: [...] }
+    if (data.status !== '1' || !data.result || data.result.length === 0) {
+      console.warn(`[DfkAge] No transactions found for ${shortWallet} on DFK Chain`);
+      return null;
+    }
+    
+    // Get the first (oldest) transaction
+    const firstTx = data.result[0];
+    
+    // Etherscan-compatible API returns timeStamp as unix seconds string
+    const timestampSec = parseInt(firstTx.timeStamp, 10);
+    if (isNaN(timestampSec)) {
+      console.warn(`[DfkAge] Invalid timestamp for ${shortWallet}:`, firstTx.timeStamp);
+      return null;
+    }
+    
+    const timestampMs = timestampSec * 1000;
+    const firstTxDate = new Date(timestampMs);
+    const ageDays = Math.floor((Date.now() - timestampMs) / (1000 * 60 * 60 * 24));
+    
+    console.log(`[DfkAge] ✅ ${shortWallet}: First DFK tx on ${firstTxDate.toISOString()} (${ageDays} days ago)`);
+    
     return timestampMs;
   } catch (err) {
     console.warn(
