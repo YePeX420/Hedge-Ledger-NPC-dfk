@@ -71,11 +71,29 @@ interface SyncProgress {
     eventsNeedingPrices: number;
     lastError: string | null;
     startedAt: string | null;
+    lastBatchRuntimeMs: number | null;
+    totalBatchCount: number;
+    totalBatchRuntimeMs: number;
   } | null;
   latestBlock: number;
   unpricedCount: number;
   historicalSyncRunning: boolean;
   enrichmentRunning: boolean;
+}
+
+interface IncrementalBatchResult {
+  status: string;
+  startBlock?: number;
+  endBlock?: number;
+  latestBlock?: number;
+  blocksRemaining?: number;
+  eventsFound?: number;
+  eventsInserted?: number;
+  runtimeMs?: number;
+  avgRuntimeMs?: number;
+  totalBatchCount?: number;
+  error?: string;
+  message?: string;
 }
 
 export default function BridgeAnalytics() {
@@ -172,6 +190,33 @@ export default function BridgeAnalytics() {
     },
   });
 
+  const runIncrementalBatchMutation = useMutation<IncrementalBatchResult>({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/admin/bridge/run-incremental-batch');
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.status === 'complete') {
+        toast({ title: 'Already at latest block', description: data.message });
+      } else if (data.status === 'success') {
+        toast({ 
+          title: `Indexed 10K blocks`, 
+          description: `Blocks ${data.startBlock?.toLocaleString()}-${data.endBlock?.toLocaleString()}: ${data.eventsInserted} events in ${((data.runtimeMs || 0) / 1000).toFixed(1)}s` 
+        });
+      } else if (data.status === 'error') {
+        toast({ title: 'Batch failed', description: data.error, variant: 'destructive' });
+      }
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/sync-progress'] });
+    },
+    onError: (err: any) => {
+      if (err?.message?.includes('409')) {
+        toast({ title: 'Batch already running', variant: 'destructive' });
+      } else {
+        toast({ title: 'Failed to run batch', variant: 'destructive' });
+      }
+    },
+  });
+
   const runPriceEnrichmentMutation = useMutation({
     mutationFn: async () => {
       return apiRequest('POST', '/api/admin/bridge/run-price-enrichment');
@@ -262,7 +307,21 @@ export default function BridgeAnalytics() {
                 Index all bridge events from genesis for complete extraction analysis
               </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => runIncrementalBatchMutation.mutate()}
+                disabled={runIncrementalBatchMutation.isPending || syncProgress?.historicalSyncRunning}
+                data-testid="button-index-10k"
+              >
+                {runIncrementalBatchMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4 mr-2" />
+                )}
+                Index 10K Blocks
+              </Button>
               {syncProgress?.historicalSyncRunning ? (
                 <Button
                   variant="destructive"
@@ -276,7 +335,7 @@ export default function BridgeAnalytics() {
                 </Button>
               ) : (
                 <Button
-                  variant="default"
+                  variant="outline"
                   size="sm"
                   onClick={() => startHistoricalSyncMutation.mutate()}
                   disabled={startHistoricalSyncMutation.isPending}
@@ -377,6 +436,28 @@ export default function BridgeAnalytics() {
                     <span className="text-muted-foreground">{blocksRemaining.toLocaleString()} blocks remaining</span>
                   )}
                 </div>
+                {(syncProgress?.progress?.totalBatchCount ?? 0) > 0 && (
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-muted text-xs">
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground">Batches completed:</span>
+                      <span className="font-mono font-semibold text-foreground" data-testid="text-batch-count">
+                        {(syncProgress?.progress?.totalBatchCount || 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground">Last batch:</span>
+                      <span className="font-mono font-semibold text-foreground" data-testid="text-last-batch-time">
+                        {((syncProgress?.progress?.lastBatchRuntimeMs || 0) / 1000).toFixed(1)}s
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground">Avg time/10K:</span>
+                      <span className="font-mono font-semibold text-foreground" data-testid="text-avg-batch-time">
+                        {(((syncProgress?.progress?.totalBatchRuntimeMs || 0) / (syncProgress?.progress?.totalBatchCount || 1)) / 1000).toFixed(1)}s
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
