@@ -3389,6 +3389,12 @@ async function startAdminWebServer() {
   const app = express();
   app.use(express.json());
 
+  // Request logging middleware - log ALL incoming requests
+  app.use((req, res, next) => {
+    console.log(`[HTTP] ${req.method} ${req.path}`);
+    next();
+  });
+
   // Session management middleware
   app.use((req, res, next) => {
     const cookies = (req.headers.cookie || '')
