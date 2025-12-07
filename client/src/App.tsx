@@ -14,6 +14,7 @@ import AdminUserProfile from "@/pages/admin/user-profile";
 import AdminUserDashboard from "@/pages/admin/user-dashboard";
 import AdminExpenses from "@/pages/admin/expenses";
 import AdminSettings from "@/pages/admin/settings";
+import AdminBridgeAnalytics from "@/pages/admin/bridge-analytics";
 import AccountPage from "@/pages/account";
 import NotFound from "@/pages/not-found";
 
@@ -28,6 +29,7 @@ function AdminRoutes() {
           <Route path="/admin/users" component={AdminUsers} />
           <Route path="/admin/expenses" component={AdminExpenses} />
           <Route path="/admin/settings" component={AdminSettings} />
+          <Route path="/admin/bridge" component={AdminBridgeAnalytics} />
           <Route path="/admin/account" component={AccountPage} />
           <Route component={NotFound} />
         </Switch>

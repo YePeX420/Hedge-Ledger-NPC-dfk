@@ -1,10 +1,13 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { db } from "./db";
-import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions } from "@shared/schema";
-import { desc, sql, eq, inArray } from "drizzle-orm";
+import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions, bridgeEvents, walletBridgeMetrics, historicalPrices } from "@shared/schema";
+import { desc, sql, eq, inArray, gte, lte } from "drizzle-orm";
 import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
 import { detectWalletLPPositions } from "../wallet-lp-detector.js";
+import { indexWallet, runFullIndex, getLatestBlock } from "../bridge-tracker/bridge-indexer.js";
+import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics } from "../bridge-tracker/bridge-metrics.js";
+import { backfillAllTokens, fetchCurrentPrices } from "../bridge-tracker/price-history.js";
 
 const ADMIN_USER_IDS = ['426019696916168714']; // yepex
 
@@ -519,6 +522,171 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[API] Error updating debug settings:', error);
       res.status(500).json({ error: 'Failed to update debug settings' });
+    }
+  });
+
+  // ============================================================================
+  // BRIDGE ANALYTICS API ROUTES (Admin-only)
+  // ============================================================================
+
+  // GET /api/admin/bridge/overview - Bridge analytics overview
+  app.get("/api/admin/bridge/overview", isAdmin, async (req: any, res: any) => {
+    try {
+      const [eventStats, metricsStats, latestBlock] = await Promise.all([
+        db.select({
+          totalEvents: sql`COUNT(*)`,
+          inEvents: sql`SUM(CASE WHEN direction = 'in' THEN 1 ELSE 0 END)`,
+          outEvents: sql`SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END)`,
+          heroEvents: sql`SUM(CASE WHEN bridge_type = 'hero' THEN 1 ELSE 0 END)`,
+          itemEvents: sql`SUM(CASE WHEN bridge_type = 'item' THEN 1 ELSE 0 END)`,
+          totalUsdIn: sql`COALESCE(SUM(CASE WHEN direction = 'in' THEN CAST(usd_value AS DECIMAL) ELSE 0 END), 0)`,
+          totalUsdOut: sql`COALESCE(SUM(CASE WHEN direction = 'out' THEN CAST(usd_value AS DECIMAL) ELSE 0 END), 0)`
+        }).from(bridgeEvents),
+        
+        db.select({
+          trackedWallets: sql`COUNT(*)`,
+          totalExtracted: sql`COALESCE(SUM(CASE WHEN CAST(net_extracted_usd AS DECIMAL) > 0 THEN CAST(net_extracted_usd AS DECIMAL) ELSE 0 END), 0)`,
+          extractors: sql`SUM(CASE WHEN CAST(net_extracted_usd AS DECIMAL) > 100 THEN 1 ELSE 0 END)`
+        }).from(walletBridgeMetrics),
+        
+        getLatestBlock().catch(() => 0)
+      ]);
+
+      res.json({
+        events: {
+          total: eventStats[0]?.totalEvents || 0,
+          in: eventStats[0]?.inEvents || 0,
+          out: eventStats[0]?.outEvents || 0,
+          heroes: eventStats[0]?.heroEvents || 0,
+          items: eventStats[0]?.itemEvents || 0,
+          totalUsdIn: eventStats[0]?.totalUsdIn || 0,
+          totalUsdOut: eventStats[0]?.totalUsdOut || 0
+        },
+        metrics: {
+          trackedWallets: metricsStats[0]?.trackedWallets || 0,
+          totalExtracted: metricsStats[0]?.totalExtracted || 0,
+          extractorCount: metricsStats[0]?.extractors || 0
+        },
+        chain: {
+          latestBlock
+        }
+      });
+    } catch (error) {
+      console.error('[API] Error fetching bridge overview:', error);
+      res.status(500).json({ error: 'Failed to fetch bridge overview' });
+    }
+  });
+
+  // GET /api/admin/bridge/extractors - Top extractors list
+  app.get("/api/admin/bridge/extractors", isAdmin, async (req: any, res: any) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const extractors = await getTopExtractors(limit);
+      res.json(extractors);
+    } catch (error) {
+      console.error('[API] Error fetching extractors:', error);
+      res.status(500).json({ error: 'Failed to fetch extractors' });
+    }
+  });
+
+  // GET /api/admin/bridge/wallet/:wallet - Wallet bridge details
+  app.get("/api/admin/bridge/wallet/:wallet", isAdmin, async (req: any, res: any) => {
+    try {
+      const { wallet } = req.params;
+      const [summary, events] = await Promise.all([
+        getWalletSummary(wallet),
+        db.select()
+          .from(bridgeEvents)
+          .where(eq(bridgeEvents.wallet, wallet.toLowerCase()))
+          .orderBy(desc(bridgeEvents.blockTimestamp))
+          .limit(100)
+      ]);
+      
+      res.json({ summary, events });
+    } catch (error) {
+      console.error('[API] Error fetching wallet bridge data:', error);
+      res.status(500).json({ error: 'Failed to fetch wallet bridge data' });
+    }
+  });
+
+  // POST /api/admin/bridge/index-wallet - Index a specific wallet
+  app.post("/api/admin/bridge/index-wallet", isAdmin, async (req: any, res: any) => {
+    try {
+      const { wallet } = req.body;
+      if (!wallet) {
+        return res.status(400).json({ error: 'Wallet address required' });
+      }
+      
+      const events = await indexWallet(wallet, { verbose: true });
+      const metrics = await refreshWalletMetrics(wallet);
+      
+      res.json({ 
+        success: true, 
+        eventsFound: events.length,
+        metrics 
+      });
+    } catch (error) {
+      console.error('[API] Error indexing wallet:', error);
+      res.status(500).json({ error: 'Failed to index wallet' });
+    }
+  });
+
+  // POST /api/admin/bridge/refresh-metrics - Refresh all wallet metrics
+  app.post("/api/admin/bridge/refresh-metrics", isAdmin, async (req: any, res: any) => {
+    try {
+      const processed = await refreshAllMetrics();
+      res.json({ success: true, processed });
+    } catch (error) {
+      console.error('[API] Error refreshing metrics:', error);
+      res.status(500).json({ error: 'Failed to refresh metrics' });
+    }
+  });
+
+  // POST /api/admin/bridge/backfill-prices - Backfill historical prices
+  app.post("/api/admin/bridge/backfill-prices", isAdmin, async (req: any, res: any) => {
+    try {
+      const days = parseInt(req.body.days) || 365;
+      const results = await backfillAllTokens(days);
+      res.json({ success: true, results });
+    } catch (error) {
+      console.error('[API] Error backfilling prices:', error);
+      res.status(500).json({ error: 'Failed to backfill prices' });
+    }
+  });
+
+  // GET /api/admin/bridge/prices - Current token prices
+  app.get("/api/admin/bridge/prices", isAdmin, async (req: any, res: any) => {
+    try {
+      const prices = await fetchCurrentPrices();
+      res.json(prices);
+    } catch (error) {
+      console.error('[API] Error fetching prices:', error);
+      res.status(500).json({ error: 'Failed to fetch prices' });
+    }
+  });
+
+  // GET /api/admin/bridge/events - Recent bridge events
+  app.get("/api/admin/bridge/events", isAdmin, async (req: any, res: any) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 100;
+      const direction = req.query.direction as string;
+      const bridgeType = req.query.bridgeType as string;
+      
+      let query = db.select().from(bridgeEvents);
+      
+      const conditions = [];
+      if (direction) conditions.push(eq(bridgeEvents.direction, direction));
+      if (bridgeType) conditions.push(eq(bridgeEvents.bridgeType, bridgeType));
+      
+      const events = await db.select()
+        .from(bridgeEvents)
+        .orderBy(desc(bridgeEvents.blockTimestamp))
+        .limit(limit);
+      
+      res.json(events);
+    } catch (error) {
+      console.error('[API] Error fetching bridge events:', error);
+      res.status(500).json({ error: 'Failed to fetch bridge events' });
     }
   });
 

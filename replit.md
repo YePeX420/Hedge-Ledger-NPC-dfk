@@ -34,6 +34,12 @@ The project utilizes a Node.js backend integrating Discord.js for bot functional
 *   **Hero Summoning Probability Calculator**: A 4x4 Mendelian genetics engine calculating offspring trait probabilities for all genetic combinations, including class, profession, abilities, stats, and visual traits, with mutation tracking and rarity calculation.
 *   **Tavern Bargain Finder**: Scans the marketplace for hero pairs with optimal genetics and pricing for target class summoning.
 *   **Player User Model System**: Classifies players into archetypes, tiers, and engagement states based on behavior, financial activity, and message content, allowing for personalized bot responses.
+*   **Bridge Flow Tracker** (Admin-only): Analyzes cross-chain bridge activity to identify "extractors" - wallets that bridge more value OUT of DFK Chain than IN.
+    *   **Bridge Indexer** (`bridge-tracker/bridge-indexer.js`): Scans DFK Chain RPC for bridge events from Hero Bridge (Synapse), Item Bridge V2 (LayerZero), and Equipment Bridge (LayerZero) contracts.
+    *   **Price History** (`bridge-tracker/price-history.js`): Caches CoinGecko historical prices for JEWEL, CRYSTAL, USDC, ETH, AVAX, BTC with rate limiting (6.5s per request).
+    *   **Bridge Metrics** (`bridge-tracker/bridge-metrics.js`): Computes per-wallet USD values, net extraction amounts, and extractor scores (0-10 scale).
+    *   **Database Tables**: `bridge_events` (raw events), `wallet_bridge_metrics` (aggregated metrics), `historical_prices` (price cache).
+    *   **Admin Dashboard**: `/admin/bridge` page shows overview stats, top extractors list, and wallet-specific analysis.
 
 **Design Decisions:**
 *   **Database**: PostgreSQL with Drizzle ORM for persistent storage of player registrations and payments.
