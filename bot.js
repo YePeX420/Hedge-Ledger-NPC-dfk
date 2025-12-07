@@ -4221,13 +4221,20 @@ async function startAdminWebServer() {
 
   // POST /api/admin/bridge/run-indexer - Run full bridge indexer
   app.post('/api/admin/bridge/run-indexer', isAdmin, async (req, res) => {
+    console.log('[API] === RUN-INDEXER ENDPOINT HIT ===');
+    console.log('[API] bridgeIndexerRunning:', bridgeIndexerRunning);
+    console.log('[API] runBridgeFullIndex type:', typeof runBridgeFullIndex);
+    
     try {
       if (bridgeIndexerRunning) {
+        console.log('[API] Indexer already running, returning 409');
         return res.status(409).json({ error: 'Indexer already running' });
       }
 
       bridgeIndexerRunning = true;
+      console.log('[API] Set bridgeIndexerRunning=true, sending response...');
       res.json({ success: true, message: 'Started indexing last 100k blocks' });
+      console.log('[API] Response sent, now calling runBridgeFullIndex...');
 
       // Run in background
       runBridgeFullIndex({ verbose: true })
@@ -4237,11 +4244,13 @@ async function startAdminWebServer() {
         })
         .catch(err => {
           console.error('[API] Bridge indexer failed:', err);
+          console.error('[API] Bridge indexer error stack:', err?.stack);
           bridgeIndexerRunning = false;
         });
     } catch (error) {
       bridgeIndexerRunning = false;
       console.error('[API] Error starting bridge indexer:', error);
+      console.error('[API] Error stack:', error?.stack);
       res.status(500).json({ error: 'Failed to start indexer' });
     }
   });
