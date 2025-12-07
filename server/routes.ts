@@ -742,6 +742,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/admin/bridge/run-indexer - Run full bridge indexer
+  let indexerRunning = false;
+  app.post("/api/admin/bridge/run-indexer", isAdmin, async (req: any, res: any) => {
+    try {
+      if (indexerRunning) {
+        return res.status(409).json({ error: 'Indexer already running' });
+      }
+      
+      const blocks = parseInt(req.body.blocks) || 100000;
+      indexerRunning = true;
+      
+      res.json({ success: true, message: `Started indexing last ${blocks} blocks` });
+      
+      runFullIndex({ verbose: true })
+        .then(result => {
+          console.log('[API] Bridge indexer completed:', result);
+          indexerRunning = false;
+        })
+        .catch(err => {
+          console.error('[API] Bridge indexer failed:', err);
+          indexerRunning = false;
+        });
+    } catch (error) {
+      indexerRunning = false;
+      console.error('[API] Error starting bridge indexer:', error);
+      res.status(500).json({ error: 'Failed to start indexer' });
+    }
+  });
+
+  // GET /api/admin/bridge/indexer-status - Check if indexer is running
+  app.get("/api/admin/bridge/indexer-status", isAdmin, async (req: any, res: any) => {
+    res.json({ running: indexerRunning });
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

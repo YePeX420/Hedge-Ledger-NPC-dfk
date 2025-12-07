@@ -44,6 +44,7 @@ import {
 import { adaptResponse, generateGreeting, shouldSuggestPremium } from './hedge-persona-adapter.js';
 import { ARCHETYPES, TIERS, STATES, BEHAVIOR_TAGS } from './classification-config.js';
 import { profileCommands } from './commands/profile-commands.js';
+import { getWalletSummary as getBridgeSummary } from './bridge-tracker/bridge-metrics.js';
 
 const execAsync = promisify(exec);
 
@@ -3821,6 +3822,28 @@ async function startAdminWebServer() {
         notifyOnNewOptimization: settings?.notifyOnNewOptimization ?? true,
       };
 
+      // Fetch bridge activity for this user's wallet
+      let bridgeActivity = null;
+      if (player.primaryWallet) {
+        try {
+          const bridgeSummary = await getBridgeSummary(player.primaryWallet);
+          if (bridgeSummary) {
+            bridgeActivity = {
+              totalBridgedInUsd: parseFloat(bridgeSummary.totalBridgedInUsd || '0'),
+              totalBridgedOutUsd: parseFloat(bridgeSummary.totalBridgedOutUsd || '0'),
+              netExtractedUsd: parseFloat(bridgeSummary.netExtractedUsd || '0'),
+              heroesIn: bridgeSummary.heroesIn || 0,
+              heroesOut: bridgeSummary.heroesOut || 0,
+              extractorScore: parseFloat(bridgeSummary.extractorScore || '0'),
+              extractorFlags: bridgeSummary.extractorFlags || [],
+              lastBridgeAt: bridgeSummary.lastBridgeAt,
+            };
+          }
+        } catch (err) {
+          console.warn(`[API] Failed to fetch bridge summary for ${player.primaryWallet}:`, err.message);
+        }
+      }
+
       const timestamps = [
         player.updatedAt ? new Date(player.updatedAt).getTime() : null,
         walletSnapshot?.asOfDate ? new Date(walletSnapshot.asOfDate).getTime() : null,
@@ -3846,6 +3869,7 @@ async function startAdminWebServer() {
           dfkSnapshot: snapshotPayload,
           recentOptimizations: optimizations,
           userSettings: userSettingsData,
+          bridgeActivity,
           lastUpdatedAt,
         },
       });

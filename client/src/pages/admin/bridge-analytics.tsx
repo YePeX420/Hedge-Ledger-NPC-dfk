@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle, Play, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -104,6 +104,28 @@ export default function BridgeAnalytics() {
     },
   });
 
+  const { data: indexerStatus } = useQuery<{ running: boolean }>({
+    queryKey: ['/api/admin/bridge/indexer-status'],
+    refetchInterval: 5000,
+  });
+
+  const runIndexerMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('/api/admin/bridge/run-indexer', { method: 'POST' });
+    },
+    onSuccess: () => {
+      toast({ title: 'Bridge indexer started', description: 'Scanning last 100k blocks (~2-3 days). This may take several minutes.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/indexer-status'] });
+    },
+    onError: (err: any) => {
+      if (err?.message?.includes('409')) {
+        toast({ title: 'Indexer already running', variant: 'destructive' });
+      } else {
+        toast({ title: 'Failed to start indexer', variant: 'destructive' });
+      }
+    },
+  });
+
   const handleSearch = () => {
     if (walletSearch.trim()) {
       indexWalletMutation.mutate(walletSearch.trim());
@@ -136,6 +158,20 @@ export default function BridgeAnalytics() {
           <p className="text-muted-foreground">Track cross-chain bridge flows and identify extractors</p>
         </div>
         <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => runIndexerMutation.mutate()}
+            disabled={runIndexerMutation.isPending || indexerStatus?.running}
+            data-testid="button-run-indexer"
+          >
+            {indexerStatus?.running ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4 mr-2" />
+            )}
+            {indexerStatus?.running ? 'Indexer Running...' : 'Run Indexer'}
+          </Button>
           <Button 
             variant="outline" 
             size="sm"

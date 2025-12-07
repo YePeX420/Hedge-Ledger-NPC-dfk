@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Copy, RefreshCw } from "lucide-react";
+import { ArrowLeft, Copy, RefreshCw, ArrowDownRight, ArrowUpRight, AlertTriangle } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -43,6 +43,17 @@ interface Snapshot {
   firstTxAt?: string;
 }
 
+interface BridgeActivity {
+  totalBridgedInUsd: number;
+  totalBridgedOutUsd: number;
+  netExtractedUsd: number;
+  heroesIn: number;
+  heroesOut: number;
+  extractorScore: number;
+  extractorFlags: string[];
+  lastBridgeAt?: string;
+}
+
 interface UserSummary {
   success: boolean;
   user: {
@@ -58,6 +69,7 @@ interface UserSummary {
     dfkSnapshot: Snapshot | null;
     recentOptimizations: OptimizationRow[];
     userSettings: HedgeSettings;
+    bridgeActivity: BridgeActivity | null;
     lastUpdatedAt: string | null;
   };
 }
@@ -372,6 +384,68 @@ export default function AdminUserDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Bridge Activity Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Bridge Activity
+            {user.bridgeActivity && user.bridgeActivity.netExtractedUsd > 100 && (
+              <Badge variant="outline" className="text-orange-600 border-orange-600">
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                Extractor
+              </Badge>
+            )}
+          </CardTitle>
+          <CardDescription>Cross-chain bridge flows for this wallet.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {user.bridgeActivity ? (
+            <div className="grid gap-4 md:grid-cols-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Bridged In</p>
+                <p className="text-xl font-semibold text-green-600 flex items-center gap-1" data-testid="text-bridge-in">
+                  <ArrowDownRight className="h-4 w-4" />
+                  ${user.bridgeActivity.totalBridgedInUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs text-muted-foreground">{user.bridgeActivity.heroesIn} heroes</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Bridged Out</p>
+                <p className="text-xl font-semibold text-red-600 flex items-center gap-1" data-testid="text-bridge-out">
+                  <ArrowUpRight className="h-4 w-4" />
+                  ${user.bridgeActivity.totalBridgedOutUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs text-muted-foreground">{user.bridgeActivity.heroesOut} heroes</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Net Extracted</p>
+                <p className={`text-xl font-semibold ${user.bridgeActivity.netExtractedUsd > 0 ? 'text-orange-600' : 'text-green-600'}`} data-testid="text-net-extracted">
+                  ${user.bridgeActivity.netExtractedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs text-muted-foreground">Score: {user.bridgeActivity.extractorScore}/10</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Last Bridge</p>
+                <p className="text-sm" data-testid="text-last-bridge">
+                  {user.bridgeActivity.lastBridgeAt ? formatDate(user.bridgeActivity.lastBridgeAt) : 'N/A'}
+                </p>
+                {user.bridgeActivity.extractorFlags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {user.bridgeActivity.extractorFlags.map((flag) => (
+                      <Badge key={flag} variant="outline" className="text-xs">
+                        {flag.replace(/_/g, ' ')}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No bridge activity found for this wallet. Run the bridge indexer to populate data.</p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
