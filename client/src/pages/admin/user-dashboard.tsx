@@ -34,7 +34,9 @@ interface OptimizationRow {
 interface LPPosition {
   pid?: number;
   poolName?: string;
+  pairName?: string;
   lpToken?: string;
+  lpBalance?: string | number;
   stakedAmount?: string | number;
   userTVL?: string | number;
 }
@@ -514,9 +516,9 @@ export default function AdminUserDashboard() {
               </div>
               {snapshot.lpPositions.map((pos, idx) => (
                 <div key={pos.pid ?? idx} className="grid grid-cols-4 gap-4 text-sm py-2 border-b border-muted/50" data-testid={`row-lp-position-${pos.pid ?? idx}`}>
-                  <div className="font-medium">{pos.poolName?.replace(/wJEWEL/g, 'JEWEL') || `Pool ${pos.pid ?? idx}`}</div>
+                  <div className="font-medium">{(pos.poolName || pos.pairName)?.replace(/wJEWEL/g, 'JEWEL') || `Pool ${pos.pid ?? idx}`}</div>
                   <div className="text-right text-muted-foreground">{pos.pid ?? '-'}</div>
-                  <div className="text-right font-mono">{safeParseFloat(pos.stakedAmount, 4)}</div>
+                  <div className="text-right font-mono">{safeParseFloat(pos.lpBalance ?? pos.stakedAmount, 4)}</div>
                   <div className="text-right font-semibold">${safeParseFloat(pos.userTVL, 2)}</div>
                 </div>
               ))}

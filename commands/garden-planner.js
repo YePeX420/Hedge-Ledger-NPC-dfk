@@ -645,7 +645,11 @@ export async function execute(interaction) {
       .setTitle('Garden Investment Planner')
       .setTimestamp();
     
+    // Get set of current pool names for highlighting
+    const currentPoolNames = new Set(currentPositions.map(p => p.name));
+    
     // Build table rows - 5 columns: Pool | Share | Base C/J | +Pet C/J | APR
+    // Highlight rows in green if pool is in current positions
     // Rename wJEWEL to JEWEL for display
     const tableRows = poolResults.map(p => {
       const displayName = p.name.replace(/wJEWEL/g, 'JEWEL');
@@ -655,15 +659,21 @@ export async function execute(interaction) {
       const petStr = `${p.crystalPerRunPet.toFixed(2)}C ${p.jewelPerRunPet.toFixed(2)}J`.padStart(13);
       const aprStr = `${p.apr.toFixed(1)}%`.padStart(6);
       
-      return `${poolStr}│${shareStr}│${baseStr}│${petStr}│${aprStr}`;
+      const row = `${poolStr}│${shareStr}│${baseStr}│${petStr}│${aprStr}`;
+      
+      // Add ANSI green color if pool is in current positions
+      if (currentPoolNames.has(p.name)) {
+        return `\u001b[0;32m${row}\u001b[0m`;
+      }
+      return row;
     }).join('\n');
     
-    // Update description with cleaner table
+    // Update description with cleaner table (use ansi for color support)
     embed.setDescription([
       `**Deposit:** $${depositUSD.toLocaleString()} | **Stamina/Run:** ${stamina} | **Pairs:** 3 | **Runs/Day:** ${runsPerDay.toFixed(2)}`,
       `**Best Hero:** #${bestHero.id} (Lv${bestHero.level}${hasGardeningGene ? ' [G]' : ''}${rrLabel}) + ${bestPairing.pet ? `Pet #${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'No Pet'}`,
       ``,
-      `\`\`\``,
+      `\`\`\`ansi`,
       `Pool         │ Share│   Base C/J  │   +Pet C/J  │  APR`,
       `─────────────┼──────┼─────────────┼─────────────┼──────`,
       tableRows,
