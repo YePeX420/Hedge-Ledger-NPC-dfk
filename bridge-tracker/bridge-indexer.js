@@ -1,36 +1,35 @@
 import { ethers } from 'ethers';
 import { db } from '../server/db.js';
-import { bridgeEvents, walletBridgeMetrics } from '../shared/schema.js';
-import { BRIDGE_CONTRACTS, TOKEN_ADDRESSES, CHAIN_NAMES } from './contracts.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { bridgeEvents } from '../shared/schema.js';
+import { DFK_CHAIN_ID, TOKEN_ADDRESSES, TOKEN_DECIMALS, KNOWN_BRIDGE_ADDRESSES } from './contracts.js';
+import { eq, desc } from 'drizzle-orm';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const DFK_CHAIN_ID = 53935;
+const RPC_URL = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 const BLOCKS_PER_QUERY = 2000;
 
-function loadAbi(filename) {
-  const abiPath = path.join(__dirname, filename);
-  return JSON.parse(fs.readFileSync(abiPath, 'utf8'));
+const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+const TOKEN_CONFIG = Object.entries(TOKEN_ADDRESSES.dfkChain).map(([symbol, address]) => ({
+  symbol,
+  address: address.toLowerCase(),
+  decimals: TOKEN_DECIMALS[symbol] || 18
+}));
+
+function getTokenSymbol(address) {
+  const token = TOKEN_CONFIG.find(t => t.address === address.toLowerCase());
+  return token?.symbol || 'UNKNOWN';
 }
 
-const HERO_BRIDGE_ABI = loadAbi('HeroBridgeUpgradeable.json');
-const ITEM_BRIDGE_ABI = loadAbi('ItemBridgeLZDiamond.json');
-const EQUIPMENT_BRIDGE_ABI = loadAbi('EquipmentBridgeLZDiamond.json');
+function getTokenDecimals(symbol) {
+  return TOKEN_DECIMALS[symbol] || 18;
+}
 
-const tokenSymbolFromAddress = (address) => {
-  const addr = address?.toLowerCase();
-  for (const [symbol, tokenAddr] of Object.entries(TOKEN_ADDRESSES.dfkChain)) {
-    if (tokenAddr.toLowerCase() === addr) return symbol;
-  }
-  return 'UNKNOWN';
-};
+function isBridgeAddress(address) {
+  return KNOWN_BRIDGE_ADDRESSES.has(address.toLowerCase());
+}
 
 export async function getProvider() {
-  return new ethers.JsonRpcProvider(BRIDGE_CONTRACTS.dfkChain.rpcUrl);
+  return new ethers.JsonRpcProvider(RPC_URL);
 }
 
 export async function getLatestBlock() {
@@ -38,214 +37,74 @@ export async function getLatestBlock() {
   return provider.getBlockNumber();
 }
 
-export async function indexHeroBridge(fromBlock, toBlock, options = {}) {
-  const { verbose = false } = options;
+export async function indexTokenTransfers(fromBlock, toBlock, options = {}) {
+  const { verbose = false, minAmountUsd = 10 } = options;
   const provider = await getProvider();
-  const contract = new ethers.Contract(
-    BRIDGE_CONTRACTS.dfkChain.heroBridge.address,
-    HERO_BRIDGE_ABI,
-    provider
-  );
-
-  const results = [];
-
-  for (const eventName of ['HeroSent', 'HeroArrived']) {
-    try {
-      const filter = contract.filters[eventName]?.();
-      if (!filter) {
-        if (verbose) console.log(`[HeroBridge] No filter for ${eventName}`);
-        continue;
-      }
-
-      const events = await contract.queryFilter(filter, fromBlock, toBlock);
-      if (verbose) console.log(`[HeroBridge] Found ${events.length} ${eventName} events`);
-
-      for (const event of events) {
-        const block = await provider.getBlock(event.blockNumber);
-        const args = event.args;
-        
-        const direction = eventName === 'HeroSent' ? 'out' : 'in';
-        const wallet = direction === 'out' 
-          ? args.player?.toLowerCase() || args.owner?.toLowerCase()
-          : args.receiver?.toLowerCase();
-        
-        if (!wallet) continue;
-
-        const heroId = args.heroId?.toString() || args.id?.toString();
-        const srcChainId = direction === 'out' ? DFK_CHAIN_ID : Number(args.srcChainId || args._srcChainId);
-        const dstChainId = direction === 'out' ? Number(args.dstChainId || args._dstChainId) : DFK_CHAIN_ID;
-
-        results.push({
-          wallet,
-          bridgeType: 'hero',
-          direction,
-          tokenSymbol: 'HERO',
-          assetId: heroId ? BigInt(heroId) : null,
-          srcChainId,
-          dstChainId,
-          txHash: event.transactionHash,
-          blockNumber: event.blockNumber,
-          blockTimestamp: new Date(block.timestamp * 1000),
-        });
-      }
-    } catch (err) {
-      console.error(`[HeroBridge] Error querying ${eventName}:`, err.message);
-    }
-  }
-
-  return results;
-}
-
-export async function indexItemBridge(fromBlock, toBlock, options = {}) {
-  const { verbose = false } = options;
-  const provider = await getProvider();
-  const contract = new ethers.Contract(
-    BRIDGE_CONTRACTS.dfkChain.itemBridge.address,
-    ITEM_BRIDGE_ABI,
-    provider
-  );
-
-  const results = [];
-  const eventMappings = {
-    'ItemSent': { direction: 'out', type: 'item' },
-    'ItemReceived': { direction: 'in', type: 'item' },
-    'ERC1155Sent': { direction: 'out', type: 'item' },
-    'ERC1155Received': { direction: 'in', type: 'item' }
-  };
-
-  for (const [eventName, config] of Object.entries(eventMappings)) {
-    try {
-      const filter = contract.filters[eventName]?.();
-      if (!filter) {
-        if (verbose) console.log(`[ItemBridge] No filter for ${eventName}`);
-        continue;
-      }
-
-      const events = await contract.queryFilter(filter, fromBlock, toBlock);
-      if (verbose) console.log(`[ItemBridge] Found ${events.length} ${eventName} events`);
-
-      for (const event of events) {
-        const block = await provider.getBlock(event.blockNumber);
-        const args = event.args;
-
-        const wallet = config.direction === 'out'
-          ? args.sender?.toLowerCase() || args.from?.toLowerCase()
-          : args.receiver?.toLowerCase() || args.to?.toLowerCase();
-
-        if (!wallet) continue;
-
-        const tokenAddress = args.token?.toLowerCase() || args.tokenContract?.toLowerCase();
-        const amount = args.amount?.toString() || args.quantity?.toString();
-
-        const srcChainId = config.direction === 'out' ? DFK_CHAIN_ID : Number(args.srcChainId || args._srcChainId || 0);
-        const dstChainId = config.direction === 'out' ? Number(args.dstChainId || args._dstChainId || 0) : DFK_CHAIN_ID;
-
-        results.push({
-          wallet,
-          bridgeType: config.type,
-          direction: config.direction,
-          tokenAddress,
-          tokenSymbol: tokenAddress ? tokenSymbolFromAddress(tokenAddress) : 'ITEM',
-          amount: amount ? amount : null,
-          srcChainId,
-          dstChainId,
-          txHash: event.transactionHash,
-          blockNumber: event.blockNumber,
-          blockTimestamp: new Date(block.timestamp * 1000),
-        });
-      }
-    } catch (err) {
-      console.error(`[ItemBridge] Error querying ${eventName}:`, err.message);
-    }
-  }
-
-  return results;
-}
-
-export async function indexEquipmentBridge(fromBlock, toBlock, options = {}) {
-  const { verbose = false } = options;
-  const provider = await getProvider();
-  const contract = new ethers.Contract(
-    BRIDGE_CONTRACTS.dfkChain.equipmentBridge.address,
-    EQUIPMENT_BRIDGE_ABI,
-    provider
-  );
-
-  const results = [];
-  const eventMappings = {
-    'EquipmentSent': { direction: 'out', type: 'equipment' },
-    'EquipmentArrived': { direction: 'in', type: 'equipment' },
-    'PetSent': { direction: 'out', type: 'pet' },
-    'PetArrived': { direction: 'in', type: 'pet' }
-  };
-
-  for (const [eventName, config] of Object.entries(eventMappings)) {
-    try {
-      const filter = contract.filters[eventName]?.();
-      if (!filter) {
-        if (verbose) console.log(`[EquipmentBridge] No filter for ${eventName}`);
-        continue;
-      }
-
-      const events = await contract.queryFilter(filter, fromBlock, toBlock);
-      if (verbose) console.log(`[EquipmentBridge] Found ${events.length} ${eventName} events`);
-
-      for (const event of events) {
-        const block = await provider.getBlock(event.blockNumber);
-        const args = event.args;
-
-        const wallet = config.direction === 'out'
-          ? args.player?.toLowerCase() || args.owner?.toLowerCase() || args.sender?.toLowerCase()
-          : args.receiver?.toLowerCase();
-
-        if (!wallet) continue;
-
-        const assetId = args.id?.toString() || args.equipmentId?.toString() || args.petId?.toString();
-        const srcChainId = config.direction === 'out' ? DFK_CHAIN_ID : Number(args.srcChainId || args._srcChainId || 0);
-        const dstChainId = config.direction === 'out' ? Number(args.dstChainId || args._dstChainId || 0) : DFK_CHAIN_ID;
-
-        results.push({
-          wallet,
-          bridgeType: config.type,
-          direction: config.direction,
-          tokenSymbol: config.type.toUpperCase(),
-          assetId: assetId ? BigInt(assetId) : null,
-          srcChainId,
-          dstChainId,
-          txHash: event.transactionHash,
-          blockNumber: event.blockNumber,
-          blockTimestamp: new Date(block.timestamp * 1000),
-        });
-      }
-    } catch (err) {
-      console.error(`[EquipmentBridge] Error querying ${eventName}:`, err.message);
-    }
-  }
-
-  return results;
-}
-
-export async function indexAllBridges(fromBlock, toBlock, options = {}) {
-  const { verbose = false } = options;
   
-  if (verbose) console.log(`[BridgeIndexer] Scanning blocks ${fromBlock} to ${toBlock}`);
-
-  const [heroEvents, itemEvents, equipmentEvents] = await Promise.all([
-    indexHeroBridge(fromBlock, toBlock, options),
-    indexItemBridge(fromBlock, toBlock, options),
-    indexEquipmentBridge(fromBlock, toBlock, options)
-  ]);
-
-  const allEvents = [...heroEvents, ...itemEvents, ...equipmentEvents];
+  const results = [];
   
-  if (verbose) {
-    console.log(`[BridgeIndexer] Found ${allEvents.length} total events`);
-    console.log(`  - Heroes: ${heroEvents.length}`);
-    console.log(`  - Items: ${itemEvents.length}`);
-    console.log(`  - Equipment/Pets: ${equipmentEvents.length}`);
+  for (const token of TOKEN_CONFIG) {
+    try {
+      const filter = {
+        address: token.address,
+        topics: [ERC20_TRANSFER_TOPIC],
+        fromBlock,
+        toBlock
+      };
+      
+      const logs = await provider.getLogs(filter);
+      
+      if (verbose && logs.length > 0) {
+        console.log(`[TokenIndex] ${token.symbol}: ${logs.length} transfers in blocks ${fromBlock}-${toBlock}`);
+      }
+      
+      for (const log of logs) {
+        try {
+          const from = '0x' + log.topics[1].slice(26).toLowerCase();
+          const to = '0x' + log.topics[2].slice(26).toLowerCase();
+          const rawValue = log.data;
+          
+          const fromIsBridge = isBridgeAddress(from);
+          const toIsBridge = isBridgeAddress(to);
+          
+          if (!fromIsBridge && !toIsBridge) continue;
+          
+          let direction, wallet;
+          if (fromIsBridge && !toIsBridge) {
+            direction = 'in';
+            wallet = to;
+          } else if (!fromIsBridge && toIsBridge) {
+            direction = 'out';
+            wallet = from;
+          } else {
+            continue;
+          }
+          
+          const block = await provider.getBlock(log.blockNumber);
+          
+          results.push({
+            wallet,
+            bridgeType: 'token',
+            direction,
+            tokenAddress: token.address,
+            tokenSymbol: token.symbol,
+            amount: rawValue,
+            srcChainId: direction === 'in' ? 0 : DFK_CHAIN_ID,
+            dstChainId: direction === 'in' ? DFK_CHAIN_ID : 0,
+            txHash: log.transactionHash,
+            blockNumber: log.blockNumber,
+            blockTimestamp: new Date(block.timestamp * 1000),
+          });
+        } catch (err) {
+          if (verbose) console.error(`[TokenIndex] Error processing log:`, err.message);
+        }
+      }
+    } catch (err) {
+      console.error(`[TokenIndex] Error querying ${token.symbol}:`, err.message);
+    }
   }
-
-  return allEvents;
+  
+  return results;
 }
 
 export async function saveBridgeEvents(events) {
@@ -263,7 +122,7 @@ export async function saveBridgeEvents(events) {
         tokenAddress: event.tokenAddress || null,
         tokenSymbol: event.tokenSymbol || null,
         amount: event.amount || null,
-        assetId: event.assetId ? Number(event.assetId) : null,
+        assetId: null,
         srcChainId: event.srcChainId,
         dstChainId: event.dstChainId,
         txHash: event.txHash,
@@ -288,7 +147,7 @@ export async function runFullIndex(options = {}) {
     startBlock = null, 
     endBlock = null,
     batchSize = BLOCKS_PER_QUERY,
-    verbose = false 
+    verbose = false
   } = options;
 
   const provider = await getProvider();
@@ -297,7 +156,7 @@ export async function runFullIndex(options = {}) {
   const from = startBlock || latestBlock - 100000;
   const to = endBlock || latestBlock;
 
-  console.log(`[BridgeIndexer] Starting full index from block ${from} to ${to}`);
+  console.log(`[BridgeIndexer] Starting token index from block ${from} to ${to}`);
   
   let totalEvents = 0;
   let totalInserted = 0;
@@ -306,7 +165,7 @@ export async function runFullIndex(options = {}) {
     const batchEnd = Math.min(block + batchSize - 1, to);
     
     try {
-      const events = await indexAllBridges(block, batchEnd, { verbose });
+      const events = await indexTokenTransfers(block, batchEnd, { verbose });
       const { inserted, skipped } = await saveBridgeEvents(events);
       
       totalEvents += events.length;
@@ -327,26 +186,87 @@ export async function runFullIndex(options = {}) {
 }
 
 export async function indexWallet(wallet, options = {}) {
-  const { verbose = false } = options;
+  const { verbose = false, lookbackBlocks = 500000 } = options;
   const normalizedWallet = wallet.toLowerCase();
   
-  if (verbose) console.log(`[BridgeIndexer] Indexing wallet ${normalizedWallet}`);
+  if (verbose) console.log(`[BridgeIndexer] Indexing wallet ${normalizedWallet} on-chain`);
   
   const provider = await getProvider();
   const latestBlock = await provider.getBlockNumber();
-  const startBlock = latestBlock - 1000000;
+  const startBlock = latestBlock - lookbackBlocks;
   
-  const events = await indexAllBridges(startBlock, latestBlock, { verbose });
+  const allEvents = [];
   
-  const walletEvents = events.filter(e => e.wallet === normalizedWallet);
+  for (const token of TOKEN_CONFIG) {
+    try {
+      const filter = {
+        address: token.address,
+        topics: [ERC20_TRANSFER_TOPIC],
+        fromBlock: startBlock,
+        toBlock: latestBlock
+      };
+      
+      const logs = await provider.getLogs(filter);
+      
+      for (const log of logs) {
+        try {
+          const from = '0x' + log.topics[1].slice(26).toLowerCase();
+          const to = '0x' + log.topics[2].slice(26).toLowerCase();
+          
+          if (from !== normalizedWallet && to !== normalizedWallet) continue;
+          
+          const fromIsBridge = isBridgeAddress(from);
+          const toIsBridge = isBridgeAddress(to);
+          
+          if (!fromIsBridge && !toIsBridge) continue;
+          
+          let direction, eventWallet;
+          if (fromIsBridge && to === normalizedWallet) {
+            direction = 'in';
+            eventWallet = to;
+          } else if (from === normalizedWallet && toIsBridge) {
+            direction = 'out';
+            eventWallet = from;
+          } else {
+            continue;
+          }
+          
+          const rawValue = log.data;
+          const block = await provider.getBlock(log.blockNumber);
+          
+          allEvents.push({
+            wallet: eventWallet,
+            bridgeType: 'token',
+            direction,
+            tokenAddress: token.address,
+            tokenSymbol: token.symbol,
+            amount: rawValue,
+            srcChainId: direction === 'in' ? 0 : DFK_CHAIN_ID,
+            dstChainId: direction === 'in' ? DFK_CHAIN_ID : 0,
+            txHash: log.transactionHash,
+            blockNumber: log.blockNumber,
+            blockTimestamp: new Date(block.timestamp * 1000),
+          });
+        } catch (err) {
+          if (verbose) console.error(`[BridgeIndexer] Error processing log:`, err.message);
+        }
+      }
+      
+      if (verbose && allEvents.length > 0) {
+        console.log(`[BridgeIndexer] ${token.symbol}: Found ${allEvents.length} bridge events for wallet`);
+      }
+    } catch (err) {
+      console.error(`[BridgeIndexer] Error querying ${token.symbol}:`, err.message);
+    }
+  }
   
-  if (walletEvents.length > 0) {
-    await saveBridgeEvents(walletEvents);
+  if (allEvents.length > 0) {
+    await saveBridgeEvents(allEvents);
   }
   
   if (verbose) {
-    console.log(`[BridgeIndexer] Found ${walletEvents.length} events for wallet`);
+    console.log(`[BridgeIndexer] Indexed ${allEvents.length} events for wallet ${normalizedWallet}`);
   }
   
-  return walletEvents;
+  return allEvents;
 }

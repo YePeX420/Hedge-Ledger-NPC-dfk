@@ -3,25 +3,48 @@ import { bridgeEvents, walletBridgeMetrics, players } from '../shared/schema.js'
 import { eq, sql, and, desc } from 'drizzle-orm';
 import { getPriceAtTimestamp, fetchCurrentPrices } from './price-history.js';
 
+const TOKEN_DECIMALS = {
+  CRYSTAL: 18,
+  JEWEL: 18,
+  USDC: 6,
+  ETH: 18,
+  AVAX: 18,
+  BTC: 8,
+  KAIA: 18
+};
+
 export async function calculateEventUsdValue(event) {
-  if (!event.amount || event.bridgeType === 'hero' || event.bridgeType === 'pet' || event.bridgeType === 'equipment') {
+  if (!event.amount || event.bridgeType !== 'token') {
     return null;
   }
 
   const tokenSymbol = event.tokenSymbol;
-  if (!tokenSymbol || tokenSymbol === 'UNKNOWN' || tokenSymbol === 'ITEM') {
+  if (!tokenSymbol || tokenSymbol === 'UNKNOWN') {
     return null;
   }
 
   const price = await getPriceAtTimestamp(tokenSymbol, event.blockTimestamp);
   if (!price) return null;
 
-  const decimals = tokenSymbol === 'USDC' ? 6 : 18;
-  const amount = parseFloat(event.amount) / Math.pow(10, decimals);
+  const decimals = TOKEN_DECIMALS[tokenSymbol] || 18;
+  
+  let rawAmount;
+  try {
+    if (event.amount.startsWith('0x')) {
+      rawAmount = BigInt(event.amount);
+    } else {
+      rawAmount = BigInt(event.amount);
+    }
+  } catch {
+    return null;
+  }
+  
+  const amount = Number(rawAmount) / Math.pow(10, decimals);
   
   return {
     usdValue: amount * price,
-    tokenPriceUsd: price
+    tokenPriceUsd: price,
+    humanAmount: amount
   };
 }
 
@@ -70,9 +93,6 @@ export async function computeWalletMetrics(wallet) {
   let totalBridgedOutUsd = 0;
   const bridgeInByToken = {};
   const bridgeOutByToken = {};
-  let heroesIn = 0, heroesOut = 0;
-  let petsIn = 0, petsOut = 0;
-  let equipmentIn = 0, equipmentOut = 0;
   let firstBridgeAt = null;
   let lastBridgeAt = null;
   let maxBlockNumber = 0;
@@ -86,17 +106,6 @@ export async function computeWalletMetrics(wallet) {
     }
     if (event.blockNumber > maxBlockNumber) {
       maxBlockNumber = event.blockNumber;
-    }
-
-    if (event.bridgeType === 'hero') {
-      if (event.direction === 'in') heroesIn++;
-      else heroesOut++;
-    } else if (event.bridgeType === 'pet') {
-      if (event.direction === 'in') petsIn++;
-      else petsOut++;
-    } else if (event.bridgeType === 'equipment') {
-      if (event.direction === 'in') equipmentIn++;
-      else equipmentOut++;
     }
 
     if (event.usdValue) {
@@ -122,8 +131,8 @@ export async function computeWalletMetrics(wallet) {
   if (netExtractedUsd > 1000) {
     extractorFlags.push('significant_extractor');
   }
-  if (heroesOut > heroesIn * 2 && heroesOut > 5) {
-    extractorFlags.push('hero_exporter');
+  if (netExtractedUsd > 10000) {
+    extractorFlags.push('major_extractor');
   }
 
   const bridgeRatio = totalBridgedInUsd > 0 
@@ -146,12 +155,12 @@ export async function computeWalletMetrics(wallet) {
     netExtractedUsd: netExtractedUsd.toFixed(2),
     bridgeInByToken,
     bridgeOutByToken,
-    heroesIn,
-    heroesOut,
-    petsIn,
-    petsOut,
-    equipmentIn,
-    equipmentOut,
+    heroesIn: 0,
+    heroesOut: 0,
+    petsIn: 0,
+    petsOut: 0,
+    equipmentIn: 0,
+    equipmentOut: 0,
     firstBridgeAt,
     lastBridgeAt,
     lastProcessedBlock: maxBlockNumber,
