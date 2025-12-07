@@ -56,7 +56,8 @@ import {
   startMaintenanceScheduler,
   runMaintenanceSync,
   runIncrementalBatch,
-  isIncrementalBatchRunning
+  isIncrementalBatchRunning,
+  getCurrentBatchProgress
 } from './bridge-tracker/bridge-indexer.js';
 import {
   runPriceEnrichment,
@@ -4371,6 +4372,17 @@ async function startAdminWebServer() {
     } catch (error) {
       console.error('[API] Incremental batch error:', error);
       res.status(500).json({ error: 'Failed to run incremental batch', details: error.message });
+    }
+  });
+
+  // GET /api/admin/bridge/batch-progress - Get live progress of current batch
+  app.get('/api/admin/bridge/batch-progress', isAdmin, async (req, res) => {
+    try {
+      const progress = getCurrentBatchProgress();
+      res.json(progress);
+    } catch (error) {
+      console.error('[API] Batch progress error:', error);
+      res.status(500).json({ error: 'Failed to get batch progress', details: error.message });
     }
   });
 
