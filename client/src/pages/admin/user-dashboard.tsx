@@ -31,9 +31,18 @@ interface OptimizationRow {
   poolCount?: number;
 }
 
+interface LPPosition {
+  pid?: number;
+  poolName?: string;
+  lpToken?: string;
+  stakedAmount?: string | number;
+  userTVL?: string | number;
+}
+
 interface Snapshot {
   heroCount?: number;
   lpPositionsCount?: number;
+  lpPositions?: LPPosition[];
   totalLPValue?: number;
   jewelBalance?: number;
   crystalBalance?: number;
@@ -83,6 +92,12 @@ function formatDate(value?: string | null) {
 function formatUsd(value: number | undefined | null): string {
   const num = typeof value === 'number' && isFinite(value) ? value : 0;
   return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function safeParseFloat(value: string | number | undefined | null, decimals: number = 2): string {
+  if (value === undefined || value === null || value === '') return (0).toFixed(decimals);
+  const num = typeof value === 'number' ? value : parseFloat(String(value));
+  return isFinite(num) ? num.toFixed(decimals) : (0).toFixed(decimals);
 }
 
 export default function AdminUserDashboard() {
@@ -304,7 +319,7 @@ export default function AdminUserDashboard() {
             </div>
             <div>
               <p className="text-muted-foreground">LP Positions</p>
-              <p className="text-lg font-semibold">{snapshot?.lpPositionsCount ?? 0}</p>
+              <p className="text-lg font-semibold">{snapshot?.lpPositions?.length ?? snapshot?.lpPositionsCount ?? 0}</p>
             </div>
             <div>
               <p className="text-muted-foreground">Total LP Value (USD)</p>
@@ -448,6 +463,40 @@ export default function AdminUserDashboard() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">No bridge activity found for this wallet. Run the bridge indexer to populate data.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* LP Positions Details */}
+      <Card>
+        <CardHeader>
+          <CardTitle>LP Positions Details</CardTitle>
+          <CardDescription>Breakdown of staked LP tokens across garden pools.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {snapshot?.lpPositions && snapshot.lpPositions.length > 0 ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-4 gap-4 text-xs text-muted-foreground font-medium pb-2 border-b">
+                <div>Pool</div>
+                <div className="text-right">PID</div>
+                <div className="text-right">Staked LP</div>
+                <div className="text-right">Value (USD)</div>
+              </div>
+              {snapshot.lpPositions.map((pos, idx) => (
+                <div key={pos.pid ?? idx} className="grid grid-cols-4 gap-4 text-sm py-2 border-b border-muted/50" data-testid={`row-lp-position-${pos.pid ?? idx}`}>
+                  <div className="font-medium">{pos.poolName?.replace(/wJEWEL/g, 'JEWEL') || `Pool ${pos.pid ?? idx}`}</div>
+                  <div className="text-right text-muted-foreground">{pos.pid ?? '-'}</div>
+                  <div className="text-right font-mono">{safeParseFloat(pos.stakedAmount, 4)}</div>
+                  <div className="text-right font-semibold">${safeParseFloat(pos.userTVL, 2)}</div>
+                </div>
+              ))}
+              <div className="grid grid-cols-4 gap-4 text-sm pt-2 font-semibold">
+                <div className="col-span-3 text-right">Total:</div>
+                <div className="text-right">${snapshot.totalLPValue?.toFixed(2) ?? '0.00'}</div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No LP positions found. Click "Refresh Snapshot" above to fetch latest data.</p>
           )}
         </CardContent>
       </Card>
