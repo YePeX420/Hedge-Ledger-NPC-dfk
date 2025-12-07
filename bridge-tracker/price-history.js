@@ -9,7 +9,9 @@ const COINGECKO_IDS = {
   ETH: 'ethereum',
   AVAX: 'avalanche-2',
   BTC: 'bitcoin',
-  KAIA: 'klaytn'
+  KAIA: 'klaytn',
+  FTM: 'fantom',
+  MATIC: 'matic-network'
 };
 
 const RATE_LIMIT_MS = 6500;
