@@ -190,6 +190,24 @@ export default function AdminUserDashboard() {
     settingsMutation.mutate({ [key]: value });
   };
 
+  const refreshSnapshotMutation = useMutation({
+    mutationFn: async () => {
+      if (!user?.walletAddress) throw new Error("No wallet address");
+      return apiRequest("POST", `/api/admin/refresh-snapshot/${user.walletAddress}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user/summary", discordId] });
+      toast({ title: "Snapshot refreshed", description: "DFK data has been updated." });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to refresh snapshot",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="p-6 space-y-4">
@@ -308,9 +326,21 @@ export default function AdminUserDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
-          <CardHeader>
-            <CardTitle>DeFi Kingdoms Snapshot</CardTitle>
-            <CardDescription>Cached hero and garden metrics for this player.</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div>
+              <CardTitle>DeFi Kingdoms Snapshot</CardTitle>
+              <CardDescription>Cached hero and garden metrics for this player.</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refreshSnapshotMutation.mutate()}
+              disabled={refreshSnapshotMutation.isPending || !user?.walletAddress}
+              data-testid="button-refresh-snapshot"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${refreshSnapshotMutation.isPending ? 'animate-spin' : ''}`} />
+              {refreshSnapshotMutation.isPending ? 'Refreshing...' : 'Refresh'}
+            </Button>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-4 text-sm">
             <div>
