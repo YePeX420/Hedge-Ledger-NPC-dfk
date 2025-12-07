@@ -92,6 +92,10 @@ export default function AdminSettings() {
         setTimeout(() => {
           window.location.reload();
         }, 3000);
+      } else {
+        // Handle non-OK response (e.g., auth error)
+        console.error("Restart failed with status:", res.status);
+        setIsRestarting(false);
       }
     } catch (err) {
       console.error("Failed to restart server:", err);
