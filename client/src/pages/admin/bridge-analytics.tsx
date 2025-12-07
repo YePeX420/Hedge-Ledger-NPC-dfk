@@ -337,17 +337,49 @@ export default function BridgeAnalytics() {
               </p>
             </div>
           </div>
-          {syncProgress?.latestBlock && syncProgress.latestBlock > 0 && syncProgress?.progress?.lastIndexedBlock !== undefined && (
-            <div className="mt-4">
-              <Progress 
-                value={Math.min(100, Math.max(0, (syncProgress.progress.lastIndexedBlock / syncProgress.latestBlock) * 100))} 
-                className="h-2"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                {Math.min(100, Math.max(0, (syncProgress.progress.lastIndexedBlock / syncProgress.latestBlock) * 100)).toFixed(2)}% complete
-              </p>
-            </div>
-          )}
+          {syncProgress?.latestBlock && syncProgress.latestBlock > 0 && (() => {
+            const syncedBlock = syncProgress?.progress?.lastIndexedBlock || 0;
+            const latestBlock = syncProgress.latestBlock;
+            const progressPercent = Math.min(100, Math.max(0, (syncedBlock / latestBlock) * 100));
+            const blocksRemaining = Math.max(0, latestBlock - syncedBlock);
+            const isComplete = blocksRemaining === 0;
+            
+            return (
+              <div className="mt-6 p-4 bg-muted/50 rounded-lg" data-testid="block-sync-tracker">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium">Block Sync Progress</span>
+                  <span className="text-sm font-mono">
+                    {progressPercent.toFixed(2)}%
+                  </span>
+                </div>
+                <Progress 
+                  value={progressPercent} 
+                  className="h-3"
+                />
+                <div className="flex items-center justify-between mt-2 text-xs">
+                  <div className="flex items-center gap-1">
+                    <span className="text-muted-foreground">Synced to block:</span>
+                    <span className="font-mono font-semibold text-foreground" data-testid="text-synced-block">
+                      {syncedBlock.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-muted-foreground">Latest block:</span>
+                    <span className="font-mono font-semibold text-foreground" data-testid="text-latest-block">
+                      {latestBlock.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-xs mt-1 text-center">
+                  {isComplete ? (
+                    <span className="text-green-600 font-medium">Up to date</span>
+                  ) : (
+                    <span className="text-muted-foreground">{blocksRemaining.toLocaleString()} blocks remaining</span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           {syncProgress?.progress?.lastError && (
             <div className="mt-3 p-2 bg-destructive/10 rounded text-sm text-destructive">
               Last error: {syncProgress.progress.lastError}
