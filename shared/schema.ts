@@ -756,3 +756,23 @@ export const historicalPrices = pgTable("historical_prices", {
 export const insertHistoricalPriceSchema = createInsertSchema(historicalPrices).omit({ id: true, createdAt: true });
 export type InsertHistoricalPrice = z.infer<typeof insertHistoricalPriceSchema>;
 export type HistoricalPrice = typeof historicalPrices.$inferSelect;
+
+/**
+ * Bridge indexer progress - tracks the last indexed block for resumable indexing
+ */
+export const bridgeIndexerProgress = pgTable("bridge_indexer_progress", {
+  id: serial("id").primaryKey(),
+  indexerName: text("indexer_name").notNull().unique(), // 'synapse_main', 'synapse_backfill', etc.
+  lastIndexedBlock: bigint("last_indexed_block", { mode: "number" }).notNull().default(0),
+  genesisBlock: bigint("genesis_block", { mode: "number" }).notNull().default(0), // first block to index from
+  targetBlock: bigint("target_block", { mode: "number" }), // optional end block for backfill
+  status: text("status").notNull().default('idle'), // 'idle', 'running', 'completed', 'error'
+  totalEventsIndexed: integer("total_events_indexed").notNull().default(0),
+  eventsNeedingPrices: integer("events_needing_prices").notNull().default(0), // events without USD values
+  lastError: text("last_error"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export type BridgeIndexerProgress = typeof bridgeIndexerProgress.$inferSelect;

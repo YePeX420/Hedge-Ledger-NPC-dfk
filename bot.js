@@ -45,7 +45,23 @@ import { adaptResponse, generateGreeting, shouldSuggestPremium } from './hedge-p
 import { ARCHETYPES, TIERS, STATES, BEHAVIOR_TAGS } from './classification-config.js';
 import { profileCommands } from './commands/profile-commands.js';
 import { getWalletSummary as getBridgeSummary, getTopExtractors, refreshWalletMetrics, refreshAllMetrics } from './bridge-tracker/bridge-metrics.js';
-import { indexWallet as indexBridgeWallet, runFullIndex as runBridgeFullIndex, getLatestBlock as getBridgeLatestBlock } from './bridge-tracker/bridge-indexer.js';
+import { 
+  indexWallet as indexBridgeWallet, 
+  runFullIndex as runBridgeFullIndex, 
+  getLatestBlock as getBridgeLatestBlock,
+  runHistoricalSync,
+  isHistoricalSyncRunning,
+  abortHistoricalSync,
+  getIndexerProgress,
+  startMaintenanceScheduler,
+  runMaintenanceSync
+} from './bridge-tracker/bridge-indexer.js';
+import {
+  runPriceEnrichment,
+  isEnrichmentRunning,
+  getUnpricedEventCount,
+  startEnrichmentScheduler
+} from './bridge-tracker/price-enrichment.js';
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
 import { bridgeEvents, walletBridgeMetrics } from './shared/schema.ts';
 
@@ -4286,6 +4302,69 @@ async function startAdminWebServer() {
       console.error('[API] Error fetching prices:', error);
       res.status(500).json({ error: 'Failed to fetch prices' });
     }
+  });
+
+  // GET /api/admin/bridge/sync-progress - Get historical sync progress
+  app.get('/api/admin/bridge/sync-progress', isAdmin, async (req, res) => {
+    try {
+      const progress = await getIndexerProgress();
+      const latestBlock = await getBridgeLatestBlock();
+      const unpricedCount = await getUnpricedEventCount();
+      
+      res.json({
+        progress: progress || { status: 'not_started', lastIndexedBlock: 0 },
+        latestBlock,
+        unpricedCount,
+        historicalSyncRunning: isHistoricalSyncRunning(),
+        enrichmentRunning: isEnrichmentRunning(),
+      });
+    } catch (error) {
+      console.error('[API] Error getting sync progress:', error);
+      res.status(500).json({ error: 'Failed to get sync progress' });
+    }
+  });
+
+  // POST /api/admin/bridge/start-historical-sync - Start full historical sync from genesis
+  app.post('/api/admin/bridge/start-historical-sync', isAdmin, async (req, res) => {
+    if (isHistoricalSyncRunning()) {
+      return res.status(409).json({ error: 'Historical sync already running' });
+    }
+
+    res.json({ message: 'Historical sync started. This will index from genesis and may take hours.' });
+
+    runHistoricalSync({ verbose: true })
+      .then((result) => {
+        console.log('[API] Historical sync completed:', result);
+      })
+      .catch((err) => {
+        console.error('[API] Historical sync error:', err);
+      });
+  });
+
+  // POST /api/admin/bridge/stop-historical-sync - Stop historical sync
+  app.post('/api/admin/bridge/stop-historical-sync', isAdmin, async (req, res) => {
+    if (!isHistoricalSyncRunning()) {
+      return res.status(400).json({ error: 'No historical sync running' });
+    }
+    abortHistoricalSync();
+    res.json({ message: 'Historical sync stop requested' });
+  });
+
+  // POST /api/admin/bridge/run-price-enrichment - Enrich events with USD prices
+  app.post('/api/admin/bridge/run-price-enrichment', isAdmin, async (req, res) => {
+    if (isEnrichmentRunning()) {
+      return res.status(409).json({ error: 'Price enrichment already running' });
+    }
+
+    res.json({ message: 'Price enrichment started. This may take a while due to API rate limits.' });
+
+    runPriceEnrichment({ verbose: true })
+      .then((result) => {
+        console.log('[API] Price enrichment completed:', result);
+      })
+      .catch((err) => {
+        console.error('[API] Price enrichment error:', err);
+      });
   });
 
   // Discord OAuth Routes

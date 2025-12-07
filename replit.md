@@ -35,11 +35,21 @@ The project utilizes a Node.js backend integrating Discord.js for bot functional
 *   **Tavern Bargain Finder**: Scans the marketplace for hero pairs with optimal genetics and pricing for target class summoning.
 *   **Player User Model System**: Classifies players into archetypes, tiers, and engagement states based on behavior, financial activity, and message content, allowing for personalized bot responses.
 *   **Bridge Flow Tracker** (Admin-only): Analyzes cross-chain bridge activity to identify "extractors" - wallets that bridge more value OUT of DFK Chain than IN.
-    *   **Bridge Indexer** (`bridge-tracker/bridge-indexer.js`): Scans DFK Chain RPC for bridge events from Hero Bridge (Synapse), Item Bridge V2 (LayerZero), and Equipment Bridge (LayerZero) contracts.
-    *   **Price History** (`bridge-tracker/price-history.js`): Caches CoinGecko historical prices for JEWEL, CRYSTAL, USDC, ETH, AVAX, BTC with rate limiting (6.5s per request).
+    *   **Bridge Indexer** (`bridge-tracker/bridge-indexer.js`): Scans DFK Chain RPC for bridge events from Synapse Bridge contracts. Supports:
+        *   **Historical Sync**: Full blockchain indexing from genesis (block 0) to present with resumable progress tracking
+        *   **Maintenance Mode**: Periodic scanning of recent blocks to catch new events
+        *   **Progress Tracking**: `bridge_indexer_progress` table stores last indexed block for resume capability
+    *   **Price Enrichment** (`bridge-tracker/price-enrichment.js`): Batch job that fills in USD values for bridge events:
+        *   Groups events by date/token to minimize CoinGecko API calls
+        *   Respects rate limits (6.5s between requests)
+        *   Updates `usd_value` and `token_price_usd` columns on bridge_events
+    *   **Price History** (`bridge-tracker/price-history.js`): Caches CoinGecko historical prices for JEWEL, CRYSTAL, USDC, ETH, AVAX, BTC, KAIA, FTM, MATIC with rate limiting (6.5s per request).
     *   **Bridge Metrics** (`bridge-tracker/bridge-metrics.js`): Computes per-wallet USD values, net extraction amounts, and extractor scores (0-10 scale).
-    *   **Database Tables**: `bridge_events` (raw events), `wallet_bridge_metrics` (aggregated metrics), `historical_prices` (price cache).
-    *   **Admin Dashboard**: `/admin/bridge` page shows overview stats, top extractors list, and wallet-specific analysis.
+    *   **Database Tables**: `bridge_events` (raw events with USD values), `wallet_bridge_metrics` (aggregated metrics), `historical_prices` (price cache), `bridge_indexer_progress` (sync state).
+    *   **Admin Dashboard**: `/admin/bridge` page shows:
+        *   Historical sync progress with start/stop controls
+        *   Price enrichment button to add USD values to events
+        *   Overview stats, top extractors list, and wallet-specific analysis
 
 **Design Decisions:**
 *   **Database**: PostgreSQL with Drizzle ORM for persistent storage of player registrations and payments.

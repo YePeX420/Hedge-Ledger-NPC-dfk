@@ -6,10 +6,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle, Play, Loader2 } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle, Play, Loader2, Square, DollarSign, Database } from 'lucide-react';
 import { useState } from 'react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
+import { Progress } from '@/components/ui/progress';
 
 interface BridgeOverview {
   events: {
@@ -58,6 +59,23 @@ interface WalletDetails {
     blockTimestamp: string;
     txHash: string;
   }>;
+}
+
+interface SyncProgress {
+  progress: {
+    status: string;
+    lastIndexedBlock: number;
+    genesisBlock: number;
+    targetBlock: number | null;
+    totalEventsIndexed: number;
+    eventsNeedingPrices: number;
+    lastError: string | null;
+    startedAt: string | null;
+  } | null;
+  latestBlock: number;
+  unpricedCount: number;
+  historicalSyncRunning: boolean;
+  enrichmentRunning: boolean;
 }
 
 export default function BridgeAnalytics() {
@@ -126,6 +144,47 @@ export default function BridgeAnalytics() {
     },
   });
 
+  const { data: syncProgress } = useQuery<SyncProgress>({
+    queryKey: ['/api/admin/bridge/sync-progress'],
+    refetchInterval: 5000,
+  });
+
+  const startHistoricalSyncMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/admin/bridge/start-historical-sync');
+    },
+    onSuccess: () => {
+      toast({ title: 'Historical sync started', description: 'Indexing from genesis block. This may take hours.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/sync-progress'] });
+    },
+    onError: () => {
+      toast({ title: 'Failed to start historical sync', variant: 'destructive' });
+    },
+  });
+
+  const stopHistoricalSyncMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/admin/bridge/stop-historical-sync');
+    },
+    onSuccess: () => {
+      toast({ title: 'Historical sync stopped' });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/sync-progress'] });
+    },
+  });
+
+  const runPriceEnrichmentMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/admin/bridge/run-price-enrichment');
+    },
+    onSuccess: () => {
+      toast({ title: 'Price enrichment started', description: 'Adding USD values to events. This may take a while.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/sync-progress'] });
+    },
+    onError: () => {
+      toast({ title: 'Failed to start price enrichment', variant: 'destructive' });
+    },
+  });
+
   const handleSearch = async () => {
     if (walletSearch.trim()) {
       const wallet = walletSearch.trim().toLowerCase();
@@ -189,6 +248,113 @@ export default function BridgeAnalytics() {
           </Button>
         </div>
       </div>
+
+      {/* Sync Progress Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Historical Sync Progress
+              </CardTitle>
+              <CardDescription>
+                Index all bridge events from genesis for complete extraction analysis
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              {syncProgress?.historicalSyncRunning ? (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => stopHistoricalSyncMutation.mutate()}
+                  disabled={stopHistoricalSyncMutation.isPending}
+                  data-testid="button-stop-sync"
+                >
+                  <Square className="h-4 w-4 mr-2" />
+                  Stop Sync
+                </Button>
+              ) : (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => startHistoricalSyncMutation.mutate()}
+                  disabled={startHistoricalSyncMutation.isPending}
+                  data-testid="button-start-historical-sync"
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  Start Full Sync
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => runPriceEnrichmentMutation.mutate()}
+                disabled={runPriceEnrichmentMutation.isPending || syncProgress?.enrichmentRunning}
+                data-testid="button-run-enrichment"
+              >
+                {syncProgress?.enrichmentRunning ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <DollarSign className="h-4 w-4 mr-2" />
+                )}
+                {syncProgress?.enrichmentRunning ? 'Enriching...' : 'Add USD Prices'}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Status</p>
+              <div className="flex items-center gap-2">
+                <Badge variant={
+                  syncProgress?.historicalSyncRunning ? 'default' :
+                  syncProgress?.progress?.status === 'completed' ? 'outline' :
+                  syncProgress?.progress?.status === 'error' ? 'destructive' : 'secondary'
+                }>
+                  {syncProgress?.historicalSyncRunning ? 'Running' : 
+                   syncProgress?.progress?.status || 'Not Started'}
+                </Badge>
+              </div>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Blocks Indexed</p>
+              <p className="text-lg font-semibold">
+                {(syncProgress?.progress?.lastIndexedBlock || 0).toLocaleString()} / {(syncProgress?.latestBlock || 0).toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Events Indexed</p>
+              <p className="text-lg font-semibold">
+                {(syncProgress?.progress?.totalEventsIndexed || 0).toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Needing USD Prices</p>
+              <p className="text-lg font-semibold">
+                {(syncProgress?.unpricedCount || 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
+          {syncProgress?.latestBlock && syncProgress.latestBlock > 0 && syncProgress?.progress?.lastIndexedBlock !== undefined && (
+            <div className="mt-4">
+              <Progress 
+                value={Math.min(100, Math.max(0, (syncProgress.progress.lastIndexedBlock / syncProgress.latestBlock) * 100))} 
+                className="h-2"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {Math.min(100, Math.max(0, (syncProgress.progress.lastIndexedBlock / syncProgress.latestBlock) * 100)).toFixed(2)}% complete
+              </p>
+            </div>
+          )}
+          {syncProgress?.progress?.lastError && (
+            <div className="mt-3 p-2 bg-destructive/10 rounded text-sm text-destructive">
+              Last error: {syncProgress.progress.lastError}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Overview Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

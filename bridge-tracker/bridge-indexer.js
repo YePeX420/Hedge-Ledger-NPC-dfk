@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import { db } from '../server/db.js';
-import { bridgeEvents } from '../shared/schema.js';
+import { bridgeEvents, bridgeIndexerProgress } from '../shared/schema.js';
 import { 
   DFK_CHAIN_ID, 
   BRIDGE_CONTRACTS, 
@@ -11,7 +11,12 @@ import {
   ERC20_TRANSFER_TOPIC 
 } from './contracts.js';
 import { hexToDecimalString, formatTokenAmount } from './bigint-utils.js';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, isNull } from 'drizzle-orm';
+
+// DFK Chain genesis is block 0, but Synapse bridge activity started later
+// We'll discover the actual first block with bridge events
+const DFK_CHAIN_GENESIS = 0;
+const MAIN_INDEXER_NAME = 'synapse_main';
 
 const RPC_URL = BRIDGE_CONTRACTS.dfkChain.rpcUrl;
 const SYNAPSE_BRIDGE = BRIDGE_CONTRACTS.dfkChain.synapseBridge.toLowerCase();
@@ -466,6 +471,241 @@ export async function getWalletEvents(wallet, limit = 100) {
     .where(eq(bridgeEvents.wallet, wallet.toLowerCase()))
     .orderBy(desc(bridgeEvents.blockTimestamp))
     .limit(limit);
+}
+
+// ============================================================================
+// PROGRESS TRACKING FOR RESUMABLE INDEXING
+// ============================================================================
+
+export async function getIndexerProgress(indexerName = MAIN_INDEXER_NAME) {
+  const [progress] = await db.select()
+    .from(bridgeIndexerProgress)
+    .where(eq(bridgeIndexerProgress.indexerName, indexerName))
+    .limit(1);
+  return progress;
+}
+
+export async function initIndexerProgress(indexerName = MAIN_INDEXER_NAME, genesisBlock = DFK_CHAIN_GENESIS) {
+  const existing = await getIndexerProgress(indexerName);
+  if (existing) return existing;
+  
+  await db.insert(bridgeIndexerProgress).values({
+    indexerName,
+    lastIndexedBlock: genesisBlock,
+    genesisBlock,
+    status: 'idle',
+    totalEventsIndexed: 0,
+    eventsNeedingPrices: 0,
+  });
+  
+  return getIndexerProgress(indexerName);
+}
+
+export async function updateIndexerProgress(indexerName, updates) {
+  await db.update(bridgeIndexerProgress)
+    .set({ ...updates, updatedAt: new Date() })
+    .where(eq(bridgeIndexerProgress.indexerName, indexerName));
+}
+
+export async function getEventsNeedingPrices() {
+  const result = await db.select({ count: sql`count(*)::int` })
+    .from(bridgeEvents)
+    .where(isNull(bridgeEvents.usdValue));
+  return result[0]?.count || 0;
+}
+
+// ============================================================================
+// FULL HISTORICAL SYNC (Resumable from genesis)
+// ============================================================================
+
+let historicalSyncRunning = false;
+let historicalSyncAbort = false;
+
+export function isHistoricalSyncRunning() {
+  return historicalSyncRunning;
+}
+
+export function abortHistoricalSync() {
+  historicalSyncAbort = true;
+}
+
+export async function runHistoricalSync(options = {}) {
+  const {
+    batchSize = 10000, // Larger batches for historical data
+    verbose = true,
+    indexerName = MAIN_INDEXER_NAME,
+  } = options;
+
+  if (historicalSyncRunning) {
+    console.log('[HistoricalSync] Already running, skipping...');
+    return { status: 'already_running' };
+  }
+
+  historicalSyncRunning = true;
+  historicalSyncAbort = false;
+
+  try {
+    // Initialize or get existing progress
+    let progress = await initIndexerProgress(indexerName);
+    const provider = await getProvider();
+    const latestBlock = await provider.getBlockNumber();
+
+    // Update status to running
+    await updateIndexerProgress(indexerName, {
+      status: 'running',
+      startedAt: new Date(),
+      targetBlock: latestBlock,
+    });
+
+    console.log(`[HistoricalSync] Starting from block ${progress.lastIndexedBlock} to ${latestBlock}`);
+    console.log(`[HistoricalSync] ${latestBlock - progress.lastIndexedBlock} blocks remaining`);
+
+    let currentBlock = progress.lastIndexedBlock;
+    let totalEventsThisRun = 0;
+    let totalInsertedThisRun = 0;
+
+    while (currentBlock < latestBlock && !historicalSyncAbort) {
+      const batchEnd = Math.min(currentBlock + batchSize, latestBlock);
+
+      try {
+        // Index in smaller sub-batches for RPC limits
+        let batchEvents = 0;
+        let batchInserted = 0;
+
+        for (let subBlock = currentBlock; subBlock < batchEnd; subBlock += BLOCKS_PER_QUERY) {
+          const subEnd = Math.min(subBlock + BLOCKS_PER_QUERY - 1, batchEnd);
+          
+          const events = await indexSynapseBridgeEvents(subBlock, subEnd, { verbose: false });
+          const { inserted } = await saveBridgeEvents(events);
+          
+          batchEvents += events.length;
+          batchInserted += inserted;
+
+          // Small delay to avoid RPC rate limits
+          await new Promise(r => setTimeout(r, 50));
+        }
+
+        totalEventsThisRun += batchEvents;
+        totalInsertedThisRun += batchInserted;
+
+        // Update progress in database
+        const eventsNeedingPrices = await getEventsNeedingPrices();
+        await updateIndexerProgress(indexerName, {
+          lastIndexedBlock: batchEnd,
+          totalEventsIndexed: progress.totalEventsIndexed + totalInsertedThisRun,
+          eventsNeedingPrices,
+        });
+
+        const percentComplete = ((batchEnd / latestBlock) * 100).toFixed(2);
+        if (verbose) {
+          console.log(`[HistoricalSync] Blocks ${currentBlock}-${batchEnd}: ${batchEvents} events, ${batchInserted} inserted (${percentComplete}% complete)`);
+        }
+
+        currentBlock = batchEnd;
+
+      } catch (err) {
+        console.error(`[HistoricalSync] Error at block ${currentBlock}:`, err.message);
+        await updateIndexerProgress(indexerName, {
+          status: 'error',
+          lastError: err.message,
+        });
+        // Continue from error point after a delay
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+
+    // Update final status
+    const finalStatus = historicalSyncAbort ? 'idle' : (currentBlock >= latestBlock ? 'completed' : 'idle');
+    const eventsNeedingPrices = await getEventsNeedingPrices();
+    
+    await updateIndexerProgress(indexerName, {
+      status: finalStatus,
+      completedAt: finalStatus === 'completed' ? new Date() : null,
+      eventsNeedingPrices,
+    });
+
+    console.log(`[HistoricalSync] Finished. Total this run: ${totalEventsThisRun} events, ${totalInsertedThisRun} inserted`);
+    
+    return { 
+      status: finalStatus, 
+      totalEvents: totalEventsThisRun, 
+      totalInserted: totalInsertedThisRun,
+      lastBlock: currentBlock,
+    };
+
+  } finally {
+    historicalSyncRunning = false;
+  }
+}
+
+// ============================================================================
+// MAINTENANCE MODE (Catch up with new blocks periodically)
+// ============================================================================
+
+let maintenanceInterval = null;
+
+export async function runMaintenanceSync(options = {}) {
+  const { lookbackBlocks = 5000, verbose = false } = options;
+  
+  const provider = await getProvider();
+  const latestBlock = await provider.getBlockNumber();
+  const startBlock = latestBlock - lookbackBlocks;
+
+  console.log(`[MaintenanceSync] Scanning recent blocks ${startBlock}-${latestBlock}`);
+
+  let totalEvents = 0;
+  let totalInserted = 0;
+
+  for (let block = startBlock; block < latestBlock; block += BLOCKS_PER_QUERY) {
+    const batchEnd = Math.min(block + BLOCKS_PER_QUERY - 1, latestBlock);
+    
+    try {
+      const events = await indexSynapseBridgeEvents(block, batchEnd, { verbose: false });
+      const { inserted } = await saveBridgeEvents(events);
+      
+      totalEvents += events.length;
+      totalInserted += inserted;
+
+      if (verbose && events.length > 0) {
+        console.log(`[MaintenanceSync] Blocks ${block}-${batchEnd}: ${events.length} events, ${inserted} inserted`);
+      }
+    } catch (err) {
+      console.error(`[MaintenanceSync] Error at block ${block}:`, err.message);
+    }
+
+    await new Promise(r => setTimeout(r, 50));
+  }
+
+  if (totalInserted > 0) {
+    console.log(`[MaintenanceSync] Complete: ${totalEvents} events, ${totalInserted} new`);
+  }
+
+  return { totalEvents, totalInserted };
+}
+
+export function startMaintenanceScheduler(intervalMs = 30 * 60 * 1000) { // Default: every 30 minutes
+  if (maintenanceInterval) {
+    console.log('[MaintenanceScheduler] Already running');
+    return;
+  }
+
+  console.log(`[MaintenanceScheduler] Starting (interval: ${intervalMs / 1000}s)`);
+  
+  maintenanceInterval = setInterval(async () => {
+    try {
+      await runMaintenanceSync({ verbose: true });
+    } catch (err) {
+      console.error('[MaintenanceScheduler] Error:', err.message);
+    }
+  }, intervalMs);
+}
+
+export function stopMaintenanceScheduler() {
+  if (maintenanceInterval) {
+    clearInterval(maintenanceInterval);
+    maintenanceInterval = null;
+    console.log('[MaintenanceScheduler] Stopped');
+  }
 }
 
 // Main execution when run directly
