@@ -643,3 +643,116 @@ export const walletSnapshots = pgTable("wallet_snapshots", {
   change7d: numeric("change_7d", { precision: 30, scale: 18 }),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// ============================================================================
+// BRIDGE TRACKING TABLES (Admin-only extractor identification)
+// ============================================================================
+
+/**
+ * Raw bridge events - stores all bridge transactions for a wallet
+ * Includes token transfers (ItemBridge), heroes (HeroBridge), equipment/pets (EquipmentBridge)
+ */
+export const bridgeEvents = pgTable("bridge_events", {
+  id: serial("id").primaryKey(),
+  wallet: text("wallet").notNull(),
+  bridgeType: text("bridge_type").notNull(), // 'item', 'hero', 'equipment', 'pet'
+  direction: text("direction").notNull(), // 'in' (to DFK Chain) or 'out' (from DFK Chain)
+  
+  // Token/asset details
+  tokenAddress: text("token_address"), // null for heroes/pets
+  tokenSymbol: text("token_symbol"), // JEWEL, CRYSTAL, etc or 'HERO', 'PET'
+  amount: numeric("amount", { precision: 30, scale: 18 }), // token amount (null for NFTs)
+  assetId: bigint("asset_id", { mode: "number" }), // heroId, petId, equipmentId (null for tokens)
+  
+  // USD value at time of bridge
+  usdValue: numeric("usd_value", { precision: 15, scale: 2 }),
+  tokenPriceUsd: numeric("token_price_usd", { precision: 15, scale: 6 }), // price used for calculation
+  
+  // Chain info
+  srcChainId: integer("src_chain_id").notNull(),
+  dstChainId: integer("dst_chain_id").notNull(),
+  
+  // Transaction details
+  txHash: text("tx_hash").notNull(),
+  blockNumber: bigint("block_number", { mode: "number" }).notNull(),
+  blockTimestamp: timestamp("block_timestamp", { withTimezone: true }).notNull(),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletIdx: index("bridge_events_wallet_idx").on(table.wallet),
+  directionIdx: index("bridge_events_direction_idx").on(table.direction),
+  bridgeTypeIdx: index("bridge_events_type_idx").on(table.bridgeType),
+  blockTimestampIdx: index("bridge_events_timestamp_idx").on(table.blockTimestamp),
+  txHashIdx: uniqueIndex("bridge_events_tx_hash_idx").on(table.txHash, table.wallet, table.bridgeType),
+}));
+
+export const insertBridgeEventSchema = createInsertSchema(bridgeEvents).omit({ id: true, createdAt: true });
+export type InsertBridgeEvent = z.infer<typeof insertBridgeEventSchema>;
+export type BridgeEvent = typeof bridgeEvents.$inferSelect;
+
+/**
+ * Wallet bridge metrics - aggregated bridge data per wallet for quick queries
+ */
+export const walletBridgeMetrics = pgTable("wallet_bridge_metrics", {
+  id: serial("id").primaryKey(),
+  wallet: text("wallet").notNull().unique(),
+  playerId: integer("player_id").references(() => players.id), // optional link to player
+  
+  // Token bridge totals (USD)
+  totalBridgedInUsd: numeric("total_bridged_in_usd", { precision: 15, scale: 2 }).notNull().default('0'),
+  totalBridgedOutUsd: numeric("total_bridged_out_usd", { precision: 15, scale: 2 }).notNull().default('0'),
+  netExtractedUsd: numeric("net_extracted_usd", { precision: 15, scale: 2 }).notNull().default('0'),
+  
+  // By token type (JSON breakdown)
+  bridgeInByToken: json("bridge_in_by_token").$type<Record<string, number>>(), // {JEWEL: 1000, CRYSTAL: 500}
+  bridgeOutByToken: json("bridge_out_by_token").$type<Record<string, number>>(),
+  
+  // NFT counts
+  heroesIn: integer("heroes_in").notNull().default(0),
+  heroesOut: integer("heroes_out").notNull().default(0),
+  petsIn: integer("pets_in").notNull().default(0),
+  petsOut: integer("pets_out").notNull().default(0),
+  equipmentIn: integer("equipment_in").notNull().default(0),
+  equipmentOut: integer("equipment_out").notNull().default(0),
+  
+  // Tracking state
+  firstBridgeAt: timestamp("first_bridge_at", { withTimezone: true }),
+  lastBridgeAt: timestamp("last_bridge_at", { withTimezone: true }),
+  lastProcessedBlock: bigint("last_processed_block", { mode: "number" }).notNull().default(0),
+  totalTransactions: integer("total_transactions").notNull().default(0),
+  
+  // Extractor scoring
+  extractorScore: numeric("extractor_score", { precision: 5, scale: 2 }), // 0-10 scale
+  extractorFlags: json("extractor_flags").$type<string[]>(), // ['net_negative', 'quick_flip', etc]
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletIdx: uniqueIndex("wallet_bridge_metrics_wallet_idx").on(table.wallet),
+  playerIdIdx: index("wallet_bridge_metrics_player_idx").on(table.playerId),
+  netExtractedIdx: index("wallet_bridge_metrics_extracted_idx").on(table.netExtractedUsd),
+  extractorScoreIdx: index("wallet_bridge_metrics_score_idx").on(table.extractorScore),
+}));
+
+export const insertWalletBridgeMetricsSchema = createInsertSchema(walletBridgeMetrics).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWalletBridgeMetrics = z.infer<typeof insertWalletBridgeMetricsSchema>;
+export type WalletBridgeMetrics = typeof walletBridgeMetrics.$inferSelect;
+
+/**
+ * Historical token prices cache - stores hourly prices for USD calculations
+ */
+export const historicalPrices = pgTable("historical_prices", {
+  id: serial("id").primaryKey(),
+  tokenSymbol: text("token_symbol").notNull(),
+  priceUsd: numeric("price_usd", { precision: 15, scale: 6 }).notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(), // hourly granularity
+  source: text("source").notNull().default('coingecko'), // 'coingecko', 'manual', etc
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  tokenTimestampIdx: uniqueIndex("historical_prices_token_ts_idx").on(table.tokenSymbol, table.timestamp),
+  timestampIdx: index("historical_prices_timestamp_idx").on(table.timestamp),
+}));
+
+export const insertHistoricalPriceSchema = createInsertSchema(historicalPrices).omit({ id: true, createdAt: true });
+export type InsertHistoricalPrice = z.infer<typeof insertHistoricalPriceSchema>;
+export type HistoricalPrice = typeof historicalPrices.$inferSelect;

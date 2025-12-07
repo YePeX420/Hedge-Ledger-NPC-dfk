@@ -1,0 +1,1097 @@
+[
+  {
+    "inputs": [],
+    "name": "UintUtils__InsufficientHexLength",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "arrivalChainId",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroArrived",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "arrivalChainId",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroSent",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "previousAdminRole",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "newAdminRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "RoleAdminChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleGranted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleRevoked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "_srcChainId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "_srcAddress",
+        "type": "bytes32"
+      }
+    ],
+    "name": "SetTrustedRemote",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "MODERATOR_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "assistingAuction",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "summonedTime",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "nextSummonTime",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "summonerId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "assistantId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint32",
+                "name": "summons",
+                "type": "uint32"
+              },
+              {
+                "internalType": "uint32",
+                "name": "maxSummons",
+                "type": "uint32"
+              }
+            ],
+            "internalType": "struct SummoningInfo",
+            "name": "summoningInfo",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "statGenes",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "visualGenes",
+                "type": "uint256"
+              },
+              {
+                "internalType": "enum Rarity",
+                "name": "rarity",
+                "type": "uint8"
+              },
+              {
+                "internalType": "bool",
+                "name": "shiny",
+                "type": "bool"
+              },
+              {
+                "internalType": "uint16",
+                "name": "generation",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint32",
+                "name": "firstName",
+                "type": "uint32"
+              },
+              {
+                "internalType": "uint32",
+                "name": "lastName",
+                "type": "uint32"
+              },
+              {
+                "internalType": "uint8",
+                "name": "shinyStyle",
+                "type": "uint8"
+              },
+              {
+                "internalType": "uint8",
+                "name": "class",
+                "type": "uint8"
+              },
+              {
+                "internalType": "uint8",
+                "name": "subClass",
+                "type": "uint8"
+              }
+            ],
+            "internalType": "struct HeroInfo",
+            "name": "info",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "staminaFullAt",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "hpFullAt",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "mpFullAt",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint16",
+                "name": "level",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint64",
+                "name": "xp",
+                "type": "uint64"
+              },
+              {
+                "internalType": "address",
+                "name": "currentQuest",
+                "type": "address"
+              },
+              {
+                "internalType": "uint8",
+                "name": "sp",
+                "type": "uint8"
+              },
+              {
+                "internalType": "enum HeroStatus",
+                "name": "status",
+                "type": "uint8"
+              }
+            ],
+            "internalType": "struct HeroState",
+            "name": "state",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint16",
+                "name": "strength",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "intelligence",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "wisdom",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "luck",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "agility",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "vitality",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "endurance",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "dexterity",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "hp",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "mp",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "stamina",
+                "type": "uint16"
+              }
+            ],
+            "internalType": "struct HeroStats",
+            "name": "stats",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint16",
+                "name": "strength",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "intelligence",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "wisdom",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "luck",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "agility",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "vitality",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "endurance",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "dexterity",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "hpSm",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "hpRg",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "hpLg",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "mpSm",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "mpRg",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "mpLg",
+                "type": "uint16"
+              }
+            ],
+            "internalType": "struct HeroStatGrowth",
+            "name": "primaryStatGrowth",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint16",
+                "name": "strength",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "intelligence",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "wisdom",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "luck",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "agility",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "vitality",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "endurance",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "dexterity",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "hpSm",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "hpRg",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "hpLg",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "mpSm",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "mpRg",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "mpLg",
+                "type": "uint16"
+              }
+            ],
+            "internalType": "struct HeroStatGrowth",
+            "name": "secondaryStatGrowth",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint16",
+                "name": "mining",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "gardening",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "foraging",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint16",
+                "name": "fishing",
+                "type": "uint16"
+              }
+            ],
+            "internalType": "struct HeroProfessions",
+            "name": "professions",
+            "type": "tuple"
+          }
+        ],
+        "internalType": "struct Hero",
+        "name": "_hero",
+        "type": "tuple"
+      },
+      {
+        "internalType": "address",
+        "name": "_dstUser",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "encodeMessageFormat",
+    "outputs": [
+      {
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_srcAddress",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_srcChainId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_message",
+        "type": "bytes"
+      },
+      {
+        "internalType": "address",
+        "name": "_executor",
+        "type": "address"
+      }
+    ],
+    "name": "executeMessage",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "flagStorage",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getRoleAdmin",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_chainId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getTrustedRemote",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "trustedRemote",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "grantRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "hasRole",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "heroes",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_messageBus",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_heroes",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_assistingAuction",
+        "type": "address"
+      }
+    ],
+    "name": "initialize",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "isPaused",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "messageBus",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "msgGasLimit",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "petBridgeAddress",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "petCoreAddress",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_petId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_dstUserAddress",
+        "type": "address"
+      }
+    ],
+    "name": "recoverPet",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      }
+    ],
+    "name": "renounceRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_dstChainId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_recipient",
+        "type": "address"
+      }
+    ],
+    "name": "resendHero",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "revokeRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_dstChainId",
+        "type": "uint256"
+      }
+    ],
+    "name": "sendHero",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_admin",
+        "type": "address"
+      }
+    ],
+    "name": "setAdminRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_assistingAuction",
+        "type": "address"
+      }
+    ],
+    "name": "setAssistingAuctionAddress",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_flagStorage",
+        "type": "address"
+      }
+    ],
+    "name": "setFlagStorageAddress",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_messageBus",
+        "type": "address"
+      }
+    ],
+    "name": "setMessageBus",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_msgGasLimit",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMsgGasLimit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bool",
+        "name": "_paused",
+        "type": "bool"
+      }
+    ],
+    "name": "setPaused",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_address",
+        "type": "address"
+      }
+    ],
+    "name": "setPetBridgeAddress",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_address",
+        "type": "address"
+      }
+    ],
+    "name": "setPetCoreAddress",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_srcChainId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_srcAddress",
+        "type": "bytes32"
+      }
+    ],
+    "name": "setTrustedRemote",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "_message",
+        "type": "bytes"
+      }
+    ],
+    "name": "tryHandleHeroBridgedV3",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "_message",
+        "type": "bytes"
+      }
+    ],
+    "name": "tryHandleHeroBridgedV4",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
