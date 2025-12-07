@@ -515,6 +515,127 @@ export async function getEventsNeedingPrices() {
 }
 
 // ============================================================================
+// INCREMENTAL BATCH INDEXING (10K blocks at a time, manually triggered)
+// ============================================================================
+
+const INCREMENTAL_BATCH_SIZE = 10000;
+let incrementalBatchRunning = false;
+
+export function isIncrementalBatchRunning() {
+  return incrementalBatchRunning;
+}
+
+export async function runIncrementalBatch(options = {}) {
+  const {
+    batchSize = INCREMENTAL_BATCH_SIZE,
+    indexerName = MAIN_INDEXER_NAME,
+  } = options;
+
+  if (incrementalBatchRunning) {
+    console.log('[IncrementalBatch] Already running, skipping...');
+    return { status: 'already_running' };
+  }
+
+  incrementalBatchRunning = true;
+  const startTime = Date.now();
+
+  try {
+    // Initialize or get existing progress
+    let progress = await initIndexerProgress(indexerName);
+    const provider = await getProvider();
+    const latestBlock = await provider.getBlockNumber();
+
+    const startBlock = progress.lastIndexedBlock;
+    const endBlock = Math.min(startBlock + batchSize, latestBlock);
+
+    // Check if we're already at the latest block
+    if (startBlock >= latestBlock) {
+      incrementalBatchRunning = false;
+      return {
+        status: 'complete',
+        message: 'Already at latest block',
+        startBlock,
+        endBlock: startBlock,
+        latestBlock,
+        eventsFound: 0,
+        eventsInserted: 0,
+        runtimeMs: Date.now() - startTime,
+      };
+    }
+
+    console.log(`[IncrementalBatch] Indexing blocks ${startBlock} to ${endBlock} (${endBlock - startBlock} blocks)`);
+
+    let totalEvents = 0;
+    let totalInserted = 0;
+
+    // Index in smaller sub-batches for RPC limits
+    for (let subBlock = startBlock; subBlock < endBlock; subBlock += BLOCKS_PER_QUERY) {
+      const subEnd = Math.min(subBlock + BLOCKS_PER_QUERY - 1, endBlock);
+      
+      const events = await indexSynapseBridgeEvents(subBlock, subEnd, { verbose: false });
+      const { inserted } = await saveBridgeEvents(events);
+      
+      totalEvents += events.length;
+      totalInserted += inserted;
+
+      // Small delay to avoid RPC rate limits
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    const runtimeMs = Date.now() - startTime;
+    const eventsNeedingPrices = await getEventsNeedingPrices();
+
+    // Update progress with batch runtime tracking
+    const newTotalBatchCount = (progress.totalBatchCount || 0) + 1;
+    const newTotalBatchRuntimeMs = (progress.totalBatchRuntimeMs || 0) + runtimeMs;
+
+    await updateIndexerProgress(indexerName, {
+      lastIndexedBlock: endBlock,
+      totalEventsIndexed: (progress.totalEventsIndexed || 0) + totalInserted,
+      eventsNeedingPrices,
+      lastBatchRuntimeMs: runtimeMs,
+      totalBatchCount: newTotalBatchCount,
+      totalBatchRuntimeMs: newTotalBatchRuntimeMs,
+      status: endBlock >= latestBlock ? 'complete' : 'idle',
+    });
+
+    const avgRuntimeMs = Math.round(newTotalBatchRuntimeMs / newTotalBatchCount);
+
+    console.log(`[IncrementalBatch] Complete: ${totalEvents} events found, ${totalInserted} inserted in ${(runtimeMs / 1000).toFixed(1)}s`);
+    console.log(`[IncrementalBatch] Avg runtime: ${(avgRuntimeMs / 1000).toFixed(1)}s over ${newTotalBatchCount} batches`);
+
+    incrementalBatchRunning = false;
+
+    return {
+      status: 'success',
+      startBlock,
+      endBlock,
+      latestBlock,
+      blocksRemaining: latestBlock - endBlock,
+      eventsFound: totalEvents,
+      eventsInserted: totalInserted,
+      runtimeMs,
+      avgRuntimeMs,
+      totalBatchCount: newTotalBatchCount,
+    };
+  } catch (error) {
+    incrementalBatchRunning = false;
+    console.error('[IncrementalBatch] Error:', error);
+    
+    await updateIndexerProgress(indexerName, {
+      status: 'error',
+      lastError: error.message,
+    });
+
+    return {
+      status: 'error',
+      error: error.message,
+      runtimeMs: Date.now() - startTime,
+    };
+  }
+}
+
+// ============================================================================
 // FULL HISTORICAL SYNC (Resumable from genesis)
 // ============================================================================
 
