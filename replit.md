@@ -48,6 +48,8 @@ The project utilizes a Node.js backend integrating Discord.js for bot functional
 *   **Authentication**: Discord OAuth2 for securing admin endpoints.
 *   **Payment Automation**: Blockchain monitoring for automatic JEWEL payment verification for premium services.
 *   **Wallet Tracking**: Automated daily snapshots of JEWEL, CRYSTAL, and cJEWEL balances.
+*   **cJEWEL Lock Time**: Dashboard displays days remaining on cJEWEL lock by fetching from cJEWEL contract userInfo (index 2 = lockEndTimestamp).
+*   **Bulk Expiration**: Admin "Mark All Expired" button to batch-update stale PROCESSING/PENDING optimization jobs to EXPIRED status.
 *   **Debug Features**: A debug dashboard for testing functionalities like garden optimization without payments.
 
 ## External Dependencies
