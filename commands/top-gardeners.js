@@ -18,6 +18,17 @@ function normalizePetId(petId) {
 }
 
 /**
+ * Normalize hero ID by removing realm prefix
+ * Returns NUMBER to match the normalization used by getAllExpeditions heroToQuest map
+ */
+function normalizeHeroId(id) {
+  const num = Number(id);
+  if (num >= 2_000_000_000_000) return num - 2_000_000_000_000;
+  if (num >= 1_000_000_000_000) return num - 1_000_000_000_000;
+  return num;
+}
+
+/**
  * Power Surge skill IDs (gardening pets only, eggType 2)
  */
 const POWER_SURGE_IDS = [90, 170]; // Rare, Mythic
@@ -466,11 +477,11 @@ export async function execute(interaction) {
       return interaction.editReply(`No heroes found in ${realmNames[realm]} for this wallet.`);
     }
     
-    // Build set of active hero IDs from expeditions
+    // Build set of active hero IDs from expeditions (store as numbers to match heroToQuest keys)
     const activeHeroIds = new Set();
     if (expeditionData?.heroToQuest) {
       for (const heroId of expeditionData.heroToQuest.keys()) {
-        activeHeroIds.add(String(heroId));
+        activeHeroIds.add(Number(heroId));
       }
     }
     console.log(`[TopGardeners] Found ${activeHeroIds.size} heroes currently on quests`);
@@ -480,10 +491,10 @@ export async function execute(interaction) {
     let scopeLabel = 'All Heroes';
     
     if (scope === 'active') {
-      filteredHeroes = heroes.filter(h => activeHeroIds.has(String(h.id)));
+      filteredHeroes = heroes.filter(h => activeHeroIds.has(normalizeHeroId(h.id)));
       scopeLabel = 'Active (Questing)';
     } else if (scope === 'inactive') {
-      filteredHeroes = heroes.filter(h => !activeHeroIds.has(String(h.id)));
+      filteredHeroes = heroes.filter(h => !activeHeroIds.has(normalizeHeroId(h.id)));
       scopeLabel = 'Inactive (Available)';
     }
     
@@ -522,19 +533,22 @@ export async function execute(interaction) {
     const allGardeningPets = (pets || []).filter(p => p.eggType === 2);
     
     // Filter pets based on scope (pets are "on quest" if their equipped hero is questing)
+    // Note: pet.equippedTo is raw hero ID, activeHeroIds uses normalized numeric IDs
     let gardeningPets = allGardeningPets;
     if (scope === 'active') {
       // Only pets equipped to heroes that are currently questing
       gardeningPets = allGardeningPets.filter(p => {
-        const equippedTo = p.equippedTo ? String(p.equippedTo) : null;
-        return equippedTo && activeHeroIds.has(equippedTo);
+        if (!p.equippedTo) return false;
+        const normalizedEquippedTo = normalizeHeroId(p.equippedTo); // returns number
+        return activeHeroIds.has(normalizedEquippedTo);
       });
     } else if (scope === 'inactive') {
       // Only pets NOT equipped to questing heroes (available pets)
       gardeningPets = allGardeningPets.filter(p => {
-        const equippedTo = p.equippedTo ? String(p.equippedTo) : null;
-        // Available if: not equipped to anyone, OR equipped to a non-questing hero
-        return !equippedTo || !activeHeroIds.has(equippedTo);
+        if (!p.equippedTo) return true; // Not equipped = available
+        const normalizedEquippedTo = normalizeHeroId(p.equippedTo); // returns number
+        // Available if equipped to a non-questing hero
+        return !activeHeroIds.has(normalizedEquippedTo);
       });
     }
     
