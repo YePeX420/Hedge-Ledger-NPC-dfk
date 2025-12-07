@@ -70,6 +70,8 @@ function formatDate(value?: string | null) {
 export default function AdminUserDashboard() {
   const { discordId } = useParams();
   const { toast } = useToast();
+  
+  console.log('[UserDashboard] Component mounted, discordId:', discordId);
 
   const { data, isLoading, error } = useQuery<UserSummary>({
     queryKey: ["/api/user/summary", discordId],

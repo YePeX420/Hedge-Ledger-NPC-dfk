@@ -19,19 +19,45 @@ import AccountPage from "@/pages/account";
 import NotFound from "@/pages/not-found";
 
 function AdminRoutes() {
+  console.log('[AdminRoutes] Rendering, current path:', window.location.pathname);
   return (
     <ProtectedRoute requireAdmin>
       <AdminLayout>
         <Switch>
-          <Route path="/admin/users/:discordId/dashboard" component={AdminUserDashboard} />
-          <Route path="/admin/users/:userId" component={AdminUserProfile} />
-          <Route path="/admin/users" component={AdminUsers} />
+          <Route path="/admin/users/:discordId/dashboard">
+            {(params) => {
+              console.log('[Route] Matched /admin/users/:discordId/dashboard, params:', params);
+              return <AdminUserDashboard />;
+            }}
+          </Route>
+          <Route path="/admin/users/:userId">
+            {(params) => {
+              console.log('[Route] Matched /admin/users/:userId, params:', params);
+              return <AdminUserProfile />;
+            }}
+          </Route>
+          <Route path="/admin/users">
+            {() => {
+              console.log('[Route] Matched /admin/users');
+              return <AdminUsers />;
+            }}
+          </Route>
           <Route path="/admin/expenses" component={AdminExpenses} />
           <Route path="/admin/settings" component={AdminSettings} />
           <Route path="/admin/bridge" component={AdminBridgeAnalytics} />
           <Route path="/admin/account" component={AccountPage} />
-          <Route path="/admin" component={AdminDashboard} />
-          <Route component={NotFound} />
+          <Route path="/admin">
+            {() => {
+              console.log('[Route] Matched /admin (dashboard)');
+              return <AdminDashboard />;
+            }}
+          </Route>
+          <Route>
+            {() => {
+              console.log('[Route] No match - showing 404');
+              return <NotFound />;
+            }}
+          </Route>
         </Switch>
       </AdminLayout>
     </ProtectedRoute>
