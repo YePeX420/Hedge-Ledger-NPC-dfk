@@ -3785,10 +3785,17 @@ async function startAdminWebServer() {
 
       const dfkSnapshot = profileData?.dfkSnapshot ? { ...profileData.dfkSnapshot } : {};
 
+      // Only use walletSnapshot as fallback when dfkSnapshot doesn't have balance data
       if (walletSnapshot) {
-        dfkSnapshot.jewelBalance = parseFloat(walletSnapshot.jewelBalance || '0');
-        dfkSnapshot.crystalBalance = parseFloat(walletSnapshot.crystalBalance || '0');
-        dfkSnapshot.cJewelBalance = parseFloat(walletSnapshot.cJewelBalance || '0');
+        if (dfkSnapshot.jewelBalance === undefined) {
+          dfkSnapshot.jewelBalance = parseFloat(walletSnapshot.jewelBalance || '0');
+        }
+        if (dfkSnapshot.crystalBalance === undefined) {
+          dfkSnapshot.crystalBalance = parseFloat(walletSnapshot.crystalBalance || '0');
+        }
+        if (dfkSnapshot.cJewelBalance === undefined) {
+          dfkSnapshot.cJewelBalance = parseFloat(walletSnapshot.cJewelBalance || '0');
+        }
       }
 
       if (player.firstDfkTxTimestamp) {
