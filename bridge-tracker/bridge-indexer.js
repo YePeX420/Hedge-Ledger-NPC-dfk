@@ -1,13 +1,28 @@
 import { ethers } from 'ethers';
 import { db } from '../server/db.js';
 import { bridgeEvents } from '../shared/schema.js';
-import { DFK_CHAIN_ID, TOKEN_ADDRESSES, TOKEN_DECIMALS, KNOWN_BRIDGE_ADDRESSES } from './contracts.js';
-import { eq, desc } from 'drizzle-orm';
+import { 
+  DFK_CHAIN_ID, 
+  BRIDGE_CONTRACTS, 
+  TOKEN_ADDRESSES, 
+  TOKEN_DECIMALS, 
+  TOKEN_ADDRESS_TO_SYMBOL,
+  KNOWN_BRIDGE_ADDRESSES,
+  ERC20_TRANSFER_TOPIC 
+} from './contracts.js';
+import { hexToDecimalString } from './bigint-utils.js';
+import { eq, desc, and, sql } from 'drizzle-orm';
 
-const RPC_URL = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
+const RPC_URL = BRIDGE_CONTRACTS.dfkChain.rpcUrl;
+const SYNAPSE_BRIDGE = BRIDGE_CONTRACTS.dfkChain.synapseBridge.toLowerCase();
 const BLOCKS_PER_QUERY = 2000;
 
-const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const SYNAPSE_EVENTS = {
+  TokenDeposit: ethers.id('TokenDeposit(address,uint256,address,uint256)'),
+  TokenRedeem: ethers.id('TokenRedeem(address,uint256,address,uint256)'),
+  TokenMint: ethers.id('TokenMint(address,address,uint256,uint256,bytes32)'),
+  TokenWithdraw: ethers.id('TokenWithdraw(address,address,uint256,uint256,bytes32)')
+};
 
 const TOKEN_CONFIG = Object.entries(TOKEN_ADDRESSES.dfkChain).map(([symbol, address]) => ({
   symbol,
@@ -16,8 +31,8 @@ const TOKEN_CONFIG = Object.entries(TOKEN_ADDRESSES.dfkChain).map(([symbol, addr
 }));
 
 function getTokenSymbol(address) {
-  const token = TOKEN_CONFIG.find(t => t.address === address.toLowerCase());
-  return token?.symbol || 'UNKNOWN';
+  const normalized = address?.toLowerCase();
+  return TOKEN_ADDRESS_TO_SYMBOL[normalized] || 'UNKNOWN';
 }
 
 function getTokenDecimals(symbol) {
@@ -25,11 +40,16 @@ function getTokenDecimals(symbol) {
 }
 
 function isBridgeAddress(address) {
-  return KNOWN_BRIDGE_ADDRESSES.has(address.toLowerCase());
+  return KNOWN_BRIDGE_ADDRESSES.has(address?.toLowerCase());
 }
 
+let providerInstance = null;
+
 export async function getProvider() {
-  return new ethers.JsonRpcProvider(RPC_URL);
+  if (!providerInstance) {
+    providerInstance = new ethers.JsonRpcProvider(RPC_URL);
+  }
+  return providerInstance;
 }
 
 export async function getLatestBlock() {
@@ -37,8 +57,97 @@ export async function getLatestBlock() {
   return provider.getBlockNumber();
 }
 
+function decodeAddress(topic) {
+  if (!topic) return null;
+  return '0x' + topic.slice(26).toLowerCase();
+}
+
+function decodeUint256(data, offset = 0) {
+  const start = 2 + (offset * 64);
+  const hex = data.slice(start, start + 64);
+  return '0x' + hex;
+}
+
+async function parseSynapseEvent(log, provider) {
+  const topic0 = log.topics[0];
+  
+  let direction, wallet, tokenAddress, amount, chainId;
+  
+  try {
+    if (topic0 === SYNAPSE_EVENTS.TokenDeposit || topic0 === SYNAPSE_EVENTS.TokenRedeem) {
+      direction = 'out';
+      wallet = decodeAddress(log.topics[1]);
+      chainId = parseInt(decodeUint256(log.data, 0), 16);
+      tokenAddress = '0x' + log.data.slice(2 + 64 + 24, 2 + 64 + 64).toLowerCase();
+      amount = decodeUint256(log.data, 2);
+    } else if (topic0 === SYNAPSE_EVENTS.TokenMint || topic0 === SYNAPSE_EVENTS.TokenWithdraw) {
+      direction = 'in';
+      wallet = decodeAddress(log.topics[1]);
+      tokenAddress = '0x' + log.data.slice(2 + 24, 2 + 64).toLowerCase();
+      amount = decodeUint256(log.data, 1);
+    } else {
+      return null;
+    }
+    
+    const tokenSymbol = getTokenSymbol(tokenAddress);
+    const block = await provider.getBlock(log.blockNumber);
+    
+    return {
+      wallet,
+      bridgeType: 'token',
+      direction,
+      tokenAddress,
+      tokenSymbol,
+      amount: hexToDecimalString(amount),
+      srcChainId: direction === 'out' ? DFK_CHAIN_ID : chainId || 0,
+      dstChainId: direction === 'out' ? chainId || 0 : DFK_CHAIN_ID,
+      txHash: log.transactionHash,
+      blockNumber: log.blockNumber,
+      blockTimestamp: new Date(block.timestamp * 1000)
+    };
+  } catch (err) {
+    console.error('[SynapseEvent] Parse error:', err.message);
+    return null;
+  }
+}
+
+export async function indexSynapseBridgeEvents(fromBlock, toBlock, options = {}) {
+  const { verbose = false } = options;
+  const provider = await getProvider();
+  
+  const results = [];
+  
+  const eventTopics = Object.values(SYNAPSE_EVENTS);
+  
+  try {
+    const filter = {
+      address: SYNAPSE_BRIDGE,
+      topics: [eventTopics],
+      fromBlock,
+      toBlock
+    };
+    
+    const logs = await provider.getLogs(filter);
+    
+    if (verbose && logs.length > 0) {
+      console.log(`[SynapseIndex] Found ${logs.length} bridge events in blocks ${fromBlock}-${toBlock}`);
+    }
+    
+    for (const log of logs) {
+      const event = await parseSynapseEvent(log, provider);
+      if (event) {
+        results.push(event);
+      }
+    }
+  } catch (err) {
+    console.error(`[SynapseIndex] Error querying bridge events:`, err.message);
+  }
+  
+  return results;
+}
+
 export async function indexTokenTransfers(fromBlock, toBlock, options = {}) {
-  const { verbose = false, minAmountUsd = 10 } = options;
+  const { verbose = false } = options;
   const provider = await getProvider();
   
   const results = [];
@@ -54,14 +163,10 @@ export async function indexTokenTransfers(fromBlock, toBlock, options = {}) {
       
       const logs = await provider.getLogs(filter);
       
-      if (verbose && logs.length > 0) {
-        console.log(`[TokenIndex] ${token.symbol}: ${logs.length} transfers in blocks ${fromBlock}-${toBlock}`);
-      }
-      
       for (const log of logs) {
         try {
-          const from = '0x' + log.topics[1].slice(26).toLowerCase();
-          const to = '0x' + log.topics[2].slice(26).toLowerCase();
+          const from = decodeAddress(log.topics[1]);
+          const to = decodeAddress(log.topics[2]);
           const rawValue = log.data;
           
           const fromIsBridge = isBridgeAddress(from);
@@ -88,7 +193,7 @@ export async function indexTokenTransfers(fromBlock, toBlock, options = {}) {
             direction,
             tokenAddress: token.address,
             tokenSymbol: token.symbol,
-            amount: rawValue,
+            amount: hexToDecimalString(rawValue),
             srcChainId: direction === 'in' ? 0 : DFK_CHAIN_ID,
             dstChainId: direction === 'in' ? DFK_CHAIN_ID : 0,
             txHash: log.transactionHash,
@@ -98,6 +203,10 @@ export async function indexTokenTransfers(fromBlock, toBlock, options = {}) {
         } catch (err) {
           if (verbose) console.error(`[TokenIndex] Error processing log:`, err.message);
         }
+      }
+      
+      if (verbose && results.length > 0) {
+        console.log(`[TokenIndex] ${token.symbol}: ${results.length} transfers in blocks ${fromBlock}-${toBlock}`);
       }
     } catch (err) {
       console.error(`[TokenIndex] Error querying ${token.symbol}:`, err.message);
@@ -147,7 +256,8 @@ export async function runFullIndex(options = {}) {
     startBlock = null, 
     endBlock = null,
     batchSize = BLOCKS_PER_QUERY,
-    verbose = false
+    verbose = false,
+    useSynapseEvents = true
   } = options;
 
   const provider = await getProvider();
@@ -156,7 +266,8 @@ export async function runFullIndex(options = {}) {
   const from = startBlock || latestBlock - 100000;
   const to = endBlock || latestBlock;
 
-  console.log(`[BridgeIndexer] Starting token index from block ${from} to ${to}`);
+  console.log(`[BridgeIndexer] Starting index from block ${from} to ${to}`);
+  console.log(`[BridgeIndexer] Method: ${useSynapseEvents ? 'Synapse Bridge Events' : 'ERC20 Transfers'}`);
   
   let totalEvents = 0;
   let totalInserted = 0;
@@ -165,7 +276,13 @@ export async function runFullIndex(options = {}) {
     const batchEnd = Math.min(block + batchSize - 1, to);
     
     try {
-      const events = await indexTokenTransfers(block, batchEnd, { verbose });
+      let events;
+      if (useSynapseEvents) {
+        events = await indexSynapseBridgeEvents(block, batchEnd, { verbose });
+      } else {
+        events = await indexTokenTransfers(block, batchEnd, { verbose });
+      }
+      
       const { inserted, skipped } = await saveBridgeEvents(events);
       
       totalEvents += events.length;
@@ -188,6 +305,7 @@ export async function runFullIndex(options = {}) {
 export async function indexWallet(wallet, options = {}) {
   const { verbose = false, lookbackBlocks = 500000 } = options;
   const normalizedWallet = wallet.toLowerCase();
+  const walletTopic = '0x000000000000000000000000' + normalizedWallet.slice(2);
   
   if (verbose) console.log(`[BridgeIndexer] Indexing wallet ${normalizedWallet} on-chain`);
   
@@ -197,23 +315,62 @@ export async function indexWallet(wallet, options = {}) {
   
   const allEvents = [];
   
+  const eventTopics = Object.values(SYNAPSE_EVENTS);
+  
+  try {
+    const filter = {
+      address: SYNAPSE_BRIDGE,
+      topics: [eventTopics, walletTopic],
+      fromBlock: startBlock,
+      toBlock: latestBlock
+    };
+    
+    const logs = await provider.getLogs(filter);
+    
+    if (verbose) {
+      console.log(`[BridgeIndexer] Found ${logs.length} Synapse events for wallet`);
+    }
+    
+    for (const log of logs) {
+      const event = await parseSynapseEvent(log, provider);
+      if (event) {
+        allEvents.push(event);
+      }
+    }
+  } catch (err) {
+    console.error(`[BridgeIndexer] Error querying Synapse events for wallet:`, err.message);
+  }
+  
   for (const token of TOKEN_CONFIG) {
     try {
-      const filter = {
+      const filterOut = {
         address: token.address,
-        topics: [ERC20_TRANSFER_TOPIC],
+        topics: [ERC20_TRANSFER_TOPIC, walletTopic],
         fromBlock: startBlock,
         toBlock: latestBlock
       };
       
-      const logs = await provider.getLogs(filter);
+      const filterIn = {
+        address: token.address,
+        topics: [ERC20_TRANSFER_TOPIC, null, walletTopic],
+        fromBlock: startBlock,
+        toBlock: latestBlock
+      };
       
-      for (const log of logs) {
+      const [logsOut, logsIn] = await Promise.all([
+        provider.getLogs(filterOut),
+        provider.getLogs(filterIn)
+      ]);
+      
+      const allLogs = [...logsOut, ...logsIn];
+      const seenTxs = new Set(allEvents.map(e => e.txHash));
+      
+      for (const log of allLogs) {
+        if (seenTxs.has(log.transactionHash)) continue;
+        
         try {
-          const from = '0x' + log.topics[1].slice(26).toLowerCase();
-          const to = '0x' + log.topics[2].slice(26).toLowerCase();
-          
-          if (from !== normalizedWallet && to !== normalizedWallet) continue;
+          const from = decodeAddress(log.topics[1]);
+          const to = decodeAddress(log.topics[2]);
           
           const fromIsBridge = isBridgeAddress(from);
           const toIsBridge = isBridgeAddress(to);
@@ -231,7 +388,6 @@ export async function indexWallet(wallet, options = {}) {
             continue;
           }
           
-          const rawValue = log.data;
           const block = await provider.getBlock(log.blockNumber);
           
           allEvents.push({
@@ -240,23 +396,21 @@ export async function indexWallet(wallet, options = {}) {
             direction,
             tokenAddress: token.address,
             tokenSymbol: token.symbol,
-            amount: rawValue,
+            amount: hexToDecimalString(log.data),
             srcChainId: direction === 'in' ? 0 : DFK_CHAIN_ID,
             dstChainId: direction === 'in' ? DFK_CHAIN_ID : 0,
             txHash: log.transactionHash,
             blockNumber: log.blockNumber,
             blockTimestamp: new Date(block.timestamp * 1000),
           });
+          
+          seenTxs.add(log.transactionHash);
         } catch (err) {
           if (verbose) console.error(`[BridgeIndexer] Error processing log:`, err.message);
         }
       }
-      
-      if (verbose && allEvents.length > 0) {
-        console.log(`[BridgeIndexer] ${token.symbol}: Found ${allEvents.length} bridge events for wallet`);
-      }
     } catch (err) {
-      console.error(`[BridgeIndexer] Error querying ${token.symbol}:`, err.message);
+      console.error(`[BridgeIndexer] Error querying ${token.symbol} for wallet:`, err.message);
     }
   }
   
@@ -269,4 +423,12 @@ export async function indexWallet(wallet, options = {}) {
   }
   
   return allEvents;
+}
+
+export async function getWalletEvents(wallet, limit = 100) {
+  return db.select()
+    .from(bridgeEvents)
+    .where(eq(bridgeEvents.wallet, wallet.toLowerCase()))
+    .orderBy(desc(bridgeEvents.blockTimestamp))
+    .limit(limit);
 }

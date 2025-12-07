@@ -2,6 +2,8 @@ import { db } from '../server/db.js';
 import { bridgeEvents, walletBridgeMetrics, players } from '../shared/schema.js';
 import { eq, sql, and, desc } from 'drizzle-orm';
 import { getPriceAtTimestamp, fetchCurrentPrices } from './price-history.js';
+import { tokenAmountToUsd, addUsd, subtractUsd, parseUsdToNumber } from './bigint-utils.js';
+import Decimal from 'decimal.js';
 
 const TOKEN_DECIMALS = {
   CRYSTAL: 18,
@@ -10,7 +12,9 @@ const TOKEN_DECIMALS = {
   ETH: 18,
   AVAX: 18,
   BTC: 8,
-  KAIA: 18
+  KAIA: 18,
+  FTM: 18,
+  MATIC: 18
 };
 
 export async function calculateEventUsdValue(event) {
@@ -27,24 +31,14 @@ export async function calculateEventUsdValue(event) {
   if (!price) return null;
 
   const decimals = TOKEN_DECIMALS[tokenSymbol] || 18;
+  const result = tokenAmountToUsd(event.amount, decimals, price);
   
-  let rawAmount;
-  try {
-    if (event.amount.startsWith('0x')) {
-      rawAmount = BigInt(event.amount);
-    } else {
-      rawAmount = BigInt(event.amount);
-    }
-  } catch {
-    return null;
-  }
-  
-  const amount = Number(rawAmount) / Math.pow(10, decimals);
+  if (!result) return null;
   
   return {
-    usdValue: amount * price,
-    tokenPriceUsd: price,
-    humanAmount: amount
+    usdValue: result.usdValue,
+    tokenPriceUsd: price.toFixed(6),
+    humanAmount: result.tokenAmount
   };
 }
 
@@ -66,8 +60,8 @@ export async function updateEventUsdValues(wallet) {
     if (result) {
       await db.update(bridgeEvents)
         .set({
-          usdValue: result.usdValue.toFixed(2),
-          tokenPriceUsd: result.tokenPriceUsd.toFixed(6)
+          usdValue: result.usdValue,
+          tokenPriceUsd: result.tokenPriceUsd
         })
         .where(eq(bridgeEvents.id, event.id));
       updated++;
@@ -89,8 +83,8 @@ export async function computeWalletMetrics(wallet) {
     return null;
   }
 
-  let totalBridgedInUsd = 0;
-  let totalBridgedOutUsd = 0;
+  let totalBridgedInUsd = new Decimal('0');
+  let totalBridgedOutUsd = new Decimal('0');
   const bridgeInByToken = {};
   const bridgeOutByToken = {};
   let firstBridgeAt = null;
@@ -109,38 +103,41 @@ export async function computeWalletMetrics(wallet) {
     }
 
     if (event.usdValue) {
-      const usd = parseFloat(event.usdValue);
+      const usd = new Decimal(event.usdValue);
       const symbol = event.tokenSymbol || 'UNKNOWN';
       
       if (event.direction === 'in') {
-        totalBridgedInUsd += usd;
-        bridgeInByToken[symbol] = (bridgeInByToken[symbol] || 0) + usd;
+        totalBridgedInUsd = totalBridgedInUsd.plus(usd);
+        bridgeInByToken[symbol] = new Decimal(bridgeInByToken[symbol] || '0').plus(usd).toFixed(2);
       } else {
-        totalBridgedOutUsd += usd;
-        bridgeOutByToken[symbol] = (bridgeOutByToken[symbol] || 0) + usd;
+        totalBridgedOutUsd = totalBridgedOutUsd.plus(usd);
+        bridgeOutByToken[symbol] = new Decimal(bridgeOutByToken[symbol] || '0').plus(usd).toFixed(2);
       }
     }
   }
 
-  const netExtractedUsd = totalBridgedOutUsd - totalBridgedInUsd;
+  const netExtractedUsd = totalBridgedOutUsd.minus(totalBridgedInUsd);
 
   const extractorFlags = [];
-  if (netExtractedUsd > 100) {
+  const netExtracted = netExtractedUsd.toNumber();
+  if (netExtracted > 100) {
     extractorFlags.push('net_extractor');
   }
-  if (netExtractedUsd > 1000) {
+  if (netExtracted > 1000) {
     extractorFlags.push('significant_extractor');
   }
-  if (netExtractedUsd > 10000) {
+  if (netExtracted > 10000) {
     extractorFlags.push('major_extractor');
   }
 
-  const bridgeRatio = totalBridgedInUsd > 0 
-    ? totalBridgedOutUsd / totalBridgedInUsd 
-    : (totalBridgedOutUsd > 0 ? 10 : 0);
+  const totalIn = totalBridgedInUsd.toNumber();
+  const totalOut = totalBridgedOutUsd.toNumber();
+  const bridgeRatio = totalIn > 0 
+    ? totalOut / totalIn 
+    : (totalOut > 0 ? 10 : 0);
   
   let extractorScore = Math.min(10, bridgeRatio * 2);
-  if (netExtractedUsd < 0) extractorScore = 0;
+  if (netExtracted < 0) extractorScore = 0;
 
   const player = await db.select()
     .from(players)
@@ -252,4 +249,74 @@ export async function refreshAllMetrics() {
   
   console.log(`[BridgeMetrics] Refreshed ${processed}/${wallets.length} wallets`);
   return processed;
+}
+
+export async function backfillUsdValues() {
+  console.log('[BridgeMetrics] Starting USD value backfill...');
+  
+  const events = await db.select()
+    .from(bridgeEvents)
+    .where(
+      and(
+        sql`${bridgeEvents.usdValue} IS NULL`,
+        sql`${bridgeEvents.amount} IS NOT NULL`,
+        eq(bridgeEvents.bridgeType, 'token')
+      )
+    )
+    .limit(1000);
+  
+  console.log(`[BridgeMetrics] Found ${events.length} events needing USD values`);
+  
+  let updated = 0;
+  let failed = 0;
+  
+  for (const event of events) {
+    try {
+      const result = await calculateEventUsdValue(event);
+      if (result) {
+        await db.update(bridgeEvents)
+          .set({
+            usdValue: result.usdValue,
+            tokenPriceUsd: result.tokenPriceUsd
+          })
+          .where(eq(bridgeEvents.id, event.id));
+        updated++;
+      } else {
+        failed++;
+      }
+    } catch (err) {
+      console.error(`[BridgeMetrics] Error updating event ${event.id}:`, err.message);
+      failed++;
+    }
+    
+    await new Promise(r => setTimeout(r, 200));
+  }
+  
+  console.log(`[BridgeMetrics] Backfill complete: ${updated} updated, ${failed} failed`);
+  return { updated, failed };
+}
+
+export async function getOverviewStats() {
+  const totalWallets = await db.select({ count: sql`COUNT(DISTINCT wallet)` })
+    .from(bridgeEvents);
+  
+  const totalEvents = await db.select({ count: sql`COUNT(*)` })
+    .from(bridgeEvents);
+  
+  const extractors = await db.select({ count: sql`COUNT(*)` })
+    .from(walletBridgeMetrics)
+    .where(sql`${walletBridgeMetrics.netExtractedUsd}::numeric > 0`);
+  
+  const totalExtracted = await db.select({ 
+    sum: sql`COALESCE(SUM(${walletBridgeMetrics.netExtractedUsd}::numeric), 0)` 
+  })
+    .from(walletBridgeMetrics)
+    .where(sql`${walletBridgeMetrics.netExtractedUsd}::numeric > 0`);
+  
+  return {
+    totalWallets: totalWallets[0]?.count || 0,
+    totalEvents: totalEvents[0]?.count || 0,
+    extractorCount: extractors[0]?.count || 0,
+    totalExtractedUsd: totalExtracted[0]?.sum?.toString() || '0'
+  };
 }
