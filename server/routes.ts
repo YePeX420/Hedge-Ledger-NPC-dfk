@@ -193,7 +193,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Admin API Routes
   
-  // GET /api/admin/users - Comprehensive user management list
+  // GET /api/admin/users/basic - Fast endpoint returning just player table data
+  app.get("/api/admin/users/basic", isAdmin, async (req: any, res: any) => {
+    try {
+      const userList = await db
+        .select({
+          id: players.id,
+          discordId: players.discordId,
+          discordUsername: players.discordUsername,
+          walletAddress: players.primaryWallet,
+          profileData: players.profileData,
+          firstSeenAt: players.firstSeenAt,
+          totalMessages: players.totalMessages,
+        })
+        .from(players)
+        .orderBy(desc(players.firstSeenAt));
+      
+      const basicUsers = userList.map((user) => {
+        let profileData = null;
+        try {
+          if (user.profileData) {
+            profileData = typeof user.profileData === 'string' 
+              ? JSON.parse(user.profileData)
+              : user.profileData;
+          }
+        } catch (e) {
+          console.warn(`Failed to parse profileData for user ${user.id}`);
+        }
+
+        return {
+          id: user.id,
+          discordId: user.discordId,
+          discordUsername: user.discordUsername,
+          walletAddress: user.walletAddress,
+          firstSeenAt: user.firstSeenAt,
+          totalMessages: user.totalMessages,
+          archetype: profileData?.archetype || 'GUEST',
+          tier: profileData?.tier ?? 0,
+          state: profileData?.state || 'CURIOUS',
+          behaviorTags: profileData?.behaviorTags || [],
+          kpis: profileData?.kpis || {},
+          dfkSnapshot: profileData?.dfkSnapshot || null,
+          flags: profileData?.flags || {},
+        };
+      });
+      
+      res.json({ success: true, users: basicUsers });
+    } catch (error) {
+      console.error('[API] Error fetching basic users:', error);
+      res.status(500).json({ error: 'Failed to fetch users' });
+    }
+  });
+  
+  // GET /api/admin/users - Comprehensive user management list (kept for backward compatibility)
   app.get("/api/admin/users", isAdmin, async (req: any, res: any) => {
     try {
       // Fetch all players first
