@@ -448,7 +448,63 @@ export async function execute(interaction) {
     console.log(`[GardenPlanner] Cycle: ${cycleMinutes.toFixed(0)} min (${questMinPerStam}+${regenMinPerStam.toFixed(1)} min/stam) = ${runsPerDay.toFixed(2)} runs/day`);
     console.log(`[GardenPlanner] Reward Fund: ${Number(rewardFund.crystalPool).toLocaleString()} CRYSTAL, ${Number(rewardFund.jewelPool).toLocaleString()} JEWEL`);
     
-    // Calculate yields for each pool
+    // First calculate CURRENT yields for existing positions
+    const currentPositions = [];
+    for (const pool of pools) {
+      const existingPos = existingByPid.get(pool.pid);
+      if (!existingPos || pool.tvl <= 0 || !pool.totalStakedRaw) continue;
+      
+      const userLPRaw = BigInt(existingPos.stakedAmountRaw || 0);
+      const totalStakedRaw = BigInt(pool.totalStakedRaw);
+      if (userLPRaw <= 0n || totalStakedRaw <= 0n) continue;
+      
+      const currentUSD = (Number(userLPRaw) / Number(totalStakedRaw)) * pool.tvl;
+      const currentLpShare = currentUSD / pool.tvl;
+      
+      // Calculate current yields
+      const crystalPerRun = calculateYieldPerStamina({
+        heroFactor: bestPairing.heroFactor,
+        hasGardeningGene,
+        gardeningSkill,
+        rewardPool: rewardFund.crystalPool,
+        poolAllocation: pool.allocDecimal,
+        lpOwned: currentLpShare,
+        petMultiplier: bestPairing.petMultiplier
+      }) * stamina;
+      
+      const jewelPerRun = calculateYieldPerStamina({
+        heroFactor: bestPairing.heroFactor,
+        hasGardeningGene,
+        gardeningSkill,
+        rewardPool: rewardFund.jewelPool,
+        poolAllocation: pool.allocDecimal,
+        lpOwned: currentLpShare,
+        petMultiplier: bestPairing.petMultiplier
+      }) * stamina;
+      
+      const dailyYield = (crystalPerRun * prices.CRYSTAL + jewelPerRun * prices.JEWEL) * runsPerDay;
+      const apr = currentUSD > 0 ? (dailyYield * 365) / currentUSD * 100 : 0;
+      
+      currentPositions.push({
+        pid: pool.pid,
+        name: pool.name,
+        currentUSD,
+        lpShare: currentLpShare,
+        allocPercent: pool.allocPercent,
+        crystalPerRun,
+        jewelPerRun,
+        apr
+      });
+    }
+    
+    // Sort current positions by yield
+    currentPositions.sort((a, b) => {
+      const aValue = a.crystalPerRun * prices.CRYSTAL + a.jewelPerRun * prices.JEWEL;
+      const bValue = b.crystalPerRun * prices.CRYSTAL + b.jewelPerRun * prices.JEWEL;
+      return bValue - aValue;
+    });
+    
+    // Calculate yields for each pool (with deposit optimization)
     const poolResults = [];
     
     for (const pool of pools) {
@@ -542,7 +598,48 @@ export async function execute(interaction) {
       return bValue - aValue;
     });
     
-    // Build main embed with comparison table
+    // Build Current Gardens embed (first message)
+    const rrLabel = hasRapidRenewal ? ' [RR]' : '';
+    let currentEmbed = null;
+    
+    if (currentPositions.length > 0) {
+      currentEmbed = new EmbedBuilder()
+        .setColor('#3498DB')
+        .setTitle('Current Garden Positions')
+        .setTimestamp();
+      
+      // Calculate totals for current positions
+      const totalCurrentUSD = currentPositions.reduce((sum, p) => sum + p.currentUSD, 0);
+      const totalDailyCrystal = currentPositions.reduce((sum, p) => sum + p.crystalPerRun * runsPerDay, 0);
+      const totalDailyJewel = currentPositions.reduce((sum, p) => sum + p.jewelPerRun * runsPerDay, 0);
+      
+      // Build table rows for current positions
+      const currentTableRows = currentPositions.map(p => {
+        const displayName = p.name.replace(/wJEWEL/g, 'JEWEL');
+        const poolStr = displayName.padEnd(13).slice(0, 13);
+        const valueStr = `$${p.currentUSD.toFixed(0)}`.padStart(7);
+        const shareStr = `${(p.lpShare * 100).toFixed(2)}%`.padStart(6);
+        const yieldStr = `${p.crystalPerRun.toFixed(2)}C ${p.jewelPerRun.toFixed(2)}J`.padStart(13);
+        const aprStr = `${p.apr.toFixed(1)}%`.padStart(6);
+        
+        return `${poolStr}│${valueStr}│${shareStr}│${yieldStr}│${aprStr}`;
+      }).join('\n');
+      
+      currentEmbed.setDescription([
+        `**Total Staked:** $${totalCurrentUSD.toLocaleString(undefined, {maximumFractionDigits: 0})} | **Stamina/Run:** ${stamina} | **Pairs:** 3 | **Runs/Day:** ${runsPerDay.toFixed(2)}`,
+        `**Best Hero:** #${bestHero.id} (Lv${bestHero.level}${hasGardeningGene ? ' [G]' : ''}${rrLabel}) + ${bestPairing.pet ? `Pet #${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'No Pet'}`,
+        ``,
+        `\`\`\``,
+        `Pool         │  Value│ Share│   C/J per Run │  APR`,
+        `─────────────┼───────┼──────┼───────────────┼──────`,
+        currentTableRows,
+        `\`\`\``,
+        ``,
+        `**Daily Yields:** ${totalDailyCrystal.toFixed(2)} CRYSTAL + ${totalDailyJewel.toFixed(2)} JEWEL`
+      ].join('\n'));
+    }
+    
+    // Build main embed with comparison table (optimization)
     const embed = new EmbedBuilder()
       .setColor('#00FF88')
       .setTitle('Garden Investment Planner')
@@ -562,7 +659,6 @@ export async function execute(interaction) {
     }).join('\n');
     
     // Update description with cleaner table
-    const rrLabel = hasRapidRenewal ? ' [RR]' : '';
     embed.setDescription([
       `**Deposit:** $${depositUSD.toLocaleString()} | **Stamina/Run:** ${stamina} | **Pairs:** 3 | **Runs/Day:** ${runsPerDay.toFixed(2)}`,
       `**Best Hero:** #${bestHero.id} (Lv${bestHero.level}${hasGardeningGene ? ' [G]' : ''}${rrLabel}) + ${bestPairing.pet ? `Pet #${normalizePetId(bestPairing.pet.id)} (+${bestPairing.bonus}%)` : 'No Pet'}`,
@@ -599,7 +695,12 @@ export async function execute(interaction) {
     
     console.log(`[GardenPlanner] Generated comparison for ${poolResults.length} pools in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     
-    return interaction.editReply({ embeds: [embed, pricesEmbed] });
+    // Build embeds array: Current (if exists), Optimization, Prices
+    const embeds = [];
+    if (currentEmbed) embeds.push(currentEmbed);
+    embeds.push(embed, pricesEmbed);
+    
+    return interaction.editReply({ embeds });
     
   } catch (error) {
     console.error('[GardenPlanner] Error:', error);
