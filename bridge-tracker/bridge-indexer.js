@@ -521,8 +521,43 @@ export async function getEventsNeedingPrices() {
 const INCREMENTAL_BATCH_SIZE = 10000;
 let incrementalBatchRunning = false;
 
+// Live progress tracking for current batch
+let currentBatchProgress = {
+  running: false,
+  startBlock: 0,
+  endBlock: 0,
+  currentBlock: 0,
+  eventsFound: 0,
+  eventsInserted: 0,
+  startTime: null,
+};
+
 export function isIncrementalBatchRunning() {
   return incrementalBatchRunning;
+}
+
+export function getCurrentBatchProgress() {
+  if (!currentBatchProgress.running) {
+    return { running: false };
+  }
+  
+  const blocksTotal = currentBatchProgress.endBlock - currentBatchProgress.startBlock;
+  const blocksProcessed = currentBatchProgress.currentBlock - currentBatchProgress.startBlock;
+  const percentComplete = blocksTotal > 0 ? Math.round((blocksProcessed / blocksTotal) * 100) : 0;
+  const elapsedMs = currentBatchProgress.startTime ? Date.now() - currentBatchProgress.startTime : 0;
+  
+  return {
+    running: true,
+    startBlock: currentBatchProgress.startBlock,
+    endBlock: currentBatchProgress.endBlock,
+    currentBlock: currentBatchProgress.currentBlock,
+    blocksProcessed,
+    blocksTotal,
+    percentComplete,
+    eventsFound: currentBatchProgress.eventsFound,
+    eventsInserted: currentBatchProgress.eventsInserted,
+    elapsedMs,
+  };
 }
 
 export async function runIncrementalBatch(options = {}) {
@@ -565,6 +600,17 @@ export async function runIncrementalBatch(options = {}) {
 
     console.log(`[IncrementalBatch] Indexing blocks ${startBlock} to ${endBlock} (${endBlock - startBlock} blocks)`);
 
+    // Initialize live progress tracking
+    currentBatchProgress = {
+      running: true,
+      startBlock,
+      endBlock,
+      currentBlock: startBlock,
+      eventsFound: 0,
+      eventsInserted: 0,
+      startTime,
+    };
+
     let totalEvents = 0;
     let totalInserted = 0;
 
@@ -572,15 +618,25 @@ export async function runIncrementalBatch(options = {}) {
     for (let subBlock = startBlock; subBlock < endBlock; subBlock += BLOCKS_PER_QUERY) {
       const subEnd = Math.min(subBlock + BLOCKS_PER_QUERY - 1, endBlock);
       
+      // Update live progress
+      currentBatchProgress.currentBlock = subEnd;
+      
       const events = await indexSynapseBridgeEvents(subBlock, subEnd, { verbose: false });
       const { inserted } = await saveBridgeEvents(events);
       
       totalEvents += events.length;
       totalInserted += inserted;
+      
+      // Update live progress with event counts
+      currentBatchProgress.eventsFound = totalEvents;
+      currentBatchProgress.eventsInserted = totalInserted;
 
       // Small delay to avoid RPC rate limits
       await new Promise(r => setTimeout(r, 50));
     }
+    
+    // Clear live progress when done
+    currentBatchProgress.running = false;
 
     const runtimeMs = Date.now() - startTime;
     const eventsNeedingPrices = await getEventsNeedingPrices();
@@ -620,6 +676,7 @@ export async function runIncrementalBatch(options = {}) {
     };
   } catch (error) {
     incrementalBatchRunning = false;
+    currentBatchProgress.running = false;
     console.error('[IncrementalBatch] Error:', error);
     
     await updateIndexerProgress(indexerName, {
