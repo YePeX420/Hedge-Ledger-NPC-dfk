@@ -23,7 +23,6 @@ function AdminRoutes() {
     <ProtectedRoute requireAdmin>
       <AdminLayout>
         <Switch>
-          <Route path="/admin" component={AdminDashboard} />
           <Route path="/admin/users/:discordId/dashboard" component={AdminUserDashboard} />
           <Route path="/admin/users/:userId" component={AdminUserProfile} />
           <Route path="/admin/users" component={AdminUsers} />
@@ -31,6 +30,7 @@ function AdminRoutes() {
           <Route path="/admin/settings" component={AdminSettings} />
           <Route path="/admin/bridge" component={AdminBridgeAnalytics} />
           <Route path="/admin/account" component={AccountPage} />
+          <Route path="/admin" component={AdminDashboard} />
           <Route component={NotFound} />
         </Switch>
       </AdminLayout>
