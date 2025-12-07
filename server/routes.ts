@@ -801,6 +801,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ running: indexerRunning });
   });
 
+  // POST /api/admin/restart-server - Restart the server process
+  app.post("/api/admin/restart-server", isAdmin, async (req: any, res: any) => {
+    console.log('[API] === SERVER RESTART REQUESTED ===');
+    res.json({ success: true, message: 'Server restarting in 1 second...' });
+    
+    // Give time for the response to be sent before exiting
+    setTimeout(() => {
+      console.log('[API] Exiting process for restart...');
+      process.exit(0);
+    }, 1000);
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

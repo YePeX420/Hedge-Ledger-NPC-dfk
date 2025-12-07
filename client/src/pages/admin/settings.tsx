@@ -7,7 +7,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { queryClient } from "@/lib/queryClient";
+import { RefreshCw, Loader2 } from "lucide-react";
 
 type DebugSettings = {
   paymentBypass: boolean;
@@ -73,6 +75,32 @@ export default function AdminSettings() {
     paymentBypass: false,
     verboseLogging: false,
   });
+  const [isRestarting, setIsRestarting] = useState(false);
+
+  async function restartServer() {
+    if (isRestarting) return;
+    
+    setIsRestarting(true);
+    try {
+      const res = await fetch("/api/admin/restart-server", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      if (res.ok) {
+        // Wait for server to restart, then reload page
+        setTimeout(() => {
+          window.location.reload();
+        }, 3000);
+      }
+    } catch (err) {
+      console.error("Failed to restart server:", err);
+      // If request fails, it might be because server already restarted
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    }
+  }
 
   // Load current settings from backend
   useEffect(() => {
@@ -175,6 +203,43 @@ export default function AdminSettings() {
         <CardContent>
           <div className="py-8 text-center text-muted-foreground">
             <p>Configuration options coming soon.</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Server Control</CardTitle>
+          <CardDescription>
+            Restart the server to apply code changes
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>Restart Server</Label>
+              <p className="text-sm text-muted-foreground">
+                Restart the backend server process to apply code changes. The page will reload automatically.
+              </p>
+            </div>
+            <Button
+              onClick={restartServer}
+              disabled={isRestarting}
+              variant="destructive"
+              data-testid="button-restart-server"
+            >
+              {isRestarting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Restarting...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Restart Server
+                </>
+              )}
+            </Button>
           </div>
         </CardContent>
       </Card>
