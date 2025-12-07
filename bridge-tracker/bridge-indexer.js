@@ -10,7 +10,7 @@ import {
   KNOWN_BRIDGE_ADDRESSES,
   ERC20_TRANSFER_TOPIC 
 } from './contracts.js';
-import { hexToDecimalString } from './bigint-utils.js';
+import { hexToDecimalString, formatTokenAmount } from './bigint-utils.js';
 import { eq, desc, and, sql } from 'drizzle-orm';
 
 const RPC_URL = BRIDGE_CONTRACTS.dfkChain.rpcUrl;
@@ -109,6 +109,7 @@ async function parseSynapseEvent(log, provider) {
     }
     
     const tokenSymbol = getTokenSymbol(tokenAddress);
+    const tokenDecimals = getTokenDecimals(tokenSymbol);
     const block = await provider.getBlock(log.blockNumber);
     
     return {
@@ -117,7 +118,7 @@ async function parseSynapseEvent(log, provider) {
       direction,
       tokenAddress,
       tokenSymbol,
-      amount: hexToDecimalString(amount),
+      amount: formatTokenAmount(amount, tokenDecimals),
       srcChainId: direction === 'out' ? DFK_CHAIN_ID : chainId || 0,
       dstChainId: direction === 'out' ? chainId || 0 : DFK_CHAIN_ID,
       txHash: log.transactionHash,
@@ -212,7 +213,7 @@ export async function indexTokenTransfers(fromBlock, toBlock, options = {}) {
             direction,
             tokenAddress: token.address,
             tokenSymbol: token.symbol,
-            amount: hexToDecimalString(rawValue),
+            amount: formatTokenAmount(rawValue, token.decimals),
             srcChainId: direction === 'in' ? 0 : DFK_CHAIN_ID,
             dstChainId: direction === 'in' ? DFK_CHAIN_ID : 0,
             txHash: log.transactionHash,
@@ -415,7 +416,7 @@ export async function indexWallet(wallet, options = {}) {
             direction,
             tokenAddress: token.address,
             tokenSymbol: token.symbol,
-            amount: hexToDecimalString(log.data),
+            amount: formatTokenAmount(log.data, token.decimals),
             srcChainId: direction === 'in' ? 0 : DFK_CHAIN_ID,
             dstChainId: direction === 'in' ? DFK_CHAIN_ID : 0,
             txHash: log.transactionHash,
@@ -450,4 +451,18 @@ export async function getWalletEvents(wallet, limit = 100) {
     .where(eq(bridgeEvents.wallet, wallet.toLowerCase()))
     .orderBy(desc(bridgeEvents.blockTimestamp))
     .limit(limit);
+}
+
+// Main execution when run directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  console.log('[BridgeIndexer] Starting full index...');
+  runFullIndex({ verbose: true })
+    .then((result) => {
+      console.log('[BridgeIndexer] Complete:', result);
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error('[BridgeIndexer] Error:', err);
+      process.exit(1);
+    });
 }

@@ -49,7 +49,7 @@ export const CHAIN_NAMES = {
 export const TOKEN_DECIMALS = {
   CRYSTAL: 18,
   JEWEL: 18,
-  USDC: 6,
+  USDC: 18,  // DFK synapse USDC wrapper is 18 decimals
   ETH: 18,
   AVAX: 18,
   BTC: 8,
