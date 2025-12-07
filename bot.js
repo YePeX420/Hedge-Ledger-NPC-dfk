@@ -16,7 +16,7 @@ import { ethers } from 'ethers';
 import { creditBalance } from './balance-credit.js';
 import { initializeProcessor, startProcessor, stopProcessor } from './optimization-processor.js';
 import { startSnapshotJob, stopSnapshotJob } from './wallet-snapshot-job.js';
-import { fetchWalletBalances } from './blockchain-balance-fetcher.js';
+import { fetchWalletBalances, fetchCJewelLockTime } from './blockchain-balance-fetcher.js';
 import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './pool-cache.js';
@@ -3772,6 +3772,18 @@ async function startAdminWebServer() {
         dfkSnapshot.firstTxAt = firstTx.toISOString();
       }
 
+      // Fetch cJEWEL lock time in real-time (changes daily)
+      if (player.primaryWallet) {
+        try {
+          const lockInfo = await fetchCJewelLockTime(player.primaryWallet);
+          if (lockInfo) {
+            dfkSnapshot.cJewelLockDaysRemaining = lockInfo.lockDaysRemaining;
+          }
+        } catch (err) {
+          console.warn(`[API] Failed to fetch cJEWEL lock time:`, err.message);
+        }
+      }
+
       const recentOptimizations = await db
         .select()
         .from(gardenOptimizations)
@@ -3922,6 +3934,46 @@ async function startAdminWebServer() {
     } catch (err) {
       console.error('[API] Error updating user settings:', err);
       res.status(500).json({ error: 'Failed to update user settings' });
+    }
+  });
+
+  // POST /api/user/:discordId/expire-optimizations - Mark all processing optimizations as expired
+  app.post('/api/user/:discordId/expire-optimizations', isAdmin, async (req, res) => {
+    try {
+      const { discordId } = req.params;
+
+      const playerRows = await db
+        .select()
+        .from(players)
+        .where(eq(players.discordId, discordId))
+        .limit(1);
+
+      if (!playerRows || playerRows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const player = playerRows[0];
+
+      // Update all PROCESSING or PENDING optimizations to EXPIRED
+      const result = await db
+        .update(gardenOptimizations)
+        .set({ status: 'EXPIRED' })
+        .where(
+          and(
+            eq(gardenOptimizations.playerId, player.id),
+            sql`${gardenOptimizations.status} IN ('PROCESSING', 'PENDING', 'processing', 'pending')`
+          )
+        );
+
+      console.log(`[API] Marked optimizations as EXPIRED for player ${player.id}`);
+
+      res.json({
+        success: true,
+        message: 'All processing optimizations marked as expired',
+      });
+    } catch (err) {
+      console.error('[API] Error expiring optimizations:', err);
+      res.status(500).json({ error: 'Failed to expire optimizations' });
     }
   });
 

@@ -6,7 +6,7 @@
 // - Safe fallbacks so one bad wallet doesn't crash the job
 
 import * as onchain from "./onchain-data.js";
-import { fetchWalletBalances } from "./blockchain-balance-fetcher.js";
+import { fetchWalletBalances, fetchCJewelLockTime } from "./blockchain-balance-fetcher.js";
 import { detectWalletLPPositions } from "./wallet-lp-detector.js";
 
 /**
@@ -30,6 +30,7 @@ export async function buildPlayerSnapshot(walletAddress) {
     jewelBalance: 0,
     crystalBalance: 0,
     cJewelBalance: 0,
+    cJewelLockDaysRemaining: null,
     dfkAgeDays: null,
     firstTxAt: null,
     lpPositions: [],
@@ -56,6 +57,16 @@ export async function buildPlayerSnapshot(walletAddress) {
       snapshot.cJewelBalance = parseFloat(balances.cjewel || "0");
     } catch (err) {
       console.warn(`[Snapshot] Balance fetch failed for ${wallet}:`, err.message);
+    }
+
+    // cJEWEL lock time
+    try {
+      const lockInfo = await fetchCJewelLockTime(wallet);
+      if (lockInfo) {
+        snapshot.cJewelLockDaysRemaining = lockInfo.lockDaysRemaining;
+      }
+    } catch (err) {
+      console.warn(`[Snapshot] cJEWEL lock time fetch failed for ${wallet}:`, err.message);
     }
 
     // LP positions (Crystalvale gardens only for now)

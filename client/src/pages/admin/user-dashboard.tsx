@@ -38,6 +38,7 @@ interface Snapshot {
   jewelBalance?: number;
   crystalBalance?: number;
   cJewelBalance?: number;
+  cJewelLockDaysRemaining?: number;
   dfkAgeDays?: number;
   firstTxAt?: string;
 }
@@ -309,6 +310,10 @@ export default function AdminUserDashboard() {
               <p className="text-lg font-semibold">{snapshot?.cJewelBalance ?? 0}</p>
             </div>
             <div>
+              <p className="text-muted-foreground">cJEWEL Lock (days)</p>
+              <p className="text-lg font-semibold">{snapshot?.cJewelLockDaysRemaining ?? "–"}</p>
+            </div>
+            <div>
               <p className="text-muted-foreground">First TX</p>
               <p className="text-lg font-semibold">{snapshot?.firstTxAt ? formatDate(snapshot.firstTxAt) : "N/A"}</p>
             </div>
@@ -316,9 +321,31 @@ export default function AdminUserDashboard() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Recent Optimizations</CardTitle>
-            <CardDescription>Latest garden optimization jobs for this player.</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div>
+              <CardTitle>Recent Optimizations</CardTitle>
+              <CardDescription>Latest garden optimization jobs for this player.</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="button-expire-all"
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/user/${discordId}/expire-optimizations`, {
+                    method: 'POST',
+                    credentials: 'include',
+                  });
+                  if (!res.ok) throw new Error('Failed to expire optimizations');
+                  toast({ title: 'All stale optimizations marked as expired' });
+                  queryClient.invalidateQueries({ queryKey: ['/api/user/summary', discordId] });
+                } catch (err) {
+                  toast({ title: 'Error', description: 'Failed to expire optimizations', variant: 'destructive' });
+                }
+              }}
+            >
+              Mark All Expired
+            </Button>
           </CardHeader>
           <CardContent className="space-y-3">
             {user.recentOptimizations?.length ? (

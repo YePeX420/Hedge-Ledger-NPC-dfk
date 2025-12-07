@@ -23,12 +23,19 @@ const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)"
 ];
 
+// cJEWEL contract ABI including userInfo for lock time
+// Returns: [depositedJewel, cJewelBalance, lockEndTimestamp, rewardDebt]
+const CJEWEL_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function userInfo(address user) view returns (uint256, uint256, uint256, uint256)"
+];
+
 // Initialize provider
 const provider = new ethers.JsonRpcProvider(DFK_RPC);
 
 // Initialize token contracts
 const crystalContract = new ethers.Contract(TOKEN_ADDRESSES.CRYSTAL, ERC20_ABI, provider);
-const cjewelContract = new ethers.Contract(TOKEN_ADDRESSES.CJEWEL, ERC20_ABI, provider);
+const cjewelContract = new ethers.Contract(TOKEN_ADDRESSES.CJEWEL, CJEWEL_ABI, provider);
 
 /**
  * Fetch all token balances for a wallet
@@ -108,4 +115,33 @@ export async function batchFetchWalletBalances(walletAddresses) {
   
   console.log(`[BalanceFetcher] ✅ Batch fetch complete: ${results.size}/${walletAddresses.length} successful`);
   return results;
+}
+
+/**
+ * Fetch cJEWEL lock time remaining for a wallet
+ * @param {string} walletAddress - Wallet address to query
+ * @returns {Promise<{lockEndTimestamp: number, lockDaysRemaining: number} | null>} Lock info or null if no lock
+ */
+export async function fetchCJewelLockTime(walletAddress) {
+  try {
+    const userInfo = await cjewelContract.userInfo(walletAddress);
+    // userInfo returns: [depositedJewel, cJewelBalance, lockEndTimestamp, rewardDebt]
+    const lockEndTimestamp = Number(userInfo[2]);
+    
+    if (lockEndTimestamp === 0) {
+      return null; // No lock
+    }
+    
+    const now = Math.floor(Date.now() / 1000);
+    const secondsRemaining = Math.max(0, lockEndTimestamp - now);
+    const daysRemaining = Math.ceil(secondsRemaining / (60 * 60 * 24));
+    
+    return {
+      lockEndTimestamp,
+      lockDaysRemaining: daysRemaining
+    };
+  } catch (err) {
+    console.error(`[BalanceFetcher] ❌ Error fetching cJEWEL lock time for ${walletAddress}:`, err.message);
+    return null;
+  }
 }
