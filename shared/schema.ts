@@ -773,6 +773,10 @@ export const bridgeIndexerProgress = pgTable("bridge_indexer_progress", {
   startedAt: timestamp("started_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  // Batch runtime tracking for incremental indexing
+  lastBatchRuntimeMs: integer("last_batch_runtime_ms"), // Runtime of last 10K block batch in milliseconds
+  totalBatchCount: integer("total_batch_count").notNull().default(0), // Number of 10K batches completed
+  totalBatchRuntimeMs: bigint("total_batch_runtime_ms", { mode: "number" }).notNull().default(0), // Sum of all batch runtimes for average calculation
 });
 
 export type BridgeIndexerProgress = typeof bridgeIndexerProgress.$inferSelect;
