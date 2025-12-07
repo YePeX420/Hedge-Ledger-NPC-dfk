@@ -272,6 +272,9 @@ export async function saveBridgeEvents(events) {
 }
 
 export async function runFullIndex(options = {}) {
+  console.log('[BridgeIndexer] === runFullIndex ENTERED ===');
+  console.log('[BridgeIndexer] Options received:', JSON.stringify(options));
+  
   const { 
     startBlock = null, 
     endBlock = null,
@@ -280,8 +283,20 @@ export async function runFullIndex(options = {}) {
     useSynapseEvents = true
   } = options;
 
-  const provider = await getProvider();
-  const latestBlock = await provider.getBlockNumber();
+  console.log('[BridgeIndexer] Options parsed:', { startBlock, endBlock, batchSize, verbose, useSynapseEvents });
+  
+  let provider, latestBlock;
+  try {
+    console.log('[BridgeIndexer] Getting provider...');
+    provider = await getProvider();
+    console.log('[BridgeIndexer] Provider obtained, getting block number...');
+    latestBlock = await provider.getBlockNumber();
+    console.log('[BridgeIndexer] Latest block:', latestBlock);
+  } catch (providerError) {
+    console.error('[BridgeIndexer] FATAL: Provider/block error:', providerError);
+    console.error('[BridgeIndexer] Provider error stack:', providerError?.stack);
+    throw providerError;
+  }
   
   const from = startBlock || latestBlock - 100000;
   const to = endBlock || latestBlock;
