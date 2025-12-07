@@ -44,7 +44,10 @@ import {
 import { adaptResponse, generateGreeting, shouldSuggestPremium } from './hedge-persona-adapter.js';
 import { ARCHETYPES, TIERS, STATES, BEHAVIOR_TAGS } from './classification-config.js';
 import { profileCommands } from './commands/profile-commands.js';
-import { getWalletSummary as getBridgeSummary } from './bridge-tracker/bridge-metrics.js';
+import { getWalletSummary as getBridgeSummary, getTopExtractors, refreshWalletMetrics, refreshAllMetrics } from './bridge-tracker/bridge-metrics.js';
+import { indexWallet as indexBridgeWallet, runFullIndex as runBridgeFullIndex, getLatestBlock as getBridgeLatestBlock } from './bridge-tracker/bridge-indexer.js';
+import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
+import { bridgeEvents, walletBridgeMetrics } from './shared/schema.ts';
 
 const execAsync = promisify(exec);
 
@@ -4124,6 +4127,149 @@ async function startAdminWebServer() {
     } catch (error) {
       console.error('[Debug] Error fetching recent errors:', error);
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Bridge Analytics API Routes
+  // ============================================
+  let bridgeIndexerRunning = false;
+
+  // GET /api/admin/bridge/overview - Bridge analytics overview
+  app.get('/api/admin/bridge/overview', isAdmin, async (req, res) => {
+    try {
+      // Get aggregated stats
+      const [totalEvents, extractors, latestBlock] = await Promise.all([
+        db.select({ count: sql`COUNT(*)` }).from(bridgeEvents),
+        getTopExtractors(10),
+        getBridgeLatestBlock().catch(() => null)
+      ]);
+
+      res.json({
+        success: true,
+        totalEvents: parseInt(totalEvents[0]?.count) || 0,
+        topExtractors: extractors,
+        latestIndexedBlock: latestBlock,
+        indexerRunning: bridgeIndexerRunning
+      });
+    } catch (error) {
+      console.error('[API] Error fetching bridge overview:', error);
+      res.status(500).json({ error: 'Failed to fetch bridge overview' });
+    }
+  });
+
+  // GET /api/admin/bridge/extractors - Get top extractors
+  app.get('/api/admin/bridge/extractors', isAdmin, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 50;
+      const extractors = await getTopExtractors(limit);
+      res.json(extractors);
+    } catch (error) {
+      console.error('[API] Error fetching extractors:', error);
+      res.status(500).json({ error: 'Failed to fetch extractors' });
+    }
+  });
+
+  // GET /api/admin/bridge/events - Recent bridge events
+  app.get('/api/admin/bridge/events', isAdmin, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 100;
+      const events = await db.select()
+        .from(bridgeEvents)
+        .orderBy(desc(bridgeEvents.blockTimestamp))
+        .limit(limit);
+      res.json(events);
+    } catch (error) {
+      console.error('[API] Error fetching bridge events:', error);
+      res.status(500).json({ error: 'Failed to fetch bridge events' });
+    }
+  });
+
+  // GET /api/admin/bridge/wallet/:wallet - Wallet bridge details
+  app.get('/api/admin/bridge/wallet/:wallet', isAdmin, async (req, res) => {
+    try {
+      const { wallet } = req.params;
+      const [summary, events] = await Promise.all([
+        getBridgeSummary(wallet),
+        db.select()
+          .from(bridgeEvents)
+          .where(eq(bridgeEvents.wallet, wallet.toLowerCase()))
+          .orderBy(desc(bridgeEvents.blockTimestamp))
+          .limit(100)
+      ]);
+      res.json({ summary, events });
+    } catch (error) {
+      console.error('[API] Error fetching wallet bridge data:', error);
+      res.status(500).json({ error: 'Failed to fetch wallet bridge data' });
+    }
+  });
+
+  // POST /api/admin/bridge/index-wallet - Index a specific wallet
+  app.post('/api/admin/bridge/index-wallet', isAdmin, async (req, res) => {
+    try {
+      const { wallet } = req.body;
+      if (!wallet) {
+        return res.status(400).json({ error: 'Wallet address required' });
+      }
+      const result = await indexBridgeWallet(wallet);
+      res.json({ success: true, result });
+    } catch (error) {
+      console.error('[API] Error indexing wallet:', error);
+      res.status(500).json({ error: 'Failed to index wallet' });
+    }
+  });
+
+  // POST /api/admin/bridge/run-indexer - Run full bridge indexer
+  app.post('/api/admin/bridge/run-indexer', isAdmin, async (req, res) => {
+    try {
+      if (bridgeIndexerRunning) {
+        return res.status(409).json({ error: 'Indexer already running' });
+      }
+
+      bridgeIndexerRunning = true;
+      res.json({ success: true, message: 'Started indexing last 100k blocks' });
+
+      // Run in background
+      runBridgeFullIndex({ verbose: true })
+        .then(result => {
+          console.log('[API] Bridge indexer completed:', result);
+          bridgeIndexerRunning = false;
+        })
+        .catch(err => {
+          console.error('[API] Bridge indexer failed:', err);
+          bridgeIndexerRunning = false;
+        });
+    } catch (error) {
+      bridgeIndexerRunning = false;
+      console.error('[API] Error starting bridge indexer:', error);
+      res.status(500).json({ error: 'Failed to start indexer' });
+    }
+  });
+
+  // GET /api/admin/bridge/indexer-status - Check if indexer is running
+  app.get('/api/admin/bridge/indexer-status', isAdmin, async (req, res) => {
+    res.json({ running: bridgeIndexerRunning });
+  });
+
+  // POST /api/admin/bridge/refresh-metrics - Refresh all wallet metrics
+  app.post('/api/admin/bridge/refresh-metrics', isAdmin, async (req, res) => {
+    try {
+      await refreshAllMetrics();
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[API] Error refreshing metrics:', error);
+      res.status(500).json({ error: 'Failed to refresh metrics' });
+    }
+  });
+
+  // GET /api/admin/bridge/prices - Get current token prices
+  app.get('/api/admin/bridge/prices', isAdmin, async (req, res) => {
+    try {
+      const prices = await fetchBridgePrices();
+      res.json(prices);
+    } catch (error) {
+      console.error('[API] Error fetching prices:', error);
+      res.status(500).json({ error: 'Failed to fetch prices' });
     }
   });
 
