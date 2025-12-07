@@ -83,10 +83,7 @@ export default function BridgeAnalytics() {
 
   const indexWalletMutation = useMutation({
     mutationFn: async (wallet: string) => {
-      return apiRequest('/api/admin/bridge/index-wallet', {
-        method: 'POST',
-        body: JSON.stringify({ wallet }),
-      });
+      return apiRequest('POST', '/api/admin/bridge/index-wallet', { wallet });
     },
     onSuccess: () => {
       toast({ title: 'Wallet indexed successfully' });
@@ -99,7 +96,7 @@ export default function BridgeAnalytics() {
 
   const refreshMetricsMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('/api/admin/bridge/refresh-metrics', { method: 'POST' });
+      return apiRequest('POST', '/api/admin/bridge/refresh-metrics');
     },
     onSuccess: () => {
       toast({ title: 'Metrics refreshed' });
@@ -114,7 +111,7 @@ export default function BridgeAnalytics() {
 
   const runIndexerMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('/api/admin/bridge/run-indexer', { method: 'POST' });
+      return apiRequest('POST', '/api/admin/bridge/run-indexer');
     },
     onSuccess: () => {
       toast({ title: 'Bridge indexer started', description: 'Scanning last 100k blocks (~2-3 days). This may take several minutes.' });
