@@ -3557,7 +3557,7 @@ async function startAdminWebServer() {
       const playerRows = await db
         .select()
         .from(players)
-        .orderBy(desc(players.createdAt))
+        .orderBy(desc(players.firstSeenAt))
         .limit(pageSize)
         .offset(offset);
 

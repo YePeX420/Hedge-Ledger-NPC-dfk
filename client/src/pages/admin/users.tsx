@@ -134,7 +134,7 @@ export default function AdminUsers() {
   const [, setLocation] = useLocation();
 
   const { data, isLoading, refetch, isRefetching } = useQuery<UsersResponse>({
-    queryKey: ['/api/admin/users/basic'],
+    queryKey: ['/api/admin/users'],
   });
 
   const updateTierMutation = useMutation({
@@ -146,7 +146,7 @@ export default function AdminUsers() {
     },
     onSuccess: () => {
       toast({ title: 'Success', description: 'User tier updated' });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users/basic'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
     },
     onError: () => {
       toast({ title: 'Error', description: 'Failed to update tier', variant: 'destructive' });
@@ -161,7 +161,7 @@ export default function AdminUsers() {
     },
     onSuccess: (_, userId) => {
       toast({ title: 'Snapshot refreshed', description: 'User snapshot updated.' });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users/basic'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
       queryClient.invalidateQueries({
         queryKey: [`/api/admin/users/${userId}/profile`],
       });
