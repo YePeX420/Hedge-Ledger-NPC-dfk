@@ -19,9 +19,13 @@ const BLOCKS_PER_QUERY = 2000;
 
 const SYNAPSE_EVENTS = {
   TokenDeposit: ethers.id('TokenDeposit(address,uint256,address,uint256)'),
+  TokenDepositAndSwap: ethers.id('TokenDepositAndSwap(address,uint256,address,uint256,uint8,uint8,uint256,uint256)'),
   TokenRedeem: ethers.id('TokenRedeem(address,uint256,address,uint256)'),
+  TokenRedeemAndSwap: ethers.id('TokenRedeemAndSwap(address,uint256,address,uint256,uint8,uint8,uint256,uint256)'),
   TokenMint: ethers.id('TokenMint(address,address,uint256,uint256,bytes32)'),
-  TokenWithdraw: ethers.id('TokenWithdraw(address,address,uint256,uint256,bytes32)')
+  TokenMintAndSwap: ethers.id('TokenMintAndSwap(address,address,uint256,uint256,uint8,uint8,uint256,uint256,bool,bytes32)'),
+  TokenWithdraw: ethers.id('TokenWithdraw(address,address,uint256,uint256,bytes32)'),
+  TokenWithdrawAndRemove: ethers.id('TokenWithdrawAndRemove(address,address,uint256,uint256,uint8,uint256,uint256,bool,bytes32)')
 };
 
 const TOKEN_CONFIG = Object.entries(TOKEN_ADDRESSES.dfkChain).map(([symbol, address]) => ({
@@ -74,17 +78,32 @@ async function parseSynapseEvent(log, provider) {
   let direction, wallet, tokenAddress, amount, chainId;
   
   try {
-    if (topic0 === SYNAPSE_EVENTS.TokenDeposit || topic0 === SYNAPSE_EVENTS.TokenRedeem) {
+    const outboundEvents = [
+      SYNAPSE_EVENTS.TokenDeposit, 
+      SYNAPSE_EVENTS.TokenDepositAndSwap,
+      SYNAPSE_EVENTS.TokenRedeem, 
+      SYNAPSE_EVENTS.TokenRedeemAndSwap
+    ];
+    const inboundEvents = [
+      SYNAPSE_EVENTS.TokenMint, 
+      SYNAPSE_EVENTS.TokenMintAndSwap,
+      SYNAPSE_EVENTS.TokenWithdraw, 
+      SYNAPSE_EVENTS.TokenWithdrawAndRemove
+    ];
+    
+    if (outboundEvents.includes(topic0)) {
       direction = 'out';
       wallet = decodeAddress(log.topics[1]);
-      chainId = parseInt(decodeUint256(log.data, 0), 16);
+      const chainIdHex = decodeUint256(log.data, 0);
+      chainId = Number(BigInt(chainIdHex));
       tokenAddress = '0x' + log.data.slice(2 + 64 + 24, 2 + 64 + 64).toLowerCase();
       amount = decodeUint256(log.data, 2);
-    } else if (topic0 === SYNAPSE_EVENTS.TokenMint || topic0 === SYNAPSE_EVENTS.TokenWithdraw) {
+    } else if (inboundEvents.includes(topic0)) {
       direction = 'in';
       wallet = decodeAddress(log.topics[1]);
       tokenAddress = '0x' + log.data.slice(2 + 24, 2 + 64).toLowerCase();
       amount = decodeUint256(log.data, 1);
+      chainId = 0;
     } else {
       return null;
     }
