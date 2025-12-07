@@ -521,23 +521,19 @@ export async function getEventsNeedingPrices() {
 const INCREMENTAL_BATCH_SIZE = 10000;
 let incrementalBatchRunning = false;
 
-// Live progress tracking for current batch
-let currentBatchProgress = {
-  running: false,
-  startBlock: 0,
-  endBlock: 0,
-  currentBlock: 0,
-  eventsFound: 0,
-  eventsInserted: 0,
-  startTime: null,
-};
+// Live progress tracking for current batch (null when not running)
+let currentBatchProgress = null;
+
+function resetBatchProgress() {
+  currentBatchProgress = null;
+}
 
 export function isIncrementalBatchRunning() {
   return incrementalBatchRunning;
 }
 
 export function getCurrentBatchProgress() {
-  if (!currentBatchProgress.running) {
+  if (!currentBatchProgress) {
     return { running: false };
   }
   
@@ -636,7 +632,7 @@ export async function runIncrementalBatch(options = {}) {
     }
     
     // Clear live progress when done
-    currentBatchProgress.running = false;
+    resetBatchProgress();
 
     const runtimeMs = Date.now() - startTime;
     const eventsNeedingPrices = await getEventsNeedingPrices();
@@ -676,7 +672,7 @@ export async function runIncrementalBatch(options = {}) {
     };
   } catch (error) {
     incrementalBatchRunning = false;
-    currentBatchProgress.running = false;
+    resetBatchProgress();
     console.error('[IncrementalBatch] Error:', error);
     
     await updateIndexerProgress(indexerName, {

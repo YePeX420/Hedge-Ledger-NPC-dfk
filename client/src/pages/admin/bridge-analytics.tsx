@@ -96,6 +96,19 @@ interface IncrementalBatchResult {
   message?: string;
 }
 
+interface BatchProgress {
+  running: boolean;
+  startBlock?: number;
+  endBlock?: number;
+  currentBlock?: number;
+  blocksProcessed?: number;
+  blocksTotal?: number;
+  percentComplete?: number;
+  eventsFound?: number;
+  eventsInserted?: number;
+  elapsedMs?: number;
+}
+
 export default function BridgeAnalytics() {
   const { toast } = useToast();
   const [walletSearch, setWalletSearch] = useState('');
@@ -217,6 +230,12 @@ export default function BridgeAnalytics() {
     },
   });
 
+  // Poll for live batch progress while batch is running
+  const { data: batchProgress } = useQuery<BatchProgress>({
+    queryKey: ['/api/admin/bridge/batch-progress'],
+    refetchInterval: runIncrementalBatchMutation.isPending ? 1000 : 5000,
+  });
+
   const runPriceEnrichmentMutation = useMutation({
     mutationFn: async () => {
       return apiRequest('POST', '/api/admin/bridge/run-price-enrichment');
@@ -312,15 +331,18 @@ export default function BridgeAnalytics() {
                 variant="default"
                 size="sm"
                 onClick={() => runIncrementalBatchMutation.mutate()}
-                disabled={runIncrementalBatchMutation.isPending || syncProgress?.historicalSyncRunning}
+                disabled={runIncrementalBatchMutation.isPending || batchProgress?.running || syncProgress?.historicalSyncRunning}
                 data-testid="button-index-10k"
               >
-                {runIncrementalBatchMutation.isPending ? (
+                {(runIncrementalBatchMutation.isPending || batchProgress?.running) ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
                   <Play className="h-4 w-4 mr-2" />
                 )}
-                Index 10K Blocks
+                {batchProgress?.running 
+                  ? `${batchProgress.percentComplete}% (${(batchProgress.blocksProcessed || 0).toLocaleString()}/${(batchProgress.blocksTotal || 10000).toLocaleString()})`
+                  : 'Index 10K Blocks'
+                }
               </Button>
               {syncProgress?.historicalSyncRunning ? (
                 <Button
