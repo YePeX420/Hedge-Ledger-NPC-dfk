@@ -9,6 +9,10 @@ import { indexWallet, runFullIndex, getLatestBlock } from "../bridge-tracker/bri
 import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics } from "../bridge-tracker/bridge-metrics.js";
 import { backfillAllTokens, fetchCurrentPrices } from "../bridge-tracker/price-history.js";
 
+// Debug: Verify bridge indexer imports
+console.log('[BridgeIndexer] Import check - runFullIndex type:', typeof runFullIndex);
+console.log('[BridgeIndexer] Import check - indexWallet type:', typeof indexWallet);
+
 const ADMIN_USER_IDS = ['426019696916168714']; // yepex
 
 // Admin middleware - database-backed sessions
@@ -745,28 +749,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/admin/bridge/run-indexer - Run full bridge indexer
   let indexerRunning = false;
   app.post("/api/admin/bridge/run-indexer", isAdmin, async (req: any, res: any) => {
+    console.log('[API] === RUN INDEXER ENDPOINT HIT ===');
+    console.log('[API] Request body:', JSON.stringify(req.body));
+    console.log('[API] indexerRunning state:', indexerRunning);
+    console.log('[API] runFullIndex type:', typeof runFullIndex);
+    
     try {
       if (indexerRunning) {
+        console.log('[API] Indexer already running, returning 409');
         return res.status(409).json({ error: 'Indexer already running' });
       }
       
       const blocks = parseInt(req.body.blocks) || 100000;
       indexerRunning = true;
+      console.log('[API] Set indexerRunning=true, blocks:', blocks);
       
       res.json({ success: true, message: `Started indexing last ${blocks} blocks` });
+      console.log('[API] Response sent, now calling runFullIndex...');
       
-      runFullIndex({ verbose: true })
-        .then(result => {
-          console.log('[API] Bridge indexer completed:', result);
-          indexerRunning = false;
-        })
-        .catch(err => {
-          console.error('[API] Bridge indexer failed:', err);
-          indexerRunning = false;
-        });
-    } catch (error) {
+      // Wrap in immediate try-catch to catch synchronous errors
+      try {
+        console.log('[API] About to invoke runFullIndex({ verbose: true })');
+        const promise = runFullIndex({ verbose: true });
+        console.log('[API] runFullIndex invoked, got promise:', typeof promise);
+        
+        promise
+          .then(result => {
+            console.log('[API] Bridge indexer completed successfully:', result);
+            indexerRunning = false;
+          })
+          .catch(err => {
+            console.error('[API] Bridge indexer promise rejected:', err);
+            console.error('[API] Error stack:', err?.stack);
+            indexerRunning = false;
+          });
+      } catch (syncError: any) {
+        console.error('[API] Synchronous error invoking runFullIndex:', syncError);
+        console.error('[API] Sync error stack:', syncError?.stack);
+        indexerRunning = false;
+      }
+    } catch (error: any) {
       indexerRunning = false;
-      console.error('[API] Error starting bridge indexer:', error);
+      console.error('[API] Error in run-indexer handler:', error);
+      console.error('[API] Handler error stack:', error?.stack);
       res.status(500).json({ error: 'Failed to start indexer' });
     }
   });
