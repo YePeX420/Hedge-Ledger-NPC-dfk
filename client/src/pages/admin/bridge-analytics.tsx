@@ -65,13 +65,16 @@ export default function BridgeAnalytics() {
   const [walletSearch, setWalletSearch] = useState('');
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
 
-  const { data: overview, isLoading: overviewLoading, refetch: refetchOverview } = useQuery<BridgeOverview>({
+  const { data: overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useQuery<BridgeOverview>({
     queryKey: ['/api/admin/bridge/overview'],
   });
 
-  const { data: extractors, isLoading: extractorsLoading } = useQuery<Extractor[]>({
+  const { data: extractors, isLoading: extractorsLoading, isError: extractorsError } = useQuery<Extractor[]>({
     queryKey: ['/api/admin/bridge/extractors'],
   });
+  
+  const safeOverview = overview && !('error' in overview) ? overview : null;
+  const safeExtractors = Array.isArray(extractors) ? extractors : [];
 
   const { data: walletDetails, isLoading: walletLoading } = useQuery<WalletDetails>({
     queryKey: ['/api/admin/bridge/wallet', selectedWallet],
@@ -198,16 +201,16 @@ export default function BridgeAnalytics() {
             ) : (
               <>
                 <div className="text-2xl font-bold" data-testid="stat-total-events">
-                  {overview?.events.total ?? 0}
+                  {safeOverview?.events?.total ?? 0}
                 </div>
                 <div className="flex gap-4 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <ArrowDownRight className="h-3 w-3 text-green-500" /> 
-                    {overview?.events.in ?? 0} in
+                    {safeOverview?.events?.in ?? 0} in
                   </span>
                   <span className="flex items-center gap-1">
                     <ArrowUpRight className="h-3 w-3 text-red-500" /> 
-                    {overview?.events.out ?? 0} out
+                    {safeOverview?.events?.out ?? 0} out
                   </span>
                 </div>
               </>
@@ -225,7 +228,7 @@ export default function BridgeAnalytics() {
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold text-green-600" data-testid="stat-bridged-in">
-                {formatUsd(overview?.events.totalUsdIn ?? 0)}
+                {formatUsd(safeOverview?.events?.totalUsdIn ?? 0)}
               </div>
             )}
           </CardContent>
@@ -241,7 +244,7 @@ export default function BridgeAnalytics() {
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold text-red-600" data-testid="stat-bridged-out">
-                {formatUsd(overview?.events.totalUsdOut ?? 0)}
+                {formatUsd(safeOverview?.events?.totalUsdOut ?? 0)}
               </div>
             )}
           </CardContent>
@@ -258,10 +261,10 @@ export default function BridgeAnalytics() {
             ) : (
               <>
                 <div className="text-2xl font-bold text-orange-600" data-testid="stat-extractors">
-                  {overview?.metrics.extractorCount ?? 0}
+                  {safeOverview?.metrics?.extractorCount ?? 0}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {formatUsd(overview?.metrics.totalExtracted ?? 0)} extracted
+                  {formatUsd(safeOverview?.metrics?.totalExtracted ?? 0)} extracted
                 </p>
               </>
             )}
@@ -380,10 +383,10 @@ export default function BridgeAnalytics() {
                 <Skeleton key={i} className="h-16 w-full" />
               ))}
             </div>
-          ) : extractors && extractors.length > 0 ? (
+          ) : safeExtractors.length > 0 ? (
             <ScrollArea className="h-[400px]">
               <div className="space-y-2">
-                {extractors.map((extractor, index) => (
+                {safeExtractors.map((extractor, index) => (
                   <div 
                     key={extractor.id} 
                     className="flex items-center justify-between p-3 rounded-lg bg-muted/50 cursor-pointer hover-elevate"
