@@ -203,12 +203,21 @@ export default function BridgeAnalytics() {
     },
   });
 
+  // Poll for live batch progress while batch is running
+  const { data: batchProgress, refetch: refetchBatchProgress } = useQuery<BatchProgress>({
+    queryKey: ['/api/admin/bridge/batch-progress'],
+    refetchInterval: 1000, // Always poll every second to catch batch start
+  });
+  
   const runIncrementalBatchMutation = useMutation<IncrementalBatchResult>({
     mutationFn: async () => {
       const response = await apiRequest('POST', '/api/admin/bridge/run-incremental-batch');
       return response.json();
     },
     onSuccess: (data) => {
+      // Immediately refetch to pick up running state
+      refetchBatchProgress();
+      
       if (data.status === 'complete') {
         toast({ title: 'Already at latest block', description: data.message });
       } else if (data.status === 'success') {
@@ -228,12 +237,6 @@ export default function BridgeAnalytics() {
         toast({ title: 'Failed to run batch', variant: 'destructive' });
       }
     },
-  });
-
-  // Poll for live batch progress while batch is running
-  const { data: batchProgress } = useQuery<BatchProgress>({
-    queryKey: ['/api/admin/bridge/batch-progress'],
-    refetchInterval: runIncrementalBatchMutation.isPending ? 1000 : 5000,
   });
 
   const runPriceEnrichmentMutation = useMutation({
