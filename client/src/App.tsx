@@ -18,61 +18,104 @@ import AdminBridgeAnalytics from "@/pages/admin/bridge-analytics";
 import AccountPage from "@/pages/account";
 import NotFound from "@/pages/not-found";
 
-function AdminRoutes() {
-  console.log('[AdminRoutes] Rendering, current path:', window.location.pathname);
+function ProtectedAdminPage({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute requireAdmin>
       <AdminLayout>
-        <Switch>
-          <Route path="/admin/users/:discordId/dashboard">
-            {(params) => {
-              console.log('[Route] Matched /admin/users/:discordId/dashboard, params:', params);
-              return <AdminUserDashboard />;
-            }}
-          </Route>
-          <Route path="/admin/users/:userId">
-            {(params) => {
-              console.log('[Route] Matched /admin/users/:userId, params:', params);
-              return <AdminUserProfile />;
-            }}
-          </Route>
-          <Route path="/admin/users">
-            {() => {
-              console.log('[Route] Matched /admin/users');
-              return <AdminUsers />;
-            }}
-          </Route>
-          <Route path="/admin/expenses" component={AdminExpenses} />
-          <Route path="/admin/settings" component={AdminSettings} />
-          <Route path="/admin/bridge" component={AdminBridgeAnalytics} />
-          <Route path="/admin/account" component={AccountPage} />
-          <Route path="/admin">
-            {() => {
-              console.log('[Route] Matched /admin (dashboard)');
-              return <AdminDashboard />;
-            }}
-          </Route>
-          <Route>
-            {() => {
-              console.log('[Route] No match - showing 404');
-              return <NotFound />;
-            }}
-          </Route>
-        </Switch>
+        {children}
       </AdminLayout>
     </ProtectedRoute>
   );
 }
 
 function Router() {
+  console.log('[Router] Current path:', window.location.pathname);
+  
   return (
     <Switch>
       {/* Admin login (public) */}
       <Route path="/admin/login" component={AdminLogin} />
       
-      {/* All admin routes (protected) */}
-      <Route path="/admin/:rest*" component={AdminRoutes} />
-      <Route path="/admin" component={AdminRoutes} />
+      {/* User dashboard - most specific route first */}
+      <Route path="/admin/users/:discordId/dashboard">
+        {(params) => {
+          console.log('[Route] Matched /admin/users/:discordId/dashboard, params:', params);
+          return (
+            <ProtectedAdminPage>
+              <AdminUserDashboard />
+            </ProtectedAdminPage>
+          );
+        }}
+      </Route>
+      
+      {/* User profile */}
+      <Route path="/admin/users/:userId">
+        {(params) => {
+          console.log('[Route] Matched /admin/users/:userId, params:', params);
+          return (
+            <ProtectedAdminPage>
+              <AdminUserProfile />
+            </ProtectedAdminPage>
+          );
+        }}
+      </Route>
+      
+      {/* User list */}
+      <Route path="/admin/users">
+        {() => {
+          console.log('[Route] Matched /admin/users');
+          return (
+            <ProtectedAdminPage>
+              <AdminUsers />
+            </ProtectedAdminPage>
+          );
+        }}
+      </Route>
+      
+      {/* Other admin pages */}
+      <Route path="/admin/expenses">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminExpenses />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/settings">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminSettings />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/bridge">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminBridgeAnalytics />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/account">
+        {() => (
+          <ProtectedAdminPage>
+            <AccountPage />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      {/* Admin dashboard */}
+      <Route path="/admin">
+        {() => {
+          console.log('[Route] Matched /admin (dashboard)');
+          return (
+            <ProtectedAdminPage>
+              <AdminDashboard />
+            </ProtectedAdminPage>
+          );
+        }}
+      </Route>
       
       {/* Root redirects to admin */}
       <Route path="/">
@@ -83,7 +126,12 @@ function Router() {
       </Route>
       
       {/* Fallback to 404 */}
-      <Route component={NotFound} />
+      <Route>
+        {() => {
+          console.log('[Route] No match - showing 404');
+          return <NotFound />;
+        }}
+      </Route>
     </Switch>
   );
 }
