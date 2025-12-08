@@ -4473,7 +4473,11 @@ async function startAdminWebServer() {
           })),
       }));
 
-      res.json({ categories: result });
+      res.json({ 
+        categories: result,
+        totalChallenges: allChallenges.length,
+        totalTiers: allTiers.length
+      });
     } catch (err) {
       console.error('[API] Failed to get challenges:', err);
       res.status(500).json({ error: 'Failed to get challenges' });

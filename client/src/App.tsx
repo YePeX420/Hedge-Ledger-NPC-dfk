@@ -15,6 +15,7 @@ import AdminUserDashboard from "@/pages/admin/user-dashboard";
 import AdminExpenses from "@/pages/admin/expenses";
 import AdminSettings from "@/pages/admin/settings";
 import AdminBridgeAnalytics from "@/pages/admin/bridge-analytics";
+import AdminChallenges from "@/pages/admin/challenges";
 import AccountPage from "@/pages/account";
 import NotFound from "@/pages/not-found";
 
@@ -85,6 +86,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminSettings />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/challenges">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminChallenges />
           </ProtectedAdminPage>
         )}
       </Route>
