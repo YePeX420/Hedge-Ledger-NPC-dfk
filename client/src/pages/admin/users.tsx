@@ -59,6 +59,14 @@ interface UserProfile {
   };
 }
 
+interface IntentScores {
+  progressionScore: number;
+  investorGrowthScore: number;
+  extractorScore: number;
+  socialScore: number;
+  onboardingScore: number;
+}
+
 interface User {
   id: number;
   discordId: string;
@@ -66,6 +74,8 @@ interface User {
   walletAddress: string | null;
   profile: UserProfile;
   archetype: string;
+  intentArchetype: string | null;
+  intentScores: IntentScores | null;
   state: string;
   behaviorTags: string[];
   kpis: KPIs;
@@ -225,6 +235,29 @@ export default function AdminUsers() {
     }
   };
 
+  const getIntentBadgeVariant = (intent: string | null) => {
+    switch (intent) {
+      case 'PROGRESSION_GAMER': return 'secondary';
+      case 'INVESTOR_GROWTH': return 'default';
+      case 'INVESTOR_EXTRACTOR': return 'destructive';
+      case 'SOCIAL_COMMUNITY': return 'outline';
+      case 'NEW_EXPLORER': return 'outline';
+      default: return 'outline';
+    }
+  };
+
+  const formatIntentLabel = (intent: string | null) => {
+    if (!intent) return null;
+    const labels: Record<string, string> = {
+      'PROGRESSION_GAMER': 'Gamer',
+      'INVESTOR_GROWTH': 'Growth',
+      'INVESTOR_EXTRACTOR': 'Extractor',
+      'SOCIAL_COMMUNITY': 'Social',
+      'NEW_EXPLORER': 'New',
+    };
+    return labels[intent] || intent;
+  };
+
   const getTierBadgeClass = (tier: number) => {
     return tierColors[tier ?? 0] || 'bg-gray-400 text-white';
   };
@@ -333,6 +366,7 @@ export default function AdminUsers() {
                     </TableHead>
                     <TableHead>Wallet</TableHead>
                     <TableHead>Archetype</TableHead>
+                    <TableHead>Intent</TableHead>
                     <TableHead 
                       className="cursor-pointer select-none"
                       onClick={() => handleSort('tier')}
@@ -350,7 +384,7 @@ export default function AdminUsers() {
                 <TableBody>
                   {filteredUsers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                         No users found matching your filters
                       </TableCell>
                     </TableRow>
@@ -391,6 +425,15 @@ export default function AdminUsers() {
                           <Badge variant={getArchetypeBadgeVariant(user.archetype)}>
                             {user.archetype}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {user.intentArchetype ? (
+                            <Badge variant={getIntentBadgeVariant(user.intentArchetype)}>
+                              {formatIntentLabel(user.intentArchetype)}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">--</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge className={getTierBadgeClass(user.tier ?? 0)}>

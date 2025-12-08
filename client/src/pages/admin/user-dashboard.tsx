@@ -65,6 +65,14 @@ interface BridgeActivity {
   lastBridgeAt?: string;
 }
 
+interface IntentScores {
+  progressionScore: number;
+  investorGrowthScore: number;
+  extractorScore: number;
+  socialScore: number;
+  onboardingScore: number;
+}
+
 interface UserSummary {
   success: boolean;
   user: {
@@ -74,6 +82,8 @@ interface UserSummary {
     walletAddress?: string | null;
     tier: number;
     archetype: string;
+    intentArchetype: string | null;
+    intentScores: IntentScores | null;
     state: string;
     flags: Record<string, boolean>;
     behaviorTags: string[];
@@ -182,6 +192,29 @@ export default function AdminUserDashboard() {
     }
   }, [user?.archetype]);
 
+  const getIntentBadgeVariant = (intent: string | null) => {
+    switch (intent) {
+      case 'PROGRESSION_GAMER': return 'secondary';
+      case 'INVESTOR_GROWTH': return 'default';
+      case 'INVESTOR_EXTRACTOR': return 'destructive';
+      case 'SOCIAL_COMMUNITY': return 'outline';
+      case 'NEW_EXPLORER': return 'outline';
+      default: return 'outline';
+    }
+  };
+
+  const formatIntentLabel = (intent: string | null) => {
+    if (!intent) return null;
+    const labels: Record<string, string> = {
+      'PROGRESSION_GAMER': 'Progression Gamer',
+      'INVESTOR_GROWTH': 'Growth Investor',
+      'INVESTOR_EXTRACTOR': 'Extractor',
+      'SOCIAL_COMMUNITY': 'Social/Community',
+      'NEW_EXPLORER': 'New Explorer',
+    };
+    return labels[intent] || intent;
+  };
+
   const copyWallet = async () => {
     if (!user?.walletAddress) return;
     await navigator.clipboard.writeText(user.walletAddress);
@@ -256,6 +289,11 @@ export default function AdminUserDashboard() {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <Badge variant={archetypeBadge}>{user.archetype}</Badge>
+          {user.intentArchetype && (
+            <Badge variant={getIntentBadgeVariant(user.intentArchetype)}>
+              {formatIntentLabel(user.intentArchetype)}
+            </Badge>
+          )}
           <Badge className="bg-blue-600 text-white">Tier {user.tier ?? 0}</Badge>
           <Badge variant="outline">{user.state}</Badge>
         </div>
@@ -325,6 +363,99 @@ export default function AdminUserDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Intent Classification Card - show when either intentArchetype or intentScores exist */}
+      {(user.intentArchetype || user.intentScores) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Intent Classification</CardTitle>
+            <CardDescription>AI-powered player classification based on behavior patterns and wallet activity.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">Primary Intent:</span>
+                {user.intentArchetype ? (
+                  <Badge variant={getIntentBadgeVariant(user.intentArchetype)} className="text-sm">
+                    {formatIntentLabel(user.intentArchetype)}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-sm text-muted-foreground">
+                    Unclassified
+                  </Badge>
+                )}
+              </div>
+              {user.intentScores && (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">Intent Scores</p>
+                  <div className="grid gap-3">
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span>Progression Gamer</span>
+                        <span className="font-mono">{user.intentScores.progressionScore?.toFixed(1) ?? '0.0'}</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500 rounded-full transition-all" 
+                          style={{ width: `${Math.max(0, Math.min((user.intentScores.progressionScore ?? 0), 100))}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span>Growth Investor</span>
+                        <span className="font-mono">{user.intentScores.investorGrowthScore?.toFixed(1) ?? '0.0'}</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-green-500 rounded-full transition-all" 
+                          style={{ width: `${Math.max(0, Math.min((user.intentScores.investorGrowthScore ?? 0), 100))}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span>Extractor</span>
+                        <span className="font-mono">{user.intentScores.extractorScore?.toFixed(1) ?? '0.0'}</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-red-500 rounded-full transition-all" 
+                          style={{ width: `${Math.max(0, Math.min((user.intentScores.extractorScore ?? 0), 100))}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span>Social/Community</span>
+                        <span className="font-mono">{user.intentScores.socialScore?.toFixed(1) ?? '0.0'}</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-purple-500 rounded-full transition-all" 
+                          style={{ width: `${Math.max(0, Math.min((user.intentScores.socialScore ?? 0), 100))}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span>New Explorer</span>
+                        <span className="font-mono">{user.intentScores.onboardingScore?.toFixed(1) ?? '0.0'}</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-yellow-500 rounded-full transition-all" 
+                          style={{ width: `${Math.max(0, Math.min((user.intentScores.onboardingScore ?? 0), 100))}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
