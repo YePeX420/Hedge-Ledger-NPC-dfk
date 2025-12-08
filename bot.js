@@ -25,7 +25,8 @@ import { calculateSummoningProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
 import { decodeHeroGenes } from './hero-genetics.js';
 import { db } from './server/db.js';
-import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings } from './shared/schema.ts';
+import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings, leagueSeasons, leagueSignups, seasonTierLocks, walletClusters, walletLinks, smurfIncidents } from './shared/schema.ts';
+import { runPreSeasonChecks, runInSeasonChecks, getOrCreateCluster, linkWalletToCluster, TIER_ORDER, getTierIndex, escalateTier } from './smurf-detection-service.js';
 import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
@@ -4444,6 +4445,385 @@ async function startAdminWebServer() {
       .catch((err) => {
         console.error('[API] Price enrichment error:', err);
       });
+  });
+
+  // ============================================================================
+  // LEAGUE SIGNUP API
+  // ============================================================================
+  // Challenge league signup endpoints with smurf detection integration
+  // ============================================================================
+
+  // GET /api/leagues/active - Get all active/upcoming league seasons
+  app.get('/api/leagues/active', async (req, res) => {
+    try {
+      const now = new Date();
+      const seasons = await db
+        .select()
+        .from(leagueSeasons)
+        .where(
+          sql`${leagueSeasons.status} IN ('UPCOMING', 'REGISTRATION', 'ACTIVE')`
+        )
+        .orderBy(leagueSeasons.registrationStart);
+
+      const result = seasons.map(s => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        status: s.status,
+        registrationStart: s.registrationStart?.toISOString(),
+        registrationEnd: s.registrationEnd?.toISOString(),
+        seasonStart: s.seasonStart?.toISOString(),
+        seasonEnd: s.seasonEnd?.toISOString(),
+        entryFee: s.entryFeeAmount ? {
+          amount: s.entryFeeAmount,
+          token: s.entryFeeToken,
+          payToAddress: s.entryFeeAddress,
+        } : null,
+        config: s.config,
+      }));
+
+      res.json({ seasons: result });
+    } catch (err) {
+      console.error('[API] Failed to get active leagues:', err);
+      res.status(500).json({ error: 'Failed to get active leagues' });
+    }
+  });
+
+  // POST /api/leagues/:seasonId/signup - Sign up for a league season
+  app.post('/api/leagues/:seasonId/signup', async (req, res) => {
+    try {
+      const { seasonId } = req.params;
+      const { userId, walletAddress } = req.body;
+
+      if (!userId || !walletAddress) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: userId, walletAddress' 
+        });
+      }
+
+      // Validate season exists and is in registration
+      const [season] = await db
+        .select()
+        .from(leagueSeasons)
+        .where(eq(leagueSeasons.id, parseInt(seasonId)))
+        .limit(1);
+
+      if (!season) {
+        return res.status(404).json({ error: 'Season not found' });
+      }
+
+      if (season.status !== 'REGISTRATION') {
+        return res.status(400).json({ 
+          error: `Season is not accepting registrations (status: ${season.status})` 
+        });
+      }
+
+      // Check if already signed up
+      const existingSignup = await db
+        .select()
+        .from(leagueSignups)
+        .where(
+          and(
+            eq(leagueSignups.seasonId, parseInt(seasonId)),
+            eq(leagueSignups.userId, userId)
+          )
+        )
+        .limit(1);
+
+      if (existingSignup.length > 0) {
+        return res.status(409).json({ 
+          error: 'Already signed up for this season',
+          signup: existingSignup[0],
+        });
+      }
+
+      // Get or create wallet cluster for user
+      const clusterKey = await getOrCreateCluster(userId);
+      
+      // Link wallet to cluster
+      await linkWalletToCluster(clusterKey, 'DFKCHAIN', walletAddress, true);
+
+      // Compute base tier (placeholder - integrate with existing tier logic)
+      // For now, default to COMMON if no existing classification
+      let baseTierCode = 'COMMON';
+      
+      // Try to get tier from player profile if exists
+      const [existingPlayer] = await db
+        .select()
+        .from(players)
+        .where(eq(players.walletAddress, walletAddress.toLowerCase()))
+        .limit(1);
+
+      if (existingPlayer?.tierCode) {
+        baseTierCode = existingPlayer.tierCode;
+      }
+
+      // Run smurf detection checks
+      const smurfResult = await runPreSeasonChecks({
+        userId,
+        clusterKey,
+        seasonId: parseInt(seasonId),
+        walletAddress,
+      });
+
+      // Determine final tier
+      let lockedTierCode = baseTierCode;
+      let tierAdjusted = false;
+
+      if (smurfResult.finalAction === 'ESCALATE_TIER' && smurfResult.adjustedTierCode) {
+        lockedTierCode = smurfResult.adjustedTierCode;
+        tierAdjusted = true;
+      }
+
+      // Check for disqualification
+      if (smurfResult.disqualified) {
+        return res.status(403).json({
+          success: false,
+          disqualified: true,
+          disqualificationReason: smurfResult.disqualificationReason,
+          smurfIncidents: smurfResult.incidents,
+        });
+      }
+
+      // Create or update tier lock
+      await db
+        .insert(seasonTierLocks)
+        .values({
+          seasonId: parseInt(seasonId),
+          clusterKey,
+          lockedTierCode,
+          upwardOnly: true,
+        })
+        .onConflictDoUpdate({
+          target: [seasonTierLocks.seasonId, seasonTierLocks.clusterKey],
+          set: {
+            lockedTierCode,
+            lockedAt: new Date(),
+          },
+        });
+
+      // Create signup record
+      const [signup] = await db
+        .insert(leagueSignups)
+        .values({
+          seasonId: parseInt(seasonId),
+          userId,
+          clusterKey,
+          walletAddress: walletAddress.toLowerCase(),
+          baseTierCode,
+          lockedTierCode,
+          tierAdjusted,
+          disqualified: false,
+          status: 'PENDING',
+        })
+        .returning();
+
+      console.log(`[Leagues] User ${userId} signed up for season ${seasonId} as ${lockedTierCode}`);
+
+      res.json({
+        success: true,
+        signupId: signup.id,
+        baseTierCode,
+        lockedTierCode,
+        tierAdjusted,
+        disqualified: false,
+        smurfIncidents: smurfResult.incidents,
+        entryFee: season.entryFeeAmount ? {
+          amount: season.entryFeeAmount,
+          token: season.entryFeeToken,
+          payToAddress: season.entryFeeAddress,
+        } : null,
+      });
+    } catch (err) {
+      console.error('[API] League signup error:', err);
+      res.status(500).json({ error: 'Failed to process signup' });
+    }
+  });
+
+  // GET /api/leagues/:seasonId/signup-status - Get signup status for a user
+  app.get('/api/leagues/:seasonId/signup-status', async (req, res) => {
+    try {
+      const { seasonId } = req.params;
+      const { userId } = req.query;
+
+      if (!userId) {
+        return res.status(400).json({ error: 'Missing userId query parameter' });
+      }
+
+      const [signup] = await db
+        .select()
+        .from(leagueSignups)
+        .where(
+          and(
+            eq(leagueSignups.seasonId, parseInt(seasonId)),
+            eq(leagueSignups.userId, userId)
+          )
+        )
+        .limit(1);
+
+      if (!signup) {
+        return res.json({ 
+          registered: false,
+          seasonId: parseInt(seasonId),
+          userId,
+        });
+      }
+
+      // Get any incidents for this signup
+      const incidents = await db
+        .select()
+        .from(smurfIncidents)
+        .where(
+          and(
+            eq(smurfIncidents.clusterKey, signup.clusterKey),
+            eq(smurfIncidents.seasonId, parseInt(seasonId))
+          )
+        )
+        .orderBy(desc(smurfIncidents.createdAt));
+
+      res.json({
+        registered: true,
+        signupId: signup.id,
+        seasonId: parseInt(seasonId),
+        userId: signup.userId,
+        walletAddress: signup.walletAddress,
+        baseTierCode: signup.baseTierCode,
+        lockedTierCode: signup.lockedTierCode,
+        tierAdjusted: signup.tierAdjusted,
+        disqualified: signup.disqualified,
+        disqualificationReason: signup.disqualificationReason,
+        entryFeePaid: signup.entryFeePaid,
+        status: signup.status,
+        smurfIncidents: incidents.map(i => ({
+          id: i.id,
+          ruleKey: i.ruleKey,
+          severity: i.severity,
+          actionTaken: i.actionTaken,
+          reason: i.reason,
+          details: i.details,
+          createdAt: i.createdAt?.toISOString(),
+        })),
+        createdAt: signup.createdAt?.toISOString(),
+      });
+    } catch (err) {
+      console.error('[API] Signup status error:', err);
+      res.status(500).json({ error: 'Failed to get signup status' });
+    }
+  });
+
+  // Admin: GET /api/admin/leagues/:seasonId/signups - List all signups for a season
+  app.get('/api/admin/leagues/:seasonId/signups', isAdmin, async (req, res) => {
+    try {
+      const { seasonId } = req.params;
+      
+      const signups = await db
+        .select()
+        .from(leagueSignups)
+        .where(eq(leagueSignups.seasonId, parseInt(seasonId)))
+        .orderBy(leagueSignups.lockedTierCode, leagueSignups.createdAt);
+
+      res.json({
+        seasonId: parseInt(seasonId),
+        count: signups.length,
+        signups: signups.map(s => ({
+          id: s.id,
+          userId: s.userId,
+          walletAddress: s.walletAddress,
+          baseTierCode: s.baseTierCode,
+          lockedTierCode: s.lockedTierCode,
+          tierAdjusted: s.tierAdjusted,
+          disqualified: s.disqualified,
+          status: s.status,
+          entryFeePaid: s.entryFeePaid,
+          createdAt: s.createdAt?.toISOString(),
+        })),
+      });
+    } catch (err) {
+      console.error('[API] Admin signups list error:', err);
+      res.status(500).json({ error: 'Failed to get signups' });
+    }
+  });
+
+  // Admin: POST /api/admin/leagues - Create a new league season
+  app.post('/api/admin/leagues', isAdmin, async (req, res) => {
+    try {
+      const { 
+        name, 
+        description, 
+        registrationStart, 
+        registrationEnd, 
+        seasonStart, 
+        seasonEnd,
+        entryFeeAmount,
+        entryFeeToken,
+        entryFeeAddress,
+        config,
+      } = req.body;
+
+      if (!name || !registrationStart || !registrationEnd || !seasonStart || !seasonEnd) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: name, registrationStart, registrationEnd, seasonStart, seasonEnd' 
+        });
+      }
+
+      const [season] = await db
+        .insert(leagueSeasons)
+        .values({
+          name,
+          description,
+          status: 'UPCOMING',
+          registrationStart: new Date(registrationStart),
+          registrationEnd: new Date(registrationEnd),
+          seasonStart: new Date(seasonStart),
+          seasonEnd: new Date(seasonEnd),
+          entryFeeAmount,
+          entryFeeToken,
+          entryFeeAddress,
+          config,
+        })
+        .returning();
+
+      console.log(`[Leagues] Admin created season: ${season.id} - ${name}`);
+
+      res.json({
+        success: true,
+        season: {
+          id: season.id,
+          name: season.name,
+          status: season.status,
+        },
+      });
+    } catch (err) {
+      console.error('[API] Create league error:', err);
+      res.status(500).json({ error: 'Failed to create league season' });
+    }
+  });
+
+  // Admin: PATCH /api/admin/leagues/:seasonId/status - Update season status
+  app.patch('/api/admin/leagues/:seasonId/status', isAdmin, async (req, res) => {
+    try {
+      const { seasonId } = req.params;
+      const { status } = req.body;
+
+      const validStatuses = ['UPCOMING', 'REGISTRATION', 'ACTIVE', 'COMPLETED'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ 
+          error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
+        });
+      }
+
+      await db
+        .update(leagueSeasons)
+        .set({ status, updatedAt: new Date() })
+        .where(eq(leagueSeasons.id, parseInt(seasonId)));
+
+      console.log(`[Leagues] Admin updated season ${seasonId} status to ${status}`);
+
+      res.json({ success: true, seasonId: parseInt(seasonId), status });
+    } catch (err) {
+      console.error('[API] Update season status error:', err);
+      res.status(500).json({ error: 'Failed to update season status' });
+    }
   });
 
   // ============================================================================
