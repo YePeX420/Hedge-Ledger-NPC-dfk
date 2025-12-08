@@ -788,3 +788,240 @@ export const bridgeIndexerProgress = pgTable("bridge_indexer_progress", {
 });
 
 export type BridgeIndexerProgress = typeof bridgeIndexerProgress.$inferSelect;
+
+// ============================================================================
+// SMURF DETECTION & LEAGUE SIGNUP SCHEMA
+// ============================================================================
+
+/**
+ * Wallet clusters - groups wallets belonging to a single player/user
+ * Used for smurf detection and fair tier placement
+ */
+export const walletClusters = pgTable("wallet_clusters", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 128 }).notNull(), // Discord user ID
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  userIdIdx: index("wallet_clusters_user_id_idx").on(table.userId),
+  clusterKeyIdx: uniqueIndex("wallet_clusters_cluster_key_idx").on(table.clusterKey),
+}));
+
+export const insertWalletClusterSchema = createInsertSchema(walletClusters).omit({ id: true, createdAt: true });
+export type InsertWalletCluster = z.infer<typeof insertWalletClusterSchema>;
+export type WalletCluster = typeof walletClusters.$inferSelect;
+
+/**
+ * Wallet links - links chain addresses to wallet clusters
+ */
+export const walletLinks = pgTable("wallet_links", {
+  id: serial("id").primaryKey(),
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  chain: varchar("chain", { length: 32 }).notNull(), // "DFKCHAIN", "KLAYTN", etc.
+  address: varchar("address", { length: 64 }).notNull(),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  clusterKeyIdx: index("wallet_links_cluster_key_idx").on(table.clusterKey),
+  addressIdx: index("wallet_links_address_idx").on(table.address),
+  chainAddressIdx: uniqueIndex("wallet_links_chain_address_idx").on(table.chain, table.address),
+}));
+
+export const insertWalletLinkSchema = createInsertSchema(walletLinks).omit({ id: true, createdAt: true });
+export type InsertWalletLink = z.infer<typeof insertWalletLinkSchema>;
+export type WalletLink = typeof walletLinks.$inferSelect;
+
+/**
+ * Wallet power snapshots - tracks power score and tier over time
+ * Used for detecting sudden power spikes (potential smurfing)
+ */
+export const walletPowerSnapshots = pgTable("wallet_power_snapshots", {
+  id: serial("id").primaryKey(),
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  address: varchar("address", { length: 64 }).notNull(),
+  powerScore: integer("power_score").notNull(),
+  tierCode: varchar("tier_code", { length: 32 }).notNull(), // COMMON, UNCOMMON, RARE, LEGENDARY, MYTHIC
+  takenAt: timestamp("taken_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  meta: json("meta").$type<{
+    heroCount?: number;
+    totalLevels?: number;
+    netWorthUsd?: number;
+    accountAgeDays?: number;
+  }>(),
+}, (table) => ({
+  clusterKeyIdx: index("wallet_power_snapshots_cluster_key_idx").on(table.clusterKey),
+  addressIdx: index("wallet_power_snapshots_address_idx").on(table.address),
+  takenAtIdx: index("wallet_power_snapshots_taken_at_idx").on(table.takenAt),
+}));
+
+export const insertWalletPowerSnapshotSchema = createInsertSchema(walletPowerSnapshots).omit({ id: true });
+export type InsertWalletPowerSnapshot = z.infer<typeof insertWalletPowerSnapshotSchema>;
+export type WalletPowerSnapshot = typeof walletPowerSnapshots.$inferSelect;
+
+/**
+ * Wallet transfer aggregates - aggregated inbound/outbound transfers over time windows
+ * Used for detecting power transfers before league signups
+ */
+export const walletTransferAggregates = pgTable("wallet_transfer_aggregates", {
+  id: serial("id").primaryKey(),
+  address: varchar("address", { length: 64 }).notNull(),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
+  inboundPowerDelta: integer("inbound_power_delta").notNull().default(0),
+  outboundPowerDelta: integer("outbound_power_delta").notNull().default(0),
+  inboundTxCount: integer("inbound_tx_count").notNull().default(0),
+  outboundTxCount: integer("outbound_tx_count").notNull().default(0),
+  meta: json("meta").$type<{
+    heroTransfers?: number;
+    tokenTransfersUsd?: number;
+  }>(),
+}, (table) => ({
+  addressIdx: index("wallet_transfer_aggregates_address_idx").on(table.address),
+  windowIdx: index("wallet_transfer_aggregates_window_idx").on(table.windowStart, table.windowEnd),
+}));
+
+export const insertWalletTransferAggregateSchema = createInsertSchema(walletTransferAggregates).omit({ id: true });
+export type InsertWalletTransferAggregate = z.infer<typeof insertWalletTransferAggregateSchema>;
+export type WalletTransferAggregate = typeof walletTransferAggregates.$inferSelect;
+
+/**
+ * Smurf detection rules - configurable rules for detecting smurfs
+ */
+export const smurfDetectionRules = pgTable("smurf_detection_rules", {
+  id: serial("id").primaryKey(),
+  key: varchar("key", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 128 }).notNull(),
+  description: varchar("description", { length: 512 }),
+  enabled: boolean("enabled").notNull().default(true),
+  severity: varchar("severity", { length: 32 }).notNull(), // INFO, WARN, CRITICAL
+  defaultAction: varchar("default_action", { length: 32 }).notNull(), // ESCALATE_TIER, DISQUALIFY, FLAG_REVIEW
+  config: json("config").$type<{
+    threshold?: number;
+    windowDays?: number;
+    tierThreshold?: string;
+    [key: string]: unknown;
+  }>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  keyIdx: uniqueIndex("smurf_detection_rules_key_idx").on(table.key),
+  enabledIdx: index("smurf_detection_rules_enabled_idx").on(table.enabled),
+}));
+
+export const insertSmurfDetectionRuleSchema = createInsertSchema(smurfDetectionRules).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSmurfDetectionRule = z.infer<typeof insertSmurfDetectionRuleSchema>;
+export type SmurfDetectionRule = typeof smurfDetectionRules.$inferSelect;
+
+/**
+ * Smurf incidents - records of triggered smurf detection rules
+ */
+export const smurfIncidents = pgTable("smurf_incidents", {
+  id: serial("id").primaryKey(),
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  seasonId: integer("season_id"),
+  walletAddress: varchar("wallet_address", { length: 64 }),
+  ruleKey: varchar("rule_key", { length: 64 }).notNull(),
+  severity: varchar("severity", { length: 32 }).notNull(), // INFO, WARN, CRITICAL
+  actionTaken: varchar("action_taken", { length: 32 }).notNull(), // NONE, ESCALATE_TIER, DISQUALIFY, FLAG_REVIEW
+  reason: varchar("reason", { length: 512 }),
+  details: json("details").$type<{
+    powerDelta?: number;
+    oldTier?: string;
+    newTier?: string;
+    [key: string]: unknown;
+  }>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  clusterKeyIdx: index("smurf_incidents_cluster_key_idx").on(table.clusterKey),
+  seasonIdIdx: index("smurf_incidents_season_id_idx").on(table.seasonId),
+  ruleKeyIdx: index("smurf_incidents_rule_key_idx").on(table.ruleKey),
+  createdAtIdx: index("smurf_incidents_created_at_idx").on(table.createdAt),
+}));
+
+export const insertSmurfIncidentSchema = createInsertSchema(smurfIncidents).omit({ id: true, createdAt: true });
+export type InsertSmurfIncident = z.infer<typeof insertSmurfIncidentSchema>;
+export type SmurfIncident = typeof smurfIncidents.$inferSelect;
+
+/**
+ * Season tier locks - locks a player's tier for a specific season
+ * Prevents tier manipulation during active seasons
+ */
+export const seasonTierLocks = pgTable("season_tier_locks", {
+  id: serial("id").primaryKey(),
+  seasonId: integer("season_id").notNull(),
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  lockedTierCode: varchar("locked_tier_code", { length: 32 }).notNull(), // COMMON, UNCOMMON, RARE, LEGENDARY, MYTHIC
+  lockedAt: timestamp("locked_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  upwardOnly: boolean("upward_only").notNull().default(true), // Can only move to higher tiers, not lower
+}, (table) => ({
+  seasonClusterIdx: uniqueIndex("season_tier_locks_season_cluster_idx").on(table.seasonId, table.clusterKey),
+  seasonIdIdx: index("season_tier_locks_season_id_idx").on(table.seasonId),
+  clusterKeyIdx: index("season_tier_locks_cluster_key_idx").on(table.clusterKey),
+}));
+
+export const insertSeasonTierLockSchema = createInsertSchema(seasonTierLocks).omit({ id: true });
+export type InsertSeasonTierLock = z.infer<typeof insertSeasonTierLockSchema>;
+export type SeasonTierLock = typeof seasonTierLocks.$inferSelect;
+
+/**
+ * League seasons - defines challenge league seasons
+ */
+export const leagueSeasons = pgTable("league_seasons", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  description: text("description"),
+  status: varchar("status", { length: 32 }).notNull().default("UPCOMING"), // UPCOMING, REGISTRATION, ACTIVE, COMPLETED
+  registrationStart: timestamp("registration_start", { withTimezone: true }).notNull(),
+  registrationEnd: timestamp("registration_end", { withTimezone: true }).notNull(),
+  seasonStart: timestamp("season_start", { withTimezone: true }).notNull(),
+  seasonEnd: timestamp("season_end", { withTimezone: true }).notNull(),
+  entryFeeAmount: numeric("entry_fee_amount", { precision: 30, scale: 18 }),
+  entryFeeToken: varchar("entry_fee_token", { length: 32 }), // JEWEL, CRYSTAL
+  entryFeeAddress: varchar("entry_fee_address", { length: 64 }), // Address to pay entry fee to
+  config: json("config").$type<{
+    maxPlayersPerTier?: number;
+    prizePool?: { [tier: string]: number };
+    [key: string]: unknown;
+  }>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  statusIdx: index("league_seasons_status_idx").on(table.status),
+  registrationStartIdx: index("league_seasons_reg_start_idx").on(table.registrationStart),
+}));
+
+export const insertLeagueSeasonSchema = createInsertSchema(leagueSeasons).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertLeagueSeason = z.infer<typeof insertLeagueSeasonSchema>;
+export type LeagueSeason = typeof leagueSeasons.$inferSelect;
+
+/**
+ * League signups - records of player signups for league seasons
+ */
+export const leagueSignups = pgTable("league_signups", {
+  id: serial("id").primaryKey(),
+  seasonId: integer("season_id").notNull(),
+  userId: varchar("user_id", { length: 128 }).notNull(), // Discord user ID
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  walletAddress: varchar("wallet_address", { length: 64 }).notNull(),
+  baseTierCode: varchar("base_tier_code", { length: 32 }).notNull(), // Original computed tier
+  lockedTierCode: varchar("locked_tier_code", { length: 32 }).notNull(), // Final tier after smurf check
+  tierAdjusted: boolean("tier_adjusted").notNull().default(false),
+  disqualified: boolean("disqualified").notNull().default(false),
+  disqualificationReason: varchar("disqualification_reason", { length: 512 }),
+  entryFeePaid: boolean("entry_fee_paid").notNull().default(false),
+  entryFeeTxHash: varchar("entry_fee_tx_hash", { length: 128 }),
+  status: varchar("status", { length: 32 }).notNull().default("PENDING"), // PENDING, CONFIRMED, DISQUALIFIED
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  seasonUserIdx: uniqueIndex("league_signups_season_user_idx").on(table.seasonId, table.userId),
+  seasonIdIdx: index("league_signups_season_id_idx").on(table.seasonId),
+  userIdIdx: index("league_signups_user_id_idx").on(table.userId),
+  clusterKeyIdx: index("league_signups_cluster_key_idx").on(table.clusterKey),
+  statusIdx: index("league_signups_status_idx").on(table.status),
+}));
+
+export const insertLeagueSignupSchema = createInsertSchema(leagueSignups).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertLeagueSignup = z.infer<typeof insertLeagueSignupSchema>;
+export type LeagueSignup = typeof leagueSignups.$inferSelect;
