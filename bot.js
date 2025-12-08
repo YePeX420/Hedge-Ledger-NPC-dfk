@@ -67,7 +67,7 @@ import {
   startEnrichmentScheduler
 } from './bridge-tracker/price-enrichment.js';
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
-import { bridgeEvents, walletBridgeMetrics } from './shared/schema.ts';
+import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress } from './shared/schema.ts';
 
 const execAsync = promisify(exec);
 
@@ -4445,6 +4445,204 @@ async function startAdminWebServer() {
       .catch((err) => {
         console.error('[API] Price enrichment error:', err);
       });
+  });
+
+  // ============================================================================
+  // CHALLENGE SYSTEM API
+  // ============================================================================
+  // Challenge/Achievement system endpoints
+  // ============================================================================
+
+  // GET /api/challenges - Get all challenge categories with their challenges
+  app.get('/api/challenges', async (req, res) => {
+    try {
+      const [categories, allChallenges, allTiers] = await Promise.all([
+        db.select().from(challengeCategories).orderBy(challengeCategories.sortOrder),
+        db.select().from(challenges).where(eq(challenges.isActive, true)).orderBy(challenges.sortOrder),
+        db.select().from(challengeTiers).orderBy(challengeTiers.sortOrder),
+      ]);
+
+      // Group challenges by category and attach tiers
+      const result = categories.map(cat => ({
+        ...cat,
+        challenges: allChallenges
+          .filter(c => c.categoryKey === cat.key)
+          .map(challenge => ({
+            ...challenge,
+            tiers: allTiers.filter(t => t.challengeKey === challenge.key),
+          })),
+      }));
+
+      res.json({ categories: result });
+    } catch (err) {
+      console.error('[API] Failed to get challenges:', err);
+      res.status(500).json({ error: 'Failed to get challenges' });
+    }
+  });
+
+  // GET /api/challenges/progress/:userId - Get player progress on all challenges
+  app.get('/api/challenges/progress/:userId', async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      const progress = await db
+        .select()
+        .from(playerChallengeProgress)
+        .where(eq(playerChallengeProgress.userId, userId));
+
+      // Group by challenge key for easy lookup
+      const progressMap = {};
+      for (const p of progress) {
+        progressMap[p.challengeKey] = p;
+      }
+
+      res.json({ userId, progress: progressMap });
+    } catch (err) {
+      console.error('[API] Failed to get challenge progress:', err);
+      res.status(500).json({ error: 'Failed to get challenge progress' });
+    }
+  });
+
+  // POST /api/challenges/progress - Update player progress on a challenge
+  app.post('/api/challenges/progress', async (req, res) => {
+    try {
+      const { userId, challengeKey, currentValue, walletAddress } = req.body;
+
+      if (!userId || !challengeKey || currentValue === undefined) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: userId, challengeKey, currentValue' 
+        });
+      }
+
+      const numericValue = Number(currentValue);
+      if (isNaN(numericValue)) {
+        return res.status(400).json({ error: 'currentValue must be a number' });
+      }
+
+      // Verify challenge exists and is active
+      const [challenge] = await db
+        .select()
+        .from(challenges)
+        .where(eq(challenges.key, challengeKey))
+        .limit(1);
+
+      if (!challenge) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+
+      if (!challenge.isActive) {
+        return res.status(400).json({ error: 'Challenge is not active' });
+      }
+
+      // Get challenge tiers to determine highest achieved
+      const tiers = await db
+        .select()
+        .from(challengeTiers)
+        .where(eq(challengeTiers.challengeKey, challengeKey))
+        .orderBy(desc(challengeTiers.thresholdValue));
+
+      // Find highest tier achieved (use Number() for safety)
+      let highestTier = null;
+      for (const tier of tiers) {
+        if (numericValue >= Number(tier.thresholdValue)) {
+          highestTier = tier.tierCode;
+          break;
+        }
+      }
+
+      // Upsert progress - preserve highest tier if current value drops
+      const existing = await db
+        .select()
+        .from(playerChallengeProgress)
+        .where(
+          sql`${playerChallengeProgress.userId} = ${userId} AND ${playerChallengeProgress.challengeKey} = ${challengeKey}`
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        // Preserve highest tier if new tier is lower or null
+        const existingTier = existing[0].highestTierAchieved;
+        const existingAchievedAt = existing[0].achievedAt;
+        const finalTier = highestTier || existingTier;
+        const finalAchievedAt = highestTier && !existingTier ? new Date() : existingAchievedAt;
+
+        await db
+          .update(playerChallengeProgress)
+          .set({
+            currentValue: numericValue,
+            highestTierAchieved: finalTier,
+            achievedAt: finalAchievedAt,
+            lastUpdated: new Date(),
+            walletAddress: walletAddress || existing[0].walletAddress,
+          })
+          .where(eq(playerChallengeProgress.id, existing[0].id));
+      } else {
+        await db.insert(playerChallengeProgress).values({
+          userId,
+          challengeKey,
+          currentValue: numericValue,
+          highestTierAchieved: highestTier,
+          achievedAt: highestTier ? new Date() : null,
+          lastUpdated: new Date(),
+          walletAddress: walletAddress || null,
+        });
+      }
+
+      res.json({ 
+        success: true, 
+        userId, 
+        challengeKey, 
+        currentValue: numericValue, 
+        highestTierAchieved: highestTier 
+      });
+    } catch (err) {
+      console.error('[API] Failed to update challenge progress:', err);
+      res.status(500).json({ error: 'Failed to update challenge progress' });
+    }
+  });
+
+  // GET /api/challenges/leaderboard/:challengeKey - Get leaderboard for a specific challenge
+  app.get('/api/challenges/leaderboard/:challengeKey', async (req, res) => {
+    try {
+      const { challengeKey } = req.params;
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100); // Cap at 100
+
+      // Verify challenge exists
+      const [challenge] = await db
+        .select()
+        .from(challenges)
+        .where(eq(challenges.key, challengeKey))
+        .limit(1);
+
+      if (!challenge) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+
+      const leaderboard = await db
+        .select({
+          userId: playerChallengeProgress.userId,
+          walletAddress: playerChallengeProgress.walletAddress,
+          currentValue: playerChallengeProgress.currentValue,
+          highestTierAchieved: playerChallengeProgress.highestTierAchieved,
+          achievedAt: playerChallengeProgress.achievedAt,
+        })
+        .from(playerChallengeProgress)
+        .where(eq(playerChallengeProgress.challengeKey, challengeKey))
+        .orderBy(desc(playerChallengeProgress.currentValue))
+        .limit(limit);
+
+      res.json({ 
+        challengeKey, 
+        challengeName: challenge.name,
+        leaderboard: leaderboard.map((entry, index) => ({
+          rank: index + 1,
+          ...entry,
+        }))
+      });
+    } catch (err) {
+      console.error('[API] Failed to get challenge leaderboard:', err);
+      res.status(500).json({ error: 'Failed to get challenge leaderboard' });
+    }
   });
 
   // ============================================================================
