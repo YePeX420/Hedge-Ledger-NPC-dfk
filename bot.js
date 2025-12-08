@@ -4444,6 +4444,47 @@ async function startAdminWebServer() {
       });
   });
 
+  // ============================================================================
+  // HEDGE VISION MODE - STUB ENDPOINT
+  // ============================================================================
+  // This is a placeholder for future "Hedge Vision Mode" functionality.
+  // 
+  // In the future, this endpoint will:
+  //   1. Accept screenshots from the client (as base64 or data URL)
+  //   2. Call a vision-capable AI model (e.g., GPT-4 with vision)
+  //   3. Return a structured interpretation of the current game screen
+  //      (e.g., detect heroes, quests, UI elements, suggest actions)
+  //
+  // For now, this endpoint does NOT call any AI and exists only so the
+  // frontend has a stable endpoint to point at for future integration.
+  // ============================================================================
+  app.post('/api/hedge/analyze-screen', async (req, res) => {
+    try {
+      const { image } = req.body || {};
+
+      // Validate that image field is present
+      if (!image) {
+        return res.status(400).json({
+          status: 'error',
+          message: "Missing 'image' field in request body."
+        });
+      }
+
+      // Stub response - no AI call yet
+      return res.json({
+        status: 'not_implemented',
+        message: 'Vision Mode is not implemented yet. This endpoint is a stub for future use.',
+        echo: { hasImage: true }
+      });
+    } catch (err) {
+      console.error('[API] Hedge Vision Mode error:', err);
+      res.status(500).json({
+        status: 'error',
+        message: 'Internal server error'
+      });
+    }
+  });
+
   // Discord OAuth Routes
   app.get('/auth/discord', (req, res) => {
     if (!DISCORD_CLIENT_ID) {
