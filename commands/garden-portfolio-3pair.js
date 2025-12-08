@@ -112,6 +112,7 @@ async function getAllPoolsData() {
       
       const analytics = cachedData.find(p => p.pid === poolInfo.pid);
       const tvl = analytics?.totalTVL || 0;
+      const v2TVL = analytics?.v2TVL || 0; // V2 staked TVL for accurate position calculations
       const allocPercent = parseFloat(poolDetails.allocPercent) || 0;
       
       pools.push({
@@ -122,6 +123,7 @@ async function getAllPoolsData() {
         totalStakedRaw,
         totalStaked: poolDetails.totalStaked,
         tvl,
+        v2TVL, // V2 staked TVL
         allocPercent,
         allocDecimal: allocPercent / 100
       });
@@ -436,8 +438,12 @@ export async function execute(interaction) {
       // Total pool share = user LP / LP totalSupply (for position USD display)
       const totalPoolShare = lpTotalSupply > 0n ? Number(userLPRaw) / Number(lpTotalSupply) : v2Share;
       
-      // Position USD uses total pool share (your share of total LP)
-      const positionUSD = totalPoolShare * pool.tvl;
+      // Position USD calculation:
+      // - If we have lpTotalSupply: use totalPoolShare * total TVL (accurate)
+      // - Fallback: use v2Share * v2TVL (avoids inflation from v2Share * total TVL)
+      const positionUSD = lpTotalSupply > 0n 
+        ? totalPoolShare * pool.tvl 
+        : v2Share * (pool.v2TVL || pool.tvl);
       
       // Score ALL heroes for THIS specific pool (using V2 share for yield calculations)
       const heroScoresForPool = allPairings.map(pairing => {

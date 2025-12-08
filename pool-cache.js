@@ -67,6 +67,7 @@ function buildAnalyticsCacheEntry(pool) {
 
     // Real TVL and APR values from analytics
     totalTVL: pool.totalTVL || 0,
+    v2TVL: pool.v2TVL || 0, // V2 staked TVL only (for accurate position calculations)
     volume24hUSD: pool.volume24hUSD || 0,
     fees24hUSD: pool.fees24hUSD || 0,
     fee24hAPR: pool.fee24hAPR || '0%',

@@ -121,6 +121,7 @@ async function getAllPoolsData() {
       
       const analytics = cachedData.find(p => p.pid === poolInfo.pid);
       const tvl = analytics?.totalTVL || 0;
+      const v2TVL = analytics?.v2TVL || 0; // V2 staked TVL for accurate position calculations
       const allocPercent = parseFloat(poolDetails.allocPercent) || 0;
       
       pools.push({
@@ -131,6 +132,7 @@ async function getAllPoolsData() {
         totalStakedRaw,
         totalStaked: poolDetails.totalStaked,
         tvl,
+        v2TVL, // V2 staked TVL
         allocPercent,
         allocDecimal: allocPercent / 100
       });
@@ -451,22 +453,26 @@ export async function execute(interaction) {
       // V2 share: user's share of LP staked in V2 rewards pool (used for yield calculations)
       const v2Share = totalStakedRaw > 0n ? Number(userLPRaw) / Number(totalStakedRaw) : 0;
       
-      // Total pool share: user's share of ALL LP tokens (used for USD value calculation)
-      // This requires fetching the LP token's total supply from the contract
-      let totalPoolShare = v2Share; // Default to v2Share if we can't get total supply
-      let positionUSD = v2Share * pool.tvl;
+      // Position USD: user's share of V2 staked TVL (NOT total TVL)
+      // v2Share * v2TVL = accurate position value (since v2Share is share of V2 staked LP)
+      // Using v2Share * totalTVL would inflate values when not all LP is staked
+      const v2TVL = pool.v2TVL || pool.tvl; // Prefer v2TVL, fallback to totalTVL
+      let positionUSD = v2Share * v2TVL;
       
+      // For display share, calculate user's share of total pool (for consistency with other views)
+      let totalPoolShare = v2Share;
       if (poolInfo?.lpToken) {
         try {
           const lpDetails = await getLPTokenDetails(poolInfo.lpToken);
           if (lpDetails?.totalSupply && BigInt(lpDetails.totalSupply) > 0n) {
             const lpTotalSupply = BigInt(lpDetails.totalSupply);
             totalPoolShare = Number(userLPRaw) / Number(lpTotalSupply);
+            // Recalculate positionUSD using total pool share * total TVL (more accurate)
             positionUSD = totalPoolShare * pool.tvl;
-            console.log(`[GardenPortfolioCurrent] Pool ${pid}: V2 share=${(v2Share*100).toFixed(4)}%, Total pool share=${(totalPoolShare*100).toFixed(4)}%`);
+            console.log(`[GardenPortfolioCurrent] Pool ${pid}: V2 share=${(v2Share*100).toFixed(4)}%, Total pool share=${(totalPoolShare*100).toFixed(4)}%, Position=$${positionUSD.toFixed(0)}`);
           }
         } catch (err) {
-          console.warn(`[GardenPortfolioCurrent] Could not get LP total supply for pool ${pid}: ${err.message}`);
+          console.warn(`[GardenPortfolioCurrent] Could not get LP total supply for pool ${pid}, using v2Share*v2TVL: ${err.message}`);
         }
       }
       
