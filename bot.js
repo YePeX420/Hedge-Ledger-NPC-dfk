@@ -4650,6 +4650,59 @@ async function startAdminWebServer() {
   });
 
   // ============================================================================
+  // HEDGE CHAT API (Webchat Integration)
+  // ============================================================================
+  // Exposes the Hedge AI personality for external frontend applications
+  // ============================================================================
+
+  // POST /api/chat - Send a message to Hedge and get an AI response
+  app.post('/api/chat', async (req, res) => {
+    try {
+      const { message, conversationHistory, mode } = req.body;
+
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: 'Missing or invalid "message" field' });
+      }
+
+      // Build user messages array - support conversation history for multi-turn chats
+      const userMessages = [];
+      
+      // Add previous conversation history if provided (for multi-turn support)
+      if (Array.isArray(conversationHistory)) {
+        for (const turn of conversationHistory) {
+          if (turn.role && turn.content) {
+            userMessages.push({ role: turn.role, content: turn.content });
+          }
+        }
+      }
+      
+      // Add the current user message
+      userMessages.push({ role: 'user', content: message });
+
+      // Call the existing askHedge function
+      const reply = await askHedge(userMessages, { mode: mode || undefined });
+
+      res.json({ 
+        reply,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[API] /api/chat error:', err);
+      res.status(500).json({ error: 'Failed to generate response from Hedge' });
+    }
+  });
+
+  // GET /api/chat/health - Health check for chat endpoint
+  app.get('/api/chat/health', (req, res) => {
+    res.json({ 
+      status: 'ok', 
+      service: 'Hedge Chat API',
+      model: OPENAI_MODEL,
+      modes: ['default', 'walkthrough'],
+    });
+  });
+
+  // ============================================================================
   // LEAGUE SIGNUP API
   // ============================================================================
   // Challenge league signup endpoints with smurf detection integration
