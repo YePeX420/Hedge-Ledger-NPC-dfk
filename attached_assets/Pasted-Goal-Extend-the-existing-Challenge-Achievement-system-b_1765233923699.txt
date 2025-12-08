@@ -1,0 +1,277 @@
+Goal:
+Extend the existing Challenge/Achievement system by adding 9 new challenges under the hero_progression category:
+
+4 for Training Quests
+
+5 for Crystal / Meditation usage
+
+Use the same structure you already use for challenges and challenge_tiers (ChallengeDef style).
+All new challenges must:
+
+have categoryKey: "hero_progression"
+
+show up under the Hero Progression section from /api/challenges
+
+be seeded into the DB via the existing seed logic.
+
+1. Add these Training Quest challenges
+
+a) Trainer’s Path
+
+key: "trainers_path"
+
+categoryKey: "hero_progression"
+
+name: "Trainer's Path"
+
+description: "Complete training quests."
+
+metricType: "COUNT"
+
+metricSource: "onchain_quests"
+
+metricKey: "training_quests_total"
+
+tierSystem: RARITY (volume-based)
+
+Tiers:
+
+COMMON: threshold 50
+
+UNCOMMON: threshold 200
+
+RARE: threshold 500
+
+LEGENDARY: threshold 1500
+
+MYTHIC: threshold 3000 (isPrestige: true)
+
+b) Stat Specialist
+
+key: "stat_specialist"
+
+name: "Stat Specialist"
+
+description: "Complete training quests using the optimal training stat for your heroes."
+
+metricType: "SCORE" // percentage 0–100
+
+metricSource: "behavior_model"
+
+metricKey: "training_stat_match_pct"
+
+Tier system: GENE (skill-based)
+
+Tiers:
+
+BASIC: 40
+
+ADVANCED: 60
+
+ELITE: 80
+
+EXALTED: 95 (isPrestige: true)
+
+c) Crystal Seeker
+
+key: "crystal_seeker"
+
+name: "Crystal Seeker"
+
+description: "Obtain lesser training crystals from training quests."
+
+metricType: "COUNT"
+
+metricSource: "onchain_quests"
+
+metricKey: "training_crystals_obtained"
+
+Tier system: RARITY
+
+Tiers:
+
+COMMON: 5
+
+UNCOMMON: 15
+
+RARE: 40
+
+LEGENDARY: 100
+
+MYTHIC: 250 (isPrestige: true)
+
+d) Dedicated Trainer
+
+key: "dedicated_trainer"
+
+name: "The Dedicated Trainer"
+
+description: "Maintain a daily streak of training quests."
+
+metricType: "STREAK"
+
+metricSource: "behavior_model"
+
+metricKey: "training_day_streak"
+
+Tier system: RARITY
+
+Tiers:
+
+COMMON: 3 days
+
+UNCOMMON: 7 days
+
+RARE: 14 days
+
+LEGENDARY: 30 days
+
+MYTHIC: 60 days (isPrestige: true)
+
+2. Add these Crystal / Meditation usage challenges
+
+These should still live in hero_progression but conceptually form a Hero Advancement Mastery sub-group.
+
+e) Crystal Consumer
+
+key: "crystal_consumer"
+
+name: "Crystal Consumer"
+
+description: "Use lesser training crystals during meditation."
+
+metricType: "COUNT"
+
+metricSource: "onchain_meditation"
+
+metricKey: "crystals_used_total"
+
+Tier system: RARITY
+
+Tiers:
+
+COMMON: 5
+
+UNCOMMON: 20
+
+RARE: 50
+
+LEGENDARY: 150
+
+MYTHIC: 300 (isPrestige: true)
+
+f) Focused Meditation
+
+key: "focused_meditation"
+
+name: "Focused Meditation"
+
+description: "Use the correct type of crystal for the stats you are targeting."
+
+metricType: "SCORE" // percentage 0–100 of meditations using optimal crystal
+
+metricSource: "behavior_model"
+
+metricKey: "correct_crystal_usage_pct"
+
+Tier system: GENE
+
+Tiers:
+
+BASIC: 40
+
+ADVANCED: 60
+
+ELITE: 80
+
+EXALTED: 95 (isPrestige: true)
+
+g) The Enlightened One
+
+key: "enlightened_one"
+
+name: "The Enlightened One"
+
+description: "Perform meditations to advance your heroes using crystals and runes."
+
+metricType: "COUNT"
+
+metricSource: "onchain_meditation"
+
+metricKey: "total_meditations"
+
+Tier system: RARITY
+
+Tiers:
+
+COMMON: 10
+
+UNCOMMON: 30
+
+RARE: 75
+
+LEGENDARY: 200
+
+MYTHIC: 400 (isPrestige: true)
+
+h) Stat Mastery
+
+key: "stat_mastery"
+
+name: "Stat Mastery"
+
+description: "Achieve total stat increases across all meditations."
+
+metricType: "COUNT" // total stats gained (sum of +STR, +AGI, etc.)
+
+metricSource: "onchain_meditation"
+
+metricKey: "total_stat_gain"
+
+Tier system: RARITY
+
+Tiers:
+
+COMMON: 20
+
+UNCOMMON: 60
+
+RARE: 150
+
+LEGENDARY: 400
+
+MYTHIC: 800 (isPrestige: true)
+
+i) Genetic Enlightenment
+
+key: "genetic_enlightenment"
+
+name: "Genetic Enlightenment"
+
+description: "Achieve perfect meditations where all selected stats succeed."
+
+metricType: "COUNT"
+
+metricSource: "onchain_meditation"
+
+metricKey: "perfect_meditations"
+
+Tier system override: treat as PRESTIGE / GENE style:
+
+EXALTED: threshold 1 (isPrestige: true)
+
+MYTHIC: threshold 5 (isPrestige: true)
+
+3. Implementation notes
+
+Add these 9 challenge definitions into the same config/definition structure you already use (the source you seeded the original 36 challenges from).
+
+Make sure their sortOrder places them under the Hero Progression section in a sensible group (e.g., all four training challenges together, then the five meditation challenges).
+
+Re-run or update the seed so they populate challenges + challenge_tiers.
+
+Confirm that GET /api/challenges returns them and that GET /api/challenges/progress/:userId can track progress for their metrics (even if current values are 0 until we wire metrics).
+
+Do not remove or rename existing challenge keys; just append these.
+
+When done, please summarize which file(s) you updated and confirm the 9 new challenge keys are visible in /api/challenges.
