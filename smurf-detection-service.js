@@ -20,8 +20,8 @@ import {
 } from './shared/schema.ts';
 import { eq, and, gte, lte, desc } from 'drizzle-orm';
 
-// Tier hierarchy for escalation logic
-const TIER_ORDER = ['COMMON', 'UNCOMMON', 'RARE', 'LEGENDARY', 'MYTHIC'];
+// League tier hierarchy for escalation logic (lowest to highest)
+const TIER_ORDER = ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'DIAMOND', 'LEGENDARY'];
 
 /**
  * @typedef {'NONE' | 'ESCALATE_TIER' | 'DISQUALIFY' | 'FLAG_REVIEW'} SmurfAction
