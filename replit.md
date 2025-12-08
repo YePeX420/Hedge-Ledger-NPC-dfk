@@ -34,6 +34,19 @@ The project utilizes a Node.js backend integrating Discord.js for bot functional
 *   **Hero Summoning Probability Calculator**: A 4x4 Mendelian genetics engine calculating offspring trait probabilities for all genetic combinations, including class, profession, abilities, stats, and visual traits, with mutation tracking and rarity calculation.
 *   **Tavern Bargain Finder**: Scans the marketplace for hero pairs with optimal genetics and pricing for target class summoning.
 *   **Player User Model System**: Classifies players into archetypes, tiers, and engagement states based on behavior, financial activity, and message content, allowing for personalized bot responses.
+    *   **Intent-Based Classification** (`classification-engine.js`, `classification-config.js`): New primary classification system using 5 intent dimensions scored from player data:
+        *   **PROGRESSION_GAMER**: Focus on questing, summoning, hero development, collection
+        *   **INVESTOR_GROWTH**: Reinvests in ecosystem, uses optimizer, holds LP positions
+        *   **INVESTOR_EXTRACTOR**: Dumps rewards, bridges out value, doesn't reinvest
+        *   **SOCIAL_COMMUNITY**: Active in Discord, interested in lore, community participation
+        *   **NEW_EXPLORER**: New player learning the ropes, asking for help
+    *   **Hard Overrides**: Automatic extractor classification when:
+        *   Bridge tracker flags wallet as extractor (extractorScore >= threshold)
+        *   Bridge out volume exceeds $5000 USD in 30 days
+        *   Computed extractor score >= 50
+    *   **Score Normalization**: Caps applied to prevent runaway scores (bridge: 10k, LP: 50k, heroes: 50, messages: 50)
+    *   **Legacy Mapping**: Intent archetypes map to legacy archetypes for backwards compatibility
+    *   **Persona Adaptation** (`hedge-persona-adapter.js`): Response tone/content adapts based on intentArchetype with behavior tag modifiers
 *   **Bridge Flow Tracker** (Admin-only): Analyzes cross-chain bridge activity to identify "extractors" - wallets that bridge more value OUT of DFK Chain than IN.
     *   **Bridge Indexer** (`bridge-tracker/bridge-indexer.js`): Scans DFK Chain RPC for bridge events from Synapse Bridge contracts. Supports:
         *   **Historical Sync**: Full blockchain indexing from genesis (block 0) to present with resumable progress tracking
