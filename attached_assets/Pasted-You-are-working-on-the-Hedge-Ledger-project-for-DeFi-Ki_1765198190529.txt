@@ -1,0 +1,240 @@
+You are working on the Hedge Ledger project for DeFi Kingdoms.
+This repo already has a Player Classification System with archetypes, tiers, states, behavior tags, KPIs, etc. The current design is documented in player-classification-system.md and implemented mainly in:
+
+classification-config.js
+
+classification-engine.js
+
+hedge-persona-adapter.js
+
+player-profile-service.js 
+
+player-classification-system
+
+Your task is to update only the Archetype (primary player type) logic to a new intent-based model, without breaking tiers, states, or existing behavior tags. This is “Step 1” of a larger refactor.
+
+1. Replace the old Archetype concept with Intent-Based Archetypes
+
+Currently archetypes include things like GUEST, ADVENTURER, PLAYER, INVESTOR, EXTRACTOR.
+We want to move to 5 new intent archetypes:
+
+export enum PlayerIntentArchetype {
+  PROGRESSION_GAMER = 'PROGRESSION_GAMER',
+  INVESTOR_GROWTH = 'INVESTOR_GROWTH',
+  INVESTOR_EXTRACTOR = 'INVESTOR_EXTRACTOR',
+  SOCIAL_COMMUNITY = 'SOCIAL_COMMUNITY',
+  NEW_EXPLORER = 'NEW_EXPLORER',
+}
+
+
+Requirements:
+
+Define this enum in the same place you currently define archetype-related enums (check classification-config.js or a similar file and extend it cleanly).
+
+Update any type definitions and interfaces for the player profile so that they use PlayerIntentArchetype (or at least accept these new values).
+
+Keep backwards compatibility where possible:
+
+If some code still expects old archetype strings, add a mapping function that converts old → new so nothing crashes.
+
+Example mapping:
+
+GUEST → NEW_EXPLORER
+
+ADVENTURER / PLAYER → PROGRESSION_GAMER
+
+INVESTOR → INVESTOR_GROWTH
+
+EXTRACTOR → INVESTOR_EXTRACTOR
+
+Long term, we will migrate everything to the new enum, but for now do NOT remove fields other modules rely on.
+
+2. Implement Intent Score Calculation in classification-engine.js
+
+We want to compute five intent scores and pick the dominant one as the primary archetype.
+
+Add a new function in classification-engine.js, something like:
+
+function computeIntentScores(context: PlayerClassificationContext): {
+  progressionScore: number;
+  investorGrowthScore: number;
+  extractorScore: number;
+  socialScore: number;
+  onboardingScore: number;
+}
+
+
+Where PlayerClassificationContext should include (or derive from) existing data you already have:
+
+heroCount
+
+heroQuestsPerDay or any quest/expedition count you can compute from the snapshot
+
+summonsCount
+
+heroXP or any hero-level proxy
+
+lpPositions and totalLPValue
+
+reinvestRate (if available) or a simple ratio of LP + locked vs total withdrawals
+
+dumpRate (already approximated via extractorScore / sell patterns)
+
+bridgeInVolume / bridgeOutVolume (if you already track this)
+
+engagementScore, retentionScore, extractorScore, etc. from the current KPI logic
+
+Discord statistics: message count, lore-related messages, optimizer usage, etc. (simply reuse what you already track for behavior tags and states)
+
+Then implement a simple, tunable scoring model like this (feel free to adjust weights slightly but keep the structure):
+
+progressionScore =
+  (context.heroQuestsLast7d ?? 0) * 0.4 +
+  (context.summonsLast30d ?? 0) * 2 +
+  (context.heroXPDelta30d ?? 0) * 0.1 +
+  (context.completedChallenges ?? 0) * 3 +
+  (context.heroCount ?? 0) * 0.5;
+
+investorGrowthScore =
+  (context.reinvestRate ?? 0) * 3 +
+  (context.totalLPValueUsd ?? 0) * 0.02 +
+  (context.optimizerRunsLast30d ?? 0) * 5 -
+  (context.dumpRate ?? 0) * 2;
+
+extractorScore =
+  (context.dumpRate ?? 0) * 4 +
+  (context.bridgeOutVolumeUsd30d ?? 0) * 0.02 -
+  (context.reinvestRate ?? 0) * 3 +
+  (context.lpToPortfolioRatioPenalty ?? 0); // e.g. low LP relative to portfolio increases this
+
+socialScore =
+  (context.discordMessages7d ?? 0) * 1.5 +
+  (context.loreRequestsLast30d ?? 0) * 3 +
+  (context.communityChallengesCompleted ?? 0) * 2;
+
+onboardingScore =
+  (context.daysSinceFirstSeen !== undefined &&
+    context.daysSinceFirstSeen < 14
+      ? 20
+      : 0) +
+  (context.helpRequestsLast7d ?? 0) * 2;
+
+
+If some of these fields don’t exist yet, derive best-effort proxies from existing data or default them to 0, but keep the structure. Add TODO comments where more precise metrics will be wired in later.
+
+3. Determine the New Intent Archetype From Scores
+
+Create a function like:
+
+function determineIntentArchetype(scores: {
+  progressionScore: number;
+  investorGrowthScore: number;
+  extractorScore: number;
+  socialScore: number;
+  onboardingScore: number;
+}): PlayerIntentArchetype
+
+
+Logic:
+
+Hard overrides:
+
+If scores.extractorScore is above a chosen threshold (for now use the same or similar threshold as the old isExtractor logic), return PlayerIntentArchetype.INVESTOR_EXTRACTOR regardless of other scores.
+
+If scores.onboardingScore is the highest score and heroCount < 3, return PlayerIntentArchetype.NEW_EXPLORER.
+
+Otherwise, choose the max score:
+
+If progressionScore >= investorGrowthScore and progressionScore is the largest overall → PROGRESSION_GAMER.
+
+If investorGrowthScore is largest and extractorScore is under threshold → INVESTOR_GROWTH.
+
+If socialScore is largest → SOCIAL_COMMUNITY.
+
+Implement clean, deterministic tie-breaking rules and keep the thresholds and weights configurable via classification-config.js (e.g. an intentWeights and intentThresholds section), so we can tune them without changing the engine code.
+
+4. Integrate Intent Archetype into the Main Classification Pipeline
+
+Find the main classification function in classification-engine.js (it currently computes archetype, tier, state, tags, flags, etc.). 
+
+player-classification-system
+
+Update it so that:
+
+It calls computeIntentScores(context).
+
+It then calls determineIntentArchetype(scores).
+
+It stores the resulting intentArchetype on the player profile object:
+
+e.g. profile.intentArchetype = intentArchetype;
+
+For backwards compatibility, if other parts of the system still use profile.archetype with the old values, either:
+
+set profile.archetype to the stringified new enum value, or
+
+map the new intent to the legacy archetype names via a helper mapIntentToLegacyArchetype.
+
+Do not remove tiers, states, behavior tags, flags, or KPIs. Just replace the primary archetype determination with this new intent-based system.
+
+5. Update Persona Adapter to Use New Archetypes
+
+In hedge-persona-adapter.js, you currently adapt Hedge’s personality and tone based on archetypes like GUEST, PLAYER, INVESTOR, EXTRACTOR plus tags such as LORE_LOVER, DATA_SCIENTIST, SPEEDRUNNER, etc. 
+
+player-classification-system
+
+Update that logic so:
+
+It reads and branches on intentArchetype using the new enum:
+
+NEW_EXPLORER → simple onboarding, guided steps.
+
+PROGRESSION_GAMER → progression-focused advice, mastery paths.
+
+INVESTOR_GROWTH → yield & optimization, but ecosystem-positive.
+
+INVESTOR_EXTRACTOR → reduced alpha, educational nudges.
+
+SOCIAL_COMMUNITY → more lore/roleplay, community hooks.
+
+Keep existing behavior tags (LORE_LOVER, OPTIMIZER, SPEEDRUNNER, etc.) and use them as modifiers on top of the new intent archetype instead of primary drivers.
+
+6. Data & Migration Considerations
+
+Ensure players table (or equivalent) can store the new intentArchetype value, probably as a string column.
+
+If needed, write a small migration or a safe default so existing rows get an initial value:
+
+For example, backfill intentArchetype with a mapped value from the old archetype (see mapping in step 1).
+
+Make sure your unit tests (if any) for classification are updated or extended to cover:
+
+A progression-heavy player
+
+Investor-growth player
+
+Extractor-style player
+
+Social/community-heavy player
+
+New explorer
+
+7. Deliverables
+
+When you’re done, please:
+
+Show me the diff for:
+
+classification-config.js
+
+classification-engine.js
+
+hedge-persona-adapter.js
+
+Any model/DB files you changed (e.g. player-profile-service.js).
+
+Briefly summarize:
+
+The thresholds you used for extractor and onboarding detection
+
+Any fields where you used placeholders due to missing data.
