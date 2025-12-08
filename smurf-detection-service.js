@@ -17,7 +17,7 @@ import {
   walletClusters,
   walletLinks,
   seasonTierLocks,
-} from './shared/schema.js';
+} from './shared/schema.ts';
 import { eq, and, gte, lte, desc } from 'drizzle-orm';
 
 // Tier hierarchy for escalation logic

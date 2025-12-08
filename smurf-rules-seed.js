@@ -6,7 +6,7 @@
  */
 
 import { db } from './server/db.js';
-import { smurfDetectionRules } from './shared/schema.js';
+import { smurfDetectionRules } from './shared/schema.ts';
 import { eq } from 'drizzle-orm';
 
 const SMURF_RULES = [
