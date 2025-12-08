@@ -3,7 +3,8 @@
 // All values are tunable here for easy adjustment
 
 /**
- * Player Archetypes - Primary classification based on wallet data and behavior
+ * Player Archetypes - Legacy classification (kept for backwards compatibility)
+ * @deprecated Use INTENT_ARCHETYPES for new code
  */
 export const ARCHETYPES = {
   GUEST: 'GUEST',           // No wallet or zero DFK assets
@@ -11,6 +12,40 @@ export const ARCHETYPES = {
   PLAYER: 'PLAYER',         // >10 heroes OR multiple LP positions OR noticeable activity
   INVESTOR: 'INVESTOR',     // Low hero count but large LP/balances (yield farmers)
   EXTRACTOR: 'EXTRACTOR'    // Farm & dump pattern, zero reinvestment
+};
+
+/**
+ * Intent-Based Player Archetypes - New primary classification based on player intent/motivation
+ * These represent WHY a player engages with DFK, not just WHAT assets they hold
+ */
+export const INTENT_ARCHETYPES = {
+  PROGRESSION_GAMER: 'PROGRESSION_GAMER',   // Focused on hero progression, questing, leveling, summoning
+  INVESTOR_GROWTH: 'INVESTOR_GROWTH',       // Yield-focused but reinvests in ecosystem
+  INVESTOR_EXTRACTOR: 'INVESTOR_EXTRACTOR', // Extracts value without reinvestment
+  SOCIAL_COMMUNITY: 'SOCIAL_COMMUNITY',     // Engaged for community, lore, social aspects
+  NEW_EXPLORER: 'NEW_EXPLORER',             // New player learning the ropes
+};
+
+/**
+ * Mapping from legacy archetypes to intent archetypes for backwards compatibility
+ */
+export const LEGACY_TO_INTENT_MAP = {
+  [ARCHETYPES.GUEST]: INTENT_ARCHETYPES.NEW_EXPLORER,
+  [ARCHETYPES.ADVENTURER]: INTENT_ARCHETYPES.PROGRESSION_GAMER,
+  [ARCHETYPES.PLAYER]: INTENT_ARCHETYPES.PROGRESSION_GAMER,
+  [ARCHETYPES.INVESTOR]: INTENT_ARCHETYPES.INVESTOR_GROWTH,
+  [ARCHETYPES.EXTRACTOR]: INTENT_ARCHETYPES.INVESTOR_EXTRACTOR,
+};
+
+/**
+ * Mapping from intent archetypes back to legacy for compatibility with old code
+ */
+export const INTENT_TO_LEGACY_MAP = {
+  [INTENT_ARCHETYPES.PROGRESSION_GAMER]: ARCHETYPES.PLAYER,
+  [INTENT_ARCHETYPES.INVESTOR_GROWTH]: ARCHETYPES.INVESTOR,
+  [INTENT_ARCHETYPES.INVESTOR_EXTRACTOR]: ARCHETYPES.EXTRACTOR,
+  [INTENT_ARCHETYPES.SOCIAL_COMMUNITY]: ARCHETYPES.PLAYER,
+  [INTENT_ARCHETYPES.NEW_EXPLORER]: ARCHETYPES.GUEST,
 };
 
 /**
@@ -142,6 +177,64 @@ export const CLASSIFICATION_THRESHOLDS = {
     whaleMinValue: 10000,              // USD total value for whale flag
     highPotentialMinEngagement: 30,    // Engagement score for high potential
     highPotentialMaxFinancial: 100,    // Low financial but high engagement = convertable
+  },
+
+  // Intent archetype scoring weights (tunable)
+  intentWeights: {
+    // Progression Gamer score components
+    progression: {
+      heroQuestsWeight: 0.4,           // Per quest in last 7 days
+      summonsWeight: 2.0,              // Per summon in last 30 days
+      heroXPDeltaWeight: 0.1,          // Per XP gain in last 30 days
+      completedChallengesWeight: 3.0,  // Per completed challenge
+      heroCountWeight: 0.5,            // Per hero owned
+    },
+    
+    // Investor Growth score components
+    investorGrowth: {
+      reinvestRateWeight: 3.0,         // Multiplier for reinvestment ratio (0-1)
+      lpValueWeight: 0.02,             // Per USD of LP value
+      optimizerRunsWeight: 5.0,        // Per optimizer run in last 30 days
+      dumpRatePenalty: 2.0,            // Penalty per dump rate point
+    },
+    
+    // Extractor score components
+    extractor: {
+      dumpRateWeight: 4.0,             // Per dump rate point
+      bridgeOutWeight: 0.02,           // Per USD bridged out in 30 days
+      reinvestPenalty: 3.0,            // Penalty per reinvest rate point
+      lowLPPenalty: 1.0,               // When LP is low relative to portfolio
+    },
+    
+    // Social/Community score components
+    social: {
+      messagesWeight: 1.5,             // Per Discord message in 7 days
+      loreRequestsWeight: 3.0,         // Per lore-related request in 30 days
+      communityChallengesWeight: 2.0,  // Per community challenge completed
+    },
+    
+    // Onboarding/New Explorer score components
+    onboarding: {
+      newPlayerBonus: 20,              // Bonus if < 14 days since first seen
+      helpRequestsWeight: 2.0,         // Per help request in 7 days
+    },
+  },
+
+  // Intent archetype thresholds
+  intentThresholds: {
+    extractorOverrideScore: 50,        // If extractor score >= this, force INVESTOR_EXTRACTOR
+    bridgeOutHardThreshold: 5000,      // USD bridged out in 30 days = automatic extractor
+    newExplorerMaxHeroes: 3,           // Max heroes to qualify as NEW_EXPLORER
+    newExplorerMaxDays: 14,            // Max days since first seen for new player bonus
+    minScoreDifference: 5,             // Min difference to confidently pick an archetype
+    
+    // Normalization caps to prevent runaway scores from large values
+    bridgeOutNormalizationCap: 10000,  // Cap bridge out USD for scoring purposes
+    lpValueNormalizationCap: 50000,    // Cap LP value USD for scoring purposes
+    heroCountNormalizationCap: 50,     // Cap hero count for scoring purposes
+    questsNormalizationCap: 100,       // Cap quests per 7 days
+    summonsNormalizationCap: 20,       // Cap summons per 30 days
+    messagesNormalizationCap: 50,      // Cap messages per 7 days
   }
 };
 
@@ -203,6 +296,7 @@ export const MESSAGE_PATTERNS = {
  */
 export const DEFAULT_PROFILE = {
   archetype: ARCHETYPES.GUEST,
+  intentArchetype: INTENT_ARCHETYPES.NEW_EXPLORER,
   tier: TIERS.TIER_0,
   state: STATES.CURIOUS,
   behaviorTags: [BEHAVIOR_TAGS.NEWCOMER],
@@ -214,6 +308,13 @@ export const DEFAULT_PROFILE = {
     adviceFollowedCount: 0,
     recommendationsClicked: 0
   },
+  intentScores: {
+    progressionScore: 0,
+    investorGrowthScore: 0,
+    extractorScore: 0,
+    socialScore: 0,
+    onboardingScore: 0
+  },
   dfkSnapshot: null,
   flags: {
     isExtractor: false,
@@ -224,6 +325,9 @@ export const DEFAULT_PROFILE = {
 
 export default {
   ARCHETYPES,
+  INTENT_ARCHETYPES,
+  LEGACY_TO_INTENT_MAP,
+  INTENT_TO_LEGACY_MAP,
   TIERS,
   STATES,
   BEHAVIOR_TAGS,

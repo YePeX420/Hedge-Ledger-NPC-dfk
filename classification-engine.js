@@ -3,7 +3,9 @@
 // Turns raw signals into archetypes, tiers, states, behavior tags, and KPIs
 
 import { 
-  ARCHETYPES, 
+  ARCHETYPES,
+  INTENT_ARCHETYPES,
+  INTENT_TO_LEGACY_MAP,
   TIERS, 
   STATES, 
   BEHAVIOR_TAGS,
@@ -14,6 +16,8 @@ import {
 
 const T = CLASSIFICATION_THRESHOLDS;
 const P = MESSAGE_PATTERNS;
+const IW = T.intentWeights;
+const IT = T.intentThresholds;
 
 /**
  * Classification Event types
@@ -43,19 +47,30 @@ const P = MESSAGE_PATTERNS;
 export function classifyProfile(profile) {
   const classified = { ...profile };
   
-  // Step 1: Determine archetype from wallet data
-  classified.archetype = determineArchetype(profile);
-  
-  // Step 2: Calculate flags first (needed for tier)
+  // Step 1: Calculate flags first (needed for tier and intent)
   classified.flags = determineFlags(profile);
   
-  // Step 3: Determine tier based on KPIs and flags
+  // Step 2: Build classification context for intent scoring
+  const context = buildClassificationContext(profile);
+  
+  // Step 3: Compute intent scores
+  const intentScores = computeIntentScores(context);
+  classified.intentScores = intentScores;
+  
+  // Step 4: Determine intent archetype (new primary classification)
+  classified.intentArchetype = determineIntentArchetype(intentScores, context);
+  
+  // Step 5: Map to legacy archetype for backwards compatibility
+  // Use the intent-based mapping, but fall back to old logic if needed
+  classified.archetype = mapIntentToLegacyArchetype(classified.intentArchetype);
+  
+  // Step 6: Determine tier based on KPIs and flags
   classified.tier = determineTier(profile, classified.flags);
   
-  // Step 4: Determine state based on behavior
+  // Step 7: Determine state based on behavior
   classified.state = determineState(profile, classified.flags);
   
-  // Step 5: Infer behavior tags from message patterns and data
+  // Step 8: Infer behavior tags from message patterns and data
   classified.behaviorTags = determineBehaviorTags(profile);
   
   // Update timestamp
@@ -464,6 +479,265 @@ function determineFlags(profile) {
 }
 
 // ============================================================================
+// INTENT ARCHETYPE SYSTEM
+// ============================================================================
+
+/**
+ * Player Classification Context - aggregates all data needed for intent scoring
+ * @typedef {Object} PlayerClassificationContext
+ * @property {number} heroCount - Total heroes owned
+ * @property {number} heroQuestsLast7d - Quests completed in last 7 days (TODO: wire to quest tracking)
+ * @property {number} summonsLast30d - Summons completed in last 30 days (TODO: wire to summon tracking)
+ * @property {number} heroXPDelta30d - Total XP gained in last 30 days (TODO: wire to hero tracking)
+ * @property {number} completedChallenges - Challenge milestones completed
+ * @property {number} reinvestRate - Ratio of rewards reinvested (0-1)
+ * @property {number} totalLPValueUsd - Total USD value of LP positions
+ * @property {number} optimizerRunsLast30d - Garden optimizer uses in last 30 days
+ * @property {number} dumpRate - Ratio of rewards sold immediately (0-1)
+ * @property {number} bridgeOutVolumeUsd30d - USD bridged out in last 30 days
+ * @property {number} lpToPortfolioRatio - LP value relative to total portfolio
+ * @property {number} discordMessages7d - Discord messages in last 7 days
+ * @property {number} loreRequestsLast30d - Lore-related requests in last 30 days
+ * @property {number} communityChallengesCompleted - Community challenges done
+ * @property {number} daysSinceFirstSeen - Days since first interaction
+ * @property {number} helpRequestsLast7d - Help requests in last 7 days
+ */
+
+/**
+ * Build classification context from a player profile
+ * Maps existing data to the context structure for intent scoring
+ * @param {Object} profile - Player profile
+ * @returns {PlayerClassificationContext} Context for scoring
+ */
+function buildClassificationContext(profile) {
+  const snapshot = profile.dfkSnapshot || {};
+  const kpis = profile.kpis || {};
+  const recentMessages = profile.recentMessages || [];
+  
+  // Calculate days since first seen
+  const daysSinceFirstSeen = profile.firstSeenAt 
+    ? Math.floor((Date.now() - new Date(profile.firstSeenAt).getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+  
+  // Count lore-related messages (reuse existing pattern matching)
+  const loreRequestsLast30d = countPatternMatches(recentMessages, P.loreKeywords);
+  
+  // Count optimizer-related messages as proxy for optimizer runs
+  const optimizerMentions = countPatternMatches(recentMessages, P.optimizerKeywords);
+  
+  // Count help/beginner questions as proxy for help requests
+  const helpPatterns = ['help', 'how do i', 'what should', 'beginner', 'new player', 'started', 'confused'];
+  const helpRequestsLast7d = countPatternMatches(recentMessages, helpPatterns);
+  
+  // Derive reinvest rate from extractor score (inverse relationship)
+  // extractorScore 0 = reinvest rate 1.0, extractorScore 100 = reinvest rate 0.0
+  const extractorScore = profile.extractorScore || 0;
+  const reinvestRate = Math.max(0, 1 - (extractorScore / 100));
+  const dumpRate = extractorScore / 100;
+  
+  // LP to portfolio ratio (crude estimate)
+  const totalLPValue = snapshot.totalLPValue || 0;
+  const heroValue = (snapshot.heroCount || 0) * 100; // Rough hero value estimate
+  const tokenValue = ((snapshot.jewelBalance || 0) * 0.5) + ((snapshot.crystalBalance || 0) * 0.3);
+  const portfolioValue = totalLPValue + heroValue + tokenValue;
+  const lpToPortfolioRatio = portfolioValue > 0 ? totalLPValue / portfolioValue : 0;
+  
+  return {
+    // Hero/progression metrics
+    heroCount: snapshot.heroCount || 0,
+    heroQuestsLast7d: snapshot.questingStreakDays || 0, // TODO: Replace with actual quest count when available
+    summonsLast30d: 0, // TODO: Wire to summon tracking system
+    heroXPDelta30d: 0, // TODO: Wire to hero XP tracking
+    completedChallenges: 0, // TODO: Wire to challenge tracking
+    
+    // Investment metrics
+    reinvestRate,
+    totalLPValueUsd: totalLPValue,
+    optimizerRunsLast30d: optimizerMentions, // Proxy: optimizer keyword mentions
+    dumpRate,
+    bridgeOutVolumeUsd30d: profile.bridgeOutVolume30d || 0, // TODO: Wire to bridge tracker
+    lpToPortfolioRatio,
+    
+    // Social metrics
+    discordMessages7d: kpis.messagesLast7d || 0,
+    loreRequestsLast30d,
+    communityChallengesCompleted: 0, // TODO: Wire to community challenge tracking
+    
+    // Onboarding metrics
+    daysSinceFirstSeen,
+    helpRequestsLast7d,
+    
+    // Additional context
+    extractorScore,
+    engagementScore: kpis.engagementScore || 0,
+  };
+}
+
+/**
+ * Normalize a value using a cap to prevent runaway scores
+ * @param {number} value - Raw value to normalize
+ * @param {number} cap - Maximum value cap
+ * @returns {number} Normalized value (0 to cap)
+ */
+function normalizeWithCap(value, cap) {
+  return Math.min(value ?? 0, cap);
+}
+
+/**
+ * Compute intent scores for a player
+ * @param {PlayerClassificationContext} context - Classification context
+ * @returns {{progressionScore: number, investorGrowthScore: number, extractorScore: number, socialScore: number, onboardingScore: number}}
+ */
+export function computeIntentScores(context) {
+  const prog = IW.progression;
+  const inv = IW.investorGrowth;
+  const ext = IW.extractor;
+  const soc = IW.social;
+  const onb = IW.onboarding;
+  
+  // Normalize inputs to prevent USD/count values from dominating scores
+  const normHeroCount = normalizeWithCap(context.heroCount, IT.heroCountNormalizationCap ?? 50);
+  const normQuests = normalizeWithCap(context.heroQuestsLast7d, IT.questsNormalizationCap ?? 100);
+  const normSummons = normalizeWithCap(context.summonsLast30d, IT.summonsNormalizationCap ?? 20);
+  const normLPValue = normalizeWithCap(context.totalLPValueUsd, IT.lpValueNormalizationCap ?? 50000);
+  const normBridgeOut = normalizeWithCap(context.bridgeOutVolumeUsd30d, IT.bridgeOutNormalizationCap ?? 10000);
+  const normMessages = normalizeWithCap(context.discordMessages7d, IT.messagesNormalizationCap ?? 50);
+  
+  // Progression Gamer Score
+  // Focuses on questing, summoning, hero development, and collection
+  const progressionScore = 
+    normQuests * prog.heroQuestsWeight +
+    normSummons * prog.summonsWeight +
+    (context.heroXPDelta30d ?? 0) * prog.heroXPDeltaWeight +
+    (context.completedChallenges ?? 0) * prog.completedChallengesWeight +
+    normHeroCount * prog.heroCountWeight;
+  
+  // Investor Growth Score
+  // Reinvests in ecosystem, uses optimizer, has LP positions
+  const investorGrowthScore = 
+    (context.reinvestRate ?? 0) * inv.reinvestRateWeight +
+    normLPValue * inv.lpValueWeight +
+    (context.optimizerRunsLast30d ?? 0) * inv.optimizerRunsWeight -
+    (context.dumpRate ?? 0) * inv.dumpRatePenalty;
+  
+  // Extractor Score
+  // Dumps rewards, bridges out, doesn't reinvest
+  const lpPenalty = (1 - (context.lpToPortfolioRatio ?? 0)) * ext.lowLPPenalty;
+  const extractorScore = 
+    (context.dumpRate ?? 0) * ext.dumpRateWeight +
+    normBridgeOut * ext.bridgeOutWeight -
+    (context.reinvestRate ?? 0) * ext.reinvestPenalty +
+    lpPenalty;
+  
+  // Social/Community Score
+  // Active in Discord, interested in lore, participates in community
+  const socialScore = 
+    normMessages * soc.messagesWeight +
+    (context.loreRequestsLast30d ?? 0) * soc.loreRequestsWeight +
+    (context.communityChallengesCompleted ?? 0) * soc.communityChallengesWeight;
+  
+  // Onboarding/New Explorer Score
+  // New player, asking for help, learning the ropes
+  const newPlayerBonus = (context.daysSinceFirstSeen !== undefined && context.daysSinceFirstSeen < IT.newExplorerMaxDays)
+    ? onb.newPlayerBonus
+    : 0;
+  const onboardingScore = 
+    newPlayerBonus +
+    (context.helpRequestsLast7d ?? 0) * onb.helpRequestsWeight;
+  
+  return {
+    progressionScore: Math.max(0, progressionScore),
+    investorGrowthScore: Math.max(0, investorGrowthScore),
+    extractorScore: Math.max(0, extractorScore),
+    socialScore: Math.max(0, socialScore),
+    onboardingScore: Math.max(0, onboardingScore),
+  };
+}
+
+/**
+ * Determine the primary intent archetype from computed scores
+ * @param {{progressionScore: number, investorGrowthScore: number, extractorScore: number, socialScore: number, onboardingScore: number}} scores
+ * @param {PlayerClassificationContext} context - Additional context for hard overrides
+ * @returns {string} Intent archetype value
+ */
+export function determineIntentArchetype(scores, context) {
+  // HARD OVERRIDE 1: Existing extractor flag from bridge tracker forces INVESTOR_EXTRACTOR
+  // This is independent of scores - if flagged as extractor, they ARE an extractor
+  if (context.extractorScore >= T.extractor.extractorScoreThreshold) {
+    return INTENT_ARCHETYPES.INVESTOR_EXTRACTOR;
+  }
+  
+  // HARD OVERRIDE 2: High bridge out volume forces INVESTOR_EXTRACTOR
+  // Bridge extractors bridging out more than threshold = automatic extractor
+  const bridgeOutThreshold = IT.bridgeOutHardThreshold ?? 5000; // $5k USD default
+  if ((context.bridgeOutVolumeUsd30d ?? 0) >= bridgeOutThreshold) {
+    return INTENT_ARCHETYPES.INVESTOR_EXTRACTOR;
+  }
+  
+  // HARD OVERRIDE 3: High extractor score forces INVESTOR_EXTRACTOR
+  if (scores.extractorScore >= IT.extractorOverrideScore) {
+    return INTENT_ARCHETYPES.INVESTOR_EXTRACTOR;
+  }
+  
+  // HARD OVERRIDE 4: New player with few heroes = NEW_EXPLORER
+  if (scores.onboardingScore > 0 && (context.heroCount ?? 0) < IT.newExplorerMaxHeroes) {
+    // Check if onboarding is the dominant score
+    const allScores = [
+      scores.progressionScore,
+      scores.investorGrowthScore,
+      scores.extractorScore,
+      scores.socialScore,
+      scores.onboardingScore
+    ];
+    const maxScore = Math.max(...allScores);
+    if (scores.onboardingScore >= maxScore - IT.minScoreDifference) {
+      return INTENT_ARCHETYPES.NEW_EXPLORER;
+    }
+  }
+  
+  // Find the maximum score
+  const scoreMap = [
+    { archetype: INTENT_ARCHETYPES.PROGRESSION_GAMER, score: scores.progressionScore },
+    { archetype: INTENT_ARCHETYPES.INVESTOR_GROWTH, score: scores.investorGrowthScore },
+    { archetype: INTENT_ARCHETYPES.INVESTOR_EXTRACTOR, score: scores.extractorScore },
+    { archetype: INTENT_ARCHETYPES.SOCIAL_COMMUNITY, score: scores.socialScore },
+    { archetype: INTENT_ARCHETYPES.NEW_EXPLORER, score: scores.onboardingScore },
+  ];
+  
+  // Sort by score descending, with deterministic tie-breaking by archetype order
+  scoreMap.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    // Tie-breaking priority: PROGRESSION_GAMER > INVESTOR_GROWTH > SOCIAL_COMMUNITY > NEW_EXPLORER > INVESTOR_EXTRACTOR
+    const priority = {
+      [INTENT_ARCHETYPES.PROGRESSION_GAMER]: 0,
+      [INTENT_ARCHETYPES.INVESTOR_GROWTH]: 1,
+      [INTENT_ARCHETYPES.SOCIAL_COMMUNITY]: 2,
+      [INTENT_ARCHETYPES.NEW_EXPLORER]: 3,
+      [INTENT_ARCHETYPES.INVESTOR_EXTRACTOR]: 4,
+    };
+    return priority[a.archetype] - priority[b.archetype];
+  });
+  
+  const topArchetype = scoreMap[0];
+  
+  // Additional validation: If top score is very low, default to NEW_EXPLORER
+  if (topArchetype.score < 1) {
+    return INTENT_ARCHETYPES.NEW_EXPLORER;
+  }
+  
+  return topArchetype.archetype;
+}
+
+/**
+ * Map intent archetype to legacy archetype for backwards compatibility
+ * @param {string} intentArchetype - New intent archetype
+ * @returns {string} Legacy archetype value
+ */
+export function mapIntentToLegacyArchetype(intentArchetype) {
+  return INTENT_TO_LEGACY_MAP[intentArchetype] || ARCHETYPES.GUEST;
+}
+
+// ============================================================================
 // SCORE CALCULATIONS
 // ============================================================================
 
@@ -530,14 +804,18 @@ function countPatternMatches(messages, keywords) {
  */
 export function getProfileSummary(profile) {
   const archetype = profile.archetype || ARCHETYPES.GUEST;
+  const intentArchetype = profile.intentArchetype || INTENT_ARCHETYPES.NEW_EXPLORER;
   const tier = profile.tier ?? TIERS.TIER_0;
   const state = profile.state || STATES.CURIOUS;
   const tags = profile.behaviorTags || [];
   const flags = profile.flags || {};
   const kpis = profile.kpis || {};
+  const intentScores = profile.intentScores || {};
   
   return {
     archetype,
+    intentArchetype,
+    intentArchetypeName: getIntentArchetypeName(intentArchetype),
     tier,
     tierName: getTierName(tier),
     state,
@@ -547,8 +825,23 @@ export function getProfileSummary(profile) {
     isHighPotential: flags.isHighPotential || false,
     engagementScore: kpis.engagementScore || 0,
     financialScore: kpis.financialScore || 0,
-    retentionScore: kpis.retentionScore || 0
+    retentionScore: kpis.retentionScore || 0,
+    intentScores
   };
+}
+
+/**
+ * Get human-readable intent archetype name
+ */
+function getIntentArchetypeName(intentArchetype) {
+  const names = {
+    [INTENT_ARCHETYPES.PROGRESSION_GAMER]: 'Progression Gamer',
+    [INTENT_ARCHETYPES.INVESTOR_GROWTH]: 'Growth Investor',
+    [INTENT_ARCHETYPES.INVESTOR_EXTRACTOR]: 'Extractor',
+    [INTENT_ARCHETYPES.SOCIAL_COMMUNITY]: 'Community Member',
+    [INTENT_ARCHETYPES.NEW_EXPLORER]: 'New Explorer',
+  };
+  return names[intentArchetype] || 'Unknown';
 }
 
 /**
@@ -569,5 +862,8 @@ export default {
   classifyProfile,
   updateKpisFromEvent,
   processEventAndReclassify,
-  getProfileSummary
+  getProfileSummary,
+  computeIntentScores,
+  determineIntentArchetype,
+  mapIntentToLegacyArchetype
 };

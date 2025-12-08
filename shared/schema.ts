@@ -329,9 +329,17 @@ export const players = pgTable("players", {
   firstDfkTxTimestamp: timestamp("first_dfk_tx_timestamp", { withTimezone: true }), // Cached on first computation
   
   // Enhanced Player Profile Data (JSON blob for classification system)
-  // Contains: archetype, tier, state, behaviorTags, kpis, dfkSnapshot, flags, recentMessages
+  // Contains: archetype, intentArchetype, tier, state, behaviorTags, kpis, dfkSnapshot, flags, recentMessages
   profileData: json("profile_data").$type<{
     archetype: string;
+    intentArchetype?: string; // NEW: Intent-based archetype (PROGRESSION_GAMER, INVESTOR_GROWTH, etc.)
+    intentScores?: { // NEW: Raw intent dimension scores (0-100)
+      progression: number;
+      investmentGrowth: number;
+      investmentExtraction: number;
+      social: number;
+      exploration: number;
+    };
     tier: number;
     tierOverride?: number;
     state: string;

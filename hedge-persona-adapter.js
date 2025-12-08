@@ -2,7 +2,7 @@
 // Adapts Hedge's responses based on player profile
 // Tailors tone, content, and detail level to each player type
 
-import { ARCHETYPES, TIERS, STATES, BEHAVIOR_TAGS } from './classification-config.js';
+import { ARCHETYPES, INTENT_ARCHETYPES, TIERS, STATES, BEHAVIOR_TAGS } from './classification-config.js';
 
 /**
  * Response Context for adaptation
@@ -27,26 +27,195 @@ export function adaptResponse(baseText, profile, context = {}) {
 
   let adapted = baseText;
   
-  // Apply archetype-based adaptations
-  adapted = applyArchetypeAdaptations(adapted, profile, context);
+  // Step 1: Apply intent archetype-based adaptations (PRIMARY - new system)
+  adapted = applyIntentArchetypeAdaptations(adapted, profile, context);
   
-  // Apply tier-based adaptations
+  // Step 2: Apply tier-based adaptations
   adapted = applyTierAdaptations(adapted, profile, context);
   
-  // Apply state-based adaptations
+  // Step 3: Apply state-based adaptations
   adapted = applyStateAdaptations(adapted, profile, context);
   
-  // Apply behavior tag-based adaptations
+  // Step 4: Apply behavior tag-based adaptations (MODIFIERS on top of intent)
   adapted = applyBehaviorTagAdaptations(adapted, profile, context);
   
-  // Apply flag-based adaptations
+  // Step 5: Apply flag-based adaptations
   adapted = applyFlagAdaptations(adapted, profile, context);
   
   return adapted;
 }
 
 // ============================================================================
-// ARCHETYPE-BASED ADAPTATIONS
+// INTENT ARCHETYPE-BASED ADAPTATIONS (NEW PRIMARY SYSTEM)
+// ============================================================================
+
+/**
+ * Apply adaptations based on intent archetype
+ * This is the primary classification system - behavior tags act as modifiers
+ */
+function applyIntentArchetypeAdaptations(text, profile, context) {
+  const intentArchetype = profile.intentArchetype || INTENT_ARCHETYPES.NEW_EXPLORER;
+  
+  switch (intentArchetype) {
+    case INTENT_ARCHETYPES.NEW_EXPLORER:
+      return adaptForNewExplorer(text, profile, context);
+    
+    case INTENT_ARCHETYPES.PROGRESSION_GAMER:
+      return adaptForProgressionGamer(text, profile, context);
+    
+    case INTENT_ARCHETYPES.INVESTOR_GROWTH:
+      return adaptForInvestorGrowth(text, profile, context);
+    
+    case INTENT_ARCHETYPES.INVESTOR_EXTRACTOR:
+      return adaptForInvestorExtractor(text, profile, context);
+    
+    case INTENT_ARCHETYPES.SOCIAL_COMMUNITY:
+      return adaptForSocialCommunity(text, profile, context);
+    
+    default:
+      return text;
+  }
+}
+
+/**
+ * NEW_EXPLORER: Simple onboarding, guided steps, welcoming tone
+ */
+function adaptForNewExplorer(text, profile, context) {
+  // Add welcoming intro for first-time interactions
+  if (context.isFirstInteraction) {
+    text = `*adjusts spectacles and smiles warmly*\n\nAh, a new face in Crystalvale! Welcome, traveler. ` + text;
+  }
+  
+  // Simplify language for newcomers
+  text = simplifyLanguage(text);
+  
+  // Add gentle encouragement if discussing wallets/starting
+  if (context.topic === 'onboarding' || text.toLowerCase().includes('wallet')) {
+    text += `\n\n*whispers conspiratorially* Between you and me, connecting your wallet is the first step to unlocking the real treasures of this realm. Would you like me to guide you through it?`;
+  }
+  
+  // Encourage progression
+  if (profile.dfkSnapshot && profile.dfkSnapshot.heroCount < 3) {
+    text += `\n\n*nods encouragingly* Every legendary hero started somewhere. I'm here to help you take those first steps!`;
+  }
+  
+  return text;
+}
+
+/**
+ * PROGRESSION_GAMER: Hero progression, questing tips, leveling strategies, mastery paths
+ */
+function adaptForProgressionGamer(text, profile, context) {
+  const snapshot = profile.dfkSnapshot;
+  
+  // Reference their specific assets when relevant
+  if (snapshot && context.topic === 'heroes' && snapshot.heroCount > 0) {
+    text = text.replace(
+      /your heroes?/gi, 
+      `your ${snapshot.heroCount} heroes`
+    );
+  }
+  
+  // Add progression-focused language
+  if (context.topic === 'questing' || context.topic === 'heroes') {
+    text += `\n\n*flips through training manual* Have you considered a stat-focused build for maximum quest efficiency? I can suggest optimal class/profession combos.`;
+  }
+  
+  // Encourage mastery path
+  if (snapshot?.heroCount >= 5 && snapshot?.heroCount < 15) {
+    text += `\n\n*glances at your growing roster* You're building something impressive here. Would you like me to analyze your team composition for synergies?`;
+  }
+  
+  // Summoning insights for progression-focused players
+  if (context.topic === 'summoning' || context.topic === 'genetics') {
+    text += `\n\nFor progression-focused summoning, I'd recommend prioritizing class genes that support your questing strategy. Want me to calculate offspring probabilities?`;
+  }
+  
+  return text;
+}
+
+/**
+ * INVESTOR_GROWTH: Yield optimization, APRs, reinvestment strategies - ecosystem-positive
+ */
+function adaptForInvestorGrowth(text, profile, context) {
+  const snapshot = profile.dfkSnapshot;
+  
+  // Add yield-focused language
+  if (context.topic === 'gardens' || context.topic === 'yield') {
+    text += `\n\n*consults yield tables* I can provide detailed APR breakdowns and help optimize your garden allocation for maximum sustainable returns.`;
+  }
+  
+  // Reference their LP positions
+  if (snapshot?.lpPositionsCount > 0) {
+    text += `\n\n*reviews your ${snapshot.lpPositionsCount} LP positions* There may be opportunities to rebalance for better yields while maintaining ecosystem health.`;
+  }
+  
+  // Be more analytical but still helpful
+  if (text.includes('recommend') || text.includes('suggest')) {
+    text += `\n\nNote: These recommendations factor in liquidity depth, impermanent loss risk, and historical stability.`;
+  }
+  
+  // Encourage reinvestment
+  if (context.topic === 'optimization') {
+    text += `\n\n*nods approvingly* Smart investors know that reinvesting a portion of yields compounds your growth over time. I can model scenarios if you're interested.`;
+  }
+  
+  return text;
+}
+
+/**
+ * INVESTOR_EXTRACTOR: Reduced alpha sharing, educational nudges toward ecosystem value
+ */
+function adaptForInvestorExtractor(text, profile, context) {
+  // Remove advanced optimization hints
+  text = text.replace(/optimization tip[s]?:.*?(?=\n\n|\n$|$)/gi, '');
+  text = text.replace(/secret[s]?:.*?(?=\n\n|\n$|$)/gi, '');
+  text = text.replace(/advanced strategy:.*?(?=\n\n|\n$|$)/gi, '');
+  
+  // Keep responses shorter and more neutral
+  if (text.length > 500) {
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    text = sentences.slice(0, Math.min(5, sentences.length)).join(' ');
+  }
+  
+  // No teases about premium features
+  text = text.replace(/unlock.*?premium.*?/gi, '');
+  text = text.replace(/upgrade.*?tier.*?/gi, '');
+  
+  // Add educational nudge about ecosystem value
+  if (context.topic === 'gardens' || context.topic === 'yield') {
+    text += `\n\n*pauses thoughtfully* You know, the strongest returns in this realm often come from those who reinvest in the ecosystem. The gardens reward patience and commitment.`;
+  }
+  
+  return text;
+}
+
+/**
+ * SOCIAL_COMMUNITY: More lore/roleplay, community hooks, social engagement
+ */
+function adaptForSocialCommunity(text, profile, context) {
+  // Enhance lore content for community-focused players
+  text = enhanceLoreContent(text);
+  
+  // Add community references
+  if (context.topic === 'heroes' || context.topic === 'questing') {
+    text += `\n\n*gestures toward the tavern* Many adventurers share their stories there. Have you joined any guilds or community challenges? The realm is richer when explored together!`;
+  }
+  
+  // Encourage social features
+  if (!text.includes('community') && !text.includes('guild')) {
+    const communityHooks = [
+      `\n\n*looks up from ledger* Speaking of which, the community tavern often has interesting discussions. Have you visited lately?`,
+      `\n\n*smiles knowingly* The best adventures are often shared ones. Many travelers here have formed lasting bonds.`,
+    ];
+    text += communityHooks[Math.floor(Math.random() * communityHooks.length)];
+  }
+  
+  return text;
+}
+
+// ============================================================================
+// LEGACY ARCHETYPE-BASED ADAPTATIONS (kept for backwards compatibility)
 // ============================================================================
 
 function applyArchetypeAdaptations(text, profile, context) {
@@ -420,12 +589,12 @@ function enhanceExplanations(text) {
  * @returns {string} Personalized greeting
  */
 export function generateGreeting(profile) {
-  const archetype = profile.archetype || ARCHETYPES.GUEST;
+  const intentArchetype = profile.intentArchetype || INTENT_ARCHETYPES.NEW_EXPLORER;
   const tier = profile.tier ?? 0;
   const tags = profile.behaviorTags || [];
   const name = profile.discordUsername || 'traveler';
   
-  // Council member greeting
+  // Council member greeting (highest priority)
   if (tier >= TIERS.TIER_4) {
     return `*rises and bows deeply*\n\nCouncil Member ${name}, it is an honor. How may I serve you today?`;
   }
@@ -435,23 +604,29 @@ export function generateGreeting(profile) {
     return `*adjusts spectacles with respect*\n\nAh, ${name}! I've been expecting you. What wisdom do you seek today?`;
   }
   
-  // Lore lover greeting
+  // Lore lover behavior tag takes precedence for greeting
   if (tags.includes(BEHAVIOR_TAGS.LORE_LOVER)) {
     return `*looks up from dusty tome*\n\nGreetings, fellow seeker of knowledge! ${name}, what tales shall we explore today?`;
   }
   
-  // Returning player greeting
-  if (archetype === ARCHETYPES.PLAYER || archetype === ARCHETYPES.INVESTOR) {
-    return `*nods in recognition*\n\nWelcome back, ${name}. How may I assist you today?`;
+  // Intent archetype-based greetings
+  switch (intentArchetype) {
+    case INTENT_ARCHETYPES.PROGRESSION_GAMER:
+      return `*nods approvingly at your heroes*\n\nAh, ${name}! Ready to continue your progression? What challenge shall we tackle today?`;
+    
+    case INTENT_ARCHETYPES.INVESTOR_GROWTH:
+      return `*opens yield ledger*\n\nWelcome back, ${name}. Shall we review your garden performance or explore new opportunities?`;
+    
+    case INTENT_ARCHETYPES.INVESTOR_EXTRACTOR:
+      return `*nods politely*\n\nGreetings, ${name}. How may I assist you today?`;
+    
+    case INTENT_ARCHETYPES.SOCIAL_COMMUNITY:
+      return `*gestures warmly toward the hearth*\n\nAh, ${name}! Always good to see a friendly face. What brings you to my corner of the realm today?`;
+    
+    case INTENT_ARCHETYPES.NEW_EXPLORER:
+    default:
+      return `*adjusts spectacles*\n\nGreetings, ${name}! I am Hedge, keeper of knowledge in Crystalvale. How may I help you today?`;
   }
-  
-  // Adventurer greeting
-  if (archetype === ARCHETYPES.ADVENTURER) {
-    return `*smiles warmly*\n\nAh, ${name}! Good to see you again. Ready for another adventure?`;
-  }
-  
-  // Default greeting for guests
-  return `*adjusts spectacles*\n\nGreetings, ${name}! I am Hedge, keeper of knowledge in Crystalvale. How may I help you today?`;
 }
 
 /**
@@ -479,7 +654,10 @@ export function generateFarewell(profile) {
  * @returns {boolean}
  */
 export function shouldSuggestPremium(profile) {
+  const intentArchetype = profile.intentArchetype || INTENT_ARCHETYPES.NEW_EXPLORER;
+  
   // Never suggest to extractors
+  if (intentArchetype === INTENT_ARCHETYPES.INVESTOR_EXTRACTOR) return false;
   if (profile.flags?.isExtractor) return false;
   
   // Don't oversell to whales (they likely already know)
@@ -488,7 +666,14 @@ export function shouldSuggestPremium(profile) {
   // High potential candidates are prime targets
   if (profile.flags?.isHighPotential) return true;
   
-  // Optimizers are interested in efficiency
+  // Growth investors are interested in optimization services
+  if (intentArchetype === INTENT_ARCHETYPES.INVESTOR_GROWTH) return true;
+  
+  // Progression gamers might benefit from hero optimization
+  if (intentArchetype === INTENT_ARCHETYPES.PROGRESSION_GAMER &&
+      (profile.dfkSnapshot?.heroCount || 0) >= 5) return true;
+  
+  // Optimizers behavior tag still indicates interest
   if (profile.behaviorTags?.includes(BEHAVIOR_TAGS.OPTIMIZER)) return true;
   
   // Mid-tier players who are engaged
