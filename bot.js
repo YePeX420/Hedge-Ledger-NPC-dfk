@@ -3433,6 +3433,8 @@ async function startAdminWebServer() {
       if (options.secure) cookieParts.push('Secure');
       if (options.sameSite) cookieParts.push(`SameSite=${options.sameSite}`);
       if (options.maxAge) cookieParts.push(`Max-Age=${options.maxAge}`);
+      // Always include Path - defaults to '/' for site-wide cookies
+      cookieParts.push(`Path=${options.path || '/'}`);
       res.setHeader('Set-Cookie', cookieParts.join('; '));
     };
 
