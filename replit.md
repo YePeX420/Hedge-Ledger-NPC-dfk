@@ -47,6 +47,20 @@ The project utilizes a Node.js backend integrating Discord.js for bot functional
     *   **Score Normalization**: Caps applied to prevent runaway scores (bridge: 10k, LP: 50k, heroes: 50, messages: 50)
     *   **Legacy Mapping**: Intent archetypes map to legacy archetypes for backwards compatibility
     *   **Persona Adaptation** (`hedge-persona-adapter.js`): Response tone/content adapts based on intentArchetype with behavior tag modifiers
+*   **Smurf Detection & League Signup System**: Tier-based competitive league management with anti-manipulation detection.
+    *   **League Seasons** (`league_seasons` table): Tracks competitive seasons with signup and freeze windows, and season state (UPCOMING, SIGNUPS_OPEN, TIER_LOCKED, ACTIVE, COMPLETED).
+    *   **Tier System**: 6-tier ladder: BRONZE → SILVER → GOLD → PLATINUM → DIAMOND → LEGENDARY.
+    *   **Wallet Clusters** (`wallet_clusters`, `wallet_links`): Groups related wallets for multi-account detection.
+    *   **Power Snapshots** (`wallet_power_snapshots`): Daily snapshots of account power (hero count, total power, tier) for trend analysis.
+    *   **Transfer Aggregates** (`wallet_transfer_aggregates`): Tracks inbound/outbound asset transfers per wallet for spike detection.
+    *   **Smurf Detection Service** (`smurf-detection-service.js`): Rule evaluation engine with pre-season and in-season checks.
+    *   **Detection Rules** (`smurf_detection_rules`): Configurable rules with severity levels (WARN, CRITICAL) and actions (ESCALATE_TIER, DISQUALIFY, FLAG_REVIEW):
+        *   `INBOUND_POWER_SPIKE`: Detects sudden power increases from transfers during signup window.
+        *   `POWER_JUMP_AFTER_TIER_LOCK`: Detects power increases after tier lock.
+        *   `MULTI_WALLET_CLUSTER_SMURF`: Prevents sandbagging by detecting high-tier wallets in player's cluster.
+        *   `DISQUALIFY_ON_INBOUND_DURING_FREEZE`: Hard disqualification for freeze window violations.
+    *   **Incidents** (`smurf_incidents`): Records all triggered rule violations with wallet, rule, and action taken.
+    *   **API Routes**: `/api/leagues/active`, `/api/leagues/:seasonId/signup`, `/api/leagues/:seasonId/tier-lock`, `/api/admin/leagues/clusters`.
 *   **Bridge Flow Tracker** (Admin-only): Analyzes cross-chain bridge activity to identify "extractors" - wallets that bridge more value OUT of DFK Chain than IN.
     *   **Bridge Indexer** (`bridge-tracker/bridge-indexer.js`): Scans DFK Chain RPC for bridge events from Synapse Bridge contracts. Supports:
         *   **Historical Sync**: Full blockchain indexing from genesis (block 0) to present with resumable progress tracking
