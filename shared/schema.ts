@@ -1025,3 +1025,118 @@ export const leagueSignups = pgTable("league_signups", {
 export const insertLeagueSignupSchema = createInsertSchema(leagueSignups).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertLeagueSignup = z.infer<typeof insertLeagueSignupSchema>;
 export type LeagueSignup = typeof leagueSignups.$inferSelect;
+
+// ============================================================================
+// CHALLENGE SYSTEM TABLES
+// ============================================================================
+
+/**
+ * Challenge categories - groups challenges by theme
+ * Tier systems: RARITY (Common→Mythic), GENE (Basic→Exalted), MIXED, PRESTIGE
+ */
+export const challengeCategories = pgTable("challenge_categories", {
+  id: serial("id").primaryKey(),
+  key: varchar("key", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 128 }).notNull(),
+  description: text("description"),
+  tierSystem: varchar("tier_system", { length: 32 }).notNull(), // RARITY, GENE, MIXED, PRESTIGE
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  keyIdx: uniqueIndex("challenge_categories_key_idx").on(table.key),
+  sortOrderIdx: index("challenge_categories_sort_order_idx").on(table.sortOrder),
+}));
+
+export const insertChallengeCategorySchema = createInsertSchema(challengeCategories).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertChallengeCategory = z.infer<typeof insertChallengeCategorySchema>;
+export type ChallengeCategory = typeof challengeCategories.$inferSelect;
+
+/**
+ * Challenges - individual challenge definitions
+ */
+export const challenges = pgTable("challenges", {
+  id: serial("id").primaryKey(),
+  key: varchar("key", { length: 64 }).notNull().unique(),
+  categoryKey: varchar("category_key", { length: 64 }).notNull(),
+  name: varchar("name", { length: 128 }).notNull(),
+  description: text("description"),
+  metricType: varchar("metric_type", { length: 32 }).notNull(), // COUNT, STREAK, SCORE, BOOLEAN, COMPOSITE
+  metricSource: varchar("metric_source", { length: 64 }).notNull(), // onchain_heroes, behavior_model, discord_interactions, etc.
+  metricKey: varchar("metric_key", { length: 64 }).notNull(), // The specific metric to track
+  tierSystemOverride: varchar("tier_system_override", { length: 32 }), // Override category's tier system
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  meta: json("meta").$type<{
+    icon?: string;
+    tags?: string[];
+    tooltip?: string;
+  }>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  keyIdx: uniqueIndex("challenges_key_idx").on(table.key),
+  categoryKeyIdx: index("challenges_category_key_idx").on(table.categoryKey),
+  sortOrderIdx: index("challenges_sort_order_idx").on(table.sortOrder),
+  isActiveIdx: index("challenges_is_active_idx").on(table.isActive),
+}));
+
+export const insertChallengeSchema = createInsertSchema(challenges).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertChallenge = z.infer<typeof insertChallengeSchema>;
+export type Challenge = typeof challenges.$inferSelect;
+
+/**
+ * Challenge tiers - threshold definitions for each challenge
+ * Tier codes: COMMON, UNCOMMON, RARE, LEGENDARY, MYTHIC (RARITY)
+ *             BASIC, ADVANCED, ELITE, EXALTED (GENE)
+ */
+export const challengeTiers = pgTable("challenge_tiers", {
+  id: serial("id").primaryKey(),
+  challengeKey: varchar("challenge_key", { length: 64 }).notNull(),
+  tierCode: varchar("tier_code", { length: 32 }).notNull(), // COMMON, UNCOMMON, RARE, etc.
+  displayName: varchar("display_name", { length: 64 }).notNull(),
+  thresholdValue: integer("threshold_value").notNull(), // The value needed to achieve this tier
+  isPrestige: boolean("is_prestige").notNull().default(false), // Ultra-rare tier
+  sortOrder: integer("sort_order").notNull().default(0),
+  meta: json("meta").$type<{
+    description?: string;
+  }>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  challengeTierIdx: uniqueIndex("challenge_tiers_challenge_tier_idx").on(table.challengeKey, table.tierCode),
+  challengeKeyIdx: index("challenge_tiers_challenge_key_idx").on(table.challengeKey),
+  sortOrderIdx: index("challenge_tiers_sort_order_idx").on(table.sortOrder),
+}));
+
+export const insertChallengeTierSchema = createInsertSchema(challengeTiers).omit({ id: true, createdAt: true });
+export type InsertChallengeTier = z.infer<typeof insertChallengeTierSchema>;
+export type ChallengeTier = typeof challengeTiers.$inferSelect;
+
+/**
+ * Player challenge progress - tracks individual player progress on challenges
+ */
+export const playerChallengeProgress = pgTable("player_challenge_progress", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 128 }).notNull(), // Discord user ID
+  walletAddress: varchar("wallet_address", { length: 64 }), // Optional wallet for on-chain challenges
+  challengeKey: varchar("challenge_key", { length: 64 }).notNull(),
+  currentValue: integer("current_value").notNull().default(0), // Current progress value
+  highestTierAchieved: varchar("highest_tier_achieved", { length: 32 }), // Tier code of highest tier achieved
+  achievedAt: timestamp("achieved_at", { withTimezone: true }), // When the highest tier was achieved
+  lastUpdated: timestamp("last_updated", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  meta: json("meta").$type<{
+    streakStart?: string;
+    streakEnd?: string;
+    history?: { value: number; date: string }[];
+  }>(),
+}, (table) => ({
+  userChallengeIdx: uniqueIndex("player_challenge_progress_user_challenge_idx").on(table.userId, table.challengeKey),
+  userIdIdx: index("player_challenge_progress_user_id_idx").on(table.userId),
+  challengeKeyIdx: index("player_challenge_progress_challenge_key_idx").on(table.challengeKey),
+  walletIdx: index("player_challenge_progress_wallet_idx").on(table.walletAddress),
+}));
+
+export const insertPlayerChallengeProgressSchema = createInsertSchema(playerChallengeProgress).omit({ id: true });
+export type InsertPlayerChallengeProgress = z.infer<typeof insertPlayerChallengeProgressSchema>;
+export type PlayerChallengeProgress = typeof playerChallengeProgress.$inferSelect;

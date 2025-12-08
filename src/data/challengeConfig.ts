@@ -1,0 +1,778 @@
+// src/data/challengeConfig.ts
+
+export type TierSystem = "RARITY" | "GENE" | "MIXED" | "PRESTIGE";
+
+export type ChallengeTierCode =
+  | "COMMON"
+  | "UNCOMMON"
+  | "RARE"
+  | "LEGENDARY"
+  | "MYTHIC"
+  | "BASIC"
+  | "ADVANCED"
+  | "ELITE"
+  | "EXALTED";
+
+export interface ChallengeTierDef {
+  tierCode: ChallengeTierCode;
+  displayName: string;
+  thresholdValue: number;
+  isPrestige?: boolean;
+  sortOrder: number;
+  meta?: {
+    description?: string;
+  };
+}
+
+export interface ChallengeDef {
+  key: string;
+  categoryKey: string;
+  name: string;
+  description: string;
+  tierSystemOverride?: TierSystem;
+  metricType: "COUNT" | "STREAK" | "SCORE" | "BOOLEAN" | "COMPOSITE";
+  metricSource: string;
+  metricKey: string;
+  isActive: boolean;
+  sortOrder: number;
+  meta?: {
+    icon?: string;
+    tags?: string[];
+    tooltip?: string;
+  };
+  tiers: ChallengeTierDef[];
+}
+
+export interface ChallengeCategoryDef {
+  key: string;
+  name: string;
+  description: string;
+  tierSystem: TierSystem;
+  sortOrder: number;
+}
+
+export interface HedgeChallengeConfig {
+  categories: ChallengeCategoryDef[];
+  challenges: ChallengeDef[];
+}
+
+export const HEDGE_CHALLENGE_CONFIG: HedgeChallengeConfig = {
+  categories: [
+    {
+      key: "hero_progression",
+      name: "Hero Progression",
+      description: "Level up, quest, and grow your roster.",
+      tierSystem: "RARITY",
+      sortOrder: 1,
+    },
+    {
+      key: "economy_strategy",
+      name: "Economy & Strategy",
+      description: "Optimize your yields and reinvestment.",
+      tierSystem: "GENE",
+      sortOrder: 2,
+    },
+    {
+      key: "profession_specialization",
+      name: "Profession Specialization",
+      description: "Master mining, gardening, fishing, and foraging.",
+      tierSystem: "MIXED",
+      sortOrder: 3,
+    },
+    {
+      key: "ownership_collection",
+      name: "Ownership & Collection",
+      description: "Grow your army of heroes, pets, and Gen0s.",
+      tierSystem: "RARITY",
+      sortOrder: 4,
+    },
+    {
+      key: "behavior_engagement",
+      name: "Behavior & Engagement",
+      description: "Show your commitment to the Kingdom and to Hedge.",
+      tierSystem: "GENE",
+      sortOrder: 5,
+    },
+    {
+      key: "seasonal_events",
+      name: "Seasonal Events",
+      description: "Limited-time challenges that rotate with the seasons.",
+      tierSystem: "MIXED",
+      sortOrder: 6,
+    },
+    {
+      key: "prestige_overall",
+      name: "Prestige",
+      description: "Ultra-rare account-wide achievements.",
+      tierSystem: "PRESTIGE",
+      sortOrder: 7,
+    },
+    {
+      key: "summoning_prestige",
+      name: "Summoning Prestige",
+      description: "Ultra-rare summons and bloodlines few ever see.",
+      tierSystem: "PRESTIGE",
+      sortOrder: 8,
+    },
+  ],
+
+  challenges: [
+    // CATEGORY 1: HERO PROGRESSION (RARITY)
+    {
+      key: "hero_riser",
+      categoryKey: "hero_progression",
+      name: "Hero Riser",
+      description: "Accumulate total hero levels across your roster.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "total_levels",
+      isActive: true,
+      sortOrder: 1,
+      meta: { icon: "sprout", tags: ["progression", "levels"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 100, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 300, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 600, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 1000, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 2000, sortOrder: 5, isPrestige: true },
+      ],
+    },
+    {
+      key: "master_of_professions",
+      categoryKey: "hero_progression",
+      name: "Master of Professions",
+      description: "Complete profession quests with any heroes.",
+      metricType: "COUNT",
+      metricSource: "onchain_quests",
+      metricKey: "profession_quests_total",
+      isActive: true,
+      sortOrder: 2,
+      meta: { icon: "wrench", tags: ["quests", "professions"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 100, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 500, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 2000, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 5000, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 10000, sortOrder: 5, isPrestige: true },
+      ],
+    },
+    {
+      key: "eternal_summoner",
+      categoryKey: "hero_progression",
+      name: "The Eternal Summoner",
+      description: "Perform hero summons.",
+      metricType: "COUNT",
+      metricSource: "onchain_summons",
+      metricKey: "total_summons",
+      isActive: true,
+      sortOrder: 3,
+      meta: { icon: "sparkles", tags: ["summons"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 5, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 15, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 30, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 60, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 120, sortOrder: 5, isPrestige: true },
+      ],
+    },
+    {
+      key: "class_mastery_trial",
+      categoryKey: "hero_progression",
+      name: "Class Mastery Trial",
+      description: "Level different hero classes to 10+.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "classes_level10_plus",
+      isActive: true,
+      sortOrder: 4,
+      meta: { icon: "graduation-cap", tags: ["classes", "levels"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 3, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 5, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 7, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 10, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 14, sortOrder: 5, isPrestige: true, meta: { description: "All basic + advanced classes at level 10+." } },
+      ],
+    },
+    {
+      key: "great_questor_streak",
+      categoryKey: "hero_progression",
+      name: "The Great Questor",
+      description: "Maintain a streak of days with at least one quest.",
+      metricType: "STREAK",
+      metricSource: "behavior_model",
+      metricKey: "quest_day_streak",
+      isActive: true,
+      sortOrder: 5,
+      meta: { icon: "calendar", tags: ["streaks", "activity"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 3, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 7, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 14, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 30, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 60, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    // CATEGORY 2: ECONOMY & STRATEGY (GENE)
+    {
+      key: "yield_strategist",
+      categoryKey: "economy_strategy",
+      name: "Yield Strategist",
+      description: "Optimize questing APR compared to your heroes' theoretical max potential.",
+      metricType: "SCORE",
+      metricSource: "behavior_model",
+      metricKey: "quest_efficiency_pct",
+      isActive: true,
+      sortOrder: 1,
+      meta: { icon: "trending-up", tags: ["apr", "efficiency"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 50, sortOrder: 1, meta: { description: "50% efficiency." } },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 70, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 85, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 95, sortOrder: 4, isPrestige: true, meta: { description: "Maintain >95% for 30 days." } },
+      ],
+    },
+    {
+      key: "garden_architect",
+      categoryKey: "economy_strategy",
+      name: "Garden Architect",
+      description: "Accumulate yield from Gardens and LP positions.",
+      metricType: "COUNT",
+      metricSource: "onchain_gardens",
+      metricKey: "lp_yield_token_equivalent",
+      isActive: true,
+      sortOrder: 2,
+      meta: { icon: "leaf", tags: ["gardens", "lp", "yield"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 500, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 2500, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10000, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 25000, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "token_steward",
+      categoryKey: "economy_strategy",
+      name: "Token Steward",
+      description: "Maintain a healthy JEWEL/CRYSTAL/METIS portfolio.",
+      metricType: "SCORE",
+      metricSource: "onchain_portfolio",
+      metricKey: "jewel_equivalent_balance",
+      isActive: true,
+      sortOrder: 3,
+      meta: { icon: "gem", tags: ["portfolio"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 100, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 300, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 1000, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 5000, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "reinvestment_sage",
+      categoryKey: "economy_strategy",
+      name: "Reinvestment Sage",
+      description: "Reinvest a healthy percentage of your profits back into the Kingdom.",
+      metricType: "SCORE",
+      metricSource: "behavior_model",
+      metricKey: "reinvest_ratio_pct",
+      isActive: true,
+      sortOrder: 4,
+      meta: { icon: "refresh-cw", tags: ["reinvest", "anti-extractor"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 30, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 50, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 70, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 85, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "optimization_follower",
+      categoryKey: "economy_strategy",
+      name: "Optimization Follower",
+      description: "Complete optimizations suggested by Hedge.",
+      metricType: "COUNT",
+      metricSource: "behavior_model",
+      metricKey: "optimizations_completed",
+      isActive: true,
+      sortOrder: 5,
+      meta: { icon: "brain", tags: ["hedge", "advice"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 15, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 40, sortOrder: 4, isPrestige: true },
+      ],
+    },
+
+    // CATEGORY 3: PROFESSION SPECIALIZATION (MIXED)
+    {
+      key: "great_miner",
+      categoryKey: "profession_specialization",
+      name: "The Great Miner",
+      description: "Complete mining quests.",
+      metricType: "COUNT",
+      metricSource: "onchain_quests",
+      metricKey: "mining_quests",
+      isActive: true,
+      sortOrder: 1,
+      meta: { icon: "pickaxe", tags: ["mining"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 50, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 250, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 1000, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 3000, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 6000, sortOrder: 5, isPrestige: true },
+      ],
+    },
+    {
+      key: "herbalist",
+      categoryKey: "profession_specialization",
+      name: "The Herbalist",
+      description: "Complete gardening quests.",
+      metricType: "COUNT",
+      metricSource: "onchain_quests",
+      metricKey: "gardening_quests",
+      isActive: true,
+      sortOrder: 2,
+      meta: { icon: "flower-2", tags: ["gardening"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 50, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 250, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 1000, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 3000, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 6000, sortOrder: 5, isPrestige: true },
+      ],
+    },
+    {
+      key: "fisher_king",
+      categoryKey: "profession_specialization",
+      name: "The Fisher King",
+      description: "Complete fishing quests.",
+      metricType: "COUNT",
+      metricSource: "onchain_quests",
+      metricKey: "fishing_quests",
+      isActive: true,
+      sortOrder: 3,
+      meta: { icon: "fish", tags: ["fishing"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 50, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 250, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 1000, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 3000, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 6000, sortOrder: 5, isPrestige: true },
+      ],
+    },
+    {
+      key: "ranger_of_the_wilds",
+      categoryKey: "profession_specialization",
+      name: "Ranger of the Wilds",
+      description: "Complete foraging quests.",
+      metricType: "COUNT",
+      metricSource: "onchain_quests",
+      metricKey: "foraging_quests",
+      isActive: true,
+      sortOrder: 4,
+      meta: { icon: "trees", tags: ["foraging"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 50, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 250, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 1000, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 3000, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 6000, sortOrder: 5, isPrestige: true },
+      ],
+    },
+    {
+      key: "profession_purist",
+      categoryKey: "profession_specialization",
+      name: "Profession Purist",
+      description: "Run profession quests with heroes that match the quest profession.",
+      metricType: "SCORE",
+      metricSource: "behavior_model",
+      metricKey: "profession_match_pct",
+      isActive: true,
+      sortOrder: 5,
+      meta: { icon: "target", tags: ["efficiency", "professions"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 60, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 75, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 85, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 95, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "bonus_trigger_master",
+      categoryKey: "profession_specialization",
+      name: "Bonus Trigger Master",
+      description: "Trigger profession quest bonuses with high consistency.",
+      metricType: "SCORE",
+      metricSource: "behavior_model",
+      metricKey: "profession_bonus_trigger_pct",
+      isActive: true,
+      sortOrder: 6,
+      meta: { icon: "sparkle", tags: ["bonus", "professions"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 20, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 35, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 50, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 65, sortOrder: 4, isPrestige: true },
+      ],
+    },
+
+    // CATEGORY 4: OWNERSHIP & COLLECTION (RARITY)
+    {
+      key: "house_of_heroes",
+      categoryKey: "ownership_collection",
+      name: "House of Heroes",
+      description: "Own multiple heroes.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "hero_count",
+      isActive: true,
+      sortOrder: 1,
+      meta: { icon: "castle", tags: ["heroes", "collection"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 5, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 15, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 30, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 60, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 120, sortOrder: 5, isPrestige: true },
+      ],
+    },
+    {
+      key: "pet_sanctuary",
+      categoryKey: "ownership_collection",
+      name: "Pet Sanctuary",
+      description: "Bond and own pets.",
+      metricType: "COUNT",
+      metricSource: "onchain_pets",
+      metricKey: "pet_count",
+      isActive: true,
+      sortOrder: 2,
+      meta: { icon: "paw-print", tags: ["pets"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 2, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 5, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 10, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 20, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 40, sortOrder: 5, isPrestige: true },
+      ],
+    },
+    {
+      key: "gen0_monarch",
+      categoryKey: "ownership_collection",
+      name: "Gen0 Monarch",
+      description: "Own Gen0 heroes.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "gen0_count",
+      isActive: true,
+      sortOrder: 3,
+      meta: { icon: "crown", tags: ["gen0"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 1, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 3, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 5, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 10, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 20, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    // CATEGORY 5: BEHAVIOR & ENGAGEMENT (GENE)
+    {
+      key: "kingdom_calls",
+      categoryKey: "behavior_engagement",
+      name: "The Kingdom Calls",
+      description: "Interact with Hedge Ledger.",
+      metricType: "COUNT",
+      metricSource: "discord_interactions",
+      metricKey: "messages_to_hedge",
+      isActive: true,
+      sortOrder: 1,
+      meta: { icon: "message-square", tags: ["hedge", "discord"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 10, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 50, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 200, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 1000, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "loyal_follower",
+      categoryKey: "behavior_engagement",
+      name: "Loyal Follower",
+      description: "Maintain a daily interaction streak with Hedge.",
+      metricType: "STREAK",
+      metricSource: "discord_interactions",
+      metricKey: "hedge_day_streak",
+      isActive: true,
+      sortOrder: 2,
+      meta: { icon: "megaphone", tags: ["streak", "hedge"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 3, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 7, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 14, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 30, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "non_extractor",
+      categoryKey: "behavior_engagement",
+      name: "The Non-Extractor",
+      description: "Maintain a healthy behavioral profile with low extractor score.",
+      metricType: "SCORE",
+      metricSource: "behavior_model",
+      metricKey: "extractor_score_inverted",
+      isActive: true,
+      sortOrder: 3,
+      meta: { icon: "flask-conical", tags: ["behavior", "anti-extractor"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 30, sortOrder: 1, meta: { description: "Extractor score < 70%." } },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 50, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 70, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 85, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "hedges_chosen",
+      categoryKey: "behavior_engagement",
+      name: "Hedge's Chosen",
+      description: "Send JEWEL to Hedge as a show of faith.",
+      metricType: "COUNT",
+      metricSource: "payment_events",
+      metricKey: "jewel_sent_to_hedge",
+      isActive: true,
+      sortOrder: 4,
+      meta: { icon: "circle", tags: ["loyalty", "payments"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 20, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 50, sortOrder: 4, isPrestige: true },
+      ],
+    },
+
+    // CATEGORY 6: SEASONAL EVENTS (MIXED)
+    {
+      key: "winters_solstice",
+      categoryKey: "seasonal_events",
+      name: "Winter's Solstice",
+      description: "Level heroes during the winter event window.",
+      metricType: "COUNT",
+      metricSource: "event_progress",
+      metricKey: "winter_level_ups",
+      isActive: false,
+      sortOrder: 1,
+      meta: { icon: "snowflake", tags: ["event", "levels"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 3, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 5, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 8, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 12, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 20, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    // CATEGORY 7: OVERALL PRESTIGE (PRESTIGE)
+    {
+      key: "true_exalted_bloodline",
+      categoryKey: "prestige_overall",
+      name: "True Exalted Bloodline",
+      description: "Own multiple Exalted-gene heroes.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "exalted_gene_hero_count",
+      isActive: true,
+      sortOrder: 1,
+      meta: { icon: "dna", tags: ["genes", "prestige"] },
+      tiers: [
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 10, sortOrder: 1, isPrestige: true },
+      ],
+    },
+    {
+      key: "mythic_hoarder",
+      categoryKey: "prestige_overall",
+      name: "Mythic Hoarder",
+      description: "Own Mythic rarity heroes.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "mythic_hero_count",
+      isActive: true,
+      sortOrder: 2,
+      meta: { icon: "star", tags: ["mythic"] },
+      tiers: [
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 3, sortOrder: 1, isPrestige: true },
+      ],
+    },
+    {
+      key: "eternal_activity",
+      categoryKey: "prestige_overall",
+      name: "Eternal Activity",
+      description: "Maintain long-term daily activity.",
+      metricType: "STREAK",
+      metricSource: "behavior_model",
+      metricKey: "long_term_active_days",
+      isActive: true,
+      sortOrder: 3,
+      meta: { icon: "flame", tags: ["activity", "streak"] },
+      tiers: [
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 120, sortOrder: 1, isPrestige: true },
+      ],
+    },
+    {
+      key: "master_of_all_trades",
+      categoryKey: "prestige_overall",
+      name: "Master of All Trades",
+      description: "Reach Rare tier or higher in every main challenge category.",
+      metricType: "BOOLEAN",
+      metricSource: "behavior_model",
+      metricKey: "all_categories_rare_plus",
+      isActive: true,
+      sortOrder: 4,
+      meta: { icon: "medal", tags: ["meta-achievement"] },
+      tiers: [
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 1, sortOrder: 1, isPrestige: true },
+      ],
+    },
+
+    // CATEGORY 8: SUMMONING PRESTIGE (PRESTIGE)
+    {
+      key: "summon_dragoon",
+      categoryKey: "summoning_prestige",
+      name: "The Dragonborn",
+      description: "Summon Dragoons and shape a draconic bloodline.",
+      metricType: "COUNT",
+      metricSource: "onchain_summons",
+      metricKey: "summons_dragoon",
+      isActive: true,
+      sortOrder: 1,
+      meta: { icon: "scale-3d", tags: ["summoning", "dragoon"] },
+      tiers: [
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 1, sortOrder: 1 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 3, sortOrder: 2, isPrestige: true },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 5, sortOrder: 3, isPrestige: true },
+      ],
+    },
+    {
+      key: "summon_dreadknight",
+      categoryKey: "summoning_prestige",
+      name: "The Dread Summoner",
+      description: "Summon a Dreadknight and bind one of the rarest souls in the Kingdom.",
+      metricType: "COUNT",
+      metricSource: "onchain_summons",
+      metricKey: "summons_dreadknight",
+      isActive: true,
+      sortOrder: 2,
+      meta: { icon: "skull", tags: ["summoning", "dreadknight", "ultra-rare"] },
+      tiers: [
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 1, sortOrder: 1, isPrestige: true },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 2, sortOrder: 2, isPrestige: true },
+      ],
+    },
+    {
+      key: "summon_sage",
+      categoryKey: "summoning_prestige",
+      name: "The Ascended Sages",
+      description: "Summon Sages and guide the wisdom of the realms.",
+      metricType: "COUNT",
+      metricSource: "onchain_summons",
+      metricKey: "summons_sage",
+      isActive: true,
+      sortOrder: 3,
+      meta: { icon: "bird", tags: ["summoning", "sage"] },
+      tiers: [
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 1, sortOrder: 1 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 3, sortOrder: 2, isPrestige: true },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 5, sortOrder: 3, isPrestige: true },
+      ],
+    },
+    {
+      key: "summon_paladin",
+      categoryKey: "summoning_prestige",
+      name: "Blade of Light",
+      description: "Summon Paladins to stand as shields of the Kingdom.",
+      metricType: "COUNT",
+      metricSource: "onchain_summons",
+      metricKey: "summons_paladin",
+      isActive: true,
+      sortOrder: 4,
+      meta: { icon: "sword", tags: ["summoning", "paladin"] },
+      tiers: [
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 1, sortOrder: 1 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 3, sortOrder: 2 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 5, sortOrder: 3, isPrestige: true },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 10, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "summon_dark_knight",
+      categoryKey: "summoning_prestige",
+      name: "Shadowmaker",
+      description: "Summon Dark Knights from the edge of the void.",
+      metricType: "COUNT",
+      metricSource: "onchain_summons",
+      metricKey: "summons_dark_knight",
+      isActive: true,
+      sortOrder: 5,
+      meta: { icon: "heart", tags: ["summoning", "dark_knight"] },
+      tiers: [
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 1, sortOrder: 1 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 3, sortOrder: 2 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 5, sortOrder: 3, isPrestige: true },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 10, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "summon_high_tier_genes",
+      categoryKey: "summoning_prestige",
+      name: "Gene Alchemist",
+      description: "Summon heroes with Advanced, Elite, and Exalted genes in their bloodlines.",
+      metricType: "COUNT",
+      metricSource: "onchain_summons",
+      metricKey: "summons_high_tier_genes",
+      isActive: true,
+      sortOrder: 6,
+      meta: { icon: "dna", tags: ["genes", "summoning"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1, meta: { description: "Summon a hero with an Advanced gene." } },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2, meta: { description: "Summon heroes with Elite genes." } },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 5, sortOrder: 3, meta: { description: "Summon heroes with Exalted genes." } },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 10, sortOrder: 4, isPrestige: true },
+      ],
+    },
+    {
+      key: "summon_mythic_heroes",
+      categoryKey: "summoning_prestige",
+      name: "Mythmaker",
+      description: "Summon Mythic rarity heroes.",
+      metricType: "COUNT",
+      metricSource: "onchain_summons",
+      metricKey: "summons_mythic_rarity",
+      isActive: true,
+      sortOrder: 7,
+      meta: { icon: "star", tags: ["mythic", "summoning"] },
+      tiers: [
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 1, sortOrder: 1 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 2, sortOrder: 2, isPrestige: true },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 3, sortOrder: 3, isPrestige: true },
+      ],
+    },
+    {
+      key: "summon_trifecta",
+      categoryKey: "summoning_prestige",
+      name: "Royal Lineage",
+      description: "Summon the trifecta: Dreadknight, Dragoon, and Sage across your account.",
+      metricType: "BOOLEAN",
+      metricSource: "onchain_summons",
+      metricKey: "has_trifecta_ultra_rare",
+      isActive: true,
+      sortOrder: 8,
+      meta: { icon: "crown", tags: ["trifecta", "ultra-rare"] },
+      tiers: [
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 1, sortOrder: 1, isPrestige: true },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 2, sortOrder: 2, isPrestige: true },
+      ],
+    },
+  ],
+};
