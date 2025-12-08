@@ -3578,9 +3578,10 @@ async function startAdminWebServer() {
       const offset = (page - 1) * pageSize;
 
       // Total count
-      const [{ count }] = await db
+      const countResult = await db
         .select({ count: sql`count(*)`.mapWith(Number) })
         .from(players);
+      const count = countResult[0]?.count || 0;
 
       // Page of players
       const playerRows = await db
