@@ -210,7 +210,9 @@ export async function updateProfile(profile) {
       kpis: profile.kpis,
       dfkSnapshot: profile.dfkSnapshot,
       flags: profile.flags,
-      recentMessages: profile.recentMessages || []
+      recentMessages: profile.recentMessages || [],
+      intentArchetype: profile.intentArchetype,
+      intentScores: profile.intentScores
     })
   };
 
@@ -434,6 +436,8 @@ function dbRowToProfile(row) {
     dfkSnapshot: profileData?.dfkSnapshot || null,
     flags: profileData?.flags || { ...DEFAULT_PROFILE.flags },
     recentMessages: profileData?.recentMessages || [],
+    intentArchetype: profileData?.intentArchetype || null,
+    intentScores: profileData?.intentScores || null,
     
     // Existing DB fields
     extractorScore: parseFloat(row.extractorScore || 0),

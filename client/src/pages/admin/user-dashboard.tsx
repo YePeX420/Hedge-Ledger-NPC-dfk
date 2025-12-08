@@ -243,6 +243,24 @@ export default function AdminUserDashboard() {
     },
   });
 
+  const reclassifyMutation = useMutation({
+    mutationFn: async () => {
+      if (!user?.id) throw new Error("No user ID");
+      return apiRequest("POST", `/api/admin/users/${user.id}/reclassify`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user/summary", discordId] });
+      toast({ title: "User reclassified", description: "Intent classification has been updated." });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to reclassify user",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="p-6 space-y-4">
@@ -365,11 +383,23 @@ export default function AdminUserDashboard() {
       </Card>
 
       {/* Intent Classification Card - show when either intentArchetype or intentScores exist */}
-      {(user.intentArchetype || user.intentScores) && (
+      {(user.intentArchetype || user.intentScores) ? (
         <Card>
-          <CardHeader>
-            <CardTitle>Intent Classification</CardTitle>
-            <CardDescription>AI-powered player classification based on behavior patterns and wallet activity.</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div>
+              <CardTitle>Intent Classification</CardTitle>
+              <CardDescription>AI-powered player classification based on behavior patterns and wallet activity.</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => reclassifyMutation.mutate()}
+              disabled={reclassifyMutation.isPending || !user?.id}
+              data-testid="button-reclassify"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${reclassifyMutation.isPending ? 'animate-spin' : ''}`} />
+              {reclassifyMutation.isPending ? 'Reclassifying...' : 'Reclassify'}
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -454,6 +484,25 @@ export default function AdminUserDashboard() {
               )}
             </div>
           </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div>
+              <CardTitle>Intent Classification</CardTitle>
+              <CardDescription>This user has not been classified yet. Click to run intent classification.</CardDescription>
+            </div>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => reclassifyMutation.mutate()}
+              disabled={reclassifyMutation.isPending || !user?.id}
+              data-testid="button-reclassify-initial"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${reclassifyMutation.isPending ? 'animate-spin' : ''}`} />
+              {reclassifyMutation.isPending ? 'Classifying...' : 'Run Classification'}
+            </Button>
+          </CardHeader>
         </Card>
       )}
 

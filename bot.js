@@ -3706,7 +3706,43 @@ async function startAdminWebServer() {
     }
   });
 
-  
+  // POST /api/admin/users/:id/reclassify - Trigger intent classification for a user
+  app.post("/api/admin/users/:id/reclassify", isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const playerRows = await db
+        .select()
+        .from(players)
+        .where(eq(players.id, parseInt(id, 10)))
+        .limit(1);
+
+      if (!playerRows || playerRows.length === 0) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const player = playerRows[0];
+      const discordId = player.discordId;
+
+      console.log(`[API] Reclassifying user ${player.id} / ${discordId}`);
+      
+      // Use forceReclassify from player-profile-service
+      const reclassifiedProfile = await forceReclassify(discordId);
+
+      res.json({ 
+        success: true, 
+        intentArchetype: reclassifiedProfile.intentArchetype,
+        intentScores: reclassifiedProfile.intentScores,
+        archetype: reclassifiedProfile.archetype,
+        tier: reclassifiedProfile.tier,
+        state: reclassifiedProfile.state
+      });
+    } catch (err) {
+      console.error("❌ Error reclassifying user:", err);
+      res.status(500).json({ error: "Failed to reclassify user" });
+    }
+  });
+
   // PATCH /api/admin/users/:id/tier - Update user tier
   app.patch('/api/admin/users/:id/tier', isAdmin, async (req, res) => {
     try {
