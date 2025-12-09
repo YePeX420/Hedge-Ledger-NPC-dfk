@@ -54,11 +54,15 @@ import {
   isHistoricalSyncRunning,
   abortHistoricalSync,
   getIndexerProgress,
+  initIndexerProgress,
   startMaintenanceScheduler,
   runMaintenanceSync,
   runIncrementalBatch,
   isIncrementalBatchRunning,
-  getCurrentBatchProgress
+  getCurrentBatchProgress,
+  runWorkerBatch,
+  getAllWorkerProgress,
+  getWorkerIndexerName
 } from './bridge-tracker/bridge-indexer.js';
 import {
   runPriceEnrichment,
@@ -4466,6 +4470,221 @@ async function startAdminWebServer() {
       .catch((err) => {
         console.error('[API] Price enrichment error:', err);
       });
+  });
+
+  // ============================================================================
+  // PARALLEL BRIDGE SYNC API (In-process workers)
+  // ============================================================================
+  
+  // Track running in-process parallel workers
+  const parallelSyncState = {
+    running: false,
+    workersTotal: 0,
+    workers: new Map(),
+    startedAt: null,
+  };
+
+  // GET /api/admin/bridge/parallel-sync/status - Get parallel sync status
+  app.get('/api/admin/bridge/parallel-sync/status', isAdmin, async (req, res) => {
+    try {
+      const latestBlock = await getBridgeLatestBlock();
+      const mainProgress = await getIndexerProgress('bridge_sync');
+      
+      // Get all worker progress if parallel sync has been run
+      const workerProgress = parallelSyncState.workersTotal > 0 
+        ? await getAllWorkerProgress(parallelSyncState.workersTotal)
+        : [];
+      
+      // Calculate combined progress from worker ranges
+      let totalBlocksProcessed = 0;
+      let totalBlocksToProcess = 0;
+      let allComplete = workerProgress.length > 0;
+      
+      for (const worker of workerProgress) {
+        // Use the stored genesis block as the worker's range start
+        const workerStart = worker.genesisBlock || 0;
+        const blocksPerWorker = Math.ceil(latestBlock / (parallelSyncState.workersTotal || workerProgress.length || 1));
+        const workerEnd = Math.min(workerStart + blocksPerWorker, latestBlock);
+        
+        const workerTotal = workerEnd - workerStart;
+        const processed = Math.max(0, worker.lastIndexedBlock - workerStart);
+        
+        totalBlocksToProcess += workerTotal;
+        totalBlocksProcessed += Math.min(processed, workerTotal);
+        
+        if (worker.status !== 'complete' && worker.lastIndexedBlock < workerEnd) {
+          allComplete = false;
+        }
+      }
+      
+      const combinedProgress = totalBlocksToProcess > 0 
+        ? Math.round((totalBlocksProcessed / totalBlocksToProcess) * 100) 
+        : 0;
+      
+      res.json({
+        running: parallelSyncState.running,
+        workersTotal: parallelSyncState.workersTotal,
+        startedAt: parallelSyncState.startedAt,
+        latestBlock,
+        mainIndexer: mainProgress ? {
+          lastIndexedBlock: mainProgress.lastIndexedBlock,
+          totalEventsIndexed: mainProgress.totalEventsIndexed,
+          status: mainProgress.status,
+        } : null,
+        workers: workerProgress.map(w => {
+          const workerStart = w.genesisBlock || 0;
+          const blocksPerWorker = Math.ceil(latestBlock / (parallelSyncState.workersTotal || workerProgress.length || 1));
+          const workerEnd = Math.min(workerStart + blocksPerWorker, latestBlock);
+          const workerProgressPct = Math.max(0, Math.min(100, ((w.lastIndexedBlock - workerStart) / (workerEnd - workerStart)) * 100));
+          
+          return {
+            workerId: w.workerId,
+            lastIndexedBlock: w.lastIndexedBlock,
+            rangeStart: workerStart,
+            rangeEnd: workerEnd,
+            progress: Math.round(workerProgressPct),
+            totalEventsIndexed: w.totalEventsIndexed,
+            status: w.status,
+            totalBatchCount: w.totalBatchCount,
+          };
+        }),
+        combinedProgress,
+        allComplete: workerProgress.length > 0 && allComplete,
+      });
+    } catch (error) {
+      console.error('[API] Error getting parallel sync status:', error);
+      res.status(500).json({ error: 'Failed to get status', details: error.message });
+    }
+  });
+
+  // POST /api/admin/bridge/parallel-sync/start - Start parallel sync workers
+  app.post('/api/admin/bridge/parallel-sync/start', isAdmin, async (req, res) => {
+    console.log('[ParallelSync] POST /start received, body:', req.body);
+    try {
+      if (parallelSyncState.running) {
+        return res.status(409).json({ error: 'Parallel sync already running' });
+      }
+      
+      const workersTotal = parseInt(req.body.workers) || 4;
+      const batchSize = parseInt(req.body.batchSize) || 10000;
+      const maxBatchesPerWorker = parseInt(req.body.maxBatches) || 50;
+      
+      if (workersTotal < 1 || workersTotal > 8) {
+        return res.status(400).json({ error: 'Workers must be between 1 and 8' });
+      }
+      
+      console.log(`[ParallelSync] Starting ${workersTotal} workers with batch size ${batchSize}`);
+      
+      parallelSyncState.running = true;
+      parallelSyncState.workersTotal = workersTotal;
+      parallelSyncState.startedAt = new Date();
+      parallelSyncState.workers.clear();
+      
+      res.json({ 
+        success: true, 
+        message: `Started ${workersTotal} parallel workers`,
+        workersTotal,
+        batchSize,
+        maxBatchesPerWorker,
+      });
+      
+      // Get latest block for range calculation
+      const latestBlock = await getBridgeLatestBlock();
+      const blocksPerWorker = Math.ceil(latestBlock / workersTotal);
+      
+      // Run workers in parallel (in-process)
+      const workerPromises = [];
+      
+      for (let workerId = 1; workerId <= workersTotal; workerId++) {
+        const rangeStart = (workerId - 1) * blocksPerWorker;
+        const rangeEnd = Math.min(workerId * blocksPerWorker, latestBlock);
+        const indexerName = getWorkerIndexerName(workerId, workersTotal);
+        
+        console.log(`[ParallelSync] Worker ${workerId}: blocks ${rangeStart} → ${rangeEnd}`);
+        
+        // Initialize worker progress
+        await initIndexerProgress(indexerName, rangeStart);
+        
+        parallelSyncState.workers.set(workerId, {
+          running: true,
+          lastUpdate: new Date(),
+          progress: { rangeStart, rangeEnd },
+        });
+        
+        // Create worker loop
+        const workerLoop = async () => {
+          let batchCount = 0;
+          while (batchCount < maxBatchesPerWorker && parallelSyncState.running) {
+            const result = await runWorkerBatch({
+              batchSize,
+              indexerName,
+              rangeEnd,
+            });
+            
+            batchCount++;
+            parallelSyncState.workers.set(workerId, {
+              running: true,
+              lastUpdate: new Date(),
+              progress: result,
+            });
+            
+            if (result.status === 'complete') {
+              console.log(`[ParallelSync] Worker ${workerId} completed its range`);
+              break;
+            }
+            
+            if (result.status === 'error') {
+              console.error(`[ParallelSync] Worker ${workerId} error:`, result.error);
+              await new Promise(r => setTimeout(r, 5000)); // Wait before retry
+            }
+            
+            // Brief delay between batches to avoid RPC overload
+            await new Promise(r => setTimeout(r, 500));
+          }
+          
+          parallelSyncState.workers.set(workerId, {
+            running: false,
+            lastUpdate: new Date(),
+            progress: { complete: true },
+          });
+        };
+        
+        workerPromises.push(workerLoop());
+      }
+      
+      // Wait for all workers to complete (in background)
+      Promise.all(workerPromises)
+        .then(() => {
+          console.log('[ParallelSync] All workers completed');
+          parallelSyncState.running = false;
+        })
+        .catch((error) => {
+          console.error('[ParallelSync] Worker error:', error);
+          parallelSyncState.running = false;
+        });
+        
+    } catch (error) {
+      console.error('[API] Error starting parallel sync:', error);
+      parallelSyncState.running = false;
+      res.status(500).json({ error: 'Failed to start parallel sync', details: error.message });
+    }
+  });
+
+  // POST /api/admin/bridge/parallel-sync/stop - Stop parallel sync workers
+  app.post('/api/admin/bridge/parallel-sync/stop', isAdmin, async (req, res) => {
+    try {
+      if (!parallelSyncState.running) {
+        return res.status(400).json({ error: 'Parallel sync not running' });
+      }
+      
+      console.log('[ParallelSync] Stopping workers...');
+      parallelSyncState.running = false;
+      
+      res.json({ success: true, message: 'Parallel sync stopping after current batches complete' });
+    } catch (error) {
+      console.error('[API] Error stopping parallel sync:', error);
+      res.status(500).json({ error: 'Failed to stop parallel sync' });
+    }
   });
 
   // ============================================================================

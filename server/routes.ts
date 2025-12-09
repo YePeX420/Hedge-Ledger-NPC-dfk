@@ -1059,6 +1059,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // POST /api/admin/bridge/parallel-sync/start - Start parallel sync workers
   app.post("/api/admin/bridge/parallel-sync/start", isAdmin, async (req: any, res: any) => {
+    console.log('[ParallelSync] POST /start received, body:', req.body);
     try {
       if (parallelSyncState.running) {
         return res.status(409).json({ error: 'Parallel sync already running' });
