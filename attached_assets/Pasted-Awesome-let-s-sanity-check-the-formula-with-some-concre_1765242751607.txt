@@ -1,0 +1,193 @@
+Awesome, let’s sanity-check the formula with some **concrete player archetypes** so you can “feel” how tiers shake out.
+
+I’ll show:
+
+1. The **inputs** (heroes, net worth, activity, etc.)
+2. The **CPS + tier result**
+3. A short interpretation so you can see if it matches your intuition.
+
+Numbers below are rounded so they’re readable; the backend will use exact math from `TierService.ts`.
+
+---
+
+## 🧒 Profile 1 – Fresh Newbie (COMMON)
+
+**Intuition:** Brand new player, tiny bag, lightly testing the game.
+
+**Inputs (cluster-wide):**
+
+* Heroes:
+
+  * 1 Common hero
+  * 0 of everything else
+  * ~10 total hero levels
+* Wallet net worth: **~$50**
+* Last 30 days:
+
+  * ~40 profession quests
+  * 0 summons
+  * ~30% stamina actually used
+  * 5 active days
+* Account age: **10 days**
+* Behavior (30d):
+
+  * reinvest ratio: **0.2**
+  * netHeroDelta: 0 (not really acquiring more heroes)
+  * heavySellActivityFlag: 0
+
+**Result (approx):**
+
+* Composite Power Score (CPS): **≈ 11.3**
+* **Tier:** `COMMON` (CPS < 20)
+
+👉 This wallet is exactly where we want true newbies:
+small CPS, clearly NOT dragged into higher tiers.
+
+---
+
+## 🌱 Profile 2 – Growing Early Player (UNCOMMON)
+
+**Intuition:** Has put some money and time in, but still early-mid.
+
+**Inputs:**
+
+* Heroes:
+
+  * 5 Common, 5 Uncommon, 3 Rare, 1 Legendary, 0 Mythic
+  * ~150 total hero levels
+* Wallet: **~$500** net worth
+* Activity last 30d:
+
+  * ~300 profession quests
+  * 5 summons
+  * ~70% stamina used
+  * 20 active days
+* Account age: **~120 days** (4 months)
+* Behavior:
+
+  * reinvest ratio: **0.6**
+  * netHeroDelta: +2 (actually adding heroes)
+  * heavySellActivityFlag: 0
+
+**Result:**
+
+* CPS: **≈ 24.9**
+* **Tier:** `UNCOMMON` (20 ≤ CPS < 40)
+
+👉 This looks like a **legit growing account**:
+
+* More engaged than a total newbie
+* Still far from whale/OG territory
+* Perfect candidate for **Uncommon League** bracket.
+
+---
+
+## 🛡️ Profile 3 – Established Mid-Game Player (RARE)
+
+**Intuition:** Solid roster, noticeable bag, very active.
+
+**Inputs:**
+
+* Heroes:
+
+  * 20 Common, 20 Uncommon, 20 Rare, 5 Legendary, 2 Mythic
+  * ~1,500 total levels
+* Wallet: **~$8,000** net worth
+* Activity last 30d:
+
+  * ~3,000 profession quests
+  * 60 summons
+  * ~95% stamina used
+  * 30 active days (daily)
+* Account age: **~400 days** (> 1 year)
+* Behavior:
+
+  * reinvest ratio: **0.8**
+  * netHeroDelta: +10
+  * heavySellActivityFlag: 0
+
+**Result:**
+
+* CPS: **≈ 47.3**
+* **Tier:** `RARE` (40 ≤ CPS < 60)
+
+👉 This is your **core mid-to-upper class**:
+
+* Deep into the game
+* Good roster, high activity
+* Should not be fighting newbies, but also not yet in the “Mythic OG” bucket.
+* Rare League feels right.
+
+---
+
+## 👑 Profile 4 – True OG / Whale (MYTHIC)
+
+**Intuition:** Multi-year degen, many heroes, big bag, grinding daily, summoning like crazy.
+
+**Inputs:**
+
+* Heroes:
+
+  * 80 Common, 120 Uncommon, 100 Rare, 60 Legendary, 30 Mythic
+  * ~9,000 total hero levels
+* Wallet: **~$200,000** net worth
+* Activity last 30d:
+
+  * ~10,000 profession quests
+  * 250 summons
+  * ~99% stamina used
+  * 30/30 active days
+* Account age: **~1,200 days** (~3+ years)
+* Behavior:
+
+  * reinvest ratio: **0.95**
+  * netHeroDelta: +40
+  * heavySellActivityFlag: 0
+
+**Result:**
+
+* CPS: **≈ 99.3**
+* **Tier:** `MYTHIC` (CPS ≥ 80)
+
+👉 This is exactly what we want `MYTHIC` to represent:
+
+* Whale / OG power
+* Extremely engaged
+* Has no business in Common/Rare brackets
+* Perfect “Mythic League” champion material
+
+---
+
+## 🧪 What this tells us / how to use it
+
+1. **The thresholds feel sane**
+
+   * New → COMMON
+   * Early → UNCOMMON
+   * Solid → RARE
+   * Top OG → MYTHIC
+     (And we also saw earlier that a strong but not insane account lands in LEGENDARY.)
+
+2. **Smurfing gets crushed**
+
+   * If an OG tries to strip a few heroes + tokens into a “new” wallet:
+
+     * HPS jumps
+     * WVS jumps
+     * CPS quickly climbs into `RARE/LEGENDARY/MYTHIC` range
+       → Smurf gets auto-bucketed into a high tier.
+
+3. **You can still tune it**
+
+   * If you want more people in RARE vs LEGENDARY, we just tweak:
+
+     * normalization denominators (2500, 300, 5.0, etc.)
+     * CPS thresholds (20/40/60/80)
+   * But the *shape* (who is where) already looks good.
+
+---
+
+If you want next, I can:
+
+* Turn these 4 profiles into **unit tests** for `computeBaseTierFromMetrics()` (so every deploy guarantees sane tiers), or
+* Help design the **leaderboard scoring formulas** for one of your first monthly league themes (e.g., “Miner’s Rush” or “Bloodline Trials”).

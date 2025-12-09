@@ -1,0 +1,244 @@
+Below is a **clean, production-ready Base Tier Assignment Formula** for your DFK League System.
+
+This formula:
+
+* Uses **the KPIs you already track**
+* Is **objective**, **transparent**, and **anti-smurf resilient**
+* Fits neatly into your backend classification engine
+* Produces **COMMON → MYTHIC tiers**
+* Automatically adjusts for **wallet power, activity, account age**, and **behavior health**
+
+This is the formula Replit (backend) should implement inside your **TierService**.
+
+---
+
+# 🧠 **Base Tier Assignment Formula (v1.0)**
+
+**Input:** `clusterKey` (aggregated across all wallets for that user)
+**Output:** `TierCode = COMMON | UNCOMMON | RARE | LEGENDARY | MYTHIC`
+
+We compute a **Composite Power Score (CPS)** from 5 components:
+
+---
+
+# 📊 1️⃣ Component A — **Hero Power Score (HPS)**
+
+Weighted measure of heroes owned.
+
+**HPS =**
+
+```
+(1 × Common heroes)
++ (2 × Uncommon heroes)
++ (4 × Rare heroes)
++ (8 × Legendary heroes)
++ (12 × Mythic heroes)
++ (0.1 × total hero levels)
+```
+
+**Caps & notes:**
+
+* You count ALL linked wallets in the user’s cluster.
+* This prevents smurfing via splitting heroes across wallets.
+
+---
+
+# 💰 2️⃣ Component B — **Wallet Value Score (WVS)**
+
+Based on JEWEL-equivalent net worth (tokens + LP + staked positions).
+
+Formula:
+
+```
+WVS = log10(1 + total_networth_usd)
+```
+
+This compresses whales without flattening small players.
+
+**Examples:**
+
+* $50 → WVS ≈ 1.7
+* $500 → WVS ≈ 2.7
+* $5,000 → WVS ≈ 3.7
+* $50,000 → WVS ≈ 4.7
+
+---
+
+# ⚙️ 3️⃣ Component C — **Activity Score (AS)**
+
+Based on recent (last 30d) engagement:
+
+```
+AS =
+  (0.03 × total profession quests 30d)
++ (0.1 × summons 30d)
++ (0.02 × stamina utilization rate × 100)
++ (0.5 × days_active_last_30d)
+```
+
+Notes:
+
+* Active players climb out of Common/Uncommon easily.
+* Summoners are rewarded since they demonstrate deeper gameplay.
+
+---
+
+# 🧬 4️⃣ Component D — **Account Age Score (AAS)**
+
+Protects newbies from being forced into high tiers.
+
+```
+AAS =
+  if age_days < 30: 0
+  if 30 ≤ age_days < 90: 1
+  if 90 ≤ age_days < 180: 2
+  if 180 ≤ age_days < 365: 3
+  if age_days ≥ 365: 4
+```
+
+(You may use first seen chain activity, first hero minted, or first quest timestamp.)
+
+---
+
+# 🛡️ 5️⃣ Component E — **Behavior Health Score (BHS)**
+
+Anti-extractor metric based on reinvestment + selling patterns.
+
+```
+BHS =
+  2 × reinvest_ratio_30d
++ 1 × positive_delta_heroes
+- 2 × heavy_sell_activity
+```
+
+Where:
+
+* `reinvest_ratio_30d` ∈ [0,1]
+* `positive_delta_heroes` = net hero acquisitions (not transfers)
+* `heavy_sell_activity` = 1 if high outflow → prevents extractors from reaching higher tiers
+
+**Range:** approx −2 to +3.
+
+---
+
+# 🧮 ⭐ **Composite Power Score (CPS)**
+
+The weighted combination:
+
+```
+CPS =
+  (0.40 × HPS_normalized)
++ (0.25 × WVS_normalized)
++ (0.20 × AS_normalized)
++ (0.10 × AAS_normalized)
++ (0.05 × BHS_normalized)
+```
+
+Each component is normalized to **0–100** internally.
+
+This weighting gives:
+
+* **Heroes** → biggest factor
+* **Wallet value** & **activity** → strong factors
+* **Account age & behavior** → modifiers, not core drivers
+
+---
+
+# 🧩 Normalization (backend implementation detail)
+
+A simple approach:
+
+### **HPS_normalized:**
+
+```
+min(100, (HPS / 2500) * 100)
+```
+
+### **WVS_normalized:**
+
+```
+min(100, (WVS / 5.0) * 100)
+```
+
+### **AS_normalized:**
+
+```
+min(100, (AS / 300) * 100)
+```
+
+### **AAS_normalized:**
+
+```
+(AAS / 4) * 100
+```
+
+### **BHS_normalized:**
+
+Map from approx. range −2 to +3 into 0–100:
+
+```
+((BHS + 2) / 5) * 100
+```
+
+---
+
+# 🎯 **Final Tier Mapping (CPS → TierCode)**
+
+```
+if CPS < 20:      tier = "COMMON"
+else if CPS < 40: tier = "UNCOMMON"
+else if CPS < 60: tier = "RARE"
+else if CPS < 80: tier = "LEGENDARY"
+else:             tier = "MYTHIC"
+```
+
+Why these thresholds?
+
+* **Low CPS** → new player or very low activity
+* **Uncommon** → early growth
+* **Rare** → engaged players with moderate power
+* **Legendary** → strong mid-game
+* **Mythic** → whales, OGs, multi-year vets, heavy summoners
+
+  * Very hard to smurf your way out of this tier
+
+---
+
+# 🔥 Anti-Smurf Resistance Built Into the Formula
+
+### ✔ Uses **clusterKey** → cannot split power across wallets
+
+### ✔ Wallet age protects newbies
+
+### ✔ Extractors are blocked from high tiers
+
+### ✔ Summoning-heavy OGs are naturally detected
+
+### ✔ Hero rarity weighting is exponential
+
+### ✔ Net worth log compression prevents single-token spikes
+
+### ✔ 30d activity gives real behavior signals
+
+Even if an OG moves a few heroes to a smurf:
+
+* **HPS skyrockets**
+* **WVS increases**
+* CPS exceeds tier boundaries
+  → They get escalated to Legendary/Mythic instantly.
+
+Perfect.
+
+---
+
+# 🧩 Now, to integrate it into backend:
+
+Tell Replit:
+
+> “Implement `TierService.computeBaseTier(clusterKey)` using the Base Tier Assignment Formula from `leagues.ts formulas`. Use all linked wallets in the cluster and lifetime/30d metrics aggregated from the Challenge Engine.”
+
+And I can generate that file for you too.
+
+---
+
+# 🚀 Want the **ready-to-drop-in TypeScript version of TierService.computeBaseTier()** matching this formula?

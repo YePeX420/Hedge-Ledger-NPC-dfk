@@ -1,0 +1,242 @@
+Nice, this is exactly the kind of thing that keeps future “tuning” from accidentally breaking your logic.
+
+Below is a **ready-to-drop-in Jest test file** that:
+
+* Imports `computeBaseTierFromMetrics` and types
+* Builds the 4 archetype profiles
+* Verifies that each one lands in the **expected tier bucket**
+* Also checks CPS falls into the correct **range band** (COMMON < 20, etc.)
+
+You can adjust to Vitest easily if you’re using that instead of Jest.
+
+---
+
+### 📁 `src/services/classification/TierService.test.ts`
+
+```ts
+// src/services/classification/TierService.test.ts
+
+import {
+  computeBaseTierFromMetrics,
+  type ClusterKpiSnapshot,
+} from "./TierService";
+import type { TierCode } from "../../api/contracts/leagues";
+
+function expectTier(
+  snapshot: ClusterKpiSnapshot,
+  expectedTier: TierCode,
+  cpsRange?: { min?: number; max?: number }
+) {
+  const result = computeBaseTierFromMetrics(snapshot);
+
+  // Tier check
+  expect(result.tier).toBe(expectedTier);
+
+  // Optional CPS band sanity check
+  if (cpsRange?.min !== undefined) {
+    expect(result.cps).toBeGreaterThanOrEqual(cpsRange.min);
+  }
+  if (cpsRange?.max !== undefined) {
+    expect(result.cps).toBeLessThan(cpsRange.max);
+  }
+
+  // Uncomment to debug a profile quickly:
+  // console.log(expectedTier, result);
+}
+
+describe("TierService.computeBaseTierFromMetrics", () => {
+  test("Profile 1 – Fresh Newbie → COMMON", () => {
+    const snapshot: ClusterKpiSnapshot = {
+      heroPower: {
+        commonHeroes: 1,
+        uncommonHeroes: 0,
+        rareHeroes: 0,
+        legendaryHeroes: 0,
+        mythicHeroes: 0,
+        totalHeroLevels: 10,
+      },
+      walletValue: {
+        totalNetWorthUsd: 50, // small bag
+      },
+      activity30d: {
+        professionQuests30d: 40,
+        summons30d: 0,
+        staminaUtilizationRate: 0.3,
+        daysActive30d: 5,
+      },
+      accountAge: {
+        accountAgeDays: 10, // < 30 days
+      },
+      behavior30d: {
+        reinvestRatio30d: 0.2,
+        netHeroDelta30d: 0,
+        heavySellActivityFlag: 0,
+      },
+    };
+
+    expectTier(snapshot, "COMMON", {
+      min: 0,
+      max: 20, // COMMON band
+    });
+  });
+
+  test("Profile 2 – Growing Early Player → UNCOMMON", () => {
+    const snapshot: ClusterKpiSnapshot = {
+      heroPower: {
+        commonHeroes: 5,
+        uncommonHeroes: 5,
+        rareHeroes: 3,
+        legendaryHeroes: 1,
+        mythicHeroes: 0,
+        totalHeroLevels: 150,
+      },
+      walletValue: {
+        totalNetWorthUsd: 500,
+      },
+      activity30d: {
+        professionQuests30d: 300,
+        summons30d: 5,
+        staminaUtilizationRate: 0.7,
+        daysActive30d: 20,
+      },
+      accountAge: {
+        accountAgeDays: 120, // ~4 months
+      },
+      behavior30d: {
+        reinvestRatio30d: 0.6,
+        netHeroDelta30d: 2,
+        heavySellActivityFlag: 0,
+      },
+    };
+
+    expectTier(snapshot, "UNCOMMON", {
+      min: 20,
+      max: 40, // UNCOMMON band
+    });
+  });
+
+  test("Profile 3 – Established Mid-Game Player → RARE", () => {
+    const snapshot: ClusterKpiSnapshot = {
+      heroPower: {
+        commonHeroes: 20,
+        uncommonHeroes: 20,
+        rareHeroes: 20,
+        legendaryHeroes: 5,
+        mythicHeroes: 2,
+        totalHeroLevels: 1500,
+      },
+      walletValue: {
+        totalNetWorthUsd: 8000,
+      },
+      activity30d: {
+        professionQuests30d: 3000,
+        summons30d: 60,
+        staminaUtilizationRate: 0.95,
+        daysActive30d: 30,
+      },
+      accountAge: {
+        accountAgeDays: 400, // > 1 year
+      },
+      behavior30d: {
+        reinvestRatio30d: 0.8,
+        netHeroDelta30d: 10,
+        heavySellActivityFlag: 0,
+      },
+    };
+
+    expectTier(snapshot, "RARE", {
+      min: 40,
+      max: 60, // RARE band
+    });
+  });
+
+  test("Profile 4 – True OG / Whale → MYTHIC", () => {
+    const snapshot: ClusterKpiSnapshot = {
+      heroPower: {
+        commonHeroes: 80,
+        uncommonHeroes: 120,
+        rareHeroes: 100,
+        legendaryHeroes: 60,
+        mythicHeroes: 30,
+        totalHeroLevels: 9000,
+      },
+      walletValue: {
+        totalNetWorthUsd: 200_000,
+      },
+      activity30d: {
+        professionQuests30d: 10_000,
+        summons30d: 250,
+        staminaUtilizationRate: 0.99,
+        daysActive30d: 30,
+      },
+      accountAge: {
+        accountAgeDays: 1200, // ~3+ years
+      },
+      behavior30d: {
+        reinvestRatio30d: 0.95,
+        netHeroDelta30d: 40,
+        heavySellActivityFlag: 0,
+      },
+    };
+
+    expectTier(snapshot, "MYTHIC", {
+      min: 80,
+      max: 100.0001, // MYTHIC band (100 is the clamp max)
+    });
+  });
+});
+```
+
+---
+
+### How to wire this up
+
+1. **Save the test file** in the backend repo:
+   `src/services/classification/TierService.test.ts`
+
+2. Make sure Jest is configured (common setup):
+
+* In `package.json`:
+
+```json
+{
+  "scripts": {
+    "test": "jest"
+  }
+}
+```
+
+* Basic Jest config (if not already):
+
+```js
+// jest.config.cjs or jest.config.js
+module.exports = {
+  preset: "ts-jest",
+  testEnvironment: "node",
+  testMatch: ["**/?(*.)+(test).[tj]s?(x)"],
+  moduleFileExtensions: ["ts", "js", "json"],
+};
+```
+
+3. Run tests in Replit:
+
+```bash
+npm test
+```
+
+If Replit is using Vitest instead of Jest, you can convert this almost 1:1:
+
+* Replace `test`/`expect` from Jest with Vitest imports:
+
+```ts
+import { describe, test, expect } from "vitest";
+```
+
+and update the test script to `"test": "vitest"`.
+
+---
+
+If you want, next I can:
+
+* Add **one or two “edge case” tests** (e.g., extractor whale, ultra new wallet with big bag) to ensure those land in the tiers you want too, or
+* Help you define a simple **admin debug endpoint** to dump `TierComputationResult.debug` for any cluster so you can visually inspect live users.

@@ -13,11 +13,34 @@ export type LeagueStatus = 'UPCOMING' | 'REGISTRATION' | 'ACTIVE' | 'COMPLETED' 
 
 export type LeagueTierCode = 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM' | 'DIAMOND' | 'LEGENDARY';
 
+export type TierCode = 'COMMON' | 'UNCOMMON' | 'RARE' | 'LEGENDARY' | 'MYTHIC';
+
 export type SignupStatus = 'PENDING' | 'CONFIRMED' | 'DISQUALIFIED' | 'WITHDRAWN';
 
 export type SmurfAction = 'NONE' | 'ESCALATE_TIER' | 'DISQUALIFY' | 'FLAG_REVIEW';
 
 export type SmurfSeverity = 'INFO' | 'WARN' | 'CRITICAL';
+
+// ============================================================================
+// TIER MAPPING (TierCode <-> LeagueTierCode)
+// ============================================================================
+
+export const TIER_CODE_TO_LEAGUE: Record<TierCode, LeagueTierCode> = {
+  COMMON: 'BRONZE',
+  UNCOMMON: 'SILVER',
+  RARE: 'GOLD',
+  LEGENDARY: 'PLATINUM',
+  MYTHIC: 'LEGENDARY',
+};
+
+export const LEAGUE_TO_TIER_CODE: Record<LeagueTierCode, TierCode> = {
+  BRONZE: 'COMMON',
+  SILVER: 'UNCOMMON',
+  GOLD: 'RARE',
+  PLATINUM: 'LEGENDARY',
+  DIAMOND: 'LEGENDARY',
+  LEGENDARY: 'MYTHIC',
+};
 
 // ============================================================================
 // ENTRY FEE
