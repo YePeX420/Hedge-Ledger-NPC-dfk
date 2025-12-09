@@ -7,7 +7,20 @@ import { eq, sql } from 'drizzle-orm';
 import { extractAllData } from '../extractors/index.js';
 import { transformData } from '../transformers/index.js';
 import { loadAllData, type LoadOptions } from '../loaders/index.js';
-import type { WalletContext, EtlResult, FullExtractResult, TransformResult, LoadResult } from '../types.js';
+import type { WalletContext, EtlResult } from '../types.js';
+
+let tierServiceModule: any = null;
+
+async function getTierService() {
+  if (!tierServiceModule) {
+    try {
+      tierServiceModule = await import('../../services/classification/TierService.js');
+    } catch {
+      console.warn('[EtlService] TierService not available');
+    }
+  }
+  return tierServiceModule;
+}
 
 export class EtlService {
   private isRunning: boolean = false;
@@ -25,6 +38,10 @@ export class EtlService {
       const transformResult = transformData(extractResult);
       
       const loadResult = await loadAllData(ctx, extractResult, transformResult, options);
+      
+      if (ctx.clusterKey) {
+        await this.triggerTierRecompute(ctx.clusterKey);
+      }
       
       const duration = Date.now() - startTime;
       console.log(`[EtlService] ETL complete for ${wallet} in ${duration}ms`);
@@ -219,6 +236,18 @@ export class EtlService {
       isRunning: this.isRunning,
       lastRunAt: this.lastRunAt,
     };
+  }
+  
+  private async triggerTierRecompute(clusterKey: string): Promise<void> {
+    try {
+      const tierService = await getTierService();
+      if (tierService?.computeBaseTierForCluster) {
+        console.log(`[EtlService] Triggering tier recompute for cluster ${clusterKey}`);
+        await tierService.computeBaseTierForCluster(clusterKey);
+      }
+    } catch (err) {
+      console.warn(`[EtlService] Failed to trigger tier recompute:`, err);
+    }
   }
 }
 

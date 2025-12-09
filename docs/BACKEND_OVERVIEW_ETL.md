@@ -587,4 +587,130 @@ ORDER BY pe.entered_at DESC;
 
 ---
 
+## ETL Subsystem Implementation
+
+### Overview
+
+The ETL (Extract-Transform-Load) subsystem is located in `src/etl/` and provides automated data extraction, transformation into challenge metrics, and loading into database tables.
+
+### Architecture
+
+```
+src/etl/
+├── types.ts                 # Core types and interfaces
+├── extractors/              # Data extraction from various sources
+│   ├── index.ts            # Main extractor orchestrator
+│   ├── heroExtractor.ts    # Hero data from GraphQL
+│   ├── questExtractor.ts   # Quest activity data
+│   ├── summonExtractor.ts  # Summon history
+│   ├── petExtractor.ts     # Pet ownership
+│   ├── meditationExtractor.ts # Meditation crystals/stat gains
+│   ├── gardenExtractor.ts  # LP positions and yields
+│   ├── portfolioExtractor.ts # Token balances
+│   ├── discordExtractor.ts # Discord interaction history
+│   └── paymentExtractor.ts # Payment/donation history
+├── transformers/            # Compute behavior metrics
+│   ├── index.ts            # Main transformer orchestrator
+│   └── behaviorTransformer.ts # Behavior model calculations
+├── loaders/                 # Write to database tables
+│   ├── index.ts            # Main loader orchestrator
+│   ├── challengeProgressLoader.ts # player_challenge_progress
+│   ├── walletActivityLoader.ts    # wallet_activity
+│   ├── snapshotLoader.ts          # wallet_snapshots, wallet_power_snapshots
+│   └── transferAggregateLoader.ts # wallet_transfer_aggregates
+└── services/                # Main orchestration
+    ├── EtlService.ts       # Core ETL service with runForCluster/warmupWallet
+    └── EtlScheduler.ts     # Cron-based scheduling
+```
+
+### Core Methods
+
+#### EtlService
+
+```typescript
+import { etlService } from './etl';
+
+// Run ETL for all wallets in a league cluster
+const results = await etlService.runForCluster('league_2025_01');
+
+// Warmup a single wallet (full extraction + snapshots)
+const result = await etlService.warmupWallet('0x1234...');
+
+// Run incremental ETL for active wallets
+await etlService.runIncremental();
+
+// Run daily snapshot ETL for all wallets
+await etlService.runDailySnapshot();
+```
+
+#### EtlScheduler
+
+```typescript
+import { etlScheduler } from './etl';
+
+// Start automated scheduling
+etlScheduler.start();
+
+// Stop scheduling
+etlScheduler.stop();
+
+// Manual triggers
+await etlScheduler.triggerIncremental();
+await etlScheduler.triggerDailySnapshot();
+```
+
+### Scheduling
+
+- **Incremental ETL**: Every 10 minutes for active wallets
+- **Daily Snapshot**: 03:00 UTC for all wallets (full hero/garden snapshot)
+
+Enable scheduling by setting `ETL_SCHEDULER_ENABLED=true` in environment.
+
+### Data Sources (metricSource)
+
+| Source | Description |
+|--------|-------------|
+| `onchain_heroes` | Hero count, levels, classes, rarity, genes |
+| `onchain_quests` | Profession quests, training quests, crystals |
+| `onchain_summons` | Summon counts by class, rarity |
+| `onchain_pets` | Pet count, gardening pets |
+| `onchain_meditation` | Crystals used, stat gains, perfect meditations |
+| `onchain_gardens` | LP positions, yields |
+| `onchain_portfolio` | JEWEL, CRYSTAL, cJEWEL balances |
+| `behavior_model` | Computed behavior metrics |
+| `discord_interactions` | Message counts, day streaks |
+| `payment_events` | JEWEL sent to Hedge |
+
+### Behavior Metrics (behavior_model)
+
+The transformer computes these derived metrics:
+
+- `questDayStreak`: Consecutive days with quests
+- `trainingStatMatchPct`: Optimal stat matching percentage
+- `trainingDayStreak`: Consecutive training days
+- `correctCrystalUsagePct`: Crystal usage efficiency
+- `questEfficiencyPct`: Quest completion efficiency
+- `reinvestRatioPct`: Reinvestment vs extraction
+- `optimizationsCompleted`: Garden optimizations done
+- `professionMatchPct`: Hero-profession alignment
+- `professionBonusTriggerPct`: Bonus trigger rate
+- `extractorScoreInverted`: Non-extractor commitment score
+- `longTermActiveDays`: Estimated active days
+- `allCategoriesRarePlus`: Multi-category mastery flag
+
+### Database Tables Updated
+
+- `player_challenge_progress`: Challenge tier achievements
+- `wallet_activity`: Daily activity metrics
+- `wallet_snapshots`: Daily balance snapshots
+- `wallet_power_snapshots`: Power calculation snapshots
+- `wallet_transfer_aggregates`: Transfer analysis for smurf detection
+
+### Integration Points
+
+After ETL runs for a cluster, automatically triggers:
+- TierService.computeBaseTierForCluster() for tier recomputation
+
+---
+
 *Document generated for Hedge Ledger ETL integration. Last updated: December 2024.*
