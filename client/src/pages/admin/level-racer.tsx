@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 import { 
   Swords, 
   Plus, 
@@ -43,6 +44,8 @@ interface HeroClass {
   isEnabled: boolean;
 }
 
+type TokenType = 'JEWEL' | 'CRYSTAL' | 'USDC';
+
 interface Pool {
   id: number;
   heroClassSlug: string;
@@ -51,10 +54,17 @@ interface Pool {
   state: 'OPEN' | 'FILLING' | 'RACING' | 'FINISHED';
   maxEntries: number;
   currentEntries: number;
+  usdEntryFee: string;
+  usdPrize: string;
+  tokenType: TokenType;
   jewelEntryFee: number;
   jewelPrize: number;
+  rarityFilter: string;
+  maxMutations: number | null;
+  isRecurrent: boolean;
   createdAt: string;
   totalFeesCollected?: number;
+  totalFeesCollectedUsd?: string;
   prizeAwarded?: boolean;
   finishedAt?: string;
 }
@@ -87,9 +97,16 @@ interface PoolDetails {
   level: number;
   state: string;
   maxEntries: number;
+  usdEntryFee: string;
+  usdPrize: string;
+  tokenType: TokenType;
   jewelEntryFee: number;
   jewelPrize: number;
+  rarityFilter: string;
+  maxMutations: number | null;
+  isRecurrent: boolean;
   totalFeesCollected: number;
+  totalFeesCollectedUsd: string;
   prizeAwarded: boolean;
   createdAt: string;
   startedAt?: string;
@@ -122,9 +139,13 @@ export default function LevelRacerAdmin() {
   const [selectedPoolId, setSelectedPoolId] = useState<number | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedClass, setSelectedClass] = useState<string>('');
-  const [entryFee, setEntryFee] = useState('25');
-  const [prize, setPrize] = useState('200');
+  const [usdEntryFee, setUsdEntryFee] = useState('5.00');
+  const [usdPrize, setUsdPrize] = useState('40.00');
+  const [tokenType, setTokenType] = useState<TokenType>('JEWEL');
   const [maxEntries, setMaxEntries] = useState('6');
+  const [rarityFilter, setRarityFilter] = useState('common');
+  const [maxMutations, setMaxMutations] = useState<string>('');
+  const [isRecurrent, setIsRecurrent] = useState(true);
 
   const { data: classesData, isLoading: classesLoading } = useQuery<{ classes: HeroClass[] }>({
     queryKey: ['/api/level-racer/classes'],
@@ -145,7 +166,16 @@ export default function LevelRacerAdmin() {
   });
 
   const createPoolMutation = useMutation({
-    mutationFn: async (data: { classSlug: string; jewelEntryFee: number; jewelPrize: number; maxEntries: number }) => {
+    mutationFn: async (data: { 
+      classSlug: string; 
+      usdEntryFee: string;
+      usdPrize: string;
+      tokenType: TokenType;
+      maxEntries: number;
+      rarityFilter: string;
+      maxMutations: number | null;
+      isRecurrent: boolean;
+    }) => {
       return apiRequest('/api/level-racer/admin/pools', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -194,9 +224,13 @@ export default function LevelRacerAdmin() {
     }
     createPoolMutation.mutate({
       classSlug: selectedClass,
-      jewelEntryFee: parseInt(entryFee),
-      jewelPrize: parseInt(prize),
+      usdEntryFee,
+      usdPrize,
+      tokenType,
       maxEntries: parseInt(maxEntries),
+      rarityFilter,
+      maxMutations: maxMutations ? parseInt(maxMutations) : null,
+      isRecurrent,
     });
   };
 
@@ -257,37 +291,102 @@ export default function LevelRacerAdmin() {
                     </SelectContent>
                   </Select>
                 </div>
+                
+                <Separator />
+                <h4 className="text-sm font-medium">Pricing (USD-based)</h4>
+                
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="entryFee">Entry Fee (JEWEL)</Label>
+                    <Label htmlFor="usdEntryFee">Entry Fee (USD)</Label>
                     <Input 
-                      id="entryFee" 
-                      type="number" 
-                      value={entryFee} 
-                      onChange={(e) => setEntryFee(e.target.value)}
-                      data-testid="input-entry-fee"
+                      id="usdEntryFee" 
+                      type="text" 
+                      value={usdEntryFee} 
+                      onChange={(e) => setUsdEntryFee(e.target.value)}
+                      placeholder="5.00"
+                      data-testid="input-usd-entry-fee"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="prize">Prize (JEWEL)</Label>
+                    <Label htmlFor="usdPrize">Prize (USD)</Label>
                     <Input 
-                      id="prize" 
-                      type="number" 
-                      value={prize} 
-                      onChange={(e) => setPrize(e.target.value)}
-                      data-testid="input-prize"
+                      id="usdPrize" 
+                      type="text" 
+                      value={usdPrize} 
+                      onChange={(e) => setUsdPrize(e.target.value)}
+                      placeholder="40.00"
+                      data-testid="input-usd-prize"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="maxEntries">Max Entries</Label>
+                    <Label htmlFor="tokenType">Token Type</Label>
+                    <Select value={tokenType} onValueChange={(v) => setTokenType(v as TokenType)}>
+                      <SelectTrigger data-testid="select-token-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="JEWEL">JEWEL</SelectItem>
+                        <SelectItem value="CRYSTAL">CRYSTAL</SelectItem>
+                        <SelectItem value="USDC">USDC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="maxEntries">Max Entries</Label>
+                  <Input 
+                    id="maxEntries" 
+                    type="number" 
+                    value={maxEntries} 
+                    onChange={(e) => setMaxEntries(e.target.value)}
+                    data-testid="input-max-entries"
+                  />
+                </div>
+
+                <Separator />
+                <h4 className="text-sm font-medium">Special Race Filters</h4>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="rarityFilter">Rarity Filter</Label>
+                    <Select value={rarityFilter} onValueChange={setRarityFilter}>
+                      <SelectTrigger data-testid="select-rarity-filter">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="common">Common Only</SelectItem>
+                        <SelectItem value="uncommon">Up to Uncommon</SelectItem>
+                        <SelectItem value="rare">Up to Rare</SelectItem>
+                        <SelectItem value="legendary">Up to Legendary</SelectItem>
+                        <SelectItem value="mythic">All Rarities</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxMutations">Max Mutations (empty = no limit)</Label>
                     <Input 
-                      id="maxEntries" 
+                      id="maxMutations" 
                       type="number" 
-                      value={maxEntries} 
-                      onChange={(e) => setMaxEntries(e.target.value)}
-                      data-testid="input-max-entries"
+                      value={maxMutations} 
+                      onChange={(e) => setMaxMutations(e.target.value)}
+                      placeholder="No limit"
+                      data-testid="input-max-mutations"
                     />
                   </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="isRecurrent">Recurrent Pool</Label>
+                    <p className="text-xs text-muted-foreground">Auto-create new pool when this one fills</p>
+                  </div>
+                  <Switch 
+                    id="isRecurrent"
+                    checked={isRecurrent}
+                    onCheckedChange={setIsRecurrent}
+                    data-testid="switch-recurrent"
+                  />
                 </div>
               </div>
               <DialogFooter>
@@ -393,8 +492,11 @@ export default function LevelRacerAdmin() {
                         </div>
                       </div>
                       <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
-                        <span>Level {pool.level}</span>
-                        <span>{pool.jewelEntryFee} JEWEL entry / {pool.jewelPrize} JEWEL prize</span>
+                        <span className="flex items-center gap-1">
+                          Level {pool.level}
+                          {pool.isRecurrent && <Badge variant="secondary" className="text-[10px] px-1">Recurrent</Badge>}
+                        </span>
+                        <span>${pool.usdEntryFee} / ${pool.usdPrize} ({pool.tokenType})</span>
                       </div>
                       {pool.state !== 'OPEN' && (
                         <Progress 
@@ -460,15 +562,37 @@ export default function LevelRacerAdmin() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Entry Fee:</span>
-                    <span className="ml-2 font-medium">{poolDetails.jewelEntryFee} JEWEL</span>
+                    <span className="ml-2 font-medium">${poolDetails.usdEntryFee}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Prize:</span>
-                    <span className="ml-2 font-medium">{poolDetails.jewelPrize} JEWEL</span>
+                    <span className="ml-2 font-medium">${poolDetails.usdPrize}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Token:</span>
+                    <span className="ml-2 font-medium">{poolDetails.tokenType}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Fees Collected:</span>
-                    <span className="ml-2 font-medium">{poolDetails.totalFeesCollected} JEWEL</span>
+                    <span className="ml-2 font-medium">${poolDetails.totalFeesCollectedUsd}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Rarity:</span>
+                    <span className="ml-2 font-medium capitalize">{poolDetails.rarityFilter}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Max Mutations:</span>
+                    <span className="ml-2 font-medium">{poolDetails.maxMutations ?? 'No limit'}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Recurrent:</span>
+                    <span className="ml-2">
+                      {poolDetails.isRecurrent ? (
+                        <CheckCircle2 className="w-4 h-4 inline text-green-500" />
+                      ) : (
+                        <XCircle className="w-4 h-4 inline text-muted-foreground" />
+                      )}
+                    </span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Prize Awarded:</span>
