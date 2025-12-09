@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import * as service from "./levelRacer.service.js";
-import type { JoinPoolRequest, XpUpdateRequest } from "./levelRacer.types.js";
+import type { JoinPoolRequest, XpUpdateRequest, UpdatePoolRequest } from "./levelRacer.types.js";
 
 export async function getActivePools(req: Request, res: Response) {
   try {
@@ -194,7 +194,19 @@ export async function getAllPools(req: Request, res: Response) {
 
 export async function adminCreatePool(req: Request, res: Response) {
   try {
-    const { classSlug, level, maxEntries, jewelEntryFee, jewelPrize } = req.body;
+    const { 
+      classSlug, 
+      level, 
+      maxEntries, 
+      usdEntryFee,
+      usdPrize,
+      tokenType,
+      jewelEntryFee, 
+      jewelPrize,
+      rarityFilter,
+      maxMutations,
+      isRecurrent,
+    } = req.body;
     
     if (!classSlug) {
       return res.status(400).json({
@@ -206,8 +218,14 @@ export async function adminCreatePool(req: Request, res: Response) {
     const pool = await service.adminCreatePool(classSlug, {
       level,
       maxEntries,
+      usdEntryFee,
+      usdPrize,
+      tokenType,
       jewelEntryFee,
       jewelPrize,
+      rarityFilter,
+      maxMutations,
+      isRecurrent,
     });
 
     res.json({ 
@@ -220,6 +238,33 @@ export async function adminCreatePool(req: Request, res: Response) {
     res.status(400).json({
       success: false,
       error: { code: "CREATE_ERROR", message: error.message },
+    });
+  }
+}
+
+export async function adminUpdatePool(req: Request, res: Response) {
+  try {
+    const poolId = parseInt(req.params.poolId, 10);
+    if (isNaN(poolId)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_POOL_ID", message: "Pool ID must be a number" },
+      });
+    }
+
+    const updates: UpdatePoolRequest = req.body;
+    const pool = await service.adminUpdatePool(poolId, updates);
+
+    res.json({ 
+      success: true, 
+      pool,
+      message: `Pool ${poolId} updated`,
+    });
+  } catch (error: any) {
+    console.error("[LevelRacer] adminUpdatePool error:", error);
+    res.status(400).json({
+      success: false,
+      error: { code: "UPDATE_ERROR", message: error.message },
     });
   }
 }

@@ -14,5 +14,6 @@ router.post("/dev/seed-classes", controller.seedClasses);
 
 router.get("/admin/pools", controller.getAllPools);
 router.post("/admin/pools", controller.adminCreatePool);
+router.patch("/admin/pools/:poolId", controller.adminUpdatePool);
 
 export default router;

@@ -2,6 +2,8 @@ export type PoolState = "OPEN" | "FILLING" | "RACING" | "FINISHED";
 
 export type HeroRarity = "common" | "uncommon" | "rare" | "legendary" | "mythic";
 
+export type TokenType = "JEWEL" | "CRYSTAL" | "USDC";
+
 export interface JoinPoolRequest {
   walletAddress: string;
   heroId: string;
@@ -20,9 +22,23 @@ export interface ActivePool {
   state: PoolState;
   maxEntries: number;
   currentEntries: number;
+  // USD-based pricing
+  usdEntryFee: string;
+  usdPrize: string;
+  tokenType: TokenType;
+  // Token amounts (calculated from USD)
   jewelEntryFee: number;
   jewelPrize: number;
+  // Special filters
+  rarityFilter: string;
+  maxMutations: number | null;
+  isRecurrent: boolean;
+  // Tracking
+  totalFeesCollected?: number;
+  totalFeesCollectedUsd?: string;
+  prizeAwarded?: boolean;
   createdAt: string;
+  finishedAt?: string;
 }
 
 export interface PoolEntryView {
@@ -45,15 +61,37 @@ export interface GetPoolResponse {
   level: number;
   state: PoolState;
   maxEntries: number;
+  // USD-based pricing
+  usdEntryFee: string;
+  usdPrize: string;
+  tokenType: TokenType;
+  // Token amounts (calculated from USD)
   jewelEntryFee: number;
   jewelPrize: number;
+  // Special filters
+  rarityFilter: string;
+  maxMutations: number | null;
+  isRecurrent: boolean;
+  // Tracking
   totalFeesCollected: number;
+  totalFeesCollectedUsd: string;
   prizeAwarded: boolean;
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;
   winnerEntryId?: number;
   entries: PoolEntryView[];
+}
+
+export interface UpdatePoolRequest {
+  usdEntryFee?: string;
+  usdPrize?: string;
+  tokenType?: TokenType;
+  maxEntries?: number;
+  rarityFilter?: string;
+  maxMutations?: number | null;
+  isRecurrent?: boolean;
+  heroClassId?: number;
 }
 
 export interface RaceEventView {

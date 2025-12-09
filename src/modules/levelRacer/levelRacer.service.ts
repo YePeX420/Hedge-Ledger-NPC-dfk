@@ -19,6 +19,8 @@ import type {
   RaceEventView,
   HeroXpUpdate,
   RaceEventType,
+  TokenType,
+  UpdatePoolRequest,
 } from "./levelRacer.types";
 
 // DEV/TEST: Placeholder thresholds for simulation. Real implementation uses blockchain readyToLevel flag.
@@ -57,8 +59,14 @@ export async function getActivePools(): Promise<ActivePool[]> {
     state: row.pool.state as PoolState,
     maxEntries: row.pool.maxEntries,
     currentEntries: Number(row.entryCount),
+    usdEntryFee: row.pool.usdEntryFee,
+    usdPrize: row.pool.usdPrize,
+    tokenType: row.pool.tokenType as TokenType,
     jewelEntryFee: row.pool.jewelEntryFee,
     jewelPrize: row.pool.jewelPrize,
+    rarityFilter: row.pool.rarityFilter,
+    maxMutations: row.pool.maxMutations,
+    isRecurrent: row.pool.isRecurrent,
     createdAt: row.pool.createdAt.toISOString(),
   }));
 }
@@ -82,11 +90,18 @@ export async function getAllPools(): Promise<ActivePool[]> {
     state: row.pool.state as PoolState,
     maxEntries: row.pool.maxEntries,
     currentEntries: Number(row.entryCount),
+    usdEntryFee: row.pool.usdEntryFee,
+    usdPrize: row.pool.usdPrize,
+    tokenType: row.pool.tokenType as TokenType,
     jewelEntryFee: row.pool.jewelEntryFee,
     jewelPrize: row.pool.jewelPrize,
-    createdAt: row.pool.createdAt.toISOString(),
+    rarityFilter: row.pool.rarityFilter,
+    maxMutations: row.pool.maxMutations,
+    isRecurrent: row.pool.isRecurrent,
     totalFeesCollected: row.pool.totalFeesCollected,
+    totalFeesCollectedUsd: row.pool.totalFeesCollectedUsd,
     prizeAwarded: row.pool.prizeAwarded,
+    createdAt: row.pool.createdAt.toISOString(),
     finishedAt: row.pool.finishedAt?.toISOString(),
   }));
 }
@@ -94,8 +109,14 @@ export async function getAllPools(): Promise<ActivePool[]> {
 export async function adminCreatePool(classSlug: string, options?: {
   level?: number;
   maxEntries?: number;
+  usdEntryFee?: string;
+  usdPrize?: string;
+  tokenType?: TokenType;
   jewelEntryFee?: number;
   jewelPrize?: number;
+  rarityFilter?: string;
+  maxMutations?: number | null;
+  isRecurrent?: boolean;
 }): Promise<ClassPool> {
   const heroClass = await getHeroClassBySlug(classSlug);
   if (!heroClass) throw new Error(`Hero class '${classSlug}' not found`);
@@ -112,14 +133,48 @@ export async function adminCreatePool(classSlug: string, options?: {
       level: options?.level ?? 1,
       state: "OPEN",
       maxEntries: options?.maxEntries ?? 6,
+      usdEntryFee: options?.usdEntryFee ?? "5.00",
+      usdPrize: options?.usdPrize ?? "40.00",
+      tokenType: options?.tokenType ?? "JEWEL",
       jewelEntryFee: options?.jewelEntryFee ?? 25,
       jewelPrize: options?.jewelPrize ?? 200,
+      rarityFilter: options?.rarityFilter ?? "common",
+      maxMutations: options?.maxMutations ?? null,
+      isRecurrent: options?.isRecurrent ?? true,
     })
     .returning();
 
   await emitRaceEvent(pool.id, null, "POOL_CREATED", { heroClassId: heroClass.id }, pool, heroClass);
 
   return pool;
+}
+
+export async function adminUpdatePool(poolId: number, updates: UpdatePoolRequest): Promise<ClassPool> {
+  const [existingPool] = await db.select().from(classPools).where(eq(classPools.id, poolId)).limit(1);
+  if (!existingPool) throw new Error("Pool not found");
+  
+  if (existingPool.state !== "OPEN") {
+    throw new Error("Can only edit pools in OPEN state");
+  }
+
+  const updateData: Partial<typeof classPools.$inferInsert> = {};
+  
+  if (updates.usdEntryFee !== undefined) updateData.usdEntryFee = updates.usdEntryFee;
+  if (updates.usdPrize !== undefined) updateData.usdPrize = updates.usdPrize;
+  if (updates.tokenType !== undefined) updateData.tokenType = updates.tokenType;
+  if (updates.maxEntries !== undefined) updateData.maxEntries = updates.maxEntries;
+  if (updates.rarityFilter !== undefined) updateData.rarityFilter = updates.rarityFilter;
+  if (updates.maxMutations !== undefined) updateData.maxMutations = updates.maxMutations;
+  if (updates.isRecurrent !== undefined) updateData.isRecurrent = updates.isRecurrent;
+  if (updates.heroClassId !== undefined) updateData.heroClassId = updates.heroClassId;
+
+  const [updatedPool] = await db
+    .update(classPools)
+    .set(updateData)
+    .where(eq(classPools.id, poolId))
+    .returning();
+
+  return updatedPool;
 }
 
 export async function getActivePoolForClass(heroClassId: number): Promise<ClassPool | undefined> {
@@ -300,9 +355,16 @@ export async function getPoolDetails(poolId: number): Promise<GetPoolResponse | 
     level: poolData.pool.level,
     state: poolData.pool.state as PoolState,
     maxEntries: poolData.pool.maxEntries,
+    usdEntryFee: poolData.pool.usdEntryFee,
+    usdPrize: poolData.pool.usdPrize,
+    tokenType: poolData.pool.tokenType as TokenType,
     jewelEntryFee: poolData.pool.jewelEntryFee,
     jewelPrize: poolData.pool.jewelPrize,
+    rarityFilter: poolData.pool.rarityFilter,
+    maxMutations: poolData.pool.maxMutations,
+    isRecurrent: poolData.pool.isRecurrent,
     totalFeesCollected: poolData.pool.totalFeesCollected,
+    totalFeesCollectedUsd: poolData.pool.totalFeesCollectedUsd,
     prizeAwarded: poolData.pool.prizeAwarded,
     createdAt: poolData.pool.createdAt.toISOString(),
     startedAt: poolData.pool.startedAt?.toISOString(),
