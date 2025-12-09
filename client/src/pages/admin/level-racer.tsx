@@ -26,9 +26,10 @@ import {
   Sprout,
   Hammer,
   Fish,
-  Trees
+  Trees,
+  Pencil
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -200,12 +201,21 @@ function PoolListItem({ pool, isSelected, onSelect }: { pool: Pool; isSelected: 
   );
 }
 
+const PROFESSION_DEFAULTS: Record<QuestProfession, { entryFee: string; prize: string; maxEntries: string }> = {
+  gardening: { entryFee: '25.00', prize: '100.00', maxEntries: '2' },
+  mining: { entryFee: '5.00', prize: '40.00', maxEntries: '6' },
+  fishing: { entryFee: '5.00', prize: '40.00', maxEntries: '6' },
+  foraging: { entryFee: '5.00', prize: '40.00', maxEntries: '6' },
+};
+
 export default function LevelRacerAdmin() {
   const { toast } = useToast();
   const [selectedPoolId, setSelectedPoolId] = useState<number | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingPool, setEditingPool] = useState<Pool | null>(null);
   const [selectedClass, setSelectedClass] = useState<string>('');
-  const [selectedProfession, setSelectedProfession] = useState<QuestProfession>('gardening');
+  const [selectedProfession, setSelectedProfession] = useState<QuestProfession>('fishing');
   const [professionFilter, setProfessionFilter] = useState<QuestProfession | 'all'>('all');
   const [usdEntryFee, setUsdEntryFee] = useState('5.00');
   const [usdPrize, setUsdPrize] = useState('40.00');
@@ -214,6 +224,15 @@ export default function LevelRacerAdmin() {
   const [rarityFilter, setRarityFilter] = useState('common');
   const [maxMutations, setMaxMutations] = useState<string>('');
   const [isRecurrent, setIsRecurrent] = useState(true);
+  
+  useEffect(() => {
+    if (createDialogOpen && !editDialogOpen) {
+      const defaults = PROFESSION_DEFAULTS[selectedProfession];
+      setUsdEntryFee(defaults.entryFee);
+      setUsdPrize(defaults.prize);
+      setMaxEntries(defaults.maxEntries);
+    }
+  }, [selectedProfession, createDialogOpen, editDialogOpen]);
 
   const { data: classesData, isLoading: classesLoading } = useQuery<{ classes: HeroClass[] }>({
     queryKey: ['/api/level-racer/classes'],
@@ -284,6 +303,64 @@ export default function LevelRacerAdmin() {
       });
     },
   });
+
+  const editPoolMutation = useMutation({
+    mutationFn: async (data: { 
+      poolId: number;
+      usdEntryFee?: string;
+      usdPrize?: string;
+      tokenType?: TokenType;
+      maxEntries?: number;
+      rarityFilter?: string;
+      maxMutations?: number | null;
+      isRecurrent?: boolean;
+    }) => {
+      const { poolId, ...updates } = data;
+      const res = await apiRequest('PATCH', `/api/level-racer/admin/pools/${poolId}`, updates);
+      const text = await res.text();
+      return text ? JSON.parse(text) : {};
+    },
+    onSuccess: () => {
+      toast({ title: 'Pool updated successfully' });
+      queryClient.invalidateQueries({ queryKey: ['/api/level-racer/admin/pools'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/level-racer/pools', editingPool?.id] });
+      setEditDialogOpen(false);
+      setEditingPool(null);
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: 'Failed to update pool', 
+        description: error.message || 'An error occurred',
+        variant: 'destructive' 
+      });
+    },
+  });
+
+  const handleEditPool = (pool: Pool) => {
+    setEditingPool(pool);
+    setUsdEntryFee(pool.usdEntryFee);
+    setUsdPrize(pool.usdPrize);
+    setTokenType(pool.tokenType as TokenType);
+    setMaxEntries(pool.maxEntries.toString());
+    setRarityFilter(pool.rarityFilter || 'common');
+    setMaxMutations(pool.maxMutations !== null ? pool.maxMutations.toString() : '');
+    setIsRecurrent(pool.isRecurrent);
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingPool) return;
+    editPoolMutation.mutate({
+      poolId: editingPool.id,
+      usdEntryFee,
+      usdPrize,
+      tokenType,
+      maxEntries: parseInt(maxEntries),
+      rarityFilter,
+      maxMutations: maxMutations ? parseInt(maxMutations) : null,
+      isRecurrent,
+    });
+  };
 
   const handleCreatePool = () => {
     if (!selectedClass) {
@@ -503,6 +580,123 @@ export default function LevelRacerAdmin() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          
+          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Pool Settings</DialogTitle>
+                <DialogDescription>
+                  Edit settings for {editingPool?.heroClassName} ({editingPool?.profession}) pool
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-entry-fee">Entry Fee (USD)</Label>
+                    <Input
+                      id="edit-entry-fee"
+                      type="number"
+                      step="0.01"
+                      value={usdEntryFee}
+                      onChange={(e) => setUsdEntryFee(e.target.value)}
+                      data-testid="input-edit-entry-fee"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-prize">Prize (USD)</Label>
+                    <Input
+                      id="edit-prize"
+                      type="number"
+                      step="0.01"
+                      value={usdPrize}
+                      onChange={(e) => setUsdPrize(e.target.value)}
+                      data-testid="input-edit-prize"
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-token">Payment Token</Label>
+                    <Select value={tokenType} onValueChange={(v) => setTokenType(v as TokenType)}>
+                      <SelectTrigger data-testid="select-edit-token">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="JEWEL">JEWEL</SelectItem>
+                        <SelectItem value="CRYSTAL">CRYSTAL</SelectItem>
+                        <SelectItem value="USDC">USDC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-max-entries">Max Entries</Label>
+                    <Input
+                      id="edit-max-entries"
+                      type="number"
+                      value={maxEntries}
+                      onChange={(e) => setMaxEntries(e.target.value)}
+                      data-testid="input-edit-max-entries"
+                    />
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-rarity">Max Rarity Allowed</Label>
+                    <Select value={rarityFilter} onValueChange={setRarityFilter}>
+                      <SelectTrigger data-testid="select-edit-rarity">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="common">Common</SelectItem>
+                        <SelectItem value="uncommon">Uncommon</SelectItem>
+                        <SelectItem value="rare">Rare</SelectItem>
+                        <SelectItem value="legendary">Legendary</SelectItem>
+                        <SelectItem value="mythic">Mythic</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-mutations">Max Mutations (empty = no limit)</Label>
+                    <Input
+                      id="edit-mutations"
+                      type="number"
+                      placeholder="No limit"
+                      value={maxMutations}
+                      onChange={(e) => setMaxMutations(e.target.value)}
+                      data-testid="input-edit-mutations"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="edit-recurrent"
+                    checked={isRecurrent}
+                    onCheckedChange={setIsRecurrent}
+                    data-testid="switch-edit-recurrent"
+                  />
+                  <Label htmlFor="edit-recurrent">Recurrent (auto-restart when finished)</Label>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleSaveEdit} 
+                  disabled={editPoolMutation.isPending}
+                  data-testid="button-confirm-edit"
+                >
+                  {editPoolMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -640,22 +834,38 @@ export default function LevelRacerAdmin() {
                   {selectedPoolId ? `Pool #${selectedPoolId}` : 'Select a pool to view details'}
                 </CardDescription>
               </div>
-              {selectedPoolId && poolDetails?.state === 'RACING' && (
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => simulateMutation.mutate(selectedPoolId)}
-                  disabled={simulateMutation.isPending}
-                  data-testid="button-simulate-tick"
-                >
-                  {simulateMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 mr-2" />
-                  )}
-                  Simulate Tick
-                </Button>
-              )}
+              <div className="flex gap-2">
+                {selectedPoolId && poolDetails?.state === 'OPEN' && (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      const pool = pools.find(p => p.id === selectedPoolId);
+                      if (pool) handleEditPool(pool);
+                    }}
+                    data-testid="button-edit-pool"
+                  >
+                    <Pencil className="w-4 h-4 mr-2" />
+                    Edit
+                  </Button>
+                )}
+                {selectedPoolId && poolDetails?.state === 'RACING' && (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => simulateMutation.mutate(selectedPoolId)}
+                    disabled={simulateMutation.isPending}
+                    data-testid="button-simulate-tick"
+                  >
+                    {simulateMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4 mr-2" />
+                    )}
+                    Simulate Tick
+                  </Button>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
