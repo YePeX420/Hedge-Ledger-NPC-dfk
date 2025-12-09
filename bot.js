@@ -30,6 +30,7 @@ import { runPreSeasonChecks, runInSeasonChecks, getOrCreateCluster, linkWalletTo
 import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
+import cors from 'cors';
 import { getDebugSettings, setDebugSettings, isVerboseLoggingEnabled, isPaymentBypassEnabled } from './debug-settings.js';
 import { handleGardenOptimizationDM } from './garden-optimization-handler.js';
 
@@ -3430,6 +3431,12 @@ async function initializeEconomicSystem() {
 async function startAdminWebServer() {
   const app = express();
   app.use(express.json());
+  
+  // CORS for cross-origin frontend
+  app.use(cors({
+    origin: 'https://9734175a-4359-4feb-bbd8-48688d3217dd-00-22lw70hk2l6gm.kirk.replit.dev',
+    credentials: true
+  }));
 
   // Request logging middleware - log ALL incoming requests
   app.use((req, res, next) => {
