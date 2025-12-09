@@ -68,6 +68,8 @@ import {
 } from './bridge-tracker/price-enrichment.js';
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
 import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress } from './shared/schema.ts';
+import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
+import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
 
 const execAsync = promisify(exec);
 
@@ -4798,9 +4800,9 @@ async function startAdminWebServer() {
       // Link wallet to cluster
       await linkWalletToCluster(clusterKey, 'DFKCHAIN', walletAddress, true);
 
-      // Compute base tier (placeholder - integrate with existing tier logic)
-      // For now, default to COMMON if no existing classification
-      let baseTierCode = 'COMMON';
+      // Compute base tier using TierService CPS formula
+      // Build ClusterKpiSnapshot from available wallet/player data
+      const snapshot = createEmptySnapshot();
       
       // Try to get tier from player profile if exists
       const [existingPlayer] = await db
@@ -4809,9 +4811,39 @@ async function startAdminWebServer() {
         .where(eq(players.walletAddress, walletAddress.toLowerCase()))
         .limit(1);
 
-      if (existingPlayer?.tierCode) {
-        baseTierCode = existingPlayer.tierCode;
+      // Populate snapshot with available metrics from wallet power snapshots
+      const [latestSnapshot] = await db
+        .select()
+        .from(walletSnapshots)
+        .where(eq(walletSnapshots.walletAddress, walletAddress.toLowerCase()))
+        .orderBy(desc(walletSnapshots.snapshotDate))
+        .limit(1);
+
+      if (latestSnapshot) {
+        // Populate wallet value from snapshot balances
+        const jewelUsd = parseFloat(latestSnapshot.jewelBalance || '0') * 0.03;
+        const crystalUsd = parseFloat(latestSnapshot.crystalBalance || '0') * 0.02;
+        const cjewelUsd = parseFloat(latestSnapshot.cjewelBalance || '0') * 0.03;
+        snapshot.walletValue.totalNetWorthUsd = jewelUsd + crystalUsd + cjewelUsd;
       }
+
+      if (existingPlayer) {
+        // Populate hero power metrics if available
+        if (existingPlayer.heroCount) {
+          snapshot.heroPower.commonHeroes = existingPlayer.heroCount;
+        }
+        // Account age estimation (days since first seen)
+        if (existingPlayer.createdAt) {
+          const ageMs = Date.now() - new Date(existingPlayer.createdAt).getTime();
+          snapshot.accountAge.accountAgeDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+        }
+      }
+
+      // Compute tier using CPS formula
+      const tierResult = computeBaseTierFromMetrics(snapshot);
+      const baseTierCode = TIER_CODE_TO_LEAGUE[tierResult.tier] || 'BRONZE';
+      
+      console.log(`[Leagues] Tier computation for ${walletAddress}: CPS=${tierResult.cps.toFixed(2)}, tier=${tierResult.tier} -> ${baseTierCode}`);
 
       // Run smurf detection checks
       const smurfResult = await runPreSeasonChecks({
