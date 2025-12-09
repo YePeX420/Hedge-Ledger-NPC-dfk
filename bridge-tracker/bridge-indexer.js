@@ -515,6 +515,151 @@ export async function getEventsNeedingPrices() {
 }
 
 // ============================================================================
+// PARALLEL WORKER SUPPORT
+// ============================================================================
+
+export function getWorkerIndexerName(workerId, workersTotal) {
+  return `synapse_worker_${workerId}_of_${workersTotal}`;
+}
+
+export async function getAllWorkerProgress(workersTotal) {
+  const workers = [];
+  for (let i = 1; i <= workersTotal; i++) {
+    const indexerName = getWorkerIndexerName(i, workersTotal);
+    const progress = await getIndexerProgress(indexerName);
+    if (progress) {
+      workers.push({
+        workerId: i,
+        indexerName,
+        ...progress,
+      });
+    }
+  }
+  return workers;
+}
+
+// Track running workers
+const runningWorkers = new Map();
+
+export function isWorkerRunning(workerId) {
+  return runningWorkers.get(workerId) === true;
+}
+
+export async function runWorkerBatch(options = {}) {
+  const {
+    batchSize = INCREMENTAL_BATCH_SIZE,
+    indexerName,
+    rangeEnd,
+  } = options;
+
+  // Extract workerId from indexerName for tracking
+  const workerMatch = indexerName.match(/worker_(\d+)_of_(\d+)/);
+  const workerId = workerMatch ? parseInt(workerMatch[1]) : null;
+
+  if (workerId && runningWorkers.get(workerId)) {
+    console.log(`[WorkerBatch] Worker ${workerId} already running, skipping...`);
+    return { status: 'already_running' };
+  }
+
+  if (workerId) {
+    runningWorkers.set(workerId, true);
+  }
+  
+  const startTime = Date.now();
+
+  try {
+    let progress = await initIndexerProgress(indexerName);
+    const provider = await getProvider();
+    const latestBlock = await provider.getBlockNumber();
+
+    const startBlock = progress.lastIndexedBlock;
+    const targetEnd = rangeEnd || latestBlock;
+    const endBlock = Math.min(startBlock + batchSize, targetEnd);
+
+    // Check if we've completed this worker's range
+    if (startBlock >= targetEnd) {
+      if (workerId) runningWorkers.set(workerId, false);
+      return {
+        status: 'complete',
+        message: 'Worker range complete',
+        startBlock,
+        endBlock: startBlock,
+        rangeEnd: targetEnd,
+        eventsFound: 0,
+        eventsInserted: 0,
+        runtimeMs: Date.now() - startTime,
+      };
+    }
+
+    console.log(`[WorkerBatch] Indexing blocks ${startBlock} to ${endBlock} (${endBlock - startBlock} blocks)`);
+
+    let totalEvents = 0;
+    let totalInserted = 0;
+
+    // Index in smaller sub-batches for RPC limits
+    for (let subBlock = startBlock; subBlock < endBlock; subBlock += BLOCKS_PER_QUERY) {
+      const subEnd = Math.min(subBlock + BLOCKS_PER_QUERY - 1, endBlock);
+      
+      const events = await indexSynapseBridgeEvents(subBlock, subEnd, { verbose: false });
+      const { inserted } = await saveBridgeEvents(events);
+      
+      totalEvents += events.length;
+      totalInserted += inserted;
+
+      // Small delay to avoid RPC rate limits
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    const runtimeMs = Date.now() - startTime;
+    const eventsNeedingPrices = await getEventsNeedingPrices();
+
+    // Update progress with batch runtime tracking
+    const newTotalBatchCount = (progress.totalBatchCount || 0) + 1;
+    const newTotalBatchRuntimeMs = (progress.totalBatchRuntimeMs || 0) + runtimeMs;
+
+    await updateIndexerProgress(indexerName, {
+      lastIndexedBlock: endBlock,
+      totalEventsIndexed: (progress.totalEventsIndexed || 0) + totalInserted,
+      eventsNeedingPrices,
+      lastBatchRuntimeMs: runtimeMs,
+      totalBatchCount: newTotalBatchCount,
+      totalBatchRuntimeMs: newTotalBatchRuntimeMs,
+      status: endBlock >= targetEnd ? 'complete' : 'idle',
+    });
+
+    console.log(`[WorkerBatch] Complete: ${totalEvents} events found, ${totalInserted} inserted in ${(runtimeMs / 1000).toFixed(1)}s`);
+
+    if (workerId) runningWorkers.set(workerId, false);
+
+    return {
+      status: 'success',
+      startBlock,
+      endBlock,
+      rangeEnd: targetEnd,
+      blocksRemaining: targetEnd - endBlock,
+      eventsFound: totalEvents,
+      eventsInserted: totalInserted,
+      runtimeMs,
+      totalBatchCount: newTotalBatchCount,
+    };
+  } catch (error) {
+    if (workerId) runningWorkers.set(workerId, false);
+    console.error('[WorkerBatch] Error:', error);
+    
+    await updateIndexerProgress(indexerName, {
+      status: 'error',
+      lastError: error.message,
+    });
+
+    return {
+      status: 'error',
+      error: error.message,
+      runtimeMs: Date.now() - startTime,
+    };
+  }
+}
+
+// ============================================================================
 // INCREMENTAL BATCH INDEXING (10K blocks at a time, manually triggered)
 // ============================================================================
 
