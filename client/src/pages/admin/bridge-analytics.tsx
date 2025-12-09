@@ -396,23 +396,33 @@ export default function BridgeAnalytics() {
               </CardDescription>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => runIncrementalBatchMutation.mutate()}
-                disabled={runIncrementalBatchMutation.isPending || batchProgress?.running || syncProgress?.historicalSyncRunning}
-                data-testid="button-index-10k"
-              >
-                {(runIncrementalBatchMutation.isPending || batchProgress?.running) ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4 mr-2" />
-                )}
-                {batchProgress?.running 
-                  ? `${batchProgress.percentComplete}% (${(batchProgress.blocksProcessed || 0).toLocaleString()}/${(batchProgress.blocksTotal || 10000).toLocaleString()})`
-                  : 'Index 10K Blocks'
-                }
-              </Button>
+              {parallelSyncStatus?.running ? (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => stopParallelSyncMutation.mutate()}
+                  disabled={stopParallelSyncMutation.isPending}
+                  data-testid="button-stop-parallel-sync"
+                >
+                  <Square className="h-4 w-4 mr-2" />
+                  Stop Parallel ({parallelSyncStatus.combinedProgress}%)
+                </Button>
+              ) : (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => startParallelSyncMutation.mutate()}
+                  disabled={startParallelSyncMutation.isPending || syncProgress?.historicalSyncRunning}
+                  data-testid="button-start-parallel-sync"
+                >
+                  {startParallelSyncMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Zap className="h-4 w-4 mr-2" />
+                  )}
+                  Start Parallel Sync
+                </Button>
+              )}
               {syncProgress?.historicalSyncRunning ? (
                 <Button
                   variant="destructive"
@@ -560,128 +570,6 @@ export default function BridgeAnalytics() {
         </CardContent>
       </Card>
 
-      {/* Parallel Sync Card */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Zap className="h-5 w-5 text-yellow-500" />
-                Parallel Sync (Faster)
-              </CardTitle>
-              <CardDescription>
-                Run multiple workers in parallel to speed up historical indexing by 3-4x
-              </CardDescription>
-            </div>
-            <div className="flex gap-2 items-center flex-wrap">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Workers:</span>
-                <select
-                  value={parallelWorkers}
-                  onChange={(e) => setParallelWorkers(parseInt(e.target.value))}
-                  disabled={parallelSyncStatus?.running}
-                  className="border rounded px-2 py-1 text-sm bg-background"
-                  data-testid="select-parallel-workers"
-                >
-                  <option value="2">2</option>
-                  <option value="4">4</option>
-                  <option value="6">6</option>
-                  <option value="8">8</option>
-                </select>
-              </div>
-              {parallelSyncStatus?.running ? (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => stopParallelSyncMutation.mutate()}
-                  disabled={stopParallelSyncMutation.isPending}
-                  data-testid="button-stop-parallel-sync"
-                >
-                  <Square className="h-4 w-4 mr-2" />
-                  Stop Sync
-                </Button>
-              ) : (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => startParallelSyncMutation.mutate()}
-                  disabled={startParallelSyncMutation.isPending}
-                  data-testid="button-start-parallel-sync"
-                >
-                  <Zap className="h-4 w-4 mr-2" />
-                  Start Parallel Sync
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {parallelSyncStatus?.running && (
-            <div className="mb-4 p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
-              <div className="flex items-center gap-2 text-yellow-600 mb-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="font-medium">Parallel sync running...</span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {parallelSyncStatus.workersTotal} workers processing different block ranges simultaneously
-              </p>
-            </div>
-          )}
-          
-          {parallelSyncStatus?.workers && parallelSyncStatus.workers.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Combined Progress</span>
-                <span className="text-sm font-mono">{parallelSyncStatus.combinedProgress}%</span>
-              </div>
-              <Progress value={parallelSyncStatus.combinedProgress} className="h-2" />
-              
-              <div className="grid gap-3 mt-4">
-                {parallelSyncStatus.workers.map((worker) => (
-                  <div 
-                    key={worker.workerId}
-                    className="p-3 bg-muted/50 rounded"
-                    data-testid={`worker-status-${worker.workerId}`}
-                  >
-                    <div className="flex items-center justify-between mb-2 text-sm">
-                      <span className="font-medium">Worker {worker.workerId}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground font-mono">
-                          {worker.rangeStart.toLocaleString()} → {worker.rangeEnd.toLocaleString()}
-                        </span>
-                        <Badge 
-                          variant={worker.status === 'complete' ? 'outline' : 'secondary'}
-                          className="text-xs"
-                        >
-                          {worker.progress}%
-                        </Badge>
-                      </div>
-                    </div>
-                    <Progress value={worker.progress} className="h-1.5 mb-1" />
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Block {worker.lastIndexedBlock.toLocaleString()}</span>
-                      <span>{worker.totalEventsIndexed.toLocaleString()} events</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              
-              {parallelSyncStatus.allComplete && (
-                <div className="text-center text-green-600 font-medium mt-2">
-                  All workers completed
-                </div>
-              )}
-            </div>
-          )}
-          
-          {(!parallelSyncStatus?.workers || parallelSyncStatus.workers.length === 0) && !parallelSyncStatus?.running && (
-            <div className="text-center text-muted-foreground py-4">
-              <p>No parallel sync running. Click "Start Parallel Sync" to begin.</p>
-              <p className="text-xs mt-1">This is faster than single-threaded indexing for catching up.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Overview Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
