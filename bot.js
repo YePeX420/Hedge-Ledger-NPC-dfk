@@ -25,7 +25,7 @@ import { calculateSummoningProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
 import { decodeHeroGenes } from './hero-genetics.js';
 import { db } from './server/db.js';
-import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings, leagueSeasons, leagueSignups, seasonTierLocks, walletClusters, walletLinks, smurfIncidents } from './shared/schema.ts';
+import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings, leagueSeasons, leagueSignups, seasonTierLocks, walletClusters, walletLinks, smurfIncidents, walletPowerSnapshots } from './shared/schema.ts';
 import { runPreSeasonChecks, runInSeasonChecks, getOrCreateCluster, linkWalletToCluster } from './smurf-detection-service.js';
 import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
@@ -3803,6 +3803,63 @@ async function startAdminWebServer() {
     } catch (error) {
       console.error('[API] Error removing wallet:', error);
       res.status(500).json({ error: 'Failed to remove wallet' });
+    }
+  });
+
+  // GET /api/debug/cluster - Debug endpoint to verify cluster/wallet/ETL state
+  app.get('/api/debug/cluster', isUser, async (req, res) => {
+    try {
+      const discordId = req.user.userId;
+      console.log(`[API] GET /api/debug/cluster for user ${discordId}`);
+      
+      // 1) Find player
+      const player = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+      if (!player || player.length === 0) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+      
+      // 2) Resolve cluster
+      const cluster = await db.select().from(walletClusters).where(eq(walletClusters.userId, discordId)).limit(1);
+      if (!cluster || cluster.length === 0) {
+        return res.json({
+          discordId,
+          playerId: player[0].id,
+          clusterKey: null,
+          wallets: [],
+          latestPowerSnapshots: [],
+        });
+      }
+      
+      const clusterKey = cluster[0].clusterKey;
+      
+      // 3) Load wallet links
+      const links = await db.select().from(walletLinks).where(eq(walletLinks.clusterKey, clusterKey));
+      
+      // 4) Latest ETL power snapshots
+      const snapshots = await db
+        .select()
+        .from(walletPowerSnapshots)
+        .where(eq(walletPowerSnapshots.clusterKey, clusterKey))
+        .orderBy(desc(walletPowerSnapshots.takenAt))
+        .limit(3);
+      
+      res.json({
+        discordId,
+        playerId: player[0].id,
+        clusterKey,
+        wallets: links.map((wl) => ({
+          address: wl.address,
+          chain: wl.chain,
+          isPrimary: wl.isPrimary,
+          isActive: wl.isActive,
+          isVerified: false,
+          verifiedAt: null,
+        })),
+        latestPowerSnapshots: snapshots,
+      });
+    } catch (error) {
+      console.error('[API] Error in debug/cluster:', error);
+      res.status(500).json({ error: 'Failed to get cluster debug info' });
     }
   });
 

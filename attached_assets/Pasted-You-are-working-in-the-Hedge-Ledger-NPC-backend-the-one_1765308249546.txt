@@ -1,0 +1,77 @@
+You are working in the Hedge Ledger NPC backend (the one with players, wallet_links, ETL, TierService, etc.).
+
+Goal:
+Add a temporary debug endpoint so we can verify that:
+
+multiple wallets are linked to the same cluster
+
+ETL has run for that cluster after wallet linking
+
+1. Add a /api/debug/cluster endpoint
+
+Create a new route file (or extend an existing router) and implement:
+
+app.get("/api/debug/cluster", requireAuth, async (req, res) => {
+  const discordId = req.user.discordId; // from session
+
+  // 1) find player
+  const player = await db.query.players.findFirst({
+    where: (p, { eq }) => eq(p.discordId, discordId),
+  });
+  if (!player) {
+    return res.status(404).json({ error: "Player not found" });
+  }
+
+  // 2) resolve cluster
+  const cluster = await db.query.walletClusters.findFirst({
+    where: (c, { eq }) => eq(c.userId, discordId),
+  });
+  if (!cluster) {
+    return res.json({
+      discordId,
+      playerId: player.id,
+      clusterKey: null,
+      wallets: [],
+      latestPowerSnapshots: [],
+    });
+  }
+
+  // 3) load wallet links
+  const links = await db.query.walletLinks.findMany({
+    where: (wl, { eq }) => eq(wl.clusterKey, cluster.clusterKey),
+  });
+
+  // 4) latest ETL power snapshots
+  const snapshots = await db.query.walletPowerSnapshots.findMany({
+    where: (s, { eq }) => eq(s.clusterKey, cluster.clusterKey),
+    orderBy: (s, { desc }) => [desc(s.takenAt)],
+    limit: 3,
+  });
+
+  res.json({
+    discordId,
+    playerId: player.id,
+    clusterKey: cluster.clusterKey,
+    wallets: links.map((wl) => ({
+      address: wl.address,
+      chain: wl.chain,
+      isPrimary: wl.isPrimary,
+      isActive: wl.isActive,
+      isVerified: wl.isVerified ?? false,
+      verifiedAt: wl.verifiedAt,
+    })),
+    latestPowerSnapshots: snapshots,
+  });
+});
+
+2. Use it to test ETL
+
+Link a new wallet on the Profile page.
+
+Call GET /api/debug/cluster in the browser.
+
+Confirm:
+
+wallets includes both 0x1a9f…4098 and 0x1ce3…f620.
+
+latestPowerSnapshots has a takenAt timestamp after you linked the wallet (if ETL is triggered automatically).
