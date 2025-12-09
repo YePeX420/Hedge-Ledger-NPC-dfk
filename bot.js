@@ -3758,7 +3758,7 @@ async function startAdminWebServer() {
     }
   });
 
-  // DELETE /api/me/wallets/:address - Remove a wallet
+  // DELETE /api/me/wallets/:address - Soft-delete a wallet (safe delete with tier lock)
   app.delete('/api/me/wallets/:address', isUser, async (req, res) => {
     try {
       const discordId = req.user.userId;
@@ -3769,37 +3769,106 @@ async function startAdminWebServer() {
       }
       
       const normalizedAddress = address.toLowerCase();
+      console.log(`[API] DELETE /api/me/wallets/${normalizedAddress} for user ${discordId}`);
       
-      // Get cluster for user
+      // 1) Find player
+      const player = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+      if (!player || player.length === 0) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+      
+      // 2) Resolve cluster
       const cluster = await db.select().from(walletClusters).where(eq(walletClusters.userId, discordId)).limit(1);
-      
       if (!cluster || cluster.length === 0) {
-        return res.status(404).json({ error: 'No wallets found' });
+        return res.status(404).json({ error: 'No wallet cluster for this user' });
       }
       
       const clusterKey = cluster[0].clusterKey;
       
-      // Find the wallet
-      const existing = await db.select().from(walletLinks)
+      // 3) Find the wallet_link row for this address
+      const walletRows = await db.select().from(walletLinks)
         .where(and(
           eq(walletLinks.clusterKey, clusterKey),
           eq(walletLinks.address, normalizedAddress)
         )).limit(1);
       
-      if (!existing || existing.length === 0) {
+      if (!walletRows || walletRows.length === 0) {
         return res.status(404).json({ error: 'Wallet not found' });
       }
       
-      // Delete the wallet
-      await db.delete(walletLinks)
+      const wallet = walletRows[0];
+      
+      // Already inactive = not found
+      if (!wallet.isActive) {
+        return res.status(404).json({ error: 'Wallet not found' });
+      }
+      
+      // 4) Prevent deleting verified wallets (tier lock protection)
+      if (wallet.isVerified) {
+        return res.status(400).json({
+          error: 'Verified wallets cannot be removed. Contact support if needed.',
+        });
+      }
+      
+      // 5) Soft delete: deactivate this wallet
+      await db
+        .update(walletLinks)
+        .set({ isActive: false, isPrimary: false })
+        .where(eq(walletLinks.id, wallet.id));
+      
+      console.log(`[API] Soft-deleted wallet ${normalizedAddress} for user ${discordId}`);
+      
+      // 6) If it was primary, adjust players.primaryWallet and promote another wallet
+      if (wallet.isPrimary) {
+        // Find another active wallet to promote
+        const otherActiveRows = await db.select().from(walletLinks)
+          .where(and(
+            eq(walletLinks.clusterKey, clusterKey),
+            eq(walletLinks.isActive, true)
+          )).limit(1);
+        
+        if (otherActiveRows && otherActiveRows.length > 0) {
+          const otherActive = otherActiveRows[0];
+          // Promote otherActive to primary
+          await db
+            .update(walletLinks)
+            .set({ isPrimary: true })
+            .where(eq(walletLinks.id, otherActive.id));
+          
+          await db
+            .update(players)
+            .set({ primaryWallet: otherActive.address })
+            .where(eq(players.id, player[0].id));
+          
+          console.log(`[API] Promoted wallet ${otherActive.address} as new primary for user ${discordId}`);
+        } else {
+          // No active wallets left; clear primaryWallet
+          await db
+            .update(players)
+            .set({ primaryWallet: null })
+            .where(eq(players.id, player[0].id));
+          
+          console.log(`[API] No active wallets remain for user ${discordId}, cleared primaryWallet`);
+        }
+      }
+      
+      // 7) Return updated wallet list
+      const remainingLinks = await db.select().from(walletLinks)
         .where(and(
           eq(walletLinks.clusterKey, clusterKey),
-          eq(walletLinks.address, normalizedAddress)
+          eq(walletLinks.isActive, true)
         ));
       
-      console.log(`[API] Removed wallet ${normalizedAddress} for user ${discordId}`);
-      
-      res.json({ success: true, message: 'Wallet removed' });
+      res.json({
+        wallets: remainingLinks.map((wl) => ({
+          address: wl.address,
+          chain: wl.chain,
+          isPrimary: wl.isPrimary,
+          isActive: wl.isActive,
+          isVerified: wl.isVerified ?? false,
+          verifiedAt: wl.verifiedAt,
+        })),
+      });
     } catch (error) {
       console.error('[API] Error removing wallet:', error);
       res.status(500).json({ error: 'Failed to remove wallet' });

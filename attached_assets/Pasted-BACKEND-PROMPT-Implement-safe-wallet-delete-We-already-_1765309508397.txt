@@ -1,0 +1,129 @@
+BACKEND PROMPT – Implement safe wallet delete
+
+We already have:
+
+wallet_links with isVerified, isPrimary, isActive.
+
+players.primaryWallet and wallet_clusters per Discord user.
+
+GET /api/me/wallets and POST /api/me/wallets.
+
+Frontend now calls:
+
+DELETE /api/me/wallets/:address when the user clicks the remove icon on a wallet row.
+
+Goal: Implement DELETE /api/me/wallets/:address with these rules:
+
+Only the authenticated user can delete wallets in their own cluster.
+
+Verified wallets (isVerified = true) CANNOT be deleted.
+
+Deletion should be a soft delete: set isActive = false instead of dropping the row, so ETL history remains.
+
+If the deleted wallet was isPrimary = true:
+
+If there is another active wallet in the cluster → choose one (e.g. the most recently added) and set it as new primary, update players.primaryWallet accordingly.
+
+If there are no other active wallets → clear players.primaryWallet and unset primary for the deleted wallet.
+
+Implementation sketch
+
+In the wallet router, add:
+
+app.delete("/api/me/wallets/:address", requireAuth, async (req, res) => {
+  const discordId = req.user.discordId;
+  const addressParam = req.params.address.toLowerCase();
+
+  // 1) find player
+  const player = await db.query.players.findFirst({
+    where: (p, { eq }) => eq(p.discordId, discordId),
+  });
+  if (!player) {
+    return res.status(404).json({ error: "Player not found" });
+  }
+
+  // 2) resolve cluster
+  const cluster = await db.query.walletClusters.findFirst({
+    where: (c, { eq }) => eq(c.userId, discordId),
+  });
+  if (!cluster) {
+    return res.status(404).json({ error: "No wallet cluster for this user" });
+  }
+
+  // 3) find the wallet_link row for this address
+  const wallet = await db.query.walletLinks.findFirst({
+    where: (wl, { and, eq }) =>
+      and(eq(wl.clusterKey, cluster.clusterKey), eq(wl.address, addressParam)),
+  });
+  if (!wallet || wallet.isActive === false) {
+    return res.status(404).json({ error: "Wallet not found" });
+  }
+
+  // 4) prevent deleting verified wallets
+  if (wallet.isVerified) {
+    return res.status(400).json({
+      error: "Verified wallets cannot be removed. Contact support if needed.",
+    });
+  }
+
+  // 5) soft delete: deactivate this wallet
+  await db
+    .update(walletLinks)
+    .set({ isActive: false, isPrimary: false })
+    .where(eq(walletLinks.id, wallet.id));
+
+  // 6) if it was primary, adjust players.primaryWallet and other links
+  if (wallet.isPrimary) {
+    // find another active wallet to promote
+    const otherActive = await db.query.walletLinks.findFirst({
+      where: (wl, { and, eq }) =>
+        and(
+          eq(wl.clusterKey, cluster.clusterKey),
+          eq(wl.isActive, true)
+        ),
+    });
+
+    if (otherActive) {
+      // promote otherActive to primary
+      await db
+        .update(walletLinks)
+        .set({ isPrimary: true })
+        .where(eq(walletLinks.id, otherActive.id));
+
+      await db
+        .update(players)
+        .set({ primaryWallet: otherActive.address })
+        .where(eq(players.id, player.id));
+    } else {
+      // no active wallets left; clear primaryWallet
+      await db
+        .update(players)
+        .set({ primaryWallet: null })
+        .where(eq(players.id, player.id));
+    }
+  }
+
+  // 7) return updated wallet list
+  const remainingLinks = await db.query.walletLinks.findMany({
+    where: (wl, { and, eq }) =>
+      and(eq(wl.clusterKey, cluster.clusterKey), eq(wl.isActive, true)),
+  });
+
+  return res.json({
+    wallets: remainingLinks.map((wl) => ({
+      address: wl.address,
+      chain: wl.chain,
+      isPrimary: wl.isPrimary,
+      isActive: wl.isActive,
+      isVerified: wl.isVerified ?? false,
+      verifiedAt: wl.verifiedAt,
+      verificationTxHash: wl.verificationTxHash,
+    })),
+  });
+});
+
+Important:
+
+ETL does not need to be triggered on delete; it will naturally ignore inactive wallets if extractors filter on wallet_links.isActive = true.
+
+This ensures frontend cannot remove verified wallets, even if someone tinkers with the UI or calls the API directly.
