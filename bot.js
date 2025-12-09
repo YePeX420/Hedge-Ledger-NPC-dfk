@@ -3599,10 +3599,14 @@ async function startAdminWebServer() {
     
     const clusterKey = cluster[0].clusterKey;
     
-    // 3) Load existing wallet_links for this cluster
-    let links = await db.select().from(walletLinks).where(eq(walletLinks.clusterKey, clusterKey));
+    // 3) Load existing ACTIVE wallet_links for this cluster
+    let links = await db.select().from(walletLinks)
+      .where(and(
+        eq(walletLinks.clusterKey, clusterKey),
+        eq(walletLinks.isActive, true)
+      ));
     
-    // 4) Auto-backfill from players.primaryWallet if no links yet
+    // 4) Auto-backfill from players.primaryWallet if no active links yet
     let wasBackfilled = false;
     if ((!links || links.length === 0) && player[0].primaryWallet) {
       // Normalize address to lowercase to avoid duplicates
@@ -3628,9 +3632,9 @@ async function startAdminWebServer() {
       chain: wl.chain,
       isPrimary: wl.isPrimary,
       isActive: wl.isActive,
-      isVerified: false, // Future feature
-      verifiedAt: null,
-      verificationTxHash: null,
+      isVerified: wl.isVerified ?? false,
+      verifiedAt: wl.verifiedAt ?? null,
+      verificationTxHash: wl.verificationTxHash ?? null,
     }));
     
     return { wallets, clusterKey, wasBackfilled };
@@ -3715,30 +3719,51 @@ async function startAdminWebServer() {
           eq(walletLinks.address, normalizedAddress)
         )).limit(1);
       
+      // Check how many ACTIVE wallets user already has
+      const activeLinks = await db.select().from(walletLinks)
+        .where(and(
+          eq(walletLinks.clusterKey, clusterKey),
+          eq(walletLinks.isActive, true)
+        ));
+      const shouldBePrimary = activeLinks.length === 0; // First active wallet is primary
+      
+      let inserted;
+      
       if (existing && existing.length > 0) {
-        return res.status(409).json({ error: 'Wallet already linked' });
+        // Wallet exists - check if it's inactive (soft-deleted)
+        if (existing[0].isActive) {
+          return res.status(409).json({ error: 'Wallet already linked' });
+        }
+        
+        // Re-activate the soft-deleted wallet
+        console.log(`[API] Re-activating soft-deleted wallet ${normalizedAddress} for user ${discordId}`);
+        inserted = await db
+          .update(walletLinks)
+          .set({
+            isActive: true,
+            isPrimary: shouldBePrimary,
+            chain,
+          })
+          .where(eq(walletLinks.id, existing[0].id))
+          .returning();
+      } else {
+        // Insert new wallet
+        inserted = await db
+          .insert(walletLinks)
+          .values({
+            clusterKey,
+            chain,
+            address: normalizedAddress,
+            isPrimary: shouldBePrimary,
+            isActive: true,
+          })
+          .returning();
       }
-      
-      // Check how many wallets user already has
-      const existingLinks = await db.select().from(walletLinks).where(eq(walletLinks.clusterKey, clusterKey));
-      const isPrimary = existingLinks.length === 0; // First wallet is primary
-      
-      // Insert new wallet
-      const inserted = await db
-        .insert(walletLinks)
-        .values({
-          clusterKey,
-          chain,
-          address: normalizedAddress,
-          isPrimary,
-          isActive: true,
-        })
-        .returning();
       
       console.log(`[API] Added wallet ${normalizedAddress} for user ${discordId}`);
       
-      // If this is the first wallet for the cluster, trigger ETL in background
-      if (isPrimary) {
+      // If this is the first active wallet for the cluster, trigger ETL in background
+      if (shouldBePrimary) {
         console.log(`[API] First wallet added for ${discordId}, triggering ETL for cluster ${clusterKey}`);
         triggerEtlForCluster(clusterKey);
       }
