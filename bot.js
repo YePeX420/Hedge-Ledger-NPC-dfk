@@ -3528,6 +3528,246 @@ async function startAdminWebServer() {
     }
   }
 
+  // User authentication middleware (any logged-in user)
+  async function isUser(req, res, next) {
+    try {
+      const sessionToken = req.cookies.session_token;
+      
+      if (!sessionToken) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Fetch session from database
+      const sessions = await db
+        .select()
+        .from(adminSessions)
+        .where(eq(adminSessions.sessionToken, sessionToken));
+
+      if (!sessions || sessions.length === 0) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const session = sessions[0];
+
+      // Check expiration
+      if (new Date(session.expiresAt) < new Date()) {
+        await db
+          .delete(adminSessions)
+          .where(eq(adminSessions.sessionToken, sessionToken));
+        return res.status(401).json({ error: 'Session expired' });
+      }
+
+      req.user = {
+        userId: session.discordId,
+        username: session.username,
+        avatar: session.avatar,
+      };
+      next();
+    } catch (err) {
+      console.error('❌ User middleware error:', err);
+      res.status(500).json({ error: 'Authentication check failed' });
+    }
+  }
+
+  // Helper function to get wallets for a user with auto-backfill from legacy primaryWallet
+  async function getWalletsForUser(discordId) {
+    // 1) Find player by discordId
+    const player = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+    if (!player || player.length === 0) return [];
+    
+    // 2) Resolve or create cluster for this user
+    let cluster = await db.select().from(walletClusters).where(eq(walletClusters.userId, discordId)).limit(1);
+    
+    if (!cluster || cluster.length === 0) {
+      const inserted = await db
+        .insert(walletClusters)
+        .values({
+          userId: discordId,
+          clusterKey: `cluster-${discordId}`,
+        })
+        .returning();
+      cluster = inserted;
+    }
+    
+    const clusterKey = cluster[0].clusterKey;
+    
+    // 3) Load existing wallet_links for this cluster
+    let links = await db.select().from(walletLinks).where(eq(walletLinks.clusterKey, clusterKey));
+    
+    // 4) Auto-backfill from players.primaryWallet if no links yet
+    if ((!links || links.length === 0) && player[0].primaryWallet) {
+      // Normalize address to lowercase to avoid duplicates
+      const normalizedAddress = player[0].primaryWallet.toLowerCase();
+      const inserted = await db
+        .insert(walletLinks)
+        .values({
+          clusterKey: clusterKey,
+          chain: 'DFKCHAIN',
+          address: normalizedAddress,
+          isPrimary: true,
+          isActive: true,
+        })
+        .returning();
+      links = inserted;
+      console.log(`[Wallets] Auto-backfilled wallet ${normalizedAddress} for user ${discordId}`);
+    }
+    
+    // 5) Map to API shape
+    return links.map((wl) => ({
+      address: wl.address,
+      chain: wl.chain,
+      isPrimary: wl.isPrimary,
+      isActive: wl.isActive,
+      isVerified: false, // Future feature
+      verifiedAt: null,
+      verificationTxHash: null,
+    }));
+  }
+
+  // ============================================================================
+  // USER WALLET API ROUTES
+  // ============================================================================
+
+  // GET /api/me/wallets - Get user's linked wallets with auto-backfill from legacy primaryWallet
+  app.get('/api/me/wallets', isUser, async (req, res) => {
+    try {
+      const discordId = req.user.userId;
+      console.log(`[API] GET /api/me/wallets for user ${discordId}`);
+      const wallets = await getWalletsForUser(discordId);
+      console.log(`[API] Returning ${wallets.length} wallet(s) for user ${discordId}:`, JSON.stringify(wallets));
+      res.json({ wallets });
+    } catch (error) {
+      console.error('[API] Error fetching user wallets:', error);
+      res.status(500).json({ error: 'Failed to fetch wallets' });
+    }
+  });
+
+  // POST /api/me/wallets - Add a new wallet
+  app.post('/api/me/wallets', isUser, async (req, res) => {
+    try {
+      const discordId = req.user.userId;
+      const { address, chain = 'DFKCHAIN' } = req.body;
+      
+      if (!address || typeof address !== 'string') {
+        return res.status(400).json({ error: 'Wallet address is required' });
+      }
+      
+      // Normalize address
+      const normalizedAddress = address.toLowerCase();
+      
+      // Validate address format (basic ETH-style address check)
+      if (!/^0x[a-fA-F0-9]{40}$/.test(normalizedAddress)) {
+        return res.status(400).json({ error: 'Invalid wallet address format' });
+      }
+      
+      // Get or create cluster for user
+      let cluster = await db.select().from(walletClusters).where(eq(walletClusters.userId, discordId)).limit(1);
+      
+      if (!cluster || cluster.length === 0) {
+        const inserted = await db
+          .insert(walletClusters)
+          .values({
+            userId: discordId,
+            clusterKey: `cluster-${discordId}`,
+          })
+          .returning();
+        cluster = inserted;
+      }
+      
+      const clusterKey = cluster[0].clusterKey;
+      
+      // Check if wallet already exists
+      const existing = await db.select().from(walletLinks)
+        .where(and(
+          eq(walletLinks.clusterKey, clusterKey),
+          eq(walletLinks.address, normalizedAddress)
+        )).limit(1);
+      
+      if (existing && existing.length > 0) {
+        return res.status(409).json({ error: 'Wallet already linked' });
+      }
+      
+      // Check how many wallets user already has
+      const existingLinks = await db.select().from(walletLinks).where(eq(walletLinks.clusterKey, clusterKey));
+      const isPrimary = existingLinks.length === 0; // First wallet is primary
+      
+      // Insert new wallet
+      const inserted = await db
+        .insert(walletLinks)
+        .values({
+          clusterKey,
+          chain,
+          address: normalizedAddress,
+          isPrimary,
+          isActive: true,
+        })
+        .returning();
+      
+      console.log(`[API] Added wallet ${normalizedAddress} for user ${discordId}`);
+      
+      res.json({
+        success: true,
+        wallet: {
+          address: inserted[0].address,
+          chain: inserted[0].chain,
+          isPrimary: inserted[0].isPrimary,
+          isActive: inserted[0].isActive,
+        },
+      });
+    } catch (error) {
+      console.error('[API] Error adding wallet:', error);
+      res.status(500).json({ error: 'Failed to add wallet' });
+    }
+  });
+
+  // DELETE /api/me/wallets/:address - Remove a wallet
+  app.delete('/api/me/wallets/:address', isUser, async (req, res) => {
+    try {
+      const discordId = req.user.userId;
+      const { address } = req.params;
+      
+      if (!address) {
+        return res.status(400).json({ error: 'Wallet address is required' });
+      }
+      
+      const normalizedAddress = address.toLowerCase();
+      
+      // Get cluster for user
+      const cluster = await db.select().from(walletClusters).where(eq(walletClusters.userId, discordId)).limit(1);
+      
+      if (!cluster || cluster.length === 0) {
+        return res.status(404).json({ error: 'No wallets found' });
+      }
+      
+      const clusterKey = cluster[0].clusterKey;
+      
+      // Find the wallet
+      const existing = await db.select().from(walletLinks)
+        .where(and(
+          eq(walletLinks.clusterKey, clusterKey),
+          eq(walletLinks.address, normalizedAddress)
+        )).limit(1);
+      
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Wallet not found' });
+      }
+      
+      // Delete the wallet
+      await db.delete(walletLinks)
+        .where(and(
+          eq(walletLinks.clusterKey, clusterKey),
+          eq(walletLinks.address, normalizedAddress)
+        ));
+      
+      console.log(`[API] Removed wallet ${normalizedAddress} for user ${discordId}`);
+      
+      res.json({ success: true, message: 'Wallet removed' });
+    } catch (error) {
+      console.error('[API] Error removing wallet:', error);
+      res.status(500).json({ error: 'Failed to remove wallet' });
+    }
+  });
+
   // Level Racer routes (no auth for public endpoints)
   app.use('/api/level-racer', levelRacerRoutes);
 
