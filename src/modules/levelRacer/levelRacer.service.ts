@@ -495,6 +495,11 @@ export async function processXpUpdates(
         winnerEntry
       );
 
+      // Auto-create next pool if this one is recurrent
+      if (finishedPool.isRecurrent) {
+        await autoCreateNextPool(finishedPool, poolData.heroClass);
+      }
+
       winnerDeclared = true;
       break;
     }
@@ -563,6 +568,40 @@ export async function simulateTick(poolId: number): Promise<{ success: boolean; 
   return processXpUpdates(poolId, updates);
 }
 
+/**
+ * Auto-create next pool when a recurrent pool finishes.
+ * Copies all settings from the finished pool (fees, token type, rarity filter, etc.)
+ */
+async function autoCreateNextPool(finishedPool: ClassPool, heroClass: HeroClass): Promise<ClassPool> {
+  const [newPool] = await db
+    .insert(classPools)
+    .values({
+      heroClassId: finishedPool.heroClassId,
+      level: finishedPool.level,
+      state: "OPEN",
+      maxEntries: finishedPool.maxEntries,
+      usdEntryFee: finishedPool.usdEntryFee,
+      usdPrize: finishedPool.usdPrize,
+      tokenType: finishedPool.tokenType,
+      jewelEntryFee: finishedPool.jewelEntryFee,
+      jewelPrize: finishedPool.jewelPrize,
+      rarityFilter: finishedPool.rarityFilter,
+      maxMutations: finishedPool.maxMutations,
+      isRecurrent: finishedPool.isRecurrent,
+    })
+    .returning();
+
+  await emitRaceEvent(newPool.id, null, "POOL_CREATED", { 
+    heroClassId: heroClass.id,
+    autoCreated: true,
+    previousPoolId: finishedPool.id
+  }, newPool, heroClass);
+
+  console.log(`[LevelRacer] Auto-created new pool #${newPool.id} for ${heroClass.displayName} (previous: #${finishedPool.id})`);
+
+  return newPool;
+}
+
 async function emitRaceEvent(
   poolId: number,
   entryId: number | null,
@@ -588,6 +627,46 @@ async function emitRaceEvent(
     payload,
     commentary,
   });
+}
+
+/**
+ * Ensures each enabled hero class has exactly one open pool.
+ * Called on startup to maintain pool availability.
+ */
+export async function ensurePoolsForAllClasses(): Promise<void> {
+  const enabledClasses = await getAllHeroClasses();
+  
+  for (const heroClass of enabledClasses) {
+    const existingPool = await getActivePoolForClass(heroClass.id);
+    if (!existingPool) {
+      // Create default pool for this class
+      const [newPool] = await db
+        .insert(classPools)
+        .values({
+          heroClassId: heroClass.id,
+          level: 1,
+          state: "OPEN",
+          maxEntries: 6,
+          usdEntryFee: "5.00",
+          usdPrize: "40.00",
+          tokenType: "JEWEL",
+          jewelEntryFee: 25,
+          jewelPrize: 200,
+          rarityFilter: "common",
+          maxMutations: null,
+          isRecurrent: true,
+        })
+        .returning();
+      
+      await emitRaceEvent(newPool.id, null, "POOL_CREATED", { 
+        heroClassId: heroClass.id,
+        autoCreated: true,
+        reason: "startup_initialization"
+      }, newPool, heroClass);
+      
+      console.log(`[LevelRacer] Created startup pool #${newPool.id} for ${heroClass.displayName}`);
+    }
+  }
 }
 
 export async function seedHeroClasses(): Promise<void> {

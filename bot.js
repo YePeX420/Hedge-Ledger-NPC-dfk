@@ -71,7 +71,7 @@ import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, cha
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
 import levelRacerRoutes from './src/modules/levelRacer/levelRacer.routes.ts';
-import { seedHeroClasses } from './src/modules/levelRacer/levelRacer.service.ts';
+import { seedHeroClasses, ensurePoolsForAllClasses } from './src/modules/levelRacer/levelRacer.service.ts';
 
 const execAsync = promisify(exec);
 
@@ -3406,8 +3406,13 @@ async function initializeEconomicSystem() {
   try {
     await seedHeroClasses();
     console.log('✅ Level Racer hero classes seeded');
+    
+    // Ensure each class has at least one open pool
+    console.log('🏁 Ensuring Level Racer pools for all classes...');
+    await ensurePoolsForAllClasses();
+    console.log('✅ Level Racer pools initialized');
   } catch (err) {
-    console.warn('⚠️ Level Racer seeding skipped:', err.message);
+    console.warn('⚠️ Level Racer initialization skipped:', err.message);
   }
 
   console.log('📡 Starting payment monitor (V2: Per-job fast scanner)...');
