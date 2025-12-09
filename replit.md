@@ -32,6 +32,14 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
 *   **Smurf Detection & League Signup System**: Manages competitive leagues with a 6-tier ladder, wallet clustering for multi-account detection, power snapshots, transfer aggregates, and rule-based smurf detection with configurable rules and actions.
 *   **Challenge/Achievement System**: Gamified progression system with 8 categories and 36 challenges, using dual tier systems (RARITY and GENE tiers) and supporting player progress tracking and leaderboards.
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" by indexing bridge events, enriching with USD values, and computing per-wallet net extraction and extractor scores.
+*   **Level Racer - Class Arena Edition**: Competitive hero leveling races with entry fees and prizes.
+    *   **Core Mechanics**: 6 common heroes per pool race to level up, first to 100 XP wins 200 JEWEL and claims an extra hero.
+    *   **Validation Rules**: Only common heroes with 0 XP and no leveling stones can enter.
+    *   **State Machine**: OPEN → FILLING → RACING → FINISHED
+    *   **Economic Tracking**: Entry fees (25 JEWEL per hero) tracked via `totalFeesCollected`, prize distribution tracked via `prizeAwarded`.
+    *   **Commentary System**: Hedge-style NPC commentary for all race events (pool creation, hero joins, XP gains, winner declaration).
+    *   **REST API**: `/api/level-racer/classes`, `/api/level-racer/pools/active`, `/api/level-racer/pools/:slug/join`, `/api/level-racer/pools/:id`, `/api/level-racer/pools/:id/events`, `/api/level-racer/dev/pools/:id/simulate-tick`
+    *   **Database Tables**: `hero_classes`, `class_pools`, `pool_entries`, `race_events`
 
 **Design Decisions:**
 *   **Database**: PostgreSQL with Drizzle ORM.
