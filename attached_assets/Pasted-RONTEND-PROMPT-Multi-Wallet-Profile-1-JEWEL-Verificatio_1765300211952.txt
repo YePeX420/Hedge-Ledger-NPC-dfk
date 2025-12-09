@@ -1,0 +1,178 @@
+RONTEND PROMPT – Multi-Wallet Profile & 1 JEWEL Verification
+
+You are working in the React + Vite frontend in client/.
+The backend now exposes:
+
+GET /api/me/wallets
+
+POST /api/me/wallets
+
+PUT /api/me/wallets/:address/primary
+
+POST /api/me/wallets/:address/request-verification
+
+GET /api/me/wallets/:address/verification-status
+
+Goal:
+Upgrade the Profile page to support:
+
+Viewing multiple wallets linked to this Discord user
+
+Adding new wallets
+
+Setting a primary wallet
+
+Initiating a 1 JEWEL verification payment to Hedge
+
+Showing verification status per wallet
+
+1. API client
+
+Create client/src/api/meWallets.ts:
+
+export interface WalletRecord {
+  address: string;
+  chain: string;
+  isPrimary: boolean;
+  isActive: boolean;
+  isVerified: boolean;
+  verifiedAt?: string | null;
+  verificationTxHash?: string | null;
+}
+
+export interface WalletListResponse {
+  wallets: WalletRecord[];
+}
+
+const API_BASE = "/api/me";
+
+export async function fetchMyWallets(): Promise<WalletRecord[]> {
+  const res = await fetch(`${API_BASE}/wallets`);
+  if (!res.ok) throw new Error("Failed to load wallets");
+  const data: WalletListResponse = await res.json();
+  return data.wallets;
+}
+
+export async function addMyWallet(address: string): Promise<WalletRecord> {
+  const res = await fetch(`${API_BASE}/wallets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address }),
+  });
+  if (!res.ok) throw new Error("Failed to add wallet");
+  return res.json();
+}
+
+export async function setPrimaryWallet(address: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/wallets/${address}/primary`, {
+    method: "PUT",
+  });
+  if (!res.ok) throw new Error("Failed to set primary wallet");
+}
+
+export interface VerificationPayload {
+  to: string;
+  chainId: number;
+  amountJewel: string;
+  amountWei: string;
+  data: string;
+  nonceMessage: string;
+  hedgeDisplayName: string;
+}
+
+export async function requestWalletVerification(
+  address: string
+): Promise<VerificationPayload> {
+  const res = await fetch(`${API_BASE}/wallets/${address}/request-verification`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to request verification");
+  return res.json();
+}
+
+2. Profile UI – Multi-wallet section
+
+In the Profile page (where you currently show “No Wallet Linked”), replace that section with:
+
+A list of existing wallets
+
+Show:
+
+shortened address (0x1234…abcd)
+
+badges: PRIMARY, VERIFIED, PENDING
+
+Buttons:
+
+“Set Primary” (if not primary)
+
+“Verify (1 JEWEL)” (if not verified)
+
+“Verified” (green disabled button) if already verified
+
+An input field + “Add Wallet” button to add a new address.
+
+Data flow:
+
+On mount, call fetchMyWallets() → store in state.
+
+After add/primary/verify, refresh the list.
+
+3. Verification modal / link
+
+When user clicks “Verify (1 JEWEL)”:
+
+Call requestWalletVerification(address).
+
+Show a small modal containing:
+
+Hedge address (payload.to)
+
+Amount: "1 JEWEL"
+
+Network: "DFK Chain"
+
+nonceMessage (text instructing them)
+
+Also show:
+
+A copy button for the Hedge address.
+
+A copy button for the amount.
+
+Optionally: an EIP-681 link like:
+
+const eip681 = `ethereum:${payload.to}@${payload.chainId}/transfer?value=${payload.amountWei}`;
+
+
+For MetaMask / Rabby on desktop, just show the link and a “Open in wallet” hint; on mobile, you could render it as a clickable link.
+
+You do not actually sign or send anything in the frontend – user uses their own wallet.
+
+4. Display status
+
+In each wallet row:
+
+If isVerified:
+
+Show a green “Verified” pill and, when clicked, show verifiedAt + link to explorer with verificationTxHash if present.
+
+If not verified:
+
+Show orange “Not Verified” pill and the “Verify (1 JEWEL)” button.
+
+Optional: poll fetchMyWallets() every 30–60 seconds after they open the verification modal, so it auto-updates once ETL detects the payment and sets isVerified = true.
+
+5. Tie primary wallet to the rest of the app
+
+Wherever you currently assume a single wallet (challenges, leagues), use:
+
+The wallet where isPrimary === true.
+
+If none are primary, you can default to the first verified wallet.
+
+This keeps your Challenges / Leagues pages consistent with the Profile selection.
+
+Use existing styling (dark cards) and keep layout consistent with the current Profile screen.
+
+Frontend must NOT attempt to talk to blockchain directly; it only uses the new /api/me/wallets* endpoints.
