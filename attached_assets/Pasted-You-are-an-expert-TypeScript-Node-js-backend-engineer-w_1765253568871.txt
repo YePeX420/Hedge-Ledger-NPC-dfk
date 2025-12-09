@@ -1,0 +1,480 @@
+You are an expert TypeScript / Node.js backend engineer working on an existing Hedge / DeFi Kingdoms backend.
+The stack is:
+
+Node.js
+
+TypeScript
+
+Express
+
+Drizzle ORM (with SQLite or Postgres)
+
+The project already has routing, DB config, and some domain modules.
+
+Your task:
+Add a new module called “Level Racer – Class Arena Edition” under /src WITHOUT breaking anything that already exists.
+This is a feature module inside the current backend, not a new project.
+
+1. Folder Structure
+
+Under src/, create a new module folder:
+
+src/
+  modules/
+    levelRacer/
+      levelRacer.routes.ts
+      levelRacer.controller.ts
+      levelRacer.service.ts
+      levelRacer.commentary.ts
+      levelRacer.types.ts
+      levelRacer.xpAdmin.ts   // endpoint for XP updates / simulation
+
+
+If modules/ doesn’t exist, create it and keep naming consistent with existing patterns (if there’s already a features/ or domains/ folder for modules, put levelRacer there instead and adjust imports accordingly).
+
+2. Database Schema (Drizzle ORM)
+
+Add new Drizzle schema definitions for the Level Racer module, in the same place you put other Drizzle tables, e.g.:
+
+src/db/schema/levelRacer.ts
+
+
+Define these tables using Drizzle:
+
+2.1 hero_classes
+
+id (serial PK)
+
+slug (text, unique) – e.g. "knight", "warrior", "wizard"
+
+displayName (text)
+
+isEnabled (boolean, default true)
+
+Seed some standard hero classes in a migration or a seed script.
+
+2.2 class_pools
+
+Represents one arena pool per hero class.
+
+id (serial PK)
+
+heroClassId (FK → hero_classes.id)
+
+level (integer) – level required for all heroes in this pool (for now default to 1 for new pools but keep it configurable)
+
+state (text enum: "OPEN" | "FILLING" | "RACING" | "FINISHED")
+
+maxEntries (integer, default 6)
+
+createdAt (timestamp, default now)
+
+startedAt (timestamp, nullable)
+
+finishedAt (timestamp, nullable)
+
+winnerEntryId (FK → pool_entries.id, nullable)
+
+jewelEntryFee (integer, default 25)
+
+jewelPrize (integer, default 200)
+
+Constraint:
+Only one non-FINISHED pool per heroClassId at a time.
+
+2.3 pool_entries
+
+Each hero entry into the pool.
+
+id (serial PK)
+
+classPoolId (FK → class_pools.id)
+
+walletAddress (text)
+
+heroId (text) – on-chain hero ID
+
+heroClassSlug (text) – redundancy for clarity
+
+heroLevel (integer)
+
+heroRarity (text) – "common" | "uncommon" | "rare" | "legendary" | "mythic"
+
+heroHasStone (boolean)
+
+heroInitialXp (integer, default 0)
+
+heroCurrentXp (integer, default 0)
+
+heroReadyToLevel (boolean, default false)
+
+joinedAt (timestamp, default now)
+
+isWinner (boolean, default false)
+
+claimedExtraHeroId (text, nullable) – hero chosen from pool by winner (for future integration)
+
+2.4 race_events
+
+Commentary + internal event log.
+
+id (serial PK)
+
+classPoolId (FK → class_pools.id)
+
+poolEntryId (FK → pool_entries.id, nullable)
+
+eventType (text enum string):
+
+"POOL_CREATED", "HERO_JOINED", "RACE_STARTED", "XP_GAINED", "CLOSE_TO_LEVEL", "WINNER_DECLARED"
+
+payload (JSON) – raw data for that event
+
+commentary (text) – formatted Hedge line
+
+createdAt (timestamp, default now)
+
+Add proper indexes for:
+
+race_events by (classPoolId, createdAt)
+
+class_pools by heroClassId and state
+
+Create the necessary Drizzle migrations for these tables, and register them in the existing migration system.
+
+3. Types
+
+In levelRacer.types.ts, define TypeScript types for:
+
+export type PoolState = "OPEN" | "FILLING" | "RACING" | "FINISHED";
+
+export interface JoinPoolRequest {
+  walletAddress: string;
+  heroId: string;
+  heroClassSlug: string;
+  heroLevel: number;
+  heroRarity: "common" | "uncommon" | "rare" | "legendary" | "mythic";
+  heroXp: number;
+  heroHasStone: boolean;
+}
+
+export interface ActivePool {
+  id: number;
+  heroClassSlug: string;
+  heroClassName: string;
+  level: number;
+  state: PoolState;
+  maxEntries: number;
+  currentEntries: number;
+  jewelEntryFee: number;
+  jewelPrize: number;
+  createdAt: string;
+}
+
+export interface PoolEntryView {
+  id: number;
+  walletAddress: string;
+  heroId: string;
+  heroClassSlug: string;
+  heroLevel: number;
+  heroRarity: string;
+  heroCurrentXp: number;
+  heroReadyToLevel: boolean;
+  joinedAt: string;
+  isWinner: boolean;
+}
+
+export interface GetPoolResponse {
+  id: number;
+  heroClassSlug: string;
+  heroClassName: string;
+  level: number;
+  state: PoolState;
+  maxEntries: number;
+  jewelEntryFee: number;
+  jewelPrize: number;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  winnerEntryId?: number;
+  entries: PoolEntryView[];
+}
+
+export interface RaceEventView {
+  id: number;
+  eventType: string;
+  commentary: string;
+  createdAt: string;
+  heroId?: string;
+  walletAddress?: string;
+  payload: any;
+}
+
+
+Use these types in the controllers.
+
+4. Service Logic (levelRacer.service.ts)
+
+Implement a service layer that uses Drizzle to:
+
+Get active pools
+
+One active (non-FINISHED) pool per class.
+
+Compute currentEntries from pool_entries count.
+
+Create or fetch the current pool for a class
+
+If no pool in OPEN | FILLING | RACING for that heroClassId, create a new pool in state "OPEN" with:
+
+maxEntries = 6
+
+level = 1 (for now)
+
+jewelEntryFee = 25
+
+jewelPrize = 200
+
+Enforce “one active pool per class” rule.
+
+Join a pool
+
+Validate JoinPoolRequest rules:
+
+heroClassSlug matches pool class
+
+heroRarity === "common"
+
+heroXp === 0
+
+heroHasStone === false
+
+heroLevel equals pool level
+
+pool not FINISHED and not full
+
+Insert pool_entries row.
+
+Emit a HERO_JOINED event via commentary service.
+
+If pool reaches 6 entries:
+
+transition state → "RACING", set startedAt
+
+emit RACE_STARTED event.
+
+Fetch pool details
+
+Return GetPoolResponse with entries.
+
+Fetch race events for a pool
+
+Return RaceEventView[] ordered by createdAt ASC.
+
+Process XP updates
+
+For each HeroXpUpdate:
+
+update heroCurrentXp
+
+if readyToLevel just flipped from false → true:
+
+if no winner yet for this pool:
+
+mark pool winner:
+
+class_pools.winnerEntryId = entryId
+
+class_pools.state = "FINISHED"
+
+class_pools.finishedAt = now
+
+pool_entries.isWinner = true
+
+emit WINNER_DECLARED event with commentary.
+
+else if XP increased and still not ready:
+
+optionally emit XP_GAINED and CLOSE_TO_LEVEL events when appropriate.
+
+Important: All pool state transitions must be done transactionally to avoid race conditions.
+
+5. Commentary Engine (levelRacer.commentary.ts)
+
+Implement functions that return Hedge-style commentary lines for each event type.
+
+Example signatures:
+
+import { ClassPool, PoolEntry } from "./levelRacer.types-or-models";
+
+interface CommentaryContext {
+  pool: ClassPoolEntity;
+  entry?: PoolEntryEntity | null;
+  extra?: Record<string, any>;
+}
+
+export function commentaryForPoolCreated(ctx: CommentaryContext): string;
+export function commentaryForHeroJoined(ctx: CommentaryContext): string;
+export function commentaryForRaceStarted(ctx: CommentaryContext): string;
+export function commentaryForXpGained(ctx: CommentaryContext): string;
+export function commentaryForCloseToLevel(ctx: CommentaryContext): string;
+export function commentaryForWinnerDeclared(ctx: CommentaryContext): string;
+
+
+Style examples:
+
+POOL_CREATED
+
+“Welcome to the ${className} Arena. Six common heroes will enter. One walks out with 200 JEWEL.”
+
+HERO_JOINED
+
+“Hero #${heroId} steps into the arena. Just a Common… but maybe today’s their day.”
+
+RACE_STARTED
+
+“The gates are open. Six heroes begin their race to level up. No stones. No excuses.”
+
+XP_GAINED
+
+“Hero #${heroId} gains XP. Slowly, the gap begins to form.”
+
+CLOSE_TO_LEVEL
+
+“Hero #${heroId} is one quest away from leveling. The tension is delicious.”
+
+WINNER_DECLARED
+
+“LEVEL UP READY! Hero #${heroId} wins the arena – and picks a loser’s hero to steal, plus 200 JEWEL. Brutal. Perfect.”
+
+For every event written to race_events, generate and store commentary.
+
+6. Controllers & Routes
+
+In levelRacer.controller.ts and levelRacer.routes.ts, expose REST endpoints under a base path:
+
+// In server.ts or main routing file:
+app.use("/api/level-racer", levelRacerRoutes);
+
+
+Implement these endpoints:
+
+6.1 GET /api/level-racer/pools/active
+
+Returns active pools.
+
+type GetActivePoolsResponse = { pools: ActivePool[] };
+
+6.2 POST /api/level-racer/pools/:classSlug/join
+
+Body: JoinPoolRequest
+
+Validates input and joins/creates pool via service.
+
+Response:
+
+interface JoinPoolResponse {
+  success: boolean;
+  poolId: number;
+  entryId: number;
+  message: string;
+}
+
+
+On error, respond with:
+
+{ success: false, error: { code: string, message: string } }
+
+6.3 GET /api/level-racer/pools/:poolId
+
+Returns GetPoolResponse.
+
+6.4 GET /api/level-racer/pools/:poolId/events
+
+Returns { events: RaceEventView[] }.
+
+6.5 POST /api/level-racer/pools/:poolId/xp-update
+
+Internal/admin endpoint for XP updates (later wired to chain watcher).
+
+Request:
+
+interface HeroXpUpdate {
+  entryId: number;
+  newXp: number;
+  readyToLevel: boolean;
+}
+
+interface XpUpdateRequest {
+  updates: HeroXpUpdate[];
+}
+
+
+Response:
+
+interface XpUpdateResponse {
+  success: boolean;
+  message: string;
+}
+
+7. XP Simulation Endpoint (for local testing)
+
+Implement a dev-only route, like:
+
+POST /api/level-racer/dev/pools/:poolId/simulate-tick
+
+This should:
+
+If pool is in "RACING" state:
+
+randomly increment XP for some entries
+
+once a hero reaches a hard-coded XP threshold (e.g. 100), mark it readyToLevel = true and trigger winner logic.
+
+This is only for testing and can be guarded behind an env flag or dev check.
+
+8. Tests
+
+Add unit tests (using the existing test framework in this repo) for:
+
+Creating a pool and enforcing “one active pool per class”
+
+Joining pool with valid hero (common, 0 xp, no stone)
+
+Rejecting joins:
+
+non-common
+
+xp > 0
+
+heroHasStone = true
+
+Transition from FILLING → RACING when 6 heroes join
+
+Winner detection: first readyToLevel hero wins, later ones don’t change winner
+
+Commentary strings are non-empty and use the correct hero and pool data.
+
+9. Important
+
+DO NOT break any existing endpoints or modules.
+
+DO NOT change existing auth or payment logic; this module just assumes wallet+hero data are provided correctly.
+
+Keep everything modular and namespaced under levelRacer.
+
+Use TypeScript strictly and keep the style consistent with the existing codebase.
+
+When you’re done, I should be able to:
+
+Run the backend
+
+Call GET /api/level-racer/pools/active
+
+Join pools via POST /.../join
+
+Simulate XP updates
+
+See commentary in GET /.../events
+
+See winner declared for a pool.

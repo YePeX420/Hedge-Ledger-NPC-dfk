@@ -1140,3 +1140,97 @@ export const playerChallengeProgress = pgTable("player_challenge_progress", {
 export const insertPlayerChallengeProgressSchema = createInsertSchema(playerChallengeProgress).omit({ id: true });
 export type InsertPlayerChallengeProgress = z.infer<typeof insertPlayerChallengeProgressSchema>;
 export type PlayerChallengeProgress = typeof playerChallengeProgress.$inferSelect;
+
+// ============================================================================
+// LEVEL RACER - CLASS ARENA EDITION
+// ============================================================================
+
+/**
+ * Hero classes - catalog of available hero classes for arena pools
+ */
+export const heroClasses = pgTable("hero_classes", {
+  id: serial("id").primaryKey(),
+  slug: varchar("slug", { length: 64 }).notNull().unique(),
+  displayName: varchar("display_name", { length: 128 }).notNull(),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+}, (table) => ({
+  slugIdx: uniqueIndex("hero_classes_slug_idx").on(table.slug),
+}));
+
+export const insertHeroClassSchema = createInsertSchema(heroClasses).omit({ id: true });
+export type InsertHeroClass = z.infer<typeof insertHeroClassSchema>;
+export type HeroClass = typeof heroClasses.$inferSelect;
+
+/**
+ * Class pools - arena pool per hero class
+ * Only one non-FINISHED pool per heroClassId at a time
+ */
+export const classPools = pgTable("class_pools", {
+  id: serial("id").primaryKey(),
+  heroClassId: integer("hero_class_id").notNull().references(() => heroClasses.id),
+  level: integer("level").notNull().default(1),
+  state: varchar("state", { length: 16 }).notNull().default("OPEN"), // OPEN, FILLING, RACING, FINISHED
+  maxEntries: integer("max_entries").notNull().default(6),
+  jewelEntryFee: integer("jewel_entry_fee").notNull().default(25),
+  jewelPrize: integer("jewel_prize").notNull().default(200),
+  winnerEntryId: integer("winner_entry_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (table) => ({
+  heroClassIdIdx: index("class_pools_hero_class_id_idx").on(table.heroClassId),
+  stateIdx: index("class_pools_state_idx").on(table.state),
+  heroClassStateIdx: index("class_pools_hero_class_state_idx").on(table.heroClassId, table.state),
+}));
+
+export const insertClassPoolSchema = createInsertSchema(classPools).omit({ id: true, createdAt: true });
+export type InsertClassPool = z.infer<typeof insertClassPoolSchema>;
+export type ClassPool = typeof classPools.$inferSelect;
+
+/**
+ * Pool entries - hero entries into a pool
+ */
+export const poolEntries = pgTable("pool_entries", {
+  id: serial("id").primaryKey(),
+  classPoolId: integer("class_pool_id").notNull().references(() => classPools.id),
+  walletAddress: varchar("wallet_address", { length: 64 }).notNull(),
+  heroId: varchar("hero_id", { length: 64 }).notNull(),
+  heroClassSlug: varchar("hero_class_slug", { length: 64 }).notNull(),
+  heroLevel: integer("hero_level").notNull(),
+  heroRarity: varchar("hero_rarity", { length: 16 }).notNull(), // common, uncommon, rare, legendary, mythic
+  heroHasStone: boolean("hero_has_stone").notNull().default(false),
+  heroInitialXp: integer("hero_initial_xp").notNull().default(0),
+  heroCurrentXp: integer("hero_current_xp").notNull().default(0),
+  heroReadyToLevel: boolean("hero_ready_to_level").notNull().default(false),
+  joinedAt: timestamp("joined_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  isWinner: boolean("is_winner").notNull().default(false),
+  claimedExtraHeroId: varchar("claimed_extra_hero_id", { length: 64 }),
+}, (table) => ({
+  classPoolIdIdx: index("pool_entries_class_pool_id_idx").on(table.classPoolId),
+  walletAddressIdx: index("pool_entries_wallet_address_idx").on(table.walletAddress),
+  heroIdIdx: index("pool_entries_hero_id_idx").on(table.heroId),
+}));
+
+export const insertPoolEntrySchema = createInsertSchema(poolEntries).omit({ id: true, joinedAt: true });
+export type InsertPoolEntry = z.infer<typeof insertPoolEntrySchema>;
+export type PoolEntry = typeof poolEntries.$inferSelect;
+
+/**
+ * Race events - commentary + internal event log
+ */
+export const raceEvents = pgTable("race_events", {
+  id: serial("id").primaryKey(),
+  classPoolId: integer("class_pool_id").notNull().references(() => classPools.id),
+  poolEntryId: integer("pool_entry_id"),
+  eventType: varchar("event_type", { length: 32 }).notNull(), // POOL_CREATED, HERO_JOINED, RACE_STARTED, XP_GAINED, CLOSE_TO_LEVEL, WINNER_DECLARED
+  payload: json("payload").$type<Record<string, any>>(),
+  commentary: text("commentary").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  classPoolIdCreatedAtIdx: index("race_events_class_pool_id_created_at_idx").on(table.classPoolId, table.createdAt),
+  eventTypeIdx: index("race_events_event_type_idx").on(table.eventType),
+}));
+
+export const insertRaceEventSchema = createInsertSchema(raceEvents).omit({ id: true, createdAt: true });
+export type InsertRaceEvent = z.infer<typeof insertRaceEventSchema>;
+export type RaceEvent = typeof raceEvents.$inferSelect;
