@@ -1,0 +1,232 @@
+Backend Prompt for Replit (Smurf Detection + League Signup API)
+
+You are working in the Hedge / DFK backend project.
+Stack assumptions: Node.js, TypeScript, Express or Fastify, Postgres with Drizzle ORM.
+
+Goal:
+Implement a Smurf Detection Module and the League Signup API for monthly challenge leagues. Players sign up into tiered leagues (Common → Mythic). Smurf detection and tier locking happen in the backend. Frontend only displays results.
+
+1. Add DB schema for smurf detection & tier locks
+
+Create a new file: src/db/schema/antiSmurf.ts and define the following tables using Drizzle:
+
+wallet_clusters – group wallets belonging to one user (clusterKey per Discord user).
+
+wallet_links – link chain + address to a clusterKey.
+
+wallet_power_snapshots – snapshots of powerScore and tierCode over time.
+
+wallet_transfer_aggregates – aggregated inbound/outbound transfers over a time window.
+
+smurf_detection_rules – config-driven rules (JSON) describing thresholds & actions.
+
+smurf_incidents – records of triggered rules, with actionTaken and details.
+
+season_tier_locks – per-season locked tier for a wallet cluster.
+
+Use this structure (adapt for actual Drizzle import path if needed):
+
+import {
+  pgTable,
+  serial,
+  varchar,
+  integer,
+  boolean,
+  jsonb,
+  timestamp,
+} from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+
+export const walletClusters = pgTable("wallet_clusters", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 128 }).notNull(),
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").notNull().default(sql`NOW()`),
+});
+
+export const walletLinks = pgTable("wallet_links", {
+  id: serial("id").primaryKey(),
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  chain: varchar("chain", { length: 32 }).notNull(), // "DFKCHAIN", etc.
+  address: varchar("address", { length: 64 }).notNull(),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`NOW()`),
+});
+
+export const walletPowerSnapshots = pgTable("wallet_power_snapshots", {
+  id: serial("id").primaryKey(),
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  address: varchar("address", { length: 64 }).notNull(),
+  powerScore: integer("power_score").notNull(),
+  tierCode: varchar("tier_code", { length: 32 }).notNull(), // COMMON..MYTHIC
+  takenAt: timestamp("taken_at").notNull().default(sql`NOW()`),
+  meta: jsonb("meta").$type<{
+    heroCount?: number;
+    totalLevels?: number;
+    netWorthUsd?: number;
+    accountAgeDays?: number;
+  }>(),
+});
+
+export const walletTransferAggregates = pgTable("wallet_transfer_aggregates", {
+  id: serial("id").primaryKey(),
+  address: varchar("address", { length: 64 }).notNull(),
+  windowStart: timestamp("window_start").notNull(),
+  windowEnd: timestamp("window_end").notNull(),
+  inboundPowerDelta: integer("inbound_power_delta").notNull().default(0),
+  outboundPowerDelta: integer("outbound_power_delta").notNull().default(0),
+  inboundTxCount: integer("inbound_tx_count").notNull().default(0),
+  outboundTxCount: integer("outbound_tx_count").notNull().default(0),
+  meta: jsonb("meta").$type<{
+    heroTransfers?: number;
+    tokenTransfersUsd?: number;
+  }>(),
+});
+
+export const smurfDetectionRules = pgTable("smurf_detection_rules", {
+  id: serial("id").primaryKey(),
+  key: varchar("key", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 128 }).notNull(),
+  description: varchar("description", { length: 512 }),
+  enabled: boolean("enabled").notNull().default(true),
+  severity: varchar("severity", { length: 32 }).notNull(), // INFO|WARN|CRITICAL
+  defaultAction: varchar("default_action", { length: 32 }).notNull(), 
+  // "ESCALATE_TIER" | "DISQUALIFY" | "FLAG_REVIEW"
+  config: jsonb("config").$type<any>(),
+  createdAt: timestamp("created_at").notNull().default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`NOW()`),
+});
+
+export const smurfIncidents = pgTable("smurf_incidents", {
+  id: serial("id").primaryKey(),
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  seasonId: integer("season_id"),
+  walletAddress: varchar("wallet_address", { length: 64 }),
+  ruleKey: varchar("rule_key", { length: 64 }).notNull(),
+  severity: varchar("severity", { length: 32 }).notNull(),
+  actionTaken: varchar("action_taken", { length: 32 }).notNull(), 
+  reason: varchar("reason", { length: 512 }),
+  details: jsonb("details").$type<any>(),
+  createdAt: timestamp("created_at").notNull().default(sql`NOW()`),
+});
+
+export const seasonTierLocks = pgTable("season_tier_locks", {
+  id: serial("id").primaryKey(),
+  seasonId: integer("season_id").notNull(),
+  clusterKey: varchar("cluster_key", { length: 64 }).notNull(),
+  lockedTierCode: varchar("locked_tier_code", { length: 32 }).notNull(), 
+  lockedAt: timestamp("locked_at").notNull().default(sql`NOW()`),
+  upwardOnly: boolean("upward_only").notNull().default(true),
+});
+
+2. Add a SmurfDetectionService
+
+Create src/services/antiSmurf/SmurfDetectionService.ts with:
+
+runPreSeasonChecks(options: { userId: string; clusterKey: string; seasonId: number; walletAddress: string; }): Promise<SmurfCheckResult>
+
+runInSeasonChecks(options: { clusterKey: string; seasonId: number; }): Promise<SmurfCheckResult>
+
+SmurfCheckResult should include:
+
+export type SmurfAction = "NONE" | "ESCALATE_TIER" | "DISQUALIFY" | "FLAG_REVIEW";
+
+export interface SmurfIncidentDTO {
+  id?: number;
+  ruleKey: string;
+  severity: "INFO" | "WARN" | "CRITICAL";
+  actionTaken: SmurfAction;
+  reason: string;
+  details?: any;
+  createdAt?: string;
+}
+
+export interface SmurfCheckResult {
+  finalAction: SmurfAction;
+  incidents: SmurfIncidentDTO[];
+  adjustedTierCode?: string;           // if escalated
+  disqualified?: boolean;
+  disqualificationReason?: string;
+}
+
+
+Implement rule evaluation roughly like:
+
+Load active smurf_detection_rules.
+
+For each rule, inspect:
+
+wallet’s recent walletTransferAggregates around season and signup windows
+
+cluster’s walletPowerSnapshots
+
+cluster membership (e.g. presence of MYTHIC tier wallets)
+
+If rule triggers, insert a smurf_incidents row and fold its action into finalAction.
+
+If any rule has defaultAction = DISQUALIFY → finalAction = "DISQUALIFY".
+
+Else if any ESCALATE → finalAction = "ESCALATE_TIER".
+
+3. Integrate with league signup API
+
+Implement or extend routes in src/routes/leagues.ts (or similar) with:
+
+GET /api/leagues/active
+
+POST /api/leagues/:seasonId/signup
+
+GET /api/leagues/:seasonId/signup-status
+
+Use the API contract in the next section of the ChatGPT message for exact request/response shapes and field names.
+
+The signup flow should:
+
+Resolve userId from auth (Discord user, etc.).
+
+Resolve or create clusterKey for that user and link the provided walletAddress.
+
+Compute base tier from existing classification / power scoring logic (e.g., COMMON..MYTHIC).
+
+Insert or update seasonTierLocks with lockedTierCode = baseTierCode.
+
+Call SmurfDetectionService.runPreSeasonChecks({ userId, clusterKey, seasonId, walletAddress }).
+
+If finalAction === "ESCALATE_TIER" → update seasonTierLocks.lockedTierCode upward and mark tierAdjusted = true.
+
+If finalAction === "DISQUALIFY" → do not allow entry; mark disqualified = true.
+
+Return the structured signup response defined below, including:
+
+baseTierCode
+
+lockedTierCode
+
+tierAdjusted
+
+disqualified
+
+disqualificationReason
+
+smurfIncidents
+
+entryFee (amount, token, payToAddress)
+
+4. Seed smurf rules
+
+Create e.g. src/data/smurfRules.seed.ts that upserts 3–4 core rules into smurf_detection_rules, based on the JSON structure in the previous ChatGPT message (INBOUND_POWER_SPIKE, POWER_JUMP_AFTER_TIER_LOCK, MULTI_WALLET_CLUSTER_SMURF, DISQUALIFY_ON_INBOUND_DURING_FREEZE).
+
+5. Type-safe API
+
+Define TypeScript types for all request/response DTOs of:
+
+GET /api/leagues/active
+
+POST /api/leagues/:seasonId/signup
+
+GET /api/leagues/:seasonId/signup-status
+
+Then export them from src/api/contracts/leagues.ts so the frontend can reuse them.
+
+Make sure all new files compile and exports are wired into the app’s router.
