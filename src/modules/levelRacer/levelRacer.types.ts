@@ -47,6 +47,8 @@ export interface GetPoolResponse {
   maxEntries: number;
   jewelEntryFee: number;
   jewelPrize: number;
+  totalFeesCollected: number;
+  prizeAwarded: boolean;
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;

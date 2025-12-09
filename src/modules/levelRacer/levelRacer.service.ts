@@ -168,6 +168,12 @@ export async function joinPool(
     })
     .returning();
 
+  // Track entry fee collection
+  await db
+    .update(classPools)
+    .set({ totalFeesCollected: sql`${classPools.totalFeesCollected} + ${pool.jewelEntryFee}` })
+    .where(eq(classPools.id, pool.id));
+
   await emitRaceEvent(pool.id, entry.id, "HERO_JOINED", { heroId: request.heroId }, pool, heroClass, entry);
 
   const newCount = entryCount + 1;
@@ -236,6 +242,8 @@ export async function getPoolDetails(poolId: number): Promise<GetPoolResponse | 
     maxEntries: poolData.pool.maxEntries,
     jewelEntryFee: poolData.pool.jewelEntryFee,
     jewelPrize: poolData.pool.jewelPrize,
+    totalFeesCollected: poolData.pool.totalFeesCollected,
+    prizeAwarded: poolData.pool.prizeAwarded,
     createdAt: poolData.pool.createdAt.toISOString(),
     startedAt: poolData.pool.startedAt?.toISOString(),
     finishedAt: poolData.pool.finishedAt?.toISOString(),
@@ -341,12 +349,14 @@ export async function processXpUpdates(
         .set({ isWinner: true })
         .where(eq(poolEntries.id, update.entryId));
 
+      // Set winner, mark prize as awarded
       const [finishedPool] = await db
         .update(classPools)
         .set({
           state: "FINISHED",
           finishedAt: new Date(),
           winnerEntryId: update.entryId,
+          prizeAwarded: true,
         })
         .where(eq(classPools.id, poolId))
         .returning();

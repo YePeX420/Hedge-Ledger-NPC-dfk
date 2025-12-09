@@ -1173,6 +1173,8 @@ export const classPools = pgTable("class_pools", {
   maxEntries: integer("max_entries").notNull().default(6),
   jewelEntryFee: integer("jewel_entry_fee").notNull().default(25),
   jewelPrize: integer("jewel_prize").notNull().default(200),
+  totalFeesCollected: integer("total_fees_collected").notNull().default(0), // Tracks fees collected as heroes join
+  prizeAwarded: boolean("prize_awarded").notNull().default(false), // Set true when winner receives prize
   winnerEntryId: integer("winner_entry_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   startedAt: timestamp("started_at", { withTimezone: true }),
