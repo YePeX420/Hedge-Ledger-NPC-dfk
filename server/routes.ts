@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { db } from "./db";
-import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions, bridgeEvents, walletBridgeMetrics, historicalPrices } from "@shared/schema";
+import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions, bridgeEvents, walletBridgeMetrics, historicalPrices, walletClusters, walletLinks } from "@shared/schema";
 import { desc, sql, eq, inArray, gte, lte } from "drizzle-orm";
 import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
 import { detectWalletLPPositions } from "../wallet-lp-detector.js";
@@ -56,7 +56,109 @@ async function isAdmin(req: any, res: any, next: any) {
   }
 }
 
+// User middleware - database-backed sessions (any authenticated user)
+async function isUser(req: any, res: any, next: any) {
+  try {
+    const sessionToken = req.cookies?.session_token;
+    
+    if (!sessionToken) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    // Fetch session from database
+    const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+    
+    if (!sessions || sessions.length === 0) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    const session = sessions[0];
+    
+    // Check expiration
+    if (new Date(session.expiresAt) < new Date()) {
+      await db.delete(adminSessions).where(eq(adminSessions.sessionToken, sessionToken));
+      return res.status(401).json({ error: 'Session expired' });
+    }
+    
+    req.user = { userId: session.discordId, username: session.username, avatar: session.avatar };
+    next();
+  } catch (err) {
+    console.error('❌ User middleware error:', err);
+    res.status(500).json({ error: 'Authentication check failed' });
+  }
+}
+
+// Helper function to get wallets for a user with auto-backfill from legacy primaryWallet
+async function getWalletsForUser(discordId: string) {
+  // 1) Find player by discordId
+  const player = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
+  if (!player || player.length === 0) return [];
+  
+  // 2) Resolve or create cluster for this user
+  let cluster = await db.select().from(walletClusters).where(eq(walletClusters.userId, discordId)).limit(1);
+  
+  if (!cluster || cluster.length === 0) {
+    const inserted = await db
+      .insert(walletClusters)
+      .values({
+        userId: discordId,
+        clusterKey: `cluster-${discordId}`,
+      })
+      .returning();
+    cluster = inserted;
+  }
+  
+  const clusterKey = cluster[0].clusterKey;
+  
+  // 3) Load existing wallet_links for this cluster
+  let links = await db.select().from(walletLinks).where(eq(walletLinks.clusterKey, clusterKey));
+  
+  // 4) Auto-backfill from players.primaryWallet if no links yet
+  if ((!links || links.length === 0) && player[0].primaryWallet) {
+    // Normalize address to lowercase to avoid duplicates
+    const normalizedAddress = player[0].primaryWallet.toLowerCase();
+    const inserted = await db
+      .insert(walletLinks)
+      .values({
+        clusterKey: clusterKey,
+        chain: 'DFKCHAIN',
+        address: normalizedAddress,
+        isPrimary: true,
+        isActive: true,
+      })
+      .returning();
+    links = inserted;
+  }
+  
+  // 5) Map to API shape
+  return links.map((wl) => ({
+    address: wl.address,
+    chain: wl.chain,
+    isPrimary: wl.isPrimary,
+    isActive: wl.isActive,
+    isVerified: false, // Future feature
+    verifiedAt: null,
+    verificationTxHash: null,
+  }));
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // ============================================================================
+  // USER API ROUTES (Authenticated users)
+  // ============================================================================
+  
+  // GET /api/me/wallets - Get user's linked wallets with auto-backfill from legacy primaryWallet
+  app.get("/api/me/wallets", isUser, async (req: any, res: any) => {
+    try {
+      const discordId = req.user.userId;
+      const wallets = await getWalletsForUser(discordId);
+      res.json({ wallets });
+    } catch (error) {
+      console.error('[API] Error fetching user wallets:', error);
+      res.status(500).json({ error: 'Failed to fetch wallets' });
+    }
+  });
+
   // Analytics API Routes
   
   // GET /api/analytics/overview - Dashboard overview metrics

@@ -1,0 +1,106 @@
+You are working in the Hedge / DFK backend.
+We already have:
+
+A players table with discordId, discordUsername, primaryWallet, and DFK snapshot data.
+
+A wallet_links table and a /api/me/wallets endpoint that currently only returns rows from wallet_links.
+
+Problem:
+For legacy users (like YePeX), players.primaryWallet is populated, but wallet_links has no rows yet.
+The Profile page calls /api/me/wallets and gets an empty array, so it displays “No Wallets Linked” even though the admin panel shows a primary wallet.
+
+Goal:
+Update the backend so GET /api/me/wallets:
+
+Reads the current player by discordId.
+
+Resolves / creates a wallet_clusters row for that user.
+
+Loads wallet_links for that cluster.
+
+If there are no wallet_links but players.primaryWallet is set, it automatically creates a wallet_links row for that address and returns it.
+
+1. Implement getWalletsForUser(discordId) with auto-backfill
+
+In the service module that backs /api/me/wallets (or create src/services/WalletService.ts if needed), add/replace the function with something equivalent to:
+
+import { db } from "../db";                        // adjust path
+import { players, walletLinks, walletClusters } from "../db/schema"; // adjust imports
+import { eq } from "drizzle-orm";
+
+export async function getWalletsForUser(discordId: string) {
+  // 1) find player by discordId
+  const player = await db.query.players.findFirst({
+    where: (p, { eq }) => eq(p.discordId, discordId),
+  });
+  if (!player) return [];
+
+  // 2) resolve or create cluster for this user
+  let cluster = await db.query.walletClusters.findFirst({
+    where: (c, { eq }) => eq(c.userId, discordId),
+  });
+  if (!cluster) {
+    const inserted = await db
+      .insert(walletClusters)
+      .values({
+        userId: discordId,
+        clusterKey: `cluster-${discordId}`,
+      })
+      .returning();
+    cluster = inserted[0];
+  }
+
+  // 3) load existing wallet_links for this cluster
+  let links = await db.query.walletLinks.findMany({
+    where: (wl, { eq }) => eq(wl.clusterKey, cluster.clusterKey),
+  });
+
+  // 4) auto-backfill from players.primaryWallet if no links yet
+  if ((!links || links.length === 0) && player.primaryWallet) {
+    const inserted = await db
+      .insert(walletLinks)
+      .values({
+        clusterKey: cluster.clusterKey,
+        chain: "DFKCHAIN",
+        address: player.primaryWallet,
+        isPrimary: true,
+        isActive: true,
+      })
+      .returning();
+    links = inserted;
+  }
+
+  // 5) map to API shape used by /api/me/wallets
+  return links.map((wl) => ({
+    address: wl.address,
+    chain: wl.chain,
+    isPrimary: wl.isPrimary,
+    isActive: wl.isActive,
+    isVerified: wl.isVerified ?? false,
+    verifiedAt: wl.verifiedAt,
+    verificationTxHash: wl.verificationTxHash,
+  }));
+}
+
+
+Ensure the /api/me/wallets route calls this function and returns:
+
+{ "wallets": [ /* array from getWalletsForUser */ ] }
+
+2. Sanity checks
+
+After implementing:
+
+Run the backend.
+
+Log in as your Discord user (YePeX).
+
+Call GET /api/me/wallets:
+
+First call should create a wallet_links row based on players.primaryWallet.
+
+Response should include that wallet in the wallets array.
+
+Reload the Profile page: it should now show a linked wallet instead of “No Wallets Linked”.
+
+Do not change the frontend; it already calls /api/me/wallets on mount. This change is purely backend.
