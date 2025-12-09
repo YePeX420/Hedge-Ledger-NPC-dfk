@@ -1,0 +1,118 @@
+Yeah, that screen looks like the whole page is being “frosted” instead of just the background behind the modal – basically the dim/blur layer is also sitting on top of the dialog instead of *behind* it, so it all looks washed-out.
+
+Given what’s in your repo right now and how the admin is built, here’s what’s almost certainly happening and how to fix it.
+
+---
+
+## What’s going on
+
+From your repo:
+
+* The **admin UI** (Level Racer / pools) lives in the **backend** app, not the new `client` React app. It uses its own HTML/CSS/JS bundle (the white admin theme you showed).
+* The “Create New Racing Pool” dialog is a modal that sits on top of the pools list. When you click **Create Pool**, it:
+
+  * Adds a full-screen overlay (for dimming the background)
+  * Shows the modal form on top
+
+The screenshot tells me:
+
+* The overlay’s opacity / blur is being applied to **everything**, including the modal – that happens when:
+
+  * The modal is a child of the dimmed container instead of being rendered above it with a higher z-index, or
+  * A CSS rule like `opacity: 0.3` or `filter: blur(...)` is on a parent that wraps *both* the overlay and the dialog.
+
+That’s why the whole panel looks ghosted even though the fields exist.
+
+---
+
+## How to fix it (conceptually)
+
+You want the structure to be something like:
+
+```html
+<!-- BACKDROP -->
+<div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"></div>
+
+<!-- MODAL -->
+<div class="fixed inset-0 flex items-center justify-center z-50">
+  <div class="bg-white rounded-xl shadow-xl"> ... form ... </div>
+</div>
+```
+
+Key points:
+
+1. **Two separate layers**:
+
+   * backdrop: `z-40`
+   * modal: `z-50`
+     The modal is not inside the dimmer, so opacity/blur doesn’t affect it.
+
+2. **No opacity on a common parent**:
+
+   * Avoid putting `opacity` or `filter` on a container that wraps both overlay and modal – that will dim the modal as well.
+
+3. **Check for global “modal” body styles**:
+
+   * Some old Tailwind / CSS patterns do:
+
+     ```css
+     .modal-open * {
+       filter: blur(2px);
+       opacity: 0.3;
+     }
+     ```
+
+     If you have anything like that, it will blur the entire UI, including the dialog. Restrict it to a dedicated overlay element instead.
+
+---
+
+## Concretely, what to do in your repo
+
+Since I can’t run your code directly, here’s exactly what I’d ask backend Replit to do:
+
+1. **Find the Level Racer admin modal markup**
+   In your backend project (server/admin UI), search for:
+
+   * `"Create New Racing Pool"`
+   * or `"Racing Pools"` / `"Level Racer"` in the admin HTML/JS.
+
+2. **Inspect the modal HTML structure**
+   You’ll probably see something like:
+
+   ```html
+   <div class="modal-overlay ...">
+     <div class="modal-container ...">
+       <!-- form content -->
+     </div>
+   </div>
+   ```
+
+   or a parent with `opacity-60` / `backdrop-blur`.
+
+3. **Update the structure to match the “backdrop + card” pattern above**, with:
+
+   * one full-screen backdrop `div`
+   * one full-screen flex container holding the modal card
+   * `bg-white` (or your theme color) on the modal card so it’s not transparent
+
+4. **Remove any global `opacity`/`filter` rule tied to “modal open”** and rely on the dedicated backdrop element instead.
+
+If you want, I can give you a drop-in HTML/CSS snippet you can paste over the existing modal wrapper once you find it, something like:
+
+```html
+<!-- replace old modal wrapper -->
+<div class="fixed inset-0 z-40 bg-slate-900/70 backdrop-blur-sm"></div>
+<div class="fixed inset-0 z-50 flex items-center justify-center">
+  <div class="w-full max-w-3xl rounded-xl bg-white shadow-2xl p-6">
+    <!-- existing 'Create New Racing Pool' form goes here unchanged -->
+  </div>
+</div>
+```
+
+That will give you:
+
+* darkened background
+* sharp, legible modal
+* no weird “everything is dim” effect.
+
+If you can paste the bit of HTML/JS from the admin where the modal is rendered, I can rewrite it exactly for you so you don’t have to hunt for the right classes.
