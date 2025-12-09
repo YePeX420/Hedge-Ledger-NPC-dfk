@@ -176,10 +176,9 @@ export default function LevelRacerAdmin() {
       maxMutations: number | null;
       isRecurrent: boolean;
     }) => {
-      return apiRequest('/api/level-racer/admin/pools', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
+      const res = await apiRequest('POST', '/api/level-racer/admin/pools', data);
+      const text = await res.text();
+      return text ? JSON.parse(text) : {};
     },
     onSuccess: () => {
       toast({ title: 'Pool created successfully' });
@@ -198,9 +197,9 @@ export default function LevelRacerAdmin() {
 
   const simulateMutation = useMutation({
     mutationFn: async (poolId: number) => {
-      return apiRequest(`/api/level-racer/dev/pools/${poolId}/simulate-tick`, {
-        method: 'POST',
-      });
+      const res = await apiRequest('POST', `/api/level-racer/dev/pools/${poolId}/simulate-tick`);
+      const text = await res.text();
+      return text ? JSON.parse(text) : {};
     },
     onSuccess: (result: any) => {
       toast({ title: 'Simulation tick complete', description: result.message });
