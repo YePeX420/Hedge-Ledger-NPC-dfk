@@ -16,7 +16,7 @@ import { eq, desc, and, sql, isNull } from 'drizzle-orm';
 // DFK Chain genesis is block 0, but Synapse bridge activity started later
 // We'll discover the actual first block with bridge events
 const DFK_CHAIN_GENESIS = 0;
-const MAIN_INDEXER_NAME = 'synapse_main';
+export const MAIN_INDEXER_NAME = 'synapse_main';
 
 const RPC_URL = BRIDGE_CONTRACTS.dfkChain.rpcUrl;
 const SYNAPSE_BRIDGE = BRIDGE_CONTRACTS.dfkChain.synapseBridge.toLowerCase();

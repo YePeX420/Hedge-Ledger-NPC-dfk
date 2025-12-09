@@ -33,6 +33,7 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
 *   **Challenge/Achievement System**: Gamified progression system with 8 categories and 36 challenges, using dual tier systems (RARITY and GENE tiers) and supporting player progress tracking and leaderboards.
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" by indexing bridge events, enriching with USD values, and computing per-wallet net extraction and extractor scores.
     *   **Offline Export/Import**: Standalone script (`bridge-tracker/offline-exporter.js`) indexes blockchain events without database, exports to JSON. Import endpoint (`POST /api/admin/bridge/import-events`) loads pre-indexed data.
+    *   **Standalone Sync Script**: Run `npx tsx bridge-tracker/standalone-sync.js` in a separate shell to continuously sync bridge events. Progress persists in database, survives server restarts. Use `--batch 10000 --delay 5` for custom settings.
 *   **Level Racer - Class Arena Edition**: Competitive hero leveling races with entry fees and prizes.
     *   **Core Mechanics**: Configurable heroes per pool race to level up, first to reach readyToLevel wins and claims an extra hero.
     *   **Validation Rules**: Rarity filter (common/uncommon/rare/legendary/mythic), mutation limits, 0 XP requirement, no leveling stones.
