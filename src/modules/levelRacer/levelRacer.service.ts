@@ -63,6 +63,65 @@ export async function getActivePools(): Promise<ActivePool[]> {
   }));
 }
 
+export async function getAllPools(): Promise<ActivePool[]> {
+  const pools = await db
+    .select({
+      pool: classPools,
+      heroClass: heroClasses,
+      entryCount: sql<number>`(SELECT COUNT(*) FROM pool_entries WHERE pool_entries.class_pool_id = ${classPools.id})`,
+    })
+    .from(classPools)
+    .innerJoin(heroClasses, eq(classPools.heroClassId, heroClasses.id))
+    .orderBy(sql`${classPools.createdAt} DESC`);
+
+  return pools.map((row) => ({
+    id: row.pool.id,
+    heroClassSlug: row.heroClass.slug,
+    heroClassName: row.heroClass.displayName,
+    level: row.pool.level,
+    state: row.pool.state as PoolState,
+    maxEntries: row.pool.maxEntries,
+    currentEntries: Number(row.entryCount),
+    jewelEntryFee: row.pool.jewelEntryFee,
+    jewelPrize: row.pool.jewelPrize,
+    createdAt: row.pool.createdAt.toISOString(),
+    totalFeesCollected: row.pool.totalFeesCollected,
+    prizeAwarded: row.pool.prizeAwarded,
+    finishedAt: row.pool.finishedAt?.toISOString(),
+  }));
+}
+
+export async function adminCreatePool(classSlug: string, options?: {
+  level?: number;
+  maxEntries?: number;
+  jewelEntryFee?: number;
+  jewelPrize?: number;
+}): Promise<ClassPool> {
+  const heroClass = await getHeroClassBySlug(classSlug);
+  if (!heroClass) throw new Error(`Hero class '${classSlug}' not found`);
+
+  const existingPool = await getActivePoolForClass(heroClass.id);
+  if (existingPool) {
+    throw new Error(`An active pool already exists for ${heroClass.displayName}`);
+  }
+
+  const [pool] = await db
+    .insert(classPools)
+    .values({
+      heroClassId: heroClass.id,
+      level: options?.level ?? 1,
+      state: "OPEN",
+      maxEntries: options?.maxEntries ?? 6,
+      jewelEntryFee: options?.jewelEntryFee ?? 25,
+      jewelPrize: options?.jewelPrize ?? 200,
+    })
+    .returning();
+
+  await emitRaceEvent(pool.id, null, "POOL_CREATED", { heroClassId: heroClass.id }, pool, heroClass);
+
+  return pool;
+}
+
 export async function getActivePoolForClass(heroClassId: number): Promise<ClassPool | undefined> {
   const [pool] = await db
     .select()

@@ -12,4 +12,7 @@ router.post("/pools/:poolId/xp-update", controller.updateXp);
 router.post("/dev/pools/:poolId/simulate-tick", controller.simulateTick);
 router.post("/dev/seed-classes", controller.seedClasses);
 
+router.get("/admin/pools", controller.getAllPools);
+router.post("/admin/pools", controller.adminCreatePool);
+
 export default router;

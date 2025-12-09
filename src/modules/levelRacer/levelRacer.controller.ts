@@ -178,3 +178,48 @@ export async function seedClasses(req: Request, res: Response) {
     });
   }
 }
+
+export async function getAllPools(req: Request, res: Response) {
+  try {
+    const pools = await service.getAllPools();
+    res.json({ pools });
+  } catch (error: any) {
+    console.error("[LevelRacer] getAllPools error:", error);
+    res.status(500).json({
+      success: false,
+      error: { code: "INTERNAL_ERROR", message: error.message },
+    });
+  }
+}
+
+export async function adminCreatePool(req: Request, res: Response) {
+  try {
+    const { classSlug, level, maxEntries, jewelEntryFee, jewelPrize } = req.body;
+    
+    if (!classSlug) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_REQUEST", message: "classSlug is required" },
+      });
+    }
+
+    const pool = await service.adminCreatePool(classSlug, {
+      level,
+      maxEntries,
+      jewelEntryFee,
+      jewelPrize,
+    });
+
+    res.json({ 
+      success: true, 
+      pool,
+      message: `Pool created for ${classSlug}`,
+    });
+  } catch (error: any) {
+    console.error("[LevelRacer] adminCreatePool error:", error);
+    res.status(400).json({
+      success: false,
+      error: { code: "CREATE_ERROR", message: error.message },
+    });
+  }
+}

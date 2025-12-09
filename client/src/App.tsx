@@ -16,6 +16,7 @@ import AdminExpenses from "@/pages/admin/expenses";
 import AdminSettings from "@/pages/admin/settings";
 import AdminBridgeAnalytics from "@/pages/admin/bridge-analytics";
 import AdminChallenges from "@/pages/admin/challenges";
+import AdminLevelRacer from "@/pages/admin/level-racer";
 import AccountPage from "@/pages/account";
 import NotFound from "@/pages/not-found";
 
@@ -102,6 +103,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminBridgeAnalytics />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/level-racer">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminLevelRacer />
           </ProtectedAdminPage>
         )}
       </Route>

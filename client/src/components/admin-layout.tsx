@@ -11,7 +11,8 @@ import {
   Settings,
   ChevronRight,
   ArrowLeftRight,
-  Trophy
+  Trophy,
+  Swords
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -22,6 +23,7 @@ const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
+  { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
   { href: '/admin/expenses', label: 'Expenses', icon: Receipt },
   { href: '/admin/bridge', label: 'Bridge', icon: ArrowLeftRight },
   { href: '/admin/settings', label: 'Settings', icon: Settings },

@@ -1,0 +1,555 @@
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
+import { 
+  Swords, 
+  Plus, 
+  RefreshCw, 
+  Users, 
+  Trophy, 
+  Loader2, 
+  Play,
+  Eye,
+  Coins,
+  Clock,
+  CheckCircle2,
+  XCircle
+} from 'lucide-react';
+import { useState } from 'react';
+import { apiRequest, queryClient } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+
+interface HeroClass {
+  id: number;
+  slug: string;
+  displayName: string;
+  isEnabled: boolean;
+}
+
+interface Pool {
+  id: number;
+  heroClassSlug: string;
+  heroClassName: string;
+  level: number;
+  state: 'OPEN' | 'FILLING' | 'RACING' | 'FINISHED';
+  maxEntries: number;
+  currentEntries: number;
+  jewelEntryFee: number;
+  jewelPrize: number;
+  createdAt: string;
+  totalFeesCollected?: number;
+  prizeAwarded?: boolean;
+  finishedAt?: string;
+}
+
+interface PoolEntry {
+  id: number;
+  walletAddress: string;
+  heroId: string;
+  heroClassSlug: string;
+  heroLevel: number;
+  heroRarity: string;
+  heroCurrentXp: number;
+  heroReadyToLevel: boolean;
+  joinedAt: string;
+  isWinner: boolean;
+}
+
+interface RaceEvent {
+  id: number;
+  eventType: string;
+  commentary: string;
+  createdAt: string;
+  heroId?: string;
+}
+
+interface PoolDetails {
+  id: number;
+  heroClassSlug: string;
+  heroClassName: string;
+  level: number;
+  state: string;
+  maxEntries: number;
+  jewelEntryFee: number;
+  jewelPrize: number;
+  totalFeesCollected: number;
+  prizeAwarded: boolean;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  winnerEntryId?: number;
+  entries: PoolEntry[];
+}
+
+function getStateBadge(state: string) {
+  switch (state) {
+    case 'OPEN':
+      return <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/30" data-testid="badge-state-open">Open</Badge>;
+    case 'FILLING':
+      return <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500 border-yellow-500/30" data-testid="badge-state-filling">Filling</Badge>;
+    case 'RACING':
+      return <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/30" data-testid="badge-state-racing">Racing</Badge>;
+    case 'FINISHED':
+      return <Badge variant="outline" className="bg-muted text-muted-foreground" data-testid="badge-state-finished">Finished</Badge>;
+    default:
+      return <Badge variant="secondary">{state}</Badge>;
+  }
+}
+
+function formatDate(dateStr: string) {
+  return new Date(dateStr).toLocaleString();
+}
+
+export default function LevelRacerAdmin() {
+  const { toast } = useToast();
+  const [selectedPoolId, setSelectedPoolId] = useState<number | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [selectedClass, setSelectedClass] = useState<string>('');
+  const [entryFee, setEntryFee] = useState('25');
+  const [prize, setPrize] = useState('200');
+  const [maxEntries, setMaxEntries] = useState('6');
+
+  const { data: classesData, isLoading: classesLoading } = useQuery<{ classes: HeroClass[] }>({
+    queryKey: ['/api/level-racer/classes'],
+  });
+
+  const { data: poolsData, isLoading: poolsLoading, refetch: refetchPools } = useQuery<{ pools: Pool[] }>({
+    queryKey: ['/api/level-racer/admin/pools'],
+  });
+
+  const { data: poolDetails, isLoading: detailsLoading } = useQuery<PoolDetails>({
+    queryKey: ['/api/level-racer/pools', selectedPoolId],
+    enabled: !!selectedPoolId,
+  });
+
+  const { data: poolEvents } = useQuery<{ events: RaceEvent[] }>({
+    queryKey: ['/api/level-racer/pools', selectedPoolId, 'events'],
+    enabled: !!selectedPoolId,
+  });
+
+  const createPoolMutation = useMutation({
+    mutationFn: async (data: { classSlug: string; jewelEntryFee: number; jewelPrize: number; maxEntries: number }) => {
+      return apiRequest('/api/level-racer/admin/pools', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Pool created successfully' });
+      queryClient.invalidateQueries({ queryKey: ['/api/level-racer/admin/pools'] });
+      setCreateDialogOpen(false);
+      setSelectedClass('');
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: 'Failed to create pool', 
+        description: error.message || 'An error occurred',
+        variant: 'destructive' 
+      });
+    },
+  });
+
+  const simulateMutation = useMutation({
+    mutationFn: async (poolId: number) => {
+      return apiRequest(`/api/level-racer/dev/pools/${poolId}/simulate-tick`, {
+        method: 'POST',
+      });
+    },
+    onSuccess: (result: any) => {
+      toast({ title: 'Simulation tick complete', description: result.message });
+      queryClient.invalidateQueries({ queryKey: ['/api/level-racer/pools', selectedPoolId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/level-racer/pools', selectedPoolId, 'events'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/level-racer/admin/pools'] });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: 'Simulation failed', 
+        description: error.message || 'An error occurred',
+        variant: 'destructive' 
+      });
+    },
+  });
+
+  const handleCreatePool = () => {
+    if (!selectedClass) {
+      toast({ title: 'Please select a hero class', variant: 'destructive' });
+      return;
+    }
+    createPoolMutation.mutate({
+      classSlug: selectedClass,
+      jewelEntryFee: parseInt(entryFee),
+      jewelPrize: parseInt(prize),
+      maxEntries: parseInt(maxEntries),
+    });
+  };
+
+  const pools = poolsData?.pools || [];
+  const classes = classesData?.classes || [];
+  const activePools = pools.filter(p => p.state !== 'FINISHED');
+  const finishedPools = pools.filter(p => p.state === 'FINISHED');
+
+  const totalFeesCollected = pools.reduce((sum, p) => sum + (p.totalFeesCollected || 0), 0);
+  const totalPrizesAwarded = pools.filter(p => p.prizeAwarded).reduce((sum, p) => sum + p.jewelPrize, 0);
+
+  return (
+    <div className="p-6 space-y-6" data-testid="level-racer-admin">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Swords className="w-6 h-6" />
+            Level Racer Admin
+          </h1>
+          <p className="text-muted-foreground">Manage racing pools and track competitions</p>
+        </div>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => refetchPools()}
+            data-testid="button-refresh-pools"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+          <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-create-pool">
+                <Plus className="w-4 h-4 mr-2" />
+                Create Pool
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create New Racing Pool</DialogTitle>
+                <DialogDescription>
+                  Create a new Level Racer pool for a hero class
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="class">Hero Class</Label>
+                  <Select value={selectedClass} onValueChange={setSelectedClass}>
+                    <SelectTrigger data-testid="select-hero-class">
+                      <SelectValue placeholder="Select a class" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classes.map((c) => (
+                        <SelectItem key={c.slug} value={c.slug}>
+                          {c.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="entryFee">Entry Fee (JEWEL)</Label>
+                    <Input 
+                      id="entryFee" 
+                      type="number" 
+                      value={entryFee} 
+                      onChange={(e) => setEntryFee(e.target.value)}
+                      data-testid="input-entry-fee"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="prize">Prize (JEWEL)</Label>
+                    <Input 
+                      id="prize" 
+                      type="number" 
+                      value={prize} 
+                      onChange={(e) => setPrize(e.target.value)}
+                      data-testid="input-prize"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxEntries">Max Entries</Label>
+                    <Input 
+                      id="maxEntries" 
+                      type="number" 
+                      value={maxEntries} 
+                      onChange={(e) => setMaxEntries(e.target.value)}
+                      data-testid="input-max-entries"
+                    />
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleCreatePool} 
+                  disabled={createPoolMutation.isPending}
+                  data-testid="button-confirm-create"
+                >
+                  {createPoolMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Create Pool
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Pools</CardTitle>
+            <Swords className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="stat-active-pools">{activePools.length}</div>
+            <p className="text-xs text-muted-foreground">Currently running</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Pools</CardTitle>
+            <Trophy className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="stat-total-pools">{pools.length}</div>
+            <p className="text-xs text-muted-foreground">{finishedPools.length} finished</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Fees Collected</CardTitle>
+            <Coins className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="stat-fees-collected">{totalFeesCollected}</div>
+            <p className="text-xs text-muted-foreground">JEWEL total</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Prizes Awarded</CardTitle>
+            <Trophy className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="stat-prizes-awarded">{totalPrizesAwarded}</div>
+            <p className="text-xs text-muted-foreground">JEWEL total</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-2 gap-6">
+        <Card className="col-span-1">
+          <CardHeader>
+            <CardTitle>Racing Pools</CardTitle>
+            <CardDescription>All pools across all hero classes</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {poolsLoading ? (
+              <div className="space-y-2">
+                {[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+              </div>
+            ) : pools.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Swords className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>No pools created yet</p>
+                <p className="text-sm">Create your first pool to get started</p>
+              </div>
+            ) : (
+              <ScrollArea className="h-[400px]">
+                <div className="space-y-2">
+                  {pools.map((pool) => (
+                    <div 
+                      key={pool.id}
+                      className={`p-3 border rounded-md cursor-pointer transition-colors ${
+                        selectedPoolId === pool.id 
+                          ? 'border-primary bg-primary/5' 
+                          : 'hover:bg-accent/50'
+                      }`}
+                      onClick={() => setSelectedPoolId(pool.id)}
+                      data-testid={`pool-item-${pool.id}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{pool.heroClassName} Arena</span>
+                          {getStateBadge(pool.state)}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Users className="w-3 h-3" />
+                          {pool.currentEntries}/{pool.maxEntries}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
+                        <span>Level {pool.level}</span>
+                        <span>{pool.jewelEntryFee} JEWEL entry / {pool.jewelPrize} JEWEL prize</span>
+                      </div>
+                      {pool.state !== 'OPEN' && (
+                        <Progress 
+                          value={(pool.currentEntries / pool.maxEntries) * 100} 
+                          className="h-1 mt-2" 
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="col-span-1">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Pool Details</CardTitle>
+                <CardDescription>
+                  {selectedPoolId ? `Pool #${selectedPoolId}` : 'Select a pool to view details'}
+                </CardDescription>
+              </div>
+              {selectedPoolId && poolDetails?.state === 'RACING' && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => simulateMutation.mutate(selectedPoolId)}
+                  disabled={simulateMutation.isPending}
+                  data-testid="button-simulate-tick"
+                >
+                  {simulateMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  Simulate Tick
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!selectedPoolId ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Eye className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>Select a pool from the list</p>
+              </div>
+            ) : detailsLoading ? (
+              <div className="space-y-2">
+                {[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+              </div>
+            ) : poolDetails ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Class:</span>
+                    <span className="ml-2 font-medium">{poolDetails.heroClassName}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">State:</span>
+                    <span className="ml-2">{getStateBadge(poolDetails.state)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Entry Fee:</span>
+                    <span className="ml-2 font-medium">{poolDetails.jewelEntryFee} JEWEL</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Prize:</span>
+                    <span className="ml-2 font-medium">{poolDetails.jewelPrize} JEWEL</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Fees Collected:</span>
+                    <span className="ml-2 font-medium">{poolDetails.totalFeesCollected} JEWEL</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Prize Awarded:</span>
+                    <span className="ml-2">
+                      {poolDetails.prizeAwarded ? (
+                        <CheckCircle2 className="w-4 h-4 inline text-green-500" />
+                      ) : (
+                        <XCircle className="w-4 h-4 inline text-muted-foreground" />
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    Entries ({poolDetails.entries.length}/{poolDetails.maxEntries})
+                  </h4>
+                  {poolDetails.entries.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No entries yet</p>
+                  ) : (
+                    <ScrollArea className="h-[150px]">
+                      <div className="space-y-2">
+                        {poolDetails.entries.map((entry) => (
+                          <div 
+                            key={entry.id} 
+                            className={`p-2 border rounded-md text-sm ${entry.isWinner ? 'border-yellow-500 bg-yellow-500/10' : ''}`}
+                            data-testid={`entry-item-${entry.id}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono text-xs">
+                                Hero #{entry.heroId}
+                              </span>
+                              {entry.isWinner && (
+                                <Badge className="bg-yellow-500 text-black">Winner</Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
+                              <span>XP: {entry.heroCurrentXp}</span>
+                              <span>{entry.heroReadyToLevel ? 'Ready to level' : 'Training...'}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Recent Events
+                  </h4>
+                  <ScrollArea className="h-[150px]">
+                    {poolEvents?.events && poolEvents.events.length > 0 ? (
+                      <div className="space-y-2">
+                        {poolEvents.events.slice(-10).reverse().map((event) => (
+                          <div key={event.id} className="text-sm border-l-2 border-muted pl-2">
+                            <p className="text-muted-foreground text-xs">
+                              {event.eventType} - {formatDate(event.createdAt)}
+                            </p>
+                            <p className="italic">{event.commentary}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No events yet</p>
+                    )}
+                  </ScrollArea>
+                </div>
+              </div>
+            ) : (
+              <p className="text-muted-foreground">Pool not found</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
