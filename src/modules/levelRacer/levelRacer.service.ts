@@ -5,9 +5,11 @@ import {
   classPools,
   poolEntries,
   raceEvents,
+  QUEST_PROFESSIONS,
   type ClassPool,
   type PoolEntry,
   type HeroClass,
+  type QuestProfession,
 } from "../../../shared/schema.js";
 import { generateCommentary, type CommentaryContext } from "./levelRacer.commentary";
 import type {
@@ -40,6 +42,12 @@ export async function getAllHeroClasses(): Promise<HeroClass[]> {
   return db.select().from(heroClasses).where(eq(heroClasses.isEnabled, true));
 }
 
+export async function getBasicHeroClasses(): Promise<HeroClass[]> {
+  return db.select().from(heroClasses).where(
+    and(eq(heroClasses.isEnabled, true), eq(heroClasses.isBasic, true))
+  );
+}
+
 export async function getActivePools(): Promise<ActivePool[]> {
   const pools = await db
     .select({
@@ -55,6 +63,7 @@ export async function getActivePools(): Promise<ActivePool[]> {
     id: row.pool.id,
     heroClassSlug: row.heroClass.slug,
     heroClassName: row.heroClass.displayName,
+    profession: row.pool.profession as QuestProfession,
     level: row.pool.level,
     state: row.pool.state as PoolState,
     maxEntries: row.pool.maxEntries,
@@ -86,6 +95,7 @@ export async function getAllPools(): Promise<ActivePool[]> {
     id: row.pool.id,
     heroClassSlug: row.heroClass.slug,
     heroClassName: row.heroClass.displayName,
+    profession: row.pool.profession as QuestProfession,
     level: row.pool.level,
     state: row.pool.state as PoolState,
     maxEntries: row.pool.maxEntries,
@@ -107,6 +117,7 @@ export async function getAllPools(): Promise<ActivePool[]> {
 }
 
 export async function adminCreatePool(classSlug: string, options?: {
+  profession?: QuestProfession;
   level?: number;
   maxEntries?: number;
   usdEntryFee?: string;
@@ -120,16 +131,22 @@ export async function adminCreatePool(classSlug: string, options?: {
 }): Promise<ClassPool> {
   const heroClass = await getHeroClassBySlug(classSlug);
   if (!heroClass) throw new Error(`Hero class '${classSlug}' not found`);
+  
+  if (!heroClass.isBasic) {
+    throw new Error(`${heroClass.displayName} is an advanced class. Only basic classes can have pools.`);
+  }
 
-  const existingPool = await getActivePoolForClass(heroClass.id);
+  const profession = options?.profession ?? "gardening";
+  const existingPool = await getActivePoolForClass(heroClass.id, profession);
   if (existingPool) {
-    throw new Error(`An active pool already exists for ${heroClass.displayName}`);
+    throw new Error(`An active ${profession} pool already exists for ${heroClass.displayName}`);
   }
 
   const [pool] = await db
     .insert(classPools)
     .values({
       heroClassId: heroClass.id,
+      profession,
       level: options?.level ?? 1,
       state: "OPEN",
       maxEntries: options?.maxEntries ?? 6,
@@ -144,7 +161,7 @@ export async function adminCreatePool(classSlug: string, options?: {
     })
     .returning();
 
-  await emitRaceEvent(pool.id, null, "POOL_CREATED", { heroClassId: heroClass.id }, pool, heroClass);
+  await emitRaceEvent(pool.id, null, "POOL_CREATED", { heroClassId: heroClass.id, profession }, pool, heroClass);
 
   return pool;
 }
@@ -179,21 +196,25 @@ export async function adminUpdatePool(poolId: number, updates: UpdatePoolRequest
   return updatedPool;
 }
 
-export async function getActivePoolForClass(heroClassId: number): Promise<ClassPool | undefined> {
+export async function getActivePoolForClass(heroClassId: number, profession?: QuestProfession): Promise<ClassPool | undefined> {
+  const conditions = [
+    eq(classPools.heroClassId, heroClassId),
+    ne(classPools.state, "FINISHED")
+  ];
+  
+  if (profession) {
+    conditions.push(eq(classPools.profession, profession));
+  }
+  
   const [pool] = await db
     .select()
     .from(classPools)
-    .where(
-      and(
-        eq(classPools.heroClassId, heroClassId),
-        ne(classPools.state, "FINISHED")
-      )
-    )
+    .where(and(...conditions))
     .limit(1);
   return pool;
 }
 
-export async function createPoolForClass(heroClassId: number): Promise<ClassPool> {
+export async function createPoolForClass(heroClassId: number, profession: QuestProfession = "gardening"): Promise<ClassPool> {
   const [heroClass] = await db.select().from(heroClasses).where(eq(heroClasses.id, heroClassId)).limit(1);
   if (!heroClass) throw new Error("Hero class not found");
 
@@ -201,6 +222,7 @@ export async function createPoolForClass(heroClassId: number): Promise<ClassPool
     .insert(classPools)
     .values({
       heroClassId,
+      profession,
       level: 1,
       state: "OPEN",
       maxEntries: 6,
@@ -215,7 +237,7 @@ export async function createPoolForClass(heroClassId: number): Promise<ClassPool
     })
     .returning();
 
-  await emitRaceEvent(pool.id, null, "POOL_CREATED", { heroClassId }, pool, heroClass);
+  await emitRaceEvent(pool.id, null, "POOL_CREATED", { heroClassId, profession }, pool, heroClass);
 
   return pool;
 }
@@ -360,6 +382,7 @@ export async function getPoolDetails(poolId: number): Promise<GetPoolResponse | 
     id: poolData.pool.id,
     heroClassSlug: poolData.heroClass.slug,
     heroClassName: poolData.heroClass.displayName,
+    profession: poolData.pool.profession as QuestProfession,
     level: poolData.pool.level,
     state: poolData.pool.state as PoolState,
     maxEntries: poolData.pool.maxEntries,
@@ -650,41 +673,46 @@ async function emitRaceEvent(
 }
 
 /**
- * Ensures each enabled hero class has exactly one open pool.
+ * Ensures each enabled basic hero class has exactly one open pool per profession.
  * Called on startup to maintain pool availability.
+ * Creates 10 basic classes × 4 professions = 40 pools total.
  */
 export async function ensurePoolsForAllClasses(): Promise<void> {
-  const enabledClasses = await getAllHeroClasses();
+  const basicClasses = await getBasicHeroClasses();
   
-  for (const heroClass of enabledClasses) {
-    const existingPool = await getActivePoolForClass(heroClass.id);
-    if (!existingPool) {
-      // Create default pool for this class
-      const [newPool] = await db
-        .insert(classPools)
-        .values({
+  for (const heroClass of basicClasses) {
+    for (const profession of QUEST_PROFESSIONS) {
+      const existingPool = await getActivePoolForClass(heroClass.id, profession);
+      if (!existingPool) {
+        // Create default pool for this class/profession combo
+        const [newPool] = await db
+          .insert(classPools)
+          .values({
+            heroClassId: heroClass.id,
+            profession,
+            level: 1,
+            state: "OPEN",
+            maxEntries: 6,
+            usdEntryFee: "5.00",
+            usdPrize: "40.00",
+            tokenType: "JEWEL",
+            jewelEntryFee: 25,
+            jewelPrize: 200,
+            rarityFilter: "common",
+            maxMutations: null,
+            isRecurrent: true,
+          })
+          .returning();
+        
+        await emitRaceEvent(newPool.id, null, "POOL_CREATED", { 
           heroClassId: heroClass.id,
-          level: 1,
-          state: "OPEN",
-          maxEntries: 6,
-          usdEntryFee: "5.00",
-          usdPrize: "40.00",
-          tokenType: "JEWEL",
-          jewelEntryFee: 25,
-          jewelPrize: 200,
-          rarityFilter: "common",
-          maxMutations: null,
-          isRecurrent: true,
-        })
-        .returning();
-      
-      await emitRaceEvent(newPool.id, null, "POOL_CREATED", { 
-        heroClassId: heroClass.id,
-        autoCreated: true,
-        reason: "startup_initialization"
-      }, newPool, heroClass);
-      
-      console.log(`[LevelRacer] Created startup pool #${newPool.id} for ${heroClass.displayName}`);
+          profession,
+          autoCreated: true,
+          reason: "startup_initialization"
+        }, newPool, heroClass);
+        
+        console.log(`[LevelRacer] Created startup pool #${newPool.id} for ${heroClass.displayName} (${profession})`);
+      }
     }
   }
 }

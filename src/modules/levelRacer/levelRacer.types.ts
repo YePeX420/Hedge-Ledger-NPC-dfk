@@ -14,10 +14,13 @@ export interface JoinPoolRequest {
   heroHasStone: boolean;
 }
 
+export type QuestProfession = "gardening" | "mining" | "fishing" | "foraging";
+
 export interface ActivePool {
   id: number;
   heroClassSlug: string;
   heroClassName: string;
+  profession: QuestProfession;
   level: number;
   state: PoolState;
   maxEntries: number;
@@ -58,6 +61,7 @@ export interface GetPoolResponse {
   id: number;
   heroClassSlug: string;
   heroClassName: string;
+  profession: QuestProfession;
   level: number;
   state: PoolState;
   maxEntries: number;

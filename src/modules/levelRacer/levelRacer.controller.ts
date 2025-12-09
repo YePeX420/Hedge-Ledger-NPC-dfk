@@ -196,6 +196,7 @@ export async function adminCreatePool(req: Request, res: Response) {
   try {
     const { 
       classSlug, 
+      profession,
       level, 
       maxEntries, 
       usdEntryFee,
@@ -216,6 +217,7 @@ export async function adminCreatePool(req: Request, res: Response) {
     }
 
     const pool = await service.adminCreatePool(classSlug, {
+      profession,
       level,
       maxEntries,
       usdEntryFee,
@@ -231,7 +233,7 @@ export async function adminCreatePool(req: Request, res: Response) {
     res.json({ 
       success: true, 
       pool,
-      message: `Pool created for ${classSlug}`,
+      message: `Pool created for ${classSlug} (${profession || 'gardening'})`,
     });
   } catch (error: any) {
     console.error("[LevelRacer] adminCreatePool error:", error);
