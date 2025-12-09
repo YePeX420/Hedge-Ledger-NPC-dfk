@@ -1,0 +1,69 @@
+You are working in the external backend (Hedge Ledger NPC API) that exposes the wallet endpoints documented in WALLET_INTEGRATION.md.
+Frontend calls:
+
+GET /api/me/wallets
+
+POST /api/me/wallets
+
+PUT /api/me/wallets/:address/primary
+
+POST /api/me/wallets/:address/request-verification
+
+ETL + TierService are already implemented and operate at the cluster level using wallet_clusters and wallet_links.
+
+Goal:
+Whenever a user links a wallet for the first time (either via POST /api/me/wallets or via the auto-backfill logic in GET /api/me/wallets), kick off an asynchronous ETL run for that cluster so their challenge metrics populate immediately.
+
+1. Update wallet linking logic
+
+In the code that implements getWalletsForUser(discordId) / GET /api/me/wallets and the POST /api/me/wallets handler:
+
+You already:
+
+look up the players row by discordId
+
+resolve or create a wallet_clusters row for that user
+
+query wallet_links by clusterKey
+
+auto-insert a wallet_links row using players.primaryWallet if none exist yet.
+
+Add the following behavior:
+
+Detect when you create the first wallet link for a cluster (either:
+
+via auto-backfill in GET /api/me/wallets, or
+
+via POST /api/me/wallets when wallet_links was previously empty).
+
+When that happens, call:
+
+import { EtlService } from "../etl/EtlService"; // adjust path
+
+// DO NOT await this inside the HTTP handler; fire-and-forget
+EtlService.runForCluster(cluster.clusterKey)
+  .catch(err => console.error("[ETL] runForCluster failed:", err));
+
+2. Do not block the HTTP response
+
+The ETL run may take a while, so:
+
+start it after you have a valid clusterKey
+
+do not await it in the request handler
+
+just log any errors to the console
+
+The REST response for /api/me/wallets and /api/me/wallets POST should still return quickly with the wallet list.
+
+3. Resulting behavior
+
+User logs in, Profile calls GET /api/me/wallets with credentials: "include".
+
+Backend auto-backfills from players.primaryWallet (for legacy users) and creates a wallet_links row + cluster if needed.
+
+Backend immediately kicks off EtlService.runForCluster(clusterKey) in the background.
+
+Once ETL finishes, challenge metrics for that cluster are up to date and:
+
+the Challenges page (calling the local challenges API) can show non-zero progress on next refresh.

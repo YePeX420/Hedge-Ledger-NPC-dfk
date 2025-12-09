@@ -3577,10 +3577,11 @@ async function startAdminWebServer() {
   }
 
   // Helper function to get wallets for a user with auto-backfill from legacy primaryWallet
+  // Returns { wallets, clusterKey, wasBackfilled } to allow triggering ETL on first wallet link
   async function getWalletsForUser(discordId) {
     // 1) Find player by discordId
     const player = await db.select().from(players).where(eq(players.discordId, discordId)).limit(1);
-    if (!player || player.length === 0) return [];
+    if (!player || player.length === 0) return { wallets: [], clusterKey: null, wasBackfilled: false };
     
     // 2) Resolve or create cluster for this user
     let cluster = await db.select().from(walletClusters).where(eq(walletClusters.userId, discordId)).limit(1);
@@ -3602,6 +3603,7 @@ async function startAdminWebServer() {
     let links = await db.select().from(walletLinks).where(eq(walletLinks.clusterKey, clusterKey));
     
     // 4) Auto-backfill from players.primaryWallet if no links yet
+    let wasBackfilled = false;
     if ((!links || links.length === 0) && player[0].primaryWallet) {
       // Normalize address to lowercase to avoid duplicates
       const normalizedAddress = player[0].primaryWallet.toLowerCase();
@@ -3616,11 +3618,12 @@ async function startAdminWebServer() {
         })
         .returning();
       links = inserted;
+      wasBackfilled = true;
       console.log(`[Wallets] Auto-backfilled wallet ${normalizedAddress} for user ${discordId}`);
     }
     
     // 5) Map to API shape
-    return links.map((wl) => ({
+    const wallets = links.map((wl) => ({
       address: wl.address,
       chain: wl.chain,
       isPrimary: wl.isPrimary,
@@ -3629,6 +3632,21 @@ async function startAdminWebServer() {
       verifiedAt: null,
       verificationTxHash: null,
     }));
+    
+    return { wallets, clusterKey, wasBackfilled };
+  }
+  
+  // Fire-and-forget ETL trigger for cluster (async, non-blocking)
+  async function triggerEtlForCluster(clusterKey) {
+    try {
+      const { etlService } = await import('./src/etl/services/EtlService.js');
+      console.log(`[ETL] Triggering async ETL run for cluster ${clusterKey}`);
+      etlService.runForCluster(clusterKey).catch(err => {
+        console.error(`[ETL] runForCluster failed for ${clusterKey}:`, err);
+      });
+    } catch (err) {
+      console.error(`[ETL] Failed to import EtlService:`, err);
+    }
   }
 
   // ============================================================================
@@ -3640,8 +3658,15 @@ async function startAdminWebServer() {
     try {
       const discordId = req.user.userId;
       console.log(`[API] GET /api/me/wallets for user ${discordId}`);
-      const wallets = await getWalletsForUser(discordId);
+      const { wallets, clusterKey, wasBackfilled } = await getWalletsForUser(discordId);
       console.log(`[API] Returning ${wallets.length} wallet(s) for user ${discordId}:`, JSON.stringify(wallets));
+      
+      // If this was the first wallet link (via auto-backfill), trigger ETL in background
+      if (wasBackfilled && clusterKey) {
+        console.log(`[API] First wallet backfilled for ${discordId}, triggering ETL for cluster ${clusterKey}`);
+        triggerEtlForCluster(clusterKey);
+      }
+      
       res.json({ wallets });
     } catch (error) {
       console.error('[API] Error fetching user wallets:', error);
@@ -3711,6 +3736,12 @@ async function startAdminWebServer() {
         .returning();
       
       console.log(`[API] Added wallet ${normalizedAddress} for user ${discordId}`);
+      
+      // If this is the first wallet for the cluster, trigger ETL in background
+      if (isPrimary) {
+        console.log(`[API] First wallet added for ${discordId}, triggering ETL for cluster ${clusterKey}`);
+        triggerEtlForCluster(clusterKey);
+      }
       
       res.json({
         success: true,
