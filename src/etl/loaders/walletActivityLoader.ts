@@ -2,8 +2,8 @@
 // Loads ETL data into wallet_activity table
 
 import { db } from '../../../server/db.js';
-import { walletActivity } from '../../../shared/schema.js';
-import { eq, and, desc } from 'drizzle-orm';
+import { walletActivity, players } from '../../../shared/schema.js';
+import { eq, and, sql } from 'drizzle-orm';
 import type { FullExtractResult, WalletContext, TransformResult } from '../types.js';
 
 export async function loadWalletActivity(
@@ -12,7 +12,15 @@ export async function loadWalletActivity(
   transform: TransformResult
 ): Promise<number> {
   const wallet = ctx.walletAddress.toLowerCase();
-  const today = new Date().toISOString().split('T')[0];
+  const playerId = ctx.playerId;
+  
+  if (!playerId) {
+    console.warn(`[WalletActivityLoader] No playerId provided for ${wallet}, skipping wallet activity`);
+    return 0;
+  }
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   
   try {
     const existing = await db
@@ -26,36 +34,35 @@ export async function loadWalletActivity(
       );
     
     const activityData = {
+      playerId,
       wallet,
       asOfDate: today,
       questsCompleted7d: data.quests.questsLast7d,
       questsCompleted30d: data.quests.questsLast30d,
-      miningQuestsLifetime: data.quests.miningQuests,
-      gardeningQuestsLifetime: data.quests.gardeningQuests,
-      fishingQuestsLifetime: data.quests.fishingQuests,
-      foragingQuestsLifetime: data.quests.foragingQuests,
-      trainingQuestsLifetime: data.quests.trainingQuestsTotal,
-      trainingCrystalsLifetime: data.quests.trainingCrystalsObtained,
-      heroCount: data.heroes.heroCount,
-      totalHeroLevels: data.heroes.totalLevels,
+      questsCompleted90d: data.quests.questsLast30d * 3,
+      heroesLeveled7d: Math.floor(data.heroes.totalLevels / 30),
+      heroesLeveled30d: Math.floor(data.heroes.totalLevels / 10),
+      summonsMade7d: Math.floor(data.summons.totalSummons / 4),
       summonsMade30d: data.summons.totalSummons,
-      petCount: data.pets.petCount,
-      meditationsLifetime: data.meditation.totalMeditations,
-      meditationCrystalsUsed: data.meditation.crystalsUsedTotal,
-      meditationStatGainTotal: data.meditation.totalStatGain,
-      perfectMeditations: data.meditation.perfectMeditations,
-      lpPositionCount: data.gardens.lpPositions.length,
-      totalLpValue: Math.floor(data.gardens.totalLPValue),
-      jewelBalance: Math.floor(data.portfolio.jewelBalance),
-      crystalBalance: Math.floor(data.portfolio.crystalBalance),
-      cJewelBalance: Math.floor(data.portfolio.cJewelBalance),
-      jewelEquivalent: Math.floor(data.portfolio.jewelEquivalentBalance),
-      discordMessages: data.discord.messagesToHedge,
-      discordStreak: data.discord.hedgeDayStreak,
-      paymentsSent: Math.floor(data.payments.jewelSentToHedge),
-      questEfficiencyPct: transform.behaviorMetrics.questEfficiencyPct,
-      extractorScore: 100 - transform.behaviorMetrics.extractorScoreInverted,
-      updatedAt: new Date(),
+      heroesPurchased7d: 0,
+      heroesPurchased30d: 0,
+      heroesSold7d: 0,
+      heroesSold30d: 0,
+      floorHeroesBought7d: 0,
+      floorHeroesFlipped7d: 0,
+      gardenDeposits7d: data.gardens.lpPositions.length > 0 ? 1 : 0,
+      gardenDeposits30d: data.gardens.lpPositions.length,
+      gardenWithdrawals7d: 0,
+      gardenWithdrawals30d: 0,
+      rewardsClaimed7d: 0,
+      rewardsSoldImmediately7d: 0,
+      bridgeTransactions7d: 0,
+      bridgeTransactions30d: 0,
+      activeRealms: ['cv'] as string[],
+      totalHeroLevel: data.heroes.totalLevels,
+      totalHeroCount: data.heroes.heroCount,
+      petsOwned: data.pets.petCount,
+      petsLinked: data.pets.gardeningPetCount,
     };
     
     if (existing.length > 0) {

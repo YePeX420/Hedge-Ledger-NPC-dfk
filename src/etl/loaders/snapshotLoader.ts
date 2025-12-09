@@ -10,19 +10,22 @@ export async function loadWalletSnapshot(
   data: FullExtractResult
 ): Promise<number> {
   const wallet = ctx.walletAddress.toLowerCase();
+  const playerId = ctx.playerId;
   const now = new Date();
+  
+  if (!playerId) {
+    console.warn(`[SnapshotLoader] No playerId for ${wallet}, skipping wallet snapshot`);
+    return 0;
+  }
   
   try {
     await db.insert(walletSnapshots).values({
+      playerId,
       wallet,
-      snapshotDate: now.toISOString().split('T')[0],
+      asOfDate: now,
       jewelBalance: String(Math.floor(data.portfolio.jewelBalance)),
       crystalBalance: String(Math.floor(data.portfolio.crystalBalance)),
       cJewelBalance: String(Math.floor(data.portfolio.cJewelBalance)),
-      heroCount: data.heroes.heroCount,
-      petCount: data.pets.petCount,
-      totalLpValue: String(Math.floor(data.gardens.totalLPValue)),
-      createdAt: now,
     });
     
     console.log(`[SnapshotLoader] Created wallet snapshot for ${wallet}`);
