@@ -161,6 +161,8 @@ export async function adminUpdatePool(poolId: number, updates: UpdatePoolRequest
   
   if (updates.usdEntryFee !== undefined) updateData.usdEntryFee = updates.usdEntryFee;
   if (updates.usdPrize !== undefined) updateData.usdPrize = updates.usdPrize;
+  if (updates.jewelEntryFee !== undefined) updateData.jewelEntryFee = updates.jewelEntryFee;
+  if (updates.jewelPrize !== undefined) updateData.jewelPrize = updates.jewelPrize;
   if (updates.tokenType !== undefined) updateData.tokenType = updates.tokenType;
   if (updates.maxEntries !== undefined) updateData.maxEntries = updates.maxEntries;
   if (updates.rarityFilter !== undefined) updateData.rarityFilter = updates.rarityFilter;
@@ -202,8 +204,14 @@ export async function createPoolForClass(heroClassId: number): Promise<ClassPool
       level: 1,
       state: "OPEN",
       maxEntries: 6,
+      usdEntryFee: "5.00",
+      usdPrize: "40.00",
+      tokenType: "JEWEL",
       jewelEntryFee: 25,
       jewelPrize: 200,
+      rarityFilter: "common",
+      maxMutations: null,
+      isRecurrent: true,
     })
     .returning();
 
@@ -497,7 +505,19 @@ export async function processXpUpdates(
 
       // Auto-create next pool if this one is recurrent
       if (finishedPool.isRecurrent) {
-        await autoCreateNextPool(finishedPool, poolData.heroClass);
+        try {
+          await autoCreateNextPool(finishedPool, poolData.heroClass);
+        } catch (err) {
+          console.error(`[LevelRacer] Failed to auto-create next pool for ${poolData.heroClass.displayName}:`, err);
+          // Retry once after a short delay
+          setTimeout(async () => {
+            try {
+              await autoCreateNextPool(finishedPool, poolData.heroClass);
+            } catch (retryErr) {
+              console.error(`[LevelRacer] Retry failed for ${poolData.heroClass.displayName}:`, retryErr);
+            }
+          }, 1000);
+        }
       }
 
       winnerDeclared = true;

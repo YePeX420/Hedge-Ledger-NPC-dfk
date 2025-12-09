@@ -34,15 +34,22 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" by indexing bridge events, enriching with USD values, and computing per-wallet net extraction and extractor scores.
     *   **Offline Export/Import**: Standalone script (`bridge-tracker/offline-exporter.js`) indexes blockchain events without database, exports to JSON. Import endpoint (`POST /api/admin/bridge/import-events`) loads pre-indexed data.
 *   **Level Racer - Class Arena Edition**: Competitive hero leveling races with entry fees and prizes.
-    *   **Core Mechanics**: 6 common heroes per pool race to level up, first to 100 XP wins 200 JEWEL and claims an extra hero.
-    *   **Validation Rules**: Only common heroes with 0 XP and no leveling stones can enter.
-    *   **State Machine**: OPEN → FILLING → RACING → FINISHED
-    *   **Economic Tracking**: Entry fees (25 JEWEL per hero) tracked via `totalFeesCollected`, prize distribution tracked via `prizeAwarded`.
+    *   **Core Mechanics**: Configurable heroes per pool race to level up, first to reach readyToLevel wins and claims an extra hero.
+    *   **Validation Rules**: Rarity filter (common/uncommon/rare/legendary/mythic), mutation limits, 0 XP requirement, no leveling stones.
+    *   **State Machine**: OPEN → FILLING → RACING → FINISHED (auto-reopen for recurrent pools)
+    *   **Multi-Token Support**: Entry fees and prizes in USD, converted to JEWEL/CRYSTAL/USDC based on pool token type.
+    *   **Economic Tracking**: USD-based pricing (`usdEntryFee`, `usdPrize`), token amounts tracked via `totalFeesCollected`, prize distribution via `prizeAwarded`.
+    *   **Recurrent Pools**: Pools marked as recurrent auto-create a new pool with same settings when race finishes.
+    *   **Pool Lifecycle**: On startup, ensures one open pool per enabled hero class. Auto-creates new pools when recurrent races complete.
     *   **Commentary System**: Hedge-style NPC commentary for all race events (pool creation, hero joins, XP gains, winner declaration).
     *   **REST API**: `/api/level-racer/classes`, `/api/level-racer/pools/active`, `/api/level-racer/pools/:slug/join`, `/api/level-racer/pools/:id`, `/api/level-racer/pools/:id/events`, `/api/level-racer/dev/pools/:id/simulate-tick`
-    *   **Admin API**: `/api/level-racer/admin/pools` (GET all pools, POST create pool)
-    *   **Admin Dashboard**: Pool management panel at `/admin/level-racer` with create/view/track functionality
+    *   **Admin API**: 
+        *   `GET /api/level-racer/admin/pools` - List all pools with full details
+        *   `POST /api/level-racer/admin/pools` - Create pool with USD pricing, token type, rarity filter, mutation limits, recurrent flag
+        *   `PATCH /api/level-racer/admin/pools/:poolId` - Edit OPEN pool settings
+    *   **Admin Dashboard**: Pool management panel at `/admin/level-racer` with create/edit/view/track functionality
     *   **Database Tables**: `hero_classes`, `class_pools`, `pool_entries`, `race_events`
+    *   **Pool Fields**: `usdEntryFee`, `usdPrize`, `tokenType` (JEWEL/CRYSTAL/USDC), `rarityFilter`, `maxMutations`, `isRecurrent`
 
 **Design Decisions:**
 *   **Database**: PostgreSQL with Drizzle ORM.

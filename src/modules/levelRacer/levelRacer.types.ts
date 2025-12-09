@@ -87,6 +87,8 @@ export interface UpdatePoolRequest {
   usdEntryFee?: string;
   usdPrize?: string;
   tokenType?: TokenType;
+  jewelEntryFee?: number;
+  jewelPrize?: number;
   maxEntries?: number;
   rarityFilter?: string;
   maxMutations?: number | null;
