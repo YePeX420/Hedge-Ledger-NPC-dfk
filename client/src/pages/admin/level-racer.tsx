@@ -22,7 +22,11 @@ import {
   Coins,
   Clock,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Sprout,
+  Hammer,
+  Fish,
+  Trees
 } from 'lucide-react';
 import { useState } from 'react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -42,14 +46,31 @@ interface HeroClass {
   slug: string;
   displayName: string;
   isEnabled: boolean;
+  isBasic?: boolean;
 }
 
 type TokenType = 'JEWEL' | 'CRYSTAL' | 'USDC';
+type QuestProfession = 'gardening' | 'mining' | 'fishing' | 'foraging';
+
+const PROFESSION_ICONS = {
+  gardening: Sprout,
+  mining: Hammer,
+  fishing: Fish,
+  foraging: Trees,
+} as const;
+
+const PROFESSIONS: { value: QuestProfession; label: string }[] = [
+  { value: 'gardening', label: 'Gardening' },
+  { value: 'mining', label: 'Mining' },
+  { value: 'fishing', label: 'Fishing' },
+  { value: 'foraging', label: 'Foraging' },
+];
 
 interface Pool {
   id: number;
   heroClassSlug: string;
   heroClassName: string;
+  profession: QuestProfession;
   level: number;
   state: 'OPEN' | 'FILLING' | 'RACING' | 'FINISHED';
   maxEntries: number;
@@ -94,6 +115,7 @@ interface PoolDetails {
   id: number;
   heroClassSlug: string;
   heroClassName: string;
+  profession: QuestProfession;
   level: number;
   state: string;
   maxEntries: number;
@@ -134,11 +156,57 @@ function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleString();
 }
 
+function ProfessionIcon({ profession, className }: { profession: QuestProfession; className?: string }) {
+  const Icon = PROFESSION_ICONS[profession];
+  return <Icon className={className || "w-4 h-4"} />;
+}
+
+function PoolListItem({ pool, isSelected, onSelect }: { pool: Pool; isSelected: boolean; onSelect: () => void }) {
+  return (
+    <div 
+      className={`p-3 border rounded-md cursor-pointer transition-colors ${
+        isSelected 
+          ? 'border-primary bg-primary/5' 
+          : 'hover:bg-accent/50'
+      }`}
+      onClick={onSelect}
+      data-testid={`pool-item-${pool.id}`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ProfessionIcon profession={pool.profession} className="w-3 h-3 text-muted-foreground" />
+          <span className="font-medium">{pool.heroClassName}</span>
+          {getStateBadge(pool.state)}
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Users className="w-3 h-3" />
+          {pool.currentEntries}/{pool.maxEntries}
+        </div>
+      </div>
+      <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          Level {pool.level}
+          {pool.isRecurrent && <Badge variant="secondary" className="text-[10px] px-1">Recurrent</Badge>}
+        </span>
+        <span>${pool.usdEntryFee} / ${pool.usdPrize} ({pool.tokenType})</span>
+      </div>
+      {pool.state !== 'OPEN' && (
+        <Progress 
+          value={(pool.currentEntries / pool.maxEntries) * 100} 
+          className="h-1 mt-2" 
+        />
+      )}
+    </div>
+  );
+}
+
 export default function LevelRacerAdmin() {
   const { toast } = useToast();
   const [selectedPoolId, setSelectedPoolId] = useState<number | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedClass, setSelectedClass] = useState<string>('');
+  const [selectedProfession, setSelectedProfession] = useState<QuestProfession>('gardening');
+  const [professionFilter, setProfessionFilter] = useState<QuestProfession | 'all'>('all');
   const [usdEntryFee, setUsdEntryFee] = useState('5.00');
   const [usdPrize, setUsdPrize] = useState('40.00');
   const [tokenType, setTokenType] = useState<TokenType>('JEWEL');
@@ -168,6 +236,7 @@ export default function LevelRacerAdmin() {
   const createPoolMutation = useMutation({
     mutationFn: async (data: { 
       classSlug: string; 
+      profession: QuestProfession;
       usdEntryFee: string;
       usdPrize: string;
       tokenType: TokenType;
@@ -223,6 +292,7 @@ export default function LevelRacerAdmin() {
     }
     createPoolMutation.mutate({
       classSlug: selectedClass,
+      profession: selectedProfession,
       usdEntryFee,
       usdPrize,
       tokenType,
@@ -235,8 +305,18 @@ export default function LevelRacerAdmin() {
 
   const pools = poolsData?.pools || [];
   const classes = classesData?.classes || [];
-  const activePools = pools.filter(p => p.state !== 'FINISHED');
-  const finishedPools = pools.filter(p => p.state === 'FINISHED');
+  const basicClasses = classes.filter(c => c.isBasic !== false);
+  
+  const filteredPools = professionFilter === 'all' 
+    ? pools 
+    : pools.filter(p => p.profession === professionFilter);
+  const activePools = filteredPools.filter(p => p.state !== 'FINISHED');
+  const finishedPools = filteredPools.filter(p => p.state === 'FINISHED');
+  
+  const poolsByProfession = PROFESSIONS.reduce((acc, prof) => {
+    acc[prof.value] = pools.filter(p => p.profession === prof.value && p.state !== 'FINISHED');
+    return acc;
+  }, {} as Record<QuestProfession, Pool[]>);
 
   const totalFeesCollected = pools.reduce((sum, p) => sum + (p.totalFeesCollected || 0), 0);
   const totalPrizesAwarded = pools.filter(p => p.prizeAwarded).reduce((sum, p) => sum + p.jewelPrize, 0);
@@ -275,20 +355,40 @@ export default function LevelRacerAdmin() {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="class">Hero Class</Label>
-                  <Select value={selectedClass} onValueChange={setSelectedClass}>
-                    <SelectTrigger data-testid="select-hero-class">
-                      <SelectValue placeholder="Select a class" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {classes.map((c) => (
-                        <SelectItem key={c.slug} value={c.slug}>
-                          {c.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="class">Hero Class</Label>
+                    <Select value={selectedClass} onValueChange={setSelectedClass}>
+                      <SelectTrigger data-testid="select-hero-class">
+                        <SelectValue placeholder="Select a class" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {basicClasses.map((c) => (
+                          <SelectItem key={c.slug} value={c.slug}>
+                            {c.displayName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="profession">Quest Profession</Label>
+                    <Select value={selectedProfession} onValueChange={(v) => setSelectedProfession(v as QuestProfession)}>
+                      <SelectTrigger data-testid="select-profession">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PROFESSIONS.map((p) => (
+                          <SelectItem key={p.value} value={p.value}>
+                            <span className="flex items-center gap-2">
+                              <ProfessionIcon profession={p.value} className="w-3 h-3" />
+                              {p.label}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 
                 <Separator />
@@ -452,59 +552,79 @@ export default function LevelRacerAdmin() {
       <div className="grid grid-cols-2 gap-6">
         <Card className="col-span-1">
           <CardHeader>
-            <CardTitle>Racing Pools</CardTitle>
-            <CardDescription>All pools across all hero classes</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Racing Pools</CardTitle>
+                <CardDescription>Organized by quest profession</CardDescription>
+              </div>
+              <Select value={professionFilter} onValueChange={(v) => setProfessionFilter(v as QuestProfession | 'all')}>
+                <SelectTrigger className="w-[160px]" data-testid="select-profession-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Professions</SelectItem>
+                  {PROFESSIONS.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      <span className="flex items-center gap-2">
+                        <ProfessionIcon profession={p.value} className="w-3 h-3" />
+                        {p.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeader>
           <CardContent>
             {poolsLoading ? (
               <div className="space-y-2">
                 {[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}
               </div>
-            ) : pools.length === 0 ? (
+            ) : filteredPools.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Swords className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p>No pools created yet</p>
-                <p className="text-sm">Create your first pool to get started</p>
+                <p>No pools found</p>
+                <p className="text-sm">Try a different filter or create a pool</p>
               </div>
             ) : (
               <ScrollArea className="h-[400px]">
-                <div className="space-y-2">
-                  {pools.map((pool) => (
-                    <div 
-                      key={pool.id}
-                      className={`p-3 border rounded-md cursor-pointer transition-colors ${
-                        selectedPoolId === pool.id 
-                          ? 'border-primary bg-primary/5' 
-                          : 'hover:bg-accent/50'
-                      }`}
-                      onClick={() => setSelectedPoolId(pool.id)}
-                      data-testid={`pool-item-${pool.id}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{pool.heroClassName} Arena</span>
-                          {getStateBadge(pool.state)}
+                <div className="space-y-4">
+                  {professionFilter === 'all' ? (
+                    PROFESSIONS.map((prof) => {
+                      const profPools = poolsByProfession[prof.value];
+                      if (profPools.length === 0) return null;
+                      return (
+                        <div key={prof.value}>
+                          <div className="flex items-center gap-2 mb-2 text-sm font-medium text-muted-foreground">
+                            <ProfessionIcon profession={prof.value} className="w-4 h-4" />
+                            <span>{prof.label}</span>
+                            <Badge variant="secondary" className="text-[10px]">{profPools.length}</Badge>
+                          </div>
+                          <div className="space-y-2">
+                            {profPools.map((pool) => (
+                              <PoolListItem 
+                                key={pool.id} 
+                                pool={pool} 
+                                isSelected={selectedPoolId === pool.id}
+                                onSelect={() => setSelectedPoolId(pool.id)}
+                              />
+                            ))}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Users className="w-3 h-3" />
-                          {pool.currentEntries}/{pool.maxEntries}
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          Level {pool.level}
-                          {pool.isRecurrent && <Badge variant="secondary" className="text-[10px] px-1">Recurrent</Badge>}
-                        </span>
-                        <span>${pool.usdEntryFee} / ${pool.usdPrize} ({pool.tokenType})</span>
-                      </div>
-                      {pool.state !== 'OPEN' && (
-                        <Progress 
-                          value={(pool.currentEntries / pool.maxEntries) * 100} 
-                          className="h-1 mt-2" 
+                      );
+                    })
+                  ) : (
+                    <div className="space-y-2">
+                      {activePools.map((pool) => (
+                        <PoolListItem 
+                          key={pool.id} 
+                          pool={pool} 
+                          isSelected={selectedPoolId === pool.id}
+                          onSelect={() => setSelectedPoolId(pool.id)}
                         />
-                      )}
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               </ScrollArea>
             )}
