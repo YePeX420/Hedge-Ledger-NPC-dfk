@@ -32,6 +32,7 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
 *   **Smurf Detection & League Signup System**: Manages competitive leagues with a 6-tier ladder, wallet clustering for multi-account detection, power snapshots, transfer aggregates, and rule-based smurf detection with configurable rules and actions.
 *   **Challenge/Achievement System**: Gamified progression system with 8 categories and 36 challenges, using dual tier systems (RARITY and GENE tiers) and supporting player progress tracking and leaderboards.
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" by indexing bridge events, enriching with USD values, and computing per-wallet net extraction and extractor scores.
+    *   **Offline Export/Import**: Standalone script (`bridge-tracker/offline-exporter.js`) indexes blockchain events without database, exports to JSON. Import endpoint (`POST /api/admin/bridge/import-events`) loads pre-indexed data.
 *   **Level Racer - Class Arena Edition**: Competitive hero leveling races with entry fees and prizes.
     *   **Core Mechanics**: 6 common heroes per pool race to level up, first to 100 XP wins 200 JEWEL and claims an extra hero.
     *   **Validation Rules**: Only common heroes with 0 XP and no leveling stones can enter.
