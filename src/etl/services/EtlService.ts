@@ -74,23 +74,39 @@ export class EtlService {
     console.log(`[EtlService] Starting ETL for cluster ${clusterKey}`);
     
     try {
-      const signups = await db
+      // First try wallet_links (primary source for linked wallets)
+      const links = await db
         .select({
-          walletAddress: leagueSignups.walletAddress,
-          userId: leagueSignups.userId,
+          address: walletLinks.address,
         })
-        .from(leagueSignups)
-        .where(eq(leagueSignups.clusterKey, clusterKey));
+        .from(walletLinks)
+        .where(eq(walletLinks.clusterKey, clusterKey));
       
-      if (signups.length === 0) {
+      // Fall back to leagueSignups if no wallet_links found
+      let walletAddresses: string[] = links.map((l: { address: string }) => l.address);
+      
+      if (walletAddresses.length === 0) {
+        const signups = await db
+          .select({
+            walletAddress: leagueSignups.walletAddress,
+          })
+          .from(leagueSignups)
+          .where(eq(leagueSignups.clusterKey, clusterKey));
+        
+        walletAddresses = signups.map((s: { walletAddress: string }) => s.walletAddress);
+      }
+      
+      if (walletAddresses.length === 0) {
         console.log(`[EtlService] No wallets found for cluster ${clusterKey}`);
         return [];
       }
       
+      console.log(`[EtlService] Found ${walletAddresses.length} wallet(s) for cluster ${clusterKey}`);
+      
       const results: EtlResult[] = [];
       
-      for (const signup of signups) {
-        const result = await this.runForWallet(signup.walletAddress, {
+      for (const walletAddress of walletAddresses) {
+        const result = await this.runForWallet(walletAddress, {
           includeSnapshots: true,
           includeTransfers: true,
         });

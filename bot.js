@@ -3863,6 +3863,35 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/debug/trigger-etl - Manually trigger ETL for testing
+  app.post('/api/debug/trigger-etl', isUser, async (req, res) => {
+    try {
+      const discordId = req.user.userId;
+      console.log(`[API] POST /api/debug/trigger-etl for user ${discordId}`);
+      
+      // Get cluster for user
+      const cluster = await db.select().from(walletClusters).where(eq(walletClusters.userId, discordId)).limit(1);
+      if (!cluster || cluster.length === 0) {
+        return res.status(404).json({ error: 'No cluster found for user' });
+      }
+      
+      const clusterKey = cluster[0].clusterKey;
+      
+      // Trigger ETL in background
+      console.log(`[API] Manually triggering ETL for cluster ${clusterKey}`);
+      triggerEtlForCluster(clusterKey);
+      
+      res.json({ 
+        success: true, 
+        message: `ETL triggered for cluster ${clusterKey}`,
+        clusterKey 
+      });
+    } catch (error) {
+      console.error('[API] Error triggering ETL:', error);
+      res.status(500).json({ error: 'Failed to trigger ETL' });
+    }
+  });
+
   // Level Racer routes (no auth for public endpoints)
   app.use('/api/level-racer', levelRacerRoutes);
 
