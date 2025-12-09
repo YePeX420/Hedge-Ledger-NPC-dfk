@@ -21,6 +21,7 @@ import type {
   RaceEventType,
 } from "./levelRacer.types";
 
+// DEV/TEST: Placeholder thresholds for simulation. Real implementation uses blockchain readyToLevel flag.
 const XP_THRESHOLD_TO_LEVEL = 100;
 const CLOSE_TO_LEVEL_THRESHOLD = 80;
 
@@ -384,6 +385,16 @@ export async function processXpUpdates(
   };
 }
 
+/**
+ * DEV/TEST ONLY: Simulates XP gains for testing purposes.
+ * 
+ * In production, XP updates come from blockchain indexer monitoring actual
+ * quest completions. The winner is determined by whoever's `readyToLevel` 
+ * flag becomes true first (from the blockchain), NOT a fixed XP threshold.
+ * 
+ * This simulation uses XP_THRESHOLD_TO_LEVEL as a placeholder to trigger
+ * the readyToLevel condition for testing the race flow.
+ */
 export async function simulateTick(poolId: number): Promise<{ success: boolean; message: string }> {
   const [poolData] = await db
     .select({
@@ -414,6 +425,7 @@ export async function simulateTick(poolId: number): Promise<{ success: boolean; 
 
     const xpGain = Math.floor(Math.random() * 20) + 5;
     const newXp = entry.heroCurrentXp + xpGain;
+    // In production: readyToLevel comes from blockchain hero data, not XP threshold
     const readyToLevel = newXp >= XP_THRESHOLD_TO_LEVEL;
 
     updates.push({

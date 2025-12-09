@@ -9,7 +9,7 @@ export interface CommentaryContext {
 
 export function commentaryForPoolCreated(ctx: CommentaryContext): string {
   const className = ctx.heroClass.displayName;
-  return `Welcome to the ${className} Arena. Six common heroes will enter. One walks out with ${ctx.pool.jewelPrize} JEWEL.`;
+  return `Welcome to the ${className} Arena. Six common heroes will enter. First one ready to level walks out with ${ctx.pool.jewelPrize} JEWEL.`;
 }
 
 export function commentaryForHeroJoined(ctx: CommentaryContext): string {
@@ -20,7 +20,7 @@ export function commentaryForHeroJoined(ctx: CommentaryContext): string {
 
 export function commentaryForRaceStarted(ctx: CommentaryContext): string {
   const entryCount = ctx.extra?.entryCount || 6;
-  return `The gates are open. ${entryCount} heroes begin their race to level up. No stones. No excuses.`;
+  return `The gates are open. ${entryCount} heroes race to be the first ready to level. No stones. No excuses.`;
 }
 
 export function commentaryForXpGained(ctx: CommentaryContext): string {
