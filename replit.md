@@ -40,6 +40,8 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
     *   **Economic Tracking**: Entry fees (25 JEWEL per hero) tracked via `totalFeesCollected`, prize distribution tracked via `prizeAwarded`.
     *   **Commentary System**: Hedge-style NPC commentary for all race events (pool creation, hero joins, XP gains, winner declaration).
     *   **REST API**: `/api/level-racer/classes`, `/api/level-racer/pools/active`, `/api/level-racer/pools/:slug/join`, `/api/level-racer/pools/:id`, `/api/level-racer/pools/:id/events`, `/api/level-racer/dev/pools/:id/simulate-tick`
+    *   **Admin API**: `/api/level-racer/admin/pools` (GET all pools, POST create pool)
+    *   **Admin Dashboard**: Pool management panel at `/admin/level-racer` with create/view/track functionality
     *   **Database Tables**: `hero_classes`, `class_pools`, `pool_entries`, `race_events`
 
 **Design Decisions:**
