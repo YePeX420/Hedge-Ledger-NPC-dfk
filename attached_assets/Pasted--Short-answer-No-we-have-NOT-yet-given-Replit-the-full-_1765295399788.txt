@@ -1,0 +1,290 @@
+**Short answer:**
+❌ **No — we have NOT yet given Replit the full prompt to create the ETL engine for Hedge’s Challenge System.**
+
+We *talked about the architecture*, we built:
+
+* Challenge Pass v2
+* League system
+* Smurf detection
+* TierService
+* API contract
+* PaymentService
+
+…but we **never sent Replit the “ETL Creation Prompt”**, which is what instructs it to:
+
+* Pull data from DFK GraphQL / RPC
+* Transform data into KPIs
+* Load KPIs into DB tables
+* Maintain rolling 30-day metrics
+* Update challenge progress
+* Support league scoring
+* Power smurf detection metrics
+* Keep Hedge’s dashboard instant and always up-to-date
+
+This is the last major missing piece of your backend architecture.
+
+---
+
+# ✅ Let me give you the **ETL Prompt for Replit** — Full, Production-Ready
+
+You will paste this into your **Backend Replit project** (DFK API & Backend):
+
+---
+
+# 📢 **REPLIT PROMPT — Build ETL System for Hedge Challenge Engine**
+
+> **You are working in the Hedge / DFK Backend (Node.js + TypeScript + Postgres + Drizzle).**
+>
+> Implement a complete ETL (Extract–Transform–Load) subsystem that:
+>
+> 1. Pulls relevant DFK gameplay data from **external sources**
+> 2. Computes Challenge KPIs and Behavioral Metrics
+> 3. Loads summarized metrics into internal DB tables
+> 4. Supports Challenge Pass v2, League tiers, Smurf Detection, and Player Classification
+> 5. Runs automatically on a schedule
+>
+> This ETL must NOT sync the full blockchain — only **wallet-centric incremental data**.
+
+---
+
+## 📁 **1. Create ETL Directory Structure**
+
+Add:
+
+```
+src/etl/
+    extract/
+        DfkDataService.ts
+        GraphqlClient.ts
+        RpcClient.ts
+        ContractEvents.ts
+    transform/
+        ChallengeTransform.ts
+        BehaviorTransform.ts
+        ActivityTransform.ts
+        WalletPowerTransform.ts
+    load/
+        ChallengeLoad.ts
+        SnapshotLoad.ts
+        TransferLoad.ts
+    EtlService.ts
+    EtlScheduler.ts
+```
+
+---
+
+## 🧱 **2. Data Sources (Extract Layer)**
+
+Inside `extract/`, implement:
+
+### **GraphqlClient.ts**
+
+* Wrap DFK Community GraphQL API
+* Functions:
+
+  * `getHeroesByOwner(address)`
+  * `getQuestHistory(address, fromTimestamp?)`
+  * `getSummonsByOwner(address, fromTimestamp?)`
+  * `getGardenPositions(address)`
+  * `getPetByOwner(address)`
+
+### **RpcClient.ts**
+
+* Use DFK RPC (from process.env.DFK_RPC_URL)
+* Lightweight:
+
+  * get token balances
+  * get JEWEL balance
+  * generic `getLogs` with block filters
+
+### **ContractEvents.ts**
+
+* Minimal ABI decoding for:
+
+  * HeroSummoned
+  * ProfessionQuestCompleted
+  * HeroTransfer
+  * LPDeposited / LPWithdrawn
+
+---
+
+## 📊 **3. Transform Layer (Turn Raw Data → Metrics)**
+
+Create **pure functions** in `transform/`:
+
+### **ChallengeTransform.ts**
+
+Computes:
+
+* totalQuestsLifetime
+* questsByProfession30d
+* summonsLifetime
+* summons30d (including class/gene distributions)
+* gardenStats (LP value, harvest count)
+* petStats
+* heroStats (rarity count, total levels)
+
+### **ActivityTransform.ts**
+
+* daysActive30d
+* staminaUtilizationRate
+* questFrequencyScore
+
+### **BehaviorTransform.ts**
+
+* reinvestRatio30d
+* netHeroDelta30d
+* inboundTransfersLast7d (bool)
+* heavySellActivityFlag
+
+### **WalletPowerTransform.ts**
+
+Produces input for **TierService**:
+
+* heroPowerScore
+* walletNetWorthUsd
+* behaviorHealthMetrics
+* activityMetrics
+
+---
+
+## 🧩 **4. Load Layer (DB Writes)**
+
+Inside `load/`:
+
+### **ChallengeLoad.ts**
+
+Updates:
+
+* `user_challenge_progress`
+* `monthly_user_challenge_progress`
+
+### **SnapshotLoad.ts**
+
+Updates:
+
+* `wallet_power_snapshots`
+* `behavior_metrics_30d`
+* `activity_metrics_30d`
+
+### **TransferLoad.ts**
+
+Updates:
+
+* `wallet_transfer_aggregates`
+* inbound/outbound totals per window
+* hero/pet/token transfer counts
+
+---
+
+## 🚀 **5. ETL Service (Coordinator)**
+
+Create `src/etl/EtlService.ts`:
+
+* `runForWallet(clusterKey, address)`
+  Extract → Transform → Load
+* `runForCluster(clusterKey)`
+  Loops through all linked wallets
+* `warmupWallet(address)`
+  Does a first-time backfill for new players
+* `runIncrementalForActivePlayers()`
+  Updates only wallets with recent activity
+
+---
+
+## ⏱️ **6. Scheduler**
+
+`src/etl/EtlScheduler.ts`:
+
+* Every **10 minutes**:
+
+  * run incremental ETL for all active wallets
+* Every **24 hours**:
+
+  * recompute lifetime metrics
+  * refresh hero rosters
+  * refresh long-term stats
+* On wallet connect:
+
+  * call `EtlService.warmupWallet()`
+
+Use `node-cron` or equivalent.
+
+---
+
+## 🔗 **7. Integration Points**
+
+### ETL must feed:
+
+#### **Challenges**
+
+* `user_challenge_progress` (lifetime + 30d)
+* `monthly_user_challenge_progress`
+
+#### **League System**
+
+* tier assignment inputs:
+
+  * hero roster
+  * wallet value
+  * activity30d
+  * behavior30d
+  * account age
+
+#### **Smurf Detection**
+
+* `wallet_transfer_aggregates`
+* `wallet_power_snapshots`
+* `behavior_metrics_30d`
+* inbound/outbound deltas
+* cluster wallet analysis
+
+#### **Player Classification**
+
+* extractor vs reinvestor
+* miner/fisher/forager/gardener weighting
+* investor/gamer hybrid identification
+
+---
+
+## 🧪 **8. Replit Implementation Notes**
+
+* Use TypeScript everywhere.
+* All extract functions must handle:
+
+  * retries
+  * rate limits
+  * timeouts
+* Write everything to DB through Drizzle ORM.
+* ETL MUST NOT block API responses — run as background jobs.
+* All ETL logs should go to `console.log` with tags `[ETL]`.
+
+---
+
+# ⚡ Final Output Replit Should Produce
+
+When this prompt is complete, your backend will have:
+
+✔ A full ETL engine
+✔ Challenge metrics always up to date
+✔ League scoring data always ready
+✔ Smurf detection data always consistent
+✔ Tier assignment using the latest data
+✔ Near-instant challenge loads for frontend
+✔ No need for full-node syncing like a bridge
+
+---
+
+# 🎯 Next Step (Optional)
+
+If you want, I can generate:
+
+* The **exact file contents** for
+
+  * `DfkDataService.ts`
+  * `ChallengeTransform.ts`
+  * `EtlService.ts`
+  * `EtlScheduler.ts`
+* Or a **minimal working ETL version** (MVP) to bootstrap everything.
+
+Which do you want?
