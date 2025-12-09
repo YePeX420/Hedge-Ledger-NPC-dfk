@@ -23,9 +23,9 @@ export async function loadWalletSnapshot(
       playerId,
       wallet,
       asOfDate: now,
-      jewelBalance: String(Math.floor(data.portfolio.jewelBalance)),
-      crystalBalance: String(Math.floor(data.portfolio.crystalBalance)),
-      cJewelBalance: String(Math.floor(data.portfolio.cJewelBalance)),
+      jewelBalance: String(data.portfolio.jewelBalance),
+      crystalBalance: String(data.portfolio.crystalBalance),
+      cJewelBalance: String(data.portfolio.cJewelBalance),
     });
     
     console.log(`[SnapshotLoader] Created wallet snapshot for ${wallet}`);
@@ -49,6 +49,7 @@ export async function loadPowerSnapshot(
   const now = new Date();
   
   if (!clusterKey) {
+    console.warn(`[SnapshotLoader] No clusterKey for ${wallet}, skipping power snapshot`);
     return 0;
   }
   
@@ -59,21 +60,28 @@ export async function loadPowerSnapshot(
     const lpValue = data.gardens.totalLPValue * 0.1;
     const balanceValue = data.portfolio.jewelEquivalentBalance * 0.05;
     
-    const totalPower = Math.floor(heroValue + levelValue + petValue + lpValue + balanceValue);
+    const powerScore = Math.floor(heroValue + levelValue + petValue + lpValue + balanceValue);
+    
+    let tierCode = 'COMMON';
+    if (powerScore >= 2000) tierCode = 'MYTHIC';
+    else if (powerScore >= 1000) tierCode = 'LEGENDARY';
+    else if (powerScore >= 500) tierCode = 'RARE';
+    else if (powerScore >= 200) tierCode = 'UNCOMMON';
     
     await db.insert(walletPowerSnapshots).values({
       clusterKey,
       address: wallet,
-      totalPower,
-      heroCount: data.heroes.heroCount,
-      totalLevels: data.heroes.totalLevels,
-      petCount: data.pets.petCount,
-      lpValue: String(Math.floor(data.gardens.totalLPValue)),
-      tokenBalance: String(Math.floor(data.portfolio.jewelEquivalentBalance)),
+      powerScore,
+      tierCode,
       takenAt: now,
+      meta: {
+        heroCount: data.heroes.heroCount,
+        totalLevels: data.heroes.totalLevels,
+        netWorthUsd: data.gardens.totalLPValue + data.portfolio.jewelEquivalentBalance,
+      },
     });
     
-    console.log(`[SnapshotLoader] Created power snapshot for ${wallet} (power: ${totalPower})`);
+    console.log(`[SnapshotLoader] Created power snapshot for ${wallet} (power: ${powerScore})`);
     return 1;
   } catch (err) {
     console.error(`[SnapshotLoader] Error creating power snapshot for ${wallet}:`, err);

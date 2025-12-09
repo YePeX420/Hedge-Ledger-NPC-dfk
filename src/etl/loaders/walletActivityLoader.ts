@@ -2,7 +2,7 @@
 // Loads ETL data into wallet_activity table
 
 import { db } from '../../../server/db.js';
-import { walletActivity, players } from '../../../shared/schema.js';
+import { walletActivity } from '../../../shared/schema.js';
 import { eq, and, sql } from 'drizzle-orm';
 import type { FullExtractResult, WalletContext, TransformResult } from '../types.js';
 
@@ -29,9 +29,10 @@ export async function loadWalletActivity(
       .where(
         and(
           eq(walletActivity.wallet, wallet),
-          eq(walletActivity.asOfDate, today)
+          eq(walletActivity.playerId, playerId)
         )
-      );
+      )
+      .limit(1);
     
     const activityData = {
       playerId,

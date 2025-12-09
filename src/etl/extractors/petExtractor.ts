@@ -7,9 +7,16 @@ export async function extractPetData(ctx: WalletContext): Promise<ExtractedPetDa
   const wallet = ctx.walletAddress.toLowerCase();
   
   try {
-    const { getPetsByOwner } = await import('../../../pet-fetcher.js');
+    let pets: any[] = [];
     
-    const pets = await getPetsByOwner(wallet);
+    try {
+      const petFetcher = await import('../../../pet-fetcher.js');
+      if (petFetcher.getPetsByOwner) {
+        pets = await petFetcher.getPetsByOwner(wallet);
+      }
+    } catch {
+      console.warn(`[PetExtractor] pet-fetcher.js not available`);
+    }
     
     const petCount = pets?.length || 0;
     const gardeningPetCount = pets?.filter((p: any) => 

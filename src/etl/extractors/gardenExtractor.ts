@@ -7,9 +7,16 @@ export async function extractGardenData(ctx: WalletContext): Promise<ExtractedGa
   const wallet = ctx.walletAddress.toLowerCase();
   
   try {
-    const { detectWalletLPPositions } = await import('../../../wallet-lp-detector.js');
+    let positions: any[] = [];
     
-    const positions = await detectWalletLPPositions(wallet);
+    try {
+      const lpDetector = await import('../../../wallet-lp-detector.js');
+      if (lpDetector.detectWalletLPPositions) {
+        positions = await lpDetector.detectWalletLPPositions(wallet);
+      }
+    } catch {
+      console.warn(`[GardenExtractor] wallet-lp-detector.js not available`);
+    }
     
     if (!positions || positions.length === 0) {
       return {
@@ -31,10 +38,8 @@ export async function extractGardenData(ctx: WalletContext): Promise<ExtractedGa
       0
     );
     
-    const lpYieldTokenEquivalent = totalLPValue;
-    
     return {
-      lpYieldTokenEquivalent,
+      lpYieldTokenEquivalent: totalLPValue,
       lpPositions,
       totalLPValue,
     };

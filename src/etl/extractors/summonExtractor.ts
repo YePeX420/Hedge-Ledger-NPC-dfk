@@ -6,35 +6,30 @@ import { walletActivity } from '../../../shared/schema.js';
 import { eq, desc } from 'drizzle-orm';
 import type { ExtractedSummonData, WalletContext, ExtractedHeroData } from '../types.js';
 
-const ADVANCED_CLASSES = {
-  dragoon: 'dragoon',
-  dreadknight: 'dreadknight',
-  sage: 'sage',
-  paladin: 'paladin',
-  darkKnight: 'darkknight',
-  dark_knight: 'darkknight',
-};
-
 export async function extractSummonData(ctx: WalletContext, heroData?: ExtractedHeroData): Promise<ExtractedSummonData> {
   const wallet = ctx.walletAddress.toLowerCase();
+  const playerId = ctx.playerId;
   
   try {
-    const activities = await db
-      .select()
-      .from(walletActivity)
-      .where(eq(walletActivity.wallet, wallet))
-      .orderBy(desc(walletActivity.asOfDate))
-      .limit(1);
+    let totalSummons = 0;
     
-    const latestActivity = activities[0];
-    const totalSummons = latestActivity?.summonsMade30d || 0;
+    if (playerId) {
+      const activities = await db
+        .select()
+        .from(walletActivity)
+        .where(eq(walletActivity.playerId, playerId))
+        .orderBy(desc(walletActivity.asOfDate))
+        .limit(1);
+      
+      const latestActivity = activities[0];
+      totalSummons = latestActivity?.summonsMade30d || 0;
+    }
     
     let summonsDragoon = 0;
     let summonsDreadknight = 0;
     let summonsSage = 0;
     let summonsPaladin = 0;
     let summonsDarkKnight = 0;
-    let summonsHighTierGenes = 0;
     let summonsMythicRarity = 0;
     
     if (heroData?.heroes) {
@@ -60,7 +55,7 @@ export async function extractSummonData(ctx: WalletContext, heroData?: Extracted
       summonsSage,
       summonsPaladin,
       summonsDarkKnight,
-      summonsHighTierGenes,
+      summonsHighTierGenes: 0,
       summonsMythicRarity,
       hasTrifectaUltraRare,
     };

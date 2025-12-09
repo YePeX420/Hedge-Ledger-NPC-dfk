@@ -2,16 +2,16 @@
 // Main ETL orchestration service
 
 import { db } from '../../../server/db.js';
-import { players, leagueSignups } from '../../../shared/schema.js';
-import { eq, sql } from 'drizzle-orm';
+import { players, leagueSignups, walletLinks, walletClusters } from '../../../shared/schema.js';
+import { eq, sql, or } from 'drizzle-orm';
 import { extractAllData } from '../extractors/index.js';
 import { transformData } from '../transformers/index.js';
 import { loadAllData, type LoadOptions } from '../loaders/index.js';
 import type { WalletContext, EtlResult } from '../types.js';
 
-let tierServiceModule: any = null;
+let tierServiceModule: typeof import('../../services/classification/TierService.js') | null = null;
 
-async function getTierService() {
+async function getTierService(): Promise<typeof import('../../services/classification/TierService.js') | null> {
   if (!tierServiceModule) {
     try {
       tierServiceModule = await import('../../services/classification/TierService.js');
@@ -196,19 +196,43 @@ export class EtlService {
     
     const player = playerRecords[0];
     
-    const signups = await db
-      .select()
-      .from(leagueSignups)
-      .where(eq(leagueSignups.walletAddress, lowerWallet))
-      .limit(1);
+    let clusterKey: string | undefined;
+    let userId: string | undefined = player?.discordId;
     
-    const signup = signups[0];
+    try {
+      const links = await db
+        .select()
+        .from(walletLinks)
+        .where(eq(walletLinks.address, lowerWallet))
+        .limit(1);
+      
+      if (links[0]) {
+        clusterKey = links[0].clusterKey;
+      }
+    } catch {
+    }
+    
+    if (!clusterKey) {
+      try {
+        const signups = await db
+          .select()
+          .from(leagueSignups)
+          .where(eq(leagueSignups.walletAddress, lowerWallet))
+          .limit(1);
+        
+        if (signups[0]) {
+          clusterKey = signups[0].clusterKey;
+          userId = userId || signups[0].userId;
+        }
+      } catch {
+      }
+    }
     
     return {
       walletAddress: lowerWallet,
-      userId: player?.discordId || signup?.userId,
+      userId,
       playerId: player?.id,
-      clusterKey: signup?.clusterKey,
+      clusterKey,
     };
   }
   

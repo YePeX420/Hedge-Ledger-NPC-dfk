@@ -7,9 +7,16 @@ export async function extractPortfolioData(ctx: WalletContext): Promise<Extracte
   const wallet = ctx.walletAddress.toLowerCase();
   
   try {
-    const { fetchWalletBalances } = await import('../../../blockchain-balance-fetcher.js');
+    let balances: any = null;
     
-    const balances = await fetchWalletBalances(wallet);
+    try {
+      const balanceFetcher = await import('../../../blockchain-balance-fetcher.js');
+      if (balanceFetcher.fetchWalletBalances) {
+        balances = await balanceFetcher.fetchWalletBalances(wallet);
+      }
+    } catch {
+      console.warn(`[PortfolioExtractor] blockchain-balance-fetcher.js not available`);
+    }
     
     const jewelBalance = parseFloat(balances?.jewel || '0');
     const crystalBalance = parseFloat(balances?.crystal || '0');

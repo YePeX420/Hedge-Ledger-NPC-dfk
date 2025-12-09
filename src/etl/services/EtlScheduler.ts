@@ -1,7 +1,7 @@
 // src/etl/services/EtlScheduler.ts
 // Schedules ETL jobs
 
-import * as cron from 'node-cron';
+import cron from 'node-cron';
 import { etlService } from './EtlService.js';
 import { DEFAULT_ETL_CONFIG } from '../types.js';
 
