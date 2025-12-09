@@ -388,6 +388,8 @@ export default function LevelRacerAdmin() {
     ? pools 
     : pools.filter(p => p.profession === professionFilter);
   const activePools = filteredPools.filter(p => p.state !== 'FINISHED');
+  const racingPools = pools.filter(p => p.state === 'RACING');
+  const openPools = pools.filter(p => p.state === 'OPEN');
   const finishedPools = filteredPools.filter(p => p.state === 'FINISHED');
   
   const poolsByProfession = PROFESSIONS.reduce((acc, prof) => {
@@ -703,12 +705,12 @@ export default function LevelRacerAdmin() {
       <div className="grid grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Pools</CardTitle>
+            <CardTitle className="text-sm font-medium">Racing</CardTitle>
             <Swords className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="stat-active-pools">{activePools.length}</div>
-            <p className="text-xs text-muted-foreground">Currently running</p>
+            <div className="text-2xl font-bold" data-testid="stat-racing-pools">{racingPools.length}</div>
+            <p className="text-xs text-muted-foreground">{openPools.length} open for registration</p>
           </CardContent>
         </Card>
         <Card>
@@ -781,7 +783,7 @@ export default function LevelRacerAdmin() {
                 <p className="text-sm">Try a different filter or create a pool</p>
               </div>
             ) : (
-              <ScrollArea className="h-[400px]">
+              <ScrollArea className="h-[600px]">
                 <div className="space-y-4">
                   {professionFilter === 'all' ? (
                     PROFESSIONS.map((prof) => {
