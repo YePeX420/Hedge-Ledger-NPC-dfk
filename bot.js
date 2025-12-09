@@ -4947,8 +4947,8 @@ async function startAdminWebServer() {
         tierAdjusted: signup.tierAdjusted,
         disqualified: signup.disqualified,
         disqualificationReason: signup.disqualificationReason,
-        entryFeePaid: signup.entryFeePaid,
         status: signup.status,
+        signedUpAt: signup.createdAt?.toISOString(),
         smurfIncidents: incidents.map(i => ({
           id: i.id,
           ruleKey: i.ruleKey,
@@ -4958,7 +4958,6 @@ async function startAdminWebServer() {
           details: i.details,
           createdAt: i.createdAt?.toISOString(),
         })),
-        createdAt: signup.createdAt?.toISOString(),
       });
     } catch (err) {
       console.error('[API] Signup status error:', err);
