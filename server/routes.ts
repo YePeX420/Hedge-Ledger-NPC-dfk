@@ -802,6 +802,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ running: indexerRunning });
   });
 
+  // POST /api/admin/bridge/import-events - Import pre-indexed bridge events from JSON
+  app.post("/api/admin/bridge/import-events", isAdmin, async (req: any, res: any) => {
+    try {
+      const { events, lastBlock, skipDuplicates = true } = req.body;
+      
+      if (!events || !Array.isArray(events)) {
+        return res.status(400).json({ error: 'Missing events array in request body' });
+      }
+      
+      console.log(`[API] Importing ${events.length} bridge events (lastBlock: ${lastBlock})`);
+      
+      let inserted = 0;
+      let skipped = 0;
+      let errors = 0;
+      
+      // Process in batches of 100
+      const batchSize = 100;
+      for (let i = 0; i < events.length; i += batchSize) {
+        const batch = events.slice(i, i + batchSize);
+        
+        for (const event of batch) {
+          try {
+            await db.insert(bridgeEvents).values({
+              wallet: event.wallet?.toLowerCase(),
+              bridgeType: event.bridgeType || 'token',
+              direction: event.direction,
+              tokenAddress: event.tokenAddress || null,
+              tokenSymbol: event.tokenSymbol || null,
+              amount: event.amount || null,
+              assetId: null,
+              srcChainId: event.srcChainId || 0,
+              dstChainId: event.dstChainId || 0,
+              txHash: event.txHash,
+              blockNumber: Number(event.blockNumber),
+              blockTimestamp: new Date(event.blockTimestamp),
+            }).onConflictDoNothing();
+            inserted++;
+          } catch (err: any) {
+            if (err.code === '23505' && skipDuplicates) {
+              skipped++;
+            } else {
+              console.error(`[API] Error inserting event:`, err.message);
+              errors++;
+            }
+          }
+        }
+        
+        // Log progress for large imports
+        if (events.length > 1000 && i % 1000 === 0) {
+          console.log(`[API] Import progress: ${i}/${events.length} (${inserted} inserted, ${skipped} skipped)`);
+        }
+      }
+      
+      console.log(`[API] Import complete: ${inserted} inserted, ${skipped} skipped, ${errors} errors`);
+      
+      res.json({
+        success: true,
+        imported: inserted,
+        skipped,
+        errors,
+        lastBlock: lastBlock || null
+      });
+    } catch (error: any) {
+      console.error('[API] Error importing bridge events:', error);
+      res.status(500).json({ error: 'Failed to import events', details: error.message });
+    }
+  });
+
   // POST /api/admin/restart-server - Restart the server process
   app.post("/api/admin/restart-server", isAdmin, async (req: any, res: any) => {
     console.log('[API] === SERVER RESTART REQUESTED ===');
