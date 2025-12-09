@@ -5940,9 +5940,9 @@ async function startAdminWebServer() {
         .update(`${user.id}:${Date.now()}`)
         .digest('hex');
 
-      // Store session in database (7-day expiration)
+      // Store session in database (30-day expiration for "remember me")
       const expiresAt = new Date(
-        Date.now() + 7 * 24 * 60 * 60 * 1000
+        Date.now() + 30 * 24 * 60 * 60 * 1000
       );
       await db.insert(adminSessions).values({
         sessionToken,
@@ -5954,7 +5954,11 @@ async function startAdminWebServer() {
       });
 
       res.setCookie('session_token', sessionToken, {
-        maxAge: 7 * 24 * 60 * 60,
+        maxAge: 30 * 24 * 60 * 60, // 30 days for "remember me"
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+        path: '/',
       });
 
       // Check if user is an admin
