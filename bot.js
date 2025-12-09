@@ -70,6 +70,8 @@ import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-
 import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress } from './shared/schema.ts';
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
+import levelRacerRoutes from './src/modules/levelRacer/levelRacer.routes.ts';
+import { seedHeroClasses } from './src/modules/levelRacer/levelRacer.service.ts';
 
 const execAsync = promisify(exec);
 
@@ -3398,6 +3400,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
 async function initializeEconomicSystem() {
   console.log('💰 Initializing pricing config...');
   await initializePricingConfig();
+  
+  // Seed hero classes for Level Racer
+  console.log('🏁 Seeding Level Racer hero classes...');
+  try {
+    await seedHeroClasses();
+    console.log('✅ Level Racer hero classes seeded');
+  } catch (err) {
+    console.warn('⚠️ Level Racer seeding skipped:', err.message);
+  }
 
   console.log('📡 Starting payment monitor (V2: Per-job fast scanner)...');
   await initializeExistingJobs();
@@ -3507,6 +3518,9 @@ async function startAdminWebServer() {
       res.status(500).json({ error: 'Authentication check failed' });
     }
   }
+
+  // Level Racer routes (no auth for public endpoints)
+  app.use('/api/level-racer', levelRacerRoutes);
 
   // Debug endpoint - no auth required
   app.get('/api/admin/debug-status', async (req, res) => {
