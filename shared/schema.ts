@@ -1145,6 +1145,10 @@ export type PlayerChallengeProgress = typeof playerChallengeProgress.$inferSelec
 // LEVEL RACER - CLASS ARENA EDITION
 // ============================================================================
 
+// Quest professions for Level Racer pools
+export const QUEST_PROFESSIONS = ["gardening", "mining", "fishing", "foraging"] as const;
+export type QuestProfession = typeof QUEST_PROFESSIONS[number];
+
 /**
  * Hero classes - catalog of available hero classes for arena pools
  */
@@ -1153,6 +1157,7 @@ export const heroClasses = pgTable("hero_classes", {
   slug: varchar("slug", { length: 64 }).notNull().unique(),
   displayName: varchar("display_name", { length: 128 }).notNull(),
   isEnabled: boolean("is_enabled").notNull().default(true),
+  isBasic: boolean("is_basic").notNull().default(true), // Basic classes only for Level Racer (not advanced like Paladin, Sage, etc.)
 }, (table) => ({
   slugIdx: uniqueIndex("hero_classes_slug_idx").on(table.slug),
 }));
@@ -1162,12 +1167,13 @@ export type InsertHeroClass = z.infer<typeof insertHeroClassSchema>;
 export type HeroClass = typeof heroClasses.$inferSelect;
 
 /**
- * Class pools - arena pool per hero class
- * Only one non-FINISHED pool per heroClassId at a time
+ * Class pools - arena pool per hero class per profession
+ * Only one non-FINISHED pool per (heroClassId, profession) combo at a time
  */
 export const classPools = pgTable("class_pools", {
   id: serial("id").primaryKey(),
   heroClassId: integer("hero_class_id").notNull().references(() => heroClasses.id),
+  profession: varchar("profession", { length: 32 }).notNull().default("gardening"), // Quest profession: gardening, mining, fishing, foraging
   level: integer("level").notNull().default(1),
   state: varchar("state", { length: 16 }).notNull().default("OPEN"), // OPEN, FILLING, RACING, FINISHED
   maxEntries: integer("max_entries").notNull().default(6),
