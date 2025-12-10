@@ -4285,6 +4285,9 @@ async function startAdminWebServer() {
 
       const player = playerRows[0];
 
+      // Fetch all linked wallets using the shared helper (includes auto-backfill logic)
+      const { wallets: linkedWallets } = await getWalletsForUser(discordId);
+
       let profileData = null;
       try {
         if (player.profileData) {
@@ -4421,6 +4424,7 @@ async function startAdminWebServer() {
           discordId: player.discordId,
           discordUsername: player.discordUsername,
           walletAddress: player.primaryWallet,
+          linkedWallets,
           tier: tierNum,
           archetype: profileData?.archetype || 'GUEST',
           intentArchetype: profileData?.intentArchetype || null,

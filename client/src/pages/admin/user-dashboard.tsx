@@ -73,6 +73,15 @@ interface IntentScores {
   onboardingScore: number;
 }
 
+interface LinkedWallet {
+  address: string;
+  chain: string;
+  isPrimary: boolean;
+  isActive: boolean;
+  isVerified: boolean;
+  verifiedAt: string | null;
+}
+
 interface UserSummary {
   success: boolean;
   user: {
@@ -80,6 +89,7 @@ interface UserSummary {
     discordId: string;
     discordUsername: string;
     walletAddress?: string | null;
+    linkedWallets?: LinkedWallet[];
     tier: number;
     archetype: string;
     intentArchetype: string | null;
@@ -333,21 +343,65 @@ export default function AdminUserDashboard() {
           )}
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-3 items-center">
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">Primary Wallet</p>
+          {/* Wallets Section */}
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground font-medium">Linked Wallets</p>
+            {user.linkedWallets && user.linkedWallets.length > 0 ? (
+              <div className="space-y-2">
+                {user.linkedWallets.map((wallet, idx) => (
+                  <div key={wallet.address} className="flex items-center gap-2 flex-wrap" data-testid={`wallet-row-${idx}`}>
+                    <code className="text-xs bg-muted px-2 py-1 rounded">
+                      {wallet.address.slice(0, 6)}...{wallet.address.slice(-4)}
+                    </code>
+                    {wallet.isPrimary && (
+                      <Badge variant="secondary" className="text-xs">
+                        PRIMARY
+                      </Badge>
+                    )}
+                    <Badge 
+                      variant={wallet.isVerified ? "default" : "outline"} 
+                      className="text-xs"
+                    >
+                      {wallet.isVerified ? "VERIFIED" : "NOT VERIFIED"}
+                    </Badge>
+                    <Button 
+                      size="icon" 
+                      variant="ghost"
+                      onClick={() => {
+                        navigator.clipboard.writeText(wallet.address).then(() => {
+                          toast({ title: "Wallet copied", description: wallet.address });
+                        }).catch(() => {
+                          toast({ title: "Copy failed", variant: "destructive" });
+                        });
+                      }}
+                      data-testid={`button-copy-wallet-${idx}`}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : user.walletAddress ? (
               <div className="flex items-center gap-2">
                 <code className="text-xs bg-muted px-2 py-1 rounded">
-                  {user.walletAddress ? `${user.walletAddress.slice(0, 6)}...${user.walletAddress.slice(-4)}` : "Not linked"}
+                  {user.walletAddress.slice(0, 6)}...{user.walletAddress.slice(-4)}
                 </code>
-                {user.walletAddress && (
-                  <Button size="icon" variant="ghost" onClick={copyWallet}>
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                )}
+                <Badge variant="outline" className="text-xs">
+                  NOT VERIFIED
+                </Badge>
+                <Button size="icon" variant="ghost" onClick={copyWallet}>
+                  <Copy className="h-4 w-4" />
+                </Button>
               </div>
-            </div>
-            <Separator orientation="vertical" className="h-10" />
+            ) : (
+              <span className="text-xs text-muted-foreground">No wallets linked</span>
+            )}
+          </div>
+          
+          <Separator />
+          
+          {/* Flags and Tags Row */}
+          <div className="flex flex-wrap gap-3 items-center">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Flags</p>
               <div className="flex flex-wrap gap-2">
