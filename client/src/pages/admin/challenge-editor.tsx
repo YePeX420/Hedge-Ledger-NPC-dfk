@@ -149,6 +149,10 @@ export default function ChallengeEditor() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const isEditMode = window.location.pathname.includes("/edit");
+  
+  // Check if id is a valid numeric ID (not "new" or other invalid strings)
+  const numericId = id && /^\d+$/.test(id) ? parseInt(id, 10) : null;
+  const isValidId = numericId !== null && !isNaN(numericId);
 
   const { data: challenge, isLoading, error } = useQuery<ChallengeDetail>({
     queryKey: ["/api/admin/challenges", id],
@@ -159,7 +163,7 @@ export default function ChallengeEditor() {
       if (!res.ok) throw new Error("Failed to fetch challenge");
       return res.json();
     },
-    enabled: !!id,
+    enabled: isValidId,
   });
 
   const { data: categories } = useQuery<ChallengeCategory[]>({
@@ -182,7 +186,7 @@ export default function ChallengeEditor() {
       if (!res.ok) throw new Error("Failed to fetch audit log");
       return res.json();
     },
-    enabled: !!id,
+    enabled: isValidId,
   });
 
   const [formData, setFormData] = useState<Partial<ChallengeDetail>>({});
@@ -315,6 +319,28 @@ export default function ChallengeEditor() {
     (newTiers[index] as Record<string, unknown>)[field] = value;
     setTiers(newTiers);
   };
+
+  // Handle invalid IDs (like "new" or non-numeric strings)
+  if (!isValidId) {
+    return (
+      <div className="p-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Invalid Challenge ID</CardTitle>
+            <CardDescription>
+              The challenge ID "{id}" is not valid. Please select a challenge from the list or create a new one.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => navigate("/admin/challenges")} data-testid="button-back-to-list">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Challenges
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
