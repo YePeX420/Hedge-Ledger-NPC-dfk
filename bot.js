@@ -5027,7 +5027,7 @@ async function startAdminWebServer() {
         return res.status(409).json({ error: 'Parallel sync already running' });
       }
       
-      const workersTotal = parseInt(req.body.workers) || 4;
+      const workersTotal = parseInt(req.body.workers) || 8;
       const batchSize = parseInt(req.body.batchSize) || 10000;
       const maxBatchesPerWorker = parseInt(req.body.maxBatches) || 50;
       
