@@ -1,0 +1,503 @@
+1. CHALLENGE ADMIN – DB SCHEMA SPEC
+1.1 Goals
+
+Store all challenge definitions in a first-class way
+
+Support lifecycle states (draft, validated, deployed, deprecated)
+
+Allow configurable metric definitions, not hardcoded
+
+Enable validation workflow (auto + manual)
+
+Be fully additive (no breakage to current functionality)
+
+1.2 Tables Overview
+
+You’ll likely need at least:
+
+challenges (registry of all challenges)
+
+challenge_validations (who checked/approved what) – optional but recommended
+
+(Optionally) challenge_categories (if you want metadata on categories)
+
+For now we’ll focus on the essentials.
+
+1.3 Table: challenges
+
+Purpose: Single registry of all challenges, including their configuration and lifecycle state.
+
+DDL-style spec (pseudo-SQL):
+
+CREATE TABLE challenges (
+  id                UUID PRIMARY KEY,
+  code              VARCHAR(64) UNIQUE NOT NULL,   -- e.g. "HUNTER_TRIUMPH"
+  name              VARCHAR(128) NOT NULL,         -- e.g. "Hunter’s Triumph"
+  category          INTEGER NOT NULL,              -- 1..16, see docs
+  type              VARCHAR(32) NOT NULL,          -- "TIERED" | "PRESTIGE" | "SEASONAL"
+
+  state             VARCHAR(32) NOT NULL,          -- "DRAFT" | "VALIDATED" | "DEPLOYED" | "DEPRECATED"
+
+  short_description TEXT NOT NULL,                 -- one-liner, used in lists
+  long_description  TEXT NOT NULL,                 -- detailed doc (what you’ve been writing)
+
+  metric_source     VARCHAR(64) NOT NULL,          -- e.g. "HUNTING", "PVP", "METIS_PATROL"
+  metric_field      VARCHAR(64) NOT NULL,          -- e.g. "wins", "entries", "streak"
+  metric_aggregation VARCHAR(32) NOT NULL,         -- e.g. "SUM", "MAX", "COUNT", "COUNT_DISTINCT"
+
+  -- JSON config for filters & advanced rules (enemyId == Motherclucker, queueType == ranked, etc.)
+  metric_filters    JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  -- Tier configuration: either "PERCENTILE" or "ABSOLUTE", plus thresholds if applicable.
+  tiering_mode      VARCHAR(32) NOT NULL,          -- "PERCENTILE" | "NONE" (for prestige)
+  tier_config       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- Example tier_config if percentile:
+  -- { "basic": 0.4, "advanced": 0.7, "elite": 0.9, "exalted": 0.97 }
+
+  -- Flags for rollout control
+  is_test_only      BOOLEAN NOT NULL DEFAULT FALSE,  -- only in staging / preview
+  is_frontend_visible BOOLEAN NOT NULL DEFAULT FALSE, -- shown in UI or hidden
+
+  created_at        TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMP NOT NULL DEFAULT now(),
+  created_by        VARCHAR(64) NOT NULL,          -- admin identifier
+  updated_by        VARCHAR(64) NOT NULL
+);
+
+
+Drizzle-like sketch (TypeScript):
+
+export const challenges = pgTable("challenges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: varchar("code", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 128 }).notNull(),
+  category: integer("category").notNull(),
+  type: varchar("type", { length: 32 }).notNull(), // "TIERED" | "PRESTIGE" | "SEASONAL"
+  state: varchar("state", { length: 32 }).notNull(), // "DRAFT" | "VALIDATED" | "DEPLOYED" | "DEPRECATED"
+
+  shortDescription: text("short_description").notNull(),
+  longDescription: text("long_description").notNull(),
+
+  metricSource: varchar("metric_source", { length: 64 }).notNull(),
+  metricField: varchar("metric_field", { length: 64 }).notNull(),
+  metricAggregation: varchar("metric_aggregation", { length: 32 }).notNull(),
+  metricFilters: jsonb("metric_filters").notNull().default({}),
+
+  tieringMode: varchar("tiering_mode", { length: 32 }).notNull(), // "PERCENTILE" | "NONE"
+  tierConfig: jsonb("tier_config").notNull().default({}),
+
+  isTestOnly: boolean("is_test_only").notNull().default(false),
+  isFrontendVisible: boolean("is_frontend_visible").notNull().default(false),
+
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdBy: varchar("created_by", { length: 64 }).notNull(),
+  updatedBy: varchar("updated_by", { length: 64 }).notNull()
+});
+
+1.4 Table: challenge_validations (optional but recommended)
+
+Tracks who checked what, when, for each challenge.
+
+CREATE TABLE challenge_validations (
+  id           UUID PRIMARY KEY,
+  challenge_id UUID NOT NULL REFERENCES challenges(id) ON DELETE CASCADE,
+  auto_checks  JSONB NOT NULL DEFAULT '{}'::jsonb,  -- results of automatic validation
+  manual_checks JSONB NOT NULL DEFAULT '{}'::jsonb, -- which checklist items are checked
+  notes        TEXT,
+  validated_by VARCHAR(64) NOT NULL,
+  validated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+
+Example manual_checks JSON:
+
+{
+  "etlFieldsValid": true,
+  "frontendPreviewOk": true,
+  "copyApproved": true,
+  "noDuplication": true
+}
+
+2. CHALLENGE ADMIN API SPEC
+
+All endpoints live under e.g. /admin/challenges.
+They MUST be admin-protected (e.g. JWT + role-based).
+
+I’ll give you a minimal but complete set.
+
+2.1 GET /admin/challenges
+
+Purpose: List challenges, filter by state/category/type.
+
+Query params:
+
+state (optional: DRAFT, VALIDATED, DEPLOYED, DEPRECATED)
+
+category (optional: integer)
+
+type (optional: TIERED, PRESTIGE, SEASONAL)
+
+Response (200):
+
+[
+  {
+    "id": "uuid",
+    "code": "HUNTER_TRIUMPH",
+    "name": "Hunter’s Triumph",
+    "category": 3,
+    "type": "TIERED",
+    "state": "DEPLOYED",
+    "shortDescription": "...",
+    "isTestOnly": false,
+    "isFrontendVisible": true,
+    "createdAt": "...",
+    "updatedAt": "..."
+  },
+  ...
+]
+
+2.2 POST /admin/challenges
+
+Purpose: Create a new challenge in DRAFT state.
+
+Body:
+
+{
+  "code": "HUNTER_TRIUMPH",
+  "name": "Hunter’s Triumph",
+  "category": 3,
+  "type": "TIERED",
+  "shortDescription": "Win hunting encounters.",
+  "longDescription": "Full description goes here...",
+  "metricSource": "HUNTING",
+  "metricField": "wins",
+  "metricAggregation": "SUM",
+  "metricFilters": {
+    "enemyType": "ANY",
+    "mode": "HUNTING"
+  },
+  "tieringMode": "PERCENTILE",
+  "tierConfig": {
+    "basic": 0.4,
+    "advanced": 0.7,
+    "elite": 0.9,
+    "exalted": 0.97
+  },
+  "isTestOnly": true
+}
+
+
+Behavior:
+
+Validate required fields.
+
+Ensure code is unique.
+
+Create with state = "DRAFT" and isFrontendVisible = false.
+
+Response (201): Newly created challenge object.
+
+2.3 GET /admin/challenges/:id
+
+Purpose: Fetch full challenge definition, including config.
+
+Response (200):
+
+{
+  "id": "uuid",
+  "code": "HUNTER_TRIUMPH",
+  "name": "Hunter’s Triumph",
+  "category": 3,
+  "type": "TIERED",
+  "state": "VALIDATED",
+  "shortDescription": "...",
+  "longDescription": "...",
+  "metricSource": "HUNTING",
+  "metricField": "wins",
+  "metricAggregation": "SUM",
+  "metricFilters": {...},
+  "tieringMode": "PERCENTILE",
+  "tierConfig": {...},
+  "isTestOnly": false,
+  "isFrontendVisible": true,
+  "createdAt": "...",
+  "updatedAt": "...",
+  "createdBy": "admin1",
+  "updatedBy": "admin2"
+}
+
+2.4 PUT /admin/challenges/:id
+
+Purpose: Update editable fields of a challenge (description, config, flags) while it is in DRAFT or VALIDATED.
+
+Rules:
+
+Changes to code should be rare – ideally disallowed after first ETL run.
+
+Changes to state should use a dedicated endpoint (see below).
+
+Body: Same structure as POST but partial.
+
+Response (200): Updated challenge.
+
+2.5 PATCH /admin/challenges/:id/state
+
+Purpose: Change a challenge’s lifecycle state.
+
+Body:
+
+{ "state": "VALIDATED" }
+
+
+Valid transitions:
+
+DRAFT → VALIDATED
+
+VALIDATED → DEPLOYED
+
+DEPLOYED → DEPRECATED
+
+(Optionally) VALIDATED ← DEPLOYED (rollback)
+
+Behavior:
+
+On VALIDATED: ensure all auto validations pass (metric source known, config complete).
+
+On DEPLOYED: ensure at least one validation record exists, or admin accepts a confirmation.
+
+2.6 POST /admin/challenges/:id/validate
+
+Purpose: Run automatic validation, record manual checklist.
+
+Body:
+
+{
+  "manualChecks": {
+    "etlFieldsValid": true,
+    "frontendPreviewOk": true,
+    "copyApproved": true,
+    "noDuplication": true
+  },
+  "notes": "Looks good on staging for test cluster X."
+}
+
+
+Response:
+
+Creates challenge_validations row.
+
+Returns validation report.
+
+Implementation detail: auto-validation can be triggered here (e.g., verifying metricSource & metricField exist in ETL schema).
+
+2.7 (Optional) GET /admin/challenges/:id/preview-metric
+
+Purpose: For a given challenge definition, run metric query for 1–3 test clusters and return sample output.
+
+Response:
+
+{
+  "clusterSamples": [
+    { "clusterId": "testCluster1", "value": 12 },
+    { "clusterId": "testCluster2", "value": 0 }
+  ]
+}
+
+
+This is very useful for the “validation checklist” step.
+
+3. ADMIN DASHBOARD – REACT LAYOUT SKETCH
+
+Now, let’s sketch out a frontend layout you can hand to a React dev.
+
+We’ll think in terms of screens and components.
+
+3.1 High-Level Screens
+
+Challenge List View
+
+Challenge Editor View (create/edit)
+
+Validation & Deploy View (checklist + state transitions)
+
+Optional: Preview View (shows sample metric values + FE preview)
+
+These can all be implemented as one page with side panels or as separate routes.
+
+3.2 Challenge List View
+
+Route: /admin/challenges
+
+Layout:
+
+Top bar:
+
+Filters:
+
+State: [All | Draft | Validated | Deployed | Deprecated]
+
+Category: dropdown (1–16 with labels)
+
+Type: [All | Tiered | Prestige | Seasonal]
+
+Buttons:
+
++ New Challenge
+
+(optional) Export JSON
+
+Main table columns:
+
+Code (e.g., HUNTER_TRIUMPH)
+
+Name (e.g., “Hunter’s Triumph”)
+
+Category (e.g., 3 – Hunting)
+
+Type (Tiered/Prestige/Seasonal)
+
+State (colored pill: Draft/Validated/Deployed/Deprecated)
+
+Visible (frontend flag icon / boolean)
+
+Last Updated (timestamp)
+
+Actions:
+
+Edit
+
+Validate
+
+Deploy (if allowed)
+
+Deprecate
+
+User flow:
+
+Click Edit → open Challenge Editor (either as a full page or side drawer)
+
+Click Validate → open validation checklist modal
+
+Click Deploy → confirmation modal (with warnings)
+
+3.3 Challenge Editor View (Create/Edit)
+
+Route: /admin/challenges/new or /admin/challenges/:id
+
+Layout (two-column or stacked form):
+
+Left column – Core Info:
+
+Name (text)
+
+Code (text, uppercase, machine ID)
+
+Category (select 1–16 with human labels)
+
+Type (radio: Tiered | Prestige | Seasonal)
+
+State (read-only here, changed via state controls)
+
+Right column – Behavior & Visibility:
+
+Short Description (textarea)
+
+Long Description (textarea – where you paste the Category 7/8-style writeups)
+
+Is Test Only (checkbox)
+
+Is Frontend Visible (checkbox)
+
+Metric Definition section:
+
+Metric Source (dropdown: HUNTING, PVP, METIS_PATROL, METIS_SHELL, INFLUENCE, TOURNAMENT, etc.)
+
+Metric Field (dropdown: wins, entries, streak, collected, held, etc.)
+
+Metric Aggregation (dropdown: SUM, MAX, COUNT, COUNT_DISTINCT)
+
+Metric Filters:
+
+Could use a simple JSON editor (textarea) initially, e.g.:
+
+{ "enemyId": "MOTHERCLUCKER", "result": "WIN" }
+
+
+Later replaced by a “conditions builder” UI
+
+Tiering Config section (if type == TIERED):
+
+Tiering Mode (radio: Percentile | None)
+
+If Percentile:
+
+Basic Threshold (0–1)
+
+Advanced Threshold
+
+Elite Threshold
+
+Exalted Threshold
+
+At bottom:
+
+Save Draft button
+
+Save & Validate button (optional shortcut)
+
+3.4 Validation Checklist & Deploy Controls
+
+Trigger: From Edit or Validate button.
+
+Layout (modal or panel):
+
+Auto validation results:
+
+✅ Metric source recognized by ETL
+
+✅ Metric field exists in ETL schema
+
+✅ Tiering config makes sense
+
+✅ Category & type are valid
+
+⚠ Any warnings (e.g., no test cluster values yet)
+
+Manual checklist (admin-tickable):
+
+ ETL output checked on staging
+
+ Metric values look reasonable (non-zero, not absurd)
+
+ Frontend preview looks correct (name, description, icon)
+
+ No duplication with existing challenge
+
+ Text and naming approved
+
+Notes (textarea): “Validated with test cluster X on date/time Y.”
+
+Buttons:
+
+Save Validation (creates challenge_validations entry)
+
+Promote to VALIDATED (if all auto + manual checks done)
+
+Deploy to Production (if state == VALIDATED; includes confirmation dialog)
+
+3.5 Testing / Preview Workflow
+
+In React Dashboard, you can also have:
+
+A toggle: Show Test-Only Challenges
+
+A “Preview as Cluster” field where you input a test cluster ID and see:
+
+How this new challenge would render in the player UI
+
+Sample metric value
+
+Tier mapping for that cluster
+
+You can call GET /admin/challenges/:id/preview-metric?clusterId=... under the hood.

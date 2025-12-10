@@ -1,0 +1,594 @@
+1. Challenge Admin – DB Schema + API Spec
+1.1. Goals
+
+Centralize all challenge definitions in a Challenge Registry table.
+
+Give admins a safe way to:
+
+Create / edit / clone challenges.
+
+Configure metrics & tiers.
+
+Run validation.
+
+Promote from draft → validated → deployed → deprecated.
+
+Keep everything backward compatible with current backend.
+
+Allow ETL & frontend to:
+
+Read only deployed challenges in production.
+
+Read draft/validated in staging.
+
+1.2. Challenge Lifecycle (State Machine)
+
+We’ll define state enum per challenge:
+
+draft – created via UI, editable, not used by ETL or FE.
+
+validated – fields & logic checked, ready for staging/test.
+
+deployed – live in production, ETL computes metrics, FE renders.
+
+deprecated – kept for history, no longer updated, may be hidden.
+
+State transitions (admin-only):
+
+draft → validated
+
+validated → deployed
+
+deployed → deprecated
+
+validated → draft (optional rollback)
+
+deployed → validated (for hotfixes) – optional
+
+1.3. Database Schema (Postgres-style)
+
+This is written in a way that can be mapped to Drizzle / Prisma / SQL directly.
+
+Table: challenges (Challenge Registry)
+
+Holds one row per logical challenge (current version).
+
+CREATE TABLE challenges (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code              TEXT UNIQUE NOT NULL,          -- e.g. "HUNTER_TRIUMPH"
+  name              TEXT NOT NULL,                 -- "Hunter’s Triumph"
+  category          INTEGER NOT NULL,              -- 1..16 (or more)
+  type              TEXT NOT NULL,                 -- 'tiered' | 'prestige' | 'seasonal'
+  state             TEXT NOT NULL,                 -- 'draft' | 'validated' | 'deployed' | 'deprecated'
+
+  description_short TEXT NOT NULL,
+  description_long  TEXT NOT NULL,
+
+  -- Metric configuration
+  metric_source     TEXT NOT NULL,                 -- e.g. 'hunting_events', 'pvp_matches', 'influence_bets'
+  metric_field      TEXT NOT NULL,                 -- e.g. 'wins', 'entries', 'streak'
+  metric_aggregation TEXT NOT NULL,                -- 'sum' | 'count' | 'max' | 'distinct_count'
+  metric_filters    JSONB NOT NULL DEFAULT '{}'::jsonb, -- filter clauses (enemyId, queueType, etc.)
+
+  -- Tiering & behavior
+  tiering_mode      TEXT NOT NULL,                 -- 'percentile' | 'threshold' | 'none' (for prestige)
+  tier_config       JSONB NOT NULL DEFAULT '{}'::jsonb, -- e.g. percentile breakpoints
+
+  is_cluster_based  BOOLEAN NOT NULL DEFAULT TRUE,
+  is_test_only      BOOLEAN NOT NULL DEFAULT FALSE,
+  is_visible_fe     BOOLEAN NOT NULL DEFAULT TRUE, -- FE visibility toggle
+
+  -- Admin metadata
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        TEXT NOT NULL,                 -- admin user id / email
+  updated_by        TEXT NOT NULL
+);
+
+
+Examples of metric_filters JSON:
+
+{
+  "enemyId": "MOTHERCLUCKER",
+  "mode": "HUNTING"
+}
+
+{
+  "queueType": "RANKED",
+  "result": "WIN"
+}
+
+
+Examples of tier_config JSON for percentile:
+
+{
+  "mode": "percentile",
+  "basic": 40,
+  "advanced": 70,
+  "elite": 90,
+  "exalted": 97
+}
+
+
+For prestige:
+
+{
+  "mode": "none"
+}
+
+Table: challenge_validation (Checklist per Challenge)
+
+Stores manual validation status and auto-validation status.
+
+CREATE TABLE challenge_validation (
+  challenge_id     UUID PRIMARY KEY REFERENCES challenges(id) ON DELETE CASCADE,
+  auto_checks      JSONB NOT NULL DEFAULT '{}'::jsonb, -- keyed: { "hasMetricSource": true, "fieldValid": true }
+  manual_checks    JSONB NOT NULL DEFAULT '{}'::jsonb, -- keyed: { "etlOutputVerified": false, "copyApproved": false }
+  last_run_at      TIMESTAMPTZ,
+  last_run_by      TEXT
+);
+
+
+Example manual_checks JSON:
+
+{
+  "etlOutputVerified": true,
+  "fePreviewChecked": true,
+  "copyApproved": true,
+  "noCategoryConflicts": true
+}
+
+Table: challenge_audit_log (Change History)
+
+For debug + accountability.
+
+CREATE TABLE challenge_audit_log (
+  id             BIGSERIAL PRIMARY KEY,
+  challenge_id   UUID REFERENCES challenges(id) ON DELETE CASCADE,
+  actor          TEXT NOT NULL,          -- admin who made the change
+  action         TEXT NOT NULL,          -- 'create' | 'update' | 'state_change' | 'delete'
+  from_state     TEXT,
+  to_state       TEXT,
+  payload_diff   JSONB,                  -- optional: before/after snapshot or patch
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+(Optional) Table: challenge_progress (Existing / Future)
+
+You likely already have something like this, but to be explicit:
+
+CREATE TABLE challenge_progress (
+  cluster_id       UUID NOT NULL,
+  challenge_code   TEXT NOT NULL,
+  value            NUMERIC NOT NULL DEFAULT 0,     -- metric (e.g., wins, entries, streak)
+  tier             TEXT,                          -- 'basic' | 'advanced' | 'elite' | 'exalted'
+  unlocked         BOOLEAN NOT NULL DEFAULT FALSE, -- for prestige-type challenges
+  last_computed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (cluster_id, challenge_code)
+);
+
+
+ETL feeds this; FE reads from it.
+
+1.4. Challenge Admin API Spec (for Replit backend)
+
+Base path (suggested):
+/admin/challenges
+
+Auth
+
+Require an admin auth mechanism:
+
+e.g., JWT with role: "admin" or a session-based admin panel.
+
+All endpoints below are admin only.
+
+1. GET /admin/challenges
+
+Description: List challenges with filters.
+
+Query params (optional):
+
+state – filter by draft|validated|deployed|deprecated
+
+category – filter by category number
+
+type – tiered|prestige|seasonal
+
+search – search by name or code
+
+Response (200):
+
+[
+  {
+    "id": "uuid",
+    "code": "HUNTER_TRIUMPH",
+    "name": "Hunter’s Triumph",
+    "category": 3,
+    "type": "tiered",
+    "state": "deployed",
+    "descriptionShort": "...",
+    "createdAt": "...",
+    "updatedAt": "...",
+    "createdBy": "admin@...",
+    "updatedBy": "admin@..."
+  }
+]
+
+2. GET /admin/challenges/:id
+
+Description: Fetch a single challenge for editing / detail view.
+
+Response (200):
+
+{
+  "id": "uuid",
+  "code": "HUNTER_TRIUMPH",
+  "name": "Hunter’s Triumph",
+  "category": 3,
+  "type": "tiered",
+  "state": "draft",
+  "descriptionShort": "Core Hunting win counter",
+  "descriptionLong": "Detailed design intent...",
+  "metricSource": "hunting_events",
+  "metricField": "wins",
+  "metricAggregation": "count",
+  "metricFilters": { "mode": "HUNTING" },
+  "tieringMode": "percentile",
+  "tierConfig": { "basic": 40, "advanced": 70, "elite": 90, "exalted": 97 },
+  "isClusterBased": true,
+  "isTestOnly": false,
+  "isVisibleFe": false,
+  "createdAt": "...",
+  "updatedAt": "...",
+  "createdBy": "admin@...",
+  "updatedBy": "admin@...",
+  "validation": {
+    "autoChecks": { "hasMetricSource": true, "hasTierConfig": true },
+    "manualChecks": { "etlOutputVerified": false, "copyApproved": false }
+  }
+}
+
+3. POST /admin/challenges
+
+Description: Create a new challenge (initially in draft state).
+
+Request Body:
+
+{
+  "code": "HUNTER_TRIUMPH",
+  "name": "Hunter’s Triumph",
+  "category": 3,
+  "type": "tiered",
+  "descriptionShort": "Core Hunting win counter",
+  "descriptionLong": "Long-form description...",
+  "metricSource": "hunting_events",
+  "metricField": "wins",
+  "metricAggregation": "count",
+  "metricFilters": { "mode": "HUNTING" },
+  "tieringMode": "percentile",
+  "tierConfig": { "basic": 40, "advanced": 70, "elite": 90, "exalted": 97 },
+  "isClusterBased": true,
+  "isTestOnly": true,
+  "isVisibleFe": false
+}
+
+
+Behavior:
+
+Set state = draft initially.
+
+Run basic auto-validation (required fields & uniqueness).
+
+Insert challenge_validation row with default autoChecks/manualChecks.
+
+Response (201):
+
+{ "id": "uuid", "state": "draft" }
+
+4. PUT /admin/challenges/:id
+
+Description: Update an existing draft or validated challenge.
+
+Block edits if state == deployed unless you implement a “safe edit” policy.
+
+Request Body: same shape as POST (partial updates allowed if you use PATCH).
+
+Response (200): returns updated challenge.
+
+5. POST /admin/challenges/:id/validate
+
+Description: Run auto-validation and update validation status.
+
+Run automatic checks:
+
+metricSource known
+
+metricField matches ETL schema
+
+tieringMode compatible with type (no percentile on prestige)
+
+etc.
+
+Request Body:
+
+{
+  "manualChecks": {
+    "etlOutputVerified": true,
+    "fePreviewChecked": true,
+    "copyApproved": true,
+    "noCategoryConflicts": true
+  }
+}
+
+
+Response (200):
+
+{
+  "status": "ok",
+  "autoChecks": { "hasMetricSource": true, "hasTierConfig": true, "codeUnique": true },
+  "manualChecks": { ... },
+  "canPromoteToValidated": true
+}
+
+6. POST /admin/challenges/:id/state
+
+Description: Explicitly transition state.
+
+Request Body:
+
+{
+  "targetState": "validated"   // or "deployed", "deprecated", "draft"
+}
+
+
+Backend should:
+
+Check if the transition is legal (use state machine rules).
+
+Check if validation is sufficient for validated or deployed.
+
+Record a challenge_audit_log entry.
+
+Response (200):
+
+{
+  "id": "uuid",
+  "previousState": "draft",
+  "newState": "validated"
+}
+
+7. DELETE /admin/challenges/:id
+
+Description: Soft-delete or mark as deprecated.
+
+Ideally just set state = 'deprecated' and isVisibleFe = false.
+
+8. OPTIONAL: GET /admin/challenges/:id/preview
+
+Description: For admin to preview sample metric data.
+
+Returns a small sample of challenge_progress for test clusters.
+
+2. React Admin Dashboard – Layout & Components
+
+Now let’s sketch the UI architecture.
+This assumes React (or similar), but is conceptually framework-agnostic.
+
+2.1. Top-Level Page Structure
+Route: /admin/challenges
+
+Main layout:
+
+Header bar
+
+Title: “Challenge Admin”
+
+Button: “Create New Challenge”
+
+Left sidebar / filter panel:
+
+State filter: [All, Draft, Validated, Deployed, Deprecated]
+
+Category filter: dropdown (1–16 + names)
+
+Type filter: [Tiered, Prestige, Seasonal]
+
+Search box (code or name)
+
+Main content area – Challenge List Table
+
+Columns (example):
+
+Challenge Code
+
+Name
+
+Category
+
+Type
+
+State (with colored pill)
+
+Visible FE? (icon)
+
+Test Only? (icon)
+
+Last Updated (date)
+
+Actions: [Edit] [Clone] [State/Deploy]
+
+Rows clickable → go to editor view.
+
+2.2. Challenge Editor Page
+Route: /admin/challenges/:id or /admin/challenges/new
+
+High-level layout:
+
+Header:
+
+Challenge Name (editable)
+
+Code (read-only after creation)
+
+State badge (Draft / Validated / Deployed / Deprecated)
+
+Tabs or sections:
+
+Basic Info
+
+Metric Definition
+
+Tiering & Behavior
+
+Frontend Display
+
+Validation Checklist
+
+Deploy Controls
+
+Section 1: Basic Info
+
+Fields:
+
+name (text input)
+
+code (text, uppercase, readonly after creation)
+
+category (select: 1–16 + label, e.g., “7 – Summoning & Hero Development”)
+
+type (select: tiered / prestige / seasonal)
+
+state (display-only here; changed in Deploy section)
+
+isClusterBased (toggle)
+
+isTestOnly (toggle)
+
+Section 2: Metric Definition
+
+Fields:
+
+metricSource (select/dropdown: e.g., hunting_events, pvp_matches, metis_patrols)
+
+metricField (text or select: e.g., wins, entries, streak)
+
+metricAggregation (select: sum / count / max / distinct_count)
+
+metricFilters (JSON editor or key-value filter builder):
+
+Example UI:
+
+[Field] enemyId [Op] == [Value] MOTHERCLUCKER
+
+[Field] mode [Op] == [Value] HUNTING
+
+Also: a “Validate Filters” button that calls /admin/challenges/:id/validate.
+
+Section 3: Tiering & Behavior
+
+Shown only if type == tiered
+
+Fields:
+
+tieringMode (select: percentile | threshold)
+
+If percentile:
+
+basicPercentile input
+
+advancedPercentile
+
+elitePercentile
+
+exaltedPercentile
+
+If threshold:
+
+values-based thresholds per tier
+
+If type == prestige:
+
+Show text: “Prestige challenge – no tiering needed.”
+
+Section 4: Frontend Display
+
+Fields:
+
+descriptionShort (for list views / compact UI)
+
+descriptionLong (full text, like we drafted for each challenge)
+
+Optional:
+
+Icon picker
+
+Category icon override
+
+Color theme (accent color for FE)
+
+Section 5: Validation Checklist
+
+Two areas:
+
+Auto-validation status (read-only indicators)
+
+e.g. chips: [✓ metricSource valid] [✓ filters compile] [✗ tierConfig present]
+
+Manual validation checkboxes (admin tickable)
+
+ ETL output verified for sample clusters
+
+ Frontend preview checked
+
+ Text copy approved
+
+ No overlap/conflict with existing challenges
+
+Save button posts to /admin/challenges/:id/validate.
+
+Section 6: Deploy Controls
+
+A panel summarizing:
+
+Current state
+
+Buttons:
+
+“Promote to Validated” (draft → validated)
+
+“Deploy to Production” (validated → deployed)
+
+“Deprecate” (deployed → deprecated)
+
+Show warnings:
+
+Disable “Deploy” if:
+
+auto-validations fail
+
+any required manual checks are false
+
+Small log snippet from challenge_audit_log:
+
+“2025-12-09 – state changed draft → validated by admin@…”
+
+“2025-12-10 – state changed validated → deployed by admin@…”
+
+2.3. Extra: Admin Top Bar & Navigation
+
+Add an /admin root with:
+
+Sidebar sections:
+
+Challenges
+
+Metrics / ETL Logs
+
+Leagues (future)
+
+Users / Clusters (overview)
+
+System Status
+
+This gives a professional feel and room to expand.

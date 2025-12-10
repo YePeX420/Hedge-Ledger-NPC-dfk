@@ -1055,19 +1055,66 @@ export type ChallengeCategory = typeof challengeCategories.$inferSelect;
 
 /**
  * Challenges - individual challenge definitions
+ * State lifecycle: draft → validated → deployed → deprecated
  */
+export const CHALLENGE_STATES = ["draft", "validated", "deployed", "deprecated"] as const;
+export type ChallengeState = typeof CHALLENGE_STATES[number];
+
+export const CHALLENGE_TYPES = ["tiered", "prestige", "seasonal"] as const;
+export type ChallengeType = typeof CHALLENGE_TYPES[number];
+
+export const METRIC_AGGREGATIONS = ["sum", "count", "max", "distinct_count"] as const;
+export type MetricAggregation = typeof METRIC_AGGREGATIONS[number];
+
+export const TIERING_MODES = ["percentile", "threshold", "none"] as const;
+export type TieringMode = typeof TIERING_MODES[number];
+
 export const challenges = pgTable("challenges", {
   id: serial("id").primaryKey(),
   key: varchar("key", { length: 64 }).notNull().unique(),
   categoryKey: varchar("category_key", { length: 64 }).notNull(),
   name: varchar("name", { length: 128 }).notNull(),
-  description: text("description"),
+  description: text("description"), // Short description for list views
+  descriptionLong: text("description_long"), // Detailed description for editor/detail views
+  
+  // Challenge type and lifecycle state
+  challengeType: varchar("challenge_type", { length: 32 }).notNull().default("tiered"), // tiered, prestige, seasonal
+  state: varchar("state", { length: 32 }).notNull().default("draft"), // draft, validated, deployed, deprecated
+  
+  // Metric configuration
   metricType: varchar("metric_type", { length: 32 }).notNull(), // COUNT, STREAK, SCORE, BOOLEAN, COMPOSITE
-  metricSource: varchar("metric_source", { length: 64 }).notNull(), // onchain_heroes, behavior_model, discord_interactions, etc.
+  metricSource: varchar("metric_source", { length: 64 }).notNull(), // onchain_heroes, behavior_model, etc.
   metricKey: varchar("metric_key", { length: 64 }).notNull(), // The specific metric to track
+  metricAggregation: varchar("metric_aggregation", { length: 32 }).notNull().default("count"), // sum, count, max, distinct_count
+  metricFilters: json("metric_filters").$type<Record<string, unknown>>().default({}), // Filter clauses like { enemyId: "MOTHERCLUCKER" }
+  
+  // Tiering configuration
   tierSystemOverride: varchar("tier_system_override", { length: 32 }), // Override category's tier system
+  tieringMode: varchar("tiering_mode", { length: 32 }).notNull().default("threshold"), // percentile, threshold, none
+  tierConfig: json("tier_config").$type<{
+    mode?: string;
+    basic?: number;
+    advanced?: number;
+    elite?: number;
+    exalted?: number;
+    common?: number;
+    uncommon?: number;
+    rare?: number;
+    legendary?: number;
+    mythic?: number;
+  }>().default({}), // Percentile breakpoints or threshold overrides
+  
+  // Behavior flags
+  isClusterBased: boolean("is_cluster_based").notNull().default(true), // Track by wallet cluster
+  isTestOnly: boolean("is_test_only").notNull().default(false), // Only compute for test users
+  isVisibleFe: boolean("is_visible_fe").notNull().default(true), // Show in frontend
   isActive: boolean("is_active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
+  
+  // Admin metadata
+  createdBy: varchar("created_by", { length: 128 }), // Admin who created
+  updatedBy: varchar("updated_by", { length: 128 }), // Admin who last updated
+  
   meta: json("meta").$type<{
     icon?: string;
     tags?: string[];
@@ -1080,11 +1127,60 @@ export const challenges = pgTable("challenges", {
   categoryKeyIdx: index("challenges_category_key_idx").on(table.categoryKey),
   sortOrderIdx: index("challenges_sort_order_idx").on(table.sortOrder),
   isActiveIdx: index("challenges_is_active_idx").on(table.isActive),
+  stateIdx: index("challenges_state_idx").on(table.state),
 }));
 
 export const insertChallengeSchema = createInsertSchema(challenges).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertChallenge = z.infer<typeof insertChallengeSchema>;
 export type Challenge = typeof challenges.$inferSelect;
+
+/**
+ * Challenge validation - tracks auto and manual validation status per challenge
+ */
+export const challengeValidation = pgTable("challenge_validation", {
+  challengeId: integer("challenge_id").primaryKey().references(() => challenges.id, { onDelete: "cascade" }),
+  autoChecks: json("auto_checks").$type<{
+    hasMetricSource?: boolean;
+    fieldValid?: boolean;
+    hasTierConfig?: boolean;
+    codeUnique?: boolean;
+  }>().default({}),
+  manualChecks: json("manual_checks").$type<{
+    etlOutputVerified?: boolean;
+    fePreviewChecked?: boolean;
+    copyApproved?: boolean;
+    noCategoryConflicts?: boolean;
+  }>().default({}),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  lastRunBy: varchar("last_run_by", { length: 128 }),
+});
+
+export const insertChallengeValidationSchema = createInsertSchema(challengeValidation);
+export type InsertChallengeValidation = z.infer<typeof insertChallengeValidationSchema>;
+export type ChallengeValidation = typeof challengeValidation.$inferSelect;
+
+/**
+ * Challenge audit log - tracks all changes to challenges for accountability
+ */
+export const challengeAuditLog = pgTable("challenge_audit_log", {
+  id: serial("id").primaryKey(),
+  challengeId: integer("challenge_id").references(() => challenges.id, { onDelete: "cascade" }),
+  actor: varchar("actor", { length: 128 }).notNull(), // Admin who made the change
+  action: varchar("action", { length: 32 }).notNull(), // create, update, state_change, delete
+  fromState: varchar("from_state", { length: 32 }),
+  toState: varchar("to_state", { length: 32 }),
+  payloadDiff: json("payload_diff").$type<Record<string, unknown>>(), // Before/after snapshot or patch
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  challengeIdIdx: index("challenge_audit_log_challenge_id_idx").on(table.challengeId),
+  actorIdx: index("challenge_audit_log_actor_idx").on(table.actor),
+  actionIdx: index("challenge_audit_log_action_idx").on(table.action),
+  createdAtIdx: index("challenge_audit_log_created_at_idx").on(table.createdAt),
+}));
+
+export const insertChallengeAuditLogSchema = createInsertSchema(challengeAuditLog).omit({ id: true, createdAt: true });
+export type InsertChallengeAuditLog = z.infer<typeof insertChallengeAuditLogSchema>;
+export type ChallengeAuditLog = typeof challengeAuditLog.$inferSelect;
 
 /**
  * Challenge tiers - threshold definitions for each challenge
