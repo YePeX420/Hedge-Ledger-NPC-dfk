@@ -1,449 +1,1169 @@
-// src/data/challengeConfig.ts
+    // src/data/challengeConfig.ts
 
-export type TierSystem = "RARITY" | "GENE" | "MIXED" | "PRESTIGE";
+    export type TierSystem = "RARITY" | "GENE" | "MIXED" | "PRESTIGE";
 
-export type ChallengeTierCode =
-  | "COMMON"
-  | "UNCOMMON"
-  | "RARE"
-  | "LEGENDARY"
-  | "MYTHIC"
-  | "BASIC"
-  | "ADVANCED"
-  | "ELITE"
-  | "EXALTED";
+    export type ChallengeTierCode =
+      | "COMMON"
+      | "UNCOMMON"
+      | "RARE"
+      | "LEGENDARY"
+      | "MYTHIC"
+      | "BASIC"
+      | "ADVANCED"
+      | "ELITE"
+      | "EXALTED";
 
-export interface ChallengeTierDef {
-  tierCode: ChallengeTierCode;
-  displayName: string;
-  thresholdValue: number;
-  isPrestige?: boolean;
-  sortOrder: number;
-  meta?: {
-    description?: string;
-  };
-}
+    export interface ChallengeTierDef {
+      tierCode: ChallengeTierCode;
+      displayName: string;
+      thresholdValue: number;
+      isPrestige?: boolean;
+      sortOrder: number;
+      meta?: {
+        description?: string;
+      };
+    }
 
-export interface ChallengeDef {
-  key: string;
-  categoryKey: string;
-  name: string;
-  description: string;
-  tierSystemOverride?: TierSystem;
-  metricType: "COUNT" | "STREAK" | "SCORE" | "BOOLEAN" | "COMPOSITE";
-  metricSource: string;
-  metricKey: string;
-  isActive: boolean;
-  sortOrder: number;
-  meta?: {
-    icon?: string;
-    tags?: string[];
-    tooltip?: string;
-  };
-  tiers: ChallengeTierDef[];
-}
+    export interface ChallengeDef {
+      key: string;
+      categoryKey: string;
+      name: string;
+      description: string;
+      tierSystemOverride?: TierSystem;
+      metricType: "COUNT" | "STREAK" | "SCORE" | "BOOLEAN" | "COMPOSITE";
+      metricSource: string;
+      metricKey: string;
+      isActive: boolean;
+      sortOrder: number;
+      meta?: {
+        icon?: string;
+        tags?: string[];
+        tooltip?: string;
+      };
+      tiers: ChallengeTierDef[];
+    }
 
-export interface ChallengeCategoryDef {
-  key: string;
-  name: string;
-  description: string;
-  tierSystem: TierSystem;
-  sortOrder: number;
-}
+    export interface ChallengeCategoryDef {
+      key: string;
+      name: string;
+      description: string;
+      tierSystem: TierSystem;
+      sortOrder: number;
+    }
 
-export interface HedgeChallengeConfig {
-  categories: ChallengeCategoryDef[];
-  challenges: ChallengeDef[];
-}
+    export interface HedgeChallengeConfig {
+      categories: ChallengeCategoryDef[];
+      challenges: ChallengeDef[];
+    }
 
-export const HEDGE_CHALLENGE_CONFIG: HedgeChallengeConfig = {
-  categories: [
+    // Master categories aligned with the Master Challenge System document
+    export const HEDGE_CHALLENGE_CONFIG: HedgeChallengeConfig = {
+      categories: [
+        // 1 – Hero Progression (levels, generic PvE)
+        {
+          key: "hero_progression",
+          name: "Hero Progression",
+          description: "Level up, quest, hunt, and grow your roster.",
+          tierSystem: "RARITY",
+          sortOrder: 1,
+        },
+
+        // 2 – Economy & Strategy (gold, LP, staking, reinvestment)
+        {
+          key: "economy_strategy",
+          name: "Economy & Strategy",
+          description: "Optimize gold, DeFi yields, and reinvestment behavior.",
+          tierSystem: "GENE",
+          sortOrder: 2,
+        },
+
+        // 3 – Profession Specialization
+        {
+          key: "profession_specialization",
+          name: "Profession Specialization",
+          description: "Master mining, gardening, fishing, and foraging.",
+          tierSystem: "MIXED",
+          sortOrder: 3,
+        },
+
+        // 4 – Ownership & Collection (heroes, pets, items)
+        {
+          key: "ownership_collection",
+          name: "Ownership & Collection",
+          description: "Grow your army of heroes, pets, gear, and Gen0s.",
+          tierSystem: "RARITY",
+          sortOrder: 4,
+        },
+
+        // 5 – Behavior & Engagement
+        {
+          key: "behavior_engagement",
+          name: "Behavior & Engagement",
+          description: "Show your commitment to the Kingdom and to Hedge.",
+          tierSystem: "GENE",
+          sortOrder: 5,
+        },
+
+        // 6 – Seasonal & Events
+        {
+          key: "seasonal_events",
+          name: "Seasonal & Events",
+          description: "Limited-time challenges that rotate with the seasons.",
+          tierSystem: "MIXED",
+          sortOrder: 6,
+        },
+
+        // 7 – Prestige (overall account feats)
+        {
+          key: "prestige_overall",
+          name: "Prestige",
+          description: "Ultra-rare account-wide achievements.",
+          tierSystem: "PRESTIGE",
+          sortOrder: 7,
+        },
+
+        // 8 – Summoning & Bloodlines (summoning prestige)
+        {
+          key: "summoning_prestige",
+          name: "Summoning & Bloodlines",
+          description: "Ultra-rare summons, mutations, and bloodlines.",
+          tierSystem: "PRESTIGE",
+          sortOrder: 8,
+        },
+
+        // 9 – Hunting PvE (bosses, relics, miracles)
+        {
+          key: "hunting_pve",
+          name: "Hunting",
+          description: "Boss fights, rare drops, and apex PvE encounters.",
+          tierSystem: "RARITY",
+          sortOrder: 9,
+        },
+
+        // 10 – PvP Competition (arena, ranks, streaks)
+        {
+          key: "pvp_competition",
+          name: "PvP Competition",
+          description: "Ranked battles, streaks, and arena mastery.",
+          tierSystem: "GENE",
+          sortOrder: 10,
+        },
+
+        // 11 – METIS PvE (patrols)
+        {
+          key: "metis_pve",
+          name: "METIS Patrols",
+          description: "Combat progression and elite patrol victories on METIS.",
+          tierSystem: "RARITY",
+          sortOrder: 11,
+        },
+
+        // 12 – METIS Economy (shells, raffles, influence)
+        {
+          key: "metis_economy",
+          name: "METIS Economy",
+          description: "Shells, raffles, jackpots, and influence predictions.",
+          tierSystem: "MIXED",
+          sortOrder: 12,
+        },
+
+        // 13 – METIS Tournaments
+        {
+          key: "metis_tournaments",
+          name: "METIS Tournaments",
+          description: "Structured competitive play within METIS.",
+          tierSystem: "GENE",
+          sortOrder: 13,
+        },
+
+        // 14 – DeFi Participation (LP + Jeweler)
+        {
+          key: "defi_participation",
+          name: "DeFi Participation",
+          description: "Liquidity provision, staking, and Jeweler loyalty.",
+          tierSystem: "RARITY",
+          sortOrder: 14,
+        },
+      ],
+
+      challenges: [
+        // ============================================
+        // CATEGORY 1 — HERO PROGRESSION
+        // ============================================
+        {
+          key: "hero_riser",
+          categoryKey: "hero_progression",
+          name: "Hero Riser",
+          description: "Accumulate total hero levels across your roster.",
+          metricType: "COUNT",
+          metricSource: "onchain_heroes",
+          metricKey: "total_levels",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "sprout", tags: ["levels", "progression"] },
+          tiers: [
+            { tierCode: "COMMON", displayName: "Common", thresholdValue: 100, sortOrder: 1 },
+            { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 300, sortOrder: 2 },
+            { tierCode: "RARE", displayName: "Rare", thresholdValue: 600, sortOrder: 3 },
+            { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 1000, sortOrder: 4 },
+            { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 2000, sortOrder: 5, isPrestige: true },
+          ],
+        },
+
+        {
+          key: "hunters_triumph",
+          categoryKey: "hero_progression",
+          name: "Hunter’s Triumph",
+          description: "Win Hunting encounters across the realms.",
+          metricType: "COUNT",
+          metricSource: "onchain_hunting",
+          metricKey: "wins",
+          isActive: true,
+          sortOrder: 2,
+          meta: { icon: "swords", tags: ["hunting", "combat"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 10, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 50, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 250, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 1000, sortOrder: 4 },
+          ],
+        },
+
+        {
+          key: "arena_challenger",
+          categoryKey: "hero_progression",
+          name: "Arena Challenger",
+          description: "Participate in ranked PvP matches.",
+          metricType: "COUNT",
+          metricSource: "onchain_pvp",
+          metricKey: "matches_played",
+          isActive: true,
+          sortOrder: 3,
+          meta: { icon: "swords-cross", tags: ["pvp", "competition"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 5, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 25, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 100, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 250, sortOrder: 4 },
+          ],
+        },
+
+        // ============================================
+        // CATEGORY 2 — ECONOMY & STRATEGY
+        // ============================================
+        {
+          key: "vendor_tycoon",
+          categoryKey: "economy_strategy",
+          name: "Vendor Tycoon",
+          description: "Spend gold at NPC vendors across the realms.",
+          metricType: "COUNT",
+          metricSource: "onchain_gold",
+          metricKey: "vendor_spend",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "coins", tags: ["gold", "vendors"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1000, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5000, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 25000, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 100000, sortOrder: 4 },
+          ],
+        },
+
+        {
+          key: "market_maker",
+          categoryKey: "economy_strategy",
+          name: "Market Maker",
+          description: "Provide liquidity to DFK pools across the DeFi ecosystem.",
+          metricType: "COUNT",
+          metricSource: "onchain_lp",
+          metricKey: "active_days",
+          isActive: true,
+          sortOrder: 2,
+          meta: { icon: "waves", tags: ["defi", "lp"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 7, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 30, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 90, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 180, sortOrder: 4 },
+          ],
+        },
+
+        {
+          key: "jeweler_loyalty",
+          categoryKey: "economy_strategy",
+          name: "Jeweler Loyalty",
+          description: "Maintain continuous staking at the Jeweler.",
+          metricType: "COUNT",
+          metricSource: "onchain_staking",
+          metricKey: "stake_duration_days",
+          isActive: true,
+          sortOrder: 3,
+          meta: { icon: "gem", tags: ["staking", "jewel"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 7, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 30, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 100, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 365, sortOrder: 4 },
+          ],
+        },
+
+        {
+          key: "jeweler_whale",
+          categoryKey: "economy_strategy",
+          name: "Jeweler Whale",
+          description: "Stake a large amount of JEWEL at the Jeweler.",
+          metricType: "BOOLEAN",
+          metricSource: "onchain_staking",
+          metricKey: "jewel_stake_amount",
+          isActive: true,
+          sortOrder: 4,
+          meta: { icon: "diamond", tags: ["prestige", "staking"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "JEWEL Whale",
+              thresholdValue: 10000, // threshold in raw JEWEL
+              sortOrder: 1,
+              isPrestige: true,
+            },
+          ],
+        },
+
+        // ============================================
+        // CATEGORY 3 — PROFESSION SPECIALIZATION
+        // ============================================
+        {
+          key: "miner_master",
+          categoryKey: "profession_specialization",
+          name: "Master Miner",
+          description: "Complete Mining profession quests.",
+          metricType: "COUNT",
+          metricSource: "onchain_quests",
+          metricKey: "mining_quests",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "pickaxe", tags: ["professions"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 50, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 200, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 750, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 2000, sortOrder: 4 },
+          ],
+        },
+
+        {
+          key: "herbalist_master",
+          categoryKey: "profession_specialization",
+          name: "Master Herbalist",
+          description: "Complete Foraging profession quests.",
+          metricType: "COUNT",
+          metricSource: "onchain_quests",
+          metricKey: "foraging_quests",
+          isActive: true,
+          sortOrder: 2,
+          meta: { icon: "leaf", tags: ["professions"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 50, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 200, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 750, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 2000, sortOrder: 4 },
+          ],
+        },
+
+        // ============================================
+        // CATEGORY 4 — OWNERSHIP & COLLECTION
+        // ============================================
+        {
+          key: "house_of_heroes",
+          categoryKey: "ownership_collection",
+          name: "House of Heroes",
+          description: "Grow the total number of heroes you own.",
+          metricType: "COUNT",
+          metricSource: "onchain_heroes",
+          metricKey: "hero_count",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "castle", tags: ["collection"] },
+          tiers: [
+            { tierCode: "COMMON", displayName: "Common", thresholdValue: 10, sortOrder: 1 },
+            {
+              tierCode: "UNCOMMON",
+              displayName: "Uncommon",
+              thresholdValue: 25,
+              sortOrder: 2,
+            },
+            { tierCode: "RARE", displayName: "Rare", thresholdValue: 50, sortOrder: 3 },
+            {
+              tierCode: "LEGENDARY",
+              displayName: "Legendary",
+              thresholdValue: 100,
+              sortOrder: 4,
+            },
+            {
+              tierCode: "MYTHIC",
+              displayName: "Mythic",
+              thresholdValue: 200,
+              sortOrder: 5,
+              isPrestige: true,
+            },
+          ],
+        },
+
+        {
+          key: "pet_sanctuary",
+          categoryKey: "ownership_collection",
+          name: "Pet Sanctuary",
+          description: "Collect pets of increasing rarity.",
+          metricType: "COUNT",
+          metricSource: "onchain_pets",
+          metricKey: "rarity_score",
+          isActive: true,
+          sortOrder: 2,
+          meta: { icon: "paw", tags: ["pets"] },
+          tiers: [
+            { tierCode: "COMMON", displayName: "Common", thresholdValue: 10, sortOrder: 1 },
+            { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 25, sortOrder: 2 },
+            { tierCode: "RARE", displayName: "Rare", thresholdValue: 60, sortOrder: 3 },
+            {
+              tierCode: "LEGENDARY",
+              displayName: "Legendary",
+              thresholdValue: 120,
+              sortOrder: 4,
+            },
+            {
+              tierCode: "MYTHIC",
+              displayName: "Mythic",
+              thresholdValue: 200,
+              sortOrder: 5,
+              isPrestige: true,
+            },
+          ],
+        },
+
+        // ============================================
+        // CATEGORY 5 — BEHAVIOR & ENGAGEMENT
+        // ============================================
+        {
+          key: "kingdom_calls",
+          categoryKey: "behavior_engagement",
+          name: "The Kingdom Calls",
+          description: "Log in and play across many days.",
+          metricType: "COUNT",
+          metricSource: "behavior_events",
+          metricKey: "active_days",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "calendar", tags: ["engagement"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 7, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 30, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 90, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 365, sortOrder: 4 },
+          ],
+        },
+
+        {
+          key: "loyal_follower",
+          categoryKey: "behavior_engagement",
+          name: "Loyal Follower",
+          description: "Engage with Hedge and the Discord community.",
+          metricType: "COUNT",
+          metricSource: "behavior_events",
+          metricKey: "discord_engagement_score",
+          isActive: true,
+          sortOrder: 2,
+          meta: { icon: "message-circle", tags: ["engagement", "discord"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 10, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 40, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 100, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 250, sortOrder: 4 },
+          ],
+        },
+
+        // ============================================
+        // CATEGORY 6 — SEASONAL
+        // ============================================
+        {
+          key: "seasonal_voyager",
+          categoryKey: "seasonal_events",
+          name: "Seasonal Voyager",
+          description: "Participate in seasonal quests, events, or bosses.",
+          metricType: "COUNT",
+          metricSource: "seasonal_events",
+          metricKey: "seasonal_score",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "calendar-star", tags: ["seasonal"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 10, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 30, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 60, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 100, sortOrder: 4 },
+          ],
+        },
+
+        // ============================================
+        // CATEGORY 7 — PRESTIGE (OVERALL)
+        // ============================================
+        {
+          key: "long_road_home",
+          categoryKey: "prestige_overall",
+          name: "Long Road Home",
+          description: "Remain active in DeFi Kingdoms for many days.",
+          metricType: "COUNT",
+          metricSource: "behavior_events",
+          metricKey: "account_age_days",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "clock", tags: ["prestige", "age"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "Mythic",
+              thresholdValue: 365,
+              sortOrder: 1,
+              isPrestige: true,
+              meta: { description: "One full year in the Kingdom." },
+            },
+          ],
+        },
+
+// ============================================
+// CATEGORY 8 — SUMMONING PRESTIGE
+// ============================================
+
+{
+  key: "mythmaker",
+  categoryKey: "summoning_prestige",
+  name: "Mythmaker",
+  description: "Summon Mythic-rarity heroes.",
+  metricType: "COUNT",
+  metricSource: "onchain_summoning",
+  metricKey: "mythmaker_count",
+  isActive: true,
+  sortOrder: 3,
+  meta: { icon: "star", tags: ["summoning", "rarity"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
     {
-      key: "hero_progression",
-      name: "Hero Progression",
-      description: "Level up, quest, and grow your roster.",
-      tierSystem: "RARITY",
-      sortOrder: 1,
-    },
-    {
-      key: "economy_strategy",
-      name: "Economy & Strategy",
-      description: "Optimize your yields, staking, and reinvestment.",
-      tierSystem: "GENE",
-      sortOrder: 2,
-    },
-    {
-      key: "profession_specialization",
-      name: "Profession Specialization",
-      description: "Master mining, gardening, fishing, foraging, and hunting.",
-      tierSystem: "MIXED",
-      sortOrder: 3,
-    },
-    {
-      key: "ownership_collection",
-      name: "Ownership & Collection",
-      description: "Grow your army of heroes, pets, items, and Gen0s.",
-      tierSystem: "RARITY",
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 25,
       sortOrder: 4,
-    },
-    {
-      key: "behavior_engagement",
-      name: "Behavior & Engagement",
-      description: "Show your commitment to the Kingdom and to Hedge.",
-      tierSystem: "GENE",
-      sortOrder: 5,
-    },
-    {
-      key: "seasonal_events",
-      name: "Seasonal & Events",
-      description: "Limited-time challenges that rotate with the seasons.",
-      tierSystem: "MIXED",
-      sortOrder: 6,
-    },
-    {
-      key: "prestige_overall",
-      name: "Prestige",
-      description: "Ultra-rare account-wide achievements.",
-      tierSystem: "PRESTIGE",
-      sortOrder: 7,
-    },
-    {
-      key: "summoning_prestige",
-      name: "Summoning & Lineage",
-      description: "Ultra-rare summons, bloodlines, and hero refinement.",
-      tierSystem: "PRESTIGE",
-      sortOrder: 8,
+      isPrestige: true,
     },
   ],
+},
 
-  // ===================================================================
-  // CHALLENGES
-  // ===================================================================
-  challenges: [
-    // Category: behavior_engagement (Core engagement)
+{
+  key: "royal_lineage",
+  categoryKey: "summoning_prestige",
+  name: "Royal Lineage",
+  description: "Produce offspring from heavily mutated parents that inherit upward mutations.",
+  metricType: "COUNT",
+  metricSource: "onchain_summoning",
+  metricKey: "royal_lineage_count",
+  isActive: true,
+  sortOrder: 4,
+  meta: { icon: "crown", tags: ["summoning", "lineage"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
     {
-      key: "active_adventurer",
-      categoryKey: "behavior_engagement",
-      name: "Active Adventurer",
-      description: "Log meaningful activity in the Kingdom across multiple days.",
-      metricType: "COUNT",
-      metricSource: "cluster_activity",
-      metricKey: "active_days",
-      isActive: true,
-      sortOrder: 1,
-      meta: {
-        icon: "calendar",
-        tags: ["engagement", "daily"],
-        tooltip: "Counts days with at least one meaningful action on any linked wallet.",
-      },
-      tiers: [
-        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 3, sortOrder: 1 },
-        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 10, sortOrder: 2 },
-        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 30, sortOrder: 3 },
-        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 90, sortOrder: 4, isPrestige: true },
-      ],
-    },
-    {
-      key: "realm_communicator",
-      categoryKey: "behavior_engagement",
-      name: "Realm Communicator",
-      description: "Engage with Hedge and the community via Discord and bot commands.",
-      metricType: "SCORE",
-      metricSource: "discord_engagement",
-      metricKey: "engagement_score",
-      isActive: true,
-      sortOrder: 2,
-      meta: {
-        icon: "messages",
-        tags: ["discord", "hedge", "social"],
-        tooltip: "Weighted score from Hedge commands, onboarding steps, events, and helpful messages.",
-      },
-      tiers: [
-        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 10, sortOrder: 1 },
-        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 50, sortOrder: 2 },
-        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 150, sortOrder: 3 },
-        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 400, sortOrder: 4, isPrestige: true },
-      ],
-    },
-
-    // Category: profession_specialization (Professions)
-    {
-      key: "herbalist_master",
-      categoryKey: "profession_specialization",
-      name: "Herbalist Master",
-      description: "Complete Foraging quests and gather herbs from the wilds.",
-      metricType: "COUNT",
-      metricSource: "onchain_quests",
-      metricKey: "foraging_quests_completed",
-      isActive: true,
-      sortOrder: 1,
-      meta: { icon: "leaf", tags: ["profession", "foraging"] },
-      tiers: [
-        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 25, sortOrder: 1 },
-        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 100, sortOrder: 2 },
-        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 500, sortOrder: 3 },
-        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 1500, sortOrder: 4, isPrestige: true },
-      ],
-    },
-    {
-      key: "fisher_king",
-      categoryKey: "profession_specialization",
-      name: "Fisher King",
-      description: "Spend time at the docks and master the art of Fishing.",
-      metricType: "COUNT",
-      metricSource: "onchain_quests",
-      metricKey: "fishing_quests_completed",
-      isActive: true,
-      sortOrder: 2,
-      meta: { icon: "fish", tags: ["profession", "fishing"] },
-      tiers: [
-        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 25, sortOrder: 1 },
-        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 100, sortOrder: 2 },
-        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 500, sortOrder: 3 },
-        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 1500, sortOrder: 4, isPrestige: true },
-      ],
-    },
-    {
-      key: "ranger_of_the_wilds",
-      categoryKey: "profession_specialization",
-      name: "Ranger of the Wilds",
-      description: "Complete wilderness or woodcutting quests in the wild.",
-      metricType: "COUNT",
-      metricSource: "onchain_quests",
-      metricKey: "wilds_quests_completed",
-      isActive: true,
-      sortOrder: 3,
-      meta: { icon: "trees", tags: ["profession", "wilds"] },
-      tiers: [
-        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 25, sortOrder: 1 },
-        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 100, sortOrder: 2 },
-        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 500, sortOrder: 3 },
-        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 1500, sortOrder: 4, isPrestige: true },
-      ],
-    },
-    {
-      key: "miner_lord",
-      categoryKey: "profession_specialization",
-      name: "Miner Lord",
-      description: "Delve into the mines and complete Mining quests.",
-      metricType: "COUNT",
-      metricSource: "onchain_quests",
-      metricKey: "mining_quests_completed",
-      isActive: true,
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 25,
       sortOrder: 4,
-      meta: { icon: "pickaxe", tags: ["profession", "mining"] },
-      tiers: [
-        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 25, sortOrder: 1 },
-        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 100, sortOrder: 2 },
-        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 500, sortOrder: 3 },
-        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 1500, sortOrder: 4, isPrestige: true },
-      ],
+      isPrestige: true,
     },
-    {
-      key: "profession_streak",
-      categoryKey: "profession_specialization",
-      name: "Master of Professions",
-      description: "Maintain a consistent streak of days with profession quests.",
-      metricType: "STREAK",
-      metricSource: "cluster_activity",
-      metricKey: "profession_streak_days",
-      isActive: true,
-      sortOrder: 5,
-      meta: { icon: "wrench", tags: ["streak", "professions"] },
-      tiers: [
-        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 3, sortOrder: 1 },
-        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 7, sortOrder: 2 },
-        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 14, sortOrder: 3 },
-        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 30, sortOrder: 4, isPrestige: true },
-      ],
-    },
+  ],
+},
 
-    // === PART 1 END === (continue with PART 2 challenges directly below this line)
-    //
-    // CATEGORY 4: OWNERSHIP & COLLECTION
-    //
-
+{
+  key: "summoner_of_legends",
+  categoryKey: "summoning_prestige",
+  name: "Summoner of Legends",
+  description: "Summon Dragoon, Sage, Spellbow, and Dreadknight.",
+  metricType: "COMPOSITE",
+  metricSource: "onchain_summoning",
+  metricKey: "legendary_class_flags",
+  isActive: true,
+  sortOrder: 5,
+  meta: { icon: "laurel", tags: ["elite_classes", "prestige"] },
+  tiers: [
     {
-      key: "house_of_heroes",
-      categoryKey: "ownership_collection",
-      name: "House of Heroes",
-      description: "Own heroes across all your linked wallets. Measures roster size.",
-      metricType: "COUNT",
-      metricSource: "onchain_heroes",
-      metricKey: "hero_count",
-      isActive: true,
+      tierCode: "MYTHIC",
+      displayName: "Unlocked",
+      thresholdValue: 1,
       sortOrder: 1,
-      meta: { icon: "users", tags: ["heroes", "ownership"] },
-      tiers: [
-        { tierCode: "COMMON", displayName: "Common", thresholdValue: 10, sortOrder: 1 },
-        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 25, sortOrder: 2 },
-        { tierCode: "RARE", displayName: "Rare", thresholdValue: 50, sortOrder: 3 },
-        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 100, sortOrder: 4 },
-        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 200, sortOrder: 5, isPrestige: true },
-      ],
+      isPrestige: true,
     },
+  ],
+},
 
-    {
-      key: "hero_legion",
-      categoryKey: "ownership_collection",
-      name: "Hero Legion",
-      description: "Sum of all levels across your hero roster.",
-      metricType: "COUNT",
-      metricSource: "onchain_heroes",
-      metricKey: "total_levels",
-      isActive: true,
-      sortOrder: 2,
-      meta: { icon: "shield-group", tags: ["heroes", "levels"] },
-      tiers: [
-        { tierCode: "COMMON", displayName: "Common", thresholdValue: 100, sortOrder: 1 },
-        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 300, sortOrder: 2 },
-        { tierCode: "RARE", displayName: "Rare", thresholdValue: 800, sortOrder: 3 },
-        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 2000, sortOrder: 4 },
-        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 5000, sortOrder: 5, isPrestige: true },
-      ],
-    },
+// ============================================
+// CATEGORY 9 — HUNTING PvE
+// ============================================
 
+{
+  key: "motherclucker_slayer",
+  categoryKey: "hunting_pve",
+  name: "Motherclucker Slayer",
+  description: "Defeat the Motherclucker boss in Hunting.",
+  metricType: "COUNT",
+  metricSource: "onchain_hunting",
+  metricKey: "motherclucker_kills",
+  isActive: true,
+  sortOrder: 1,
+  meta: { icon: "chicken", tags: ["hunting", "boss"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 25, sortOrder: 3 },
     {
-      key: "hero_curator",
-      categoryKey: "ownership_collection",
-      name: "Hero Curator",
-      description: "Own unique classes across Basic, Advanced, Elite, and Exalted tiers.",
-      metricType: "COUNT",
-      metricSource: "onchain_heroes",
-      metricKey: "unique_classes",
-      isActive: true,
-      sortOrder: 3,
-      meta: { icon: "scroll", tags: ["heroes", "collection"] },
-      tiers: [
-        { tierCode: "COMMON", displayName: "Common", thresholdValue: 4, sortOrder: 1 },
-        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 8, sortOrder: 2 },
-        { tierCode: "RARE", displayName: "Rare", thresholdValue: 12, sortOrder: 3 },
-        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 16, sortOrder: 4 },
-        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 20, sortOrder: 5, isPrestige: true },
-      ],
-    },
-
-    {
-      key: "pet_collector",
-      categoryKey: "ownership_collection",
-      name: "Pet Collector",
-      description: "Collect pets across rarities to build your perfect companion compendium.",
-      metricType: "COUNT",
-      metricSource: "onchain_pets",
-      metricKey: "rarity_weighted_count",
-      isActive: true,
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 100,
       sortOrder: 4,
-      meta: { icon: "paw", tags: ["pets", "collection"] },
-      tiers: [
-        { tierCode: "COMMON", displayName: "Common", thresholdValue: 5, sortOrder: 1 },
-        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 10, sortOrder: 2 },
-        { tierCode: "RARE", displayName: "Rare", thresholdValue: 20, sortOrder: 3 },
-        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 40, sortOrder: 4 },
-        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 75, sortOrder: 5, isPrestige: true },
-      ],
+      isPrestige: true,
     },
+  ],
+},
 
+{
+  key: "mad_boar_slayer",
+  categoryKey: "hunting_pve",
+  name: "Mad Boar Slayer",
+  description: "Defeat the Mad Boar boss in Hunting.",
+  metricType: "COUNT",
+  metricSource: "onchain_hunting",
+  metricKey: "mad_boar_kills",
+  isActive: true,
+  sortOrder: 2,
+  meta: { icon: "boar", tags: ["hunting", "boss"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 25, sortOrder: 3 },
     {
-      key: "exalted_collector",
-      categoryKey: "ownership_collection",
-      name: "Exalted Collector",
-      description: "Own heroes with elite/exalted classes or heavy mutation depth.",
-      metricType: "COUNT",
-      metricSource: "onchain_heroes",
-      metricKey: "exalted_qualified",
-      isActive: true,
-      sortOrder: 5,
-      meta: { icon: "sparkles", tags: ["heroes", "rare"] },
-      tiers: [
-        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
-        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
-        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 7, sortOrder: 3 },
-        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 12, sortOrder: 4, isPrestige: true },
-      ],
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 100,
+      sortOrder: 4,
+      isPrestige: true,
     },
+  ],
+},
 
+{
+  key: "relic_tracker",
+  categoryKey: "hunting_pve",
+  name: "Relic Tracker",
+  description: "Collect ultra-rare relics discovered in Hunting encounters.",
+  metricType: "COUNT",
+  metricSource: "onchain_hunting",
+  metricKey: "relics_found",
+  isActive: true,
+  sortOrder: 3,
+  meta: { icon: "sparkle", tags: ["relics", "rare_drops"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
     {
-      key: "item_collector",
-      categoryKey: "ownership_collection",
-      name: "Item Collector",
-      description: "Accumulate powerful gear across rarity tiers.",
-      metricType: "COUNT",
-      metricSource: "onchain_items",
-      metricKey: "item_weighted_score",
-      isActive: true,
-      sortOrder: 6,
-      meta: { icon: "backpack", tags: ["items", "gear"] },
-      tiers: [
-        { tierCode: "COMMON", displayName: "Common", thresholdValue: 10, sortOrder: 1 },
-        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 30, sortOrder: 2 },
-        { tierCode: "RARE", displayName: "Rare", thresholdValue: 60, sortOrder: 3 },
-        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 100, sortOrder: 4 },
-        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 150, sortOrder: 5, isPrestige: true },
-      ],
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 25,
+      sortOrder: 4,
+      isPrestige: true,
     },
+  ],
+},
 
-    //
-    // CATEGORY 5: BEHAVIOR, ENGAGEMENT & SEASONAL
-    //
-
+{
+  key: "clucker_miracle",
+  categoryKey: "hunting_pve",
+  name: "Clucker Miracle",
+  description: "Defeat Motherclucker with exactly one surviving hero at 1 HP.",
+  metricType: "BOOLEAN",
+  metricSource: "onchain_hunting",
+  metricKey: "clucker_miracle",
+  isActive: true,
+  sortOrder: 4,
+  meta: { icon: "heart-crack", tags: ["prestige", "hunting"] },
+  tiers: [
     {
-      key: "garden_architect",
-      categoryKey: "economy_strategy",
-      name: "Garden Architect",
-      description: "Harvest yield from gardening pools over time.",
-      metricType: "COUNT",
-      metricSource: "onchain_gardens",
-      metricKey: "gardening_harvests",
-      isActive: true,
-      sortOrder: 7,
-      meta: { icon: "shovel", tags: ["gardening", "yield"] },
-      tiers: [
-        { tierCode: "COMMON", displayName: "Common", thresholdValue: 10, sortOrder: 1 },
-        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 50, sortOrder: 2 },
-        { tierCode: "RARE", displayName: "Rare", thresholdValue: 200, sortOrder: 3 },
-        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 500, sortOrder: 4 },
-        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 1000, sortOrder: 5, isPrestige: true },
-      ],
+      tierCode: "MYTHIC",
+      displayName: "Unlocked",
+      thresholdValue: 1,
+      sortOrder: 1,
+      isPrestige: true,
     },
+  ],
+},
 
+// ============================================
+// CATEGORY 10 — PvP COMPETITION
+// ============================================
+
+{
+  key: "arena_victor",
+  categoryKey: "pvp_competition",
+  name: "Arena Victor",
+  description: "Win ranked PvP matches.",
+  metricType: "COUNT",
+  metricSource: "onchain_pvp",
+  metricKey: "wins",
+  isActive: true,
+  sortOrder: 1,
+  meta: { icon: "crossed-swords", tags: ["pvp", "combat"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 3, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 15, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 50, sortOrder: 3 },
     {
-      key: "loyal_follower",
-      categoryKey: "behavior_engagement",
-      name: "Loyal Follower",
-      description: "Return to the Kingdom consistently and stay active.",
-      metricType: "STREAK",
-      metricSource: "cluster_activity",
-      metricKey: "login_streak",
-      isActive: true,
-      sortOrder: 8,
-      meta: { icon: "heart", tags: ["engagement", "loyalty"] },
-      tiers: [
-        { tierCode: "COMMON", displayName: "Common", thresholdValue: 3, sortOrder: 1 },
-        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 7, sortOrder: 2 },
-        { tierCode: "RARE", displayName: "Rare", thresholdValue: 14, sortOrder: 3 },
-        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 30, sortOrder: 4 },
-        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 60, sortOrder: 5, isPrestige: true },
-      ],
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 150,
+      sortOrder: 4,
+      isPrestige: true,
     },
+  ],
+},
 
+{
+  key: "win_streak",
+  categoryKey: "pvp_competition",
+  name: "Win Streak",
+  description: "Achieve a consecutive streak of PvP victories.",
+  metricType: "STREAK",
+  metricSource: "onchain_pvp",
+  metricKey: "best_win_streak",
+  isActive: true,
+  sortOrder: 2,
+  meta: { icon: "flame", tags: ["pvp", "streak"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 2, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
     {
-      key: "winters_solstice",
-      categoryKey: "seasonal_events",
-      name: "Winter's Solstice",
-      description: "Complete seasonal event objectives during Winter.",
-      metricType: "COUNT",
-      metricSource: "seasonal_events",
-      metricKey: "winter_objectives",
-      isActive: true,
-      sortOrder: 9,
-      meta: { icon: "snowflake", tags: ["seasonal"] },
-      tiers: [
-        { tierCode: "COMMON", displayName: "Common", thresholdValue: 3, sortOrder: 1 },
-        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 6, sortOrder: 2 },
-        { tierCode: "RARE", displayName: "Rare", thresholdValue: 10, sortOrder: 3 },
-        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 15, sortOrder: 4 },
-        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 20, sortOrder: 5, isPrestige: true },
-      ],
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 20,
+      sortOrder: 4,
+      isPrestige: true,
     },
+  ],
+},
 
-    // === PART 2 END ===
+{
+  key: "flawless_victory",
+  categoryKey: "pvp_competition",
+  name: "Flawless Victory",
+  description: "Win a ranked PvP match with zero hero deaths.",
+  metricType: "BOOLEAN",
+  metricSource: "onchain_pvp",
+  metricKey: "flawless_victory",
+  isActive: true,
+  sortOrder: 3,
+  meta: { icon: "shield-check", tags: ["pvp", "prestige"] },
+  tiers: [
+    {
+      tierCode: "MYTHIC",
+      displayName: "Unlocked",
+      thresholdValue: 1,
+      sortOrder: 1,
+      isPrestige: true,
+    },
+  ],
+},
+
+// ============================================
+// CATEGORY 11 — METIS PVE (PATROLS)
+// ============================================
+
+{
+  key: "patrol_warden",
+  categoryKey: "metis_pve",
+  name: "Patrol Warden",
+  description: "Win METIS patrol encounters across any difficulty.",
+  metricType: "COUNT",
+  metricSource: "onchain_metis_patrol",
+  metricKey: "wins",
+  isActive: true,
+  sortOrder: 1,
+  meta: { icon: "shield-halved", tags: ["metis", "pve"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 5, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 25, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 100, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 300,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "elite_patroller",
+  categoryKey: "metis_pve",
+  name: "Elite Patroller",
+  description: "Win elite-tier METIS patrol encounters.",
+  metricType: "COUNT",
+  metricSource: "onchain_metis_patrol",
+  metricKey: "elite_wins",
+  isActive: true,
+  sortOrder: 2,
+  meta: { icon: "skull", tags: ["metis", "pve", "elite"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 20, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 50,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+// ============================================
+// CATEGORY 12 — METIS ECONOMY
+// ============================================
+
+{
+  key: "shell_collector",
+  categoryKey: "metis_economy",
+  name: "Shell Collector",
+  description: "Accumulate METIS shells from patrols and events.",
+  metricType: "COUNT",
+  metricSource: "onchain_shells",
+  metricKey: "shells_collected",
+  isActive: true,
+  sortOrder: 1,
+  meta: { icon: "shell", tags: ["metis", "economy"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 10, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 50, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 200, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 1000,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "shell_gambler",
+  categoryKey: "metis_economy",
+  name: "Shell Gambler",
+  description: "Enter METIS shell raffles.",
+  metricType: "COUNT",
+  metricSource: "onchain_shells",
+  metricKey: "raffle_entries",
+  isActive: true,
+  sortOrder: 2,
+  meta: { icon: "ticket", tags: ["metis", "raffles"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 5, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 25, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 100, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 250,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "shell_jackpot",
+  categoryKey: "metis_economy",
+  name: "Shell Jackpot",
+  description: "Win a METIS shell raffle.",
+  metricType: "BOOLEAN",
+  metricSource: "onchain_shells",
+  metricKey: "raffle_win",
+  isActive: true,
+  sortOrder: 3,
+  meta: { icon: "sparkles", tags: ["metis", "jackpot"] },
+  tiers: [
+    {
+      tierCode: "MYTHIC",
+      displayName: "Unlocked",
+      thresholdValue: 1,
+      sortOrder: 1,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "influence_strategist",
+  categoryKey: "metis_economy",
+  name: "Influence Strategist",
+  description: "Win METIS Influence predictions.",
+  metricType: "COUNT",
+  metricSource: "onchain_influence",
+  metricKey: "bets_won",
+  isActive: true,
+  sortOrder: 4,
+  meta: { icon: "lightbulb", tags: ["influence", "strategy"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 20, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 50,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+// ============================================
+// CATEGORY 13 — METIS TOURNAMENTS
+// ============================================
+
+{
+  key: "tournament_challenger",
+  categoryKey: "metis_tournaments",
+  name: "Tournament Challenger",
+  description: "Enter official METIS tournaments.",
+  metricType: "COUNT",
+  metricSource: "onchain_tournaments",
+  metricKey: "entries",
+  isActive: true,
+  sortOrder: 1,
+  meta: { icon: "trophy", tags: ["tournaments", "metis"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 20,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "tournament_victor",
+  categoryKey: "metis_tournaments",
+  name: "Tournament Victor",
+  description: "Win tournament matches on METIS.",
+  metricType: "COUNT",
+  metricSource: "onchain_tournaments",
+  metricKey: "wins",
+  isActive: true,
+  sortOrder: 2,
+  meta: { icon: "sword-shield", tags: ["tournaments", "metis"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 25,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "metis_champion",
+  categoryKey: "metis_tournaments",
+  name: "METIS Champion",
+  description: "Finish in the top bracket of any official METIS tournament.",
+  metricType: "BOOLEAN",
+  metricSource: "onchain_tournaments",
+  metricKey: "top_finish",
+  isActive: true,
+  sortOrder: 3,
+  meta: { icon: "crown", tags: ["prestige", "tournaments"] },
+  tiers: [
+    {
+      tierCode: "MYTHIC",
+      displayName: "Champion",
+      thresholdValue: 1,
+      sortOrder: 1,
+      isPrestige: true,
+    },
+  ],
+},
+
+// ============================================
+// CATEGORY 14 — DEFI PARTICIPATION
+// ============================================
+
+{
+  key: "lp_depth",
+  categoryKey: "defi_participation",
+  name: "Liquidity Depth",
+  description: "Provide significant USD value to LP pools.",
+  metricType: "COUNT",
+  metricSource: "onchain_lp",
+  metricKey: "lp_usd_value",
+  isActive: true,
+  sortOrder: 1,
+  meta: { icon: "waves", tags: ["lp", "defi"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1000, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5000, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 25000, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 100000,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "lp_diversified",
+  categoryKey: "defi_participation",
+  name: "Diversified Provider",
+  description: "Provide liquidity across multiple LP pools.",
+  metricType: "COUNT",
+  metricSource: "onchain_lp",
+  metricKey: "pool_count",
+  isActive: true,
+  sortOrder: 2,
+  meta: { icon: "layers", tags: ["lp", "defi"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 2, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 4, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 6, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 10,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "yield_harvester",
+  categoryKey: "defi_participation",
+  name: "Yield Harvester",
+  description: "Harvest LP rewards consistently over time.",
+  metricType: "COUNT",
+  metricSource: "onchain_lp",
+  metricKey: "harvest_actions",
+  isActive: true,
+  sortOrder: 3,
+  meta: { icon: "harvest", tags: ["lp", "rewards"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 5, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 20, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 75, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 200,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "diamond_hand_lp",
+  categoryKey: "defi_participation",
+  name: "Diamond-Hand LP",
+  description: "Maintain a position in an LP pool for an extended duration.",
+  metricType: "COUNT",
+  metricSource: "onchain_lp",
+  metricKey: "lp_duration_max_days",
+  isActive: true,
+  sortOrder: 4,
+  meta: { icon: "hourglass", tags: ["lp", "loyalty"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 7, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 30, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 90, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 180,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "jeweler_stakeholder",
+  categoryKey: "defi_participation",
+  name: "Jeweler Stakeholder",
+  description: "Stake tokens at the Jeweler to support the Kingdom economy.",
+  metricType: "COUNT",
+  metricSource: "onchain_staking",
+  metricKey: "stake_usd_value",
+  isActive: true,
+  sortOrder: 5,
+  meta: { icon: "gem", tags: ["staking"] },
+  tiers: [
+    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1000, sortOrder: 1 },
+    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 5000, sortOrder: 2 },
+    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 25000, sortOrder: 3 },
+    {
+      tierCode: "EXALTED",
+      displayName: "Exalted",
+      thresholdValue: 100000,
+      sortOrder: 4,
+      isPrestige: true,
+    },
+  ],
+},
+
+{
+  key: "jeweler_whale",
+  categoryKey: "defi_participation",
+  name: "Jeweler Whale",
+  description: "Maintain a high-value JEWEL stake at the Jeweler.",
+  metricType: "BOOLEAN",
+  metricSource: "onchain_staking",
+  metricKey: "jewel_stake_amount",
+  isActive: true,
+  sortOrder: 6,
+  meta: { icon: "diamond", tags: ["jewel", "prestige"] },
+  tiers: [
+    {
+      tierCode: "MYTHIC",
+      displayName: "JEWEL Whale",
+      thresholdValue: 10000, // raw JEWEL amount
+      sortOrder: 1,
+      isPrestige: true,
+    },
+  ],
+},
+
+], // end challenges
+};
