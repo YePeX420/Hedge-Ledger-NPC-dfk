@@ -16,6 +16,7 @@ import AdminExpenses from "@/pages/admin/expenses";
 import AdminSettings from "@/pages/admin/settings";
 import AdminBridgeAnalytics from "@/pages/admin/bridge-analytics";
 import AdminChallenges from "@/pages/admin/challenges";
+import ChallengeEditor from "@/pages/admin/challenge-editor";
 import AdminLevelRacer from "@/pages/admin/level-racer";
 import AccountPage from "@/pages/account";
 import NotFound from "@/pages/not-found";
@@ -87,6 +88,23 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminSettings />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      {/* Challenge editor - more specific routes first */}
+      <Route path="/admin/challenges/:id/edit">
+        {() => (
+          <ProtectedAdminPage>
+            <ChallengeEditor />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/challenges/:id">
+        {() => (
+          <ProtectedAdminPage>
+            <ChallengeEditor />
           </ProtectedAdminPage>
         )}
       </Route>

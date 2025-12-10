@@ -1,4 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import {
   Card,
   CardContent,
@@ -7,14 +10,32 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Trophy,
   Swords,
@@ -25,25 +46,35 @@ import {
   Calendar,
   Star,
   Sparkles,
+  Plus,
+  Search,
+  Eye,
+  Edit,
+  Trash2,
+  Play,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  FileCheck,
+  Rocket,
+  Archive,
 } from "lucide-react";
-
-interface ChallengeTier {
-  tierCode: string;
-  displayName: string;
-  thresholdValue: number;
-  sortOrder: number;
-}
+import { useToast } from "@/hooks/use-toast";
 
 interface Challenge {
-  key: string;
+  id: number;
+  code: string;
   name: string;
-  description: string;
-  metricType: string;
-  metricSource: string;
-  metricKey: string;
-  isActive: boolean;
-  sortOrder: number;
-  tiers: ChallengeTier[];
+  category: string;
+  type: string;
+  state: string;
+  descriptionShort: string;
+  isVisibleFe: boolean;
+  isTestOnly: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
 }
 
 interface ChallengeCategory {
@@ -51,15 +82,10 @@ interface ChallengeCategory {
   name: string;
   description: string;
   tierSystem: string;
-  sortOrder: number;
-  challenges: Challenge[];
 }
 
-interface ChallengesResponse {
-  categories: ChallengeCategory[];
-  totalChallenges: number;
-  totalTiers: number;
-}
+const STATES = ["draft", "validated", "deployed", "deprecated"];
+const TYPES = ["tiered", "binary", "milestone"];
 
 const categoryIcons: Record<string, typeof Trophy> = {
   hero_progression: Swords,
@@ -72,166 +98,128 @@ const categoryIcons: Record<string, typeof Trophy> = {
   summoning_prestige: Sparkles,
 };
 
-const tierColors: Record<string, string> = {
-  COMMON: "bg-gray-500/20 text-gray-400 border-gray-500/30",
-  UNCOMMON: "bg-green-500/20 text-green-400 border-green-500/30",
-  RARE: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  LEGENDARY: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  MYTHIC: "bg-orange-500/20 text-orange-400 border-orange-500/30",
-  BASIC: "bg-slate-500/20 text-slate-400 border-slate-500/30",
-  ADVANCED: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-  ELITE: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  EXALTED: "bg-rose-500/20 text-rose-400 border-rose-500/30",
+const stateColors: Record<string, string> = {
+  draft: "bg-yellow-500/20 text-yellow-500 border-yellow-500/30",
+  validated: "bg-blue-500/20 text-blue-500 border-blue-500/30",
+  deployed: "bg-green-500/20 text-green-500 border-green-500/30",
+  deprecated: "bg-gray-500/20 text-gray-500 border-gray-500/30",
 };
 
-const tierSystemLabels: Record<string, string> = {
-  RARITY: "Volume-based",
-  GENE: "Skill-based",
-  MIXED: "Hybrid",
-  PRESTIGE: "Ultra-rare",
+const stateIcons: Record<string, typeof Edit> = {
+  draft: Edit,
+  validated: FileCheck,
+  deployed: Rocket,
+  deprecated: Archive,
 };
 
-function TierBadge({ tierCode }: { tierCode: string }) {
-  const colorClass = tierColors[tierCode] || "bg-muted text-muted-foreground";
+function StateBadge({ state }: { state: string }) {
+  const colorClass = stateColors[state] || "bg-muted text-muted-foreground";
+  const Icon = stateIcons[state] || AlertCircle;
   return (
-    <Badge
-      variant="outline"
-      className={`text-xs ${colorClass}`}
-      data-testid={`badge-tier-${tierCode.toLowerCase()}`}
-    >
-      {tierCode}
+    <Badge variant="outline" className={`text-xs ${colorClass} gap-1`} data-testid={`badge-state-${state}`}>
+      <Icon className="w-3 h-3" />
+      {state.toUpperCase()}
     </Badge>
-  );
-}
-
-function ChallengeCard({ challenge }: { challenge: Challenge }) {
-  const sortedTiers = [...challenge.tiers].sort(
-    (a, b) => a.sortOrder - b.sortOrder
-  );
-
-  return (
-    <Card className="hover-elevate" data-testid={`card-challenge-${challenge.key}`}>
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-sm font-medium">
-              {challenge.name}
-            </CardTitle>
-            <CardDescription className="text-xs mt-1">
-              {challenge.description}
-            </CardDescription>
-          </div>
-          {!challenge.isActive && (
-            <Badge variant="secondary" className="text-xs shrink-0">
-              Inactive
-            </Badge>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>Metric: {challenge.metricType}</span>
-            <span className="text-muted-foreground/50">|</span>
-            <span>{challenge.metricSource}.{challenge.metricKey}</span>
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground mb-2">Tier Thresholds:</p>
-            <div className="flex flex-wrap gap-2">
-              {sortedTiers.map((tier) => (
-                <div
-                  key={tier.tierCode}
-                  className="flex items-center gap-1"
-                  data-testid={`tier-threshold-${tier.tierCode.toLowerCase()}`}
-                >
-                  <TierBadge tierCode={tier.tierCode} />
-                  <span className="text-xs text-muted-foreground">
-                    {tier.thresholdValue.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function CategorySection({ category }: { category: ChallengeCategory }) {
-  const Icon = categoryIcons[category.key] || Trophy;
-  const sortedChallenges = [...category.challenges].sort(
-    (a, b) => a.sortOrder - b.sortOrder
-  );
-
-  return (
-    <AccordionItem value={category.key} data-testid={`accordion-category-${category.key}`}>
-      <AccordionTrigger className="hover:no-underline">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
-            <Icon className="w-4 h-4 text-primary" />
-          </div>
-          <div className="text-left">
-            <div className="font-medium">{category.name}</div>
-            <div className="text-xs text-muted-foreground flex items-center gap-2">
-              <span>{category.description}</span>
-              <Badge variant="outline" className="text-xs">
-                {tierSystemLabels[category.tierSystem] || category.tierSystem}
-              </Badge>
-              <span className="text-muted-foreground/50">|</span>
-              <span>{category.challenges.length} challenges</span>
-            </div>
-          </div>
-        </div>
-      </AccordionTrigger>
-      <AccordionContent>
-        <div className="grid gap-3 pt-2 md:grid-cols-2 lg:grid-cols-3">
-          {sortedChallenges.map((challenge) => (
-            <ChallengeCard key={challenge.key} challenge={challenge} />
-          ))}
-        </div>
-      </AccordionContent>
-    </AccordionItem>
   );
 }
 
 function LoadingSkeleton() {
   return (
     <div className="space-y-4">
-      {[1, 2, 3].map((i) => (
-        <Card key={i}>
-          <CardHeader>
-            <Skeleton className="h-6 w-48" />
-            <Skeleton className="h-4 w-72 mt-2" />
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {[1, 2, 3].map((j) => (
-                <Skeleton key={j} className="h-32" />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+      <div className="flex gap-4">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-10 w-32" />
+        <Skeleton className="h-10 w-32" />
+        <Skeleton className="h-10 w-32" />
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          <div className="space-y-2 p-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 export default function AdminChallenges() {
-  const { data, isLoading, error } = useQuery<ChallengesResponse>({
-    queryKey: ["/api/challenges"],
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  
+  const [search, setSearch] = useState("");
+  const [stateFilter, setStateFilter] = useState<string>("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
+  const [typeFilter, setTypeFilter] = useState<string>("");
+  const [deleteDialog, setDeleteDialog] = useState<Challenge | null>(null);
+  const [createDialog, setCreateDialog] = useState(false);
+
+  const buildQueryString = () => {
+    const params = new URLSearchParams();
+    if (stateFilter) params.append("state", stateFilter);
+    if (categoryFilter) params.append("category", categoryFilter);
+    if (typeFilter) params.append("type", typeFilter);
+    if (search) params.append("search", search);
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  };
+
+  const { data: challenges, isLoading, error } = useQuery<Challenge[]>({
+    queryKey: ["/api/admin/challenges", stateFilter, categoryFilter, typeFilter, search],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/challenges${buildQueryString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch challenges");
+      return res.json();
+    },
   });
+
+  const { data: categories } = useQuery<ChallengeCategory[]>({
+    queryKey: ["/api/admin/challenge-categories"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/challenge-categories", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch categories");
+      return res.json();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/admin/challenges/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete challenge");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/challenges"] });
+      toast({ title: "Challenge deprecated", description: "The challenge has been marked as deprecated." });
+      setDeleteDialog(null);
+    },
+    onError: (err) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const stateCounts = {
+    draft: challenges?.filter(c => c.state === "draft").length || 0,
+    validated: challenges?.filter(c => c.state === "validated").length || 0,
+    deployed: challenges?.filter(c => c.state === "deployed").length || 0,
+    deprecated: challenges?.filter(c => c.state === "deprecated").length || 0,
+  };
 
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">
-            Challenges
-          </h1>
-          <p className="text-muted-foreground">
-            Loading challenge catalog...
-          </p>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">Challenge Admin</h1>
+          <p className="text-muted-foreground">Loading challenges...</p>
         </div>
         <LoadingSkeleton />
       </div>
@@ -253,106 +241,405 @@ export default function AdminChallenges() {
     );
   }
 
-  const categories = data?.categories || [];
-  const sortedCategories = [...categories].sort(
-    (a, b) => a.sortOrder - b.sortOrder
-  );
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">
-            Challenges
-          </h1>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">Challenge Admin</h1>
           <p className="text-muted-foreground">
-            Gamified progression system with {data?.totalChallenges || 0} challenges
-            across {categories.length} categories
+            Manage challenge definitions, validation, and deployment
           </p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right">
-            <div className="text-2xl font-bold text-primary" data-testid="text-total-challenges">
-              {data?.totalChallenges || 0}
-            </div>
-            <div className="text-xs text-muted-foreground">Total Challenges</div>
-          </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-primary" data-testid="text-total-tiers">
-              {data?.totalTiers || 0}
-            </div>
-            <div className="text-xs text-muted-foreground">Achievement Tiers</div>
-          </div>
-        </div>
+        <Button onClick={() => setCreateDialog(true)} data-testid="button-create-challenge">
+          <Plus className="w-4 h-4 mr-2" />
+          New Challenge
+        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Card data-testid="card-rarity-system">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Trophy className="w-4 h-4 text-primary" />
-              RARITY System
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-1">
-              {["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC"].map((tier) => (
-                <TierBadge key={tier} tierCode={tier} />
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">Volume-based progression</p>
-          </CardContent>
-        </Card>
-
-        <Card data-testid="card-gene-system">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-primary" />
-              GENE System
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-1">
-              {["BASIC", "ADVANCED", "ELITE", "EXALTED"].map((tier) => (
-                <TierBadge key={tier} tierCode={tier} />
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">Skill-based progression</p>
-          </CardContent>
-        </Card>
-
-        <Card className="md:col-span-2" data-testid="card-categories-overview">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Categories Overview</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-2">
-              {sortedCategories.map((cat) => {
-                const Icon = categoryIcons[cat.key] || Trophy;
-                return (
-                  <div key={cat.key} className="flex items-center gap-2 text-xs">
-                    <Icon className="w-3 h-3 text-muted-foreground" />
-                    <span className="truncate">{cat.name}</span>
-                    <Badge variant="secondary" className="text-xs ml-auto">
-                      {cat.challenges.length}
-                    </Badge>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+        {STATES.map(state => {
+          const Icon = stateIcons[state];
+          const count = stateCounts[state as keyof typeof stateCounts];
+          return (
+            <Card
+              key={state}
+              className={`cursor-pointer hover-elevate ${stateFilter === state ? "ring-2 ring-primary" : ""}`}
+              onClick={() => setStateFilter(stateFilter === state ? "" : state)}
+              data-testid={`card-state-filter-${state}`}
+            >
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium capitalize flex items-center gap-2">
+                    <Icon className="w-4 h-4" />
+                    {state}
+                  </CardTitle>
+                  <Badge variant="secondary">{count}</Badge>
+                </div>
+              </CardHeader>
+            </Card>
+          );
+        })}
       </div>
 
-      <Accordion
-        type="multiple"
-        defaultValue={sortedCategories.map((c) => c.key)}
-        className="space-y-4"
-      >
-        {sortedCategories.map((category) => (
-          <CategorySection key={category.key} category={category} />
-        ))}
-      </Accordion>
+      <div className="flex flex-wrap gap-4 items-center">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by code or name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+            data-testid="input-search"
+          />
+        </div>
+        
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="w-[180px]" data-testid="select-category">
+            <SelectValue placeholder="All Categories" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All Categories</SelectItem>
+            {categories?.map(cat => (
+              <SelectItem key={cat.key} value={cat.key}>{cat.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[150px]" data-testid="select-type">
+            <SelectValue placeholder="All Types" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All Types</SelectItem>
+            {TYPES.map(type => (
+              <SelectItem key={type} value={type}>{type}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {(stateFilter || categoryFilter || typeFilter || search) && (
+          <Button 
+            variant="ghost" 
+            size="sm"
+            onClick={() => {
+              setStateFilter("");
+              setCategoryFilter("");
+              setTypeFilter("");
+              setSearch("");
+            }}
+            data-testid="button-clear-filters"
+          >
+            Clear Filters
+          </Button>
+        )}
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[200px]">Code</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>Visibility</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {challenges?.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    No challenges found. Create your first challenge!
+                  </TableCell>
+                </TableRow>
+              )}
+              {challenges?.map((challenge) => {
+                const CategoryIcon = categoryIcons[challenge.category] || Trophy;
+                return (
+                  <TableRow key={challenge.id} data-testid={`row-challenge-${challenge.id}`}>
+                    <TableCell className="font-mono text-sm">{challenge.code}</TableCell>
+                    <TableCell className="font-medium">{challenge.name}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <CategoryIcon className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm">{challenge.category}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">{challenge.type}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <StateBadge state={challenge.state} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {challenge.isVisibleFe ? (
+                          <Badge variant="secondary" className="text-xs gap-1">
+                            <Eye className="w-3 h-3" /> Visible
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs gap-1 text-muted-foreground">
+                            <XCircle className="w-3 h-3" /> Hidden
+                          </Badge>
+                        )}
+                        {challenge.isTestOnly && (
+                          <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/30">
+                            Test
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => navigate(`/admin/challenges/${challenge.id}`)}
+                          data-testid={`button-view-${challenge.id}`}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        {challenge.state !== "deployed" && challenge.state !== "deprecated" && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => navigate(`/admin/challenges/${challenge.id}/edit`)}
+                            data-testid={`button-edit-${challenge.id}`}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {challenge.state !== "deprecated" && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setDeleteDialog(challenge)}
+                            data-testid={`button-delete-${challenge.id}`}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deprecate Challenge</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to deprecate "{deleteDialog?.name}"? This will hide it from the frontend and mark it as inactive.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteDialog && deleteMutation.mutate(deleteDialog.id)}
+              disabled={deleteMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending ? "Deprecating..." : "Deprecate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={createDialog} onOpenChange={setCreateDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Create New Challenge</DialogTitle>
+            <DialogDescription>
+              Define a new challenge. It will start in draft state.
+            </DialogDescription>
+          </DialogHeader>
+          <CreateChallengeForm 
+            categories={categories || []} 
+            onSuccess={() => {
+              setCreateDialog(false);
+              queryClient.invalidateQueries({ queryKey: ["/api/admin/challenges"] });
+            }} 
+          />
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function CreateChallengeForm({ 
+  categories, 
+  onSuccess 
+}: { 
+  categories: ChallengeCategory[]; 
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    code: "",
+    name: "",
+    category: "hero_progression",
+    type: "tiered",
+    descriptionShort: "",
+    metricType: "integer",
+    metricSource: "onchain_heroes",
+    metricKey: "",
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: typeof formData) => {
+      const res = await fetch("/api/admin/challenges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create challenge");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Challenge created", description: "The challenge has been created in draft state." });
+      onSuccess();
+    },
+    onError: (err) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createMutation.mutate(formData);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Code (unique key)</label>
+          <Input
+            placeholder="e.g., hero_count_10"
+            value={formData.code}
+            onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+            required
+            data-testid="input-code"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Display Name</label>
+          <Input
+            placeholder="e.g., Hero Collector"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            required
+            data-testid="input-name"
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Category</label>
+          <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
+            <SelectTrigger data-testid="select-form-category">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map(cat => (
+                <SelectItem key={cat.key} value={cat.key}>{cat.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Challenge Type</label>
+          <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v })}>
+            <SelectTrigger data-testid="select-form-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tiered">Tiered (multi-level)</SelectItem>
+              <SelectItem value="binary">Binary (yes/no)</SelectItem>
+              <SelectItem value="milestone">Milestone (one-time)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Short Description</label>
+        <Input
+          placeholder="Brief description for UI display"
+          value={formData.descriptionShort}
+          onChange={(e) => setFormData({ ...formData, descriptionShort: e.target.value })}
+          data-testid="input-description"
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Metric Type</label>
+          <Select value={formData.metricType} onValueChange={(v) => setFormData({ ...formData, metricType: v })}>
+            <SelectTrigger data-testid="select-metric-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="integer">Integer</SelectItem>
+              <SelectItem value="decimal">Decimal</SelectItem>
+              <SelectItem value="boolean">Boolean</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Metric Source</label>
+          <Select value={formData.metricSource} onValueChange={(v) => setFormData({ ...formData, metricSource: v })}>
+            <SelectTrigger data-testid="select-metric-source">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="onchain_heroes">On-chain: Heroes</SelectItem>
+              <SelectItem value="onchain_quests">On-chain: Quests</SelectItem>
+              <SelectItem value="onchain_summons">On-chain: Summons</SelectItem>
+              <SelectItem value="onchain_pets">On-chain: Pets</SelectItem>
+              <SelectItem value="onchain_meditation">On-chain: Meditation</SelectItem>
+              <SelectItem value="onchain_gardens">On-chain: Gardens</SelectItem>
+              <SelectItem value="onchain_portfolio">On-chain: Portfolio</SelectItem>
+              <SelectItem value="behavior_model">Behavior Model</SelectItem>
+              <SelectItem value="discord_interactions">Discord Activity</SelectItem>
+              <SelectItem value="payment_events">Payment Events</SelectItem>
+              <SelectItem value="event_progress">Event Progress</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Metric Key</label>
+          <Input
+            placeholder="e.g., heroCount"
+            value={formData.metricKey}
+            onChange={(e) => setFormData({ ...formData, metricKey: e.target.value })}
+            required
+            data-testid="input-metric-key"
+          />
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-create">
+          {createMutation.isPending ? "Creating..." : "Create Challenge"}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
