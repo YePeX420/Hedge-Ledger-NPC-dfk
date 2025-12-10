@@ -72,7 +72,7 @@ import {
   startEnrichmentScheduler
 } from './bridge-tracker/price-enrichment.js';
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
-import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress } from './shared/schema.ts';
+import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeValidation, challengeAuditLog, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
 import levelRacerRoutes from './src/modules/levelRacer/levelRacer.routes.ts';
@@ -5809,6 +5809,607 @@ async function startAdminWebServer() {
     } catch (err) {
       console.error('[API] Update season status error:', err);
       res.status(500).json({ error: 'Failed to update season status' });
+    }
+  });
+
+  // ============================================================================
+  // CHALLENGE ADMIN API
+  // ============================================================================
+  
+  // Valid state transitions for the challenge lifecycle
+  const VALID_STATE_TRANSITIONS = {
+    draft: ['validated'],
+    validated: ['deployed', 'draft'], // can rollback to draft
+    deployed: ['deprecated', 'validated'], // can hotfix back to validated
+    deprecated: [],
+  };
+
+  // Known metric sources for validation
+  const KNOWN_METRIC_SOURCES = [
+    'onchain_heroes', 'onchain_quests', 'onchain_summons', 'onchain_pets',
+    'onchain_meditation', 'onchain_gardens', 'onchain_portfolio',
+    'behavior_model', 'discord_interactions', 'payment_events', 'event_progress'
+  ];
+
+  // Helper: Run auto-validation checks on a challenge
+  function runAutoValidation(challenge) {
+    return {
+      hasMetricSource: KNOWN_METRIC_SOURCES.includes(challenge.metricSource),
+      fieldValid: !!challenge.metricKey && challenge.metricKey.length > 0,
+      hasTierConfig: challenge.tieringMode === 'none' || (challenge.tierConfig && Object.keys(challenge.tierConfig).length > 0),
+      codeUnique: true, // Will be checked separately
+    };
+  }
+
+  // Helper: Check if all validation requirements are met
+  function canPromote(challenge, validation, targetState) {
+    if (targetState === 'validated') {
+      const auto = validation?.autoChecks || {};
+      return auto.hasMetricSource && auto.fieldValid && auto.hasTierConfig;
+    }
+    if (targetState === 'deployed') {
+      const manual = validation?.manualChecks || {};
+      return manual.etlOutputVerified && manual.copyApproved;
+    }
+    return true;
+  }
+
+  // GET /api/admin/challenges - List challenges with filters
+  app.get('/api/admin/challenges', isAdmin, async (req, res) => {
+    try {
+      const { state, category, type, search } = req.query;
+      
+      let query = db.select().from(challenges);
+      const conditions = [];
+      
+      if (state) {
+        conditions.push(eq(challenges.state, state));
+      }
+      if (category) {
+        conditions.push(eq(challenges.categoryKey, category));
+      }
+      if (type) {
+        conditions.push(eq(challenges.challengeType, type));
+      }
+      
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions));
+      }
+      
+      let results = await query.orderBy(challenges.sortOrder);
+      
+      // Apply search filter in memory (for name and key)
+      if (search) {
+        const searchLower = search.toLowerCase();
+        results = results.filter(c => 
+          c.key.toLowerCase().includes(searchLower) || 
+          c.name.toLowerCase().includes(searchLower)
+        );
+      }
+      
+      res.json(results.map(c => ({
+        id: c.id,
+        code: c.key,
+        name: c.name,
+        category: c.categoryKey,
+        type: c.challengeType,
+        state: c.state,
+        descriptionShort: c.description,
+        isVisibleFe: c.isVisibleFe,
+        isTestOnly: c.isTestOnly,
+        createdAt: c.createdAt?.toISOString(),
+        updatedAt: c.updatedAt?.toISOString(),
+        createdBy: c.createdBy,
+        updatedBy: c.updatedBy,
+      })));
+    } catch (err) {
+      console.error('[API] Admin challenges list error:', err);
+      res.status(500).json({ error: 'Failed to get challenges' });
+    }
+  });
+
+  // GET /api/admin/challenges/:id - Get single challenge detail
+  app.get('/api/admin/challenges/:id', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const [challenge] = await db
+        .select()
+        .from(challenges)
+        .where(eq(challenges.id, parseInt(id)));
+      
+      if (!challenge) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+      
+      // Get validation status
+      const [validation] = await db
+        .select()
+        .from(challengeValidation)
+        .where(eq(challengeValidation.challengeId, parseInt(id)));
+      
+      // Get tiers for this challenge
+      const tiers = await db
+        .select()
+        .from(challengeTiers)
+        .where(eq(challengeTiers.challengeKey, challenge.key))
+        .orderBy(challengeTiers.sortOrder);
+      
+      res.json({
+        id: challenge.id,
+        code: challenge.key,
+        name: challenge.name,
+        category: challenge.categoryKey,
+        type: challenge.challengeType,
+        state: challenge.state,
+        descriptionShort: challenge.description,
+        descriptionLong: challenge.descriptionLong,
+        metricType: challenge.metricType,
+        metricSource: challenge.metricSource,
+        metricKey: challenge.metricKey,
+        metricAggregation: challenge.metricAggregation,
+        metricFilters: challenge.metricFilters || {},
+        tierSystemOverride: challenge.tierSystemOverride,
+        tieringMode: challenge.tieringMode,
+        tierConfig: challenge.tierConfig || {},
+        isClusterBased: challenge.isClusterBased,
+        isTestOnly: challenge.isTestOnly,
+        isVisibleFe: challenge.isVisibleFe,
+        isActive: challenge.isActive,
+        sortOrder: challenge.sortOrder,
+        meta: challenge.meta,
+        createdAt: challenge.createdAt?.toISOString(),
+        updatedAt: challenge.updatedAt?.toISOString(),
+        createdBy: challenge.createdBy,
+        updatedBy: challenge.updatedBy,
+        tiers: tiers.map(t => ({
+          id: t.id,
+          tierCode: t.tierCode,
+          displayName: t.displayName,
+          thresholdValue: t.thresholdValue,
+          isPrestige: t.isPrestige,
+          sortOrder: t.sortOrder,
+        })),
+        validation: validation ? {
+          autoChecks: validation.autoChecks || {},
+          manualChecks: validation.manualChecks || {},
+          lastRunAt: validation.lastRunAt?.toISOString(),
+          lastRunBy: validation.lastRunBy,
+        } : null,
+      });
+    } catch (err) {
+      console.error('[API] Admin challenge detail error:', err);
+      res.status(500).json({ error: 'Failed to get challenge' });
+    }
+  });
+
+  // POST /api/admin/challenges - Create new challenge (draft state)
+  app.post('/api/admin/challenges', isAdmin, async (req, res) => {
+    try {
+      const adminId = req.adminUser?.discordId || 'unknown';
+      const {
+        code, name, category, type, descriptionShort, descriptionLong,
+        metricType, metricSource, metricKey, metricAggregation,
+        metricFilters, tierSystemOverride, tieringMode, tierConfig,
+        isClusterBased, isTestOnly, isVisibleFe, tiers
+      } = req.body;
+      
+      // Validate required fields
+      if (!code || !name || !metricType || !metricSource || !metricKey) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: code, name, metricType, metricSource, metricKey' 
+        });
+      }
+      
+      // Check code uniqueness
+      const [existing] = await db
+        .select({ id: challenges.id })
+        .from(challenges)
+        .where(eq(challenges.key, code));
+      
+      if (existing) {
+        return res.status(400).json({ error: 'Challenge code already exists' });
+      }
+      
+      // Create challenge
+      const [challenge] = await db
+        .insert(challenges)
+        .values({
+          key: code,
+          categoryKey: category || 'hero_progression',
+          name,
+          description: descriptionShort,
+          descriptionLong,
+          challengeType: type || 'tiered',
+          state: 'draft',
+          metricType,
+          metricSource,
+          metricKey,
+          metricAggregation: metricAggregation || 'count',
+          metricFilters: metricFilters || {},
+          tierSystemOverride,
+          tieringMode: tieringMode || 'threshold',
+          tierConfig: tierConfig || {},
+          isClusterBased: isClusterBased !== false,
+          isTestOnly: isTestOnly === true,
+          isVisibleFe: isVisibleFe !== false,
+          isActive: true,
+          createdBy: adminId,
+          updatedBy: adminId,
+        })
+        .returning();
+      
+      // Run auto-validation and create validation record
+      const autoChecks = runAutoValidation(challenge);
+      await db.insert(challengeValidation).values({
+        challengeId: challenge.id,
+        autoChecks,
+        manualChecks: {},
+      });
+      
+      // Create tiers if provided
+      if (tiers && Array.isArray(tiers) && tiers.length > 0) {
+        await db.insert(challengeTiers).values(
+          tiers.map((t, idx) => ({
+            challengeKey: code,
+            tierCode: t.tierCode,
+            displayName: t.displayName || t.tierCode,
+            thresholdValue: t.thresholdValue,
+            isPrestige: t.isPrestige || false,
+            sortOrder: t.sortOrder || idx + 1,
+          }))
+        );
+      }
+      
+      // Log the creation
+      await db.insert(challengeAuditLog).values({
+        challengeId: challenge.id,
+        actor: adminId,
+        action: 'create',
+        toState: 'draft',
+        payloadDiff: { created: req.body },
+      });
+      
+      console.log(`[ChallengeAdmin] Created challenge ${code} by ${adminId}`);
+      
+      res.status(201).json({ id: challenge.id, state: 'draft' });
+    } catch (err) {
+      console.error('[API] Admin create challenge error:', err);
+      res.status(500).json({ error: 'Failed to create challenge' });
+    }
+  });
+
+  // PUT /api/admin/challenges/:id - Update challenge (only draft/validated)
+  app.put('/api/admin/challenges/:id', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const adminId = req.adminUser?.discordId || 'unknown';
+      
+      // Get existing challenge
+      const [existing] = await db
+        .select()
+        .from(challenges)
+        .where(eq(challenges.id, parseInt(id)));
+      
+      if (!existing) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+      
+      if (existing.state === 'deployed') {
+        return res.status(400).json({ error: 'Cannot edit deployed challenges. Deprecate first or use state transition.' });
+      }
+      
+      const {
+        name, category, type, descriptionShort, descriptionLong,
+        metricType, metricSource, metricKey, metricAggregation,
+        metricFilters, tierSystemOverride, tieringMode, tierConfig,
+        isClusterBased, isTestOnly, isVisibleFe, sortOrder, meta, tiers
+      } = req.body;
+      
+      // Build update object
+      const updates = {
+        updatedAt: new Date(),
+        updatedBy: adminId,
+      };
+      
+      if (name !== undefined) updates.name = name;
+      if (category !== undefined) updates.categoryKey = category;
+      if (type !== undefined) updates.challengeType = type;
+      if (descriptionShort !== undefined) updates.description = descriptionShort;
+      if (descriptionLong !== undefined) updates.descriptionLong = descriptionLong;
+      if (metricType !== undefined) updates.metricType = metricType;
+      if (metricSource !== undefined) updates.metricSource = metricSource;
+      if (metricKey !== undefined) updates.metricKey = metricKey;
+      if (metricAggregation !== undefined) updates.metricAggregation = metricAggregation;
+      if (metricFilters !== undefined) updates.metricFilters = metricFilters;
+      if (tierSystemOverride !== undefined) updates.tierSystemOverride = tierSystemOverride;
+      if (tieringMode !== undefined) updates.tieringMode = tieringMode;
+      if (tierConfig !== undefined) updates.tierConfig = tierConfig;
+      if (isClusterBased !== undefined) updates.isClusterBased = isClusterBased;
+      if (isTestOnly !== undefined) updates.isTestOnly = isTestOnly;
+      if (isVisibleFe !== undefined) updates.isVisibleFe = isVisibleFe;
+      if (sortOrder !== undefined) updates.sortOrder = sortOrder;
+      if (meta !== undefined) updates.meta = meta;
+      
+      const [updated] = await db
+        .update(challenges)
+        .set(updates)
+        .where(eq(challenges.id, parseInt(id)))
+        .returning();
+      
+      // Update tiers if provided
+      if (tiers && Array.isArray(tiers)) {
+        // Delete existing tiers and recreate
+        await db.delete(challengeTiers).where(eq(challengeTiers.challengeKey, existing.key));
+        
+        if (tiers.length > 0) {
+          await db.insert(challengeTiers).values(
+            tiers.map((t, idx) => ({
+              challengeKey: existing.key,
+              tierCode: t.tierCode,
+              displayName: t.displayName || t.tierCode,
+              thresholdValue: t.thresholdValue,
+              isPrestige: t.isPrestige || false,
+              sortOrder: t.sortOrder || idx + 1,
+            }))
+          );
+        }
+      }
+      
+      // Re-run auto-validation
+      const autoChecks = runAutoValidation(updated);
+      await db
+        .insert(challengeValidation)
+        .values({ challengeId: parseInt(id), autoChecks })
+        .onConflictDoUpdate({
+          target: challengeValidation.challengeId,
+          set: { autoChecks },
+        });
+      
+      // Log the update
+      await db.insert(challengeAuditLog).values({
+        challengeId: parseInt(id),
+        actor: adminId,
+        action: 'update',
+        payloadDiff: { before: existing, after: updated },
+      });
+      
+      console.log(`[ChallengeAdmin] Updated challenge ${existing.key} by ${adminId}`);
+      
+      res.json(updated);
+    } catch (err) {
+      console.error('[API] Admin update challenge error:', err);
+      res.status(500).json({ error: 'Failed to update challenge' });
+    }
+  });
+
+  // POST /api/admin/challenges/:id/validate - Run validation
+  app.post('/api/admin/challenges/:id/validate', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const adminId = req.adminUser?.discordId || 'unknown';
+      const { manualChecks } = req.body;
+      
+      // Get challenge
+      const [challenge] = await db
+        .select()
+        .from(challenges)
+        .where(eq(challenges.id, parseInt(id)));
+      
+      if (!challenge) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+      
+      // Run auto-validation
+      const autoChecks = runAutoValidation(challenge);
+      
+      // Update or create validation record
+      const validationUpdate = {
+        autoChecks,
+        lastRunAt: new Date(),
+        lastRunBy: adminId,
+      };
+      
+      if (manualChecks) {
+        validationUpdate.manualChecks = manualChecks;
+      }
+      
+      await db
+        .insert(challengeValidation)
+        .values({ challengeId: parseInt(id), ...validationUpdate, manualChecks: manualChecks || {} })
+        .onConflictDoUpdate({
+          target: challengeValidation.challengeId,
+          set: validationUpdate,
+        });
+      
+      // Get current validation
+      const [validation] = await db
+        .select()
+        .from(challengeValidation)
+        .where(eq(challengeValidation.challengeId, parseInt(id)));
+      
+      const canPromoteToValidated = canPromote(challenge, validation, 'validated');
+      const canPromoteToDeployed = canPromote(challenge, validation, 'deployed');
+      
+      res.json({
+        status: 'ok',
+        autoChecks,
+        manualChecks: validation?.manualChecks || manualChecks || {},
+        canPromoteToValidated,
+        canPromoteToDeployed,
+      });
+    } catch (err) {
+      console.error('[API] Admin validate challenge error:', err);
+      res.status(500).json({ error: 'Failed to validate challenge' });
+    }
+  });
+
+  // POST /api/admin/challenges/:id/state - Transition state
+  app.post('/api/admin/challenges/:id/state', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const adminId = req.adminUser?.discordId || 'unknown';
+      const { targetState } = req.body;
+      
+      if (!targetState || !CHALLENGE_STATES.includes(targetState)) {
+        return res.status(400).json({ 
+          error: `Invalid target state. Must be one of: ${CHALLENGE_STATES.join(', ')}` 
+        });
+      }
+      
+      // Get challenge
+      const [challenge] = await db
+        .select()
+        .from(challenges)
+        .where(eq(challenges.id, parseInt(id)));
+      
+      if (!challenge) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+      
+      // Check if transition is valid
+      const validTransitions = VALID_STATE_TRANSITIONS[challenge.state] || [];
+      if (!validTransitions.includes(targetState)) {
+        return res.status(400).json({ 
+          error: `Invalid transition from ${challenge.state} to ${targetState}. Valid: ${validTransitions.join(', ') || 'none'}` 
+        });
+      }
+      
+      // Get validation for promotion checks
+      const [validation] = await db
+        .select()
+        .from(challengeValidation)
+        .where(eq(challengeValidation.challengeId, parseInt(id)));
+      
+      if (!canPromote(challenge, validation, targetState)) {
+        return res.status(400).json({ 
+          error: `Validation requirements not met for ${targetState} state` 
+        });
+      }
+      
+      // Update state
+      await db
+        .update(challenges)
+        .set({ 
+          state: targetState, 
+          updatedAt: new Date(),
+          updatedBy: adminId,
+        })
+        .where(eq(challenges.id, parseInt(id)));
+      
+      // Log the transition
+      await db.insert(challengeAuditLog).values({
+        challengeId: parseInt(id),
+        actor: adminId,
+        action: 'state_change',
+        fromState: challenge.state,
+        toState: targetState,
+      });
+      
+      console.log(`[ChallengeAdmin] State change ${challenge.key}: ${challenge.state} -> ${targetState} by ${adminId}`);
+      
+      res.json({
+        id: parseInt(id),
+        previousState: challenge.state,
+        newState: targetState,
+      });
+    } catch (err) {
+      console.error('[API] Admin state transition error:', err);
+      res.status(500).json({ error: 'Failed to transition state' });
+    }
+  });
+
+  // DELETE /api/admin/challenges/:id - Soft delete (deprecate)
+  app.delete('/api/admin/challenges/:id', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const adminId = req.adminUser?.discordId || 'unknown';
+      
+      // Get challenge
+      const [challenge] = await db
+        .select()
+        .from(challenges)
+        .where(eq(challenges.id, parseInt(id)));
+      
+      if (!challenge) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+      
+      const previousState = challenge.state;
+      
+      // Soft delete: set state to deprecated and hide from FE
+      await db
+        .update(challenges)
+        .set({ 
+          state: 'deprecated', 
+          isVisibleFe: false,
+          isActive: false,
+          updatedAt: new Date(),
+          updatedBy: adminId,
+        })
+        .where(eq(challenges.id, parseInt(id)));
+      
+      // Log the deletion
+      await db.insert(challengeAuditLog).values({
+        challengeId: parseInt(id),
+        actor: adminId,
+        action: 'delete',
+        fromState: previousState,
+        toState: 'deprecated',
+      });
+      
+      console.log(`[ChallengeAdmin] Deprecated challenge ${challenge.key} by ${adminId}`);
+      
+      res.json({ success: true, message: 'Challenge deprecated' });
+    } catch (err) {
+      console.error('[API] Admin delete challenge error:', err);
+      res.status(500).json({ error: 'Failed to delete challenge' });
+    }
+  });
+
+  // GET /api/admin/challenges/:id/audit - Get audit log for a challenge
+  app.get('/api/admin/challenges/:id/audit', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const logs = await db
+        .select()
+        .from(challengeAuditLog)
+        .where(eq(challengeAuditLog.challengeId, parseInt(id)))
+        .orderBy(desc(challengeAuditLog.createdAt))
+        .limit(50);
+      
+      res.json(logs.map(l => ({
+        id: l.id,
+        actor: l.actor,
+        action: l.action,
+        fromState: l.fromState,
+        toState: l.toState,
+        createdAt: l.createdAt?.toISOString(),
+      })));
+    } catch (err) {
+      console.error('[API] Admin audit log error:', err);
+      res.status(500).json({ error: 'Failed to get audit log' });
+    }
+  });
+
+  // GET /api/admin/challenge-categories - Get all categories for dropdown
+  app.get('/api/admin/challenge-categories', isAdmin, async (req, res) => {
+    try {
+      const categories = await db
+        .select()
+        .from(challengeCategories)
+        .orderBy(challengeCategories.sortOrder);
+      
+      res.json(categories.map(c => ({
+        key: c.key,
+        name: c.name,
+        description: c.description,
+        tierSystem: c.tierSystem,
+      })));
+    } catch (err) {
+      console.error('[API] Admin categories error:', err);
+      res.status(500).json({ error: 'Failed to get categories' });
     }
   });
 
