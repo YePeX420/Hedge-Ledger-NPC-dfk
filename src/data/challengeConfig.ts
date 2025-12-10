@@ -259,3 +259,191 @@ export const HEDGE_CHALLENGE_CONFIG: HedgeChallengeConfig = {
     },
 
     // === PART 1 END === (continue with PART 2 challenges directly below this line)
+    //
+    // CATEGORY 4: OWNERSHIP & COLLECTION
+    //
+
+    {
+      key: "house_of_heroes",
+      categoryKey: "ownership_collection",
+      name: "House of Heroes",
+      description: "Own heroes across all your linked wallets. Measures roster size.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "hero_count",
+      isActive: true,
+      sortOrder: 1,
+      meta: { icon: "users", tags: ["heroes", "ownership"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 10, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 25, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 50, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 100, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 200, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    {
+      key: "hero_legion",
+      categoryKey: "ownership_collection",
+      name: "Hero Legion",
+      description: "Sum of all levels across your hero roster.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "total_levels",
+      isActive: true,
+      sortOrder: 2,
+      meta: { icon: "shield-group", tags: ["heroes", "levels"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 100, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 300, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 800, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 2000, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 5000, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    {
+      key: "hero_curator",
+      categoryKey: "ownership_collection",
+      name: "Hero Curator",
+      description: "Own unique classes across Basic, Advanced, Elite, and Exalted tiers.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "unique_classes",
+      isActive: true,
+      sortOrder: 3,
+      meta: { icon: "scroll", tags: ["heroes", "collection"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 4, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 8, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 12, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 16, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 20, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    {
+      key: "pet_collector",
+      categoryKey: "ownership_collection",
+      name: "Pet Collector",
+      description: "Collect pets across rarities to build your perfect companion compendium.",
+      metricType: "COUNT",
+      metricSource: "onchain_pets",
+      metricKey: "rarity_weighted_count",
+      isActive: true,
+      sortOrder: 4,
+      meta: { icon: "paw", tags: ["pets", "collection"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 5, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 10, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 20, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 40, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 75, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    {
+      key: "exalted_collector",
+      categoryKey: "ownership_collection",
+      name: "Exalted Collector",
+      description: "Own heroes with elite/exalted classes or heavy mutation depth.",
+      metricType: "COUNT",
+      metricSource: "onchain_heroes",
+      metricKey: "exalted_qualified",
+      isActive: true,
+      sortOrder: 5,
+      meta: { icon: "sparkles", tags: ["heroes", "rare"] },
+      tiers: [
+        { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+        { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+        { tierCode: "ELITE", displayName: "Elite", thresholdValue: 7, sortOrder: 3 },
+        { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 12, sortOrder: 4, isPrestige: true },
+      ],
+    },
+
+    {
+      key: "item_collector",
+      categoryKey: "ownership_collection",
+      name: "Item Collector",
+      description: "Accumulate powerful gear across rarity tiers.",
+      metricType: "COUNT",
+      metricSource: "onchain_items",
+      metricKey: "item_weighted_score",
+      isActive: true,
+      sortOrder: 6,
+      meta: { icon: "backpack", tags: ["items", "gear"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 10, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 30, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 60, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 100, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 150, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    //
+    // CATEGORY 5: BEHAVIOR, ENGAGEMENT & SEASONAL
+    //
+
+    {
+      key: "garden_architect",
+      categoryKey: "economy_strategy",
+      name: "Garden Architect",
+      description: "Harvest yield from gardening pools over time.",
+      metricType: "COUNT",
+      metricSource: "onchain_gardens",
+      metricKey: "gardening_harvests",
+      isActive: true,
+      sortOrder: 7,
+      meta: { icon: "shovel", tags: ["gardening", "yield"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 10, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 50, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 200, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 500, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 1000, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    {
+      key: "loyal_follower",
+      categoryKey: "behavior_engagement",
+      name: "Loyal Follower",
+      description: "Return to the Kingdom consistently and stay active.",
+      metricType: "STREAK",
+      metricSource: "cluster_activity",
+      metricKey: "login_streak",
+      isActive: true,
+      sortOrder: 8,
+      meta: { icon: "heart", tags: ["engagement", "loyalty"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 3, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 7, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 14, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 30, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 60, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    {
+      key: "winters_solstice",
+      categoryKey: "seasonal_events",
+      name: "Winter's Solstice",
+      description: "Complete seasonal event objectives during Winter.",
+      metricType: "COUNT",
+      metricSource: "seasonal_events",
+      metricKey: "winter_objectives",
+      isActive: true,
+      sortOrder: 9,
+      meta: { icon: "snowflake", tags: ["seasonal"] },
+      tiers: [
+        { tierCode: "COMMON", displayName: "Common", thresholdValue: 3, sortOrder: 1 },
+        { tierCode: "UNCOMMON", displayName: "Uncommon", thresholdValue: 6, sortOrder: 2 },
+        { tierCode: "RARE", displayName: "Rare", thresholdValue: 10, sortOrder: 3 },
+        { tierCode: "LEGENDARY", displayName: "Legendary", thresholdValue: 15, sortOrder: 4 },
+        { tierCode: "MYTHIC", displayName: "Mythic", thresholdValue: 20, sortOrder: 5, isPrestige: true },
+      ],
+    },
+
+    // === PART 2 END ===
