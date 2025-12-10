@@ -1,10 +1,11 @@
 // debug-settings.js
 
 // In-memory debug settings (process-lifetime only)
+// When ALLOW_OAUTH_BYPASS env var is set, auto-enable OAuth bypass on startup
 let settings = {
   paymentBypass: false,
   verboseLogging: false,
-  oauthBypass: false,
+  oauthBypass: !!process.env.ALLOW_OAUTH_BYPASS,
 };
 
 export function getDebugSettings() {
