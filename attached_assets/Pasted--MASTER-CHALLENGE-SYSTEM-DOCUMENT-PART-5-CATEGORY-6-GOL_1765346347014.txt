@@ -1,0 +1,686 @@
+📘 MASTER CHALLENGE SYSTEM DOCUMENT
+
+PART 5 — CATEGORY 6 (GOLD ECONOMY) + CATEGORY 7 (SUMMONING & HERO DEVELOPMENT)
+
+(Advanced Core Systems → Late Game Mastery)
+
+This part contains two of the most important mid→late game pillars:
+
+Category 6 — the Gold Economy, DFK’s foundational non-crypto economy
+
+Category 7 — the Summoning & Hero Development mastery, arguably the deepest long-term system in the game
+
+
+These categories bridge the gap between a functional midgame account and a late-game powerhouse.
+
+
+---
+
+============================================
+
+CATEGORY 6 — GOLD ECONOMY CHALLENGES
+
+============================================
+
+Gold is the primary in-world currency that controls:
+
+crafting
+
+training
+
+forging
+
+refining
+
+equipment acquisition
+
+future repairs/enhancements
+
+vendor loops
+
+
+This category measures not how much gold a player holds, but how they interact with the gold ecosystem.
+
+
+---
+
+6.1 — Vendor Tycoon
+
+Total gold spent at NPC vendors.
+
+Tiered: Basic → Exalted
+
+
+---
+
+🎯 Design Intent
+
+Vendor spending is one of the clearest signals of:
+
+system engagement
+
+preparation
+
+crafting inputs
+
+economy participation
+
+
+Players who spend gold are participating in meaningful loops.
+
+
+---
+
+⭐ FINAL SPEC
+
+Metric:
+
+vendor_gold_spent_lifetime
+
+Whitelist:
+
+VENDOR_PURCHASE_METHODS = {
+  buyFromVendorX,
+  armorsmith.buy,
+  weaponsmith.buy,
+  ...
+}
+
+Excludes training, forging, enhancements.
+
+Tiered.
+
+
+---
+
+🧾 Redline (6.1 Vendor Tycoon)
+
+> 6.1 Vendor Tycoon
+Measures lifetime gold spent at NPC vendors using a vendor action whitelist. Tiered. Excludes training and crafting costs. Represents core gold sink participation.
+
+
+
+
+---
+
+6.2 — Market Recycler
+
+Total gold earned from selling items to NPC vendors.
+
+Tiered
+
+
+---
+
+🎯 Design Intent
+
+Tracks the reverse direction of 6.1 — gold faucets.
+
+Represents:
+
+inventory optimization
+
+profession resource monetization
+
+preparing for gold sinks
+
+
+
+---
+
+⭐ Final Spec
+
+Metric:
+
+vendor_gold_earned_lifetime
+
+Excludes:
+
+PvE gold drops
+
+quest gold
+
+PvP gold
+
+auction house trades
+
+
+Whitelist sale methods:
+
+NPC_SELL_METHODS
+
+
+---
+
+🧾 Redline (6.2 Market Recycler)
+
+> 6.2 Market Recycler
+Tracks gold earned by selling items to NPC vendors. Excludes all non-vendor gold sources. Tiered. Represents participation in gold faucet systems.
+
+
+
+
+---
+
+6.3 — Blacksmith Patron
+
+Gold spent buying equipment from NPC blacksmith vendors.
+
+
+---
+
+🎯 Design Intent
+
+Blacksmith equipment purchases represent:
+
+gearing up early heroes
+
+buying functional items
+
+preparing for PvE and PvP
+
+gold-based identity formation
+
+
+
+---
+
+⭐ Final Spec
+
+Metric:
+
+blacksmith_gold_spent_lifetime
+
+Whitelist:
+
+BLACKSMITH_EQUIPMENT_IDS
+
+Tiered.
+
+
+---
+
+🧾 Redline (6.3 Blacksmith Patron)
+
+> 6.3 Blacksmith Patron
+Tracks gold spent buying equipment from Armorsmith/Weaponsmith NPC vendors. Uses open whitelist for equipment IDs. Tiered.
+
+
+
+
+---
+
+6.4 — Gear Enhancer
+
+Gold spent enhancing, upgrading, refining, or repairing equipment.
+
+Tiered
+
+
+---
+
+🎯 Design Intent
+
+This category prepares for future systems including:
+
+item upgrades
+
+slot unlocks
+
+stat rerolls
+
+durability repairs
+
+
+This is a late-game gold sink indicator.
+
+
+---
+
+⭐ Final Spec
+
+Metric:
+
+gear_enhancement_gold_spent_lifetime
+
+Whitelist:
+
+GEAR_ENHANCEMENT_METHODS
+
+Tiered.
+
+
+---
+
+🧾 Redline
+
+> 6.4 Gear Enhancer
+Measures gold spent on equipment enhancement actions (rerolls, repairs, upgrades). Tiered. Uses method whitelist to detect enhancement calls.
+
+
+
+
+---
+
+6.5 — Gold Cycler
+
+Advanced gold flow behavior scoring across sinks and faucets.
+
+Tiered
+
+
+---
+
+🎯 Design Intent
+
+Tracks a player’s holistic gold activity:
+
+resources sold
+
+items bought
+
+enhancements
+
+training costs
+
+crafting gold (if applicable)
+
+PvE gold
+
+
+This is the economic personality challenge for gold.
+
+
+---
+
+⭐ Final Spec
+
+Weighted scoring:
+
+score =
+  vendor_spend × 1.0 +
+  vendor_earn × 1.0 +
+  gear_enhance × 1.5 +
+  crafting_gold × 1.0 +
+  quest_gold × 0.5 +
+  hunting_gold × 1.0
+
+Tiered.
+
+
+---
+
+🧾 Redline (6.5 Gold Cycler)
+
+> 6.5 Gold Cycler
+Weighted scoring of gold circulation across vendor spending, vendor earning, gear enhancements, crafting, quests, and hunts. Represents full participation in DFK’s gold-based economy.
+
+
+
+
+---
+
+✔ CATEGORY 6 COMPLETE
+
+Now… we enter one of the MOST IMPORTANT categories:
+Summoning & Hero Development, the HEART of DFK.
+
+
+---
+
+============================================
+
+CATEGORY 7 — SUMMONING & HERO DEVELOPMENT
+
+============================================
+
+This category represents long-term mastery and DFK’s deepest, most rewarding systems.
+
+Here is where we measure:
+
+genetic precision
+
+mutation excellence
+
+high-rarity outcomes
+
+lineage planning
+
+meditation refinement
+
+build optimization
+
+elite hero development
+
+
+Let’s go challenge-by-challenge.
+
+
+---
+
+7.1 — Perfect Pairing
+
+Summon with at least TWO upward mutations in distinct domains.
+
+Prestige Achievement (ON/OFF)
+
+
+---
+
+🎯 Design Intent
+
+Perfect Pairing celebrates genetic excellence, NOT alignment to parent genes.
+
+Mutation domains include:
+
+Class
+
+Subclass
+
+Active Ability
+
+Passive Ability
+
+Visual Trait
+(Profession does NOT mutate)
+
+
+
+---
+
+⭐ Final Spec
+
+Unlock Condition:
+
+mutation_class +
+mutation_subclass +
+mutation_active +
+mutation_passive/visual >= 2
+
+Rarity requirement optional; final design excludes rarity.
+
+
+---
+
+🧾 Redline (7.1 Perfect Pairing)
+
+> 7.1 Perfect Pairing
+Unlocks when a summon produces upward mutations in ≥2 mutation domains (Class, Subclass, Active, Passive/Visual). One-time prestige.
+
+
+
+
+---
+
+7.2 — Mutagenic Specialist
+
+Summon with ≥3 upward mutations.
+
+Prestige Achievement
+
+
+---
+
+🎯 Design Intent
+
+Reward extremely rare multi-mutation events.
+
+
+---
+
+⭐ Final Spec
+
+Unlock:
+
+mutation_count >= 3
+
+Rarity multiplies overall Summoning Prestige Score
+(but does NOT affect achievement unlock).
+
+
+---
+
+🧾 Redline
+
+> 7.2 Mutagenic Specialist
+One-time prestige achievement for summoning a hero with ≥3 upward mutations.
+
+
+
+
+---
+
+7.3 — Mythmaker (Rarity Multiplier)
+
+Summoning a Mythic hero enhances the Summoning Prestige engine.
+
+Prestige-like but also a multiplier
+
+
+---
+
+🎯 Design Intent
+
+Instead of being a one-off badge only, we integrate Mythmaker as a rarity multiplier for all summoning prestige:
+
+Common = ×1.0  
+Uncommon = ×1.1  
+Rare = ×1.25  
+Legendary = ×1.5  
+Mythic = ×2.0
+
+
+---
+
+⭐ Final Spec
+
+Unlock: Mythic summon.
+
+Effect: double prestige scoring for relevant summon.
+
+
+---
+
+🧾 Redline
+
+> 7.3 Mythmaker
+Unlocks when the cluster summons a Mythic hero. Grants a rarity multiplier (Mythic ×2) applied to Summoning Prestige scoring.
+
+
+
+
+---
+
+7.4 — Royal Lineage
+
+Summon from TWO parents with ≥3 mutations each AND the child inherits mutations.
+
+Prestige feat
+
+
+---
+
+🎯 Design Intent
+
+Reward multi-generational genetic engineering.
+
+
+---
+
+⭐ Final Spec
+
+Unlock:
+
+parentA.mut_count ≥ 3
+AND parentB.mut_count ≥ 3
+AND child.mut_count ≥ 1
+
+Prestige only.
+
+
+---
+
+🧾 Redline
+
+> 7.4 Royal Lineage
+Unlocks when a summon comes from two parents each having ≥3 mutations and the offspring inherits at least one upward mutation. Prestige.
+
+
+
+
+---
+
+7.5 — Summoner of Legends
+
+Single challenge containing: Dragoon, Sage, Spellbow, Dreadknight Summons.
+
+Sub-badges for each class
+
+
+---
+
+🎯 Design Intent
+
+Removed clutter of 4 separate challenges → replaced with a unified prestige progression challenge.
+
+
+---
+
+⭐ Final Spec
+
+Unlock sub-achievements:
+
+Dragoon Summoner
+
+Sage Summoner
+
+Spellbow Summoner
+
+Dreadknight Summoner
+
+
+Aggregate under Summoner of Legends.
+
+
+---
+
+🧾 Redline
+
+> 7.5 Summoner of Legends
+Unlocks sub-badges for summoning Dragoon, Sage, Spellbow, and Dreadknight. Summoning events only. Permanent prestige.
+
+
+
+
+---
+
+7.6 — Mythic Artisan
+
+Masterpiece hero development challenge (stat perfection via meditations, rerolls, etc.)
+
+Tiered (rare), NOT prestige
+
+
+---
+
+🎯 Design Intent
+
+Reward hero refinement, not summoning.
+
+A hero qualifies if:
+
+high stat totals (ETL thresholds)
+
+several perfect meditations
+
+many rerolls
+
+high mutation base origin
+
+elite class lineage
+
+
+A masterpiece hero is counted if it meets ≥2–3 thresholds.
+
+
+---
+
+⭐ Final Spec
+
+Metric:
+
+artisan_points = count(masterpiece_heroes)
+
+A masterpiece hero must meet 2+ of:
+
+≥120 stat total (ETL-based)
+
+≥2 perfect meditations
+
+≥6 Divine Essence rerolls
+
+≥2 genetic mutations
+
+elite or exalted class
+
+
+
+---
+
+🧾 Redline
+
+> 7.6 Mythic Artisan
+Scores the number of heroes meeting multi-factor refinement thresholds. Tiered. Represents deep hero optimization.
+
+
+
+
+---
+
+7.7 — Lineage Architect
+
+Summoning a 2+ generation elite lineage.
+
+Prestige
+
+
+---
+
+🎯 Design Intent
+
+Ultra-prestige feat for genealogical mastery.
+
+
+---
+
+⭐ Final Spec
+
+Unlock when hero has:
+
+child.mut_count ≥ 1
+AND (parentA.mut_count ≥ 2 OR parentB.mut_count ≥ 2)
+AND (grandparent mutation_count ≥ 1)
+AND class ∈ {advanced/elite/exalted}
+
+This ensures 3-generation engineered lineage.
+
+
+---
+
+🧾 Redline
+
+> 7.7 Lineage Architect
+Prestige achievement for creating a multi-generational genetically advanced hero with inherited mutations across 2+ generations.
+
+
+
+
+---
+
+✔ CATEGORY 7 COMPLETE
+
+Category 7 concludes hero mastery.
+
+Next up: PvP (Competitive Mastery)
+
+👉 Say “Next part” to continue to PART 6 (PvP).

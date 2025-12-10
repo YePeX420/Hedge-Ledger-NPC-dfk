@@ -1,0 +1,526 @@
+📘 MASTER CHALLENGE SYSTEM DOCUMENT
+
+PART 4 — CATEGORY 4: OWNERSHIP & COLLECTION + CATEGORY 5: CRAFTING
+
+These two categories represent the core identity-building and power-scaling systems of mid→late game progression.
+
+Category 4 = Who you ARE (your roster, pets, items, collection depth)
+
+Category 5 = What you BUILD (crafting, refining, forging)
+
+
+Together, these categories define the backbone of a player’s account identity beyond simple activity or PvE.
+
+
+---
+
+============================================
+
+CATEGORY 4 — OWNERSHIP & COLLECTION
+
+============================================
+
+This category answers the question:
+
+> “What does this player have? What is their footprint in the Kingdom?”
+
+
+
+Ownership reflects:
+
+progress
+
+investment
+
+collection depth
+
+strategic planning
+
+long-term identity
+
+
+It should not be grindable or tied to daily loops — ownership changes slowly, making it an excellent stability signal.
+
+
+---
+
+4.1 — House of Heroes
+
+Total hero roster size (cluster-wide).
+
+Tiered: BASIC → ADVANCED → ELITE → EXALTED
+
+
+---
+
+🎯 Design Intent
+
+This is the simplest ownership metric, and the foundation of identity.
+More heroes typically = deeper participation in:
+
+quests
+
+professions
+
+hunting
+
+summoning
+
+crafting
+
+tournaments
+
+
+
+---
+
+⚠ ISSUE ANALYSIS
+
+Hero count is highly skewed → must use percentiles
+
+Multi-wallet smurfing must aggregate → cluster identity
+
+Must exclude temporarily borrowed heroes (rentals, delegation if added)
+
+
+
+---
+
+⭐ FINAL SPEC
+
+Metric:
+
+hero_count = number_of_unique_heroes_owned_by_cluster
+
+Tiering:
+Percentile-based across global population.
+
+ETL Requirements:
+
+Pull hero ownership from chain
+
+Deduplicate cluster-level
+
+
+
+---
+
+🧾 Redline (4.1 House of Heroes)
+
+> 4.1 House of Heroes
+Measures total heroes owned cluster-wide. Excludes rentals or temporary delegations. Tiering uses percentile ranks. Represents the foundational ownership footprint of an account.
+
+
+
+
+---
+
+4.2 — Hero Legion
+
+Total combined hero levels across cluster.
+
+Tiered
+
+
+---
+
+🎯 Design Intent
+
+Hero Legion measures power, not quantity.
+
+A player with:
+
+5 level 20 heroes
+has a stronger Legion than a player with
+
+25 level 1 heroes.
+
+
+This challenge captures effective roster strength.
+
+
+---
+
+⚠ ISSUE ANALYSIS
+
+Levels evolve slowly → makes a stable metric
+
+Avoid overlap with House of Heroes (quantity)
+
+
+
+---
+
+⭐ FINAL SPEC
+
+Metric:
+
+hero_legion_score = sum(hero.level for all cluster heroes)
+
+Tiered.
+
+
+---
+
+🧾 Redline
+
+> 4.2 Hero Legion
+Sums the levels of all cluster-owned heroes to measure aggregate roster strength. Tiered. Distinct from total hero count.
+
+
+
+
+---
+
+4.3 — Hero Curator (Class Diversity Mastery)
+
+Measures breadth of class ownership, weighted by rarity + tier.
+
+Tiered
+
+
+---
+
+🎯 Design Intent
+
+Reward collection depth:
+
+basic classes
+
+advanced classes
+
+elite classes
+
+exalted classes
+
+
+Players who intentionally collect across class families should be recognized.
+
+
+---
+
+⚠ ISSUE ANALYSIS
+
+Must avoid duplicating Exalted Collector (mutation-based).
+Hero Curator is ONLY about class diversity, not genetic depth.
+
+
+---
+
+⭐ FINAL SPEC
+
+Metric:
+Weighted diversity score:
+
+Basic class = 1  
+Advanced = 3  
+Elite = 5  
+Exalted = 8
+
+Compute:
+
+hero_curator_score = sum(weight for each unique class owned)
+
+Tiered.
+
+
+---
+
+🧾 Redline
+
+> 4.3 Hero Curator
+Measures ownership diversity across class tiers. Uses weighted scoring (Basic=1, Advanced=3, Elite=5, Exalted=8) for each unique class the cluster owns. Tiered. Represents class breadth in hero collection.
+
+
+
+
+---
+
+4.4 — Pet Collector
+
+Weighted pet rarity ownership score.
+
+Tiered
+
+
+---
+
+🎯 Design Intent
+
+Pets are a major identity layer.
+This measures collection prestige.
+
+
+---
+
+⭐ FINAL SPEC
+
+Use rarity weights:
+
+Pet Rarity	Weight
+
+Common	1
+Uncommon	2
+Rare	4
+Legendary	8
+Mythic	16
+
+
+Metric:
+
+pet_collector_score = sum(weight of each pet owned)
+
+Tiered.
+
+
+---
+
+🧾 Redline
+
+> 4.4 Pet Collector
+Measures pet ownership using rarity-weight scoring. Tiered. Distinct from pet variants, bonuses, or hatching actions.
+
+
+
+
+---
+
+4.5 — Exalted Collector
+
+Own elite/exalted heroes with significant mutation depth.
+
+Tiered (but very high bar)
+
+
+---
+
+🎯 Design Intent
+
+Represent elite hero ownership:
+
+top-tier classes
+
+heavy genetic mutations
+
+high-power outliers
+
+
+This is the “rare bloodline collector” challenge.
+
+
+---
+
+⭐ FINAL SPEC
+
+A hero qualifies as “exalted” if:
+
+(class in {Dragoon, Sage, Spellbow, Dreadknight}
+ OR rarity == Mythic)
+AND mutation_count >= 3
+
+Metric:
+
+exalted_count = number_of_heroes_meeting_criteria
+
+Tiered (low global distribution).
+
+
+---
+
+🧾 Redline
+
+> 4.5 Exalted Collector
+Counts heroes owned that meet both class/rarity excellence and gene-depth requirements (elite/exalted class or Mythic rarity, AND ≥3 genetic mutations). Tiered. Represents apex hero ownership.
+
+
+
+
+---
+
+4.6 — Item Collector
+
+Weighted score of owned equipment items.
+
+Tiered
+
+
+---
+
+🎯 Design Intent
+
+Future DFK will have full equipment trees.
+This challenge measures equipment ownership depth.
+
+
+---
+
+⭐ FINAL SPEC
+
+Weighted formula:
+
+item_score = rarity_weight × tier_multiplier × variant_multiplier
+
+Where:
+
+rarity: Common=1 … Mythic=16
+
+tier: T1=1, T2=1.5, T3=2
+
+variants: normal=1, cosmetic=1.5, mythic cosmetic=2
+
+
+Metric:
+
+sum(item_score for all unique items)
+
+
+---
+
+🧾 Redline
+
+> 4.6 Item Collector
+Measures owned equipment using a weighted formula (rarity × tier × variant). Tiered. Future-proofed for equipment expansions.
+
+
+
+
+---
+
+✔ CATEGORY 4 COMPLETE
+
+Ownership defines identity and midgame power expression.
+
+Next, we introduce the major late-midgame progression system:
+
+
+---
+
+============================================
+
+CATEGORY 5 — CRAFTING CHALLENGES
+
+============================================
+
+Crafting is where players learn depth, resource integration, and multi-step systems.
+This category builds sustained engagement for late-midgame players.
+
+
+---
+
+5.1 — Crystal Crafter
+
+(Upgrading Lessers → Regulars → Greaters)
+
+
+---
+
+🎯 Design Intent
+
+Reward refinement behavior in crystal crafting.
+
+
+---
+
+⭐ FINAL SPEC
+
+Metric:
+
+crystal_upgrades_lifetime
+
+Tiered.
+
+
+---
+
+5.2 — Rune Forger
+
+(Crafting actions using Shvas, Moksha, DE, etc.)
+
+Weighted:
+
+Shvas = 1  
+Moksha = 3  
+Divine Essence = 5
+
+Metric:
+
+rune_forge_score
+
+Tiered.
+
+
+---
+
+5.3 — Master Forger
+
+(Forging equipment with tier weights)
+
+Weights:
+
+T1=1  
+T2=3  
+T3=7  
+Reforges = 0.5 × tier_weight
+
+Metric:
+
+master_forge_score
+
+Tiered.
+
+
+---
+
+5.4 — Arcane Refiner
+
+(Refining rare materials into catalysts)
+
+Weighted refinement:
+
+Basic=1  
+Rare=5  
+Boss relic conversion=7  
+Ascension catalyst=10
+
+Metric:
+
+arcane_refine_score
+
+Tiered.
+
+
+---
+
+5.5 — Crafting Veteran
+
+(Number of unique recipes used)
+Metric:
+
+unique_crafting_recipes_used
+
+Tiered.
+
+
+---
+
+5.7 — Forge Masterpiece (Prestige Feat)
+
+(Complete a multi-stage 3+ step crafting pipeline)
+
+Unlock:
+
+if recipe_depth >= 3:
+    unlock Masterpiece
+
+Prestige, one-time.
+
+
+---
+
+✔ CATEGORY 5 COMPLETE
+
+This concludes Part 4.
+
+Next:
+
+👉 Say “Next part” to continue to PART 5 (Gold Economy + Summoning)

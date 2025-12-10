@@ -1,0 +1,505 @@
+📘 MASTER CHALLENGE SYSTEM DOCUMENT
+
+PART 3 — CATEGORY 3: HUNTING (Mid-Game PvE System)
+
+Category 3 represents the true mid-game transformation stage where players evolve from basic professions into combat-driven PvE loops.
+Hunting introduces:
+
+Hero stat requirements
+
+Proper builds
+
+Class synergy
+
+First danger of hero death scenarios
+
+First boss-tier fights (Motherclucker & Mad Boar)
+
+Material drops
+
+High-value item loops
+
+RNG excitement
+
+Emotional “story moments”
+
+
+This is where players feel their first real sense of mastery.
+
+
+---
+
+============================================
+
+CATEGORY 3 — HUNTING CHALLENGES
+
+============================================
+
+Hunting is intentionally positioned after professions because it:
+
+Requires stronger heroes
+
+Involves risk
+
+Introduces boss fights
+
+Produces higher-value materials
+
+Delivers dramatic battle outcomes
+
+
+This is where combat identity begins.
+
+Let’s go challenge-by-challenge with complete detail.
+
+
+---
+
+3.1 — Hunter’s Triumph
+
+Tracks lifetime PvE wins in the Hunting system.
+
+Tier System: BASIC → ADVANCED → ELITE → EXALTED
+
+
+---
+
+🎯 DESIGN INTENT
+
+Introduce players to combat loops.
+Reward general participation.
+
+This is the “core volume metric” of Hunting.
+
+
+---
+
+⚠ ISSUE ANALYSIS
+
+Issue 1 — Whale hero count inflation
+
+Whales can hunt more because they have more heroes.
+
+✔ Solution:
+
+Percentile tiers.
+
+Issue 2 — Must not overlap with Elite Hunts
+
+Those go into 3.2 (Apex-level)
+
+Issue 3 — Must NOT count METIS Patrols
+
+Patrols are their own category (15).
+
+
+---
+
+⭐ FINAL SPEC
+
+Metric:
+
+hunting_wins_lifetime
+
+Tiering:
+Percentile-based.
+
+ETL Requirements:
+
+Parse hunt logs
+
+Count only result == WIN
+
+Exclude patrol events
+
+Aggregate cluster-wide
+
+
+Cosmetics:
+
+Bronze Fang Badge
+
+Silver Fang
+
+Gold Fang
+
+Obsidian Fang (Exalted)
+
+
+
+---
+
+🧾 Redline (3.1 Hunter’s Triumph)
+
+> 3.1 Hunter’s Triumph
+Measures lifetime Hunting wins (Crystalvale/Serendale only). Tracks all successful combat encounters in the Hunting system. Uses percentile-based tiering. Represents core PvE engagement before entering elite hunts or boss fights.
+
+
+
+
+---
+
+3.2 — Motherclucker Slayer
+
+Tracks Motherclucker boss victories.
+
+Tier System: BASIC → ADVANCED → ELITE → EXALTED
+
+
+---
+
+🎯 DESIGN INTENT
+
+Motherclucker is the first real boss fight, requiring:
+
+Hero investment
+
+Class strategy
+
+Repeated attempts
+
+RNG mitigation
+
+
+Reward mastery.
+
+
+---
+
+⚠ ISSUE ANALYSIS
+
+Not all hunts are equal → Motherclucker is the apex.
+
+Must be separate from drop-based achievements.
+
+Tiering should reflect rarity of beating the boss repeatedly.
+
+Multi-wallet smurfing must not inflate the count.
+
+
+
+---
+
+⭐ FINAL SPEC
+
+Metric:
+
+motherclucker_kills_lifetime
+
+ETL:
+Detect enemy == Motherclucker AND result == WIN.
+
+Tiering:
+Percentile-based.
+
+Cosmetics:
+
+Basic: “Chicken Hunter” badge
+
+Advanced: Silver Claw
+
+Elite: Golden Claw
+
+Exalted: Obsidian Chicken Crest (animated)
+
+
+
+---
+
+🧾 Redline (3.2 Motherclucker Slayer)
+
+> 3.2 Motherclucker Slayer
+Tracks lifetime Motherclucker boss victories. Identifies boss encounters by enemy type and counts only victories. Tiered using percentile calibration. Represents mastery of the first apex Hunting boss.
+
+
+
+
+---
+
+3.3 — Hunter’s Bounty
+
+Tracks RARE drops from any hunt using a whitelist.
+
+Tier System: BASIC → ADVANCED → ELITE → EXALTED
+
+
+---
+
+🎯 DESIGN INTENT
+
+Reward the thrill of rare drops.
+Encourage hunting variety.
+
+
+---
+
+⚠ ISSUE ANALYSIS
+
+Drop rates do not change, only drop tables expand.
+
+This challenge should not include boss-specific drops (Clucker/Boar).
+
+Drop rarity must be curated via whitelist.
+
+
+
+---
+
+⭐ FINAL SPEC
+
+Use whitelist:
+
+RARE_DROP_TABLE = {IDs of rare hide, claws, trophies, etc.}
+
+Metric:
+
+rare_hunt_drop_count
+
+Tiered.
+
+
+---
+
+🧾 Redline (3.3 Hunter’s Bounty)
+
+> 3.3 Hunter’s Bounty
+Tracks collection of rare Hunting drops using an open RARE_DROP_TABLE whitelist. Measures the total number of rare drops collected (excluding boss-specific drops). Tiered using percentile calibration. Represents persistence and luck in hunting.
+
+
+
+
+---
+
+3.4 — Clucker’s Bounty
+
+Tracks unique drops from the Motherclucker boss.
+
+Tier System: BASIC → ADVANCED → ELITE → EXALTED (diversity-based)
+
+
+---
+
+🎯 DESIGN INTENT
+
+Boss-tier loot should have its own challenge.
+Collection-based, not volume-based.
+
+
+---
+
+⭐ FINAL SPEC
+
+Whitelist:
+
+CLUCKER_DROP_TABLE = {
+  unique boss materials,
+  feathers,
+  equipment shards,
+  event drops
+}
+
+Metric:
+
+unique_clucker_drop_count
+
+Optional Secondary: total_clucker_drops
+
+Tiering: percentile on diversity.
+
+
+---
+
+🧾 Redline (3.4 Clucker’s Bounty)
+
+> 3.4 Clucker’s Bounty
+Tracks the number of distinct drops from the Motherclucker loot table using CLUCKER_DROP_TABLE. Primary metric is unique drop count, with optional secondary tracking of total boss drops. Tiered via percentile model. Represents boss-specific item mastery.
+
+
+
+
+---
+
+3.5 — Relic Tracker
+
+Tracks ultra-rare or event relics (non-boss).
+
+Tier System: BASIC → ADVANCED → ELITE → EXALTED
+
+
+---
+
+🎯 DESIGN INTENT
+
+Reward collection of ultra-rare relics.
+
+
+---
+
+⭐ FINAL SPEC
+
+Whitelist:
+
+RELIC_DROP_TABLE = {
+  event relics,
+  ultra-rare drops,
+  crafting keystones
+}
+
+Metric:
+
+unique_relic_drop_count
+
+Tiered.
+
+
+---
+
+🧾 Redline (3.5 Relic Tracker)
+
+> 3.5 Relic Tracker
+Tracks acquisition of ultra-rare relics using a maintained RELIC_DROP_TABLE. Counts unique relics acquired; tiered by percentile. Represents rare loot mastery distinct from Motherclucker/Boar loot.
+
+
+
+
+---
+
+3.6 — Mad Boar Slayer
+
+Boss fight challenge for Mad Boar.
+
+Tier System: BASIC → EXALTED
+
+
+---
+
+🎯 Design Intent
+
+Mad Boar is parallel to Motherclucker → deserves symmetrical recognition.
+
+Metric:
+
+mad_boar_kills_lifetime
+
+
+---
+
+🧾 Redline (3.6 Mad Boar Slayer)
+
+> 3.6 Mad Boar Slayer
+Tracks Mad Boar boss victories. Tiered using percentile calibration. Represents mastery of the second major Hunting boss.
+
+
+
+
+---
+
+3.7 — Boar’s Bounty
+
+Tracks unique drop collection from Mad Boar.
+
+Tier System: Tiered via uniqueness
+
+Whitelist:
+
+BOAR_DROP_TABLE = {boar-exclusive drops}
+
+
+---
+
+🧾 Redline (3.7 Boar’s Bounty)
+
+> 3.7 Boar’s Bounty
+Tracks the number of distinct Mad Boar drops collected, using BOAR_DROP_TABLE. Tiered. Reflects boss-specific item progression.
+
+
+
+
+---
+
+3.8 — Last Hero Standing (General Clutch Feat)
+
+Win a hunt with ONE hero left at 1 HP.
+
+
+---
+
+🎯 Design Intent
+
+Reward cinematic heroics.
+
+
+---
+
+⭐ Final Spec
+
+Unlock when:
+
+hunt.win == true
+AND survivors == 1
+AND hp == 1
+
+
+---
+
+🧾 Redline
+
+> 3.8 Last Hero Standing
+Unlocks when a hunt is won with exactly one surviving hero at 1 HP. Prestige achievement.
+
+
+
+
+---
+
+3.9 — Clucker Miracle
+
+(Boss-specific clutch feat)
+
+
+---
+
+⭐ Unlock Condition
+
+enemy == Motherclucker
+AND win == true
+AND survivors == 1
+AND hp == 1
+
+
+---
+
+🧾 Redline
+
+> 3.9 Clucker Miracle
+Prestige achievement for surviving Motherclucker with exactly one hero at 1 HP.
+
+
+
+
+---
+
+3.10 — Boar Miracle
+
+(Boss-specific clutch feat)
+
+
+---
+
+🧾 Redline
+
+> 3.10 Boar Miracle
+Prestige achievement for surviving Mad Boar with exactly one hero at 1 HP.
+
+
+
+
+---
+
+✔ CATEGORY 3 COMPLETE
+
+This category defines the combat identity of mid-game DFK.
+
+Next, we move deeper into identity & mastery:
+
+👉 Say “Next part” to continue to PART 4 (Ownership + Crafting).

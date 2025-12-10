@@ -1,0 +1,460 @@
+📘 MASTER CHALLENGE SYSTEM DOCUMENT
+
+PART 6 — CATEGORY 8: PLAYER-vs-PLAYER (PvP) CHALLENGES
+
+(Late Game Competitive Loop → Skill Expression → Ranked Identity)
+
+PvP is where players:
+
+test their builds
+
+test their heroes
+
+optimize gear & pets
+
+engage in the social meta
+
+express mastery & creativity
+
+create rivalries
+
+climb seasonal ladders
+
+earn prestige cosmetics
+
+demonstrate true knowledge of DFK systems
+
+
+This category sits AFTER summoning & hero development, because PvP:
+
+requires optimized heroes
+
+requires understanding class matchups
+
+rewards deeper knowledge
+
+is where progression becomes competitive
+
+
+This is the final non-METIS competitiveness category in the document.
+
+
+---
+
+============================================
+
+CATEGORY 8 — PVP CHALLENGES
+
+============================================
+
+This category contains:
+
+participation loops (entry-level)
+
+skill loops (wins, streaks, ranked tiers)
+
+creativity loops (meta breaking)
+
+identity loops (class specialization)
+
+pure prestige (flawless victory, PvP champion)
+
+
+Let’s detail each challenge.
+
+
+---
+
+8.1 — Arena Challenger
+
+Total PvP matches played.
+
+Tiered: BASIC → ADVANCED → ELITE → EXALTED
+
+
+---
+
+🎯 Design Intent
+
+Arena Challenger measures engagement, not performance.
+
+Rewards:
+
+showing up
+
+experimenting
+
+learning
+
+practicing
+
+participating in PvP queue
+
+
+Not tied to skill.
+
+
+---
+
+⭐ FINAL SPEC
+
+Metric:
+
+pvp_matches_played_lifetime
+
+Cluster aggregated.
+
+Exclude:
+
+unranked tutorials
+
+bot matches (if present)
+
+friendly duels
+
+
+Tiered.
+
+
+---
+
+🧾 Redline
+
+> 8.1 Arena Challenger
+Tracks lifetime PvP match participation across the cluster. Counts only valid PvP matches (ranked or MMR-valid). Tiered. Represents engagement, not performance.
+
+
+
+
+---
+
+8.2 — Arena Victor
+
+Total PvP wins.
+
+Tiered.
+
+
+---
+
+🎯 Design Intent
+
+Measure performance, NOT volume.
+
+Arena Challenger: how often you play
+Arena Victor: how often you WIN
+
+
+---
+
+⭐ Final Spec
+
+Metric:
+
+pvp_wins_lifetime
+
+Ranked wins only (recommended).
+Tiered.
+
+
+---
+
+🧾 Redline
+
+> 8.2 Arena Victor
+Tracks lifetime PvP match victories. Tiered. Represents combat skill in PvP.
+
+
+
+
+---
+
+8.3 — Ranked Conqueror
+
+Reach any high-ranked tier in a PvP season.
+
+Prestige (ON/OFF per season)
+
+
+---
+
+🎯 Design Intent
+
+Seasonal skill challenge.
+
+Players receive:
+
+rank-based badges
+
+seasonal cosmetics
+
+leaderboard placements
+
+
+
+---
+
+⭐ Final Spec
+
+Unlock when:
+
+cluster_rank >= champion_tier_threshold
+
+Use:
+
+TOURNAMENT_RANK_TIERS
+
+Record per season.
+
+Prestige.
+
+
+---
+
+🧾 Redline
+
+> 8.3 Ranked Conqueror
+Unlocks when cluster reaches high-ranked tier in a PvP season. Stored per season. Prestige-level achievement reflecting competitive PvP performance.
+
+
+
+
+---
+
+8.4 — Win Streak
+
+Longest streak of PvP wins in rated/MMR matches.
+
+Tiered or Prestige — recommended Tiered for flexibility
+
+
+---
+
+🎯 Design Intent
+
+Reward consistency & momentum.
+
+
+---
+
+⭐ Final Spec
+
+Metric:
+
+best_pvp_streak_lifetime
+
+Record streaks only in:
+
+MMR matches
+
+Ranked matches
+
+
+Cluster max.
+
+Tiered.
+
+
+---
+
+🧾 Redline
+
+> 8.4 Win Streak
+Measures longest PvP win streak in ranked/MMR matches. Tiered. Represents consistency, momentum, and peak performance.
+
+
+
+
+---
+
+8.5 — Class Specialist
+
+Win PvP matches using specific class archetypes.
+
+Tiered across 5 archetypes.
+
+
+---
+
+🎯 Design Intent
+
+Reward role specialization.
+
+Archetypes:
+
+1. Frontline (Knight, Warrior, Paladin, DarkKnight)
+
+
+2. Assassin (Thief, Ninja, Dragoon)
+
+
+3. Archer (Archer, Spellbow, Bard, Legionnaire)
+
+
+4. Caster (Wizard, Priest, Summoner, Sage)
+
+
+5. Hybrid (Pirate, Monk, Shapeshifter, Berserker)
+
+
+
+
+---
+
+⭐ Final Spec
+
+Metric per archetype:
+
+archetype_pvp_wins[archetype]
+
+Tiered individually.
+
+
+---
+
+🧾 Redline
+
+> 8.5 Class Specialist
+Tracks PvP victories earned using heroes from specific archetypes (Frontline, Assassin, Archer, Caster, Hybrid). Each archetype has independent tiering. Represents class specialization and identity.
+
+
+
+
+---
+
+8.6 — Meta Breaker
+
+Win PvP matches with statistically off-meta compositions.
+
+Tiered.
+
+
+---
+
+🎯 Design Intent
+
+Reward creativity & mastery outside the dominant meta.
+
+
+---
+
+⭐ Final Spec
+
+Use:
+
+META_COMPOSITION_TABLE
+
+A team counts as off-meta if:
+
+team composition NOT in top 20–30% usage
+
+OR hero selection is below defined meta threshold
+
+
+Metric:
+
+meta_breaker_wins_lifetime
+
+Tiered.
+
+
+---
+
+🧾 Redline
+
+> 8.6 Meta Breaker
+Counts PvP wins using statistically off-meta team compositions as defined in META_COMPOSITION_TABLE. Tiered. Rewards strategic creativity.
+
+
+
+
+---
+
+8.7 — Flawless Victory
+
+Win a PvP match with zero hero deaths.
+
+Prestige.
+
+
+---
+
+🎯 Design Intent
+
+Pure skill expression.
+
+
+---
+
+⭐ Final Spec
+
+Unlock:
+
+win == true
+AND no_hero_deaths == true
+AND mmr_match == true
+
+Prestige.
+
+
+---
+
+🧾 Redline
+
+> 8.7 Flawless Victory
+One-time prestige achievement for winning a PvP match with zero hero deaths in MMR-qualified combat.
+
+
+
+
+---
+
+8.8 — PvP Champion
+
+Finish a PvP season in the top % of ranked players.
+
+Prestige per season.
+
+
+---
+
+🎯 Design Intent
+
+This is the highest PvP prestige, similar to reaching Challenger/Grandmaster in other games.
+
+
+---
+
+⭐ Final Spec
+
+Unlock when:
+
+season_rank <= champion_threshold
+
+Store per season:
+
+season
+
+tier (Gold/Platinum/Diamond/etc)
+
+
+Prestige.
+
+
+---
+
+🧾 Redline
+
+> 8.8 PvP Champion
+Unlocks when cluster finishes a PvP season within the designated Champion Tier or top percentile. Prestige-level achievement with seasonal variants.
+
+
+
+
+---
+
+✔ CATEGORY 8 COMPLETE
+
+Next we move into METIS Patrols and METIS Economy, the advanced parallel progression system.
+
+👉 Say “Next part” to continue to PART 7 (METIS PvE + Shell Economy + Influence + Tournaments)
