@@ -61,6 +61,11 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
 *   **Payment Automation**: Blockchain monitoring for JEWEL payment verification.
 *   **Wallet Tracking**: Daily snapshots of JEWEL, CRYSTAL, and cJEWEL balances.
 *   **Debug Features**: Debug dashboard for testing.
+    *   **OAuth Bypass**: Secure development-only feature to bypass Discord authentication.
+        *   Requires `ALLOW_OAUTH_BYPASS=true` environment variable (only set in development)
+        *   POST /api/admin/debug-settings only accepts changes from localhost or authenticated admins
+        *   Frontend toggle only shown when environment allows it
+        *   Returns mock admin session (discordId: "bypass-admin", username: "Bypass Admin")
 
 ## External Dependencies
 *   **Discord API**: Bot operations and OAuth2.

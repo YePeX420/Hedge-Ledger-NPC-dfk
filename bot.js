@@ -31,7 +31,7 @@ import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
 import cors from 'cors';
-import { getDebugSettings, setDebugSettings, isVerboseLoggingEnabled, isPaymentBypassEnabled } from './debug-settings.js';
+import { getDebugSettings, setDebugSettings, isVerboseLoggingEnabled, isPaymentBypassEnabled, isOAuthBypassEnabled, isOAuthBypassAllowed } from './debug-settings.js';
 import { handleGardenOptimizationDM } from './garden-optimization-handler.js';
 
 // Player User Model System imports
@@ -3477,6 +3477,17 @@ async function startAdminWebServer() {
   // Admin middleware - database-backed sessions
   async function isAdmin(req, res, next) {
     try {
+      // Check for OAuth bypass mode (for testing)
+      if (isOAuthBypassEnabled()) {
+        console.log('[AdminAuth] OAuth bypass enabled - granting admin access');
+        req.user = {
+          userId: 'bypass-admin',
+          username: 'Bypass Admin',
+          avatar: null,
+        };
+        return next();
+      }
+
       const sessionToken = req.cookies.session_token;
       console.log(
         `[AdminAuth] Checking session. Cookie: ${
@@ -4598,7 +4609,11 @@ async function startAdminWebServer() {
   // GET /api/admin/debug-settings - Get debug settings
   app.get('/api/admin/debug-settings', async (req, res) => {
     try {
-      res.json(getDebugSettings());
+      const settings = getDebugSettings();
+      res.json({
+        ...settings,
+        oauthBypassAllowed: isOAuthBypassAllowed(),
+      });
     } catch (error) {
       console.error('[API] Error fetching debug settings:', error);
       res.status(500).json({ error: 'Failed to fetch debug settings' });
@@ -4606,9 +4621,26 @@ async function startAdminWebServer() {
   });
 
   // POST /api/admin/debug-settings - Update debug settings
+  // Security: Only allow changes from localhost or authenticated admins
   app.post('/api/admin/debug-settings', async (req, res) => {
     try {
-      const { paymentBypass, verboseLogging } = req.body;
+      // Check if request is from localhost
+      const clientIP = req.ip || req.connection?.remoteAddress || '';
+      const isLocalhost = ['127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost'].some(
+        local => clientIP.includes(local)
+      );
+      
+      // Check if user is authenticated admin
+      const isAuthenticated = req.session?.user?.isAdmin === true;
+      
+      // Require either localhost or authenticated admin
+      if (!isLocalhost && !isAuthenticated) {
+        return res.status(403).json({ 
+          error: 'Debug settings can only be modified from localhost or by authenticated admins' 
+        });
+      }
+      
+      const { paymentBypass, verboseLogging, oauthBypass } = req.body;
 
       const partial = {};
 
@@ -4624,6 +4656,17 @@ async function startAdminWebServer() {
           return res.status(400).json({ error: 'verboseLogging must be a boolean' });
         }
         partial.verboseLogging = verboseLogging;
+      }
+
+      if (typeof oauthBypass !== 'undefined') {
+        if (typeof oauthBypass !== 'boolean') {
+          return res.status(400).json({ error: 'oauthBypass must be a boolean' });
+        }
+        // Only allow oauthBypass to be set if ALLOW_OAUTH_BYPASS env var is set
+        if (!isOAuthBypassAllowed()) {
+          return res.status(403).json({ error: 'OAuth bypass is not allowed in this environment' });
+        }
+        partial.oauthBypass = oauthBypass;
       }
 
       if (Object.keys(partial).length === 0) {
@@ -6583,6 +6626,19 @@ async function startAdminWebServer() {
 
   app.get('/auth/status', async (req, res) => {
     try {
+      // Check for OAuth bypass mode (for testing)
+      if (isOAuthBypassEnabled()) {
+        return res.json({
+          authenticated: true,
+          user: {
+            discordId: 'bypass-admin',
+            username: 'Bypass Admin',
+            avatar: null,
+            isAdmin: true,
+          },
+        });
+      }
+
       const sessionToken = req.cookies.session_token;
 
       if (!sessionToken) {

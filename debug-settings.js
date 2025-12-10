@@ -4,6 +4,7 @@
 let settings = {
   paymentBypass: false,
   verboseLogging: false,
+  oauthBypass: false,
 };
 
 export function getDebugSettings() {
@@ -33,4 +34,23 @@ export function isPaymentBypassEnabled() {
  */
 export function isVerboseLoggingEnabled() {
   return !!settings.verboseLogging;
+}
+
+/**
+ * Convenience helper for OAuth bypass flag.
+ * Only returns true if ALLOW_OAUTH_BYPASS env var is set AND oauthBypass setting is true.
+ */
+export function isOAuthBypassEnabled() {
+  // Only allow OAuth bypass if explicitly permitted via environment variable
+  if (!process.env.ALLOW_OAUTH_BYPASS) {
+    return false;
+  }
+  return !!settings.oauthBypass;
+}
+
+/**
+ * Check if OAuth bypass is allowed by environment.
+ */
+export function isOAuthBypassAllowed() {
+  return !!process.env.ALLOW_OAUTH_BYPASS;
 }

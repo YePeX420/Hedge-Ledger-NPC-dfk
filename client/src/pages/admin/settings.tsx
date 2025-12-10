@@ -14,6 +14,8 @@ import { RefreshCw, Loader2 } from "lucide-react";
 type DebugSettings = {
   paymentBypass: boolean;
   verboseLogging: boolean;
+  oauthBypass: boolean;
+  oauthBypassAllowed?: boolean;
 };
 
 type LabeledSwitchProps = {
@@ -74,6 +76,7 @@ export default function AdminSettings() {
   const [settings, setSettings] = useState<DebugSettings>({
     paymentBypass: false,
     verboseLogging: false,
+    oauthBypass: false,
   });
   const [isRestarting, setIsRestarting] = useState(false);
 
@@ -194,6 +197,25 @@ export default function AdminSettings() {
               testId="switch-verbose-logging"
             />
           </div>
+
+          {/* OAuth Bypass - only shown when ALLOW_OAUTH_BYPASS env var is set */}
+          {settings.oauthBypassAllowed && (
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>OAuth Bypass</Label>
+                <p className="text-sm text-muted-foreground">
+                  Skip Discord OAuth for admin dashboard testing (allows unauthenticated access)
+                </p>
+              </div>
+
+              <LabeledSwitch
+                enabled={settings.oauthBypass}
+                onToggle={(val) => updateSetting("oauthBypass", val)}
+                accent="emerald"
+                testId="switch-oauth-bypass"
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
