@@ -735,9 +735,20 @@ export default function AdminUserDashboard() {
 
       {/* LP Positions Details */}
       <Card>
-        <CardHeader>
-          <CardTitle>LP Positions Details</CardTitle>
-          <CardDescription>Breakdown of staked LP tokens across garden pools.</CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle>LP Positions Details</CardTitle>
+            <CardDescription>Breakdown of staked LP tokens across garden pools.</CardDescription>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => refreshSnapshotMutation.mutate()}
+            disabled={refreshSnapshotMutation.isPending}
+            data-testid="button-refresh-lp-positions"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshSnapshotMutation.isPending ? 'animate-spin' : ''}`} />
+          </Button>
         </CardHeader>
         <CardContent>
           {snapshot?.lpPositions && snapshot.lpPositions.length > 0 ? (
