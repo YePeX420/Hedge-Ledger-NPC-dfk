@@ -235,6 +235,9 @@
     border-radius: inherit;
     z-index: -1;
     /* sits behind content but above backdrop */
+    /* GPU compositing to prevent sub-pixel rendering artifacts */
+    backface-visibility: hidden;
+    transform: translateZ(0);
   }
 
   .toggle-elevate.toggle-elevated::before {
@@ -267,6 +270,9 @@
     border-radius: inherit;
     z-index: 999;
     /* sits in front of content */
+    /* GPU compositing to prevent sub-pixel rendering artifacts */
+    backface-visibility: hidden;
+    transform: translateZ(0);
   }
 
   .hover-elevate:hover:not(.no-default-hover-elevate)::after,
