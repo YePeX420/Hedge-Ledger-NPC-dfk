@@ -293,24 +293,24 @@ export default function AdminChallenges() {
           />
         </div>
         
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+        <Select value={categoryFilter || "all"} onValueChange={(v) => setCategoryFilter(v === "all" ? "" : v)}>
           <SelectTrigger className="w-[180px]" data-testid="select-category">
             <SelectValue placeholder="All Categories" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Categories</SelectItem>
+            <SelectItem value="all">All Categories</SelectItem>
             {categories?.map(cat => (
               <SelectItem key={cat.key} value={cat.key}>{cat.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
+        <Select value={typeFilter || "all"} onValueChange={(v) => setTypeFilter(v === "all" ? "" : v)}>
           <SelectTrigger className="w-[150px]" data-testid="select-type">
             <SelectValue placeholder="All Types" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Types</SelectItem>
+            <SelectItem value="all">All Types</SelectItem>
             {TYPES.map(type => (
               <SelectItem key={type} value={type}>{type}</SelectItem>
             ))}
