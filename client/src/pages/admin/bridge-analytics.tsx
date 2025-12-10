@@ -282,7 +282,7 @@ export default function BridgeAnalytics() {
     refetchInterval: 3000,
   });
 
-  const [parallelWorkers, setParallelWorkers] = useState(4);
+  const [parallelWorkers, setParallelWorkers] = useState(8);
 
   const startParallelSyncMutation = useMutation({
     mutationFn: async () => {
