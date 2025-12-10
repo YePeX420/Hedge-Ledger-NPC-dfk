@@ -184,6 +184,23 @@
           tierSystem: "RARITY",
           sortOrder: 14,
         },
+        // 15 – Epic Feats (Prestige)
+          {
+            key: "epic_feats",
+            name: "Epic Feats",
+            description: "Mythically rare, account-defining achievements.",
+            tierSystem: "PRESTIGE",
+            sortOrder: 15,
+          },
+
+          // 16 – Global Meta Profile (Aggregated Mastery)
+          {
+            key: "global_meta_profile",
+            name: "Global Meta Profile",
+            description: "Aggregated mastery signals across all categories.",
+            tierSystem: "MIXED",
+            sortOrder: 16,
+          },
       ],
 
       challenges: [
@@ -308,28 +325,7 @@
           ],
         },
 
-        {
-          key: "jeweler_whale",
-          categoryKey: "economy_strategy",
-          name: "Jeweler Whale",
-          description: "Stake a large amount of JEWEL at the Jeweler.",
-          metricType: "BOOLEAN",
-          metricSource: "onchain_staking",
-          metricKey: "jewel_stake_amount",
-          isActive: true,
-          sortOrder: 4,
-          meta: { icon: "diamond", tags: ["prestige", "staking"] },
-          tiers: [
-            {
-              tierCode: "MYTHIC",
-              displayName: "JEWEL Whale",
-              thresholdValue: 10000, // threshold in raw JEWEL
-              sortOrder: 1,
-              isPrestige: true,
-            },
-          ],
-        },
-
+       
         // ============================================
         // CATEGORY 3 — PROFESSION SPECIALIZATION
         // ============================================
@@ -530,81 +526,128 @@
           ],
         },
 
-// ============================================
-// CATEGORY 8 — SUMMONING PRESTIGE
-// ============================================
+        // ============================================
+        // CATEGORY 8 — SUMMONING PRESTIGE
+        // ============================================
+        {
+          key: "perfect_pairing",
+          categoryKey: "summoning_prestige",
+          name: "Perfect Pairing",
+          description: "Summon a hero with at least two upward mutations in distinct domains.",
+          metricType: "BOOLEAN",
+          metricSource: "onchain_summoning",
+          metricKey: "perfect_pairing_unlocked",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "dna", tags: ["summoning", "mutations", "prestige"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "Unlocked",
+              thresholdValue: 1,
+              sortOrder: 1,
+              isPrestige: true,
+            },
+          ],
+        },
 
-{
-  key: "mythmaker",
-  categoryKey: "summoning_prestige",
-  name: "Mythmaker",
-  description: "Summon Mythic-rarity heroes.",
-  metricType: "COUNT",
-  metricSource: "onchain_summoning",
-  metricKey: "mythmaker_count",
-  isActive: true,
-  sortOrder: 3,
-  meta: { icon: "star", tags: ["summoning", "rarity"] },
-  tiers: [
-    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
-    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
-    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
-    {
-      tierCode: "EXALTED",
-      displayName: "Exalted",
-      thresholdValue: 25,
-      sortOrder: 4,
-      isPrestige: true,
-    },
-  ],
-},
+        {
+          key: "mutagenic_specialist",
+          categoryKey: "summoning_prestige",
+          name: "Mutagenic Specialist",
+          description: "Summon heroes with three or more upward mutations.",
+          metricType: "COUNT",
+          metricSource: "onchain_summoning",
+          metricKey: "mutagenic_specialist_count",
+          isActive: true,
+          sortOrder: 2,
+          meta: { icon: "flask", tags: ["summoning", "mutations"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
+            {
+              tierCode: "EXALTED",
+              displayName: "Exalted",
+              thresholdValue: 25,
+              sortOrder: 4,
+              isPrestige: true,
+            },
+          ],
+        },
 
-{
-  key: "royal_lineage",
-  categoryKey: "summoning_prestige",
-  name: "Royal Lineage",
-  description: "Produce offspring from heavily mutated parents that inherit upward mutations.",
-  metricType: "COUNT",
-  metricSource: "onchain_summoning",
-  metricKey: "royal_lineage_count",
-  isActive: true,
-  sortOrder: 4,
-  meta: { icon: "crown", tags: ["summoning", "lineage"] },
-  tiers: [
-    { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
-    { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
-    { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
-    {
-      tierCode: "EXALTED",
-      displayName: "Exalted",
-      thresholdValue: 25,
-      sortOrder: 4,
-      isPrestige: true,
-    },
-  ],
-},
+        {
+          key: "mythmaker",
+          categoryKey: "summoning_prestige",
+          name: "Mythmaker",
+          description: "Summon Mythic-rarity heroes.",
+          metricType: "COUNT",
+          metricSource: "onchain_summoning",
+          metricKey: "mythmaker_count",
+          isActive: true,
+          sortOrder: 3,
+          meta: { icon: "star", tags: ["summoning", "rarity"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
+            {
+              tierCode: "EXALTED",
+              displayName: "Exalted",
+              thresholdValue: 25,
+              sortOrder: 4,
+              isPrestige: true,
+            },
+          ],
+        },
 
-{
-  key: "summoner_of_legends",
-  categoryKey: "summoning_prestige",
-  name: "Summoner of Legends",
-  description: "Summon Dragoon, Sage, Spellbow, and Dreadknight.",
-  metricType: "COMPOSITE",
-  metricSource: "onchain_summoning",
-  metricKey: "legendary_class_flags",
-  isActive: true,
-  sortOrder: 5,
-  meta: { icon: "laurel", tags: ["elite_classes", "prestige"] },
-  tiers: [
-    {
-      tierCode: "MYTHIC",
-      displayName: "Unlocked",
-      thresholdValue: 1,
-      sortOrder: 1,
-      isPrestige: true,
-    },
-  ],
-},
+        {
+          key: "royal_lineage",
+          categoryKey: "summoning_prestige",
+          name: "Royal Lineage",
+          description: "Produce offspring from heavily mutated parents that inherit upward mutations.",
+          metricType: "COUNT",
+          metricSource: "onchain_summoning",
+          metricKey: "royal_lineage_count",
+          isActive: true,
+          sortOrder: 4,
+          meta: { icon: "crown", tags: ["summoning", "lineage"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 10, sortOrder: 3 },
+            {
+              tierCode: "EXALTED",
+              displayName: "Exalted",
+              thresholdValue: 25,
+              sortOrder: 4,
+              isPrestige: true,
+            },
+          ],
+        },
+
+        {
+          key: "summoner_of_legends",
+          categoryKey: "summoning_prestige",
+          name: "Summoner of Legends",
+          description: "Summon Dragoon, Sage, Spellbow, and Dreadknight.",
+          metricType: "COMPOSITE",
+          metricSource: "onchain_summoning",
+          metricKey: "legendary_class_flags",
+          isActive: true,
+          sortOrder: 5,
+          meta: { icon: "laurel", tags: ["elite_classes", "prestige"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "Unlocked",
+              thresholdValue: 1,
+              sortOrder: 1,
+              isPrestige: true,
+            },
+          ],
+        },
+
 
 // ============================================
 // CATEGORY 9 — HUNTING PvE
@@ -1164,6 +1207,229 @@
     },
   ],
 },
+        // ============================================
+        // CATEGORY 15 — EPIC FEATS (PRESTIGE)
+        // ============================================
+        {
+          key: "vangardian",
+          categoryKey: "epic_feats",
+          name: "Vangardian",
+          description: "Achieve mastery across METIS patrols, economy, influence, and tournaments.",
+          metricType: "BOOLEAN",
+          metricSource: "epic_feats",
+          metricKey: "vangardian_unlocked",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "star-shooting", tags: ["metis", "prestige", "epic"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "Unlocked",
+              thresholdValue: 1,
+              isPrestige: true,
+              sortOrder: 1
+            }
+          ],
+        },
+        {
+          key: "worldforged_summoner",
+          categoryKey: "epic_feats",
+          name: "Worldforged Summoner",
+          description: "Summon a Dreadknight with four or more upward mutations.",
+          metricType: "BOOLEAN",
+          metricSource: "epic_feats",
+          metricKey: "worldforged_summoner_unlocked",
+          isActive: true,
+          sortOrder: 2,
+          meta: { icon: "sword", tags: ["summoning", "prestige", "epic"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "Unlocked",
+              thresholdValue: 1,
+              isPrestige: true,
+              sortOrder: 1
+            }
+          ],
+        },
+        {
+          key: "grandmaster_geneweaver",
+          categoryKey: "epic_feats",
+          name: "Grandmaster Geneweaver",
+          description: "Create a 3-generation genetic lineage with escalating mutation depth.",
+          metricType: "BOOLEAN",
+          metricSource: "epic_feats",
+          metricKey: "grandmaster_geneweaver_unlocked",
+          isActive: true,
+          sortOrder: 3,
+          meta: { icon: "dna", tags: ["lineage", "prestige", "epic"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "Unlocked",
+              thresholdValue: 1,
+              isPrestige: true,
+              sortOrder: 1
+            }
+          ],
+        },
+        {
+          key: "eternal_collector",
+          categoryKey: "epic_feats",
+          name: "Eternal Collector",
+          description: "Own Mythic heroes of every class.",
+          metricType: "BOOLEAN",
+          metricSource: "epic_feats",
+          metricKey: "eternal_collector_unlocked",
+          isActive: true,
+          sortOrder: 4,
+          meta: { icon: "grid", tags: ["collection", "prestige", "epic"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "Unlocked",
+              thresholdValue: 1,
+              isPrestige: true,
+              sortOrder: 1
+            }
+          ],
+        },
+        {
+          key: "crowned_jeweler",
+          categoryKey: "epic_feats",
+          name: "Crowned Jeweler",
+          description: "Maintain a continuous JEWEL lock for 1000 days.",
+          metricType: "BOOLEAN",
+          metricSource: "epic_feats",
+          metricKey: "crowned_jeweler_unlocked",
+          isActive: true,
+          sortOrder: 5,
+          meta: { icon: "gem", tags: ["jewel", "prestige", "epic"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "Unlocked",
+              thresholdValue: 1,
+              isPrestige: true,
+              sortOrder: 1
+            }
+          ],
+        },
+        {
+          key: "mythic_menagerie",
+          categoryKey: "epic_feats",
+          name: "Mythic Menagerie",
+          description: "Own an Odd or Ultra Odd variant from every pet family.",
+          metricType: "BOOLEAN",
+          metricSource: "epic_feats",
+          metricKey: "mythic_menagerie_unlocked",
+          isActive: true,
+          sortOrder: 6,
+          meta: { icon: "paw", tags: ["pets", "prestige", "epic"] },
+          tiers: [
+            {
+              tierCode: "MYTHIC",
+              displayName: "Unlocked",
+              thresholdValue: 1,
+              isPrestige: true,
+              sortOrder: 1
+            }
+          ],
+        },
+
+        // ============================================
+        // CATEGORY 16 — GLOBAL META PROFILE (AGGREGATED MASTERY)
+        // ============================================
+        {
+          key: "prestige_collector",
+          categoryKey: "global_meta_profile",
+          name: "Prestige Collector",
+          description: "Unlock and accumulate prestige achievements across the account.",
+          metricType: "COUNT",
+          metricSource: "meta_profile",
+          metricKey: "prestige_unlocked_count",
+          isActive: true,
+          sortOrder: 1,
+          meta: { icon: "trophy", tags: ["meta", "prestige", "profile"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 7, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 12, sortOrder: 4, isPrestige: true }
+          ],
+        },
+        {
+          key: "category_master",
+          categoryKey: "global_meta_profile",
+          name: "Category Master",
+          description: "Achieve Exalted tier in multiple categories.",
+          metricType: "COUNT",
+          metricSource: "meta_profile",
+          metricKey: "exalted_category_count",
+          isActive: true,
+          sortOrder: 2,
+          meta: { icon: "layers", tags: ["meta", "exalted", "profile"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 1, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 3, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 6, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 10, sortOrder: 4, isPrestige: true }
+          ],
+        },
+        {
+          key: "summoning_prestige_score",
+          categoryKey: "global_meta_profile",
+          name: "Summoning Prestige Score",
+          description: "Composite score from Mythmaker, Mutagenic Specialist, Royal Lineage, and Summoner of Legends.",
+          metricType: "SCORE",
+          metricSource: "meta_profile",
+          metricKey: "summoning_prestige_score",
+          isActive: true,
+          sortOrder: 3,
+          meta: { icon: "dna", tags: ["summoning", "meta", "score"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 25, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 75, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 200, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 400, sortOrder: 4, isPrestige: true }
+          ],
+        },
+        {
+          key: "pvp_mastery_score",
+          categoryKey: "global_meta_profile",
+          name: "PvP Mastery Score",
+          description: "Composite score from Arena Victor, Win Streak, Flawless Victory, and PvP Champion.",
+          metricType: "SCORE",
+          metricSource: "meta_profile",
+          metricKey: "pvp_mastery_score",
+          isActive: true,
+          sortOrder: 4,
+          meta: { icon: "crossed-swords", tags: ["pvp", "meta", "score"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 25, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 80, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 200, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 400, sortOrder: 4, isPrestige: true }
+          ],
+        },
+        {
+          key: "metis_mastery_score",
+          categoryKey: "global_meta_profile",
+          name: "METIS Mastery Score",
+          description: "Composite score from Elite Patroller, Shell Collector, Influence Oracle, Shell Jackpot, and METIS Champion.",
+          metricType: "SCORE",
+          metricSource: "meta_profile",
+          metricKey: "metis_mastery_score",
+          isActive: true,
+          sortOrder: 5,
+          meta: { icon: "hexagon", tags: ["metis", "meta", "score"] },
+          tiers: [
+            { tierCode: "BASIC", displayName: "Basic", thresholdValue: 25, sortOrder: 1 },
+            { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: 80, sortOrder: 2 },
+            { tierCode: "ELITE", displayName: "Elite", thresholdValue: 200, sortOrder: 3 },
+            { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: 400, sortOrder: 4, isPrestige: true }
+          ],
+        },
 
 ], // end challenges
 };
