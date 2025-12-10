@@ -21,6 +21,7 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
     *   **Power-up Detection**: Detects Rapid Renewal power-ups and Gravity Feeder presence.
     *   **Pet Garden Bonuses**: Fetches pet data, identifies gardening pets, calculates quest bonuses, and annotates heroes with pet data.
 *   **Web Dashboard**: React-based admin dashboard with Vite, Discord OAuth, user management, expenses tracking, and settings, styled with TailwindCSS and shadcn/ui.
+    *   **Multi-Wallet Support**: Account Overview displays multiple wallets per user with primary wallet shown first, verification status badges (VERIFIED/NOT VERIFIED), and copy-to-clipboard functionality.
 *   **Command System**: Implements core slash commands for garden optimization and portfolio analysis, including `optimize-gardens`, `garden-planner`, and `garden-portfolio`.
     *   **Garden Portfolio Current**: Analyzes active gardening expeditions and calculates real-time yields.
     *   **Garden Portfolio Optimizer**: Scans wallet LP positions and globally allocates heroes/pets to highest-yield pools for multi-pool optimization.
