@@ -1648,3 +1648,22 @@ export const seasonProgress = pgTable("season_progress", {
 export const insertSeasonProgressSchema = createInsertSchema(seasonProgress).omit({ id: true, lastUpdatedAt: true });
 export type InsertSeasonProgress = z.infer<typeof insertSeasonProgressSchema>;
 export type SeasonProgress = typeof seasonProgress.$inferSelect;
+
+// ============================================================================
+// INGESTION STATE
+// Tracks last processed block per indexer for incremental blockchain scanning
+// ============================================================================
+
+/**
+ * Ingestion state - tracks last processed block per indexer
+ * Used by hunting, pvp, and other on-chain event indexers
+ */
+export const ingestionState = pgTable("ingestion_state", {
+  key: varchar("key", { length: 64 }).primaryKey(), // 'hunting', 'pvp', etc.
+  lastBlock: bigint("last_block", { mode: "number" }).notNull(),
+  lastUpdatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertIngestionStateSchema = createInsertSchema(ingestionState).omit({ lastUpdatedAt: true });
+export type InsertIngestionState = z.infer<typeof insertIngestionStateSchema>;
+export type IngestionState = typeof ingestionState.$inferSelect;

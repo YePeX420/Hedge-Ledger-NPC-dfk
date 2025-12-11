@@ -1,0 +1,321 @@
+Nice, going with **Option 2 (direct RPC / log scanning)** gives you **full control** and avoids any dependency on DFK subgraphs.
+
+Let’s do this in two layers:
+
+1. **Ingestion Architecture for Option 2** (what we’re building)
+2. **Ready-to-paste Replit Prompt** (so you can trigger the work from your phone)
+
+---
+
+## 1️⃣ Ingestion Architecture – Direct RPC Log Scanning
+
+Goal:
+Populate the tables:
+
+* `hunting_encounters`
+* `pvp_matches`
+
+from **raw on-chain logs** so your existing ETL (`onchain_hunting`, `onchain_pvp`) can start producing metrics.
+
+### A. High-Level Design
+
+We’ll create **two indexers**:
+
+* `huntingIndexer` – scans the Hunting contract events
+* `pvpIndexer` – scans the PvP/Arena contract events
+
+Each indexer will:
+
+1. Track **last processed block** in an `ingestion_state` table.
+2. On each run:
+
+   * Read logs from `[last_processed_block + 1 .. current_block]`
+   * Decode events via ABI
+   * Enrich with cluster/wallet mapping
+   * Insert *new* rows into `hunting_encounters` or `pvp_matches`
+3. Be schedulable:
+
+   * via a cron / ETL scheduler (e.g. every 5–10 minutes)
+   * and callable on-demand (for backfill / testing)
+
+### B. New Tables Needed
+
+If not already present, you’ll want:
+
+```sql
+-- Tracks last processed block per indexer
+CREATE TABLE ingestion_state (
+  key TEXT PRIMARY KEY,         -- e.g., 'hunting', 'pvp'
+  last_block BIGINT NOT NULL
+);
+```
+
+`hunting_encounters` and `pvp_matches` already exist (per Replit summary).
+
+Rough shapes might be:
+
+```sql
+-- example columns - adjust to your actual schema
+hunting_encounters:
+  id                BIGSERIAL PK
+  tx_hash           TEXT
+  block_number      BIGINT
+  cluster_id        UUID
+  wallet_address    TEXT
+  enemy_id          TEXT       -- 'MOTHERCLUCKER', 'MAD_BOAR', etc.
+  result            TEXT       -- 'WIN' | 'LOSS'
+  surviving_heroes  INT
+  surviving_hp      INT        -- HP of the last hero, if relevant
+  relics_dropped    INT        -- count of relic drops for this fight
+  created_at        TIMESTAMPTZ
+
+pvp_matches:
+  id                BIGSERIAL PK
+  tx_hash           TEXT
+  block_number      BIGINT
+  cluster_id        UUID
+  wallet_address    TEXT
+  queue_type        TEXT       -- 'RANKED', 'CASUAL'
+  result            TEXT       -- 'WIN' | 'LOSS' | 'DRAW'
+  deaths            INT        -- number of hero deaths on player side
+  created_at        TIMESTAMPTZ
+```
+
+Your ETL already expects these general fields.
+
+### C. Contracts & Events (placeholders, not hard-coded)
+
+We **won’t** hard-code contract addresses or event signatures in this prompt. Instead, we’ll ask Replit to:
+
+* Look up existing web3 / RPC utilities in your project (or create one).
+* Introduce config like:
+
+```ts
+HUNTING_CONTRACT_ADDRESS
+HUNTING_ABI
+PVP_CONTRACT_ADDRESS
+PVP_ABI
+```
+
+And event names:
+
+* `HuntCompleted`, `HuntResult`, etc.
+* `PvpMatchResolved`, `ArenaResult`, etc.
+
+You or devs can fill in the real values once you confirm them from DFK docs.
+
+### D. Ingestion Flow per Indexer
+
+**For Hunting:**
+
+1. Read `last_block` from `ingestion_state` where key = `'hunting'` (default = deployment block).
+2. Determine target range: e.g.:
+
+```ts
+const fromBlock = lastBlock + 1;
+const toBlock = Math.min(fromBlock + BLOCK_BATCH_SIZE, currentBlock);
+```
+
+3. Use RPC `getLogs` or a Web3 helper to fetch `HuntCompleted` events in [fromBlock, toBlock].
+4. For each event:
+
+   * Decode enemy ID, outcome, hero survivors, HP, drop info.
+   * Map wallet → clusterId using `wallet_links`.
+   * Insert a row into `hunting_encounters` if not already present (idempotency via `tx_hash + log_index` or similar).
+5. Update `ingestion_state.last_block` for `'hunting'` to `toBlock`.
+
+**For PvP:**
+
+Same structure:
+
+* Event: `MatchResolved` or similar
+* Parse queue type, winner, deaths, etc.
+* Map wallet → cluster, insert into `pvp_matches`.
+
+### E. Integration With Existing ETL
+
+Once indexers are running and populating tables:
+
+* Your `onchain_hunting` and `onchain_pvp` extractors will immediately start producing non-zero metrics on the next ETL run.
+* Challenges like:
+
+  * `hunters_triumph`, `motherclucker_slayer`, `mad_boar_slayer`, `relic_tracker`, `clucker_miracle`
+  * `arena_challenger`, `arena_victor`, `win_streak`, `flawless_victory`
+    will begin updating in `challenge_progress`.
+
+---
+
+## 2️⃣ Ready-to-Paste Prompt for Replit – **Direct RPC Ingestion**
+
+Here’s the **exact text** you can paste into Replit backend chat:
+
+---
+
+**Prompt – Implement Hunting & PvP Direct RPC Ingestion (Option 2)**
+
+We’ve completed Phase 3 of the Challenge ETL in terms of extractor logic:
+
+* `onchain_hunting` and `onchain_pvp` metric sources exist
+* `hunting_encounters` and `pvp_matches` tables exist
+* Extractors (`huntingExtractor.ts` / `pvpExtractor.ts`) are wired into the ETL orchestrator
+* All challenge mappings look correct
+
+However, both tables are still empty (0 rows).
+
+Now we need to implement **direct RPC / log-based data ingestion** from the blockchain, **without relying on The Graph/subgraphs**, so that hunting and PvP metrics have actual data.
+
+### Goals
+
+1. Implement **two indexers**:
+
+   * `huntingIndexer` – scans hunting contract logs into `hunting_encounters`
+   * `pvpIndexer` – scans PvP arena logs into `pvp_matches`
+2. Make them:
+
+   * Idempotent
+   * Cluster-aware (map wallet → clusterId)
+   * Incremental (use last processed block)
+
+### New/Existing DB Pieces
+
+Assume/confirm we have:
+
+* `hunting_encounters` table
+* `pvp_matches` table
+
+If not present, please show me their schemas.
+
+Add (if not already present):
+
+```sql
+CREATE TABLE IF NOT EXISTS ingestion_state (
+  key TEXT PRIMARY KEY,
+  last_block BIGINT NOT NULL
+);
+```
+
+We’ll use `key = 'hunting'` and `key = 'pvp'`.
+
+### Implementation Tasks
+
+#### 1. Create indexer modules
+
+Create:
+
+* `src/etl/ingestion/huntingIndexer.ts`
+* `src/etl/ingestion/pvpIndexer.ts`
+
+Each should export a function like:
+
+```ts
+export async function runHuntingIndexer(): Promise<void> { ... }
+export async function runPvpIndexer(): Promise<void> { ... }
+```
+
+#### 2. Hunting Indexer – Logic
+
+For `runHuntingIndexer()`:
+
+1. Read `last_block` from `ingestion_state` where `key = 'hunting'`. Default to a configured `HUNTING_START_BLOCK` if missing.
+2. Determine `toBlock` using a batch size (e.g. 2k–5k blocks) and the current chain tip.
+3. Use our existing RPC / web3 utilities (or add one) to call `getLogs` on the **Hunting contract** for event `HuntCompleted` (or equivalent name).
+
+   * Do NOT hard-code the ABI/addresses here; put them in a config like `src/config/contracts.ts` with placeholders:
+
+     ```ts
+     export const HUNTING_CONTRACT_ADDRESS = "...";
+     export const HUNTING_ABI = [ /* event definitions */ ];
+     ```
+   * If contract/ABI helpers already exist, reuse them.
+4. For each event:
+
+   * Decode:
+
+     * `playerAddress` (wallet)
+     * `enemyId` (string or numeric mapped to 'MOTHERCLUCKER', 'MAD_BOAR', etc.)
+     * `result` (WIN/LOSS)
+     * `survivingHeroCount`
+     * `survivingHeroHp`
+     * relic or item drops if available
+   * Map `playerAddress` → `clusterId` using `wallet_links`.
+   * Insert a row into `hunting_encounters`:
+
+     * `tx_hash`
+     * `block_number`
+     * `cluster_id`
+     * `wallet_address`
+     * `enemy_id`
+     * `result`
+     * `surviving_heroes`
+     * `surviving_hp`
+     * `relics_dropped` (if we have this; otherwise 0 for now)
+   * Ensure idempotency by avoiding duplicate inserts per `(tx_hash, logIndex)` or a unique constraint.
+5. After processing, update `ingestion_state.last_block` for key `'hunting'` to `toBlock`.
+
+#### 3. PvP Indexer – Logic
+
+For `runPvpIndexer()`:
+
+1. Read `last_block` for `key = 'pvp'` from `ingestion_state`. Default from config `PVP_START_BLOCK`.
+2. Scan logs on the **PvP/arena contract** for event `MatchResolved` (or equivalent).
+3. For each event, decode:
+
+   * `playerAddress`
+   * `queueType` (ranked/casual; we only care about ranked for now)
+   * `result` (WIN/LOSS/DRAW)
+   * `deaths` (number of hero deaths on player side)
+4. Map `playerAddress` → `clusterId` and insert into `pvp_matches`:
+
+   * `tx_hash`
+   * `block_number`
+   * `cluster_id`
+   * `wallet_address`
+   * `queue_type`
+   * `result`
+   * `deaths`
+5. Update `ingestion_state.last_block` for key `'pvp'`.
+
+#### 4. Wiring & Scheduling
+
+* Create an ETL launcher file (if not present) that can call these indexers:
+
+  * e.g. `src/etl/ingestion/index.ts` with:
+
+    ```ts
+    export async function runAllIngestors() {
+      await runHuntingIndexer();
+      await runPvpIndexer();
+    }
+    ```
+* Hook into whichever scheduler we already use:
+
+  * daily + incremental ETL
+  * or add a separate cron-like job that calls `runAllIngestors()` every N minutes.
+
+#### 5. Validation
+
+Once indexers are implemented:
+
+1. Pick one test wallet/cluster and manually look up a couple of hunting + PvP transactions on a block explorer.
+2. Run `runAllIngestors()` for a small block range.
+3. Confirm `hunting_encounters` and `pvp_matches` now have rows for those txs.
+4. Run the main ETL (challenge ETL) for that cluster:
+
+   * Confirm `challenge_progress` shows non-zero values for:
+
+     * `hunters_triumph`
+     * `motherclucker_slayer`
+     * `mad_boar_slayer`
+     * `relic_tracker`
+     * `clucker_miracle` (if the miracle condition is present)
+     * `arena_challenger`
+     * `arena_victor`
+     * `win_streak`
+     * `flawless_victory` (if 0-death win exists)
+5. Summarize any assumptions you made about event names or ABIs and show me the final indexer code so we can refine event decoding if needed.
+
+## Please implement these indexers using our existing DB + ETL style, and be conservative on batch size and RPC usage so it’s safe to run repeatedly.
+
+Paste that into Replit and let it go to work.
+
+Once Replit comes back with the next verification summary or code screenshot, send it here and I’ll help you review the indexers and confirm everything looks solid.
