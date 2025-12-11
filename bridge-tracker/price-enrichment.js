@@ -36,7 +36,8 @@ export async function getUnpricedEventsByDateToken() {
     ORDER BY event_date ASC
     LIMIT 100
   `);
-  return result.rows || [];
+  // postgres-js returns rows directly as array, not { rows: [...] }
+  return Array.isArray(result) ? result : (result.rows || []);
 }
 
 export async function enrichEventsForDateToken(eventDate, tokenSymbol, verbose = false) {
@@ -377,5 +378,6 @@ async function getAllUnpricedGroups() {
     GROUP BY date_trunc('day', block_timestamp), token_symbol
     ORDER BY event_date ASC
   `);
-  return result.rows || [];
+  // postgres-js returns rows directly as array, not { rows: [...] }
+  return Array.isArray(result) ? result : (result.rows || []);
 }
