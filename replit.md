@@ -40,7 +40,7 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
             - `onchain_quests`: mining_quests, gardening_quests, fishing_quests, foraging_quests
             - `onchain_summons`: total_summons, summons_mythic_rarity, summons_high_tier_genes
             - `onchain_summoning`: mutagenic_specialist_count, mythmaker_count, summoner_of_legends_count
-            - `behavior_events`: active_days, discord_engagement_score, account_age_days (Phase 2 - uses player.firstDfkTxTimestamp)
+            - `behavior_events`: active_days, discord_engagement_score, account_age_days (Phase 2 - uses MIN(firstDfkTxTimestamp) across all wallets in cluster)
             - `onchain_pets`: rarity_score, gardening_pet_count
             - `onchain_lp`: total_lp_value
         *   **Pending Metrics (Future Phases)**: onchain_hunting, onchain_pvp, onchain_gold, onchain_staking, seasonal_events

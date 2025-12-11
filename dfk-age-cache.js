@@ -35,7 +35,32 @@ export async function startDfkAgeCache() {
 }
 
 /**
+ * Collect all wallet addresses for a player (primaryWallet + wallets array)
+ * Returns deduplicated, lowercase list
+ */
+function getAllPlayerWallets(player) {
+  const walletSet = new Set();
+  
+  // Add primary wallet
+  if (player.primaryWallet) {
+    walletSet.add(player.primaryWallet.toLowerCase());
+  }
+  
+  // Add wallets from JSON array
+  if (Array.isArray(player.wallets)) {
+    for (const w of player.wallets) {
+      if (typeof w === 'string' && w.length > 0) {
+        walletSet.add(w.toLowerCase());
+      }
+    }
+  }
+  
+  return Array.from(walletSet);
+}
+
+/**
  * Find players without cached DFK Age and compute it
+ * Uses MIN(firstDfkTxTimestamp) across ALL wallets in the player's cluster
  */
 async function computePendingDfkAges() {
   try {
@@ -62,30 +87,43 @@ async function computePendingDfkAges() {
       await Promise.all(
         batch.map(async (player) => {
           try {
-            if (!player.primaryWallet) return;
+            // Get all wallets in this player's cluster
+            const allWallets = getAllPlayerWallets(player);
             
-            console.log(`[DfkAgeCache] Computing DFK Age for ${player.discordUsername}...`);
-            
-            // Fetch first transaction timestamp from blockchain
-            const firstTxTimestampMs = await onchain.getFirstDfkTxTimestamp(player.primaryWallet);
-            
-            if (firstTxTimestampMs) {
-              // Convert to Date object and cache in database
-              const firstTxDate = new Date(firstTxTimestampMs);
-              
-              await db
-                .update(players)
-                .set({
-                  firstDfkTxTimestamp: firstTxDate,
-                  updatedAt: new Date()
-                })
-                .where(eq(players.id, player.id));
-              
-              const ageDays = onchain.calculateDfkAgeDays(firstTxTimestampMs);
-              console.log(`[DfkAgeCache] ✅ ${player.discordUsername}: DFK Age = ${ageDays} days (first tx: ${firstTxDate.toISOString()})`);
-            } else {
-              console.log(`[DfkAgeCache] ⚠️  ${player.discordUsername}: Could not determine first DFK transaction`);
+            if (allWallets.length === 0) {
+              console.log(`[DfkAgeCache] ⚠️  ${player.discordUsername}: No wallets linked`);
+              return;
             }
+            
+            console.log(`[DfkAgeCache] Computing DFK Age for ${player.discordUsername} across ${allWallets.length} wallet(s)...`);
+            
+            // Fetch first transaction timestamp from each wallet
+            const timestamps = await Promise.all(
+              allWallets.map(wallet => onchain.getFirstDfkTxTimestamp(wallet))
+            );
+            
+            // Filter out null values and find the minimum (earliest) timestamp
+            const validTimestamps = timestamps.filter(ts => ts !== null && ts > 0);
+            
+            if (validTimestamps.length === 0) {
+              console.log(`[DfkAgeCache] ⚠️  ${player.discordUsername}: No DFK transactions found across ${allWallets.length} wallet(s)`);
+              return;
+            }
+            
+            // Use MIN timestamp (earliest activity across all wallets in cluster)
+            const earliestTimestampMs = Math.min(...validTimestamps);
+            const firstTxDate = new Date(earliestTimestampMs);
+            
+            await db
+              .update(players)
+              .set({
+                firstDfkTxTimestamp: firstTxDate,
+                updatedAt: new Date()
+              })
+              .where(eq(players.id, player.id));
+            
+            const ageDays = onchain.calculateDfkAgeDays(earliestTimestampMs);
+            console.log(`[DfkAgeCache] ✅ ${player.discordUsername}: DFK Age = ${ageDays} days (earliest tx across ${allWallets.length} wallet(s): ${firstTxDate.toISOString()})`);
           } catch (err) {
             console.warn(`[DfkAgeCache] Error computing DFK age for ${player.discordUsername}:`, err.message);
           }
