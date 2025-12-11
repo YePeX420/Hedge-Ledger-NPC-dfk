@@ -1,0 +1,454 @@
+Nice. I’ll give you three drop-in prompts you can paste into the Replit backend chat from your phone:
+
+1. Prompt A – Season 1 design + config
+
+
+2. Prompt B – Default leaderboard definitions
+
+
+3. Prompt C – Phase 4 DeFi ETL (LP + Jeweler) aligned with seasons/leaderboards
+
+
+
+You can send them one at a time to Replit.
+
+
+---
+
+🧾 PROMPT A – Create Season 1 Design & Seed It
+
+> Paste into Replit backend project chat:
+
+
+
+
+---
+
+Prompt A – Configure Season 1 (baseline season + challenge weights)
+
+We now have:
+
+A Season Engine (src/etl/seasons/seasonPoints.ts, /api/admin/seasons)
+
+The Challenge System with 16 categories and many challenges
+
+Working ETL for:
+
+behavior_events (engagement + account_age_days)
+
+heroes (hero_count, total_levels)
+
+quests (mining, foraging)
+
+summoning basics
+
+some LP and pets, etc.
+
+
+
+I want to define a default Season 1 and seed it into the DB so we can start playing with season points and leaderboards.
+
+1. Define Season 1 metadata
+
+Please create a Season 1 entry (either via a small seed script or using the existing seasons module) with:
+
+key: "season_1_awakening"
+
+name: "Season 1 – The Awakening"
+
+description: "Inaugural Hedge Ledger challenge season focusing on hero growth, summoning, hunting, and PvP."
+
+startDate: choose a reasonable recent/minor future date (e.g., today)
+
+endDate: startDate + 60 days (about 2 months)
+
+isActive: true
+
+
+Use the seasons table schema that was created.
+
+2. Configure Season 1 challenge weights
+
+Using the season_challenge_weights table and the Season Engine you implemented:
+
+Create weights (point multipliers) for these challenge keys:
+
+Hero Progression / Ownership (weight 1x)
+
+hero_riser -> weight 1
+
+house_of_heroes -> weight 1
+
+
+Professions (weight 1x)
+
+miner_master -> weight 1
+
+herbalist_master -> weight 1
+
+
+Summoning Prestige (heavier weight)
+
+perfect_pairing -> weight 5
+
+mutagenic_specialist -> weight 5
+
+mythmaker -> weight 4
+
+royal_lineage -> weight 5
+
+summoner_of_legends -> weight 8
+
+
+Hunting (mid-high weight)
+
+hunters_triumph -> weight 2
+
+motherclucker_slayer -> weight 4
+
+mad_boar_slayer -> weight 4
+
+relic_tracker -> weight 3
+
+clucker_miracle -> weight 10
+
+
+PvP (mid-high weight)
+
+arena_challenger -> weight 1
+
+arena_victor -> weight 3
+
+win_streak -> weight 4
+
+flawless_victory -> weight 8
+
+
+Behavior & Engagement (lighter weight)
+
+kingdom_calls -> weight 1
+
+loyal_follower -> weight 1
+
+
+For Season 1, you can skip METIS and DeFi challenges for now—they’ll come in Season 2+.
+
+3. Wire Season Engine to use these weights
+
+Ensure that:
+
+seasonPoints.ts reads season_challenge_weights and multiplies each challenge’s normalized progress or tier-based score by its weight.
+
+Season progress is written into season_progress with:
+
+clusterId
+
+seasonId
+
+seasonPoints
+
+level if applicable (you already implemented that logic).
+
+
+
+4. Quick verification
+
+Create at least one test cluster with non-zero challenge_progress for:
+
+hero_riser / house_of_heroes
+
+a summoning prestige or two
+
+a few hunts and PvP wins
+
+
+Run the season ETL and confirm:
+
+season_progress for season_1_awakening has a non-zero points value
+
+/api/admin/seasons / related endpoints show Season 1 and its weights
+
+
+
+Please share a short summary of:
+
+The Season 1 record (key, dates)
+
+A sample season_challenge_weights entry
+
+A sample season_progress entry for a test cluster.
+
+
+
+---
+
+🧾 PROMPT B – Create Default Leaderboard Definitions
+
+> Paste into Replit backend project chat AFTER Prompt A is done:
+
+
+
+
+---
+
+Prompt B – Seed Default Leaderboard Definitions
+
+We now have:
+
+Season Engine (Season 1 configured)
+
+Leaderboard System at /api/admin/leaderboards
+
+ETL that can compute challenge metrics and season points
+
+
+I’d like to define default leaderboard definitions so we can start generating ranked views.
+
+1. Define leaderboards in DB
+
+Using leaderboard_defs, please create the following leaderboard definitions:
+
+1. Top Overall Progression
+
+key: "lb_overall_progression"
+
+name: "Overall Progression (All Time)"
+
+description: "Top clusters by combined challenge progress across all categories."
+
+Data source: challenge_progress (all challenges)
+
+Aggregation: sum of normalized challenge scores
+
+Time window: ALL_TIME
+
+
+
+2. Top Summoners
+
+key: "lb_summoning_prestige"
+
+name: "Top Summoners"
+
+description: "Leaders in Mythmaker, Mutagenic Specialist, Royal Lineage, and Summoner of Legends."
+
+Data source: meta_profile.summoning_prestige_score
+
+Time window: ALL_TIME and SEASON
+
+
+
+3. Top Hunters
+
+key: "lb_hunting_pve"
+
+name: "Top Hunters"
+
+description: "Clusters with the most boss kills and relics gathered in Hunting."
+
+Challenges considered: hunters_triumph, motherclucker_slayer, mad_boar_slayer, relic_tracker, clucker_miracle
+
+Time windows: ALL_TIME, SEASON
+
+
+
+4. Top PvP Competitors
+
+key: "lb_pvp_competition"
+
+name: "Top PvP Competitors"
+
+description: "Highest-performing players across Arena Victor, Win Streak, and Flawless Victory."
+
+Data source: meta_profile.pvp_mastery_score
+
+Time windows: ALL_TIME, SEASON
+
+
+
+5. Season Points – Season 1
+
+key: "lb_season_1_points"
+
+name: "Season 1 – The Awakening"
+
+description: "Season standings based on Season 1 point weights."
+
+Data source: season_progress for season_1_awakening
+
+Time window: SEASON only
+
+
+
+
+2. Implement generation logic (if not done yet)
+
+In src/etl/leaderboards/generateLeaderboard.ts:
+
+Ensure it can:
+
+Load leaderboard_defs
+
+For each def, compute rankings for the configured time window
+
+Store results in leaderboard_runs and leaderboard_entries
+
+
+
+For meta-based leaderboards (summoning, pvp), you can:
+
+Read from meta_profile metrics or
+
+Derive scores from challenge_progress if meta_profile ETL isn’t complete yet.
+
+
+3. Quick tests
+
+Run a leaderboard generation job for each leaderboard_def.
+
+Hit /api/admin/leaderboards (or the route you built) to list runs and entries.
+
+Verify that:
+
+There are sorted entries by score
+
+A test cluster appears in the correct position on the Season 1 leaderboard.
+
+
+
+Please share a short summary of:
+
+Rows inserted into leaderboard_defs
+
+A sample leaderboard_runs row for lb_season_1_points
+
+A couple of leaderboard_entries rows for a test cluster.
+
+
+
+---
+
+🧾 PROMPT C – Phase 4 ETL: DeFi (LP + Jeweler) Aligned With Seasons/Leaderboards
+
+> Paste into Replit backend project chat AFTER Prompt 2 and Prompt 3 (Hunting + PvP) are done, or queue this for when DeFi is ready.
+
+
+
+
+---
+
+Prompt C – Implement Phase 4 ETL (LP + Jeweler) for DeFi Participation & Leaderboards
+
+We now have:
+
+Modular ETL with registry
+
+Hunting + PvP ETL (from Prompt 2)
+
+Leaderboard system
+
+Season Engine with Season 1 and challenge weights
+
+
+Next, we want to fully power the DeFi Participation category (defi_participation) plus any DeFi-related leaderboards.
+
+Target metricSources:
+
+onchain_lp
+
+onchain_staking
+
+
+1. Implement onchain_lp ETL
+
+Create/complete src/etl/sources/onchain_lp.ts implementing SourceMetricFn:
+
+return {
+  lp_usd_value: number;
+  pool_count: number;
+  harvest_actions: number;
+  lp_duration_max_days: number;
+};
+
+Definitions:
+
+lp_usd_value – current USD value of all LP tokens held by cluster
+
+pool_count – number of distinct LP pools where the cluster has value above a small threshold (e.g. > $1)
+
+harvest_actions – count of LP reward harvest transactions
+
+lp_duration_max_days – the maximum number of consecutive days the cluster has maintained an LP position in any single pool
+
+
+Use your LP tables (positions, events, harvests). Consider building a lp_positions_cluster_view to simplify.
+
+Map to challenges:
+
+lp_depth → lp_usd_value
+
+lp_diversified → pool_count
+
+yield_harvester → harvest_actions
+
+diamond_hand_lp → lp_duration_max_days
+
+
+2. Implement onchain_staking ETL
+
+Create/complete src/etl/sources/onchain_staking.ts implementing:
+
+return {
+  stake_usd_value: number;
+  stake_duration_days: number;
+  jewel_stake_amount: number;
+};
+
+Definitions:
+
+stake_usd_value – USD value of all tokens staked at Jeweler
+
+stake_duration_days – longest continuous days with any stake > 0
+
+jewel_stake_amount – raw JEWEL amount staked (ignoring other tokens)
+
+
+Map to challenges:
+
+jeweler_stakeholder → stake_usd_value
+
+jeweler_loyalty (if mapped) → stake_duration_days
+
+jeweler_whale → jewel_stake_amount
+
+For jeweler_whale, set unlocked = true when value >= 10_000 per config.
+
+
+
+3. Hook into Seasons & Leaderboards
+
+Confirm that DeFi challenges (lp_depth, lp_diversified, yield_harvester, diamond_hand_lp, jeweler_stakeholder, jeweler_whale) can be weighted in season_challenge_weights for future seasons.
+
+Optionally, create a leaderboard definition:
+
+key: "lb_defi_participation"
+
+Data source: combination of lp_usd_value + stake_usd_value or defi-scoped challengeProgress.
+
+
+
+4. Testing
+
+Use a test cluster with known LP and staking data.
+
+Run ETL and confirm that challenge_progress values for the DeFi challenges look correct.
+
+Run leaderboard generation for any DeFi leaderboard_def and verify entries.
+
+
+Please keep architecture consistent with previous metric sources and do not change existing interfaces or API contracts.
+
+
+---
+
+Now you can paste Prompt A, then Prompt B, then Prompt C into Replit in order, and let it build out Seasons, Leaderboards, and DeFi ETL for you while you’re away from your computer.

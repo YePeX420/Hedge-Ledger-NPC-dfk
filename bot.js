@@ -4008,6 +4008,47 @@ async function startAdminWebServer() {
   // Season routes (admin only - auth handled in middleware below)
   app.use('/api/admin/seasons', isAdmin, seasonRoutes);
 
+  // Seed routes - admin only
+  app.post('/api/admin/seeds/season-1', isAdmin, async (req, res) => {
+    try {
+      const { seedSeason1 } = await import('./src/etl/seeds/seedSeason1.ts');
+      const result = await seedSeason1();
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error seeding Season 1:', error);
+      res.status(500).json({ error: 'Failed to seed Season 1', details: error.message });
+    }
+  });
+
+  app.post('/api/admin/seeds/leaderboards', isAdmin, async (req, res) => {
+    try {
+      const { seedLeaderboards } = await import('./src/etl/seeds/seedLeaderboards.ts');
+      const result = await seedLeaderboards();
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error seeding leaderboards:', error);
+      res.status(500).json({ error: 'Failed to seed leaderboards', details: error.message });
+    }
+  });
+
+  app.post('/api/admin/seeds/all', isAdmin, async (req, res) => {
+    try {
+      const { seedSeason1 } = await import('./src/etl/seeds/seedSeason1.ts');
+      const { seedLeaderboards } = await import('./src/etl/seeds/seedLeaderboards.ts');
+      
+      const season1Result = await seedSeason1();
+      const leaderboardsResult = await seedLeaderboards();
+      
+      res.json({
+        season1: season1Result,
+        leaderboards: leaderboardsResult,
+      });
+    } catch (error) {
+      console.error('[API] Error seeding all:', error);
+      res.status(500).json({ error: 'Failed to seed all', details: error.message });
+    }
+  });
+
   // Debug endpoint - no auth required
   app.get('/api/admin/debug-status', async (req, res) => {
     try {
