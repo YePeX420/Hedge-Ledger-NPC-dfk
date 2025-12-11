@@ -1,66 +1,76 @@
 // src/config/combatContracts.ts
 // Contract addresses and ABIs for Hunting and PvP event indexing
 // 
-// CONFIGURATION REQUIRED:
-// These are placeholder values (0x000...). Update with actual DFK contract addresses
-// and event signatures before running indexers. Without configuration:
-// - Indexers will not advance block checkpoints (safe - no data loss)
-// - No events will be ingested
-// 
-// To find actual contract addresses:
-// 1. Check DFK docs: https://docs.defikingdoms.com/
-// 2. Or examine transactions on DFK Chain explorer for event emissions
+// Sources:
+// - Void Hunts: https://devs.defikingdoms.com/contracts/void-hunts
+// - DFK Duel: https://devs.defikingdoms.com/contracts/dfk-duel
+
+import { ethers } from 'ethers';
 
 export const COMBAT_CONTRACTS = {
   dfk: {
     rpcUrl: 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc',
     chainId: 53935,
-    // Hunting contract - placeholder, update with actual address
-    huntingContract: '0x0000000000000000000000000000000000000000',
-    // PvP/Arena contract - placeholder, update with actual address
-    pvpContract: '0x0000000000000000000000000000000000000000',
+    // HuntsDiamond - Void Hunts contract on DFK Chain
+    huntingContract: '0xEaC69796Cff468ED1694A6FfAc4cbC23bbe33aFa',
+    // DFK Duel S6 - PvP combat contract on DFK Chain
+    pvpContract: '0xb7F679d69FA55b762F7f48432Da77D096d749540',
   },
-  metis: {
-    rpcUrl: 'https://andromeda.metis.io/?owner=1088',
-    chainId: 1088,
-    // METIS PvP contract - placeholder
-    pvpContract: '0x0000000000000000000000000000000000000000',
+  klaytn: {
+    rpcUrl: 'https://klaytn.drpc.org',
+    chainId: 8217,
+    // DFK Duel S6 - PvP combat contract on Klaytn (Serendale)
+    pvpContract: '0x1207b51994c7A21cC0C78Ad1B12f2A3E203afC85',
   },
 };
 
-// Default start blocks for indexers (approximate deployment blocks)
+// Start blocks for limited backfill (recent data only to avoid excessive RPC calls)
+// DFK Chain is at ~56M blocks as of Dec 2024, Klaytn is at ~203M blocks
 export const INDEXER_START_BLOCKS = {
-  hunting_dfk: 0,
-  pvp_dfk: 0,
-  pvp_metis: 0,
+  hunting_dfk: 56000000,  // Start hunting indexing from recent blocks (approx 1 week ago)
+  pvp_dfk: 56000000,      // Start PvP indexing from recent blocks
+  pvp_klaytn: 203000000,  // Klaytn recent blocks (approx 1 week ago)
 };
 
 // Batch size for log queries (conservative to avoid RPC limits)
 export const BLOCKS_PER_QUERY = 2000;
 
-// Hunting event signatures (placeholder - update with actual event names)
-// These would be generated via ethers.id('EventName(arg1Type,arg2Type,...)')
+// Hunting event signatures from HuntsDiamond interface
+// event HuntCompleted(uint256 huntId, tuple hunt, bool huntWon, uint256[] heroIds)
+// The actual event has a complex tuple structure, we compute the signature
 export const HUNTING_EVENTS = {
-  // Example: HuntCompleted(address indexed player, uint256 enemyId, bool victory, uint256 survivingHeroes)
-  HuntCompleted: '0x0000000000000000000000000000000000000000000000000000000000000000',
+  // HuntCompleted - main event when a hunt finishes
+  // Simplified topic for matching
+  HuntCompleted: ethers.id('HuntCompleted(uint256,(uint256,uint256,uint256,uint256[],address,uint8,uint256,uint256[],uint256,uint256,(address,uint16,uint16)[]),bool,uint256[])'),
 };
 
-// PvP event signatures (placeholder - update with actual event names)
+// PvP event signatures from DFK Duel S6 interface
+// event DuelCompleted(uint256 indexed duelId, address indexed player1, address indexed player2, tuple duel)
 export const PVP_EVENTS = {
-  // Example: MatchResolved(address indexed player1, address indexed player2, uint8 result, uint256 matchId)
-  MatchResolved: '0x0000000000000000000000000000000000000000000000000000000000000000',
+  // DuelCompleted - main event when a duel finishes
+  DuelCompleted: ethers.id('DuelCompleted(uint256,address,address,(uint256,address,address,uint256,uint256,address,uint256[],uint256[],uint256,uint8,uint8,(uint256,uint16,uint32,uint16,uint32,uint64,uint64)))'),
 };
 
-// Enemy ID mappings
+// Hunt ID to enemy name mappings (from DFK docs)
 export const ENEMY_NAMES: Record<number, string> = {
-  1: 'MOTHERCLUCKER',
-  2: 'MAD_BOAR',
-  3: 'GOBLIN',
-  4: 'SKELETON',
-  5: 'WOLF',
-  // Add more as discovered
+  1: 'MAD_BOAR',
+  2: 'BAD_MOTHERCLUCKER',
 };
 
 export function getEnemyName(id: number): string {
   return ENEMY_NAMES[id] || `ENEMY_${id}`;
+}
+
+// Duel type mappings
+export const DUEL_TYPES: Record<number, string> = {
+  0: 'SOLO',      // 1v1
+  1: 'SQUAD',     // 3v3
+  2: 'WAR',       // 9v9
+  3: 'PRIVATE',   // No rewards
+  4: 'PRACTICE',  // AI opponent
+  5: 'PACK',      // 5v5
+};
+
+export function getDuelTypeName(type: number): string {
+  return DUEL_TYPES[type] || `TYPE_${type}`;
 }

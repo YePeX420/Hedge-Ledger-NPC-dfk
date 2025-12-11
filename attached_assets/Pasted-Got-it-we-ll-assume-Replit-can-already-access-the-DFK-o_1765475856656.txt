@@ -1,0 +1,118 @@
+Got it – we’ll assume Replit can already access the DFK official dev docs / contract registry and any existing contract utilities in your backend.
+
+Here’s a single, focused prompt you can paste into the Replit backend chat to get Crystalvale + METIS ingestion configured and running.
+
+
+---
+
+🔧 Prompt — Configure Combat Ingestion for Crystalvale + METIS
+
+> Paste this into Replit backend project chat:
+
+
+
+We’ve now implemented Phase 3 Combat Ingestion (huntingIndexer + pvpIndexer) and the ETL extractors for onchain_hunting and onchain_pvp. The remaining work is to configure and run ingestion against the actual live contracts on Crystalvale and METIS so that hunting_encounters and pvp_matches tables get populated.
+
+Please do the following:
+
+1) Configure src/config/combatContracts.ts for CRYSTALVALE + METIS
+
+- Use DFK’s official developer information / contract registry (and any existing contract helpers already present in the codebase) to populate:
+
+  • Crystalvale Hunting contract address and ABI/event signature for the hunt completion event (e.g., HuntCompleted / QuestCompleted / etc. – use the current DFK hunting contract).
+  • Crystalvale PvP/Arena contract address and ABI/event signature for the match resolution event.
+  • METIS PvP contract address and ABI/event signature for the match resolution event (if PvP runs on METIS).
+
+- Make sure combatContracts.ts exports something like:
+
+  ```ts
+  export const HUNTING_CONTRACTS = {
+    crystalvale: { address: "...", huntEventSig: "0x..." },
+    // other realms can be added later
+  };
+
+  export const PVP_CONTRACTS = {
+    crystalvale: { address: "...", matchEventSig: "0x..." },
+    metis: { address: "...", matchEventSig: "0x..." },
+  };
+
+Use ethers.id("EventName(args...)") (or existing helpers) to generate the event signature constants from the ABI.
+
+IMPORTANT: Prefer existing DFK contract config in this repo (if present) over hardcoding manual addresses; keep all network-specific addresses in a config file.
+
+
+2. Wire Crystalvale + METIS into huntingIndexer and pvpIndexer
+
+
+
+In src/etl/ingestion/huntingIndexer.ts: • Use the Crystalvale hunting contract config from combatContracts.ts. • Query logs for the configured hunt completion event between [last_block+1 .. current_block]. • Decode enemyId, result, survivors, HP, and drops as already coded. • Map wallet → clusterId and insert rows into hunting_encounters.
+
+In src/etl/ingestion/pvpIndexer.ts: • Use the PvP contract configs for: - Crystalvale - METIS • Query logs for the match resolution event on each chain. • Decode queueType (ranked/casual), result, deaths, and player addresses. • Map wallet → clusterId and insert rows into pvp_matches.
+
+Keep the ingestion_state logic as-is: each indexer should advance its own last_block only when calls succeed.
+
+
+3. Add a simple ingestion runner for Crystalvale + METIS
+
+
+
+In src/etl/ingestion/index.ts, ensure there is a function like:
+
+export async function runCombatIngestors() {
+  await runHuntingIndexer();
+  await runPvpIndexer();
+}
+
+Add a small script or admin-only endpoint that can trigger runCombatIngestors() manually for backfill, and ensure it’s also called from the periodic ETL scheduler (daily + incremental).
+
+
+4. Backfill for a limited block range (Crystalvale + METIS)
+
+
+
+For now, configure a conservative block range: • Set the initial last_block for hunting and pvp in ingestion_state to a recent historical block (e.g., the last N days), so we don’t backfill the entire chain on the first run. • Run runCombatIngestors() and verify hunting_encounters and pvp_matches get rows on both Crystalvale and METIS.
+
+
+5. Validate End-to-End
+
+
+
+Pick one test cluster (you can use my cluster or any active one) that: • Has hunting activity (Motherclucker / Mad Boar). • Has PvP matches (ranked).
+
+After running the indexers and the main challenge ETL: • Confirm in challenge_progress (or via admin dashboard) that the following keys have non-zero values or correct unlocked flags:
+
+hunters_triumph
+
+motherclucker_slayer
+
+mad_boar_slayer
+
+relic_tracker
+
+clucker_miracle (if a miracle hunt exists)
+
+arena_challenger
+
+arena_victor
+
+win_streak
+
+flawless_victory (if a flawless win exists)
+
+
+Summarize: • The addresses and event signatures used for Crystalvale and METIS. • Any simplifying assumptions (e.g., how enemyId is mapped). • A sample row from hunting_encounters and pvp_matches for a real transaction.
+
+
+The goal is that, once combatContracts.ts is configured from official DFK dev information and the indexers are running, the hunting and PvP categories in the Challenge System start showing real, non-zero values, and leaderboards/seasons can use those metrics.
+
+---
+
+Once you paste that into Replit, they’ll:
+
+- Look up DFK official contract info  
+- Fill in `combatContracts.ts`  
+- Wire ingestion to both chains  
+- Run a small backfill  
+- Validate that challenge metrics populate
+
+When they come back with another summary screenshot (contract addresses, sample rows, etc.), send it to me and I’ll help you sanity-check that the data being ingested matches what we expect.0

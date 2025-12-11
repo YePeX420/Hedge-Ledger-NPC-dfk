@@ -5335,6 +5335,100 @@ async function startAdminWebServer() {
   });
 
   // ============================================================================
+  // PHASE 3 COMBAT INGESTION API (Hunting + PvP Indexers)
+  // ============================================================================
+  // Indexes combat events from DFK Chain and Klaytn:
+  // - HuntsDiamond (0xEaC69796Cff468ED1694A6FfAc4cbC23bbe33aFa) for Void Hunts
+  // - DFK Duel S6 (0xb7F679d69FA55b762F7f48432Da77D096d749540) for PvP on DFK Chain
+  // - DFK Duel S6 (0x1207b51994c7A21cC0C78Ad1B12f2A3E203afC85) for PvP on Klaytn
+  // ============================================================================
+
+  // GET /api/admin/combat/status - Get combat indexer status
+  app.get('/api/admin/combat/status', isAdmin, async (req, res) => {
+    try {
+      const { getHuntingIndexerStatus } = await import('./src/etl/ingestion/huntingIndexer.js');
+      const { getPvpIndexerStatus } = await import('./src/etl/ingestion/pvpIndexer.js');
+      
+      const [huntingStatus, pvpStatus] = await Promise.all([
+        getHuntingIndexerStatus(),
+        getPvpIndexerStatus(),
+      ]);
+      
+      res.json({
+        hunting: huntingStatus,
+        pvp: pvpStatus,
+      });
+    } catch (error) {
+      console.error('[API] Error getting combat indexer status:', error);
+      res.status(500).json({ error: 'Failed to get status', details: error.message });
+    }
+  });
+
+  // POST /api/admin/combat/hunting/run - Run hunting indexer batch
+  app.post('/api/admin/combat/hunting/run', isAdmin, async (req, res) => {
+    try {
+      const { runHuntingIndexer } = await import('./src/etl/ingestion/huntingIndexer.js');
+      const result = await runHuntingIndexer();
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error running hunting indexer:', error);
+      res.status(500).json({ error: 'Failed to run hunting indexer', details: error.message });
+    }
+  });
+
+  // POST /api/admin/combat/pvp/run - Run PvP indexer batch
+  app.post('/api/admin/combat/pvp/run', isAdmin, async (req, res) => {
+    try {
+      const { runPvpIndexer } = await import('./src/etl/ingestion/pvpIndexer.js');
+      const result = await runPvpIndexer();
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error running PvP indexer:', error);
+      res.status(500).json({ error: 'Failed to run PvP indexer', details: error.message });
+    }
+  });
+
+  // POST /api/admin/combat/run-all - Run both indexers
+  app.post('/api/admin/combat/run-all', isAdmin, async (req, res) => {
+    try {
+      const { runHuntingIndexer } = await import('./src/etl/ingestion/huntingIndexer.js');
+      const { runPvpIndexer } = await import('./src/etl/ingestion/pvpIndexer.js');
+      
+      const [huntingResult, pvpResult] = await Promise.all([
+        runHuntingIndexer(),
+        runPvpIndexer(),
+      ]);
+      
+      res.json({
+        hunting: huntingResult,
+        pvp: pvpResult,
+      });
+    } catch (error) {
+      console.error('[API] Error running combat indexers:', error);
+      res.status(500).json({ error: 'Failed to run combat indexers', details: error.message });
+    }
+  });
+
+  // GET /api/admin/combat/stats - Get combat data statistics
+  app.get('/api/admin/combat/stats', isAdmin, async (req, res) => {
+    try {
+      const huntingCountResult = await db.execute(sql`SELECT COUNT(*) as count FROM hunting_encounters`);
+      const pvpCountResult = await db.execute(sql`SELECT COUNT(*) as count FROM pvp_matches`);
+      
+      const huntingCount = parseInt(huntingCountResult[0]?.count || '0');
+      const pvpCount = parseInt(pvpCountResult[0]?.count || '0');
+      
+      res.json({
+        hunting: { totalEncounters: huntingCount },
+        pvp: { totalMatches: pvpCount },
+      });
+    } catch (error) {
+      console.error('[API] Error getting combat stats:', error);
+      res.status(500).json({ error: 'Failed to get stats', details: error.message });
+    }
+  });
+
+  // ============================================================================
   // CHALLENGE SYSTEM API
   // ============================================================================
   // Challenge/Achievement system endpoints

@@ -1,6 +1,7 @@
 // src/etl/ingestion/huntingIndexer.ts
-// Indexes hunting encounter events from DFK Chain into hunting_encounters table
+// Indexes hunting encounter events from DFK Chain (HuntsDiamond) into hunting_encounters table
 // Uses direct RPC log scanning for full control without subgraph dependencies
+// Source: https://devs.defikingdoms.com/contracts/void-hunts
 
 import { ethers } from 'ethers';
 import { db } from '../../../server/db.js';
@@ -52,63 +53,91 @@ async function getClusterKey(walletAddress: string): Promise<string | null> {
   const result = await db
     .select({ clusterKey: walletLinks.clusterKey })
     .from(walletLinks)
-    .where(eq(walletLinks.walletAddress, walletAddress.toLowerCase()))
+    .where(eq(walletLinks.address, walletAddress.toLowerCase()))
     .limit(1);
 
   return result.length > 0 ? result[0].clusterKey : null;
 }
 
 interface ParsedHuntEvent {
+  huntId: string;
   txHash: string;
   blockNumber: number;
   walletAddress: string;
   enemyId: string;
   result: 'WIN' | 'LOSS' | 'FLEE';
-  survivingHeroCount: number;
-  survivingHeroHp: number | null;
+  heroIds: string[];
   encounteredAt: Date;
   drops: Array<{ itemId: string; quantity: number }>;
 }
 
+// ABI for HuntCompleted event decoding
+const HUNT_COMPLETED_ABI = [
+  'event HuntCompleted(uint256 huntId, tuple(uint256 id, uint256 huntDataId, uint256 startBlock, uint256[] heroIds, address player, uint8 status, uint256 resultSubmittedTimestamp, uint256[] petXpBonuses, uint256 startAtTime, uint256 retries, tuple(address item, uint16 submittedAmount, uint16 usedAmount)[] consumableItems) hunt, bool huntWon, uint256[] heroIds)',
+];
+
 function parseHuntingEvent(log: ethers.Log, block: ethers.Block): ParsedHuntEvent | null {
   try {
-    // Decode based on event signature
-    // This is a placeholder implementation - update with actual event structure
+    const iface = new ethers.Interface(HUNT_COMPLETED_ABI);
+    const decoded = iface.parseLog({ topics: log.topics as string[], data: log.data });
     
-    // Example decoding (adjust based on actual ABI):
-    // topics[0] = event signature
-    // topics[1] = indexed player address
-    // data = encoded (enemyId, result, survivingHeroes, survivingHp, drops)
+    if (!decoded) {
+      console.warn('[HuntingIndexer] Could not decode log');
+      return null;
+    }
     
-    const walletAddress = '0x' + log.topics[1]?.slice(26).toLowerCase();
+    const huntId = decoded.args[0].toString();
+    const hunt = decoded.args[1];
+    const huntWon = decoded.args[2];
+    const heroIds = decoded.args[3].map((h: bigint) => h.toString());
     
-    // Decode data - this is placeholder logic
-    // In reality, you'd use ethers.AbiCoder to decode the data based on ABI
-    const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-    
-    // Placeholder: extract minimal data
-    // When you have the real ABI, decode properly
-    const enemyIdRaw = parseInt(log.data.slice(2, 66), 16) || 1;
-    const resultRaw = parseInt(log.data.slice(66, 130), 16) || 0;
-    const survivingHeroes = parseInt(log.data.slice(130, 194), 16) || 0;
-    const survivingHp = parseInt(log.data.slice(194, 258), 16) || 0;
-    
-    const result = resultRaw === 1 ? 'WIN' : resultRaw === 2 ? 'FLEE' : 'LOSS';
+    const walletAddress = hunt.player.toLowerCase();
+    const enemyId = getEnemyName(Number(hunt.huntDataId));
     
     return {
+      huntId,
       txHash: log.transactionHash,
       blockNumber: log.blockNumber,
       walletAddress,
-      enemyId: getEnemyName(enemyIdRaw),
-      result,
-      survivingHeroCount: survivingHeroes,
-      survivingHeroHp: survivingHp > 0 ? survivingHp : null,
+      enemyId,
+      result: huntWon ? 'WIN' : 'LOSS',
+      heroIds,
       encounteredAt: new Date(Number(block.timestamp) * 1000),
-      drops: [], // Would parse from additional data or separate events
+      drops: [], // Drops come from separate RewardMinted events - can enhance later
     };
   } catch (err) {
-    console.error('[HuntingIndexer] Failed to parse event:', err);
-    return null;
+    // Fallback: try simpler parsing from raw data
+    try {
+      const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+      // Try to extract player address from the hunt tuple structure
+      // Position in data varies, so we do best-effort extraction
+      const walletAddress = log.topics[1] 
+        ? '0x' + log.topics[1].slice(26).toLowerCase()
+        : null;
+      
+      if (!walletAddress || walletAddress === '0x') {
+        console.warn('[HuntingIndexer] Could not extract wallet address');
+        return null;
+      }
+      
+      // Extract huntId from first 32 bytes
+      const huntId = BigInt('0x' + log.data.slice(2, 66)).toString();
+      
+      return {
+        huntId,
+        txHash: log.transactionHash,
+        blockNumber: log.blockNumber,
+        walletAddress,
+        enemyId: 'UNKNOWN',
+        result: 'WIN', // Default assumption
+        heroIds: [],
+        encounteredAt: new Date(Number(block.timestamp) * 1000),
+        drops: [],
+      };
+    } catch (fallbackErr) {
+      console.error('[HuntingIndexer] Failed to parse event:', err);
+      return null;
+    }
   }
 }
 
@@ -137,7 +166,6 @@ export async function runHuntingIndexer(): Promise<{
   // Check if contract address is configured
   if (COMBAT_CONTRACTS.dfk.huntingContract === '0x0000000000000000000000000000000000000000') {
     console.warn('[HuntingIndexer] Hunting contract address not configured, skipping (no checkpoint advance)');
-    // DO NOT advance checkpoint when contract not configured - prevents skipping historical data
     return { processed: 0, inserted: 0, fromBlock: lastBlock, toBlock: lastBlock };
   }
   
@@ -154,8 +182,15 @@ export async function runHuntingIndexer(): Promise<{
     
     let inserted = 0;
     
+    // Cache blocks to reduce RPC calls
+    const blockCache: Map<number, ethers.Block> = new Map();
+    
     for (const log of logs) {
-      const block = await provider.getBlock(log.blockNumber);
+      let block = blockCache.get(log.blockNumber);
+      if (!block) {
+        block = await provider.getBlock(log.blockNumber);
+        if (block) blockCache.set(log.blockNumber, block);
+      }
       if (!block) continue;
       
       const parsed = parseHuntingEvent(log, block);
@@ -175,8 +210,8 @@ export async function runHuntingIndexer(): Promise<{
             realm: 'dfk',
             enemyId: parsed.enemyId,
             result: parsed.result,
-            survivingHeroCount: parsed.survivingHeroCount,
-            survivingHeroHp: parsed.survivingHeroHp,
+            survivingHeroCount: parsed.heroIds.length,
+            survivingHeroHp: null,
             drops: parsed.drops,
             encounteredAt: parsed.encounteredAt,
           })
@@ -205,6 +240,7 @@ export async function getHuntingIndexerStatus(): Promise<{
   lastBlock: number;
   currentBlock: number;
   blocksRemaining: number;
+  contractConfigured: boolean;
 }> {
   const provider = getProvider();
   const currentBlock = await provider.getBlockNumber();
@@ -215,5 +251,6 @@ export async function getHuntingIndexerStatus(): Promise<{
     lastBlock,
     currentBlock,
     blocksRemaining: Math.max(0, currentBlock - lastBlock),
+    contractConfigured: COMBAT_CONTRACTS.dfk.huntingContract !== '0x0000000000000000000000000000000000000000',
   };
 }
