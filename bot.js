@@ -4797,19 +4797,44 @@ async function startAdminWebServer() {
   // GET /api/admin/bridge/overview - Bridge analytics overview
   app.get('/api/admin/bridge/overview', isAdmin, async (req, res) => {
     try {
-      // Get aggregated stats
-      const [totalEvents, extractors, latestBlock] = await Promise.all([
-        db.select({ count: sql`COUNT(*)` }).from(bridgeEvents),
-        getTopExtractors(10),
-        getBridgeLatestBlock().catch(() => null)
+      const [eventStats, metricsStats, latestBlock] = await Promise.all([
+        db.select({
+          totalEvents: sql`COUNT(*)`,
+          inEvents: sql`SUM(CASE WHEN direction = 'in' THEN 1 ELSE 0 END)`,
+          outEvents: sql`SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END)`,
+          heroEvents: sql`SUM(CASE WHEN bridge_type = 'hero' THEN 1 ELSE 0 END)`,
+          itemEvents: sql`SUM(CASE WHEN bridge_type = 'item' THEN 1 ELSE 0 END)`,
+          totalUsdIn: sql`COALESCE(SUM(CASE WHEN direction = 'in' THEN CAST(usd_value AS DECIMAL) ELSE 0 END), 0)`,
+          totalUsdOut: sql`COALESCE(SUM(CASE WHEN direction = 'out' THEN CAST(usd_value AS DECIMAL) ELSE 0 END), 0)`
+        }).from(bridgeEvents),
+        
+        db.select({
+          trackedWallets: sql`COUNT(*)`,
+          totalExtracted: sql`COALESCE(SUM(CASE WHEN CAST(net_extracted_usd AS DECIMAL) > 0 THEN CAST(net_extracted_usd AS DECIMAL) ELSE 0 END), 0)`,
+          extractors: sql`SUM(CASE WHEN CAST(net_extracted_usd AS DECIMAL) > 100 THEN 1 ELSE 0 END)`
+        }).from(walletBridgeMetrics),
+        
+        getBridgeLatestBlock().catch(() => 0)
       ]);
 
       res.json({
-        success: true,
-        totalEvents: parseInt(totalEvents[0]?.count) || 0,
-        topExtractors: extractors,
-        latestIndexedBlock: latestBlock,
-        indexerRunning: bridgeIndexerRunning
+        events: {
+          total: parseInt(eventStats[0]?.totalEvents) || 0,
+          in: parseInt(eventStats[0]?.inEvents) || 0,
+          out: parseInt(eventStats[0]?.outEvents) || 0,
+          heroes: parseInt(eventStats[0]?.heroEvents) || 0,
+          items: parseInt(eventStats[0]?.itemEvents) || 0,
+          totalUsdIn: parseFloat(eventStats[0]?.totalUsdIn) || 0,
+          totalUsdOut: parseFloat(eventStats[0]?.totalUsdOut) || 0
+        },
+        metrics: {
+          trackedWallets: parseInt(metricsStats[0]?.trackedWallets) || 0,
+          totalExtracted: parseFloat(metricsStats[0]?.totalExtracted) || 0,
+          extractorCount: parseInt(metricsStats[0]?.extractors) || 0
+        },
+        chain: {
+          latestBlock
+        }
       });
     } catch (error) {
       console.error('[API] Error fetching bridge overview:', error);
