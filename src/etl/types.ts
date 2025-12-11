@@ -171,14 +171,24 @@ export type MetricSource =
   | 'onchain_heroes'
   | 'onchain_quests'
   | 'onchain_summons'
+  | 'onchain_summoning'
   | 'onchain_pets'
   | 'onchain_meditation'
   | 'onchain_gardens'
   | 'onchain_portfolio'
+  | 'onchain_hunting'
+  | 'onchain_pvp'
+  | 'onchain_gold'
+  | 'onchain_lp'
+  | 'onchain_staking'
   | 'behavior_model'
+  | 'behavior_events'
   | 'discord_interactions'
   | 'payment_events'
-  | 'event_progress';
+  | 'event_progress'
+  | 'seasonal_events'
+  | 'meta_profile'
+  | 'epic_feats';
 
 export interface MetricDefinition {
   source: MetricSource;
@@ -364,4 +374,80 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
     key: 'jewel_sent_to_hedge',
     extractor: (data) => data.payments.jewelSentToHedge,
   },
+
+  // ============================================
+  // BEHAVIOR_EVENTS METRICS (Phase 1 - Implemented)
+  // Maps behavior/engagement challenges to discord and wallet activity
+  // ============================================
+  'behavior_events:active_days': {
+    source: 'behavior_events',
+    key: 'active_days',
+    extractor: (data) => data.discord.totalSessions,
+  },
+  'behavior_events:discord_engagement_score': {
+    source: 'behavior_events',
+    key: 'discord_engagement_score',
+    extractor: (data) => data.discord.messagesToHedge,
+  },
+  // NOTE: behavior_events:account_age_days intentionally NOT added
+  // Challenges using it will be skipped until wallet first-tx indexer is built
+
+  // ============================================
+  // ONCHAIN_SUMMONING METRICS (Phase 4 - Partial)
+  // Only metrics with working extractors are registered
+  // ============================================
+  'onchain_summoning:mutagenic_specialist_count': {
+    source: 'onchain_summoning',
+    key: 'mutagenic_specialist_count',
+    extractor: (data) => data.summons.summonsHighTierGenes,
+  },
+  'onchain_summoning:mythmaker_count': {
+    source: 'onchain_summoning',
+    key: 'mythmaker_count',
+    extractor: (data) => data.summons.summonsMythicRarity,
+  },
+  'onchain_summoning:summoner_of_legends_count': {
+    source: 'onchain_summoning',
+    key: 'summoner_of_legends_count',
+    extractor: (data) => data.summons.summonsMythicRarity,
+  },
+  // NOTE: perfect_pairing_unlocked, royal_lineage_count intentionally NOT added
+  // Challenges using them will be skipped until mutation/lineage tracking is built
+
+  // ============================================
+  // ONCHAIN_LP METRICS (Phase 8 - Partial)
+  // LP/DeFi participation challenges
+  // ============================================
+  'onchain_lp:total_lp_value': {
+    source: 'onchain_lp',
+    key: 'total_lp_value',
+    extractor: (data) => data.gardens.totalLPValue,
+  },
+  // NOTE: onchain_lp:active_days intentionally NOT added until LP position tracking is built
+
+  // ============================================
+  // ONCHAIN_PETS METRICS (Phase 1 - Implemented)
+  // Pet collection challenges
+  // ============================================
+  'onchain_pets:rarity_score': {
+    source: 'onchain_pets',
+    key: 'rarity_score',
+    extractor: (data) => data.pets.petCount,
+  },
+  'onchain_pets:gardening_pet_count': {
+    source: 'onchain_pets',
+    key: 'gardening_pet_count',
+    extractor: (data) => data.pets.gardeningPetCount,
+  },
+
+  // ============================================
+  // PHASE 5-9 METRICS - NOT YET REGISTERED
+  // The following metrics are NOT in the registry until their indexers are built:
+  // - onchain_hunting: wins, boss_kills (Phase 5)
+  // - onchain_pvp: matches_played, pvp_wins (Phase 6)
+  // - onchain_gold: vendor_spend (Phase 8)
+  // - onchain_staking: stake_duration_days (Phase 8)
+  // - seasonal_events: seasonal_score (Phase 9)
+  // Challenges using these will log "No extractor found" and be skipped
+  // ============================================
 };

@@ -32,6 +32,19 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
 *   **Player User Model System**: Classifies players into archetypes based on behavior and financial activity, enabling personalized bot responses, with intent-based classification and hard overrides for extractor detection.
 *   **Smurf Detection & League Signup System**: Manages competitive leagues with a 6-tier ladder, wallet clustering for multi-account detection, power snapshots, transfer aggregates, and rule-based smurf detection with configurable rules and actions.
 *   **Challenge/Achievement System**: Gamified progression system with 8 categories and 36 challenges, using dual tier systems (RARITY and GENE tiers) and supporting player progress tracking and leaderboards.
+    *   **ETL Subsystem**: Modular metric extraction, transformation, and loading for challenge progress computation.
+        *   **Location**: `src/etl/` with extractors/, loaders/, transformers/, services/
+        *   **METRIC_REGISTRY**: Maps `metricSource:metricKey` to extractor functions in `src/etl/types.ts`
+        *   **Implemented Metrics (Phase 1)**:
+            - `onchain_heroes`: total_levels, hero_count, gen0_count, exalted_gene_hero_count, mythic_hero_count
+            - `onchain_quests`: mining_quests, gardening_quests, fishing_quests, foraging_quests
+            - `onchain_summons`: total_summons, summons_mythic_rarity, summons_high_tier_genes
+            - `onchain_summoning`: mutagenic_specialist_count, mythmaker_count, summoner_of_legends_count
+            - `behavior_events`: active_days, discord_engagement_score
+            - `onchain_pets`: rarity_score, gardening_pet_count
+            - `onchain_lp`: total_lp_value
+        *   **Pending Metrics (Future Phases)**: onchain_hunting, onchain_pvp, onchain_gold, onchain_staking, seasonal_events
+        *   **Challenge Progress Loader**: `src/etl/loaders/challengeProgressLoader.ts` - upserts to `player_challenge_progress` table
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" by indexing bridge events, enriching with USD values, and computing per-wallet net extraction and extractor scores.
     *   **Offline Export/Import**: Standalone script (`bridge-tracker/offline-exporter.js`) indexes blockchain events without database, exports to JSON. Import endpoint (`POST /api/admin/bridge/import-events`) loads pre-indexed data.
     *   **Standalone Sync Script**: Run `npx tsx bridge-tracker/standalone-sync.js` in a separate shell to continuously sync bridge events. Progress persists in database, survives server restarts. Use `--batch 10000 --delay 5` for custom settings.
