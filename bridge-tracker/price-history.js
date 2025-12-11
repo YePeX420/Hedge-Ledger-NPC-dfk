@@ -4,6 +4,7 @@ import { eq, and, gte, lte, desc } from 'drizzle-orm';
 
 const COINGECKO_IDS = {
   JEWEL: 'defi-kingdoms',
+  XJEWEL: 'xjewel',
   CRYSTAL: 'defi-kingdoms-crystal',
   USDC: 'usd-coin',
   ETH: 'ethereum',
