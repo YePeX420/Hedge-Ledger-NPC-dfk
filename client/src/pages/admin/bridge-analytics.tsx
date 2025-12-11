@@ -183,6 +183,39 @@ interface ValueBreakdown {
   };
 }
 
+interface TvlReconciliation {
+  chains: Array<{
+    chainId: number;
+    chainName: string;
+    tokenIn: number;
+    tokenOut: number;
+    netToken: number;
+    heroIn: number;
+    heroOut: number;
+    netHeroes: number;
+    equipmentIn: number;
+    equipmentOut: number;
+    netEquipment: number;
+    currentTVL: number | null;
+    jewelPrice: number | null;
+    discrepancy: number | null;
+    discrepancyReason: string;
+  }>;
+  pricingCoverage: Array<{
+    token: string;
+    totalEvents: number;
+    pricedEvents: number;
+    coverage: string;
+    totalUsd: number;
+  }>;
+  summary: {
+    overallCoverage: string;
+    totalEvents: number;
+    pricedEvents: number;
+    note: string;
+  };
+}
+
 export default function BridgeAnalytics() {
   const { toast } = useToast();
   const [walletSearch, setWalletSearch] = useState('');
@@ -201,6 +234,10 @@ export default function BridgeAnalytics() {
 
   const { data: valueBreakdown, isLoading: valueBreakdownLoading, isError: valueBreakdownError, refetch: refetchValueBreakdown } = useQuery<ValueBreakdown>({
     queryKey: ['/api/admin/bridge/value-breakdown'],
+  });
+
+  const { data: tvlReconciliation, isLoading: tvlLoading } = useQuery<TvlReconciliation>({
+    queryKey: ['/api/admin/bridge/tvl-reconciliation'],
   });
 
   const { data: walletDetails, isLoading: walletLoading } = useQuery<WalletDetails>({
@@ -1089,6 +1126,106 @@ export default function BridgeAnalytics() {
                   </div>
                 </ScrollArea>
               )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* TVL Reconciliation */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <PieChart className="h-5 w-5 text-blue-500" />
+            TVL Reconciliation
+          </CardTitle>
+          <CardDescription>Net bridge flows vs current TVL with pricing coverage analysis</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {tvlLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-16 w-full" />
+              ))}
+            </div>
+          ) : tvlReconciliation ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {tvlReconciliation.chains.map((chain) => (
+                  <div key={chain.chainId} className="p-4 rounded-lg bg-muted/50" data-testid={`chain-flow-${chain.chainId}`}>
+                    <h4 className="font-semibold mb-2">{chain.chainName}</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Token IN:</span>
+                        <span className="text-green-600">${(chain.tokenIn / 1e6).toFixed(2)}M</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Token OUT:</span>
+                        <span className="text-red-600">${(chain.tokenOut / 1e6).toFixed(2)}M</span>
+                      </div>
+                      <Separator className="my-2" />
+                      <div className="flex justify-between font-medium">
+                        <span>Net Flow:</span>
+                        <span className={chain.netToken >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          ${(chain.netToken / 1e6).toFixed(2)}M
+                        </span>
+                      </div>
+                      {chain.currentTVL && (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Current TVL:</span>
+                            <span>${(chain.currentTVL / 1e6).toFixed(2)}M</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">JEWEL Price:</span>
+                            <span>${chain.jewelPrice?.toFixed(3)}</span>
+                          </div>
+                        </>
+                      )}
+                      <Separator className="my-2" />
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Heroes:</span>
+                        <span className={chain.netHeroes >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          +{chain.heroIn} / -{chain.heroOut} = {chain.netHeroes > 0 ? '+' : ''}{chain.netHeroes}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Equipment:</span>
+                        <span className={chain.netEquipment >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          +{chain.equipmentIn} / -{chain.equipmentOut} = {chain.netEquipment > 0 ? '+' : ''}{chain.netEquipment}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-2 flex items-center gap-2">
+                  <Database className="h-4 w-4" />
+                  Token Pricing Coverage
+                  <Badge variant="outline">{tvlReconciliation.summary.overallCoverage}%</Badge>
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                  {tvlReconciliation.pricingCoverage.slice(0, 10).map((token) => (
+                    <div key={token.token} className="p-2 rounded bg-muted/30 text-xs" data-testid={`token-coverage-${token.token}`}>
+                      <div className="font-medium">{token.token}</div>
+                      <div className="text-muted-foreground">{token.totalEvents.toLocaleString()} events</div>
+                      <div className={parseFloat(token.coverage) >= 99 ? 'text-green-600' : parseFloat(token.coverage) >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                        {token.coverage}% priced
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded">
+                <AlertTriangle className="h-3 w-3 inline mr-1" />
+                {tvlReconciliation.summary.note}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>No reconciliation data available</p>
             </div>
           )}
         </CardContent>

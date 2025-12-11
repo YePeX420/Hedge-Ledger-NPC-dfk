@@ -5421,6 +5421,119 @@ async function startAdminWebServer() {
   });
 
   // ============================================================================
+  // TVL RECONCILIATION API
+  // ============================================================================
+
+  app.get('/api/admin/bridge/tvl-reconciliation', isAdmin, async (req, res) => {
+    try {
+      const flowByChain = await db.execute(sql`
+        SELECT 
+          CASE 
+            WHEN direction = 'in' THEN dst_chain_id 
+            ELSE src_chain_id 
+          END as chain_id,
+          bridge_type,
+          direction,
+          COUNT(*) as event_count,
+          COALESCE(SUM(usd_value), 0) as total_usd
+        FROM bridge_events
+        GROUP BY 1, 2, 3
+        ORDER BY chain_id, bridge_type, direction
+      `);
+
+      const pricingCoverage = await db.execute(sql`
+        SELECT 
+          token_symbol,
+          COUNT(*) as total_events,
+          SUM(CASE WHEN usd_value IS NOT NULL AND usd_value > 0 THEN 1 ELSE 0 END) as priced_events,
+          COALESCE(SUM(usd_value), 0) as total_usd
+        FROM bridge_events
+        WHERE bridge_type = 'token'
+        GROUP BY token_symbol
+        ORDER BY COUNT(*) DESC
+        LIMIT 15
+      `);
+
+      const chainFlows = {};
+      for (const row of flowByChain) {
+        const chainId = row.chain_id;
+        if (!chainFlows[chainId]) {
+          chainFlows[chainId] = { 
+            chainId, 
+            tokenIn: 0, tokenOut: 0, netToken: 0,
+            heroIn: 0, heroOut: 0, netHeroes: 0,
+            equipmentIn: 0, equipmentOut: 0, netEquipment: 0,
+            petIn: 0, petOut: 0, netPets: 0
+          };
+        }
+        const flow = chainFlows[chainId];
+        const usd = parseFloat(row.total_usd) || 0;
+        const count = parseInt(row.event_count) || 0;
+        
+        if (row.bridge_type === 'token') {
+          if (row.direction === 'in') flow.tokenIn = usd;
+          else flow.tokenOut = usd;
+        } else if (row.bridge_type === 'hero') {
+          if (row.direction === 'in') flow.heroIn = count;
+          else flow.heroOut = count;
+        } else if (row.bridge_type === 'equipment') {
+          if (row.direction === 'in') flow.equipmentIn = count;
+          else flow.equipmentOut = count;
+        } else if (row.bridge_type === 'pet') {
+          if (row.direction === 'in') flow.petIn = count;
+          else flow.petOut = count;
+        }
+      }
+
+      for (const chain of Object.values(chainFlows)) {
+        chain.netToken = chain.tokenIn - chain.tokenOut;
+        chain.netHeroes = chain.heroIn - chain.heroOut;
+        chain.netEquipment = chain.equipmentIn - chain.equipmentOut;
+        chain.netPets = chain.petIn - chain.petOut;
+      }
+
+      const chainNames = { 53935: 'DFK Chain', 1088: 'Metis', 8217: 'Kaia' };
+      const knownTVL = {
+        53935: { name: 'DFK Chain', tvl: 1360000, jewelPrice: 0.016 },
+        1088: { name: 'Metis', tvl: null, jewelPrice: null },
+        8217: { name: 'Kaia', tvl: null, jewelPrice: null }
+      };
+
+      const reconciliation = Object.values(chainFlows).map(flow => ({
+        ...flow,
+        chainName: chainNames[flow.chainId] || `Chain ${flow.chainId}`,
+        currentTVL: knownTVL[flow.chainId]?.tvl || null,
+        jewelPrice: knownTVL[flow.chainId]?.jewelPrice || null,
+        discrepancy: knownTVL[flow.chainId]?.tvl ? flow.netToken - knownTVL[flow.chainId].tvl : null,
+        discrepancyReason: 'Token price collapse (JEWEL: $20+ → $0.016 = 99.9% drop). Historical bridge values at tx time.'
+      }));
+
+      const totalEvents = pricingCoverage.reduce((sum, r) => sum + parseInt(r.total_events), 0);
+      const pricedEvents = pricingCoverage.reduce((sum, r) => sum + parseInt(r.priced_events), 0);
+
+      res.json({
+        chains: reconciliation,
+        pricingCoverage: pricingCoverage.map(r => ({
+          token: r.token_symbol,
+          totalEvents: parseInt(r.total_events),
+          pricedEvents: parseInt(r.priced_events),
+          coverage: parseInt(r.total_events) > 0 ? (parseInt(r.priced_events) / parseInt(r.total_events) * 100).toFixed(1) : '0',
+          totalUsd: parseFloat(r.total_usd) || 0
+        })),
+        summary: {
+          overallCoverage: totalEvents > 0 ? (pricedEvents / totalEvents * 100).toFixed(1) : 0,
+          totalEvents,
+          pricedEvents,
+          note: 'Historical bridge values use prices at time of transaction. Current TVL reflects token price changes.'
+        }
+      });
+    } catch (error) {
+      console.error('[API] Error getting TVL reconciliation:', error);
+      res.status(500).json({ error: 'Failed to get TVL reconciliation', details: error.message });
+    }
+  });
+
+  // ============================================================================
   // PHASE 3 COMBAT INGESTION API (Hunting + PvP Indexers)
   // ============================================================================
   // Indexes combat events from DFK Chain and Klaytn:
