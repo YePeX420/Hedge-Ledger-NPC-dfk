@@ -76,6 +76,7 @@ import {
   stopParallelEnrichment
 } from './bridge-tracker/price-enrichment.js';
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
+import { getValueBreakdown } from './src/analytics/valueBreakdown.ts';
 import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeValidation, challengeAuditLog, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
@@ -4967,6 +4968,19 @@ async function startAdminWebServer() {
     } catch (error) {
       console.error('[API] Error fetching prices:', error);
       res.status(500).json({ error: 'Failed to fetch prices' });
+    }
+  });
+
+  // GET /api/admin/bridge/value-breakdown - Get DFK Chain value distribution
+  app.get('/api/admin/bridge/value-breakdown', isAdmin, async (req, res) => {
+    try {
+      console.log('[API] Fetching DFK Chain value breakdown...');
+      const breakdown = await getValueBreakdown();
+      console.log('[API] Value breakdown complete, total:', breakdown.summary.totalValueUSD);
+      res.json(breakdown);
+    } catch (error) {
+      console.error('[API] Error fetching value breakdown:', error);
+      res.status(500).json({ error: 'Failed to fetch value breakdown' });
     }
   });
 
