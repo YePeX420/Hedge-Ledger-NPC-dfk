@@ -5363,6 +5363,64 @@ async function startAdminWebServer() {
   });
 
   // ============================================================================
+  // LAYERZERO BRIDGE INDEXER (Heroes, Pets, Equipment NFTs)
+  // ============================================================================
+  // Indexes NFT bridge events via LayerZero V2 protocol between DFK Chain, Metis, and Kaia
+  
+  let layerZeroIndexerRunning = false;
+  
+  // GET /api/admin/bridge/layerzero/status - Get LayerZero indexer status
+  app.get('/api/admin/bridge/layerzero/status', isAdmin, async (req, res) => {
+    try {
+      const { getLayerZeroStats } = await import('./bridge-tracker/indexLayerZeroEvents.js');
+      const stats = await getLayerZeroStats();
+      
+      res.json({
+        running: layerZeroIndexerRunning,
+        stats,
+        supported: {
+          chains: ['DFK Chain', 'Metis', 'Kaia'],
+          bridgeTypes: ['hero', 'equipment', 'pet']
+        }
+      });
+    } catch (error) {
+      console.error('[API] Error getting LayerZero status:', error);
+      res.status(500).json({ error: 'Failed to get LayerZero status', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/bridge/layerzero/run - Run LayerZero bridge indexer
+  app.post('/api/admin/bridge/layerzero/run', isAdmin, async (req, res) => {
+    try {
+      if (layerZeroIndexerRunning) {
+        return res.status(400).json({ error: 'LayerZero indexer already running' });
+      }
+      
+      layerZeroIndexerRunning = true;
+      const { fullResync = false, blocksBack = 100000 } = req.body;
+      
+      res.json({ success: true, message: 'LayerZero indexer started', options: { fullResync, blocksBack } });
+      
+      // Run in background
+      const { indexLayerZeroBridges } = await import('./bridge-tracker/indexLayerZeroEvents.js');
+      indexLayerZeroBridges({ fullResync, blocksBack })
+        .then(count => {
+          console.log(`[LayerZero] Indexing complete, saved ${count} events`);
+          layerZeroIndexerRunning = false;
+        })
+        .catch(err => {
+          console.error('[LayerZero] Indexer error:', err);
+          layerZeroIndexerRunning = false;
+        });
+        
+    } catch (error) {
+      layerZeroIndexerRunning = false;
+      console.error('[API] Error running LayerZero indexer:', error);
+      res.status(500).json({ error: 'Failed to run LayerZero indexer', details: error.message });
+    }
+  });
+
+  // ============================================================================
   // PHASE 3 COMBAT INGESTION API (Hunting + PvP Indexers)
   // ============================================================================
   // Indexes combat events from DFK Chain and Klaytn:

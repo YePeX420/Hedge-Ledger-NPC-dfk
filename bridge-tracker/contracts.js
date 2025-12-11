@@ -70,3 +70,44 @@ export const SYNAPSE_BRIDGE_EVENTS = {
 };
 
 export const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+// LayerZero Bridge Contracts (for Heroes, Pets, Equipment NFTs)
+export const LAYERZERO_BRIDGES = {
+  heroBridge: {
+    dfkChain: '0x49F7541b4308A2332afcA5dc5830a3a5f93F18bC',
+    kaia: '0x12af2AD0b90E08d0d70449E5d0b14afd14F9a24c',
+    metis: '0xDA53A7251f08ac9D59E977D0032a1521832A6Ac9'
+  },
+  equipmentBridge: {
+    dfkChain: '0x3f6cc9B0E342386618cDc5785Fd4DF82CfB32CCF',
+    kaia: '0xfb065ef4257719A99Ce7f1d03A6C22bd28983b77',
+    metis: '0xBeA7c8BDBc5ab4D5752C597A8DA896C0BD94F6bf'
+  }
+};
+
+// LayerZero Event Signatures (keccak256 hashes)
+export const LAYERZERO_EVENTS = {
+  // Hero Bridge events
+  HeroSent: '0x' + 'HeroSent(uint256,uint256)'.split('').reduce((h, c) => h, ''), // We'll compute properly
+  HeroArrived: '0x' + 'HeroArrived(uint256,uint256)'.split('').reduce((h, c) => h, ''),
+  // Equipment Bridge events  
+  EquipmentSent: '0x',
+  EquipmentArrived: '0x',
+  PetSent: '0x',
+  PetArrived: '0x'
+};
+
+// Chain ID to LayerZero Endpoint ID mapping
+export const LZ_CHAIN_IDS = {
+  53935: 53935,  // DFK Chain
+  8217: 8217,    // Kaia
+  1088: 1088     // Metis
+};
+
+// Equipment type mapping for LayerZero Equipment Bridge
+export const EQUIPMENT_TYPES = {
+  1: 'Weapon',
+  2: 'Accessory',
+  3: 'Armor',
+  4: 'Pet'
+};
