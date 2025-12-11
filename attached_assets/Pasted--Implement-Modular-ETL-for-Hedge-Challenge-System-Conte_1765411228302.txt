@@ -1,0 +1,414 @@
+“Implement Modular ETL for Hedge Challenge System”
+
+> Context: We’ve already implemented a Challenge System with challengeConfig.ts, categories, challenges, and tiers. We also have a challenge seed script that syncs categories/challenges/tiers to the DB, and an admin dashboard that reads them.
+
+Now we need to implement the ETL layer that computes the metrics behind those challenges, using a modular metricSource-based architecture.
+
+
+
+
+---
+
+1. Goals
+
+1. Implement a modular ETL system that:
+
+Reads metricSource + metricKey from HEDGE_CHALLENGE_CONFIG.challenges.
+
+Computes aggregated metrics per cluster from on-chain / ETL tables.
+
+Writes results into a challenge_progress table (or equivalent).
+
+
+
+2. Use a source-based module layout:
+
+onchain_heroes
+
+onchain_quests
+
+onchain_hunting
+
+onchain_pvp
+
+onchain_lp
+
+onchain_staking
+
+onchain_summoning
+
+onchain_shells
+
+onchain_influence
+
+onchain_tournaments
+
+seasonal_events
+
+behavior_events
+
+meta_profile
+
+epic_feats
+
+
+
+3. Keep everything backward compatible:
+
+Do not break existing endpoints (/api/me/...).
+
+Do not change existing table schemas (unless we explicitly add a challenge_progress table).
+
+Only add new modules, types, and ETL cron entrypoints.
+
+
+
+
+We will iterate; initially it’s OK to implement only a subset of metricSources and stub the rest.
+
+
+---
+
+2. Files & Folder Layout
+
+Please create the following structure in the backend project:
+
+src/
+  etl/
+    index.ts                   // ETL entrypoint: orchestrates runs
+    types.ts                   // shared ETL types
+    sources/
+      onchain_heroes.ts
+      onchain_quests.ts
+      onchain_hunting.ts
+      onchain_pvp.ts
+      onchain_lp.ts
+      onchain_staking.ts
+      onchain_summoning.ts
+      onchain_shells.ts
+      onchain_influence.ts
+      onchain_tournaments.ts
+      behavior_events.ts
+      seasonal_events.ts
+      meta_profile.ts
+      epic_feats.ts
+
+We already have DB access via db and Drizzle schemas (e.g. challengeCategories, challenges, challengeTiers). Please add a challengeProgress table if it doesn’t exist yet.
+
+
+---
+
+3. Add challenge_progress table (Drizzle schema)
+
+If not yet present, create a table to store computed metrics per cluster + challenge:
+
+// src/shared/schema.ts (or wherever other tables are defined)
+export const challengeProgress = pgTable("challenge_progress", {
+  clusterId: uuid("cluster_id").notNull(),
+  challengeKey: text("challenge_key").notNull(),
+  value: numeric("value").notNull().default("0"),
+  unlocked: boolean("unlocked").notNull().default(false),
+  tier: text("tier").notNull().default("BASIC"), // optional for tiered
+  lastComputedAt: timestamp("last_computed_at").defaultNow(),
+}, (table) => ({
+  pk: primaryKey(table.clusterId, table.challengeKey),
+}));
+
+We may refine the fields, but this is enough to start.
+
+
+---
+
+4. Shared ETL Types
+
+Create src/etl/types.ts:
+
+import type { ChallengeDef } from "../data/challengeConfig"; // adjust path as needed
+
+export type MetricValue = number | boolean;
+
+// Generic per-cluster metric bag keyed by metricKey
+export interface MetricBag {
+  [metricKey: string]: MetricValue;
+}
+
+// Source function signature: returns all metrics for one cluster
+export type SourceMetricFn = (params: {
+  clusterId: string;
+}) => Promise<MetricBag>;
+
+// Map from metricSource to implementation
+export interface MetricSourceRegistry {
+  [metricSource: string]: SourceMetricFn;
+}
+
+// ChallengeProgress write model
+export interface ChallengeMetric {
+  clusterId: string;
+  challengeKey: string;
+  value: MetricValue;
+  unlocked: boolean;
+}
+
+
+---
+
+5. Implement Metric Sources (Examples)
+
+We don’t need to implement all sources at once. Start with:
+
+onchain_heroes → for hero_riser and ownership-related hero metrics
+
+onchain_quests → for miner_master, herbalist_master
+
+behavior_events → for kingdom_calls, long_road_home
+
+
+5.1 src/etl/sources/onchain_heroes.ts
+
+import { db } from "../../server/db";
+import { heroesClusterView } from "../../shared/schema"; // a view that joins hero→cluster
+import type { SourceMetricFn } from "../types";
+
+export const computeOnchainHeroesMetrics: SourceMetricFn = async ({ clusterId }) => {
+  // Example: one row per cluster with hero_count and total_levels
+  const [row] = await db
+    .select({
+      heroCount: heroesClusterView.heroCount,
+      totalLevels: heroesClusterView.totalLevels,
+    })
+    .from(heroesClusterView)
+    .where(eq(heroesClusterView.clusterId, clusterId))
+    .limit(1);
+
+  if (!row) {
+    return {
+      hero_count: 0,
+      total_levels: 0,
+    };
+  }
+
+  return {
+    hero_count: row.heroCount,
+    total_levels: row.totalLevels,
+  };
+};
+
+We may need to define heroesClusterView as a view or query; what matters is:
+
+It returns heroCount and totalLevels per cluster.
+
+
+5.2 src/etl/sources/behavior_events.ts
+
+import { db } from "../../server/db";
+import { behaviorEventsClusterView } from "../../shared/schema";
+import type { SourceMetricFn } from "../types";
+
+export const computeBehaviorMetrics: SourceMetricFn = async ({ clusterId }) => {
+  const [row] = await db
+    .select({
+      activeDays: behaviorEventsClusterView.activeDays,
+      accountAgeDays: behaviorEventsClusterView.accountAgeDays,
+      discordScore: behaviorEventsClusterView.discordEngagementScore,
+    })
+    .from(behaviorEventsClusterView)
+    .where(eq(behaviorEventsClusterView.clusterId, clusterId))
+    .limit(1);
+
+  if (!row) {
+    return {
+      active_days: 0,
+      account_age_days: 0,
+      discord_engagement_score: 0,
+    };
+  }
+
+  return {
+    active_days: row.activeDays,
+    account_age_days: row.accountAgeDays,
+    discord_engagement_score: row.discordScore,
+  };
+};
+
+
+---
+
+6. Metric Source Registry
+
+Create src/etl/index.ts (ETL orchestrator):
+
+import type { MetricSourceRegistry, ChallengeMetric } from "./types";
+import { HEDGE_CHALLENGE_CONFIG } from "../data/challengeConfig";
+import { computeOnchainHeroesMetrics } from "./sources/onchain_heroes";
+import { computeBehaviorMetrics } from "./sources/behavior_events";
+// import other sources as we implement them
+
+export const METRIC_SOURCES: MetricSourceRegistry = {
+  onchain_heroes: computeOnchainHeroesMetrics,
+  behavior_events: computeBehaviorMetrics,
+  // onchain_quests: computeOnchainQuestsMetrics,
+  // onchain_hunting: computeOnchainHuntingMetrics,
+  // ...
+};
+
+
+---
+
+7. Orchestrator – Compute All Challenge Metrics For One Cluster
+
+In src/etl/index.ts, add:
+
+import { db } from "../server/db";
+import { challengeProgress } from "../shared/schema";
+import { eq } from "drizzle-orm";
+
+export async function computeChallengeMetricsForCluster(clusterId: string) {
+  // Group challenges by metricSource
+  const challengesBySource = new Map<string, ChallengeDef[]>();
+
+  for (const challenge of HEDGE_CHALLENGE_CONFIG.challenges) {
+    const list = challengesBySource.get(challenge.metricSource) || [];
+    list.push(challenge);
+    challengesBySource.set(challenge.metricSource, list);
+  }
+
+  const results: ChallengeMetric[] = [];
+
+  for (const [metricSource, challenges] of challengesBySource.entries()) {
+    const sourceFn = METRIC_SOURCES[metricSource];
+    if (!sourceFn) {
+      // source not implemented yet; skip
+      continue;
+    }
+
+    const metricBag = await sourceFn({ clusterId }); // e.g. { total_levels: 123, hero_count: 12 }
+
+    for (const challenge of challenges) {
+      const raw = metricBag[challenge.metricKey];
+
+      // if source didn't provide it, skip for now
+      if (raw === undefined) continue;
+
+      const value = typeof raw === "boolean" ? (raw ? 1 : 0) : Number(raw);
+      const unlocked = challenge.metricType === "BOOLEAN" ? value >= 1 : false;
+
+      results.push({
+        clusterId,
+        challengeKey: challenge.key,
+        value,
+        unlocked,
+      });
+    }
+  }
+
+  // Upsert into challenge_progress
+  for (const row of results) {
+    const existing = await db
+      .select()
+      .from(challengeProgress)
+      .where(
+        eq(challengeProgress.clusterId, row.clusterId),
+        // drizzle eq doesn't take 2 args; in real code use and(eq(...), eq(...))
+      )
+      .limit(1);
+
+    if (existing.length) {
+      await db
+        .update(challengeProgress)
+        .set({
+          value: row.value,
+          unlocked: row.unlocked,
+          lastComputedAt: new Date(),
+        })
+        .where(
+          // where composite key
+          eq(challengeProgress.clusterId, row.clusterId),
+          // and(... challengeKey match ...)
+        );
+    } else {
+      await db.insert(challengeProgress).values({
+        clusterId: row.clusterId,
+        challengeKey: row.challengeKey,
+        value: row.value,
+        unlocked: row.unlocked,
+      });
+    }
+  }
+
+  return results;
+}
+
+> NOTE: The where with composite PK must be written according to your actual Drizzle schema API (may use and(eq(...), eq(...)) etc.). Replit can fix that concretely.
+
+
+
+
+---
+
+8. ETL Schedulers / Triggers
+
+We already have ETL running:
+
+Daily snapshot (runDailySnapshot)
+
+Incremental (runIncremental)
+
+On wallet link (runForCluster)
+
+
+Update those flows to call:
+
+await computeChallengeMetricsForCluster(clusterId);
+
+for each cluster being processed.
+
+Do not remove existing logic—just extend it.
+
+
+---
+
+9. Implementation Phasing
+
+To avoid overloading Replit or yourself, implement ETL sources in this order:
+
+1. onchain_heroes – supports hero_riser, house_of_heroes.
+
+
+2. behavior_events – supports kingdom_calls, long_road_home, loyal_follower.
+
+
+3. onchain_quests – supports profession challenges.
+
+
+4. onchain_summoning – supports Perfect Pairing, Mutagenic Specialist, Mythmaker, Royal Lineage, Summoner of Legends.
+
+
+5. onchain_hunting – supports Hunting PvE challenges.
+
+
+6. onchain_pvp – supports PvP challenges.
+
+
+7. METIS sources (onchain_metis_patrol, onchain_shells, onchain_influence, onchain_tournaments).
+
+
+8. onchain_lp and onchain_staking for DeFi participation.
+
+
+9. epic_feats + meta_profile as derived metrics, once core metrics exist.
+
+
+
+
+---
+
+10. Do NOT change these (important constraints)
+
+Do not remove or modify the HEDGE_CHALLENGE_CONFIG interfaces/types.
+
+Do not change existing /api/me/... responses.
+
+Do not modify existing tables except to add challenge_progress and views as needed.
+
+Keep ETL source functions idempotent; re-running them should only update metrics, not change business data.
