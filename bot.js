@@ -69,7 +69,11 @@ import {
   runPriceEnrichment,
   isEnrichmentRunning,
   getUnpricedEventCount,
-  startEnrichmentScheduler
+  startEnrichmentScheduler,
+  runParallelPriceEnrichment,
+  isParallelEnrichmentRunning,
+  getParallelEnrichmentStatus,
+  stopParallelEnrichment
 } from './bridge-tracker/price-enrichment.js';
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
 import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeValidation, challengeAuditLog, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
@@ -5026,6 +5030,52 @@ async function startAdminWebServer() {
       });
   });
 
+  // GET /api/admin/bridge/price-enrichment/status - Get parallel price enrichment status
+  app.get('/api/admin/bridge/price-enrichment/status', isAdmin, async (req, res) => {
+    try {
+      const unpricedCount = await getUnpricedEventCount();
+      const status = getParallelEnrichmentStatus();
+      res.json({
+        ...status,
+        unpricedCount,
+      });
+    } catch (error) {
+      console.error('[API] Error getting price enrichment status:', error);
+      res.status(500).json({ error: 'Failed to get status', details: error.message });
+    }
+  });
+
+  // POST /api/admin/bridge/price-enrichment/start - Start parallel price enrichment
+  app.post('/api/admin/bridge/price-enrichment/start', isAdmin, async (req, res) => {
+    try {
+      const workersTotal = parseInt(req.body.workers) || 8;
+      
+      const result = await runParallelPriceEnrichment({
+        workersTotal,
+        verbose: true,
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error starting parallel price enrichment:', error);
+      res.status(500).json({ error: 'Failed to start', details: error.message });
+    }
+  });
+
+  // POST /api/admin/bridge/price-enrichment/stop - Stop parallel price enrichment
+  app.post('/api/admin/bridge/price-enrichment/stop', isAdmin, async (req, res) => {
+    try {
+      const stopped = stopParallelEnrichment();
+      res.json({ 
+        success: stopped, 
+        message: stopped ? 'Stopping workers...' : 'Not running' 
+      });
+    } catch (error) {
+      console.error('[API] Error stopping price enrichment:', error);
+      res.status(500).json({ error: 'Failed to stop' });
+    }
+  });
+
   // ============================================================================
   // PARALLEL BRIDGE SYNC API (In-process workers)
   // ============================================================================
@@ -6932,9 +6982,42 @@ async function startAdminWebServer() {
           console.error('[ParallelSync] Auto-start worker error:', error);
           parallelSyncState.running = false;
         });
+      
+      // Auto-start price enrichment after sync starts (runs in parallel)
+      await autoStartPriceEnrichment();
         
     } catch (error) {
       console.error('[ParallelSync] Auto-start error:', error);
+    }
+  }
+  
+  // Auto-start price enrichment if events need USD prices
+  async function autoStartPriceEnrichment() {
+    try {
+      // Wait a bit for sync to start indexing
+      await new Promise(r => setTimeout(r, 5000));
+      
+      if (isParallelEnrichmentRunning()) {
+        console.log('[ParallelEnrichment] Already running, skipping auto-start');
+        return;
+      }
+      
+      const unpricedCount = await getUnpricedEventCount();
+      
+      if (unpricedCount === 0) {
+        console.log('[ParallelEnrichment] No events need USD prices, skipping auto-start');
+        return;
+      }
+      
+      console.log(`[ParallelEnrichment] ${unpricedCount} events need USD prices, auto-starting...`);
+      
+      await runParallelPriceEnrichment({
+        workersTotal: 8,
+        verbose: true,
+      });
+      
+    } catch (error) {
+      console.error('[ParallelEnrichment] Auto-start error:', error);
     }
   }
 }

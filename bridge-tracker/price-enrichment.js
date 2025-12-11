@@ -200,3 +200,177 @@ export function stopEnrichmentScheduler() {
     console.log('[EnrichmentScheduler] Stopped');
   }
 }
+
+// Parallel price enrichment with multiple workers
+let parallelEnrichmentState = {
+  running: false,
+  workersTotal: 0,
+  startedAt: null,
+  workers: new Map(),
+};
+
+export function isParallelEnrichmentRunning() {
+  return parallelEnrichmentState.running;
+}
+
+export function getParallelEnrichmentStatus() {
+  return {
+    running: parallelEnrichmentState.running,
+    workersTotal: parallelEnrichmentState.workersTotal,
+    startedAt: parallelEnrichmentState.startedAt,
+    workers: Array.from(parallelEnrichmentState.workers.entries()).map(([id, w]) => ({
+      workerId: id,
+      ...w,
+    })),
+  };
+}
+
+export async function runParallelPriceEnrichment(options = {}) {
+  const { 
+    workersTotal = 8, 
+    verbose = true, 
+    maxBatchesPerWorker = 50,
+  } = options;
+
+  if (parallelEnrichmentState.running) {
+    console.log('[ParallelEnrichment] Already running, skipping...');
+    return { status: 'already_running' };
+  }
+
+  const unpricedCount = await getUnpricedEventCount();
+  if (unpricedCount === 0) {
+    console.log('[ParallelEnrichment] No events need prices, skipping...');
+    return { status: 'no_work', unpricedCount: 0 };
+  }
+
+  console.log(`[ParallelEnrichment] Starting ${workersTotal} workers. ${unpricedCount} events need prices.`);
+
+  parallelEnrichmentState.running = true;
+  parallelEnrichmentState.workersTotal = workersTotal;
+  parallelEnrichmentState.startedAt = new Date();
+  parallelEnrichmentState.workers.clear();
+
+  // Get all date/token groups to distribute among workers
+  const allGroups = await getAllUnpricedGroups();
+  
+  if (allGroups.length === 0) {
+    console.log('[ParallelEnrichment] No date/token groups to process');
+    parallelEnrichmentState.running = false;
+    return { status: 'complete', totalUpdated: 0 };
+  }
+
+  console.log(`[ParallelEnrichment] Found ${allGroups.length} date/token groups to process`);
+
+  // Distribute groups among workers (round-robin)
+  const workerGroups = Array.from({ length: workersTotal }, () => []);
+  allGroups.forEach((group, idx) => {
+    workerGroups[idx % workersTotal].push(group);
+  });
+
+  const workerPromises = [];
+
+  for (let workerId = 1; workerId <= workersTotal; workerId++) {
+    const groups = workerGroups[workerId - 1];
+    
+    parallelEnrichmentState.workers.set(workerId, {
+      running: true,
+      groupsTotal: groups.length,
+      groupsProcessed: 0,
+      eventsUpdated: 0,
+      lastUpdate: new Date(),
+    });
+
+    const workerLoop = async () => {
+      let eventsUpdated = 0;
+      let groupsProcessed = 0;
+
+      for (const group of groups) {
+        if (!parallelEnrichmentState.running) break;
+
+        try {
+          const { updated } = await enrichEventsForDateToken(
+            group.event_date,
+            group.token_symbol,
+            verbose
+          );
+          eventsUpdated += updated;
+          groupsProcessed++;
+
+          parallelEnrichmentState.workers.set(workerId, {
+            running: true,
+            groupsTotal: groups.length,
+            groupsProcessed,
+            eventsUpdated,
+            lastUpdate: new Date(),
+          });
+
+          // Small delay to avoid rate limiting
+          await new Promise(r => setTimeout(r, 200));
+        } catch (err) {
+          console.error(`[ParallelEnrichment] Worker ${workerId} error:`, err.message);
+        }
+      }
+
+      parallelEnrichmentState.workers.set(workerId, {
+        running: false,
+        groupsTotal: groups.length,
+        groupsProcessed,
+        eventsUpdated,
+        lastUpdate: new Date(),
+        complete: true,
+      });
+
+      if (verbose) {
+        console.log(`[ParallelEnrichment] Worker ${workerId} complete: ${eventsUpdated} events updated`);
+      }
+
+      return eventsUpdated;
+    };
+
+    workerPromises.push(workerLoop());
+  }
+
+  // Wait for all workers in background
+  Promise.all(workerPromises)
+    .then((results) => {
+      const totalUpdated = results.reduce((sum, n) => sum + n, 0);
+      console.log(`[ParallelEnrichment] All workers complete. Total updated: ${totalUpdated}`);
+      parallelEnrichmentState.running = false;
+    })
+    .catch((error) => {
+      console.error('[ParallelEnrichment] Worker error:', error);
+      parallelEnrichmentState.running = false;
+    });
+
+  return { 
+    status: 'started', 
+    workersTotal, 
+    groupsTotal: allGroups.length,
+    unpricedCount,
+  };
+}
+
+export function stopParallelEnrichment() {
+  if (parallelEnrichmentState.running) {
+    console.log('[ParallelEnrichment] Stopping workers...');
+    parallelEnrichmentState.running = false;
+    return true;
+  }
+  return false;
+}
+
+async function getAllUnpricedGroups() {
+  const result = await db.execute(sql`
+    SELECT 
+      date_trunc('day', block_timestamp) as event_date,
+      token_symbol,
+      count(*) as event_count
+    FROM bridge_events
+    WHERE usd_value IS NULL 
+      AND token_symbol IS NOT NULL
+      AND token_symbol NOT IN ('HERO', 'PET', 'EQUIPMENT')
+    GROUP BY date_trunc('day', block_timestamp), token_symbol
+    ORDER BY event_date ASC
+  `);
+  return result.rows || [];
+}
