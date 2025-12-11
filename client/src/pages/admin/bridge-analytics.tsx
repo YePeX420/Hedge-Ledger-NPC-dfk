@@ -598,57 +598,106 @@ export default function BridgeAnalytics() {
             </div>
           )}
 
-          {/* Parallel Workers Status */}
-          {(parallelSyncStatus?.running || parallelEnrichmentStatus?.running) && (
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              {/* Sync Workers */}
-              {parallelSyncStatus?.running && parallelSyncStatus.workers.length > 0 && (
-                <div className="p-3 bg-muted/50 rounded-lg" data-testid="parallel-sync-workers">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Zap className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Block Sync Workers</span>
-                    <Badge variant="outline" className="ml-auto">
-                      {parallelSyncStatus.workers.filter(w => w.status === 'running' || w.progress < 100).length} active
-                    </Badge>
+          {/* Block Sync Workers Grid */}
+          {parallelSyncStatus?.running && parallelSyncStatus.workers && parallelSyncStatus.workers.length > 0 && (
+            <div className="mt-4 p-3 bg-muted/50 rounded-lg" data-testid="parallel-sync-workers">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium">Block Sync Workers</span>
+                <Badge variant="outline" className="ml-auto">
+                  {parallelSyncStatus.workers.filter(w => w.status === 'running' || w.progress < 100).length} active
+                </Badge>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {parallelSyncStatus.workers.map((w) => (
+                  <div key={w.workerId} className="text-center">
+                    <div className="text-xs text-muted-foreground">W{w.workerId}</div>
+                    <Progress value={w.progress} className="h-1.5" />
+                    <div className="text-xs font-mono">{w.progress.toFixed(0)}%</div>
                   </div>
-                  <div className="grid grid-cols-4 gap-1">
-                    {parallelSyncStatus.workers.map((w) => (
-                      <div key={w.workerId} className="text-center">
-                        <div className="text-xs text-muted-foreground">W{w.workerId}</div>
-                        <Progress value={w.progress} className="h-1.5" />
-                        <div className="text-xs font-mono">{w.progress.toFixed(0)}%</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Enrichment Workers */}
-              {parallelEnrichmentStatus?.running && parallelEnrichmentStatus.workers.length > 0 && (
-                <div className="p-3 bg-muted/50 rounded-lg" data-testid="parallel-enrichment-workers">
-                  <div className="flex items-center gap-2 mb-2">
-                    <DollarSign className="h-4 w-4 text-green-500" />
-                    <span className="text-sm font-medium">Price Enrichment Workers</span>
-                    <Badge variant="outline" className="ml-auto">
-                      {parallelEnrichmentStatus.workers.filter(w => w.running).length} active
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-4 gap-1">
-                    {parallelEnrichmentStatus.workers.map((w) => {
-                      const pct = w.groupsTotal > 0 ? (w.groupsProcessed / w.groupsTotal) * 100 : 0;
-                      return (
-                        <div key={w.workerId} className="text-center">
-                          <div className="text-xs text-muted-foreground">W{w.workerId}</div>
-                          <Progress value={pct} className="h-1.5" />
-                          <div className="text-xs font-mono">{w.eventsUpdated}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                ))}
+              </div>
             </div>
           )}
+
+          {/* Pricing Sync Progress Section */}
+          {(parallelEnrichmentStatus?.unpricedCount > 0 || parallelEnrichmentStatus?.running) && (() => {
+            const totalUnpriced = parallelEnrichmentStatus?.unpricedCount || 0;
+            const totalProcessed = parallelEnrichmentStatus?.workers?.reduce((sum, w) => sum + (w.eventsUpdated || 0), 0) || 0;
+            const originalTotal = totalUnpriced + totalProcessed;
+            const pricingProgress = originalTotal > 0 ? (totalProcessed / originalTotal) * 100 : 0;
+            const activeWorkers = parallelEnrichmentStatus?.workers?.filter(w => w.running).length || 0;
+            const isRunning = parallelEnrichmentStatus?.running;
+            
+            return (
+              <div className="mt-4 p-4 bg-green-500/5 border border-green-500/20 rounded-lg" data-testid="pricing-sync-tracker">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-green-500" />
+                    <span className="text-sm font-medium">Pricing Sync Progress</span>
+                  </div>
+                  <span className="text-sm font-mono">
+                    {pricingProgress.toFixed(1)}%
+                  </span>
+                </div>
+                <Progress 
+                  value={pricingProgress} 
+                  className="h-3"
+                />
+                <div className="flex items-center justify-between mt-2 text-xs">
+                  <div className="flex items-center gap-1">
+                    <span className="text-muted-foreground">Events priced:</span>
+                    <span className="font-mono font-semibold text-green-600" data-testid="text-events-priced">
+                      {totalProcessed.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-muted-foreground">Remaining:</span>
+                    <span className="font-mono font-semibold text-foreground" data-testid="text-events-remaining">
+                      {totalUnpriced.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-xs mt-1 text-center">
+                  {totalUnpriced === 0 ? (
+                    <span className="text-green-600 font-medium">All events priced!</span>
+                  ) : isRunning ? (
+                    <span className="text-green-500 font-medium">Pricing with {activeWorkers} parallel workers</span>
+                  ) : (
+                    <span className="text-muted-foreground">{totalUnpriced.toLocaleString()} events need USD prices</span>
+                  )}
+                </div>
+                
+                {/* Enrichment Workers Grid */}
+                {isRunning && parallelEnrichmentStatus.workers && parallelEnrichmentStatus.workers.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-green-500/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs text-muted-foreground">Price Enrichment Workers</span>
+                      <Badge variant="outline" className="ml-auto text-xs">
+                        {activeWorkers} active
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1">
+                      {parallelEnrichmentStatus.workers.map((w) => {
+                        const pct = w.groupsTotal > 0 ? (w.groupsProcessed / w.groupsTotal) * 100 : 0;
+                        return (
+                          <div key={w.workerId} className="text-center">
+                            <div className="text-xs text-muted-foreground">W{w.workerId}</div>
+                            <Progress value={pct} className="h-1.5" />
+                            <div className="text-xs font-mono text-green-600">{w.eventsUpdated}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+                      <span>Groups: {parallelEnrichmentStatus.workers.reduce((sum, w) => sum + (w.groupsProcessed || 0), 0).toLocaleString()} / {parallelEnrichmentStatus.workers.reduce((sum, w) => sum + (w.groupsTotal || 0), 0).toLocaleString()}</span>
+                      <span>Total updated: {totalProcessed.toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
