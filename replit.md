@@ -42,11 +42,12 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
             - `onchain_summoning`: mutagenic_specialist_count, mythmaker_count, summoner_of_legends_count
             - `behavior_events`: active_days, discord_engagement_score, account_age_days (Phase 2 - uses MIN(firstDfkTxTimestamp) across all wallets in cluster)
             - `onchain_pets`: rarity_score, gardening_pet_count
-            - `onchain_lp`: total_lp_value
             - `onchain_hunting`: wins, motherclucker_kills, mad_boar_kills, relics_found, clucker_miracle (Phase 3 - cluster-aware from hunting_encounters table)
             - `onchain_pvp`: matches_played, wins, best_win_streak, flawless_victory (Phase 3 - cluster-aware from pvp_matches table with streak computation)
-        *   **Pending Metrics (Future Phases)**: onchain_gold, onchain_staking, seasonal_events
-        *   **Data Warehouse Tables**: hunting_encounters (txHash, enemyId, result, survivingHeroCount, survivingHeroHp, drops), pvp_matches (matchId, outcome, heroDeaths, streakGroup, isRanked)
+            - `onchain_lp`: lp_usd_value, pool_count, harvest_actions, lp_duration_max_days, active_days (Phase 4 - cluster-aware with per-wallet snapshot fallback)
+            - `onchain_staking`: stake_usd_value, stake_duration_days, jewel_stake_amount (Phase 4 - cluster-aware with per-wallet snapshot fallback)
+        *   **Pending Metrics (Future Phases)**: onchain_gold, seasonal_events
+        *   **Data Warehouse Tables**: hunting_encounters (txHash, enemyId, result, survivingHeroCount, survivingHeroHp, drops), pvp_matches (matchId, outcome, heroDeaths, streakGroup, isRanked), lp_position_snapshots (walletAddress, poolId, lpAmount, usdValue, clusterKey, snapshotDate), lp_harvest_events (walletAddress, txHash, poolId, harvestAmount, clusterKey), staking_snapshots (walletAddress, stakedAmount, usdValue, clusterKey, snapshotDate)
         *   **Challenge Progress Loader**: `src/etl/loaders/challengeProgressLoader.ts` - upserts to `player_challenge_progress` table
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" by indexing bridge events, enriching with USD values, and computing per-wallet net extraction and extractor scores.
     *   **Offline Export/Import**: Standalone script (`bridge-tracker/offline-exporter.js`) indexes blockchain events without database, exports to JSON. Import endpoint (`POST /api/admin/bridge/import-events`) loads pre-indexed data.
