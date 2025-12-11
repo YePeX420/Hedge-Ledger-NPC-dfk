@@ -49,7 +49,7 @@ export async function computeSeasonPointsForCluster(clusterId: string): Promise<
 
   for (const weight of weights) {
     const progressRows = await db.execute(sql`
-      SELECT COALESCE(SUM(value), 0)::integer as total_value
+      SELECT COALESCE(SUM(current_value), 0)::integer as total_value
       FROM player_challenge_progress
       WHERE cluster_id = ${clusterId}
         AND challenge_key = ${weight.challengeCode}
@@ -116,7 +116,7 @@ export async function computeSeasonPointsForSeasonId(
 
   for (const weight of weights) {
     const progressRows = await db.execute(sql`
-      SELECT COALESCE(SUM(value), 0)::integer as total_value
+      SELECT COALESCE(SUM(current_value), 0)::integer as total_value
       FROM player_challenge_progress
       WHERE cluster_id = ${clusterId}
         AND challenge_key = ${weight.challengeCode}

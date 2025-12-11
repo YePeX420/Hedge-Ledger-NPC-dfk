@@ -141,7 +141,7 @@ router.get("/:key", async (req: Request, res: Response) => {
       .from(leaderboardRuns)
       .where(and(
         eq(leaderboardRuns.leaderboardKey, key),
-        eq(leaderboardRuns.status, "COMPLETED")
+        eq(leaderboardRuns.status, "COMPLETE")
       ))
       .orderBy(desc(leaderboardRuns.createdAt))
       .limit(1);
@@ -214,7 +214,7 @@ router.get("/:key/my-rank", async (req: Request, res: Response) => {
       .from(leaderboardRuns)
       .where(and(
         eq(leaderboardRuns.leaderboardKey, key),
-        eq(leaderboardRuns.status, "COMPLETED")
+        eq(leaderboardRuns.status, "COMPLETE")
       ))
       .orderBy(desc(leaderboardRuns.createdAt))
       .limit(1);

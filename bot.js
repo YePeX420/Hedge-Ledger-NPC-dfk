@@ -5432,6 +5432,66 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/etl/run-all - Run ETL for all wallet clusters
+  app.post('/api/admin/etl/run-all', isAdmin, async (req, res) => {
+    try {
+      const { etlService } = await import('./src/etl/services/EtlService.js');
+      
+      const clusterRecords = await db.select().from(walletClusters);
+      
+      if (clusterRecords.length === 0) {
+        return res.json({ message: 'No clusters found', results: [] });
+      }
+      
+      const results = [];
+      for (const cluster of clusterRecords) {
+        try {
+          const etlResults = await etlService.runForCluster(cluster.clusterKey);
+          results.push({
+            clusterKey: cluster.clusterKey,
+            userId: cluster.userId,
+            success: true,
+            walletsProcessed: etlResults.length,
+          });
+        } catch (err) {
+          results.push({
+            clusterKey: cluster.clusterKey,
+            userId: cluster.userId,
+            success: false,
+            error: err.message,
+          });
+        }
+      }
+      
+      res.json({
+        message: `ETL complete for ${clusterRecords.length} clusters`,
+        results,
+      });
+    } catch (error) {
+      console.error('[API] Error running ETL:', error);
+      res.status(500).json({ error: 'Failed to run ETL', details: error.message });
+    }
+  });
+
+  // POST /api/admin/etl/run-cluster/:clusterKey - Run ETL for specific cluster
+  app.post('/api/admin/etl/run-cluster/:clusterKey', isAdmin, async (req, res) => {
+    try {
+      const { etlService } = await import('./src/etl/services/EtlService.js');
+      const clusterKey = req.params.clusterKey;
+      
+      const etlResults = await etlService.runForCluster(clusterKey);
+      
+      res.json({
+        clusterKey,
+        walletsProcessed: etlResults.length,
+        results: etlResults,
+      });
+    } catch (error) {
+      console.error('[API] Error running ETL for cluster:', error);
+      res.status(500).json({ error: 'Failed to run ETL', details: error.message });
+    }
+  });
+
   // ============================================================================
   // CHALLENGE SYSTEM API
   // ============================================================================
