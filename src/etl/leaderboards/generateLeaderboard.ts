@@ -3,7 +3,8 @@ import {
   leaderboardDefs, 
   leaderboardRuns, 
   leaderboardEntries,
-  playerChallengeProgress 
+  playerChallengeProgress,
+  challenges
 } from '../../../shared/schema.js';
 import { eq, desc, and, sql } from 'drizzle-orm';
 
@@ -94,18 +95,25 @@ export async function generateLeaderboardRun(
     // progress updated within the period. For cumulative metrics, this shows players
     // who were active during the time window. For true delta-based rankings, a separate
     // snapshot/delta tracking system would be needed.
+    //
+    // The query joins player_challenge_progress with challenges table to filter by
+    // metric_source and metric_key, since progress table stores challenge_key reference.
+    const periodStartStr = periodStart.toISOString();
+    const periodEndStr = periodEnd.toISOString();
+    
     const progressRows = await db.execute(sql`
       SELECT 
         pcp.cluster_id,
-        COALESCE(SUM(pcp.value), 0)::integer as score
+        COALESCE(SUM(pcp.current_value), 0)::integer as score
       FROM player_challenge_progress pcp
+      INNER JOIN challenges c ON pcp.challenge_key = c.key
       WHERE pcp.cluster_id IS NOT NULL
-        AND pcp.metric_source = ${leaderboardDef.metricSource}
-        AND pcp.metric_key = ${leaderboardDef.metricKey}
-        AND pcp.updated_at >= ${periodStart}
-        AND pcp.updated_at <= ${periodEnd}
+        AND c.metric_source = ${leaderboardDef.metricSource}
+        AND c.metric_key = ${leaderboardDef.metricKey}
+        AND pcp.updated_at >= ${periodStartStr}::timestamptz
+        AND pcp.updated_at <= ${periodEndStr}::timestamptz
       GROUP BY pcp.cluster_id
-      HAVING COALESCE(SUM(pcp.value), 0) > 0
+      HAVING COALESCE(SUM(pcp.current_value), 0) > 0
       ORDER BY score DESC
       LIMIT ${maxEntries}
     `);

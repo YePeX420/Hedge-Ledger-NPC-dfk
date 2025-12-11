@@ -13,7 +13,7 @@ export async function loadChallengeProgress(
   data: FullExtractResult,
   transform: TransformResult
 ): Promise<number> {
-  const { userId, walletAddress } = ctx;
+  const { userId, walletAddress, clusterKey } = ctx;
   
   if (!userId) {
     console.warn(`[ChallengeProgressLoader] No userId provided, skipping challenge progress update`);
@@ -58,7 +58,9 @@ export async function loadChallengeProgress(
               highestTierAchieved: highestTier || prev.highestTierAchieved,
               achievedAt: highestTier && highestTier !== prev.highestTierAchieved ? now : prev.achievedAt,
               lastUpdated: now,
+              updatedAt: now,
               walletAddress,
+              clusterId: clusterKey || prev.clusterId,
             })
             .where(eq(playerChallengeProgress.id, prev.id));
           updated++;
@@ -67,11 +69,13 @@ export async function loadChallengeProgress(
         await db.insert(playerChallengeProgress).values({
           userId,
           walletAddress,
+          clusterId: clusterKey,
           challengeKey: challenge.key,
           currentValue: numericValue,
           highestTierAchieved: highestTier,
           achievedAt: highestTier ? now : null,
           lastUpdated: now,
+          updatedAt: now,
         });
         updated++;
       }

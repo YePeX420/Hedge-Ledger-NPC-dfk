@@ -1375,11 +1375,13 @@ export const playerChallengeProgress = pgTable("player_challenge_progress", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id", { length: 128 }).notNull(), // Discord user ID
   walletAddress: varchar("wallet_address", { length: 64 }), // Optional wallet for on-chain challenges
+  clusterId: varchar("cluster_id", { length: 128 }), // Cluster key for cluster-based aggregation
   challengeKey: varchar("challenge_key", { length: 64 }).notNull(),
-  currentValue: integer("current_value").notNull().default(0), // Current progress value
+  currentValue: integer("current_value").notNull().default(0), // Current progress value (renamed to 'value' in queries)
   highestTierAchieved: varchar("highest_tier_achieved", { length: 32 }), // Tier code of highest tier achieved
   achievedAt: timestamp("achieved_at", { withTimezone: true }), // When the highest tier was achieved
   lastUpdated: timestamp("last_updated", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(), // For time-windowed leaderboards
   meta: json("meta").$type<{
     streakStart?: string;
     streakEnd?: string;
@@ -1390,6 +1392,8 @@ export const playerChallengeProgress = pgTable("player_challenge_progress", {
   userIdIdx: index("player_challenge_progress_user_id_idx").on(table.userId),
   challengeKeyIdx: index("player_challenge_progress_challenge_key_idx").on(table.challengeKey),
   walletIdx: index("player_challenge_progress_wallet_idx").on(table.walletAddress),
+  clusterIdx: index("player_challenge_progress_cluster_idx").on(table.clusterId),
+  updatedAtIdx: index("player_challenge_progress_updated_at_idx").on(table.updatedAt),
 }));
 
 export const insertPlayerChallengeProgressSchema = createInsertSchema(playerChallengeProgress).omit({ id: true });
