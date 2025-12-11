@@ -20,6 +20,12 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
 *   **Player User Model System**: Classifies players into archetypes for personalized bot responses and smurf detection.
 *   **Smurf Detection & League Signup System**: Manages competitive leagues with multi-account detection, power snapshots, and rule-based smurf identification.
 *   **Challenge/Achievement System**: A gamified progression system with categories and challenges, utilizing an ETL subsystem for metric extraction and progress computation.
+*   **Phase 3 Combat Ingestion**: Direct RPC log scanning for hunting encounters and PvP matches:
+    - `src/etl/ingestion/huntingIndexer.ts`: Indexes hunting events from DFK Chain
+    - `src/etl/ingestion/pvpIndexer.ts`: Indexes PvP matches from DFK and METIS chains
+    - `src/config/combatContracts.ts`: Contract addresses and event signatures (requires configuration)
+    - Tables: `hunting_encounters`, `pvp_matches`, `ingestion_state` for checkpoint tracking
+    - Challenge extractors wired: 5 hunting challenges, 4 PvP challenges
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" via indexed bridge events and wallet scoring.
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules, entry fees, prizes, and a state machine for managing races.
 *   **Leaderboard System**: Provides snapshot-based rankings with historical tracking across various time windows, scoring players based on defined metrics.
