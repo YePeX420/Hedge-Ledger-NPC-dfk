@@ -6,11 +6,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle, Play, Loader2, Square, DollarSign, Database, Zap } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle, Play, Loader2, Square, DollarSign, Database, Zap, PieChart } from 'lucide-react';
 import { useState } from 'react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
+import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Legend } from 'recharts';
 
 interface BridgeOverview {
   events: {
@@ -149,6 +151,36 @@ interface ParallelEnrichmentStatus {
   }>;
 }
 
+interface ValueBreakdown {
+  timestamp: string;
+  prices: {
+    jewel: number;
+    crystal: number;
+  };
+  categories: Array<{
+    category: string;
+    contracts: Array<{
+      name: string;
+      address: string;
+      jewelBalance: number;
+      crystalBalance: number;
+      totalValueUSD: number;
+    }>;
+    totalJewel: number;
+    totalCrystal: number;
+    totalValueUSD: number;
+  }>;
+  summary: {
+    totalJewelLocked: number;
+    totalCrystalLocked: number;
+    totalValueUSD: number;
+    lpPoolsValue: number;
+    stakingValue: number;
+    bridgeValue: number;
+    systemValue: number;
+  };
+}
+
 export default function BridgeAnalytics() {
   const { toast } = useToast();
   const [walletSearch, setWalletSearch] = useState('');
@@ -164,6 +196,10 @@ export default function BridgeAnalytics() {
   
   const safeOverview = overview && !('error' in overview) ? overview : null;
   const safeExtractors = Array.isArray(extractors) ? extractors : [];
+
+  const { data: valueBreakdown, isLoading: valueBreakdownLoading, isError: valueBreakdownError, refetch: refetchValueBreakdown } = useQuery<ValueBreakdown>({
+    queryKey: ['/api/admin/bridge/value-breakdown'],
+  });
 
   const { data: walletDetails, isLoading: walletLoading } = useQuery<WalletDetails>({
     queryKey: ['/api/admin/bridge/wallet', selectedWallet],
@@ -785,6 +821,144 @@ export default function BridgeAnalytics() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Value Distribution Pie Chart */}
+      <Card data-testid="card-value-distribution">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <PieChart className="h-5 w-5" />
+              DFK Chain Value Distribution
+            </CardTitle>
+            <CardDescription>
+              Where bridged tokens are locked across LP pools, staking, and game contracts
+            </CardDescription>
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => refetchValueBreakdown()}
+            disabled={valueBreakdownLoading}
+            data-testid="button-refresh-breakdown"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${valueBreakdownLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {valueBreakdownLoading ? (
+            <div className="flex items-center justify-center h-64" data-testid="loading-breakdown">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : valueBreakdownError ? (
+            <div className="flex flex-col items-center justify-center h-64 text-muted-foreground gap-4" data-testid="error-breakdown">
+              <AlertTriangle className="h-8 w-8 text-destructive" />
+              <p>Failed to load value breakdown data</p>
+              <Button variant="outline" size="sm" onClick={() => refetchValueBreakdown()} data-testid="button-retry-breakdown">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Try Again
+              </Button>
+            </div>
+          ) : valueBreakdown?.summary ? (
+            <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
+              <div className="h-[280px] min-h-[250px]" data-testid="chart-pie-container">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsPieChart>
+                    <Pie
+                      data={[
+                        { name: 'LP Pools', value: valueBreakdown.summary.lpPoolsValue, fill: 'hsl(217, 91%, 60%)' },
+                        { name: 'Staking', value: valueBreakdown.summary.stakingValue, fill: 'hsl(160, 84%, 39%)' },
+                        { name: 'Bridges', value: valueBreakdown.summary.bridgeValue, fill: 'hsl(38, 92%, 50%)' },
+                        { name: 'System', value: valueBreakdown.summary.systemValue, fill: 'hsl(263, 70%, 50%)' },
+                      ].filter(d => d.value > 0)}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={90}
+                      paddingAngle={2}
+                      dataKey="value"
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      labelLine={false}
+                    >
+                      {[
+                        { name: 'LP Pools', value: valueBreakdown.summary.lpPoolsValue, fill: 'hsl(217, 91%, 60%)' },
+                        { name: 'Staking', value: valueBreakdown.summary.stakingValue, fill: 'hsl(160, 84%, 39%)' },
+                        { name: 'Bridges', value: valueBreakdown.summary.bridgeValue, fill: 'hsl(38, 92%, 50%)' },
+                        { name: 'System', value: valueBreakdown.summary.systemValue, fill: 'hsl(263, 70%, 50%)' },
+                      ].filter(d => d.value > 0).map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                  </RechartsPieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-blue-500/10 dark:bg-blue-500/20 rounded-lg border border-blue-500/20" data-testid="stat-lp-pools">
+                    <p className="text-sm text-muted-foreground">LP Pools</p>
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400" data-testid="breakdown-lp">
+                      {formatUsd(valueBreakdown.summary.lpPoolsValue)}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-green-500/10 dark:bg-green-500/20 rounded-lg border border-green-500/20" data-testid="stat-staking">
+                    <p className="text-sm text-muted-foreground">Staking/Governance</p>
+                    <p className="text-lg font-bold text-green-600 dark:text-green-400" data-testid="breakdown-staking">
+                      {formatUsd(valueBreakdown.summary.stakingValue)}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-amber-500/10 dark:bg-amber-500/20 rounded-lg border border-amber-500/20" data-testid="stat-bridges">
+                    <p className="text-sm text-muted-foreground">Bridge Contracts</p>
+                    <p className="text-lg font-bold text-amber-600 dark:text-amber-400" data-testid="breakdown-bridges">
+                      {formatUsd(valueBreakdown.summary.bridgeValue)}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-violet-500/10 dark:bg-violet-500/20 rounded-lg border border-violet-500/20" data-testid="stat-system">
+                    <p className="text-sm text-muted-foreground">System Contracts</p>
+                    <p className="text-lg font-bold text-violet-600 dark:text-violet-400" data-testid="breakdown-system">
+                      {formatUsd(valueBreakdown.summary.systemValue)}
+                    </p>
+                  </div>
+                </div>
+                <Separator />
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div data-testid="stat-jewel-locked">
+                    <p className="text-muted-foreground">Total JEWEL Locked</p>
+                    <p className="font-semibold" data-testid="breakdown-jewel">
+                      {valueBreakdown.summary.totalJewelLocked.toLocaleString()} JEWEL
+                    </p>
+                  </div>
+                  <div data-testid="stat-crystal-locked">
+                    <p className="text-muted-foreground">Total CRYSTAL Locked</p>
+                    <p className="font-semibold" data-testid="breakdown-crystal">
+                      {valueBreakdown.summary.totalCrystalLocked.toLocaleString()} CRYSTAL
+                    </p>
+                  </div>
+                </div>
+                <div className="p-4 bg-muted/50 rounded-lg" data-testid="stat-tvl-summary">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-sm text-muted-foreground">Total Value Locked (TVL)</span>
+                    <span className="text-xl font-bold" data-testid="breakdown-tvl">
+                      {formatUsd(valueBreakdown.summary.totalValueUSD)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2" data-testid="text-prices">
+                    Prices: JEWEL ${valueBreakdown.prices.jewel.toFixed(4)} | CRYSTAL ${valueBreakdown.prices.crystal.toFixed(4)}
+                  </p>
+                  <p className="text-xs text-muted-foreground" data-testid="text-updated">
+                    Updated: {new Date(valueBreakdown.timestamp).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-64 text-muted-foreground gap-2" data-testid="empty-breakdown">
+              <PieChart className="h-8 w-8 opacity-50" />
+              <p>No value breakdown data available</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Wallet Search */}
       <Card>
