@@ -73,11 +73,55 @@ export async function extractStakingData(ctx: WalletContext): Promise<ExtractedS
       }
     }
     
-    // 2. Aggregate cJEWEL (staked JEWEL) across all cluster wallets
+    // 2. Aggregate cJEWEL (staked JEWEL) across all cluster wallets (with per-wallet snapshot fallback)
     let jewelStakeAmount = 0;
+    const walletsWithLiveData = new Set<string>();
+    
     for (const w of walletsToAggregate) {
       const cjewel = await fetchLiveCJewelBalance(w);
-      jewelStakeAmount += cjewel;
+      if (cjewel > 0) {
+        walletsWithLiveData.add(w);
+        jewelStakeAmount += cjewel;
+      }
+    }
+    
+    // Snapshot fallback: For any wallets that failed live fetch, use their snapshots
+    const walletsNeedingFallback = walletsToAggregate.filter(w => !walletsWithLiveData.has(w));
+    
+    if (walletsNeedingFallback.length > 0 || jewelStakeAmount === 0) {
+      try {
+        // Get latest snapshot per wallet for wallets without live data
+        let latestSnapshots: Array<{ walletAddress: string; stakedAmount: string }> = [];
+        
+        if (walletsNeedingFallback.length > 0) {
+          const walletsArray = walletsNeedingFallback.map(w => `'${w}'`).join(',');
+          latestSnapshots = await db.execute(sql.raw(`
+            SELECT DISTINCT ON (wallet_address) 
+              wallet_address as "walletAddress", 
+              staked_amount as "stakedAmount"
+            FROM staking_snapshots
+            WHERE wallet_address IN (${walletsArray})
+            ORDER BY wallet_address, snapshot_date DESC
+          `)) as any;
+        } else if (jewelStakeAmount === 0 && clusterKey) {
+          // All wallets failed - try cluster-level fallback
+          latestSnapshots = await db.execute(sql`
+            SELECT DISTINCT ON (wallet_address) 
+              wallet_address as "walletAddress", 
+              staked_amount as "stakedAmount"
+            FROM staking_snapshots
+            WHERE cluster_key = ${clusterKey}
+            ORDER BY wallet_address, snapshot_date DESC
+          `) as any;
+        }
+        
+        // Add snapshot amounts to live amounts
+        for (const snap of latestSnapshots) {
+          jewelStakeAmount += parseFloat(snap.stakedAmount || '0');
+        }
+      } catch (err) {
+        console.warn(`[StakingExtractor] Snapshot fallback error:`, err);
+      }
     }
     
     // 3. Calculate USD value using price oracle

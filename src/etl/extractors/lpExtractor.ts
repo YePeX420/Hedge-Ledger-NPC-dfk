@@ -55,18 +55,68 @@ export async function extractLpData(ctx: WalletContext): Promise<ExtractedLpData
       }
     }
     
-    // 2. Aggregate LP USD value and pool count across all cluster wallets
+    // 2. Aggregate LP USD value and pool count across all cluster wallets (with per-wallet snapshot fallback)
     let lpUsdValue = 0;
     const activePoolIds = new Set<number>();
+    const walletsWithLiveData = new Set<string>();
     
     for (const w of walletsToAggregate) {
       const positions = await fetchLivePositions(w);
-      for (const pos of positions) {
-        const tvl = parseFloat(pos.userTVL || '0');
-        lpUsdValue += tvl;
-        if (tvl >= MIN_USD_THRESHOLD) {
-          activePoolIds.add(pos.pid);
+      if (positions.length > 0) {
+        walletsWithLiveData.add(w);
+        for (const pos of positions) {
+          const tvl = parseFloat(pos.userTVL || '0');
+          lpUsdValue += tvl;
+          if (tvl >= MIN_USD_THRESHOLD) {
+            activePoolIds.add(pos.pid);
+          }
         }
+      }
+    }
+    
+    // Snapshot fallback: For any wallets that failed live fetch, use their snapshots
+    const walletsNeedingFallback = walletsToAggregate.filter(w => !walletsWithLiveData.has(w));
+    
+    if (walletsNeedingFallback.length > 0 || lpUsdValue === 0) {
+      try {
+        // Get latest snapshot per (wallet, pool) for wallets without live data
+        let latestSnapshots: Array<{ walletAddress: string; poolId: number; usdValue: number }> = [];
+        
+        if (walletsNeedingFallback.length > 0) {
+          const walletsArray = walletsNeedingFallback.map(w => `'${w}'`).join(',');
+          latestSnapshots = await db.execute(sql.raw(`
+            SELECT DISTINCT ON (wallet_address, pool_id) 
+              wallet_address as "walletAddress", 
+              pool_id as "poolId", 
+              usd_value as "usdValue"
+            FROM lp_position_snapshots
+            WHERE wallet_address IN (${walletsArray})
+            ORDER BY wallet_address, pool_id, snapshot_date DESC
+          `)) as any;
+        } else if (lpUsdValue === 0 && clusterKey) {
+          // All wallets failed - try cluster-level fallback
+          latestSnapshots = await db.execute(sql`
+            SELECT DISTINCT ON (wallet_address, pool_id) 
+              wallet_address as "walletAddress", 
+              pool_id as "poolId", 
+              usd_value as "usdValue"
+            FROM lp_position_snapshots
+            WHERE cluster_key = ${clusterKey}
+            ORDER BY wallet_address, pool_id, snapshot_date DESC
+          `) as any;
+        }
+        
+        // Add snapshot values to live values
+        for (const snap of latestSnapshots) {
+          const poolId = snap.poolId;
+          const valueUsd = (snap.usdValue || 0) / 100; // Convert cents to dollars
+          lpUsdValue += valueUsd;
+          if (valueUsd >= MIN_USD_THRESHOLD) {
+            activePoolIds.add(poolId);
+          }
+        }
+      } catch (err) {
+        console.warn(`[LpExtractor] Snapshot fallback error:`, err);
       }
     }
     
