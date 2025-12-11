@@ -217,10 +217,15 @@ export function getParallelEnrichmentStatus() {
   return {
     running: parallelEnrichmentState.running,
     workersTotal: parallelEnrichmentState.workersTotal,
-    startedAt: parallelEnrichmentState.startedAt,
+    startedAt: parallelEnrichmentState.startedAt ? parallelEnrichmentState.startedAt.toISOString() : null,
     workers: Array.from(parallelEnrichmentState.workers.entries()).map(([id, w]) => ({
       workerId: id,
-      ...w,
+      running: w.running,
+      groupsTotal: w.groupsTotal,
+      groupsProcessed: w.groupsProcessed,
+      eventsUpdated: w.eventsUpdated,
+      lastUpdate: w.lastUpdate ? w.lastUpdate.toISOString() : null,
+      complete: w.complete || false,
     })),
   };
 }
