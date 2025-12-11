@@ -70,6 +70,8 @@ interface ValueBreakdownResult {
   prices: {
     jewel: number;
     crystal: number;
+    jewelSource: 'defillama' | 'coingecko' | 'fallback';
+    crystalSource: 'defillama' | 'coingecko' | 'fallback';
   };
   categories: CategoryBreakdown[];
   summary: {
@@ -83,19 +85,92 @@ interface ValueBreakdownResult {
   };
 }
 
-async function getTokenPrice(token: 'JEWEL' | 'CRYSTAL'): Promise<number> {
+interface PriceResult {
+  price: number;
+  source: 'defillama' | 'coingecko' | 'fallback';
+  timestamp: number;
+}
+
+const priceCache: { jewel?: PriceResult; crystal?: PriceResult } = {};
+const CACHE_TTL_MS = 60000;
+
+async function fetchDefiLlamaPrices(): Promise<{ jewel: number | null; crystal: number | null }> {
   try {
+    const jewelAddress = 'dfk:0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260';
+    const crystalAddress = 'dfk:0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
+    
     const response = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=defi-kingdoms${token === 'CRYSTAL' ? '-crystal' : ''}&vs_currencies=usd`
+      `https://coins.llama.fi/prices/current/${jewelAddress},${crystalAddress}`,
+      { signal: AbortSignal.timeout(10000) }
     );
-    const data = await response.json();
-    if (token === 'JEWEL') {
-      return data['defi-kingdoms']?.usd || 0.15;
+    
+    if (!response.ok) {
+      console.log('[ValueBreakdown] DefiLlama API returned status:', response.status);
+      return { jewel: null, crystal: null };
     }
-    return data['defi-kingdoms-crystal']?.usd || 0.02;
-  } catch {
-    return token === 'JEWEL' ? 0.15 : 0.02;
+    
+    const data = await response.json();
+    const jewelData = data.coins?.[jewelAddress];
+    const crystalData = data.coins?.[crystalAddress];
+    
+    console.log('[ValueBreakdown] DefiLlama response:', JSON.stringify(data.coins || {}, null, 2));
+    
+    return {
+      jewel: jewelData?.price || null,
+      crystal: crystalData?.price || null,
+    };
+  } catch (err) {
+    console.log('[ValueBreakdown] DefiLlama fetch failed:', err);
+    return { jewel: null, crystal: null };
   }
+}
+
+async function fetchCoinGeckoPrice(token: 'JEWEL' | 'CRYSTAL'): Promise<number | null> {
+  try {
+    const id = token === 'JEWEL' ? 'defi-kingdoms' : 'defi-kingdoms-crystal';
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    return data[id]?.usd || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getTokenPrice(token: 'JEWEL' | 'CRYSTAL'): Promise<PriceResult> {
+  const cacheKey = token.toLowerCase() as 'jewel' | 'crystal';
+  const cached = priceCache[cacheKey];
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached;
+  }
+  
+  const llamaPrices = await fetchDefiLlamaPrices();
+  const llamaPrice = token === 'JEWEL' ? llamaPrices.jewel : llamaPrices.crystal;
+  
+  if (llamaPrice && llamaPrice > 0) {
+    const result: PriceResult = { price: llamaPrice, source: 'defillama', timestamp: Date.now() };
+    priceCache[cacheKey] = result;
+    console.log(`[ValueBreakdown] ${token} price from DefiLlama: $${llamaPrice}`);
+    return result;
+  }
+  
+  const geckoPrice = await fetchCoinGeckoPrice(token);
+  if (geckoPrice && geckoPrice > 0) {
+    const result: PriceResult = { price: geckoPrice, source: 'coingecko', timestamp: Date.now() };
+    priceCache[cacheKey] = result;
+    console.log(`[ValueBreakdown] ${token} price from CoinGecko: $${geckoPrice}`);
+    return result;
+  }
+  
+  const fallbackPrice = token === 'JEWEL' ? 0.15 : 0.02;
+  console.warn(`[ValueBreakdown] Using fallback price for ${token}: $${fallbackPrice}`);
+  return { price: fallbackPrice, source: 'fallback', timestamp: Date.now() };
 }
 
 async function getTokenBalance(
@@ -150,10 +225,13 @@ async function getStakedTokenSupply(
 export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
   
-  const [jewelPrice, crystalPrice] = await Promise.all([
+  const [jewelPriceResult, crystalPriceResult] = await Promise.all([
     getTokenPrice('JEWEL'),
     getTokenPrice('CRYSTAL'),
   ]);
+  
+  const jewelPrice = jewelPriceResult.price;
+  const crystalPrice = crystalPriceResult.price;
 
   const categories: CategoryBreakdown[] = [];
 
@@ -292,6 +370,8 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     prices: {
       jewel: jewelPrice,
       crystal: crystalPrice,
+      jewelSource: jewelPriceResult.source,
+      crystalSource: crystalPriceResult.source,
     },
     categories,
     summary: {
@@ -310,7 +390,7 @@ export function formatValueBreakdown(data: ValueBreakdownResult): string {
   const lines: string[] = [];
   lines.push(`=== DFK Chain Value Breakdown ===`);
   lines.push(`Timestamp: ${data.timestamp}`);
-  lines.push(`Prices: JEWEL $${data.prices.jewel.toFixed(4)} | CRYSTAL $${data.prices.crystal.toFixed(4)}`);
+  lines.push(`Prices: JEWEL $${data.prices.jewel.toFixed(4)} (${data.prices.jewelSource}) | CRYSTAL $${data.prices.crystal.toFixed(4)} (${data.prices.crystalSource})`);
   lines.push('');
 
   for (const category of data.categories) {

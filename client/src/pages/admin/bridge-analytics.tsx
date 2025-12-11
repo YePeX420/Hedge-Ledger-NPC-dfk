@@ -156,6 +156,8 @@ interface ValueBreakdown {
   prices: {
     jewel: number;
     crystal: number;
+    jewelSource?: 'defillama' | 'coingecko' | 'fallback';
+    crystalSource?: 'defillama' | 'coingecko' | 'fallback';
   };
   categories: Array<{
     category: string;
@@ -942,10 +944,47 @@ export default function BridgeAnalytics() {
                       {formatUsd(valueBreakdown.summary.totalValueUSD)}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2" data-testid="text-prices">
-                    Prices: JEWEL ${valueBreakdown.prices.jewel.toFixed(4)} | CRYSTAL ${valueBreakdown.prices.crystal.toFixed(4)}
-                  </p>
-                  <p className="text-xs text-muted-foreground" data-testid="text-updated">
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center gap-2 text-xs" data-testid="text-prices">
+                      <span className="text-muted-foreground">
+                        JEWEL: ${valueBreakdown.prices.jewel.toFixed(4)}
+                      </span>
+                      {valueBreakdown.prices.jewelSource && (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          valueBreakdown.prices.jewelSource === 'defillama' 
+                            ? 'bg-green-500/20 text-green-600 dark:text-green-400' 
+                            : valueBreakdown.prices.jewelSource === 'coingecko'
+                            ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
+                            : 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                        }`} data-testid="badge-jewel-source">
+                          {valueBreakdown.prices.jewelSource}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs" data-testid="text-crystal-price">
+                      <span className="text-muted-foreground">
+                        CRYSTAL: ${valueBreakdown.prices.crystal.toFixed(4)}
+                      </span>
+                      {valueBreakdown.prices.crystalSource && (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          valueBreakdown.prices.crystalSource === 'defillama' 
+                            ? 'bg-green-500/20 text-green-600 dark:text-green-400' 
+                            : valueBreakdown.prices.crystalSource === 'coingecko'
+                            ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
+                            : 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                        }`} data-testid="badge-crystal-source">
+                          {valueBreakdown.prices.crystalSource}
+                        </span>
+                      )}
+                    </div>
+                    {(valueBreakdown.prices.jewelSource === 'fallback' || valueBreakdown.prices.crystalSource === 'fallback') && (
+                      <div className="flex items-center gap-1 mt-2 text-xs text-amber-600 dark:text-amber-400" data-testid="warning-fallback-prices">
+                        <AlertTriangle className="h-3 w-3" />
+                        <span>Using fallback prices - live data unavailable</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2" data-testid="text-updated">
                     Updated: {new Date(valueBreakdown.timestamp).toLocaleString()}
                   </p>
                 </div>
