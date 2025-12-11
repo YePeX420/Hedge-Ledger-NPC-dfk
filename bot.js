@@ -6802,9 +6802,141 @@ async function startAdminWebServer() {
     }
   }
 
-  server.listen(5000, () => {
+  server.listen(5000, async () => {
     console.log('✅ Web server listening on port 5000');
+    
+    // Auto-start parallel sync if not running and indexing is incomplete
+    await autoStartParallelSync();
   });
+  
+  // Auto-start parallel sync on server startup
+  async function autoStartParallelSync() {
+    try {
+      // Wait a bit for other services to initialize
+      await new Promise(r => setTimeout(r, 3000));
+      
+      if (parallelSyncState.running) {
+        console.log('[ParallelSync] Already running, skipping auto-start');
+        return;
+      }
+      
+      const latestBlock = await getBridgeLatestBlock();
+      const workerProgress = await getAllWorkerProgress(8); // Check for 8-worker setup
+      
+      if (workerProgress.length === 0) {
+        console.log('[ParallelSync] No previous worker progress found, auto-starting...');
+      } else {
+        // Calculate combined progress
+        let totalBlocksProcessed = 0;
+        let totalBlocksToProcess = 0;
+        const blocksPerWorker = Math.ceil(latestBlock / workerProgress.length);
+        
+        for (const worker of workerProgress) {
+          const workerStart = worker.genesisBlock || 0;
+          const workerEnd = Math.min(workerStart + blocksPerWorker, latestBlock);
+          const workerTotal = workerEnd - workerStart;
+          const processed = Math.max(0, worker.lastIndexedBlock - workerStart);
+          
+          totalBlocksToProcess += workerTotal;
+          totalBlocksProcessed += Math.min(processed, workerTotal);
+        }
+        
+        const combinedProgress = totalBlocksToProcess > 0 
+          ? Math.round((totalBlocksProcessed / totalBlocksToProcess) * 100) 
+          : 0;
+        
+        if (combinedProgress >= 100) {
+          console.log(`[ParallelSync] Indexing complete (${combinedProgress}%), skipping auto-start`);
+          return;
+        }
+        
+        console.log(`[ParallelSync] Indexing at ${combinedProgress}%, auto-starting to continue...`);
+      }
+      
+      // Auto-start with default settings
+      const workersTotal = 8;
+      const batchSize = 10000;
+      const maxBatchesPerWorker = 100;
+      
+      console.log(`[ParallelSync] Auto-starting ${workersTotal} workers with batch size ${batchSize}`);
+      
+      parallelSyncState.running = true;
+      parallelSyncState.workersTotal = workersTotal;
+      parallelSyncState.startedAt = new Date();
+      parallelSyncState.workers.clear();
+      
+      const blocksPerWorker = Math.ceil(latestBlock / workersTotal);
+      const workerPromises = [];
+      
+      for (let workerId = 1; workerId <= workersTotal; workerId++) {
+        const rangeStart = (workerId - 1) * blocksPerWorker;
+        const rangeEnd = Math.min(workerId * blocksPerWorker, latestBlock);
+        const indexerName = getWorkerIndexerName(workerId, workersTotal);
+        
+        console.log(`[ParallelSync] Worker ${workerId}: blocks ${rangeStart} → ${rangeEnd}`);
+        
+        // Initialize worker progress (resumes from last position)
+        await initIndexerProgress(indexerName, rangeStart);
+        
+        parallelSyncState.workers.set(workerId, {
+          running: true,
+          lastUpdate: new Date(),
+          progress: { rangeStart, rangeEnd },
+        });
+        
+        const workerLoop = async () => {
+          let batchCount = 0;
+          while (batchCount < maxBatchesPerWorker && parallelSyncState.running) {
+            const result = await runWorkerBatch({
+              batchSize,
+              indexerName,
+              rangeEnd,
+            });
+            
+            batchCount++;
+            parallelSyncState.workers.set(workerId, {
+              running: true,
+              lastUpdate: new Date(),
+              progress: result,
+            });
+            
+            if (result.status === 'complete') {
+              console.log(`[ParallelSync] Worker ${workerId} completed its range`);
+              break;
+            }
+            
+            if (result.status === 'error') {
+              console.error(`[ParallelSync] Worker ${workerId} error:`, result.error);
+              await new Promise(r => setTimeout(r, 5000));
+            }
+            
+            await new Promise(r => setTimeout(r, 500));
+          }
+          
+          parallelSyncState.workers.set(workerId, {
+            running: false,
+            lastUpdate: new Date(),
+            progress: { complete: true },
+          });
+        };
+        
+        workerPromises.push(workerLoop());
+      }
+      
+      Promise.all(workerPromises)
+        .then(() => {
+          console.log('[ParallelSync] Auto-start: All workers completed');
+          parallelSyncState.running = false;
+        })
+        .catch((error) => {
+          console.error('[ParallelSync] Auto-start worker error:', error);
+          parallelSyncState.running = false;
+        });
+        
+    } catch (error) {
+      console.error('[ParallelSync] Auto-start error:', error);
+    }
+  }
 }
 
 // === Login to Discord / Main startup ===
