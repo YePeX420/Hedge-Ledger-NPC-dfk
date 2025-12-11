@@ -76,6 +76,8 @@ import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, cha
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
 import levelRacerRoutes from './src/modules/levelRacer/levelRacer.routes.ts';
+import leaderboardRoutes from './src/modules/leaderboards/leaderboard.routes.ts';
+import seasonRoutes from './src/modules/seasons/season.routes.ts';
 import { seedHeroClasses, ensurePoolsForAllClasses } from './src/modules/levelRacer/levelRacer.service.ts';
 
 const execAsync = promisify(exec);
@@ -3999,6 +4001,12 @@ async function startAdminWebServer() {
 
   // Level Racer routes (no auth for public endpoints)
   app.use('/api/level-racer', levelRacerRoutes);
+
+  // Leaderboard routes (admin only - auth handled in middleware below)
+  app.use('/api/admin/leaderboards', isAdmin, leaderboardRoutes);
+
+  // Season routes (admin only - auth handled in middleware below)
+  app.use('/api/admin/seasons', isAdmin, seasonRoutes);
 
   // Debug endpoint - no auth required
   app.get('/api/admin/debug-status', async (req, res) => {

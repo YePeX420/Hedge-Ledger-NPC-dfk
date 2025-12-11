@@ -1513,3 +1513,134 @@ export const raceEvents = pgTable("race_events", {
 export const insertRaceEventSchema = createInsertSchema(raceEvents).omit({ id: true, createdAt: true });
 export type InsertRaceEvent = z.infer<typeof insertRaceEventSchema>;
 export type RaceEvent = typeof raceEvents.$inferSelect;
+
+// ============================================================================
+// LEADERBOARD SYSTEM SCHEMA
+// ============================================================================
+
+/**
+ * Leaderboard definitions - configurable leaderboard types
+ */
+export const leaderboardDefs = pgTable("leaderboard_defs", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  categoryKey: text("category_key").notNull(),
+  metricSource: text("metric_source").notNull(),
+  metricKey: text("metric_key").notNull(),
+  fallbackMetricKey: text("fallback_metric_key"),
+  timeWindow: text("time_window").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  keyIdx: uniqueIndex("leaderboard_defs_key_idx").on(table.key),
+  categoryKeyIdx: index("leaderboard_defs_category_key_idx").on(table.categoryKey),
+}));
+
+export const insertLeaderboardDefSchema = createInsertSchema(leaderboardDefs).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertLeaderboardDef = z.infer<typeof insertLeaderboardDefSchema>;
+export type LeaderboardDef = typeof leaderboardDefs.$inferSelect;
+
+/**
+ * Leaderboard runs - one run of a leaderboard for a specific time window
+ */
+export const leaderboardRuns = pgTable("leaderboard_runs", {
+  id: serial("id").primaryKey(),
+  leaderboardKey: text("leaderboard_key").notNull(),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("PENDING"),
+  rowCount: integer("row_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  leaderboardKeyIdx: index("leaderboard_runs_key_idx").on(table.leaderboardKey),
+  statusIdx: index("leaderboard_runs_status_idx").on(table.status),
+  periodStartIdx: index("leaderboard_runs_period_start_idx").on(table.periodStart),
+}));
+
+export const insertLeaderboardRunSchema = createInsertSchema(leaderboardRuns).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertLeaderboardRun = z.infer<typeof insertLeaderboardRunSchema>;
+export type LeaderboardRun = typeof leaderboardRuns.$inferSelect;
+
+/**
+ * Leaderboard entries - snapshot entries for a run
+ */
+export const leaderboardEntries = pgTable("leaderboard_entries", {
+  id: serial("id").primaryKey(),
+  runId: integer("run_id").notNull().references(() => leaderboardRuns.id, { onDelete: "cascade" }),
+  clusterId: text("cluster_id").notNull(),
+  rank: integer("rank").notNull(),
+  score: integer("score").notNull(),
+  tiebreaker: integer("tiebreaker").default(0),
+  payload: text("payload").notNull().default("{}"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  runIdIdx: index("leaderboard_entries_run_id_idx").on(table.runId),
+  runIdRankIdx: index("leaderboard_entries_run_id_rank_idx").on(table.runId, table.rank),
+  clusterIdIdx: index("leaderboard_entries_cluster_id_idx").on(table.clusterId),
+}));
+
+export const insertLeaderboardEntrySchema = createInsertSchema(leaderboardEntries).omit({ id: true, createdAt: true });
+export type InsertLeaderboardEntry = z.infer<typeof insertLeaderboardEntrySchema>;
+export type LeaderboardEntry = typeof leaderboardEntries.$inferSelect;
+
+// ============================================================================
+// SEASON ENGINE SCHEMA (Challenge Pass)
+// ============================================================================
+
+/**
+ * Seasons - seasonal challenge pass definitions
+ */
+export const seasons = pgTable("seasons", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  isActive: boolean("is_active").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertSeasonSchema = createInsertSchema(seasons).omit({ createdAt: true, updatedAt: true });
+export type InsertSeason = z.infer<typeof insertSeasonSchema>;
+export type Season = typeof seasons.$inferSelect;
+
+/**
+ * Season challenge weights - weight per challenge in a season
+ */
+export const seasonChallengeWeights = pgTable("season_challenge_weights", {
+  id: serial("id").primaryKey(),
+  seasonId: text("season_id").notNull().references(() => seasons.id, { onDelete: "cascade" }),
+  challengeCode: text("challenge_code").notNull(),
+  weight: integer("weight").notNull(),
+}, (table) => ({
+  seasonIdIdx: index("season_challenge_weights_season_id_idx").on(table.seasonId),
+  seasonChallengeIdx: uniqueIndex("season_challenge_weights_season_challenge_idx").on(table.seasonId, table.challengeCode),
+}));
+
+export const insertSeasonChallengeWeightSchema = createInsertSchema(seasonChallengeWeights).omit({ id: true });
+export type InsertSeasonChallengeWeight = z.infer<typeof insertSeasonChallengeWeightSchema>;
+export type SeasonChallengeWeight = typeof seasonChallengeWeights.$inferSelect;
+
+/**
+ * Season progress - player/cluster progress per season
+ */
+export const seasonProgress = pgTable("season_progress", {
+  id: serial("id").primaryKey(),
+  seasonId: text("season_id").notNull().references(() => seasons.id, { onDelete: "cascade" }),
+  clusterId: text("cluster_id").notNull(),
+  points: integer("points").notNull().default(0),
+  level: integer("level").notNull().default(0),
+  lastUpdatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  seasonIdIdx: index("season_progress_season_id_idx").on(table.seasonId),
+  clusterIdIdx: index("season_progress_cluster_id_idx").on(table.clusterId),
+  seasonClusterIdx: uniqueIndex("season_progress_season_cluster_idx").on(table.seasonId, table.clusterId),
+}));
+
+export const insertSeasonProgressSchema = createInsertSchema(seasonProgress).omit({ id: true, lastUpdatedAt: true });
+export type InsertSeasonProgress = z.infer<typeof insertSeasonProgressSchema>;
+export type SeasonProgress = typeof seasonProgress.$inferSelect;

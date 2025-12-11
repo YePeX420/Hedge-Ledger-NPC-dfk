@@ -1,0 +1,334 @@
+Got it. Let’s start by giving Replit a focused backend prompt that covers:
+
+1. Leaderboard tables + ETL runner + APIs
+
+
+2. Season engine skeleton (tables + basic ETL hook + APIs)
+
+
+
+We’ll keep it scoped but complete enough that you can paste it straight into the backend Replit chat and let it work.
+
+
+---
+
+🔹 BACKEND PROMPT – Leaderboards + Season Engine (Phase 1)
+
+> Context:
+Our backend already has:
+
+HEDGE_CHALLENGE_CONFIG (categories + challenges)
+
+challengeCategories, challenges, challengeTiers tables
+
+challenge_progress ETL (metricSource → extractor) fully wired for all categories
+
+Admin dashboard for challenges
+
+
+Now we want to build two additional systems on the backend:
+
+1. Leaderboards (definitions, runs, entries, public + admin APIs)
+
+
+2. Season Engine (Challenge Pass) – with basic season & challenge weight storage, plus minimal ETL hook (full scoring logic can be a later step)
+
+
+
+Frontend and Discord will integrate later by calling HTTP APIs; this prompt is backend only.
+
+
+
+
+---
+
+1. Implement Leaderboard Data Model
+
+Create new DB schema entries in shared/schema.ts (or equivalent Drizzle schema file):
+
+// Leaderboard definition
+export const leaderboardDefs = pgTable("leaderboard_defs", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),         // e.g. "lb_pvp_monthly_wins"
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  categoryKey: text("category_key").notNull(), // e.g. "pvp_competition"
+  metricSource: text("metric_source").notNull(),
+  metricKey: text("metric_key").notNull(),
+  fallbackMetricKey: text("fallback_metric_key"), // optional tie-breaker
+  timeWindow: text("time_window").notNull(),   // "DAILY" | "WEEKLY" | "MONTHLY" | "SEASON"
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// One run of a leaderboard for a specific time window
+export const leaderboardRuns = pgTable("leaderboard_runs", {
+  id: serial("id").primaryKey(),
+  leaderboardKey: text("leaderboard_key").notNull(), // references leaderboardDefs.key
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  status: text("status").notNull().default("PENDING"), // PENDING|PROCESSING|COMPLETE|FAILED
+  rowCount: integer("row_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Snapshot entries for a run
+export const leaderboardEntries = pgTable("leaderboard_entries", {
+  id: serial("id").primaryKey(),
+  runId: integer("run_id").notNull(),          // references leaderboard_runs.id
+  clusterId: text("cluster_id").notNull(),
+  rank: integer("rank").notNull(),
+  score: integer("score").notNull(),
+  tiebreaker: integer("tiebreaker").default(0),
+  payload: text("payload").notNull().default("{}"), // JSON string
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+Please add any necessary Drizzle relations/indices and run a migration.
+
+
+---
+
+2. Implement Leaderboard Generation Logic
+
+Create a new ETL module:
+
+// src/etl/leaderboards/generateLeaderboard.ts
+
+Add functions:
+
+export async function generateLeaderboardRun(
+  leaderboardKey: string,
+  opts?: { periodStart?: Date; periodEnd?: Date }
+): Promise<{ runId: number }> {
+  // 1. Load leaderboardDef by key
+  // 2. Derive periodStart/periodEnd based on timeWindow if not provided
+  // 3. Insert leaderboard_runs row with status = 'PROCESSING'
+  // 4. Compute scores for all clusters
+  // 5. Insert leaderboard_entries
+  // 6. Update rowCount + status = 'COMPLETE'
+}
+
+Scoring source for v1:
+
+Use challenge_progress as the primary source.
+
+For a given leaderboardDef:
+
+If timeWindow is "SEASON" or "ALL_TIME", you can use the current value from challenge_progress directly.
+
+For "DAILY" / "WEEKLY" / "MONTHLY", it’s OK for v1 to also use current value (time-bounded deltas can be implemented later).
+
+
+
+Ranking logic:
+
+Use score = value from challenge_progress for the given challengeKey or combination of metricSource/metricKey you decide.
+
+Compute rank with DENSE_RANK() or in JS by sorting.
+
+tiebreaker can be 0 for v1.
+
+
+Keep v1 simple:
+
+One score per cluster
+
+Sorted descending
+
+Write top N (e.g. 1000) into leaderboardEntries.
+
+
+
+---
+
+3. Implement Leaderboard Admin + Public APIs
+
+Create admin routes in backend:
+
+// src/routes/admin/leaderboards.ts
+// Base path: /admin/leaderboards
+
+// GET /admin/leaderboards
+//   - List all leaderboardDefs and latest run summary
+
+// POST /admin/leaderboards
+//   - Create new leaderboardDef
+
+// PUT /admin/leaderboards/:key
+//   - Update existing definition (name, description, metric config, timeWindow, isActive)
+
+// POST /admin/leaderboards/:key/run
+//   - Trigger generateLeaderboardRun for the specified key
+//   - Accept optional { periodStart, periodEnd } in body
+
+Create public routes:
+
+// src/routes/public/leaderboards.ts
+// Base path: /leaderboards
+
+// GET /leaderboards/:key/latest?limit=100
+//   - Returns latest completed run and top N entries
+//   - Response: { leaderboard: { key, name, periodStart, periodEnd }, entries: [...] }
+
+// GET /leaderboards/:key/runs/:runId?limit=100
+//   - Returns specific run by id
+
+Wire these routers into your main Express/HTTP server using appropriate admin/public auth middleware.
+
+
+---
+
+4. Implement Season Engine: DB Schema
+
+Now define minimal Season data model:
+
+// src/db/schema/seasons.ts
+export const seasons = pgTable("seasons", {
+  id: text("id").primaryKey(), // e.g. "S1-2025"
+  name: text("name").notNull(),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  isActive: boolean("is_active").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Weight per challenge
+export const seasonChallengeWeights = pgTable("season_challenge_weights", {
+  id: serial("id").primaryKey(),
+  seasonId: text("season_id").notNull().references(() => seasons.id, { onDelete: "cascade" }),
+  challengeCode: text("challenge_code").notNull(),
+  weight: integer("weight").notNull(), // positive int
+});
+
+// Player/cluster progress per season
+export const seasonProgress = pgTable("season_progress", {
+  id: serial("id").primaryKey(),
+  seasonId: text("season_id").notNull().references(() => seasons.id, { onDelete: "cascade" }),
+  clusterId: text("cluster_id").notNull(),
+  points: integer("points").notNull().default(0),
+  level: integer("level").notNull().default(0),
+  lastUpdatedAt: timestamp("updated_at").defaultNow(),
+});
+
+You can add rewards later; for now, just store seasons, weights, and progress.
+
+
+---
+
+5. Implement Season ETL Hook (v1 Points Calculation)
+
+Create:
+
+// src/etl/seasons/seasonPoints.ts
+
+Function:
+
+export async function computeSeasonPointsForCluster(clusterId: string) {
+  // 1. Load active season (seasons.isActive = true AND now between startsAt/endsAt)
+  // 2. If none, return
+  // 3. Load seasonChallengeWeights for that season
+  // 4. For each weight:
+  //    - read challenge_progress.value for that challengeCode and clusterId
+  //    - optionally compute delta vs baseline (for v1, you can use raw value)
+  //    - accumulate points += value * weight
+  // 5. Upsert into seasonProgress (points, level computed from thresholds)
+}
+
+For v1, it is OK to use:
+
+points = Σ (challenge_progress.value * weight)
+level = floor(points / 1000) // or any simple threshold scheme
+
+You can refine to use deltas / snapshots later.
+
+Call computeSeasonPointsForCluster(clusterId) at the end of your main challenge ETL for each cluster if there is an active season.
+
+
+---
+
+6. Implement Season Admin + Public APIs
+
+Admin routes (/admin/seasons):
+
+// GET /admin/seasons
+// POST /admin/seasons       (create or update seasons)
+// PUT /admin/seasons/:id    (update name, dates, isActive flag)
+
+// GET /admin/seasons/:id/weights
+// POST /admin/seasons/:id/weights  (create or update weights)
+
+Public routes (/seasons):
+
+// GET /seasons/active
+//   -> returns { id, name, startsAt, endsAt }
+
+// GET /seasons/:id/progress?clusterId=...
+//   -> returns { points, level, nextLevelThreshold }
+
+We’ll hook rewards + claims in a later phase.
+
+
+---
+
+7. Testing & Validation
+
+1. Create a test season in DB via admin API or temporary seed:
+
+id="S1-TEST", isActive=true, etc.
+
+
+
+2. Configure a few seasonChallengeWeights:
+
+e.g. Hero Riser (weight 1), Hunter’s Triumph (weight 2), LP Depth (weight 3).
+
+
+
+3. Run ETL for a test cluster (with known challenge_progress values).
+
+
+4. Call computeSeasonPointsForCluster(clusterId).
+
+
+5. Verify season_progress row exists and points match expected Σ(value * weight).
+
+
+6. For leaderboards:
+
+Create a leaderboardDef that ranks by categoryKey="pvp_competition", metricSource="onchain_pvp", metricKey="wins" with timeWindow="ALL_TIME"
+
+Run /admin/leaderboards/:key/run
+
+Hit /leaderboards/:key/latest and verify top entries look reasonable.
+
+
+
+
+
+---
+
+8. Constraints
+
+Do not modify existing Challenge and ETL interfaces.
+
+Keep new code modular and behind admin/public routes.
+
+Only add new tables and ETL modules; do not break existing endpoints.
+
+Leaderboard and Season logic should be safe to run in staging before you run it in production.
+
+
+
+---
+
+You can paste this whole block into the backend Replit chat as:
+
+> “Backend prompt for leaderboards + seasons (Phase LB1)”
+
+
+
+Once Replit has implemented and seeded this, we can move to frontend prompts to display leaderboards, seasonal progress, and profiles.

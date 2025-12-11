@@ -1,88 +1,29 @@
 # Hedge Ledger - DeFi Kingdoms Discord Bot
 
 ## Overview
-Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi Kingdoms players, specifically for Crystalvale. It leverages AI (GPT-4o-mini) with a specialized game knowledge base and live blockchain data to provide comprehensive in-game navigation, answer questions, analyze heroes, browse marketplace listings, and explain game mechanics. The bot offers free guidance and a premium garden LP yield optimization service, aiming to be the definitive Crystalvale navigation assistant, enhancing player experience and offering valuable economic insights.
+Hedge Ledger is a Discord bot designed as an in-character NPC assistant for DeFi Kingdoms players in Crystalvale. It uses AI (GPT-4o-mini) with a specialized game knowledge base and live blockchain data to assist with in-game navigation, answer questions, analyze heroes, browse marketplace listings, and explain game mechanics. The bot aims to enhance player experience by providing valuable insights and offering a premium garden LP yield optimization service.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
-The project uses a Node.js backend with Discord.js for bot functionalities and an Express server for an admin dashboard.
+The project utilizes a Node.js backend with Discord.js for bot functionalities and an Express server for an admin dashboard.
 
 **Core Components:**
-*   **Discord Bot Layer**: Manages Discord interactions, including slash commands.
+*   **Discord Bot Layer**: Manages all Discord interactions, including slash commands.
 *   **AI Response System**: Integrates OpenAI's GPT-4o-mini with a specific character personality, game knowledge base, and multilingual support.
-*   **Blockchain Integration**:
-    *   **GraphQL Integration**: Accesses DeFi Kingdoms GraphQL API for hero, marketplace, and wallet data.
-    *   **DFK Chain RPC Interaction**: Uses `ethers.js` for direct interaction with DFK Chain RPC for Crystalvale garden pool analytics, LP token detection, and smart contract data.
-    *   **Pool Analytics & Wallet LP Token Detection**: Caches pool analytics and scans user wallets for staked LP tokens.
-    *   **Quest Decoders & Hero Grouping**: Decodes hero `currentQuest` data to detect gardening status, groups heroes by active gardening pool, and detects paired heroes using various blockchain sources.
-    *   **Yield Formula**: Implements the full DFK yield formula, incorporating Quest Reward Fund balances, pool allocation, and user's LP share for daily yield calculations.
-    *   **Power-up Detection**: Detects Rapid Renewal power-ups and Gravity Feeder presence.
-    *   **Pet Garden Bonuses**: Fetches pet data, identifies gardening pets, calculates quest bonuses, and annotates heroes with pet data.
-*   **Web Dashboard**: React-based admin dashboard with Vite, Discord OAuth, user management, expenses tracking, and settings, styled with TailwindCSS and shadcn/ui.
-    *   **Multi-Wallet Support**: Account Overview displays multiple wallets per user with primary wallet shown first, verification status badges (VERIFIED/NOT VERIFIED), and copy-to-clipboard functionality.
-*   **Command System**: Implements core slash commands for garden optimization and portfolio analysis, including `optimize-gardens`, `garden-planner`, and `garden-portfolio`.
-    *   **Garden Portfolio Current**: Analyzes active gardening expeditions and calculates real-time yields.
-    *   **Garden Portfolio Optimizer**: Scans wallet LP positions and globally allocates heroes/pets to highest-yield pools for multi-pool optimization.
-*   **Hero Genetics System**: Decodes `statGenes` and `visualGenes` for detailed hero genetic information and gardening bonuses.
-*   **Breeding Chart System**: Shares official DFK summoning tree charts.
-*   **Hero Summoning Probability Calculator**: A 4x4 Mendelian genetics engine for offspring trait probabilities, including mutation and rarity.
-*   **Tavern Bargain Finder**: Scans marketplace for hero pairs with optimal genetics and pricing for target class summoning.
-*   **Player User Model System**: Classifies players into archetypes based on behavior and financial activity, enabling personalized bot responses, with intent-based classification and hard overrides for extractor detection.
-*   **Smurf Detection & League Signup System**: Manages competitive leagues with a 6-tier ladder, wallet clustering for multi-account detection, power snapshots, transfer aggregates, and rule-based smurf detection with configurable rules and actions.
-*   **Challenge/Achievement System**: Gamified progression system with 8 categories and 36 challenges, using dual tier systems (RARITY and GENE tiers) and supporting player progress tracking and leaderboards.
-    *   **ETL Subsystem**: Modular metric extraction, transformation, and loading for challenge progress computation.
-        *   **Location**: `src/etl/` with extractors/, loaders/, transformers/, services/
-        *   **METRIC_REGISTRY**: Maps `metricSource:metricKey` to extractor functions in `src/etl/types.ts`
-        *   **Implemented Metrics (Phase 1-4)**:
-            - `onchain_heroes`: total_levels, hero_count, gen0_count, exalted_gene_hero_count, mythic_hero_count
-            - `onchain_quests`: mining_quests, gardening_quests, fishing_quests, foraging_quests
-            - `onchain_summons`: total_summons, summons_mythic_rarity, summons_high_tier_genes
-            - `onchain_summoning`: mutagenic_specialist_count, mythmaker_count, summoner_of_legends_count
-            - `behavior_events`: active_days, discord_engagement_score, account_age_days (Phase 2 - uses MIN(firstDfkTxTimestamp) across all wallets in cluster)
-            - `onchain_pets`: rarity_score, gardening_pet_count, oddPetFamilies (cluster-aggregated)
-            - `onchain_hunting`: wins, motherclucker_kills, mad_boar_kills, relics_found, clucker_miracle (Phase 3 - cluster-aware from hunting_encounters table)
-            - `onchain_pvp`: matches_played, wins, best_win_streak, flawless_victory (Phase 3 - cluster-aware from pvp_matches table with streak computation)
-            - `onchain_lp`: lp_usd_value, pool_count, harvest_actions, lp_duration_max_days, active_days (Phase 4 - cluster-aware with per-wallet snapshot fallback)
-            - `onchain_staking`: stake_usd_value, stake_duration_days, jewel_stake_amount (Phase 4 - cluster-aware with per-wallet snapshot fallback)
-        *   **Implemented Metrics (Phase 5 - METIS Systems)**:
-            - `onchain_metis_patrol`: wins, elite_wins (graceful fallback if metis_patrol_events table doesn't exist)
-            - `onchain_shells`: shells_collected, raffle_entries, raffle_win (graceful fallback if shell tables don't exist)
-            - `onchain_influence`: bets_won (graceful fallback if influence_predictions table doesn't exist)
-            - `onchain_tournaments`: entries, wins, top_finish (graceful fallback if tournament tables don't exist)
-        *   **Implemented Metrics (Phase 6 - Derived Metrics)**:
-            - `meta_profile`: prestige_unlocked_count, exalted_category_count, summoning_prestige_score, pvp_mastery_score, metis_mastery_score (cluster-aggregated with batched parameterized queries)
-            - `epic_feats`: vangardian_unlocked, worldforged_summoner_unlocked, grandmaster_geneweaver_unlocked, eternal_collector_unlocked, crowned_jeweler_unlocked, mythic_menagerie_unlocked (uses fullData heuristics until lineage tables exist)
-        *   **Phase 5/6 Architecture Notes**:
-            - All Phase 5 extractors check table existence before querying, return zeros on errors
-            - petExtractor enhanced with cluster-aware aggregation across all linked wallets, tracks oddPetFamilies for mythic menagerie detection
-            - metaProfileExtractor uses batched Promise.all with parameterized queries for security
-            - epicFeatsExtractor derives unlocks from aggregated fullData (cluster-aware)
-            - Known limitations: worldforged/geneweaver use heuristics until lineage/mutation warehouse tables are implemented
-        *   **Pending Metrics (Future Phases)**: onchain_gold, seasonal_events
-        *   **Data Warehouse Tables**: hunting_encounters (txHash, enemyId, result, survivingHeroCount, survivingHeroHp, drops), pvp_matches (matchId, outcome, heroDeaths, streakGroup, isRanked), lp_position_snapshots (walletAddress, poolId, lpAmount, usdValue, clusterKey, snapshotDate), lp_harvest_events (walletAddress, txHash, poolId, harvestAmount, clusterKey), staking_snapshots (walletAddress, stakedAmount, usdValue, clusterKey, snapshotDate)
-        *   **Challenge Progress Loader**: `src/etl/loaders/challengeProgressLoader.ts` - upserts to `player_challenge_progress` table
-*   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" by indexing bridge events, enriching with USD values, and computing per-wallet net extraction and extractor scores.
-    *   **Offline Export/Import**: Standalone script (`bridge-tracker/offline-exporter.js`) indexes blockchain events without database, exports to JSON. Import endpoint (`POST /api/admin/bridge/import-events`) loads pre-indexed data.
-    *   **Standalone Sync Script**: Run `npx tsx bridge-tracker/standalone-sync.js` in a separate shell to continuously sync bridge events. Progress persists in database, survives server restarts. Use `--batch 10000 --delay 5` for custom settings.
-*   **Level Racer - Class Arena Edition**: Competitive hero leveling races with entry fees and prizes.
-    *   **Core Mechanics**: Configurable heroes per pool race to level up, first to reach readyToLevel wins and claims an extra hero.
-    *   **Validation Rules**: Rarity filter (common/uncommon/rare/legendary/mythic), mutation limits, 0 XP requirement, no leveling stones.
-    *   **State Machine**: OPEN → FILLING → RACING → FINISHED (auto-reopen for recurrent pools)
-    *   **Multi-Token Support**: Entry fees and prizes in USD, converted to JEWEL/CRYSTAL/USDC based on pool token type.
-    *   **Economic Tracking**: USD-based pricing (`usdEntryFee`, `usdPrize`), token amounts tracked via `totalFeesCollected`, prize distribution via `prizeAwarded`.
-    *   **Recurrent Pools**: Pools marked as recurrent auto-create a new pool with same settings when race finishes.
-    *   **Pool Lifecycle**: On startup, ensures one open pool per enabled hero class. Auto-creates new pools when recurrent races complete.
-    *   **Commentary System**: Hedge-style NPC commentary for all race events (pool creation, hero joins, XP gains, winner declaration).
-    *   **REST API**: `/api/level-racer/classes`, `/api/level-racer/pools/active`, `/api/level-racer/pools/:slug/join`, `/api/level-racer/pools/:id`, `/api/level-racer/pools/:id/events`, `/api/level-racer/dev/pools/:id/simulate-tick`
-    *   **Admin API**: 
-        *   `GET /api/level-racer/admin/pools` - List all pools with full details
-        *   `POST /api/level-racer/admin/pools` - Create pool with USD pricing, token type, rarity filter, mutation limits, recurrent flag
-        *   `PATCH /api/level-racer/admin/pools/:poolId` - Edit OPEN pool settings
-    *   **Admin Dashboard**: Pool management panel at `/admin/level-racer` with create/edit/view/track functionality
-    *   **Database Tables**: `hero_classes`, `class_pools`, `pool_entries`, `race_events`
-    *   **Pool Fields**: `usdEntryFee`, `usdPrize`, `tokenType` (JEWEL/CRYSTAL/USDC), `rarityFilter`, `maxMutations`, `isRecurrent`
+*   **Blockchain Integration**: Accesses DeFi Kingdoms GraphQL API for game data and uses `ethers.js` for direct DFK Chain RPC interaction for advanced analytics (e.g., garden pool analytics, LP token detection, yield calculations, hero quest status, pet bonuses).
+*   **Web Dashboard**: A React-based admin dashboard with Vite, Discord OAuth, user management, expenses tracking, and settings, styled with TailwindCSS and shadcn/ui, supporting multi-wallet management.
+*   **Command System**: Implements core slash commands for garden optimization and portfolio analysis (`optimize-gardens`, `garden-planner`, `garden-portfolio`).
+*   **Hero Systems**: Includes Hero Genetics System (decoding `statGenes`, `visualGenes`), Breeding Chart System, and Hero Summoning Probability Calculator.
+*   **Tavern Bargain Finder**: Scans the marketplace for hero pairs with optimal genetics and pricing for specific class summoning.
+*   **Player User Model System**: Classifies players into archetypes for personalized bot responses and smurf detection.
+*   **Smurf Detection & League Signup System**: Manages competitive leagues with multi-account detection, power snapshots, and rule-based smurf identification.
+*   **Challenge/Achievement System**: A gamified progression system with categories and challenges, utilizing an ETL subsystem for metric extraction and progress computation.
+*   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" via indexed bridge events and wallet scoring.
+*   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules, entry fees, prizes, and a state machine for managing races.
+*   **Leaderboard System**: Provides snapshot-based rankings with historical tracking across various time windows, scoring players based on defined metrics.
+*   **Season Engine**: Manages challenge passes with weighted scoring and seasonal progression, calculating player points and levels.
 
 **Design Decisions:**
 *   **Database**: PostgreSQL with Drizzle ORM.
@@ -91,18 +32,11 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
 *   **Authentication**: Discord OAuth2.
 *   **Payment Automation**: Blockchain monitoring for JEWEL payment verification.
 *   **Wallet Tracking**: Daily snapshots of JEWEL, CRYSTAL, and cJEWEL balances.
-*   **Debug Features**: Debug dashboard for testing.
-    *   **OAuth Bypass**: Development-only feature to bypass Discord authentication for e2e testing.
-        *   Requires `ALLOW_OAUTH_BYPASS=true` environment variable (NEVER set in production)
-        *   Auto-enables on startup when env var is set (for Playwright testing)
-        *   Dashboard toggle at /admin/settings to turn on/off (only visible when allowed)
-        *   POST /api/admin/debug-settings accepts changes from localhost or authenticated admins
-        *   Returns mock admin session (discordId: "bypass-admin", username: "Bypass Admin")
-        *   **Security**: In production, bypass is impossible without env var; in development, relaxed security is intentional for testing
+*   **Debug Features**: Includes a debug dashboard for testing, with an OAuth bypass for development (never enabled in production).
 
 ## External Dependencies
-*   **Discord API**: Bot operations and OAuth2.
-*   **OpenAI API**: AI-driven conversational responses (GPT-4o-mini).
-*   **DeFi Kingdoms GraphQL API**: Game data access.
-*   **DFK Chain RPC (Crystalvale)**: Direct blockchain interactions.
+*   **Discord API**: For bot operations and OAuth2.
+*   **OpenAI API**: Specifically GPT-4o-mini for AI-driven conversational responses.
+*   **DeFi Kingdoms GraphQL API**: For accessing in-game data.
+*   **DFK Chain RPC (Crystalvale)**: For direct blockchain interactions.
 *   **NPM Packages**: `discord.js`, `openai`, `graphql-request`, `dotenv`, `graphql`, `ethers.js`.

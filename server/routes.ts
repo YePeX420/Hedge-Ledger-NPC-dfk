@@ -1199,6 +1199,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }, 1000);
   });
 
+  // NOTE: Leaderboard and Season routes are implemented as modular route files:
+  // - src/modules/leaderboards/leaderboard.routes.ts (mounted in bot.js)
+  // - src/modules/seasons/season.routes.ts (mounted in bot.js)
+  // This file (routes.ts) is NOT used by bot.js - all routes are registered directly in bot.js
+
   const httpServer = createServer(app);
 
   return httpServer;
