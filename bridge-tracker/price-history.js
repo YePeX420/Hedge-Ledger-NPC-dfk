@@ -14,18 +14,18 @@ const COINGECKO_IDS = {
   MATIC: 'matic-network'
 };
 
-const RATE_LIMIT_MS = 6500;
-let lastRequestTime = 0;
+const COINGECKO_RATE_LIMIT_MS = 6500;
+let lastCoinGeckoRequest = 0;
 
-async function rateLimitedFetch(url) {
+async function rateLimitedCoinGeckoFetch(url) {
   const now = Date.now();
-  const timeSinceLastRequest = now - lastRequestTime;
+  const timeSinceLastRequest = now - lastCoinGeckoRequest;
   
-  if (timeSinceLastRequest < RATE_LIMIT_MS) {
-    await new Promise(r => setTimeout(r, RATE_LIMIT_MS - timeSinceLastRequest));
+  if (timeSinceLastRequest < COINGECKO_RATE_LIMIT_MS) {
+    await new Promise(r => setTimeout(r, COINGECKO_RATE_LIMIT_MS - timeSinceLastRequest));
   }
   
-  lastRequestTime = Date.now();
+  lastCoinGeckoRequest = Date.now();
   
   const response = await fetch(url, {
     headers: {
@@ -35,9 +35,9 @@ async function rateLimitedFetch(url) {
   
   if (!response.ok) {
     if (response.status === 429) {
-      console.log('[PriceHistory] Rate limited, waiting 60s...');
+      console.log('[PriceHistory] CoinGecko rate limited, waiting 60s...');
       await new Promise(r => setTimeout(r, 60000));
-      return rateLimitedFetch(url);
+      return rateLimitedCoinGeckoFetch(url);
     }
     throw new Error(`CoinGecko API error: ${response.status}`);
   }
@@ -45,11 +45,132 @@ async function rateLimitedFetch(url) {
   return response.json();
 }
 
-export async function fetchCurrentPrices() {
-  const ids = Object.values(COINGECKO_IDS).join(',');
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`;
+async function fetchFromDefiLlama(tokenSymbol, timestamp) {
+  const coingeckoId = COINGECKO_IDS[tokenSymbol];
+  if (!coingeckoId) return null;
   
-  const data = await rateLimitedFetch(url);
+  const unixTs = Math.floor(new Date(timestamp).getTime() / 1000);
+  const url = `https://coins.llama.fi/prices/historical/${unixTs}/coingecko:${coingeckoId}`;
+  
+  try {
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    if (!response.ok) {
+      console.log(`[PriceHistory] DefiLlama error: ${response.status}`);
+      return null;
+    }
+    
+    const data = await response.json();
+    const coinKey = `coingecko:${coingeckoId}`;
+    const price = data?.coins?.[coinKey]?.price;
+    
+    if (price && price > 0) {
+      return price;
+    }
+  } catch (err) {
+    console.error(`[PriceHistory] DefiLlama fetch error:`, err.message);
+  }
+  
+  return null;
+}
+
+async function fetchFromDefiLlamaBatch(tokens, timestamp) {
+  const coinIds = tokens
+    .map(t => COINGECKO_IDS[t])
+    .filter(Boolean)
+    .map(id => `coingecko:${id}`)
+    .join(',');
+  
+  if (!coinIds) return {};
+  
+  const unixTs = Math.floor(new Date(timestamp).getTime() / 1000);
+  const url = `https://coins.llama.fi/prices/historical/${unixTs}/${coinIds}`;
+  
+  try {
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    if (!response.ok) {
+      console.log(`[PriceHistory] DefiLlama batch error: ${response.status}`);
+      return {};
+    }
+    
+    const data = await response.json();
+    const prices = {};
+    
+    for (const [symbol, coingeckoId] of Object.entries(COINGECKO_IDS)) {
+      const coinKey = `coingecko:${coingeckoId}`;
+      const price = data?.coins?.[coinKey]?.price;
+      if (price && price > 0) {
+        prices[symbol] = price;
+      }
+    }
+    
+    return prices;
+  } catch (err) {
+    console.error(`[PriceHistory] DefiLlama batch error:`, err.message);
+    return {};
+  }
+}
+
+async function fetchFromCoinGecko(tokenSymbol, timestamp) {
+  const coingeckoId = COINGECKO_IDS[tokenSymbol];
+  if (!coingeckoId) return null;
+  
+  const date = new Date(timestamp);
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  const dateStr = `${dd}-${mm}-${yyyy}`;
+  
+  const url = `https://api.coingecko.com/api/v3/coins/${coingeckoId}/history?date=${dateStr}`;
+  
+  try {
+    const data = await rateLimitedCoinGeckoFetch(url);
+    return data?.market_data?.current_price?.usd || null;
+  } catch (err) {
+    console.error(`[PriceHistory] CoinGecko error for ${tokenSymbol}:`, err.message);
+    return null;
+  }
+}
+
+export async function fetchCurrentPrices() {
+  const tokens = Object.keys(COINGECKO_IDS);
+  const coinIds = Object.values(COINGECKO_IDS).map(id => `coingecko:${id}`).join(',');
+  const url = `https://coins.llama.fi/prices/current/${coinIds}`;
+  
+  try {
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      const prices = {};
+      
+      for (const [symbol, coingeckoId] of Object.entries(COINGECKO_IDS)) {
+        const coinKey = `coingecko:${coingeckoId}`;
+        const price = data?.coins?.[coinKey]?.price;
+        if (price && price > 0) {
+          prices[symbol] = price;
+        }
+      }
+      
+      if (Object.keys(prices).length > 0) {
+        return prices;
+      }
+    }
+  } catch (err) {
+    console.log('[PriceHistory] DefiLlama current prices failed, trying CoinGecko...');
+  }
+  
+  const ids = Object.values(COINGECKO_IDS).join(',');
+  const cgUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`;
+  
+  const data = await rateLimitedCoinGeckoFetch(cgUrl);
   
   const prices = {};
   for (const [symbol, id] of Object.entries(COINGECKO_IDS)) {
@@ -85,33 +206,88 @@ export async function fetchHistoricalPrice(tokenSymbol, timestamp) {
     return parseFloat(cached[0].priceUsd);
   }
 
-  const date = new Date(timestamp);
-  const dd = String(date.getDate()).padStart(2, '0');
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const yyyy = date.getFullYear();
-  const dateStr = `${dd}-${mm}-${yyyy}`;
-
-  const url = `https://api.coingecko.com/api/v3/coins/${coingeckoId}/history?date=${dateStr}`;
+  let price = await fetchFromDefiLlama(tokenSymbol, timestamp);
+  let source = 'defillama';
   
-  try {
-    const data = await rateLimitedFetch(url);
-    const price = data?.market_data?.current_price?.usd;
+  if (!price) {
+    console.log(`[PriceHistory] DefiLlama no price for ${tokenSymbol}, trying CoinGecko...`);
+    price = await fetchFromCoinGecko(tokenSymbol, timestamp);
+    source = 'coingecko';
+  }
+  
+  if (price) {
+    await db.insert(historicalPrices).values({
+      tokenSymbol,
+      priceUsd: price.toString(),
+      timestamp: hourStart,
+      source
+    }).onConflictDoNothing();
     
-    if (price) {
-      await db.insert(historicalPrices).values({
-        tokenSymbol,
-        priceUsd: price.toString(),
-        timestamp: hourStart,
-        source: 'coingecko'
-      }).onConflictDoNothing();
-      
-      return price;
-    }
-  } catch (err) {
-    console.error(`[PriceHistory] Error fetching ${tokenSymbol} price for ${dateStr}:`, err.message);
+    return price;
   }
   
   return null;
+}
+
+export async function fetchHistoricalPricesBatch(tokenSymbols, timestamp) {
+  const hourStart = new Date(timestamp);
+  hourStart.setMinutes(0, 0, 0);
+  
+  const results = {};
+  const needsFetch = [];
+  
+  for (const symbol of tokenSymbols) {
+    const cached = await db.select()
+      .from(historicalPrices)
+      .where(
+        and(
+          eq(historicalPrices.tokenSymbol, symbol),
+          eq(historicalPrices.timestamp, hourStart)
+        )
+      )
+      .limit(1);
+    
+    if (cached.length > 0) {
+      results[symbol] = parseFloat(cached[0].priceUsd);
+    } else {
+      needsFetch.push(symbol);
+    }
+  }
+  
+  if (needsFetch.length > 0) {
+    const fetched = await fetchFromDefiLlamaBatch(needsFetch, timestamp);
+    const stillMissing = [];
+    
+    for (const symbol of needsFetch) {
+      const price = fetched[symbol];
+      if (price) {
+        results[symbol] = price;
+        await db.insert(historicalPrices).values({
+          tokenSymbol: symbol,
+          priceUsd: price.toString(),
+          timestamp: hourStart,
+          source: 'defillama'
+        }).onConflictDoNothing();
+      } else {
+        stillMissing.push(symbol);
+      }
+    }
+    
+    for (const symbol of stillMissing) {
+      const price = await fetchFromCoinGecko(symbol, timestamp);
+      if (price) {
+        results[symbol] = price;
+        await db.insert(historicalPrices).values({
+          tokenSymbol: symbol,
+          priceUsd: price.toString(),
+          timestamp: hourStart,
+          source: 'coingecko'
+        }).onConflictDoNothing();
+      }
+    }
+  }
+  
+  return results;
 }
 
 export async function fetchRangeHourly(tokenSymbol, fromTimestamp, toTimestamp) {
@@ -124,7 +300,7 @@ export async function fetchRangeHourly(tokenSymbol, fromTimestamp, toTimestamp) 
   const url = `https://api.coingecko.com/api/v3/coins/${coingeckoId}/market_chart/range?vs_currency=usd&from=${fromTs}&to=${toTs}`;
 
   try {
-    const data = await rateLimitedFetch(url);
+    const data = await rateLimitedCoinGeckoFetch(url);
     const prices = data?.prices || [];
 
     const hourlyPrices = [];
