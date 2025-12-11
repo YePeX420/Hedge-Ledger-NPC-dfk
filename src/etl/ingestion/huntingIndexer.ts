@@ -136,9 +136,9 @@ export async function runHuntingIndexer(): Promise<{
   
   // Check if contract address is configured
   if (COMBAT_CONTRACTS.dfk.huntingContract === '0x0000000000000000000000000000000000000000') {
-    console.warn('[HuntingIndexer] Hunting contract address not configured, skipping');
-    await updateLastProcessedBlock(toBlock);
-    return { processed: 0, inserted: 0, fromBlock, toBlock };
+    console.warn('[HuntingIndexer] Hunting contract address not configured, skipping (no checkpoint advance)');
+    // DO NOT advance checkpoint when contract not configured - prevents skipping historical data
+    return { processed: 0, inserted: 0, fromBlock: lastBlock, toBlock: lastBlock };
   }
   
   try {

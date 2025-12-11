@@ -1,6 +1,15 @@
 // src/config/combatContracts.ts
 // Contract addresses and ABIs for Hunting and PvP event indexing
-// These are placeholder values - update with actual DFK contract addresses
+// 
+// CONFIGURATION REQUIRED:
+// These are placeholder values (0x000...). Update with actual DFK contract addresses
+// and event signatures before running indexers. Without configuration:
+// - Indexers will not advance block checkpoints (safe - no data loss)
+// - No events will be ingested
+// 
+// To find actual contract addresses:
+// 1. Check DFK docs: https://docs.defikingdoms.com/
+// 2. Or examine transactions on DFK Chain explorer for event emissions
 
 export const COMBAT_CONTRACTS = {
   dfk: {

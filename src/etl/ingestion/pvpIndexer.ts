@@ -151,9 +151,9 @@ async function runPvpIndexerForRealm(realm: 'dfk' | 'metis'): Promise<{
   
   // Check if contract address is configured
   if (contractAddress === '0x0000000000000000000000000000000000000000') {
-    console.warn(`[PvpIndexer] ${realm} PvP contract address not configured, skipping`);
-    await updateLastProcessedBlock(indexerKey, toBlock);
-    return { processed: 0, inserted: 0, fromBlock, toBlock };
+    console.warn(`[PvpIndexer] ${realm} PvP contract address not configured, skipping (no checkpoint advance)`);
+    // DO NOT advance checkpoint when contract not configured - prevents skipping historical data
+    return { processed: 0, inserted: 0, fromBlock: lastBlock, toBlock: lastBlock };
   }
   
   try {
