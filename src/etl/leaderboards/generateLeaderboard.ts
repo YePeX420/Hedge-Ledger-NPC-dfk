@@ -4,7 +4,8 @@ import {
   leaderboardRuns, 
   leaderboardEntries,
   playerChallengeProgress,
-  challenges
+  challenges,
+  seasonProgress
 } from '../../../shared/schema.js';
 import { eq, desc, and, sql } from 'drizzle-orm';
 
@@ -91,32 +92,48 @@ export async function generateLeaderboardRun(
     .returning();
 
   try {
-    // Note: For time-windowed leaderboards, we filter by updated_at to include only
-    // progress updated within the period. For cumulative metrics, this shows players
-    // who were active during the time window. For true delta-based rankings, a separate
-    // snapshot/delta tracking system would be needed.
-    //
-    // The query joins player_challenge_progress with challenges table to filter by
-    // metric_source and metric_key, since progress table stores challenge_key reference.
     const periodStartStr = periodStart.toISOString();
     const periodEndStr = periodEnd.toISOString();
     
-    const progressRows = await db.execute(sql`
-      SELECT 
-        pcp.cluster_id,
-        COALESCE(SUM(pcp.current_value), 0)::integer as score
-      FROM player_challenge_progress pcp
-      INNER JOIN challenges c ON pcp.challenge_key = c.key
-      WHERE pcp.cluster_id IS NOT NULL
-        AND c.metric_source = ${leaderboardDef.metricSource}
-        AND c.metric_key = ${leaderboardDef.metricKey}
-        AND pcp.updated_at >= ${periodStartStr}::timestamptz
-        AND pcp.updated_at <= ${periodEndStr}::timestamptz
-      GROUP BY pcp.cluster_id
-      HAVING COALESCE(SUM(pcp.current_value), 0) > 0
-      ORDER BY score DESC
-      LIMIT ${maxEntries}
-    `);
+    let progressRows: any[];
+    
+    // Branch on metricSource for season_progress vs challenge progress
+    if (leaderboardDef.metricSource === 'season_progress') {
+      // For season leaderboards, query the season_progress table directly
+      // metricKey should be the seasonId
+      progressRows = await db.execute(sql`
+        SELECT 
+          sp.cluster_id,
+          sp.points::integer as score
+        FROM season_progress sp
+        WHERE sp.cluster_id IS NOT NULL
+          AND sp.season_id = ${leaderboardDef.metricKey}
+          AND sp.points > 0
+        ORDER BY sp.points DESC
+        LIMIT ${maxEntries}
+      `) as any[];
+    } else {
+      // For challenge-based leaderboards, join player_challenge_progress with challenges
+      // Note: For time-windowed leaderboards, we filter by updated_at to include only
+      // progress updated within the period. For cumulative metrics, this shows players
+      // who were active during the time window.
+      progressRows = await db.execute(sql`
+        SELECT 
+          pcp.cluster_id,
+          COALESCE(SUM(pcp.current_value), 0)::integer as score
+        FROM player_challenge_progress pcp
+        INNER JOIN challenges c ON pcp.challenge_key = c.key
+        WHERE pcp.cluster_id IS NOT NULL
+          AND c.metric_source = ${leaderboardDef.metricSource}
+          AND c.metric_key = ${leaderboardDef.metricKey}
+          AND pcp.updated_at >= ${periodStartStr}::timestamptz
+          AND pcp.updated_at <= ${periodEndStr}::timestamptz
+        GROUP BY pcp.cluster_id
+        HAVING COALESCE(SUM(pcp.current_value), 0) > 0
+        ORDER BY score DESC
+        LIMIT ${maxEntries}
+      `) as any[];
+    }
 
     const entries = (progressRows as any[]).map((row, index) => ({
       runId: run.id,
