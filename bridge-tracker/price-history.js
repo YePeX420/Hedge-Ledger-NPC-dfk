@@ -4,15 +4,33 @@ import { eq, and, gte, lte, desc } from 'drizzle-orm';
 
 const COINGECKO_IDS = {
   JEWEL: 'defi-kingdoms',
-  XJEWEL: 'xjewel',
+  XJEWEL: 'defi-kingdoms',  // xJEWEL tracks JEWEL price (staking wrapper)
   CRYSTAL: 'defi-kingdoms-crystal',
   USDC: 'usd-coin',
   ETH: 'ethereum',
   AVAX: 'avalanche-2',
   BTC: 'bitcoin',
-  KAIA: 'klaytn',
+  KAIA: 'kaia',  // Formerly KLAY/Klaytn, rebranded to KAIA
+  KLAY: 'kaia',  // Legacy KLAY symbol also maps to KAIA
   FTM: 'fantom',
-  MATIC: 'matic-network'
+  MATIC: 'polygon-ecosystem-token',  // Rebranded to POL
+  POL: 'polygon-ecosystem-token',    // New POL symbol
+  WETH: 'ethereum',
+  WBTC: 'bitcoin',
+  'BTC.b': 'bitcoin',  // Avalanche bridged BTC
+};
+
+// Chain:address format for tokens - used for historical prices when coingecko IDs fail
+// This format works better for DefiLlama historical API
+const CHAIN_ADDRESS_IDS = {
+  KAIA: 'klaytn:0x0000000000000000000000000000000000000000',  // Native KLAY/KAIA
+  KLAY: 'klaytn:0x0000000000000000000000000000000000000000',
+  MATIC: 'polygon:0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', // WMATIC on Polygon
+  POL: 'polygon:0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',   // Same as MATIC
+  AVAX: 'avax:0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',     // WAVAX on Avalanche
+  FTM: 'fantom:0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83',    // WFTM on Fantom
+  ETH: 'ethereum:0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',  // WETH on mainnet
+  WETH: 'ethereum:0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH on mainnet
 };
 
 const COINGECKO_RATE_LIMIT_MS = 6500;
@@ -47,10 +65,36 @@ async function rateLimitedCoinGeckoFetch(url) {
 }
 
 async function fetchFromDefiLlama(tokenSymbol, timestamp) {
-  const coingeckoId = COINGECKO_IDS[tokenSymbol];
-  if (!coingeckoId) return null;
-  
   const unixTs = Math.floor(new Date(timestamp).getTime() / 1000);
+  
+  // Try chain:address format first for tokens that have it (more reliable for historical)
+  const chainAddressId = CHAIN_ADDRESS_IDS[tokenSymbol];
+  if (chainAddressId) {
+    try {
+      const url = `https://coins.llama.fi/prices/historical/${unixTs}/${chainAddressId}`;
+      const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const price = data?.coins?.[chainAddressId]?.price;
+        if (price && price > 0) {
+          return price;
+        }
+      }
+    } catch (err) {
+      // Fall through to coingecko ID
+    }
+  }
+  
+  // Fall back to coingecko ID format
+  const coingeckoId = COINGECKO_IDS[tokenSymbol];
+  if (!coingeckoId) {
+    console.log(`[PriceHistory] Unknown token: ${tokenSymbol}`);
+    return null;
+  }
+  
   const url = `https://coins.llama.fi/prices/historical/${unixTs}/coingecko:${coingeckoId}`;
   
   try {
@@ -59,7 +103,7 @@ async function fetchFromDefiLlama(tokenSymbol, timestamp) {
     });
     
     if (!response.ok) {
-      console.log(`[PriceHistory] DefiLlama error: ${response.status}`);
+      console.log(`[PriceHistory] DefiLlama no price for ${tokenSymbol}, trying CoinGecko...`);
       return null;
     }
     
@@ -78,16 +122,28 @@ async function fetchFromDefiLlama(tokenSymbol, timestamp) {
 }
 
 async function fetchFromDefiLlamaBatch(tokens, timestamp) {
-  const coinIds = tokens
-    .map(t => COINGECKO_IDS[t])
-    .filter(Boolean)
-    .map(id => `coingecko:${id}`)
-    .join(',');
-  
-  if (!coinIds) return {};
-  
   const unixTs = Math.floor(new Date(timestamp).getTime() / 1000);
-  const url = `https://coins.llama.fi/prices/historical/${unixTs}/${coinIds}`;
+  
+  // Build coin IDs: prefer chain:address format, fall back to coingecko:id
+  const tokenKeyMap = {}; // Maps API key back to token symbol
+  const coinIdList = [];
+  
+  for (const token of tokens) {
+    // Prefer chain:address format (works better for historical prices)
+    if (CHAIN_ADDRESS_IDS[token]) {
+      const chainAddr = CHAIN_ADDRESS_IDS[token];
+      coinIdList.push(chainAddr);
+      tokenKeyMap[chainAddr] = token;
+    } else if (COINGECKO_IDS[token]) {
+      const cgKey = `coingecko:${COINGECKO_IDS[token]}`;
+      coinIdList.push(cgKey);
+      tokenKeyMap[cgKey] = token;
+    }
+  }
+  
+  if (coinIdList.length === 0) return {};
+  
+  const url = `https://coins.llama.fi/prices/historical/${unixTs}/${coinIdList.join(',')}`;
   
   try {
     const response = await fetch(url, {
@@ -102,11 +158,11 @@ async function fetchFromDefiLlamaBatch(tokens, timestamp) {
     const data = await response.json();
     const prices = {};
     
-    for (const [symbol, coingeckoId] of Object.entries(COINGECKO_IDS)) {
-      const coinKey = `coingecko:${coingeckoId}`;
-      const price = data?.coins?.[coinKey]?.price;
+    // Map responses back to token symbols
+    for (const [apiKey, tokenSymbol] of Object.entries(tokenKeyMap)) {
+      const price = data?.coins?.[apiKey]?.price;
       if (price && price > 0) {
-        prices[symbol] = price;
+        prices[tokenSymbol] = price;
       }
     }
     
