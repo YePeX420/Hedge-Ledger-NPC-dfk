@@ -15,6 +15,7 @@ export async function extractDiscordData(ctx: WalletContext): Promise<ExtractedD
       messagesToHedge: 0,
       hedgeDayStreak: 0,
       totalSessions: 0,
+      accountAgeDays: 0,
     };
   }
   
@@ -34,11 +35,20 @@ export async function extractDiscordData(ctx: WalletContext): Promise<ExtractedD
         messagesToHedge: 0,
         hedgeDayStreak: 0,
         totalSessions: 0,
+        accountAgeDays: 0,
       };
     }
     
     const messagesToHedge = player.totalMessages || 0;
     const totalSessions = player.totalSessions || 0;
+    
+    let accountAgeDays = 0;
+    if (player.firstDfkTxTimestamp) {
+      const firstTxDate = new Date(player.firstDfkTxTimestamp);
+      const now = new Date();
+      const diffMs = now.getTime() - firstTxDate.getTime();
+      accountAgeDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    }
     
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -74,6 +84,7 @@ export async function extractDiscordData(ctx: WalletContext): Promise<ExtractedD
       messagesToHedge,
       hedgeDayStreak,
       totalSessions,
+      accountAgeDays,
     };
   } catch (err) {
     console.error(`[DiscordExtractor] Error extracting Discord data:`, err);
@@ -81,6 +92,7 @@ export async function extractDiscordData(ctx: WalletContext): Promise<ExtractedD
       messagesToHedge: 0,
       hedgeDayStreak: 0,
       totalSessions: 0,
+      accountAgeDays: 0,
     };
   }
 }

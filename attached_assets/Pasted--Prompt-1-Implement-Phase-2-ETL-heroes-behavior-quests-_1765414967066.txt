@@ -1,0 +1,126 @@
+
+🔹 Prompt 1 — Implement Phase 2 ETL: heroes, behavior, quests
+
+> Paste this into your Replit backend project chat:
+
+
+
+> Prompt 1 – Implement Phase 2 ETL (Heroes, Behavior, Quests)
+
+Context: The project already has a modular ETL “metricSource → extractor” system for the Challenge System. Phase 1 implemented metric sources for:
+
+behavior_events (Discord engagement)
+
+partial onchain_summoning
+
+some LP metrics
+
+some pet metrics
+
+
+We now want to implement Phase 2 ETL, covering:
+
+onchain_heroes (hero_riser, house_of_heroes)
+
+behavior_events (account_age_days)
+
+onchain_quests (miner_master, herbalist_master)
+
+
+Goal:
+Implement the missing ETL extractors for these metricSources and hook them into the existing registry.
+
+Tasks
+
+1. Open src/etl and src/etl/sources. Confirm we have a METRIC_SOURCES/registry or equivalent that routes metricSource → source function.
+
+
+2. Implement onchain_heroes.ts in src/etl/sources/ with a function like:
+
+export const computeOnchainHeroesMetrics: SourceMetricFn = async ({ clusterId }) => {
+  // return { hero_count: number, total_levels: number }
+};
+
+Logic:
+
+hero_count = number of heroes owned by the cluster
+
+total_levels = sum of levels of those heroes
+Use whatever hero + cluster view/table already exists (e.g. heroes table joined to clusters or a heroes_cluster_view).
+
+
+
+3. Register this in the ETL registry so that:
+
+metricSource: "onchain_heroes" resolves to computeOnchainHeroesMetrics.
+
+Challenges using metricSource: "onchain_heroes" and metricKey hero_count / total_levels get populated.
+
+
+
+4. Extend behavior_events ETL:
+
+Add account_age_days computation in its MetricBag.
+
+account_age_days = number of days since the cluster’s first recorded on-chain / behavior event.
+
+This supports the long_road_home challenge.
+
+
+
+5. Implement onchain_quests.ts in src/etl/sources/ with a function like:
+
+export const computeOnchainQuestsMetrics: SourceMetricFn = async ({ clusterId }) => {
+  // return { mining_quests: number, foraging_quests: number }
+};
+
+Logic:
+
+mining_quests = count of quests where quest_type = 'MINING' for that cluster
+
+foraging_quests = count of quests where quest_type = 'FORAGING'
+Use the existing quests table or create a small cluster-view if needed.
+
+
+
+6. Register onchain_quests in the ETL registry.
+
+
+7. Make sure computeChallengeMetricsForCluster (or equivalent aggregator) now pulls values for these metricSources and writes them into challenge_progress for the corresponding challenge keys:
+
+hero_riser → onchain_heroes:total_levels
+
+house_of_heroes → onchain_heroes:hero_count
+
+kingdom_calls → behavior_events:active_days (already done)
+
+long_road_home → behavior_events:account_age_days
+
+loyal_follower → behavior_events:discord_engagement_score (already done)
+
+miner_master → onchain_quests:mining_quests
+
+herbalist_master → onchain_quests:foraging_quests
+
+
+
+8. Add basic unit tests or, at least, a small script that calls the ETL for a test cluster and logs the computed MetricBag for these sources.
+
+
+9. Do not change the challenge config interfaces or API contracts. Only add ETL logic and registry entries.
+
+
+
+When done, please summarize which metrics you implemented and verify that the admin dashboard now shows changing values for:
+
+Hero Riser
+
+House of Heroes
+
+Master Miner
+
+Master Herbalist
+
+Long Road Home
+
+

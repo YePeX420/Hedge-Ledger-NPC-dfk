@@ -100,6 +100,7 @@ export interface ExtractedDiscordData {
   messagesToHedge: number;
   hedgeDayStreak: number;
   totalSessions: number;
+  accountAgeDays: number;
 }
 
 export interface ExtractedPaymentData {
@@ -389,8 +390,11 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
     key: 'discord_engagement_score',
     extractor: (data) => data.discord.messagesToHedge,
   },
-  // NOTE: behavior_events:account_age_days intentionally NOT added
-  // Challenges using it will be skipped until wallet first-tx indexer is built
+  'behavior_events:account_age_days': {
+    source: 'behavior_events',
+    key: 'account_age_days',
+    extractor: (data) => data.discord.accountAgeDays,
+  },
 
   // ============================================
   // ONCHAIN_SUMMONING METRICS (Phase 4 - Partial)
