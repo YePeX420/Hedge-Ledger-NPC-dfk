@@ -20,6 +20,9 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
 *   **Player User Model System**: Classifies players into archetypes for personalized bot responses and smurf detection.
 *   **Smurf Detection & League Signup System**: Manages competitive leagues with multi-account detection, power snapshots, and rule-based smurf identification.
 *   **Challenge/Achievement System**: A gamified progression system with categories and challenges, utilizing an ETL subsystem for metric extraction and progress computation.
+    - ETL Scheduler (`src/etl/scheduler/etlScheduler.ts`): Runs automatically every 6 hours for incremental updates and daily at 04:00 UTC for full snapshots
+    - Admin refresh button on `/admin/challenges` page for manual ETL triggers
+    - API endpoints: `GET /api/admin/etl/status`, `POST /api/admin/etl/trigger`
 *   **Phase 3 Combat Ingestion**: Direct RPC log scanning for hunting encounters and PvP matches:
     - `src/etl/ingestion/huntingIndexer.ts`: Indexes hunting events from DFK Chain
     - `src/etl/ingestion/pvpIndexer.ts`: Indexes PvP matches from DFK and METIS chains
