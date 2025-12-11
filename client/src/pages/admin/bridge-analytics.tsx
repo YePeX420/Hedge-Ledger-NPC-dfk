@@ -133,6 +133,22 @@ interface ParallelSyncStatus {
   allComplete: boolean;
 }
 
+interface ParallelEnrichmentStatus {
+  running: boolean;
+  workersTotal: number;
+  startedAt: string | null;
+  unpricedCount: number;
+  workers: Array<{
+    workerId: number;
+    running: boolean;
+    groupsTotal: number;
+    groupsProcessed: number;
+    eventsUpdated: number;
+    lastUpdate: string | null;
+    complete: boolean;
+  }>;
+}
+
 export default function BridgeAnalytics() {
   const { toast } = useToast();
   const [walletSearch, setWalletSearch] = useState('');
@@ -263,19 +279,6 @@ export default function BridgeAnalytics() {
     },
   });
 
-  const runPriceEnrichmentMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest('POST', '/api/admin/bridge/run-price-enrichment');
-    },
-    onSuccess: () => {
-      toast({ title: 'Price enrichment started', description: 'Adding USD values to events. This may take a while.' });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/sync-progress'] });
-    },
-    onError: () => {
-      toast({ title: 'Failed to start price enrichment', variant: 'destructive' });
-    },
-  });
-
   // Parallel sync status and controls
   const { data: parallelSyncStatus, refetch: refetchParallelSync } = useQuery<ParallelSyncStatus>({
     queryKey: ['/api/admin/bridge/parallel-sync/status'],
@@ -315,6 +318,42 @@ export default function BridgeAnalytics() {
     },
     onError: () => {
       toast({ title: 'Failed to stop parallel sync', variant: 'destructive' });
+    },
+  });
+
+  // Parallel price enrichment status and controls
+  const { data: parallelEnrichmentStatus, refetch: refetchEnrichment } = useQuery<ParallelEnrichmentStatus>({
+    queryKey: ['/api/admin/bridge/price-enrichment/status'],
+    refetchInterval: 3000,
+  });
+
+  const startParallelEnrichmentMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/admin/bridge/price-enrichment/start', { workers: 8 });
+    },
+    onSuccess: () => {
+      toast({ title: 'Price enrichment started', description: '8 workers adding USD values in parallel' });
+      refetchEnrichment();
+    },
+    onError: (err: any) => {
+      if (err?.message?.includes('409')) {
+        toast({ title: 'Enrichment already running', variant: 'destructive' });
+      } else {
+        toast({ title: 'Failed to start enrichment', variant: 'destructive' });
+      }
+    },
+  });
+
+  const stopParallelEnrichmentMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/admin/bridge/price-enrichment/stop');
+    },
+    onSuccess: () => {
+      toast({ title: 'Enrichment stopping', description: 'Workers will complete current batches' });
+      refetchEnrichment();
+    },
+    onError: () => {
+      toast({ title: 'Failed to stop enrichment', variant: 'destructive' });
     },
   });
 
@@ -405,14 +444,14 @@ export default function BridgeAnalytics() {
                   data-testid="button-stop-parallel-sync"
                 >
                   <Square className="h-4 w-4 mr-2" />
-                  Stop Parallel ({parallelSyncStatus.combinedProgress}%)
+                  Stop Sync ({parallelSyncStatus.combinedProgress}%)
                 </Button>
               ) : (
                 <Button
                   variant="default"
                   size="sm"
                   onClick={() => startParallelSyncMutation.mutate()}
-                  disabled={startParallelSyncMutation.isPending || syncProgress?.historicalSyncRunning}
+                  disabled={startParallelSyncMutation.isPending || parallelSyncStatus?.allComplete}
                   data-testid="button-start-parallel-sync"
                 >
                   {startParallelSyncMutation.isPending ? (
@@ -420,46 +459,36 @@ export default function BridgeAnalytics() {
                   ) : (
                     <Zap className="h-4 w-4 mr-2" />
                   )}
-                  Start Parallel Sync
+                  {parallelSyncStatus?.allComplete ? 'Sync Complete' : 'Start Block Sync'}
                 </Button>
               )}
-              {syncProgress?.historicalSyncRunning ? (
+              {parallelEnrichmentStatus?.running ? (
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => stopHistoricalSyncMutation.mutate()}
-                  disabled={stopHistoricalSyncMutation.isPending}
-                  data-testid="button-stop-sync"
+                  onClick={() => stopParallelEnrichmentMutation.mutate()}
+                  disabled={stopParallelEnrichmentMutation.isPending}
+                  data-testid="button-stop-enrichment"
                 >
                   <Square className="h-4 w-4 mr-2" />
-                  Stop Sync
+                  Stop Prices ({parallelEnrichmentStatus.workers.filter(w => w.running).length} active)
                 </Button>
               ) : (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => startHistoricalSyncMutation.mutate()}
-                  disabled={startHistoricalSyncMutation.isPending}
-                  data-testid="button-start-historical-sync"
+                  onClick={() => startParallelEnrichmentMutation.mutate()}
+                  disabled={startParallelEnrichmentMutation.isPending || (parallelEnrichmentStatus?.unpricedCount === 0)}
+                  data-testid="button-start-enrichment"
                 >
-                  <Play className="h-4 w-4 mr-2" />
-                  Start Full Sync
+                  {startParallelEnrichmentMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <DollarSign className="h-4 w-4 mr-2" />
+                  )}
+                  {parallelEnrichmentStatus?.unpricedCount === 0 ? 'All Priced' : 'Add USD Prices'}
                 </Button>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => runPriceEnrichmentMutation.mutate()}
-                disabled={runPriceEnrichmentMutation.isPending || syncProgress?.enrichmentRunning}
-                data-testid="button-run-enrichment"
-              >
-                {syncProgress?.enrichmentRunning ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <DollarSign className="h-4 w-4 mr-2" />
-                )}
-                {syncProgress?.enrichmentRunning ? 'Enriching...' : 'Add USD Prices'}
-              </Button>
             </div>
           </div>
         </CardHeader>
@@ -469,40 +498,45 @@ export default function BridgeAnalytics() {
               <p className="text-sm text-muted-foreground">Status</p>
               <div className="flex items-center gap-2">
                 <Badge variant={
-                  syncProgress?.historicalSyncRunning ? 'default' :
-                  syncProgress?.progress?.status === 'completed' ? 'outline' :
+                  parallelSyncStatus?.running ? 'default' :
+                  parallelSyncStatus?.allComplete ? 'outline' :
                   syncProgress?.progress?.status === 'error' ? 'destructive' : 'secondary'
                 }>
-                  {syncProgress?.historicalSyncRunning ? 'Running' : 
-                   syncProgress?.progress?.status || 'Not Started'}
+                  {parallelSyncStatus?.running ? `Syncing (${parallelSyncStatus.combinedProgress}%)` : 
+                   parallelSyncStatus?.allComplete ? 'Complete' :
+                   `${(parallelSyncStatus?.combinedProgress || 0).toFixed(0)}% synced`}
                 </Badge>
+                {parallelEnrichmentStatus?.running && (
+                  <Badge variant="default">
+                    Pricing
+                  </Badge>
+                )}
               </div>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Blocks Indexed</p>
+              <p className="text-sm text-muted-foreground">Progress</p>
               <p className="text-lg font-semibold">
-                {(syncProgress?.progress?.lastIndexedBlock || 0).toLocaleString()} / {(syncProgress?.latestBlock || 0).toLocaleString()}
+                {(parallelSyncStatus?.combinedProgress || 0).toFixed(0)}% / {(parallelSyncStatus?.latestBlock || 0).toLocaleString()} blocks
               </p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Events Indexed</p>
               <p className="text-lg font-semibold">
-                {(syncProgress?.progress?.totalEventsIndexed || 0).toLocaleString()}
+                {(parallelSyncStatus?.workers?.reduce((sum, w) => sum + (w.totalEventsIndexed || 0), 0) || 0).toLocaleString()}
               </p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Needing USD Prices</p>
               <p className="text-lg font-semibold">
-                {(syncProgress?.unpricedCount || 0).toLocaleString()}
+                {(parallelEnrichmentStatus?.unpricedCount || 0).toLocaleString()}
               </p>
             </div>
           </div>
-          {syncProgress?.latestBlock && syncProgress.latestBlock > 0 && (() => {
-            const syncedBlock = syncProgress?.progress?.lastIndexedBlock || 0;
-            const latestBlock = syncProgress.latestBlock;
-            const progressPercent = Math.min(100, Math.max(0, (syncedBlock / latestBlock) * 100));
-            const blocksRemaining = Math.max(0, latestBlock - syncedBlock);
-            const isComplete = blocksRemaining === 0;
+          {parallelSyncStatus?.latestBlock && parallelSyncStatus.latestBlock > 0 && (() => {
+            const progressPercent = parallelSyncStatus?.combinedProgress || 0;
+            const latestBlock = parallelSyncStatus.latestBlock;
+            const isComplete = parallelSyncStatus?.allComplete || false;
+            const activeWorkers = parallelSyncStatus?.workers?.filter(w => w.status === 'running' || (w.progress < 100 && w.status !== 'complete')).length || 0;
             
             return (
               <div className="mt-6 p-4 bg-muted/50 rounded-lg" data-testid="block-sync-tracker">
@@ -518,9 +552,9 @@ export default function BridgeAnalytics() {
                 />
                 <div className="flex items-center justify-between mt-2 text-xs">
                   <div className="flex items-center gap-1">
-                    <span className="text-muted-foreground">Synced to block:</span>
-                    <span className="font-mono font-semibold text-foreground" data-testid="text-synced-block">
-                      {syncedBlock.toLocaleString()}
+                    <span className="text-muted-foreground">Workers:</span>
+                    <span className="font-mono font-semibold text-foreground" data-testid="text-workers">
+                      {activeWorkers} of {parallelSyncStatus?.workersTotal || 8} active
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -532,29 +566,25 @@ export default function BridgeAnalytics() {
                 </div>
                 <div className="text-xs mt-1 text-center">
                   {isComplete ? (
-                    <span className="text-green-600 font-medium">Up to date</span>
+                    <span className="text-green-600 font-medium">Sync complete</span>
+                  ) : parallelSyncStatus?.running ? (
+                    <span className="text-primary font-medium">Syncing with {parallelSyncStatus.workersTotal} parallel workers</span>
                   ) : (
-                    <span className="text-muted-foreground">{blocksRemaining.toLocaleString()} blocks remaining</span>
+                    <span className="text-muted-foreground">{(100 - progressPercent).toFixed(0)}% remaining</span>
                   )}
                 </div>
-                {(syncProgress?.progress?.totalBatchCount ?? 0) > 0 && (
+                {(parallelSyncStatus?.workers?.reduce((sum, w) => sum + (w.totalBatchCount || 0), 0) ?? 0) > 0 && (
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-muted text-xs">
                     <div className="flex items-center gap-1">
-                      <span className="text-muted-foreground">Batches completed:</span>
+                      <span className="text-muted-foreground">Total batches:</span>
                       <span className="font-mono font-semibold text-foreground" data-testid="text-batch-count">
-                        {(syncProgress?.progress?.totalBatchCount || 0).toLocaleString()}
+                        {(parallelSyncStatus?.workers?.reduce((sum, w) => sum + (w.totalBatchCount || 0), 0) || 0).toLocaleString()}
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <span className="text-muted-foreground">Last batch:</span>
-                      <span className="font-mono font-semibold text-foreground" data-testid="text-last-batch-time">
-                        {((syncProgress?.progress?.lastBatchRuntimeMs || 0) / 1000).toFixed(1)}s
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-muted-foreground">Avg time/10K:</span>
-                      <span className="font-mono font-semibold text-foreground" data-testid="text-avg-batch-time">
-                        {(((syncProgress?.progress?.totalBatchRuntimeMs || 0) / (syncProgress?.progress?.totalBatchCount || 1)) / 1000).toFixed(1)}s
+                      <span className="text-muted-foreground">Completed workers:</span>
+                      <span className="font-mono font-semibold text-foreground" data-testid="text-completed-workers">
+                        {parallelSyncStatus?.workers?.filter(w => w.status === 'complete').length || 0} / {parallelSyncStatus?.workersTotal || 8}
                       </span>
                     </div>
                   </div>
@@ -565,6 +595,58 @@ export default function BridgeAnalytics() {
           {syncProgress?.progress?.lastError && (
             <div className="mt-3 p-2 bg-destructive/10 rounded text-sm text-destructive">
               Last error: {syncProgress.progress.lastError}
+            </div>
+          )}
+
+          {/* Parallel Workers Status */}
+          {(parallelSyncStatus?.running || parallelEnrichmentStatus?.running) && (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {/* Sync Workers */}
+              {parallelSyncStatus?.running && parallelSyncStatus.workers.length > 0 && (
+                <div className="p-3 bg-muted/50 rounded-lg" data-testid="parallel-sync-workers">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Block Sync Workers</span>
+                    <Badge variant="outline" className="ml-auto">
+                      {parallelSyncStatus.workers.filter(w => w.status === 'running' || w.progress < 100).length} active
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {parallelSyncStatus.workers.map((w) => (
+                      <div key={w.workerId} className="text-center">
+                        <div className="text-xs text-muted-foreground">W{w.workerId}</div>
+                        <Progress value={w.progress} className="h-1.5" />
+                        <div className="text-xs font-mono">{w.progress.toFixed(0)}%</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Enrichment Workers */}
+              {parallelEnrichmentStatus?.running && parallelEnrichmentStatus.workers.length > 0 && (
+                <div className="p-3 bg-muted/50 rounded-lg" data-testid="parallel-enrichment-workers">
+                  <div className="flex items-center gap-2 mb-2">
+                    <DollarSign className="h-4 w-4 text-green-500" />
+                    <span className="text-sm font-medium">Price Enrichment Workers</span>
+                    <Badge variant="outline" className="ml-auto">
+                      {parallelEnrichmentStatus.workers.filter(w => w.running).length} active
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {parallelEnrichmentStatus.workers.map((w) => {
+                      const pct = w.groupsTotal > 0 ? (w.groupsProcessed / w.groupsTotal) * 100 : 0;
+                      return (
+                        <div key={w.workerId} className="text-center">
+                          <div className="text-xs text-muted-foreground">W{w.workerId}</div>
+                          <Progress value={pct} className="h-1.5" />
+                          <div className="text-xs font-mono">{w.eventsUpdated}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
