@@ -69,6 +69,7 @@ export interface ExtractedSummonData {
 export interface ExtractedPetData {
   petCount: number;
   gardeningPetCount: number;
+  oddPetFamilies: string[]; // Families with Odd/Ultra-Odd variants owned
 }
 
 export interface ExtractedMeditationData {
@@ -135,6 +136,52 @@ export interface ExtractedPvpData {
   flawlessVictory: boolean; // Win with 0 hero deaths
 }
 
+// ============================================
+// PHASE 5 - METIS SYSTEMS DATA TYPES
+// ============================================
+
+export interface ExtractedMetisPatrolData {
+  wins: number;           // Total patrol wins
+  eliteWins: number;      // Elite/Boss difficulty patrol wins
+}
+
+export interface ExtractedShellData {
+  shellsCollected: number;  // Total shells earned
+  raffleEntries: number;    // Shell raffle entries
+  raffleWin: boolean;       // Has won any raffle
+}
+
+export interface ExtractedInfluenceData {
+  betsWon: number;  // Correct influence predictions
+}
+
+export interface ExtractedTournamentData {
+  entries: number;     // Tournament registrations
+  wins: number;        // Match wins
+  topFinish: boolean;  // Reached top bracket (final rank <= 3)
+}
+
+// ============================================
+// PHASE 6 - DERIVED META PROFILE DATA TYPES
+// ============================================
+
+export interface ExtractedMetaProfileData {
+  prestigeUnlockedCount: number;      // Count of prestige challenges unlocked
+  exaltedCategoryCount: number;       // Categories with exalted tier achievements
+  summoningPrestigeScore: number;     // Weighted score from summoning achievements
+  pvpMasteryScore: number;            // Weighted score from PvP achievements
+  metisMasteryScore: number;          // Weighted score from METIS achievements
+}
+
+export interface ExtractedEpicFeatsData {
+  vangardianUnlocked: boolean;              // METIS mastery (all categories exalted)
+  worldforgedSummonerUnlocked: boolean;     // DK with 4+ upward mutations
+  grandmasterGeneweaverUnlocked: boolean;   // 3-generation mutation chain
+  eternalCollectorUnlocked: boolean;        // Mythic hero of every class
+  crownedJewelerUnlocked: boolean;          // 1000+ days staking
+  mythicMenagerieUnlocked: boolean;         // Odd/Ultra-Odd pet from every family
+}
+
 export interface FullExtractResult {
   heroes: ExtractedHeroData;
   quests: ExtractedQuestData;
@@ -149,6 +196,14 @@ export interface FullExtractResult {
   pvp: ExtractedPvpData;
   lp: ExtractedLpData;
   staking: ExtractedStakingData;
+  // Phase 5 - METIS Systems
+  metisPatrol: ExtractedMetisPatrolData;
+  shells: ExtractedShellData;
+  influence: ExtractedInfluenceData;
+  tournaments: ExtractedTournamentData;
+  // Phase 6 - Derived
+  metaProfile: ExtractedMetaProfileData;
+  epicFeats: ExtractedEpicFeatsData;
   extractedAt: Date;
 }
 
@@ -220,6 +275,12 @@ export type MetricSource =
   | 'payment_events'
   | 'event_progress'
   | 'seasonal_events'
+  // Phase 5 - METIS Systems
+  | 'onchain_metis_patrol'
+  | 'onchain_shells'
+  | 'onchain_influence'
+  | 'onchain_tournaments'
+  // Phase 6 - Derived
   | 'meta_profile'
   | 'epic_feats';
 
@@ -577,12 +638,133 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
   },
 
   // ============================================
-  // PHASE 5-9 METRICS - NOT YET REGISTERED
-  // The following metrics are NOT in the registry until their indexers are built:
+  // PHASE 5 - METIS PATROL METRICS
+  // ============================================
+  'onchain_metis_patrol:wins': {
+    source: 'onchain_metis_patrol',
+    key: 'wins',
+    extractor: (data) => data.metisPatrol.wins,
+  },
+  'onchain_metis_patrol:elite_wins': {
+    source: 'onchain_metis_patrol',
+    key: 'elite_wins',
+    extractor: (data) => data.metisPatrol.eliteWins,
+  },
+
+  // ============================================
+  // PHASE 5 - SHELL ECONOMY METRICS
+  // ============================================
+  'onchain_shells:shells_collected': {
+    source: 'onchain_shells',
+    key: 'shells_collected',
+    extractor: (data) => data.shells.shellsCollected,
+  },
+  'onchain_shells:raffle_entries': {
+    source: 'onchain_shells',
+    key: 'raffle_entries',
+    extractor: (data) => data.shells.raffleEntries,
+  },
+  'onchain_shells:raffle_win': {
+    source: 'onchain_shells',
+    key: 'raffle_win',
+    extractor: (data) => data.shells.raffleWin,
+  },
+
+  // ============================================
+  // PHASE 5 - INFLUENCE METRICS
+  // ============================================
+  'onchain_influence:bets_won': {
+    source: 'onchain_influence',
+    key: 'bets_won',
+    extractor: (data) => data.influence.betsWon,
+  },
+
+  // ============================================
+  // PHASE 5 - TOURNAMENT METRICS
+  // ============================================
+  'onchain_tournaments:entries': {
+    source: 'onchain_tournaments',
+    key: 'entries',
+    extractor: (data) => data.tournaments.entries,
+  },
+  'onchain_tournaments:wins': {
+    source: 'onchain_tournaments',
+    key: 'wins',
+    extractor: (data) => data.tournaments.wins,
+  },
+  'onchain_tournaments:top_finish': {
+    source: 'onchain_tournaments',
+    key: 'top_finish',
+    extractor: (data) => data.tournaments.topFinish,
+  },
+
+  // ============================================
+  // PHASE 6 - META PROFILE METRICS (Derived)
+  // ============================================
+  'meta_profile:prestige_unlocked_count': {
+    source: 'meta_profile',
+    key: 'prestige_unlocked_count',
+    extractor: (data) => data.metaProfile.prestigeUnlockedCount,
+  },
+  'meta_profile:exalted_category_count': {
+    source: 'meta_profile',
+    key: 'exalted_category_count',
+    extractor: (data) => data.metaProfile.exaltedCategoryCount,
+  },
+  'meta_profile:summoning_prestige_score': {
+    source: 'meta_profile',
+    key: 'summoning_prestige_score',
+    extractor: (data) => data.metaProfile.summoningPrestigeScore,
+  },
+  'meta_profile:pvp_mastery_score': {
+    source: 'meta_profile',
+    key: 'pvp_mastery_score',
+    extractor: (data) => data.metaProfile.pvpMasteryScore,
+  },
+  'meta_profile:metis_mastery_score': {
+    source: 'meta_profile',
+    key: 'metis_mastery_score',
+    extractor: (data) => data.metaProfile.metisMasteryScore,
+  },
+
+  // ============================================
+  // PHASE 6 - EPIC FEATS METRICS (Derived)
+  // ============================================
+  'epic_feats:vangardian_unlocked': {
+    source: 'epic_feats',
+    key: 'vangardian_unlocked',
+    extractor: (data) => data.epicFeats.vangardianUnlocked,
+  },
+  'epic_feats:worldforged_summoner_unlocked': {
+    source: 'epic_feats',
+    key: 'worldforged_summoner_unlocked',
+    extractor: (data) => data.epicFeats.worldforgedSummonerUnlocked,
+  },
+  'epic_feats:grandmaster_geneweaver_unlocked': {
+    source: 'epic_feats',
+    key: 'grandmaster_geneweaver_unlocked',
+    extractor: (data) => data.epicFeats.grandmasterGeneweaverUnlocked,
+  },
+  'epic_feats:eternal_collector_unlocked': {
+    source: 'epic_feats',
+    key: 'eternal_collector_unlocked',
+    extractor: (data) => data.epicFeats.eternalCollectorUnlocked,
+  },
+  'epic_feats:crowned_jeweler_unlocked': {
+    source: 'epic_feats',
+    key: 'crowned_jeweler_unlocked',
+    extractor: (data) => data.epicFeats.crownedJewelerUnlocked,
+  },
+  'epic_feats:mythic_menagerie_unlocked': {
+    source: 'epic_feats',
+    key: 'mythic_menagerie_unlocked',
+    extractor: (data) => data.epicFeats.mythicMenagerieUnlocked,
+  },
+
+  // ============================================
+  // FUTURE PHASES - NOT YET REGISTERED
   // - onchain_gold: vendor_spend (Phase 8)
   // - seasonal_events: seasonal_score (Phase 9)
-  // - onchain_metis_patrol: wins, elite_wins (Phase 7)
-  // - onchain_tournaments: entries, wins, top_finish (Phase 7)
   // Challenges using these will log "No extractor found" and be skipped
   // ============================================
 };

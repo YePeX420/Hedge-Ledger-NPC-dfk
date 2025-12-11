@@ -35,17 +35,31 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
     *   **ETL Subsystem**: Modular metric extraction, transformation, and loading for challenge progress computation.
         *   **Location**: `src/etl/` with extractors/, loaders/, transformers/, services/
         *   **METRIC_REGISTRY**: Maps `metricSource:metricKey` to extractor functions in `src/etl/types.ts`
-        *   **Implemented Metrics (Phase 1-2)**:
+        *   **Implemented Metrics (Phase 1-4)**:
             - `onchain_heroes`: total_levels, hero_count, gen0_count, exalted_gene_hero_count, mythic_hero_count
             - `onchain_quests`: mining_quests, gardening_quests, fishing_quests, foraging_quests
             - `onchain_summons`: total_summons, summons_mythic_rarity, summons_high_tier_genes
             - `onchain_summoning`: mutagenic_specialist_count, mythmaker_count, summoner_of_legends_count
             - `behavior_events`: active_days, discord_engagement_score, account_age_days (Phase 2 - uses MIN(firstDfkTxTimestamp) across all wallets in cluster)
-            - `onchain_pets`: rarity_score, gardening_pet_count
+            - `onchain_pets`: rarity_score, gardening_pet_count, oddPetFamilies (cluster-aggregated)
             - `onchain_hunting`: wins, motherclucker_kills, mad_boar_kills, relics_found, clucker_miracle (Phase 3 - cluster-aware from hunting_encounters table)
             - `onchain_pvp`: matches_played, wins, best_win_streak, flawless_victory (Phase 3 - cluster-aware from pvp_matches table with streak computation)
             - `onchain_lp`: lp_usd_value, pool_count, harvest_actions, lp_duration_max_days, active_days (Phase 4 - cluster-aware with per-wallet snapshot fallback)
             - `onchain_staking`: stake_usd_value, stake_duration_days, jewel_stake_amount (Phase 4 - cluster-aware with per-wallet snapshot fallback)
+        *   **Implemented Metrics (Phase 5 - METIS Systems)**:
+            - `onchain_metis_patrol`: wins, elite_wins (graceful fallback if metis_patrol_events table doesn't exist)
+            - `onchain_shells`: shells_collected, raffle_entries, raffle_win (graceful fallback if shell tables don't exist)
+            - `onchain_influence`: bets_won (graceful fallback if influence_predictions table doesn't exist)
+            - `onchain_tournaments`: entries, wins, top_finish (graceful fallback if tournament tables don't exist)
+        *   **Implemented Metrics (Phase 6 - Derived Metrics)**:
+            - `meta_profile`: prestige_unlocked_count, exalted_category_count, summoning_prestige_score, pvp_mastery_score, metis_mastery_score (cluster-aggregated with batched parameterized queries)
+            - `epic_feats`: vangardian_unlocked, worldforged_summoner_unlocked, grandmaster_geneweaver_unlocked, eternal_collector_unlocked, crowned_jeweler_unlocked, mythic_menagerie_unlocked (uses fullData heuristics until lineage tables exist)
+        *   **Phase 5/6 Architecture Notes**:
+            - All Phase 5 extractors check table existence before querying, return zeros on errors
+            - petExtractor enhanced with cluster-aware aggregation across all linked wallets, tracks oddPetFamilies for mythic menagerie detection
+            - metaProfileExtractor uses batched Promise.all with parameterized queries for security
+            - epicFeatsExtractor derives unlocks from aggregated fullData (cluster-aware)
+            - Known limitations: worldforged/geneweaver use heuristics until lineage/mutation warehouse tables are implemented
         *   **Pending Metrics (Future Phases)**: onchain_gold, seasonal_events
         *   **Data Warehouse Tables**: hunting_encounters (txHash, enemyId, result, survivingHeroCount, survivingHeroHp, drops), pvp_matches (matchId, outcome, heroDeaths, streakGroup, isRanked), lp_position_snapshots (walletAddress, poolId, lpAmount, usdValue, clusterKey, snapshotDate), lp_harvest_events (walletAddress, txHash, poolId, harvestAmount, clusterKey), staking_snapshots (walletAddress, stakedAmount, usdValue, clusterKey, snapshotDate)
         *   **Challenge Progress Loader**: `src/etl/loaders/challengeProgressLoader.ts` - upserts to `player_challenge_progress` table

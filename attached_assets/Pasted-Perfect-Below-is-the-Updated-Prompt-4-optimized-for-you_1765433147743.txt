@@ -1,0 +1,402 @@
+Perfect. Below is the Updated Prompt 4, optimized for your current ETL architecture, database tables, and the way Replit has been implementing extractors.
+
+This prompt is clean, direct, and structured so Replit will deliver Phase 5 and Phase 6 correctly, with minimal confusion.
+
+Paste this directly into your Replit backend project chat to continue ETL development.
+
+
+---
+
+🔹 UPDATED PROMPT 4 — Implement Phase 5 & 6 ETL (METIS PvE, METIS Economy, METIS Tournaments, Meta Profile, Epic Feats)
+
+> Context:
+
+Phases 2, 3, and 4 ETL implementations are complete.
+
+We now have full support for Hero, Behavior, Professions, Summoning, Hunting, PvP, and DeFi (LP + Jeweler staking).
+
+The next step is Phase 5 (all METIS categories) and Phase 6 (derived challenges: Meta Profile + Epic Feats).
+
+The ETL architecture is modular with METRIC_REGISTRY routing metricSource → extractor, and each module is cluster-aware with fallback snapshots.
+
+
+Continue following this architecture to implement the remaining extractors.
+
+
+
+
+---
+
+PHASE 5 — METIS SYSTEMS ETL
+
+We need to implement extractors for:
+
+1. onchain_metis_patrol
+
+2. onchain_shells
+
+3. onchain_influence
+
+4. onchain_tournaments
+
+Each module should live in:
+
+src/etl/sources/
+  onchain_metis_patrol.ts
+  onchain_shells.ts
+  onchain_influence.ts
+  onchain_tournaments.ts
+
+and return a MetricBag with the metricKeys expected by challengeConfig.
+
+
+---
+
+✅ 1. Implement onchain_metis_patrol
+
+Create the file:
+
+src/etl/sources/onchain_metis_patrol.ts
+
+Implement:
+
+export const computeMetisPatrolMetrics: SourceMetricFn = async ({ clusterId }) => {
+  return {
+    wins: number,
+    elite_wins: number,
+  };
+};
+
+Use a table such as metis_patrol_events or a cluster-aware view.
+
+Logic:
+
+wins = patrol events with result=WIN
+
+elite_wins = patrol events with difficulty in (ELITE, BOSS, etc.)
+
+
+Map to challenges:
+
+patrol_warden → wins
+
+elite_patroller → elite_wins
+
+
+Register in METRIC_REGISTRY:
+
+"onchain_metis_patrol": computeMetisPatrolMetrics
+
+
+---
+
+✅ 2. Implement onchain_shells
+
+Create:
+
+src/etl/sources/onchain_shells.ts
+
+Implement:
+
+export const computeShellMetrics: SourceMetricFn = async ({ clusterId }) => {
+  return {
+    shells_collected: number,
+    raffle_entries: number,
+    raffle_win: boolean,
+  };
+};
+
+Logic:
+
+shells_collected = sum of shell rewards for cluster
+
+raffle_entries = total shell raffle entry events
+
+raffle_win = boolean: cluster has any raffle win record
+
+
+Maps to:
+
+shell_collector
+
+shell_gambler
+
+shell_jackpot (prestige boolean)
+
+
+Register in registry:
+
+"onchain_shells": computeShellMetrics
+
+
+---
+
+✅ 3. Implement onchain_influence
+
+Create:
+
+src/etl/sources/onchain_influence.ts
+
+Implement:
+
+export const computeInfluenceMetrics: SourceMetricFn = async ({ clusterId }) => {
+  return {
+    bets_won: number,
+  };
+};
+
+Logic:
+
+Count influence predictions where cluster successfully predicted outcome.
+
+
+Maps to:
+
+influence_strategist → bets_won
+
+
+Register:
+
+"onchain_influence": computeInfluenceMetrics
+
+
+---
+
+✅ 4. Implement onchain_tournaments
+
+Create:
+
+src/etl/sources/onchain_tournaments.ts
+
+Implement:
+
+export const computeTournamentMetrics: SourceMetricFn = async ({ clusterId }) => {
+  return {
+    entries: number,
+    wins: number,
+    top_finish: boolean,
+  };
+};
+
+Logic:
+
+entries = tournament registrations
+
+wins = match wins
+
+top_finish = boolean: cluster reached top bracket (e.g., finalRank <= threshold)
+
+
+Maps to:
+
+tournament_challenger → entries
+
+tournament_victor → wins
+
+metis_champion → top_finish (prestige)
+
+
+Register:
+
+"onchain_tournaments": computeTournamentMetrics
+
+
+---
+
+PHASE 6 — META PROFILE & EPIC FEATS (DERIVED ETL)
+
+These are derived metrics that DO NOT pull from blockchain directly.
+They combine challenge_progress + other ETL results.
+
+Implement two new extractors:
+
+5. meta_profile
+
+6. epic_feats
+
+Each lives in:
+
+src/etl/sources/meta_profile.ts
+src/etl/sources/epic_feats.ts
+
+
+---
+
+✅ 5. Implement meta_profile extractor
+
+Create:
+
+src/etl/sources/meta_profile.ts
+
+Implement a function returning:
+
+export const computeMetaProfileMetrics: SourceMetricFn = async ({ clusterId }) => {
+  return {
+    prestige_unlocked_count: number,
+    exalted_category_count: number,
+    summoning_prestige_score: number,
+    pvp_mastery_score: number,
+    metis_mastery_score: number,
+  };
+};
+
+Logic:
+
+prestige_unlocked_count
+
+Count number of prestige challenges where challenge_progress.unlocked = true.
+
+exalted_category_count
+
+Count categories where at least one challenge for that category has tier=EXALTED.
+
+You may compute tier by reading challenge tiers + value thresholds OR reading stored tier if your aggregator writes it.
+
+summoning_prestige_score
+
+Weighted score composed of:
+
+mutagenic_specialist_count
+
+mythmaker_count
+
+royal_lineage_count
+
+summoner_of_legends unlock
+
+
+Weights can be simple (e.g., linear) unless specified otherwise.
+
+pvp_mastery_score
+
+Weighted score from:
+
+wins
+
+best_win_streak
+
+flawless_victory
+
+
+metis_mastery_score
+
+Weighted score from:
+
+elite_wins
+
+shells_collected
+
+bets_won
+
+raffle_win
+
+top_finish
+
+
+Register:
+
+"meta_profile": computeMetaProfileMetrics
+
+
+---
+
+✅ 6. Implement epic_feats extractor
+
+Create:
+
+src/etl/sources/epic_feats.ts
+
+Implement:
+
+export const computeEpicFeats: SourceMetricFn = async ({ clusterId }) => {
+  return {
+    vangardian_unlocked: boolean,
+    worldforged_summoner_unlocked: boolean,
+    grandmaster_geneweaver_unlocked: boolean,
+    eternal_collector_unlocked: boolean,
+    crowned_jeweler_unlocked: boolean,
+    mythic_menagerie_unlocked: boolean,
+  };
+};
+
+Logic (based on challenge spec):
+
+vangardian_unlocked
+True if cluster meets all METIS mastery thresholds (look for EXALTED METIS category)
+
+worldforged_summoner_unlocked
+True if DK summoned with ≥4 upward mutations (summoning logs)
+
+grandmaster_geneweaver_unlocked
+True if hero lineage meets 3-generation mutation chain (use stored genealogy or summoning data)
+
+eternal_collector_unlocked
+True if user owns a Mythic hero of every class
+
+crowned_jeweler_unlocked
+True if user/staking ETL finds stake_duration_days ≥ 1000
+
+mythic_menagerie_unlocked
+True if cluster owns Odd/Ultra-Odd pet in every pet family
+
+
+Register:
+
+"epic_feats": computeEpicFeats
+
+
+---
+
+PHASE 6 Testing Requirements
+
+ETL should:
+
+1. Run without errors even if METIS tables are empty.
+
+
+2. Skip metrics gracefully if extractors return undefined.
+
+
+3. Populate challenge_progress for:
+
+METIS patrol challenges
+
+METIS economy challenges
+
+METIS tournaments
+
+Meta profile
+
+Epic feats
+
+
+
+4. For a test cluster, confirm:
+
+Values change after ETL
+
+Prestige toggles (boolean challenges) unlock correctly
+
+Composite scores (meta profile) populate correctly
+
+
+
+
+
+---
+
+Constraints
+
+DO NOT modify challengeConfig.ts.
+
+DO NOT change metricSource or metricKey names.
+
+Only add ETL extractors + registry entries + logic inside computeChallengeMetricsForCluster.
+
+Keep extractors cluster-aware and snapshot-aware as in Phases 2–4.
+
+
+
+---
+
+This prompt is ready to paste directly into Replit as “Updated Prompt 4 – METIS + Meta Profile + Epic Feats ETL”.
