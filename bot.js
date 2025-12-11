@@ -893,6 +893,16 @@ client.once(Events.ClientReady, async (c) => {
   } catch (err) {
     console.error('❌ Failed to start DFK Age cache job:', err);
   }
+
+  // Initialize ETL scheduler for challenge progress updates
+  try {
+    console.log('🔄 Starting ETL scheduler...');
+    const { startEtlScheduler } = await import('./src/etl/scheduler/etlScheduler.ts');
+    startEtlScheduler();
+    console.log('✅ ETL scheduler started');
+  } catch (err) {
+    console.error('❌ Failed to start ETL scheduler:', err);
+  }
 });
 
 // Generic helper to talk to Hedge
@@ -5503,6 +5513,34 @@ async function startAdminWebServer() {
     } catch (error) {
       console.error('[API] Error running ETL for cluster:', error);
       res.status(500).json({ error: 'Failed to run ETL', details: error.message });
+    }
+  });
+
+  // GET /api/admin/etl/status - Get ETL scheduler status
+  app.get('/api/admin/etl/status', isAdmin, async (req, res) => {
+    try {
+      const { getSchedulerStatus } = await import('./src/etl/scheduler/etlScheduler.ts');
+      const status = getSchedulerStatus();
+      res.json(status);
+    } catch (error) {
+      console.error('[API] Error getting ETL status:', error);
+      res.status(500).json({ error: 'Failed to get ETL status' });
+    }
+  });
+
+  // POST /api/admin/etl/trigger - Manually trigger ETL run
+  app.post('/api/admin/etl/trigger', isAdmin, async (req, res) => {
+    try {
+      const { triggerManualRun } = await import('./src/etl/scheduler/etlScheduler.ts');
+      const type = req.body.type || 'incremental';
+      
+      console.log(`[API] Manual ETL trigger requested: ${type}`);
+      const result = await triggerManualRun(type);
+      
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error triggering ETL:', error);
+      res.status(500).json({ error: 'Failed to trigger ETL', details: error.message });
     }
   });
 

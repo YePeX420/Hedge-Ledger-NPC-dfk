@@ -58,6 +58,8 @@ import {
   FileCheck,
   Rocket,
   Archive,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -207,6 +209,36 @@ export default function AdminChallenges() {
     },
   });
 
+  const etlMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/etl/trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ type: "incremental" }),
+      });
+      if (!res.ok) throw new Error("Failed to trigger ETL");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success === false) {
+        toast({ 
+          title: "ETL Not Started", 
+          description: data.message || "ETL could not be started",
+          variant: "destructive"
+        });
+      } else {
+        toast({ 
+          title: "ETL Complete", 
+          description: data.message || "Challenge progress updated from blockchain data" 
+        });
+      }
+    },
+    onError: (err) => {
+      toast({ title: "ETL Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const stateCounts = {
     draft: challenges?.filter(c => c.state === "draft").length || 0,
     validated: challenges?.filter(c => c.state === "validated").length || 0,
@@ -250,10 +282,25 @@ export default function AdminChallenges() {
             Manage challenge definitions, validation, and deployment
           </p>
         </div>
-        <Button onClick={() => setCreateDialog(true)} data-testid="button-create-challenge">
-          <Plus className="w-4 h-4 mr-2" />
-          New Challenge
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline"
+            onClick={() => etlMutation.mutate()}
+            disabled={etlMutation.isPending}
+            data-testid="button-refresh-etl"
+          >
+            {etlMutation.isPending ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4 mr-2" />
+            )}
+            Refresh Progress
+          </Button>
+          <Button onClick={() => setCreateDialog(true)} data-testid="button-create-challenge">
+            <Plus className="w-4 h-4 mr-2" />
+            New Challenge
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
