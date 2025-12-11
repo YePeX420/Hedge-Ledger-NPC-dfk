@@ -1,0 +1,165 @@
+We’ve completed Phase 2 of the ETL.
+
+behavior_events:account_age_days is now implemented at cluster level using MIN(first_dfk_tx_timestamp) across all wallets.
+
+onchain_heroes and onchain_quests metricSources are already wired for Hero Riser, House of Heroes, Master Miner, and Master Herbalist.
+
+Now we want to implement Phase 3 ETL, covering:
+
+Hunting PvE (metricSource: "onchain_hunting")
+
+PvP Competition (metricSource: "onchain_pvp")
+
+The ETL should remain modular and plug into the existing METRIC_REGISTRY / metric routing system.
+
+1. HUNTING – metricSource: "onchain_hunting"
+
+Please create a new source module:
+
+// src/etl/sources/onchain_hunting.ts
+export const computeOnchainHuntingMetrics: SourceMetricFn = async ({ clusterId }) => {
+  // returns a MetricBag with:
+  // wins,
+  // motherclucker_kills,
+  // mad_boar_kills,
+  // relics_found,
+  // clucker_miracle
+};
+
+
+Required metricKeys & logic:
+
+wins: total non-METIS Hunting wins for this cluster
+
+e.g., count of hunting battle results where result = 'WIN' and mode = 'HUNTING' (NOT METIS patrol).
+
+motherclucker_kills: count of wins where enemy_id = 'MOTHERCLUCKER' AND result = 'WIN'.
+
+mad_boar_kills: count of wins where enemy_id = 'MAD_BOAR' AND result = 'WIN'.
+
+relics_found: count of drop events where item_id ∈ RELIC_DROP_TABLE (we can maintain a simple config constant for relic item IDs in this module).
+
+clucker_miracle: boolean → 1 if the cluster has any hunt with all of:
+
+enemy_id = 'MOTHERCLUCKER'
+
+result = 'WIN'
+
+surviving_hero_count = 1
+
+surviving_hero_hp = 1
+
+Implementation notes:
+
+It’s fine to use a hunting-specific cluster view (e.g., hunting_events_cluster_view) if it exists, or build aggregate SQL similar to what you did for account age.
+
+clucker_miracle can be computed via a MAX(CASE WHEN ... THEN 1 ELSE 0 END) pattern.
+
+Return a MetricBag object with those exact keys:
+
+return {
+  wins,
+  motherclucker_kills,
+  mad_boar_kills,
+  relics_found,
+  clucker_miracle: cluckerMiracleFlag > 0,
+};
+
+
+Register it in the metric registry so that:
+
+METRIC_SOURCES["onchain_hunting"] = computeOnchainHuntingMetrics;
+
+
+Mapping to challenges (from challengeConfig.ts):
+
+hunters_triumph → metricSource: "onchain_hunting", metricKey: "wins"
+
+motherclucker_slayer → "motherclucker_kills"
+
+mad_boar_slayer → "mad_boar_kills"
+
+relic_tracker → "relics_found"
+
+clucker_miracle → "clucker_miracle" (BOOLEAN, prestige unlocked when value >= 1)
+
+Make sure computeChallengeMetricsForCluster (or equivalent) now picks up these metrics and writes them to challenge_progress for the above challenge keys.
+
+2. PVP COMPETITION – metricSource: "onchain_pvp"
+
+Create a new source module:
+
+// src/etl/sources/onchain_pvp.ts
+export const computeOnchainPvpMetrics: SourceMetricFn = async ({ clusterId }) => {
+  // returns a MetricBag with:
+  // matches_played,
+  // wins,
+  // best_win_streak,
+  // flawless_victory
+};
+
+
+Required metricKeys & logic:
+
+matches_played: count of ranked PvP matches (queue_type = 'RANKED') for the cluster.
+
+wins: count of ranked PvP matches where result = 'WIN'.
+
+best_win_streak: longest consecutive ranked win streak.
+
+You can either:
+
+Compute this in SQL via window functions, or
+
+Fetch the cluster’s ranked matches ordered by timestamp and compute in JS/TS using a loop.
+
+flawless_victory: boolean → 1 if the cluster has any ranked match where:
+
+result = 'WIN'
+
+deaths = 0 (or however “no hero deaths” is represented)
+
+Return a MetricBag with:
+
+return {
+  matches_played,
+  wins,
+  best_win_streak,
+  flawless_victory: flawlessFlag > 0,
+};
+
+
+Register it in the metric registry:
+
+METRIC_SOURCES["onchain_pvp"] = computeOnchainPvpMetrics;
+
+
+Mapping to challenges:
+
+arena_challenger → "onchain_pvp" / "matches_played"
+
+arena_victor → "onchain_pvp" / "wins"
+
+win_streak → "onchain_pvp" / "best_win_streak"
+
+flawless_victory → "onchain_pvp" / "flawless_victory" (BOOLEAN)
+
+3. Validation / Testing
+
+After implementing both sources:
+
+Run ETL for a known test cluster with:
+
+Several Hunting events (including at least one Motherclucker kill, and if possible a 1 HP clutch win).
+
+Several ranked PvP matches (wins/losses, and at least one flawless win).
+
+Query challenge_progress (or via admin dashboard) and verify that:
+
+hunters_triumph, motherclucker_slayer, mad_boar_slayer, relic_tracker, clucker_miracle have non-zero values where expected.
+
+arena_challenger, arena_victor, win_streak, flawless_victory reflect the test data.
+
+Ensure that unsupported metricSources and metricKeys are still gracefully skipped by the ETL orchestrator (as in Phase 1).
+
+Please show the resulting source files (onchain_hunting.ts, onchain_pvp.ts), t
