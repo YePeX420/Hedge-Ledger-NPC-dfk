@@ -107,6 +107,21 @@ export interface ExtractedPaymentData {
   jewelSentToHedge: number;
 }
 
+export interface ExtractedHuntingData {
+  wins: number;
+  mothercluckerKills: number;
+  madBoarKills: number;
+  relicsFound: number;
+  cluckerMiracle: boolean; // 1 survivor at 1 HP vs Motherclucker
+}
+
+export interface ExtractedPvpData {
+  matchesPlayed: number;
+  wins: number;
+  bestWinStreak: number;
+  flawlessVictory: boolean; // Win with 0 hero deaths
+}
+
 export interface FullExtractResult {
   heroes: ExtractedHeroData;
   quests: ExtractedQuestData;
@@ -117,6 +132,8 @@ export interface FullExtractResult {
   portfolio: ExtractedPortfolioData;
   discord: ExtractedDiscordData;
   payments: ExtractedPaymentData;
+  hunting: ExtractedHuntingData;
+  pvp: ExtractedPvpData;
   extractedAt: Date;
 }
 
@@ -445,10 +462,63 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
   },
 
   // ============================================
+  // ONCHAIN_HUNTING METRICS (Phase 3 - Implemented)
+  // Hunting PvE challenge metrics
+  // ============================================
+  'onchain_hunting:wins': {
+    source: 'onchain_hunting',
+    key: 'wins',
+    extractor: (data) => data.hunting.wins,
+  },
+  'onchain_hunting:motherclucker_kills': {
+    source: 'onchain_hunting',
+    key: 'motherclucker_kills',
+    extractor: (data) => data.hunting.mothercluckerKills,
+  },
+  'onchain_hunting:mad_boar_kills': {
+    source: 'onchain_hunting',
+    key: 'mad_boar_kills',
+    extractor: (data) => data.hunting.madBoarKills,
+  },
+  'onchain_hunting:relics_found': {
+    source: 'onchain_hunting',
+    key: 'relics_found',
+    extractor: (data) => data.hunting.relicsFound,
+  },
+  'onchain_hunting:clucker_miracle': {
+    source: 'onchain_hunting',
+    key: 'clucker_miracle',
+    extractor: (data) => data.hunting.cluckerMiracle,
+  },
+
+  // ============================================
+  // ONCHAIN_PVP METRICS (Phase 3 - Implemented)
+  // PvP Competition challenge metrics
+  // ============================================
+  'onchain_pvp:matches_played': {
+    source: 'onchain_pvp',
+    key: 'matches_played',
+    extractor: (data) => data.pvp.matchesPlayed,
+  },
+  'onchain_pvp:wins': {
+    source: 'onchain_pvp',
+    key: 'wins',
+    extractor: (data) => data.pvp.wins,
+  },
+  'onchain_pvp:best_win_streak': {
+    source: 'onchain_pvp',
+    key: 'best_win_streak',
+    extractor: (data) => data.pvp.bestWinStreak,
+  },
+  'onchain_pvp:flawless_victory': {
+    source: 'onchain_pvp',
+    key: 'flawless_victory',
+    extractor: (data) => data.pvp.flawlessVictory,
+  },
+
+  // ============================================
   // PHASE 5-9 METRICS - NOT YET REGISTERED
   // The following metrics are NOT in the registry until their indexers are built:
-  // - onchain_hunting: wins, boss_kills (Phase 5)
-  // - onchain_pvp: matches_played, pvp_wins (Phase 6)
   // - onchain_gold: vendor_spend (Phase 8)
   // - onchain_staking: stake_duration_days (Phase 8)
   // - seasonal_events: seasonal_score (Phase 9)

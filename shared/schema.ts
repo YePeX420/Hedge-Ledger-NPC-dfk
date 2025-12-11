@@ -1209,6 +1209,86 @@ export const insertChallengeTierSchema = createInsertSchema(challengeTiers).omit
 export type InsertChallengeTier = z.infer<typeof insertChallengeTierSchema>;
 export type ChallengeTier = typeof challengeTiers.$inferSelect;
 
+// ============================================================================
+// HUNTING & PVP DATA WAREHOUSE
+// ETL source tables for combat challenges (onchain_hunting, onchain_pvp)
+// ============================================================================
+
+/**
+ * Hunting encounters - indexed hunting results for challenge progress
+ * Supports cluster-aware aggregation for multi-wallet players
+ */
+export const huntingEncounters = pgTable("hunting_encounters", {
+  id: serial("id").primaryKey(),
+  walletAddress: varchar("wallet_address", { length: 64 }).notNull(),
+  clusterKey: varchar("cluster_key", { length: 64 }), // For cluster aggregation
+  txHash: varchar("tx_hash", { length: 128 }).notNull().unique(),
+  realm: varchar("realm", { length: 32 }).notNull().default("dfk"), // dfk, klaytn
+  enemyId: varchar("enemy_id", { length: 64 }).notNull(), // MOTHERCLUCKER, MAD_BOAR, etc.
+  result: varchar("result", { length: 16 }).notNull(), // WIN, LOSS, FLEE
+  survivingHeroCount: integer("surviving_hero_count").notNull().default(0),
+  survivingHeroHp: integer("surviving_hero_hp"), // For miracle detection (exactly 1 HP)
+  drops: json("drops").$type<Array<{ itemId: string; quantity: number }>>().default(sql`'[]'::json`),
+  encounteredAt: timestamp("encountered_at", { withTimezone: true }).notNull(),
+  indexedAt: timestamp("indexed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletIdx: index("hunting_encounters_wallet_idx").on(table.walletAddress),
+  clusterKeyIdx: index("hunting_encounters_cluster_key_idx").on(table.clusterKey),
+  enemyIdIdx: index("hunting_encounters_enemy_id_idx").on(table.enemyId),
+  resultIdx: index("hunting_encounters_result_idx").on(table.result),
+  encounteredAtIdx: index("hunting_encounters_encountered_at_idx").on(table.encounteredAt),
+}));
+
+export const insertHuntingEncounterSchema = createInsertSchema(huntingEncounters).omit({ id: true, indexedAt: true });
+export type InsertHuntingEncounter = z.infer<typeof insertHuntingEncounterSchema>;
+export type HuntingEncounter = typeof huntingEncounters.$inferSelect;
+
+/**
+ * PvP matches - indexed ranked PvP match results for challenge progress
+ * Supports streak calculation and flawless victory detection
+ */
+export const pvpMatches = pgTable("pvp_matches", {
+  id: serial("id").primaryKey(),
+  walletAddress: varchar("wallet_address", { length: 64 }).notNull(),
+  clusterKey: varchar("cluster_key", { length: 64 }), // For cluster aggregation
+  matchId: varchar("match_id", { length: 128 }).notNull().unique(),
+  realm: varchar("realm", { length: 32 }).notNull().default("metis"), // metis, dfk
+  isRanked: boolean("is_ranked").notNull().default(true),
+  outcome: varchar("outcome", { length: 16 }).notNull(), // WIN, LOSS, DRAW
+  heroDeaths: integer("hero_deaths").notNull().default(0), // For flawless victory (0 deaths)
+  streakGroup: integer("streak_group"), // Computed field for consecutive wins
+  matchedAt: timestamp("matched_at", { withTimezone: true }).notNull(),
+  indexedAt: timestamp("indexed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  meta: json("meta").$type<{
+    opponentWallet?: string;
+    teamSize?: number;
+    influenceGained?: number;
+  }>(),
+}, (table) => ({
+  walletIdx: index("pvp_matches_wallet_idx").on(table.walletAddress),
+  clusterKeyIdx: index("pvp_matches_cluster_key_idx").on(table.clusterKey),
+  outcomeIdx: index("pvp_matches_outcome_idx").on(table.outcome),
+  isRankedIdx: index("pvp_matches_is_ranked_idx").on(table.isRanked),
+  matchedAtIdx: index("pvp_matches_matched_at_idx").on(table.matchedAt),
+}));
+
+export const insertPvpMatchSchema = createInsertSchema(pvpMatches).omit({ id: true, indexedAt: true });
+export type InsertPvpMatch = z.infer<typeof insertPvpMatchSchema>;
+export type PvpMatch = typeof pvpMatches.$inferSelect;
+
+/**
+ * Relic drop table config - defines which itemIds count as relics
+ * Used by hunting ETL to compute relics_found metric
+ */
+export const RELIC_DROP_TABLE = [
+  "ANCIENT_RELIC",
+  "MYSTIC_RELIC",
+  "DIVINE_RELIC",
+  "CRYSTAL_RELIC",
+  "GOLDEN_RELIC",
+] as const;
+export type RelicItemId = typeof RELIC_DROP_TABLE[number];
+
 /**
  * Player challenge progress - tracks individual player progress on challenges
  */

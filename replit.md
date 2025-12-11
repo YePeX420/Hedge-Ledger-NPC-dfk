@@ -43,7 +43,10 @@ The project uses a Node.js backend with Discord.js for bot functionalities and a
             - `behavior_events`: active_days, discord_engagement_score, account_age_days (Phase 2 - uses MIN(firstDfkTxTimestamp) across all wallets in cluster)
             - `onchain_pets`: rarity_score, gardening_pet_count
             - `onchain_lp`: total_lp_value
-        *   **Pending Metrics (Future Phases)**: onchain_hunting, onchain_pvp, onchain_gold, onchain_staking, seasonal_events
+            - `onchain_hunting`: wins, motherclucker_kills, mad_boar_kills, relics_found, clucker_miracle (Phase 3 - cluster-aware from hunting_encounters table)
+            - `onchain_pvp`: matches_played, wins, best_win_streak, flawless_victory (Phase 3 - cluster-aware from pvp_matches table with streak computation)
+        *   **Pending Metrics (Future Phases)**: onchain_gold, onchain_staking, seasonal_events
+        *   **Data Warehouse Tables**: hunting_encounters (txHash, enemyId, result, survivingHeroCount, survivingHeroHp, drops), pvp_matches (matchId, outcome, heroDeaths, streakGroup, isRanked)
         *   **Challenge Progress Loader**: `src/etl/loaders/challengeProgressLoader.ts` - upserts to `player_challenge_progress` table
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" by indexing bridge events, enriching with USD values, and computing per-wallet net extraction and extractor scores.
     *   **Offline Export/Import**: Standalone script (`bridge-tracker/offline-exporter.js`) indexes blockchain events without database, exports to JSON. Import endpoint (`POST /api/admin/bridge/import-events`) loads pre-indexed data.
