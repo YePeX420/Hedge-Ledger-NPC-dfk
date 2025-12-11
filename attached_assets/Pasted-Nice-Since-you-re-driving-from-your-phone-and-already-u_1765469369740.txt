@@ -1,0 +1,185 @@
+Nice. Since you’re driving from your phone and already used the previous prompts successfully, here’s exactly what you can paste into the Replit backend chat now.
+
+---
+
+## 🧾 PASTE THIS INTO REPLIT BACKEND CHAT
+
+**Prompt – Phase 3: Implement Hunting + PvP ETL (Updated)**
+
+---
+
+We’ve finished Phase 2 of the Challenge ETL (heroes, behavior, quests, accountAgeDays), and the Leaderboard + Season Engines are now working.
+
+Now I want to implement **Phase 3 ETL** for the Challenge System:
+
+* **Hunting PvE** (`metricSource: "onchain_hunting"`)
+* **PvP Competition** (`metricSource: "onchain_pvp"`)
+
+These will support the `hunting_pve` and `pvp_competition` categories and feed into seasons + leaderboards.
+
+---
+
+### 1. Implement `onchain_hunting` ETL Source
+
+Create or update:
+`src/etl/sources/onchain_hunting.ts`
+
+Export a `SourceMetricFn` that returns a `MetricBag` with:
+
+```ts
+{
+  wins: number;
+  motherclucker_kills: number;
+  mad_boar_kills: number;
+  relics_found: number;
+  clucker_miracle: boolean;
+}
+```
+
+**Metric semantics:**
+
+* `wins`
+
+  * Total number of successful Hunting encounters (non-METIS) for the cluster.
+  * Filter for `result = WIN` and `mode = 'HUNTING'` (or equivalent in the events table).
+
+* `motherclucker_kills`
+
+  * Count of wins where `enemyId = 'MOTHERCLUCKER'`.
+
+* `mad_boar_kills`
+
+  * Count of wins where `enemyId = 'MAD_BOAR'`.
+
+* `relics_found`
+
+  * Count of drops where `itemId` is in a rare relic whitelist (RELIC_DROP_TABLE).
+  * You can implement this via a simple config array or a DB mapping table.
+
+* `clucker_miracle`
+
+  * Boolean flag (true/false) indicating if the cluster has **ever** had a hunt where:
+
+    * `enemyId = 'MOTHERCLUCKER'`
+    * `result = WIN`
+    * `surviving_hero_count = 1`
+    * `surviving_hero_hp = 1`
+
+Use whatever views/tables we already have for hunting data (`hunting_events`, `hunting_drops`, etc.). It’s fine to create a `huntingEventsClusterView` if that simplifies things.
+
+**Registry entry:**
+
+Add `onchain_hunting` → `computeOnchainHuntingMetrics` to the ETL metric source registry so challenges with `metricSource: "onchain_hunting"` route to this function.
+
+**Challenge mapping (per challengeConfig.ts):**
+
+* `hunters_triumph` → `onchain_hunting:wins`
+* `motherclucker_slayer` → `onchain_hunting:motherclucker_kills`
+* `mad_boar_slayer` → `onchain_hunting:mad_boar_kills`
+* `relic_tracker` → `onchain_hunting:relics_found`
+* `clucker_miracle` → `onchain_hunting:clucker_miracle` (BOOLEAN prestige flag)
+
+Make sure these metricKeys (strings) exactly match those in `challengeConfig.ts`.
+
+---
+
+### 2. Implement `onchain_pvp` ETL Source
+
+Create or update:
+`src/etl/sources/onchain_pvp.ts`
+
+Export a `SourceMetricFn` returning:
+
+```ts
+{
+  matches_played: number;
+  wins: number;
+  best_win_streak: number;
+  flawless_victory: boolean;
+}
+```
+
+**Metric semantics:**
+
+* `matches_played`
+
+  * Count of **ranked** PvP matches for the cluster.
+  * Filter for `queueType = 'RANKED'` or equivalent.
+
+* `wins`
+
+  * Count of ranked matches with `result = 'WIN'`.
+
+* `best_win_streak`
+
+  * Longest consecutive ranked win streak for the cluster.
+  * You can compute this in code:
+
+    * Sort matches by timestamp
+    * Increment streak on WIN, reset on non-WIN
+    * Track max streak
+
+* `flawless_victory`
+
+  * Boolean: true if the cluster has at least one ranked match with:
+
+    * `result = 'WIN'`
+    * `deaths = 0` (no hero deaths for the player’s side)
+
+**Registry entry:**
+
+Add `onchain_pvp` → `computeOnchainPvpMetrics` to the ETL metric source registry.
+
+**Challenge mapping:**
+
+* `arena_challenger` → `onchain_pvp:matches_played`
+* `arena_victor` → `onchain_pvp:wins`
+* `win_streak` → `onchain_pvp:best_win_streak`
+* `flawless_victory` → `onchain_pvp:flawless_victory`
+
+Again, ensure these metricKey strings match `challengeConfig.ts`.
+
+---
+
+### 3. Integration with Challenge Progress
+
+The ETL orchestrator already groups challenges by `metricSource` and calls each source.
+
+Please verify that:
+
+* For **COUNT/STREAK** challenges, `value` is set to the numeric result.
+* For **BOOLEAN** challenges (like `clucker_miracle` and `flawless_victory`), the ETL writes `value = 1` and `unlocked = true` when the flag is true.
+
+Confirm that `challenge_progress` rows are being upserted for these challenge keys.
+
+---
+
+### 4. Testing / Verification
+
+1. Pick a test cluster with known Hunting and PvP data (or seed sample data).
+
+2. Run a full ETL cycle for that cluster.
+
+3. Check:
+
+   * In `challenge_progress`, the following should be non-zero/unlocked as appropriate:
+
+     * `hunters_triumph`
+     * `motherclucker_slayer`
+     * `mad_boar_slayer`
+     * `relic_tracker`
+     * `clucker_miracle` (unlocked true if applicable)
+     * `arena_challenger`
+     * `arena_victor`
+     * `win_streak`
+     * `flawless_victory` (unlocked true if applicable)
+
+   * Verify in the admin dashboard that those challenges show updated values/tier progression for that cluster.
+
+4. (Optional)
+
+   * Create a hunting leaderboard and a PvP leaderboard using these metrics and run leaderboard generation to confirm that rankings use the new values.
+
+---
+
+Please implement Hunting + PvP ETL in this modular way, keeping consistency with the existing ETL registry and challenge engine.
