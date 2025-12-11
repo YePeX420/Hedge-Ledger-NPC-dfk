@@ -89,6 +89,19 @@ export interface ExtractedGardenData {
   totalLPValue: number;
 }
 
+export interface ExtractedLpData {
+  lpUsdValue: number;       // Total USD value across all LP positions
+  poolCount: number;        // Number of distinct pools with USD > $1
+  harvestActions: number;   // Count of LP reward harvest transactions
+  lpDurationMaxDays: number; // Longest continuous hold in any pool
+}
+
+export interface ExtractedStakingData {
+  stakeUsdValue: number;       // Total USD value of staked tokens at Jeweler
+  stakeDurationDays: number;   // Longest continuous staking span
+  jewelStakeAmount: number;    // Raw JEWEL amount staked (for whale detection)
+}
+
 export interface ExtractedPortfolioData {
   jewelBalance: number;
   crystalBalance: number;
@@ -134,6 +147,8 @@ export interface FullExtractResult {
   payments: ExtractedPaymentData;
   hunting: ExtractedHuntingData;
   pvp: ExtractedPvpData;
+  lp: ExtractedLpData;
+  staking: ExtractedStakingData;
   extractedAt: Date;
 }
 
@@ -436,7 +451,7 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
   // Challenges using them will be skipped until mutation/lineage tracking is built
 
   // ============================================
-  // ONCHAIN_LP METRICS (Phase 8 - Partial)
+  // ONCHAIN_LP METRICS (Phase 4 - Implemented)
   // LP/DeFi participation challenges
   // ============================================
   'onchain_lp:total_lp_value': {
@@ -444,7 +459,52 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
     key: 'total_lp_value',
     extractor: (data) => data.gardens.totalLPValue,
   },
-  // NOTE: onchain_lp:active_days intentionally NOT added until LP position tracking is built
+  'onchain_lp:lp_usd_value': {
+    source: 'onchain_lp',
+    key: 'lp_usd_value',
+    extractor: (data) => data.lp.lpUsdValue,
+  },
+  'onchain_lp:pool_count': {
+    source: 'onchain_lp',
+    key: 'pool_count',
+    extractor: (data) => data.lp.poolCount,
+  },
+  'onchain_lp:harvest_actions': {
+    source: 'onchain_lp',
+    key: 'harvest_actions',
+    extractor: (data) => data.lp.harvestActions,
+  },
+  'onchain_lp:lp_duration_max_days': {
+    source: 'onchain_lp',
+    key: 'lp_duration_max_days',
+    extractor: (data) => data.lp.lpDurationMaxDays,
+  },
+  // NOTE: onchain_lp:active_days uses lp_duration_max_days for now
+  'onchain_lp:active_days': {
+    source: 'onchain_lp',
+    key: 'active_days',
+    extractor: (data) => data.lp.lpDurationMaxDays,
+  },
+
+  // ============================================
+  // ONCHAIN_STAKING METRICS (Phase 4 - Implemented)
+  // Jeweler staking challenges
+  // ============================================
+  'onchain_staking:stake_usd_value': {
+    source: 'onchain_staking',
+    key: 'stake_usd_value',
+    extractor: (data) => data.staking.stakeUsdValue,
+  },
+  'onchain_staking:stake_duration_days': {
+    source: 'onchain_staking',
+    key: 'stake_duration_days',
+    extractor: (data) => data.staking.stakeDurationDays,
+  },
+  'onchain_staking:jewel_stake_amount': {
+    source: 'onchain_staking',
+    key: 'jewel_stake_amount',
+    extractor: (data) => data.staking.jewelStakeAmount,
+  },
 
   // ============================================
   // ONCHAIN_PETS METRICS (Phase 1 - Implemented)
@@ -520,8 +580,9 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
   // PHASE 5-9 METRICS - NOT YET REGISTERED
   // The following metrics are NOT in the registry until their indexers are built:
   // - onchain_gold: vendor_spend (Phase 8)
-  // - onchain_staking: stake_duration_days (Phase 8)
   // - seasonal_events: seasonal_score (Phase 9)
+  // - onchain_metis_patrol: wins, elite_wins (Phase 7)
+  // - onchain_tournaments: entries, wins, top_finish (Phase 7)
   // Challenges using these will log "No extractor found" and be skipped
   // ============================================
 };

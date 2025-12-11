@@ -13,11 +13,13 @@ import { extractDiscordData } from './discordExtractor.js';
 import { extractPaymentData } from './paymentExtractor.js';
 import { extractHuntingData } from './huntingExtractor.js';
 import { extractPvpData } from './pvpExtractor.js';
+import { extractLpData } from './lpExtractor.js';
+import { extractStakingData } from './stakingExtractor.js';
 
 export async function extractAllData(ctx: WalletContext): Promise<FullExtractResult> {
   console.log(`[ETL:Extract] Starting full extraction for wallet ${ctx.walletAddress}`);
   
-  const [heroes, quests, pets, meditation, gardens, portfolio, discord, payments, hunting, pvp] = await Promise.all([
+  const [heroes, quests, pets, meditation, gardens, portfolio, discord, payments, hunting, pvp, lp, staking] = await Promise.all([
     extractHeroData(ctx),
     extractQuestData(ctx),
     extractPetData(ctx),
@@ -28,6 +30,8 @@ export async function extractAllData(ctx: WalletContext): Promise<FullExtractRes
     extractPaymentData(ctx),
     extractHuntingData(ctx),
     extractPvpData(ctx),
+    extractLpData(ctx),
+    extractStakingData(ctx),
   ]);
   
   const summons = await extractSummonData(ctx, heroes);
@@ -40,6 +44,8 @@ export async function extractAllData(ctx: WalletContext): Promise<FullExtractRes
     lpValue: gardens.totalLPValue,
     huntingWins: hunting.wins,
     pvpWins: pvp.wins,
+    lpUsdValue: lp.lpUsdValue,
+    stakingValue: staking.stakeUsdValue,
   });
   
   return {
@@ -54,6 +60,8 @@ export async function extractAllData(ctx: WalletContext): Promise<FullExtractRes
     payments,
     hunting,
     pvp,
+    lp,
+    staking,
     extractedAt: new Date(),
   };
 }
@@ -70,4 +78,6 @@ export {
   extractPaymentData,
   extractHuntingData,
   extractPvpData,
+  extractLpData,
+  extractStakingData,
 };

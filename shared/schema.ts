@@ -1276,6 +1276,85 @@ export const insertPvpMatchSchema = createInsertSchema(pvpMatches).omit({ id: tr
 export type InsertPvpMatch = z.infer<typeof insertPvpMatchSchema>;
 export type PvpMatch = typeof pvpMatches.$inferSelect;
 
+// ============================================================================
+// LP & STAKING DATA WAREHOUSE
+// ETL source tables for DeFi participation challenges (onchain_lp, onchain_staking)
+// ============================================================================
+
+/**
+ * LP position snapshots - daily snapshots of LP positions for duration tracking
+ * Used to compute lp_duration_max_days (longest continuous hold) and pool_count
+ */
+export const lpPositionSnapshots = pgTable("lp_position_snapshots", {
+  id: serial("id").primaryKey(),
+  walletAddress: varchar("wallet_address", { length: 64 }).notNull(),
+  clusterKey: varchar("cluster_key", { length: 64 }),
+  poolId: integer("pool_id").notNull(), // PID in gardens
+  poolName: varchar("pool_name", { length: 128 }),
+  lpAmountWei: varchar("lp_amount_wei", { length: 78 }), // Raw LP token amount
+  usdValue: integer("usd_value").notNull().default(0), // Value in cents
+  snapshotDate: timestamp("snapshot_date", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletIdx: index("lp_position_snapshots_wallet_idx").on(table.walletAddress),
+  clusterKeyIdx: index("lp_position_snapshots_cluster_key_idx").on(table.clusterKey),
+  poolIdIdx: index("lp_position_snapshots_pool_id_idx").on(table.poolId),
+  snapshotDateIdx: index("lp_position_snapshots_snapshot_date_idx").on(table.snapshotDate),
+  walletPoolDateIdx: uniqueIndex("lp_position_snapshots_wallet_pool_date_idx").on(table.walletAddress, table.poolId, table.snapshotDate),
+}));
+
+export const insertLpPositionSnapshotSchema = createInsertSchema(lpPositionSnapshots).omit({ id: true, createdAt: true });
+export type InsertLpPositionSnapshot = z.infer<typeof insertLpPositionSnapshotSchema>;
+export type LpPositionSnapshot = typeof lpPositionSnapshots.$inferSelect;
+
+/**
+ * LP harvest events - tracks reward harvests for yield_harvester challenge
+ */
+export const lpHarvestEvents = pgTable("lp_harvest_events", {
+  id: serial("id").primaryKey(),
+  walletAddress: varchar("wallet_address", { length: 64 }).notNull(),
+  clusterKey: varchar("cluster_key", { length: 64 }),
+  txHash: varchar("tx_hash", { length: 128 }).notNull().unique(),
+  poolId: integer("pool_id").notNull(),
+  rewardAmount: varchar("reward_amount", { length: 78 }), // Harvested token amount
+  rewardToken: varchar("reward_token", { length: 32 }).default("CRYSTAL"),
+  harvestedAt: timestamp("harvested_at", { withTimezone: true }).notNull(),
+  indexedAt: timestamp("indexed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletIdx: index("lp_harvest_events_wallet_idx").on(table.walletAddress),
+  clusterKeyIdx: index("lp_harvest_events_cluster_key_idx").on(table.clusterKey),
+  harvestedAtIdx: index("lp_harvest_events_harvested_at_idx").on(table.harvestedAt),
+}));
+
+export const insertLpHarvestEventSchema = createInsertSchema(lpHarvestEvents).omit({ id: true, indexedAt: true });
+export type InsertLpHarvestEvent = z.infer<typeof insertLpHarvestEventSchema>;
+export type LpHarvestEvent = typeof lpHarvestEvents.$inferSelect;
+
+/**
+ * Staking snapshots - tracks Jeweler staking positions over time
+ * Used for stake_duration_days (longest continuous stake) and stake amounts
+ */
+export const stakingSnapshots = pgTable("staking_snapshots", {
+  id: serial("id").primaryKey(),
+  walletAddress: varchar("wallet_address", { length: 64 }).notNull(),
+  clusterKey: varchar("cluster_key", { length: 64 }),
+  token: varchar("token", { length: 32 }).notNull().default("JEWEL"), // JEWEL, CRYSTAL, etc.
+  stakedAmount: varchar("staked_amount", { length: 78 }).notNull(), // Raw token amount
+  usdValue: integer("usd_value").notNull().default(0), // Value in cents
+  snapshotDate: timestamp("snapshot_date", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletIdx: index("staking_snapshots_wallet_idx").on(table.walletAddress),
+  clusterKeyIdx: index("staking_snapshots_cluster_key_idx").on(table.clusterKey),
+  tokenIdx: index("staking_snapshots_token_idx").on(table.token),
+  snapshotDateIdx: index("staking_snapshots_snapshot_date_idx").on(table.snapshotDate),
+  walletTokenDateIdx: uniqueIndex("staking_snapshots_wallet_token_date_idx").on(table.walletAddress, table.token, table.snapshotDate),
+}));
+
+export const insertStakingSnapshotSchema = createInsertSchema(stakingSnapshots).omit({ id: true, createdAt: true });
+export type InsertStakingSnapshot = z.infer<typeof insertStakingSnapshotSchema>;
+export type StakingSnapshot = typeof stakingSnapshots.$inferSelect;
+
 /**
  * Relic drop table config - defines which itemIds count as relics
  * Used by hunting ETL to compute relics_found metric
