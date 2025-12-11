@@ -6982,7 +6982,15 @@ async function startAdminWebServer() {
     if (fs.existsSync(distPath)) {
       app.use(express.static(distPath));
       // SPA fallback - serve index.html for all non-API routes
-      app.get(/^(?!\/api|\/auth).*$/, (req, res) => {
+      app.use((req, res, next) => {
+        // Skip API and auth routes
+        if (req.path.startsWith('/api') || req.path.startsWith('/auth')) {
+          return next();
+        }
+        // Skip requests for static files
+        if (req.path.includes('.')) {
+          return next();
+        }
         res.sendFile(path.resolve(distPath, 'index.html'));
       });
       console.log('✅ Serving React app from dist/public/');
