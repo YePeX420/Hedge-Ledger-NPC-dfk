@@ -1,0 +1,541 @@
+Yes, it’s totally feasible to bundle all of that into one response.
+I’ll give you a single, structured document you can:
+
+Read on your phone
+
+Paste pieces into /docs
+
+Turn into Replit prompts as needed
+
+
+It will contain:
+
+1. Challenge Testing Checklist
+
+
+2. Season 1 Reward Structure
+
+
+3. Leaderboard UI + API Design
+
+
+
+
+---
+
+1️⃣ Challenge Testing Checklist
+
+(Use after ingestion + ETL are running and challenge_progress is populated.)
+
+Goal: systematically verify that every implemented challenge matches on-chain reality and behaves as designed.
+
+A. General Testing Flow (repeat per challenge)
+
+For each challenge:
+
+1. Pick a test cluster (ideally your own or a known whale/test account).
+
+
+2. For that cluster:
+
+Pull ground-truth data from:
+
+DFK block explorer
+
+DFK official UI
+
+Your own game logs
+
+
+Write it down: expectedValue, expectedUnlocked, expectedTier.
+
+
+
+3. Run ETL for that cluster:
+
+Either via:
+
+Admin trigger (if exists)
+
+Full ETL run (daily job)
+
+
+
+
+4. Check backend:
+
+Query challenge_progress where:
+
+SELECT challenge_key, value, unlocked, tier
+FROM challenge_progress
+WHERE cluster_id = '<clusterId>' AND challenge_key = '<challengeKey>';
+
+
+
+5. Compare to ground-truth:
+
+If value, unlocked, tier match expectations → ✅
+
+If not → log details, adjust ETL or config, re-run.
+
+
+
+
+
+---
+
+B. High-Priority Challenge Groups
+
+1. Hero Progression
+
+hero_riser (total_levels)
+
+Expected: sum of all hero levels.
+
+
+house_of_heroes (hero_count)
+
+
+Checklist:
+
+[ ] Verify hero_riser.value = actual sum of levels.
+
+[ ] Verify house_of_heroes.value = number of heroes on-chain.
+
+[ ] Tiers for both behave correctly at boundaries.
+
+
+
+---
+
+2. Profession Specialization
+
+miner_master (mining_quests)
+
+herbalist_master (foraging_quests)
+
+
+Checklist:
+
+[ ] Verify number of Mining quests matches on-chain.
+
+[ ] Verify number of Foraging quests matches.
+
+[ ] Confirm no double-counting of partial/cancelled quests.
+
+
+
+---
+
+3. Behavior & Engagement
+
+kingdom_calls (active_days)
+
+loyal_follower (discord_engagement_score)
+
+long_road_home (account_age_days)
+
+
+Checklist:
+
+[ ] active_days reflects days with any activity (see ETL logic).
+
+[ ] account_age_days matches earliest known DFK activity (we already validated once).
+
+[ ] Discord score increases with Hedge/Discord actions.
+
+
+
+---
+
+4. Hunting PvE
+
+hunters_triumph (wins)
+
+motherclucker_slayer (motherclucker_kills)
+
+mad_boar_slayer (mad_boar_kills)
+
+relic_tracker (relics_found)
+
+clucker_miracle (boolean)
+
+
+Checklist:
+
+[ ] Confirm number of MC & Mad Boar wins is correct.
+
+[ ] Confirm relic count matches known high-tier drops.
+
+[ ] For a known miracle fight:
+
+On-chain: 1 hero survives at 1 HP →
+
+challenge_progress: clucker_miracle.value = 1, unlocked = true.
+
+
+
+
+---
+
+5. PvP Competition
+
+arena_challenger (matches_played)
+
+arena_victor (wins)
+
+win_streak (best_win_streak)
+
+flawless_victory (boolean)
+
+
+Checklist:
+
+[ ] matches_played equals number of ranked matches.
+
+[ ] wins equals number of ranked wins.
+
+[ ] best_win_streak matches manual streak check from match list.
+
+[ ] flawless_victory equals 1 when there is at least one 0-death win.
+
+
+
+---
+
+6. Summoning Prestige
+
+perfect_pairing
+
+mutagenic_specialist
+
+mythmaker
+
+royal_lineage
+
+summoner_of_legends
+
+
+Checklist:
+
+For a small set of heroes with known gene data:
+
+[ ] Perfect pairing triggers only when ≥2 mutation domains mutate upward.
+
+[ ] mutagenic_specialist_count increments for each hero with ≥3 mutations.
+
+[ ] mythmaker_count increments for each Mythic summon.
+
+[ ] royal_lineage_count increments only when both parents and child meet mutation conditions.
+
+[ ] summoner_of_legends unlocks only when all 4 classes were summoned at least once.
+
+
+
+---
+
+7. DeFi Participation (LP + Jeweler)
+
+lp_depth, lp_diversified, yield_harvester, diamond_hand_lp
+
+jeweler_stakeholder, jeweler_whale
+
+
+Checklist:
+
+[ ] For a test wallet with known LP positions, validate:
+
+LP USD value roughly matches external DeFi UI / your own calc.
+
+pool_count matches number of pools with non-trivial amounts.
+
+
+[ ] For staking:
+
+stake_usd_value matches Jeweler stake UI.
+
+stake_duration_days increases as expected.
+
+JEWEL whale unlocked when stake ≥ 10k JEWEL.
+
+
+
+
+---
+
+8. METIS + Epic + Meta Profile
+
+Validate once underlying metrics are live:
+
+[ ] METIS patrol wins / elite wins
+
+[ ] Shell collector / gambler / jackpot
+
+[ ] Influence strategist
+
+[ ] Tournament challenger / victor / champion
+
+[ ] Vangardian + other epic feats unlock correctly
+
+[ ] Meta profile scores (summoning_prestige_score, pvp_mastery_score, metis_mastery_score) correlate logically with underlying metrics.
+
+
+
+---
+
+2️⃣ Season 1 Reward Structure
+
+Let’s define a clean, extensible reward structure for Season 1 – The Hedge Awakens.
+
+A. Core Design Principles
+
+Reward both effort and prestige (not just whales).
+
+Make Summoning + Hunting + PvP feel central.
+
+Provide a mix of:
+
+Cosmetic rewards
+
+Discord roles
+
+Small token perks (if you want)
+
+Future NFT slots (optional)
+
+
+
+B. Season Levels → Reward Matrix
+
+Using the level thresholds from earlier:
+
+Level	Points (approx)	Reward Ideas
+
+1	0	Season 1 participation badge (everyone)
+2	50	Discord emoji access or minor cosmetic tag
+3	150	“Hedge Recruit” Discord role
+4	300	Profile banner / frame in Hedge dashboard (Summoning-themed)
+5	600	“Clucker Hunter” or “Early Adopter” Discord title
+6	1000	Small token reward (e.g., 10–25 CRYSTAL/Jewel equivalent) or raffle ticket
+7	1500	Special Season 1-only avatar border / pet-themed icon
+8	2200	“Season 1 Veteran” Discord role + small whitelist priority if you plan future NFTs
+9	3000	Access to a private Hedge strategy channel
+10	4000+	Top-tier Season badge + eligibility for Season Hall of Fame leaderboard snapshot (frozen forever in a page)
+
+
+You can hook these rewards into:
+
+a season_rewards table
+
+a manual script that checks season_progress.level after a season ends and issues:
+
+Discord roles (via bot)
+
+reward claims in UI
+
+
+
+
+---
+
+C. Bonus Rewards for Specific Feats in Season 1
+
+Add special reward triggers:
+
+Bonus A – Motherclucker Miracle
+
+If clucker_miracle unlocked during Season 1 → mark user as “Miracle Hunter”
+
+Discord flair + maybe 1 raffle ticket.
+
+
+Bonus B – First time Summoner of Legends
+
+Unlocks “Legendborn” role + highlight in Season recap.
+
+
+Bonus C – Top 10 in Season 1 Hedge Score leaderboard
+
+Distinct color role and/or allow them to participate in design votes.
+
+
+
+
+---
+
+3️⃣ Leaderboard UI + API Design
+
+We already know there are backend leaderboards:
+
+leaderboard_defs
+
+leaderboard_runs
+
+leaderboard_entries
+
+/api/admin/leaderboards
+
+
+Now let’s define:
+
+Public API endpoints
+
+Frontend layout for a Leaderboards page.
+
+
+A. Public API
+
+1. GET /api/leaderboards
+
+Returns a list of available public leaderboards:
+
+[
+  {
+    "key": "lb_season1_overall",
+    "name": "Season 1 – Hedge Score",
+    "description": "Weighted points from Season 1 challenges.",
+    "timeWindow": "SEASON",
+    "seasonKey": "season_1_the_hedge"
+  },
+  {
+    "key": "lb_summoning_all_time",
+    "name": "Top Summoners (All Time)",
+    "timeWindow": "ALL_TIME"
+  },
+  ...
+]
+
+2. GET /api/leaderboards/:key
+
+Fetch latest run of a leaderboard with entries:
+
+{
+  "key": "lb_season1_overall",
+  "name": "Season 1 – Hedge Score",
+  "timeWindow": "SEASON",
+  "seasonKey": "season_1_the_hedge",
+  "runId": "uuid-or-int",
+  "generatedAt": "2026-01-15T10:00:00Z",
+  "entries": [
+    {
+      "rank": 1,
+      "clusterId": "cluster-...",
+      "displayName": "YePeX",
+      "walletPreview": "0x1a9f...4098",
+      "score": 4235,
+      "flags": ["season1_veteran", "summoner_of_legends"]
+    },
+    ...
+  ]
+}
+
+This endpoint is what the FE will call.
+
+
+---
+
+B. Frontend Leaderboard Layout (React concept)
+
+Page Route: /leaderboards and /leaderboards/:key
+
+Main page (/leaderboards)
+
+Left sidebar:
+
+Leaderboard list grouped:
+
+Season 1
+
+PvP
+
+Summoning
+
+Hunting
+
+DeFi
+
+
+
+Main pane:
+
+Selected leaderboard name + description
+
+Time window info (e.g. “Season 1 (Jan 1 – Mar 31)”)
+
+<LeaderboardTable />
+
+
+
+<LeaderboardTable /> component
+
+Columns:
+
+Rank	Player / Cluster	Score	Badges	Last Updated
+
+
+
+Rank: 1,2,3…
+
+Player:
+
+Show display name (if you have Discord or in-app username)
+
+Fallback to short wallet or cluster ID
+
+
+Score:
+
+Numeric
+
+Might include small sparkline or progress bar
+
+
+Badges:
+
+Show icons for key achievements like:
+
+Mythmaker
+
+Clucker Miracle
+
+Flawless Victory
+
+
+
+Last updated:
+
+Show generatedAt time for run.
+
+
+
+Optional controls:
+
+Dropdown for time windows (if leaderboard supports multiple: DAILY, WEEKLY, etc.)
+
+Pagination if entries > 100.
+
+
+
+---
+
+C. Admin → Public Link
+
+Admin creates leaderboards in /api/admin/leaderboards
+
+Marks some as isPublic = true
+
+Public API only returns isPublic = true leaderboards
+
+FE reads from public API and displays them.
+
+
+
+---
+
+If you want, I can next:
+
+Turn this Leaderboard UI spec into actual React component skeletons,
+
+Draft Discord messages for announcing Season 1 + leaderboards,
+
+Or build a Challenge Validation Plan as a checklist-style MarkDown you can put in /docs/CHALLENGE_VALIDATION.md.

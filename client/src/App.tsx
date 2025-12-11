@@ -19,6 +19,7 @@ import AdminChallenges from "@/pages/admin/challenges";
 import ChallengeEditor from "@/pages/admin/challenge-editor";
 import AdminLevelRacer from "@/pages/admin/level-racer";
 import AccountPage from "@/pages/account";
+import LeaderboardsPage from "@/pages/leaderboards";
 import NotFound from "@/pages/not-found";
 
 function ProtectedAdminPage({ children }: { children: React.ReactNode }) {
@@ -151,6 +152,14 @@ function Router() {
             </ProtectedAdminPage>
           );
         }}
+      </Route>
+      
+      {/* Public leaderboards page */}
+      <Route path="/leaderboards/:key">
+        {() => <LeaderboardsPage />}
+      </Route>
+      <Route path="/leaderboards">
+        {() => <LeaderboardsPage />}
       </Route>
       
       {/* Root redirects to admin */}

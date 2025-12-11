@@ -1649,6 +1649,73 @@ export const insertSeasonProgressSchema = createInsertSchema(seasonProgress).omi
 export type InsertSeasonProgress = z.infer<typeof insertSeasonProgressSchema>;
 export type SeasonProgress = typeof seasonProgress.$inferSelect;
 
+/**
+ * Season rewards - defines level thresholds and rewards for each season
+ */
+export const seasonRewards = pgTable("season_rewards", {
+  id: serial("id").primaryKey(),
+  seasonId: text("season_id").notNull().references(() => seasons.id, { onDelete: "cascade" }),
+  level: integer("level").notNull(),
+  pointsRequired: integer("points_required").notNull(),
+  rewardType: text("reward_type").notNull(), // BADGE, DISCORD_ROLE, TOKEN, COSMETIC, ACCESS, HALL_OF_FAME
+  rewardKey: text("reward_key").notNull(), // e.g., "hedge_recruit", "season1_veteran"
+  rewardName: text("reward_name").notNull(),
+  rewardDescription: text("reward_description").notNull(),
+  rewardMeta: text("reward_meta").default("{}"), // JSON for extra config (role ID, token amount, etc.)
+}, (table) => ({
+  seasonIdIdx: index("season_rewards_season_id_idx").on(table.seasonId),
+  seasonLevelIdx: uniqueIndex("season_rewards_season_level_idx").on(table.seasonId, table.level),
+}));
+
+export const insertSeasonRewardSchema = createInsertSchema(seasonRewards).omit({ id: true });
+export type InsertSeasonReward = z.infer<typeof insertSeasonRewardSchema>;
+export type SeasonReward = typeof seasonRewards.$inferSelect;
+
+/**
+ * Season bonus rewards - special feat-based rewards within a season
+ */
+export const seasonBonusRewards = pgTable("season_bonus_rewards", {
+  id: serial("id").primaryKey(),
+  seasonId: text("season_id").notNull().references(() => seasons.id, { onDelete: "cascade" }),
+  bonusKey: text("bonus_key").notNull(), // e.g., "clucker_miracle", "summoner_of_legends", "top_10"
+  bonusName: text("bonus_name").notNull(),
+  bonusDescription: text("bonus_description").notNull(),
+  triggerType: text("trigger_type").notNull(), // CHALLENGE_UNLOCK, LEADERBOARD_RANK, CUSTOM
+  triggerValue: text("trigger_value").notNull(), // challenge_key or rank threshold
+  rewardType: text("reward_type").notNull(),
+  rewardKey: text("reward_key").notNull(),
+  rewardMeta: text("reward_meta").default("{}"),
+}, (table) => ({
+  seasonIdIdx: index("season_bonus_rewards_season_id_idx").on(table.seasonId),
+  seasonBonusIdx: uniqueIndex("season_bonus_rewards_season_bonus_idx").on(table.seasonId, table.bonusKey),
+}));
+
+export const insertSeasonBonusRewardSchema = createInsertSchema(seasonBonusRewards).omit({ id: true });
+export type InsertSeasonBonusReward = z.infer<typeof insertSeasonBonusRewardSchema>;
+export type SeasonBonusReward = typeof seasonBonusRewards.$inferSelect;
+
+/**
+ * Player reward claims - tracks which rewards have been claimed
+ */
+export const playerRewardClaims = pgTable("player_reward_claims", {
+  id: serial("id").primaryKey(),
+  clusterId: text("cluster_id").notNull(),
+  seasonId: text("season_id").notNull().references(() => seasons.id, { onDelete: "cascade" }),
+  rewardType: text("reward_type").notNull(), // LEVEL or BONUS
+  rewardId: integer("reward_id").notNull(), // FK to season_rewards or season_bonus_rewards
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  claimStatus: text("claim_status").notNull().default("PENDING"), // PENDING, FULFILLED, FAILED
+  fulfillmentMeta: text("fulfillment_meta").default("{}"), // JSON for tracking fulfillment details
+}, (table) => ({
+  clusterIdIdx: index("player_reward_claims_cluster_id_idx").on(table.clusterId),
+  seasonIdIdx: index("player_reward_claims_season_id_idx").on(table.seasonId),
+  clusterSeasonRewardIdx: uniqueIndex("player_reward_claims_cluster_season_reward_idx").on(table.clusterId, table.seasonId, table.rewardType, table.rewardId),
+}));
+
+export const insertPlayerRewardClaimSchema = createInsertSchema(playerRewardClaims).omit({ id: true, claimedAt: true });
+export type InsertPlayerRewardClaim = z.infer<typeof insertPlayerRewardClaimSchema>;
+export type PlayerRewardClaim = typeof playerRewardClaims.$inferSelect;
+
 // ============================================================================
 // INGESTION STATE
 // Tracks last processed block per indexer for incremental blockchain scanning

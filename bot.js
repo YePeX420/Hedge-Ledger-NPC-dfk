@@ -81,6 +81,7 @@ import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
 import levelRacerRoutes from './src/modules/levelRacer/levelRacer.routes.ts';
 import leaderboardRoutes from './src/modules/leaderboards/leaderboard.routes.ts';
+import publicLeaderboardRoutes from './src/modules/leaderboards/public.routes.ts';
 import seasonRoutes from './src/modules/seasons/season.routes.ts';
 import { seedHeroClasses, ensurePoolsForAllClasses } from './src/modules/levelRacer/levelRacer.service.ts';
 
@@ -4005,6 +4006,9 @@ async function startAdminWebServer() {
 
   // Level Racer routes (no auth for public endpoints)
   app.use('/api/level-racer', levelRacerRoutes);
+
+  // Public leaderboard routes (no auth required)
+  app.use('/api/leaderboards', publicLeaderboardRoutes);
 
   // Leaderboard routes (admin only - auth handled in middleware below)
   app.use('/api/admin/leaderboards', isAdmin, leaderboardRoutes);
