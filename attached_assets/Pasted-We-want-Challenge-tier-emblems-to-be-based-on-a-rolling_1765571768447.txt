@@ -1,0 +1,140 @@
+We want Challenge tier emblems to be based on a rolling 6-month (180-day) window, recomputed daily, while keeping lifetime accomplishments separate.
+
+This change applies to tiered Challenges only (not Feats).
+
+====================================================
+1) New table: challenge_progress_windowed
+====================================================
+
+Create a new table to store rolling-window challenge values and tiers.
+
+Table: challenge_progress_windowed
+
+Columns:
+- cluster_id (uuid, not null)
+- challenge_key (text, not null)
+- window_key (text, not null)   // start with '180d'
+- value (numeric, not null, default 0)
+- tier_code (text, nullable)
+- computed_at (timestamptz, not null)
+
+Primary key:
+(cluster_id, challenge_key, window_key)
+
+Indexes:
+- (window_key, challenge_key)
+- (cluster_id, window_key)
+
+This table represents the current competitive state of a challenge.
+
+====================================================
+2) Lifetime table update: Founder’s Mark
+====================================================
+
+Founder’s Mark is a lifetime marker indicating that a player has ever reached the top tier for a challenge.
+
+Add to the lifetime challenge progress table (challenge_progress):
+
+- founders_mark boolean default false
+- founders_mark_at timestamptz nullable
+
+Rules:
+- founders_mark is set when a player reaches the top tier for that challenge.
+- founders_mark is never unset.
+- founders_mark_at is set only the first time.
+
+====================================================
+3) Rolling 180-day ETL computation
+====================================================
+
+Extend the ETL to compute rolling 180-day values for each tiered challenge.
+
+For each (cluster_id, challenge_key):
+- Compute value using only events within the last 180 days.
+- Use existing raw event tables (hunting_encounters, pvp_matches, etc.) filtered by timestamp >= now() - 180 days.
+- Write results into challenge_progress_windowed with:
+  - window_key = '180d'
+  - value
+  - tier_code
+  - computed_at = now()
+
+Tier calculation:
+- Load the tier ladder dynamically from challenge_tiers (ordered by sort_order).
+- Determine tier_code based on configured thresholds.
+- Do not hardcode tier names.
+
+====================================================
+4) Founder’s Mark trigger
+====================================================
+
+After computing tier_code for the 180-day window:
+
+- If tier_code equals the top tier in the ladder:
+  - For rarity ladders → MYTHIC
+  - For gene ladders → EXALTED
+- Then:
+  - Set founders_mark = true in challenge_progress.
+  - Set founders_mark_at if null.
+
+Founder’s Mark must persist even if the player later drops tiers.
+
+====================================================
+5) API changes
+====================================================
+
+Update the player-facing challenge API so each challenge returns:
+
+- lifetime fields from challenge_progress
+- rolling fields from challenge_progress_windowed where window_key='180d':
+  - value_180d
+  - tier_code_180d
+  - computed_at
+- founders_mark
+- founders_mark_at
+- isFeat (true/false)
+
+Feats:
+- Do not use rolling windows.
+- Continue to be lifetime locked/unlocked only.
+
+====================================================
+6) Frontend behavior
+====================================================
+
+Challenge cards:
+- Emblem shown = tier_code_180d.
+- Founder’s Mark renders a permanent border or overlay if founders_mark is true.
+
+Feats:
+- Show locked/unlocked only.
+- No tier ladder, no rolling value.
+
+Tooltip copy example:
+“Tier is based on the last 6 months of activity. Founder’s Mark is permanent once the top tier is reached.”
+
+====================================================
+7) Calibration behavior
+====================================================
+
+The tier calibration system must use rolling 180-day values by default:
+- Read from challenge_progress_windowed where window_key='180d'.
+- Cohort filters continue to apply.
+
+Lifetime values must not be used for calibration.
+
+====================================================
+8) Scheduling
+====================================================
+
+Rolling 180-day computation should run at least once daily as part of the existing ETL schedule.
+It may also run after large ingestion backfills complete.
+
+====================================================
+9) Validation
+====================================================
+
+Confirm with a known cluster:
+- Rolling 180-day value differs from lifetime total when appropriate.
+- Tier emblem updates as the 180-day value changes.
+- Founder’s Mark persists even if tier drops.
+- Frontend shows correct emblem + Founder’s Mark border.
