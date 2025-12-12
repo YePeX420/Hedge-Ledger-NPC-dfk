@@ -562,7 +562,7 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
                 </h4>
                 {stats.isPrestige ? (
                   <div className="text-sm text-muted-foreground">
-                    PRESTIGE challenges use boolean (unlocked/locked) and don't have threshold suggestions.
+                    Feat challenges use boolean (unlocked/locked) and don't have threshold suggestions.
                   </div>
                 ) : (
                   <>

@@ -23,6 +23,7 @@ import AdminTokens from "@/pages/admin/tokens";
 import AdminExtractors from "@/pages/admin/extractors";
 import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
+import ChallengesPage from "@/pages/challenges";
 import NotFound from "@/pages/not-found";
 
 function ProtectedAdminPage({ children }: { children: React.ReactNode }) {
@@ -187,6 +188,11 @@ function Router() {
       </Route>
       <Route path="/leaderboards">
         {() => <LeaderboardsPage />}
+      </Route>
+      
+      {/* Public challenges page */}
+      <Route path="/challenges">
+        {() => <ChallengesPage />}
       </Route>
       
       {/* Root redirects to admin */}
