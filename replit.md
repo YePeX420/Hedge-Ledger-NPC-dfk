@@ -35,6 +35,12 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
     - Computing LP value as: `(stakedLP / totalSupply) × poolReserveValue` 
     - Using DefiLlama prices for token valuation with fallback prices
     - Sequential RPC requests with 100ms throttling to avoid rate limiting
+*   **Token Registry System** (`src/services/tokenRegistryService.ts`): Automatic token metadata management:
+    - Database table `token_registry` stores address, symbol, name, decimals, chain
+    - Syncs known DFK tokens on demand, with optional RouteScan scraping for discovery
+    - Used by valueBreakdown.ts for dynamic token symbol resolution
+    - Admin UI at `/admin/tokens` with sync buttons and token list display
+    - API endpoints: `GET /api/admin/tokens`, `POST /api/admin/tokens/sync`, `GET /api/admin/tokens/map`
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules, entry fees, prizes, and a state machine for managing races.
 *   **Leaderboard System**: Provides snapshot-based rankings with historical tracking across various time windows, scoring players based on defined metrics.
 *   **Season Engine**: Manages challenge passes with weighted scoring and seasonal progression, calculating player points and levels.
