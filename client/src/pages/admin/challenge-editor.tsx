@@ -43,8 +43,14 @@ import {
   History,
   Plus,
   Trash2,
+  RefreshCw,
+  Calculator,
+  TrendingUp,
+  Target,
+  BarChart3,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Progress } from "@/components/ui/progress";
 
 interface ChallengeTier {
   id?: number;
@@ -117,6 +123,529 @@ interface ChallengeCategory {
   name: string;
   description: string;
   tierSystem: string;
+}
+
+interface CalibrationStats {
+  cached: boolean;
+  challengeKey: string;
+  cohortKey: string;
+  computedAt: string;
+  clusterCount: number;
+  nonzeroCount: number;
+  percentiles: {
+    min: number;
+    p10: number;
+    p25: number;
+    p40: number;
+    p50: number;
+    p70: number;
+    p75: number;
+    p90: number;
+    p95: number;
+    p97: number;
+    p99: number;
+    max: number;
+    mean: number;
+  };
+  targets: {
+    basicPct: number;
+    advancedPct: number;
+    elitePct: number;
+    exaltedPct: number;
+  };
+  suggested: {
+    basic: number;
+    advanced: number;
+    elite: number;
+    exalted: number;
+  };
+  warnings: string[];
+  zeroInflated: boolean;
+  whaleSkew: boolean;
+  lowSample: boolean;
+}
+
+interface SimulationResult {
+  total: number;
+  distribution: {
+    belowBasic: { count: number; pct: number };
+    basic: { count: number; pct: number };
+    advanced: { count: number; pct: number };
+    elite: { count: number; pct: number };
+    exalted: { count: number; pct: number };
+  };
+}
+
+interface CalibrationPanelProps {
+  challengeKey: string;
+  canEdit: boolean;
+  tiers: ChallengeTier[];
+  setTiers: (tiers: ChallengeTier[]) => void;
+}
+
+function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: CalibrationPanelProps) {
+  const { toast } = useToast();
+  const [cohortKey, setCohortKey] = useState("ALL");
+  const [targets, setTargets] = useState({
+    basicPct: 0.40,
+    advancedPct: 0.70,
+    elitePct: 0.90,
+    exaltedPct: 0.97,
+  });
+  const [stats, setStats] = useState<CalibrationStats | null>(null);
+  const [simulation, setSimulation] = useState<SimulationResult | null>(null);
+  const [suggestedSimulation, setSuggestedSimulation] = useState<SimulationResult | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
+
+  const loadStats = async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/challenges/${challengeKey}/calibration?cohortKey=${cohortKey}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.cached) {
+        setStats(data);
+        setTargets(data.targets);
+      } else {
+        setStats(null);
+        toast({ title: "No Cached Stats", description: "Click Refresh to compute calibration stats", variant: "default" });
+      }
+    } catch (err) {
+      toast({ title: "Error Loading Stats", description: err instanceof Error ? err.message : "Failed to load calibration stats", variant: "destructive" });
+    }
+    setIsLoading(false);
+  };
+
+  const refreshStats = async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await fetch(`/api/admin/challenges/${challengeKey}/calibration/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ cohortKey, targets }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.success) {
+        setStats({
+          cached: true,
+          challengeKey: data.challengeKey,
+          cohortKey: data.cohortKey,
+          computedAt: new Date().toISOString(),
+          clusterCount: data.clusterCount,
+          nonzeroCount: data.nonzeroCount,
+          percentiles: data.percentiles,
+          targets: data.targets,
+          suggested: data.suggested,
+          warnings: data.warnings || [],
+          zeroInflated: data.zeroInflated || false,
+          whaleSkew: data.whaleSkew || false,
+          lowSample: data.lowSample || false,
+        });
+        toast({ title: "Stats Refreshed", description: `Computed for ${data.clusterCount?.toLocaleString() || 0} clusters` });
+      } else {
+        throw new Error(data.error || "Refresh failed");
+      }
+    } catch (err) {
+      toast({ title: "Refresh Failed", description: err instanceof Error ? err.message : "Failed to refresh stats", variant: "destructive" });
+    }
+    setIsRefreshing(false);
+  };
+
+  const simulateThresholds = async (thresholds: { basic: number; advanced: number; elite: number; exalted: number }, isSuggested = false) => {
+    setIsSimulating(true);
+    try {
+      const res = await fetch(`/api/admin/challenges/${challengeKey}/calibration/simulate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ cohortKey, thresholds }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (isSuggested) {
+        setSuggestedSimulation(data);
+      } else {
+        setSimulation(data);
+      }
+    } catch (err) {
+      toast({ title: "Simulation Failed", description: err instanceof Error ? err.message : "Failed to simulate", variant: "destructive" });
+    }
+    setIsSimulating(false);
+  };
+
+  const applyThresholds = async (thresholds: { basic: number; advanced: number; elite: number; exalted: number }) => {
+    try {
+      const res = await fetch(`/api/admin/challenges/${challengeKey}/calibration/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ thresholds }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.success) {
+        setTiers([
+          { tierCode: "BASIC", displayName: "Basic", thresholdValue: Math.round(thresholds.basic), isPrestige: false, sortOrder: 1 },
+          { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: Math.round(thresholds.advanced), isPrestige: false, sortOrder: 2 },
+          { tierCode: "ELITE", displayName: "Elite", thresholdValue: Math.round(thresholds.elite), isPrestige: false, sortOrder: 3 },
+          { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: Math.round(thresholds.exalted), isPrestige: false, sortOrder: 4 },
+        ]);
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/challenges"] });
+        toast({ title: "Thresholds Applied", description: "New tier thresholds saved to challenge configuration" });
+      } else {
+        throw new Error(data.error || "Apply failed");
+      }
+    } catch (err) {
+      toast({ title: "Apply Failed", description: err instanceof Error ? err.message : "Failed to apply thresholds", variant: "destructive" });
+    }
+  };
+
+  const getCurrentThresholds = () => {
+    const basic = tiers.find(t => t.tierCode === "BASIC")?.thresholdValue || 0;
+    const advanced = tiers.find(t => t.tierCode === "ADVANCED")?.thresholdValue || 0;
+    const elite = tiers.find(t => t.tierCode === "ELITE")?.thresholdValue || 0;
+    const exalted = tiers.find(t => t.tierCode === "EXALTED")?.thresholdValue || 0;
+    return { basic, advanced, elite, exalted };
+  };
+
+  const resetTargets = () => {
+    setTargets({ basicPct: 0.40, advancedPct: 0.70, elitePct: 0.90, exaltedPct: 0.97 });
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5" />
+                Calibration & Distribution
+              </CardTitle>
+              <CardDescription>Analyze player distribution and tune tier thresholds</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={cohortKey} onValueChange={setCohortKey}>
+                <SelectTrigger className="w-40" data-testid="select-cohort">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Players</SelectItem>
+                  <SelectItem value="NONZERO">Non-zero Only</SelectItem>
+                  <SelectItem value="ACTIVE_30D">Active (30 days)</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={loadStats} disabled={isLoading} data-testid="button-load-stats">
+                {isLoading ? "Loading..." : "Load Stats"}
+              </Button>
+              <Button onClick={refreshStats} disabled={isRefreshing} data-testid="button-refresh-stats">
+                <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+                {isRefreshing ? "Refreshing..." : "Refresh"}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div>
+            <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+              <Target className="w-4 h-4" />
+              Target Percentiles
+            </h4>
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Basic (p{Math.round(targets.basicPct * 100)})</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  value={targets.basicPct}
+                  onChange={(e) => setTargets({ ...targets, basicPct: parseFloat(e.target.value) || 0 })}
+                  data-testid="input-target-basic"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Advanced (p{Math.round(targets.advancedPct * 100)})</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  value={targets.advancedPct}
+                  onChange={(e) => setTargets({ ...targets, advancedPct: parseFloat(e.target.value) || 0 })}
+                  data-testid="input-target-advanced"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Elite (p{Math.round(targets.elitePct * 100)})</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  value={targets.elitePct}
+                  onChange={(e) => setTargets({ ...targets, elitePct: parseFloat(e.target.value) || 0 })}
+                  data-testid="input-target-elite"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Exalted (p{Math.round(targets.exaltedPct * 100)})</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  value={targets.exaltedPct}
+                  onChange={(e) => setTargets({ ...targets, exaltedPct: parseFloat(e.target.value) || 0 })}
+                  data-testid="input-target-exalted"
+                />
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={resetTargets} className="mt-2" data-testid="button-reset-targets">
+              Reset to Defaults
+            </Button>
+          </div>
+
+          {stats && (
+            <>
+              <div className="grid gap-4 md:grid-cols-3">
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="text-2xl font-bold" data-testid="text-cluster-count">{stats.clusterCount.toLocaleString()}</div>
+                    <p className="text-xs text-muted-foreground">Total Clusters</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="text-2xl font-bold" data-testid="text-nonzero-count">{stats.nonzeroCount.toLocaleString()}</div>
+                    <p className="text-xs text-muted-foreground">Non-zero Progress</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="text-2xl font-bold" data-testid="text-computed-at">
+                      {stats.computedAt ? new Date(stats.computedAt).toLocaleDateString() : "N/A"}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Last Computed</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {stats.warnings.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {stats.zeroInflated && (
+                    <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
+                      <AlertCircle className="w-3 h-3 mr-1" />
+                      Zero Inflated
+                    </Badge>
+                  )}
+                  {stats.whaleSkew && (
+                    <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/30">
+                      <TrendingUp className="w-3 h-3 mr-1" />
+                      Whale Skew
+                    </Badge>
+                  )}
+                  {stats.lowSample && (
+                    <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/30">
+                      <AlertCircle className="w-3 h-3 mr-1" />
+                      Low Sample
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <h4 className="text-sm font-medium mb-3">Percentile Distribution</h4>
+                <div className="grid gap-2 grid-cols-4 md:grid-cols-7 text-center text-xs">
+                  <div className="p-2 bg-muted rounded">
+                    <div className="font-medium">Min</div>
+                    <div className="text-muted-foreground">{stats.percentiles.min.toLocaleString()}</div>
+                  </div>
+                  <div className="p-2 bg-muted rounded">
+                    <div className="font-medium">p25</div>
+                    <div className="text-muted-foreground">{stats.percentiles.p25.toLocaleString()}</div>
+                  </div>
+                  <div className="p-2 bg-muted rounded">
+                    <div className="font-medium">p50</div>
+                    <div className="text-muted-foreground">{stats.percentiles.p50.toLocaleString()}</div>
+                  </div>
+                  <div className="p-2 bg-muted rounded">
+                    <div className="font-medium">p75</div>
+                    <div className="text-muted-foreground">{stats.percentiles.p75.toLocaleString()}</div>
+                  </div>
+                  <div className="p-2 bg-muted rounded">
+                    <div className="font-medium">p90</div>
+                    <div className="text-muted-foreground">{stats.percentiles.p90.toLocaleString()}</div>
+                  </div>
+                  <div className="p-2 bg-muted rounded">
+                    <div className="font-medium">p95</div>
+                    <div className="text-muted-foreground">{stats.percentiles.p95.toLocaleString()}</div>
+                  </div>
+                  <div className="p-2 bg-muted rounded">
+                    <div className="font-medium">Max</div>
+                    <div className="text-muted-foreground">{stats.percentiles.max.toLocaleString()}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border rounded-lg p-4 space-y-4">
+                <h4 className="text-sm font-medium flex items-center gap-2">
+                  <Calculator className="w-4 h-4" />
+                  Suggested Thresholds
+                </h4>
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="text-center p-3 bg-muted/50 rounded">
+                    <div className="text-lg font-bold text-blue-600" data-testid="text-suggested-basic">{Math.round(stats.suggested.basic).toLocaleString()}</div>
+                    <p className="text-xs text-muted-foreground">Basic</p>
+                  </div>
+                  <div className="text-center p-3 bg-muted/50 rounded">
+                    <div className="text-lg font-bold text-green-600" data-testid="text-suggested-advanced">{Math.round(stats.suggested.advanced).toLocaleString()}</div>
+                    <p className="text-xs text-muted-foreground">Advanced</p>
+                  </div>
+                  <div className="text-center p-3 bg-muted/50 rounded">
+                    <div className="text-lg font-bold text-purple-600" data-testid="text-suggested-elite">{Math.round(stats.suggested.elite).toLocaleString()}</div>
+                    <p className="text-xs text-muted-foreground">Elite</p>
+                  </div>
+                  <div className="text-center p-3 bg-muted/50 rounded">
+                    <div className="text-lg font-bold text-amber-600" data-testid="text-suggested-exalted">{Math.round(stats.suggested.exalted).toLocaleString()}</div>
+                    <p className="text-xs text-muted-foreground">Exalted</p>
+                  </div>
+                </div>
+                {canEdit && (
+                  <Button 
+                    variant="outline" 
+                    onClick={() => applyThresholds(stats.suggested)}
+                    data-testid="button-apply-suggested"
+                  >
+                    Apply Suggested Thresholds
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="w-5 h-5" />
+            Tier Distribution Simulation
+          </CardTitle>
+          <CardDescription>Preview how players would be distributed across tiers</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2 flex-wrap">
+            <Button 
+              variant="outline" 
+              onClick={() => simulateThresholds(getCurrentThresholds())}
+              disabled={isSimulating}
+              data-testid="button-simulate-current"
+            >
+              Simulate Current Thresholds
+            </Button>
+            {stats && (
+              <Button 
+                variant="outline" 
+                onClick={() => simulateThresholds(stats.suggested, true)}
+                disabled={isSimulating}
+                data-testid="button-simulate-suggested"
+              >
+                Simulate Suggested Thresholds
+              </Button>
+            )}
+          </div>
+
+          {(simulation || suggestedSimulation) && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {simulation && (
+                <div className="border rounded-lg p-4">
+                  <h5 className="font-medium mb-3">Current Thresholds</h5>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Below Basic</span>
+                      <span>{simulation.distribution.belowBasic.count} ({simulation.distribution.belowBasic.pct}%)</span>
+                    </div>
+                    <Progress value={simulation.distribution.belowBasic.pct} className="h-2" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-blue-600">Basic</span>
+                      <span>{simulation.distribution.basic.count} ({simulation.distribution.basic.pct}%)</span>
+                    </div>
+                    <Progress value={simulation.distribution.basic.pct} className="h-2 [&>div]:bg-blue-500" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-green-600">Advanced</span>
+                      <span>{simulation.distribution.advanced.count} ({simulation.distribution.advanced.pct}%)</span>
+                    </div>
+                    <Progress value={simulation.distribution.advanced.pct} className="h-2 [&>div]:bg-green-500" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-purple-600">Elite</span>
+                      <span>{simulation.distribution.elite.count} ({simulation.distribution.elite.pct}%)</span>
+                    </div>
+                    <Progress value={simulation.distribution.elite.pct} className="h-2 [&>div]:bg-purple-500" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-amber-600">Exalted</span>
+                      <span>{simulation.distribution.exalted.count} ({simulation.distribution.exalted.pct}%)</span>
+                    </div>
+                    <Progress value={simulation.distribution.exalted.pct} className="h-2 [&>div]:bg-amber-500" />
+                  </div>
+                </div>
+              )}
+              {suggestedSimulation && (
+                <div className="border rounded-lg p-4">
+                  <h5 className="font-medium mb-3">Suggested Thresholds</h5>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Below Basic</span>
+                      <span>{suggestedSimulation.distribution.belowBasic.count} ({suggestedSimulation.distribution.belowBasic.pct}%)</span>
+                    </div>
+                    <Progress value={suggestedSimulation.distribution.belowBasic.pct} className="h-2" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-blue-600">Basic</span>
+                      <span>{suggestedSimulation.distribution.basic.count} ({suggestedSimulation.distribution.basic.pct}%)</span>
+                    </div>
+                    <Progress value={suggestedSimulation.distribution.basic.pct} className="h-2 [&>div]:bg-blue-500" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-green-600">Advanced</span>
+                      <span>{suggestedSimulation.distribution.advanced.count} ({suggestedSimulation.distribution.advanced.pct}%)</span>
+                    </div>
+                    <Progress value={suggestedSimulation.distribution.advanced.pct} className="h-2 [&>div]:bg-green-500" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-purple-600">Elite</span>
+                      <span>{suggestedSimulation.distribution.elite.count} ({suggestedSimulation.distribution.elite.pct}%)</span>
+                    </div>
+                    <Progress value={suggestedSimulation.distribution.elite.pct} className="h-2 [&>div]:bg-purple-500" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-amber-600">Exalted</span>
+                      <span>{suggestedSimulation.distribution.exalted.count} ({suggestedSimulation.distribution.exalted.pct}%)</span>
+                    </div>
+                    <Progress value={suggestedSimulation.distribution.exalted.pct} className="h-2 [&>div]:bg-amber-500" />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 const stateColors: Record<string, string> = {
@@ -405,6 +934,7 @@ export default function ChallengeEditor() {
           <TabsTrigger value="basic" data-testid="tab-basic">Basic Info</TabsTrigger>
           <TabsTrigger value="metric" data-testid="tab-metric">Metric Definition</TabsTrigger>
           <TabsTrigger value="tiers" data-testid="tab-tiers">Tiering</TabsTrigger>
+          <TabsTrigger value="calibration" data-testid="tab-calibration">Calibration</TabsTrigger>
           <TabsTrigger value="display" data-testid="tab-display">Frontend Display</TabsTrigger>
           <TabsTrigger value="validation" data-testid="tab-validation">Validation</TabsTrigger>
           <TabsTrigger value="deploy" data-testid="tab-deploy">Deploy Controls</TabsTrigger>
@@ -684,6 +1214,10 @@ export default function ChallengeEditor() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="calibration">
+          <CalibrationPanel challengeKey={challenge.code} canEdit={canEdit} tiers={tiers} setTiers={setTiers} />
         </TabsContent>
 
         <TabsContent value="display">

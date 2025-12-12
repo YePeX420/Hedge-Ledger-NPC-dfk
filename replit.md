@@ -23,6 +23,15 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
     - ETL Scheduler (`src/etl/scheduler/etlScheduler.ts`): Runs automatically every 6 hours for incremental updates and daily at 04:00 UTC for full snapshots
     - Admin refresh button on `/admin/challenges` page for manual ETL triggers
     - API endpoints: `GET /api/admin/etl/status`, `POST /api/admin/etl/trigger`
+    - **Tier Calibration Panel** (`/admin/challenges/:id/edit` -> Calibration tab): Data-driven tier threshold tuning:
+        - Cohort selector: ALL, NONZERO, ACTIVE_30D for flexible player filtering
+        - Editable percentile targets: Basic (p40), Advanced (p70), Elite (p90), Exalted (p97)
+        - Real-time statistics: cluster count, nonzero count, percentile distribution
+        - Warning badges: zero-inflated, whale-skew, low-sample indicators
+        - Suggested thresholds computed from player distribution data
+        - Simulation preview: compare current vs suggested tier distributions
+        - Database: `challenge_metric_stats` table caches percentile stats per challenge/cohort
+        - API endpoints: `GET/POST /api/admin/challenges/:key/calibration`, `/calibration/refresh`, `/calibration/simulate`, `/calibration/apply`
 *   **Phase 3 Combat Ingestion**: Direct RPC log scanning for hunting encounters and PvP matches:
     - `src/etl/ingestion/huntingIndexer.ts`: Indexes hunting events from DFK Chain
     - `src/etl/ingestion/pvpIndexer.ts`: Indexes PvP matches from DFK and METIS chains

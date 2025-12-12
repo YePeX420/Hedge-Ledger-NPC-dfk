@@ -1241,6 +1241,64 @@ export const insertChallengeTierSchema = createInsertSchema(challengeTiers).omit
 export type InsertChallengeTier = z.infer<typeof insertChallengeTierSchema>;
 export type ChallengeTier = typeof challengeTiers.$inferSelect;
 
+/**
+ * Challenge metric stats - cached calibration statistics for tier tuning
+ * Stores percentile distributions and suggested thresholds from challenge_progress data
+ */
+export const challengeMetricStats = pgTable("challenge_metric_stats", {
+  id: serial("id").primaryKey(),
+  challengeKey: varchar("challenge_key", { length: 64 }).notNull(),
+  cohortKey: varchar("cohort_key", { length: 32 }).notNull().default("ALL"), // ALL, NONZERO, ACTIVE_30D, SEASON_CURRENT
+  computedAt: timestamp("computed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  
+  // Population counts
+  clusterCount: integer("cluster_count").notNull().default(0),
+  nonzeroCount: integer("nonzero_count").notNull().default(0),
+  
+  // Standard percentiles for display
+  minValue: numeric("min_value", { precision: 20, scale: 4 }),
+  p10: numeric("p10", { precision: 20, scale: 4 }),
+  p25: numeric("p25", { precision: 20, scale: 4 }),
+  p40: numeric("p40", { precision: 20, scale: 4 }),
+  p50: numeric("p50", { precision: 20, scale: 4 }),
+  p70: numeric("p70", { precision: 20, scale: 4 }),
+  p75: numeric("p75", { precision: 20, scale: 4 }),
+  p90: numeric("p90", { precision: 20, scale: 4 }),
+  p95: numeric("p95", { precision: 20, scale: 4 }),
+  p97: numeric("p97", { precision: 20, scale: 4 }),
+  p99: numeric("p99", { precision: 20, scale: 4 }),
+  maxValue: numeric("max_value", { precision: 20, scale: 4 }),
+  meanValue: numeric("mean_value", { precision: 20, scale: 4 }),
+  
+  // Configurable target percentiles (defaults: 0.40, 0.70, 0.90, 0.97)
+  targetBasicPct: numeric("target_basic_pct", { precision: 5, scale: 4 }).default("0.4000"),
+  targetAdvancedPct: numeric("target_advanced_pct", { precision: 5, scale: 4 }).default("0.7000"),
+  targetElitePct: numeric("target_elite_pct", { precision: 5, scale: 4 }).default("0.9000"),
+  targetExaltedPct: numeric("target_exalted_pct", { precision: 5, scale: 4 }).default("0.9700"),
+  
+  // Computed suggested thresholds based on target percentiles
+  suggestedBasic: numeric("suggested_basic", { precision: 20, scale: 4 }),
+  suggestedAdvanced: numeric("suggested_advanced", { precision: 20, scale: 4 }),
+  suggestedElite: numeric("suggested_elite", { precision: 20, scale: 4 }),
+  suggestedExalted: numeric("suggested_exalted", { precision: 20, scale: 4 }),
+  
+  // Metadata and warnings
+  meta: json("meta").$type<{
+    warnings?: string[];
+    zeroInflated?: boolean;
+    whaleSkew?: boolean;
+    lowSample?: boolean;
+  }>(),
+}, (table) => ({
+  challengeCohortIdx: uniqueIndex("challenge_metric_stats_challenge_cohort_idx").on(table.challengeKey, table.cohortKey),
+  challengeKeyIdx: index("challenge_metric_stats_challenge_key_idx").on(table.challengeKey),
+  computedAtIdx: index("challenge_metric_stats_computed_at_idx").on(table.computedAt),
+}));
+
+export const insertChallengeMetricStatsSchema = createInsertSchema(challengeMetricStats).omit({ id: true, computedAt: true });
+export type InsertChallengeMetricStats = z.infer<typeof insertChallengeMetricStatsSchema>;
+export type ChallengeMetricStats = typeof challengeMetricStats.$inferSelect;
+
 // ============================================================================
 // HUNTING & PVP DATA WAREHOUSE
 // ETL source tables for combat challenges (onchain_hunting, onchain_pvp)

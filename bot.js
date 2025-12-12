@@ -78,7 +78,7 @@ import {
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
 import { getValueBreakdown } from './src/analytics/valueBreakdown.ts';
 import { syncTokenRegistry, getAllTokens, getTokenAddressMap } from './src/services/tokenRegistryService.ts';
-import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeValidation, challengeAuditLog, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
+import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeValidation, challengeAuditLog, challengeMetricStats, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
 import levelRacerRoutes from './src/modules/levelRacer/levelRacer.routes.ts';
@@ -6996,6 +6996,359 @@ async function startAdminWebServer() {
     } catch (err) {
       console.error('[API] Admin audit log error:', err);
       res.status(500).json({ error: 'Failed to get audit log' });
+    }
+  });
+
+  // ============================================================================
+  // CALIBRATION ENDPOINTS - Tier threshold calibration based on challenge_progress
+  // ============================================================================
+
+  // GET /api/admin/challenges/:challengeKey/calibration - Get cached calibration stats
+  app.get('/api/admin/challenges/:challengeKey/calibration', isAdmin, async (req, res) => {
+    try {
+      const { challengeKey } = req.params;
+      const cohortKey = req.query.cohortKey || 'ALL';
+      
+      // Look for cached stats
+      const [cached] = await db
+        .select()
+        .from(challengeMetricStats)
+        .where(and(
+          eq(challengeMetricStats.challengeKey, challengeKey),
+          eq(challengeMetricStats.cohortKey, cohortKey)
+        ));
+      
+      if (!cached) {
+        return res.json({ 
+          cached: false, 
+          message: 'No cached stats. Use POST /refresh to compute.' 
+        });
+      }
+      
+      res.json({
+        cached: true,
+        challengeKey: cached.challengeKey,
+        cohortKey: cached.cohortKey,
+        computedAt: cached.computedAt?.toISOString(),
+        clusterCount: cached.clusterCount,
+        nonzeroCount: cached.nonzeroCount,
+        percentiles: {
+          min: parseFloat(cached.minValue) || 0,
+          p10: parseFloat(cached.p10) || 0,
+          p25: parseFloat(cached.p25) || 0,
+          p40: parseFloat(cached.p40) || 0,
+          p50: parseFloat(cached.p50) || 0,
+          p70: parseFloat(cached.p70) || 0,
+          p75: parseFloat(cached.p75) || 0,
+          p90: parseFloat(cached.p90) || 0,
+          p95: parseFloat(cached.p95) || 0,
+          p97: parseFloat(cached.p97) || 0,
+          p99: parseFloat(cached.p99) || 0,
+          max: parseFloat(cached.maxValue) || 0,
+          mean: parseFloat(cached.meanValue) || 0,
+        },
+        targets: {
+          basicPct: parseFloat(cached.targetBasicPct) || 0.40,
+          advancedPct: parseFloat(cached.targetAdvancedPct) || 0.70,
+          elitePct: parseFloat(cached.targetElitePct) || 0.90,
+          exaltedPct: parseFloat(cached.targetExaltedPct) || 0.97,
+        },
+        suggested: {
+          basic: parseFloat(cached.suggestedBasic) || 0,
+          advanced: parseFloat(cached.suggestedAdvanced) || 0,
+          elite: parseFloat(cached.suggestedElite) || 0,
+          exalted: parseFloat(cached.suggestedExalted) || 0,
+        },
+        warnings: cached.meta?.warnings || [],
+        zeroInflated: cached.meta?.zeroInflated || false,
+        whaleSkew: cached.meta?.whaleSkew || false,
+        lowSample: cached.meta?.lowSample || false,
+      });
+    } catch (err) {
+      console.error('[API] Calibration get error:', err);
+      res.status(500).json({ error: 'Failed to get calibration stats' });
+    }
+  });
+
+  // POST /api/admin/challenges/:challengeKey/calibration/refresh - Compute/refresh calibration stats
+  app.post('/api/admin/challenges/:challengeKey/calibration/refresh', isAdmin, async (req, res) => {
+    try {
+      const { challengeKey } = req.params;
+      const cohortKey = req.body.cohortKey || 'ALL';
+      const targets = req.body.targets || {};
+      
+      const basicPct = targets.basicPct ?? 0.40;
+      const advancedPct = targets.advancedPct ?? 0.70;
+      const elitePct = targets.elitePct ?? 0.90;
+      const exaltedPct = targets.exaltedPct ?? 0.97;
+      
+      // Build cohort filter for the SQL query
+      let cohortFilter = sql`1=1`;
+      if (cohortKey === 'NONZERO') {
+        cohortFilter = sql`${playerChallengeProgress.currentValue} > 0`;
+      } else if (cohortKey === 'ACTIVE_30D') {
+        cohortFilter = sql`${playerChallengeProgress.lastUpdated} > NOW() - INTERVAL '30 days'`;
+      }
+      
+      // Compute percentile stats from player_challenge_progress
+      const statsResult = await db.execute(sql`
+        WITH progress_data AS (
+          SELECT current_value::numeric as value
+          FROM player_challenge_progress
+          WHERE challenge_key = ${challengeKey}
+            AND ${cohortFilter}
+        )
+        SELECT
+          COUNT(*)::int as cluster_count,
+          COUNT(CASE WHEN value > 0 THEN 1 END)::int as nonzero_count,
+          MIN(value) as min_value,
+          PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY value) as p10,
+          PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY value) as p25,
+          PERCENTILE_CONT(0.40) WITHIN GROUP (ORDER BY value) as p40,
+          PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY value) as p50,
+          PERCENTILE_CONT(0.70) WITHIN GROUP (ORDER BY value) as p70,
+          PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY value) as p75,
+          PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY value) as p90,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY value) as p95,
+          PERCENTILE_CONT(0.97) WITHIN GROUP (ORDER BY value) as p97,
+          PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY value) as p99,
+          MAX(value) as max_value,
+          AVG(value) as mean_value,
+          PERCENTILE_CONT(${basicPct}) WITHIN GROUP (ORDER BY value) as suggested_basic,
+          PERCENTILE_CONT(${advancedPct}) WITHIN GROUP (ORDER BY value) as suggested_advanced,
+          PERCENTILE_CONT(${elitePct}) WITHIN GROUP (ORDER BY value) as suggested_elite,
+          PERCENTILE_CONT(${exaltedPct}) WITHIN GROUP (ORDER BY value) as suggested_exalted
+        FROM progress_data
+      `);
+      
+      const stats = statsResult.rows?.[0] || statsResult[0] || {};
+      
+      // Compute warnings
+      const warnings = [];
+      const clusterCount = parseInt(stats.cluster_count) || 0;
+      const nonzeroCount = parseInt(stats.nonzero_count) || 0;
+      const maxVal = parseFloat(stats.max_value) || 0;
+      const p95Val = parseFloat(stats.p95) || 0;
+      
+      const zeroInflated = clusterCount > 0 && (nonzeroCount / clusterCount) < 0.30;
+      const whaleSkew = p95Val > 0 && (maxVal / p95Val) >= 20;
+      const lowSample = clusterCount < 25;
+      
+      if (zeroInflated) warnings.push('zeroInflated: >70% have zero progress');
+      if (whaleSkew) warnings.push('whaleSkew: max/p95 >= 20x');
+      if (lowSample) warnings.push('lowSample: fewer than 25 clusters');
+      
+      // Upsert into challenge_metric_stats
+      const upsertData = {
+        challengeKey,
+        cohortKey,
+        clusterCount,
+        nonzeroCount,
+        minValue: stats.min_value?.toString(),
+        p10: stats.p10?.toString(),
+        p25: stats.p25?.toString(),
+        p40: stats.p40?.toString(),
+        p50: stats.p50?.toString(),
+        p70: stats.p70?.toString(),
+        p75: stats.p75?.toString(),
+        p90: stats.p90?.toString(),
+        p95: stats.p95?.toString(),
+        p97: stats.p97?.toString(),
+        p99: stats.p99?.toString(),
+        maxValue: stats.max_value?.toString(),
+        meanValue: stats.mean_value?.toString(),
+        targetBasicPct: basicPct.toString(),
+        targetAdvancedPct: advancedPct.toString(),
+        targetElitePct: elitePct.toString(),
+        targetExaltedPct: exaltedPct.toString(),
+        suggestedBasic: stats.suggested_basic?.toString(),
+        suggestedAdvanced: stats.suggested_advanced?.toString(),
+        suggestedElite: stats.suggested_elite?.toString(),
+        suggestedExalted: stats.suggested_exalted?.toString(),
+        meta: { warnings, zeroInflated, whaleSkew, lowSample },
+        computedAt: new Date(),
+      };
+      
+      await db
+        .insert(challengeMetricStats)
+        .values(upsertData)
+        .onConflictDoUpdate({
+          target: [challengeMetricStats.challengeKey, challengeMetricStats.cohortKey],
+          set: upsertData,
+        });
+      
+      console.log(`[Calibration] Refreshed stats for ${challengeKey}/${cohortKey}: ${clusterCount} clusters, ${nonzeroCount} nonzero`);
+      
+      res.json({
+        success: true,
+        challengeKey,
+        cohortKey,
+        clusterCount,
+        nonzeroCount,
+        percentiles: {
+          min: parseFloat(stats.min_value) || 0,
+          p10: parseFloat(stats.p10) || 0,
+          p25: parseFloat(stats.p25) || 0,
+          p40: parseFloat(stats.p40) || 0,
+          p50: parseFloat(stats.p50) || 0,
+          p70: parseFloat(stats.p70) || 0,
+          p75: parseFloat(stats.p75) || 0,
+          p90: parseFloat(stats.p90) || 0,
+          p95: parseFloat(stats.p95) || 0,
+          p97: parseFloat(stats.p97) || 0,
+          p99: parseFloat(stats.p99) || 0,
+          max: parseFloat(stats.max_value) || 0,
+          mean: parseFloat(stats.mean_value) || 0,
+        },
+        targets: { basicPct, advancedPct, elitePct, exaltedPct },
+        suggested: {
+          basic: parseFloat(stats.suggested_basic) || 0,
+          advanced: parseFloat(stats.suggested_advanced) || 0,
+          elite: parseFloat(stats.suggested_elite) || 0,
+          exalted: parseFloat(stats.suggested_exalted) || 0,
+        },
+        warnings,
+        zeroInflated,
+        whaleSkew,
+        lowSample,
+      });
+    } catch (err) {
+      console.error('[API] Calibration refresh error:', err);
+      res.status(500).json({ error: 'Failed to refresh calibration stats' });
+    }
+  });
+
+  // POST /api/admin/challenges/:challengeKey/calibration/apply - Apply thresholds to challenge tiers
+  app.post('/api/admin/challenges/:challengeKey/calibration/apply', isAdmin, async (req, res) => {
+    try {
+      const { challengeKey } = req.params;
+      const adminId = req.adminUser?.discordId || 'unknown';
+      const { thresholds } = req.body;
+      
+      if (!thresholds || typeof thresholds !== 'object') {
+        return res.status(400).json({ error: 'thresholds object required (basic, advanced, elite, exalted)' });
+      }
+      
+      // Get the challenge to check state
+      const [challenge] = await db
+        .select()
+        .from(challenges)
+        .where(eq(challenges.key, challengeKey));
+      
+      if (!challenge) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+      
+      if (challenge.state !== 'draft' && challenge.state !== 'validated') {
+        return res.status(400).json({ error: 'Can only apply thresholds to draft or validated challenges' });
+      }
+      
+      // Define the tier mappings for GENE tier system
+      const tierMappings = [
+        { tierCode: 'BASIC', thresholdValue: Math.round(thresholds.basic || 0), sortOrder: 1 },
+        { tierCode: 'ADVANCED', thresholdValue: Math.round(thresholds.advanced || 0), sortOrder: 2 },
+        { tierCode: 'ELITE', thresholdValue: Math.round(thresholds.elite || 0), sortOrder: 3 },
+        { tierCode: 'EXALTED', thresholdValue: Math.round(thresholds.exalted || 0), sortOrder: 4 },
+      ];
+      
+      // Delete existing tiers and insert new ones
+      await db.delete(challengeTiers).where(eq(challengeTiers.challengeKey, challengeKey));
+      
+      await db.insert(challengeTiers).values(
+        tierMappings.map(t => ({
+          challengeKey,
+          tierCode: t.tierCode,
+          displayName: t.tierCode.charAt(0) + t.tierCode.slice(1).toLowerCase(),
+          thresholdValue: t.thresholdValue,
+          isPrestige: false,
+          sortOrder: t.sortOrder,
+        }))
+      );
+      
+      // Log the change
+      await db.insert(challengeAuditLog).values({
+        challengeId: challenge.id,
+        actor: adminId,
+        action: 'calibration_apply',
+        payloadDiff: { appliedThresholds: thresholds },
+      });
+      
+      console.log(`[Calibration] Applied thresholds to ${challengeKey} by ${adminId}`);
+      
+      res.json({ success: true, appliedThresholds: thresholds });
+    } catch (err) {
+      console.error('[API] Calibration apply error:', err);
+      res.status(500).json({ error: 'Failed to apply thresholds' });
+    }
+  });
+
+  // POST /api/admin/challenges/:challengeKey/calibration/simulate - Simulate tier distribution
+  app.post('/api/admin/challenges/:challengeKey/calibration/simulate', isAdmin, async (req, res) => {
+    try {
+      const { challengeKey } = req.params;
+      const cohortKey = req.body.cohortKey || 'ALL';
+      const { thresholds } = req.body;
+      
+      if (!thresholds || typeof thresholds !== 'object') {
+        return res.status(400).json({ error: 'thresholds object required (basic, advanced, elite, exalted)' });
+      }
+      
+      const basic = thresholds.basic ?? 0;
+      const advanced = thresholds.advanced ?? 0;
+      const elite = thresholds.elite ?? 0;
+      const exalted = thresholds.exalted ?? 0;
+      
+      // Build cohort filter
+      let cohortFilter = sql`1=1`;
+      if (cohortKey === 'NONZERO') {
+        cohortFilter = sql`current_value > 0`;
+      } else if (cohortKey === 'ACTIVE_30D') {
+        cohortFilter = sql`last_updated > NOW() - INTERVAL '30 days'`;
+      }
+      
+      // Count clusters in each tier bucket
+      const simResult = await db.execute(sql`
+        SELECT
+          COUNT(*)::int as total,
+          COUNT(CASE WHEN current_value < ${basic} THEN 1 END)::int as below_basic,
+          COUNT(CASE WHEN current_value >= ${basic} AND current_value < ${advanced} THEN 1 END)::int as tier_basic,
+          COUNT(CASE WHEN current_value >= ${advanced} AND current_value < ${elite} THEN 1 END)::int as tier_advanced,
+          COUNT(CASE WHEN current_value >= ${elite} AND current_value < ${exalted} THEN 1 END)::int as tier_elite,
+          COUNT(CASE WHEN current_value >= ${exalted} THEN 1 END)::int as tier_exalted
+        FROM player_challenge_progress
+        WHERE challenge_key = ${challengeKey}
+          AND ${cohortFilter}
+      `);
+      
+      const sim = simResult.rows?.[0] || simResult[0] || {};
+      const total = parseInt(sim.total) || 0;
+      
+      const distribution = {
+        belowBasic: { count: parseInt(sim.below_basic) || 0, pct: 0 },
+        basic: { count: parseInt(sim.tier_basic) || 0, pct: 0 },
+        advanced: { count: parseInt(sim.tier_advanced) || 0, pct: 0 },
+        elite: { count: parseInt(sim.tier_elite) || 0, pct: 0 },
+        exalted: { count: parseInt(sim.tier_exalted) || 0, pct: 0 },
+      };
+      
+      if (total > 0) {
+        distribution.belowBasic.pct = Math.round((distribution.belowBasic.count / total) * 10000) / 100;
+        distribution.basic.pct = Math.round((distribution.basic.count / total) * 10000) / 100;
+        distribution.advanced.pct = Math.round((distribution.advanced.count / total) * 10000) / 100;
+        distribution.elite.pct = Math.round((distribution.elite.count / total) * 10000) / 100;
+        distribution.exalted.pct = Math.round((distribution.exalted.count / total) * 10000) / 100;
+      }
+      
+      res.json({
+        challengeKey,
+        cohortKey,
+        thresholds: { basic, advanced, elite, exalted },
+        total,
+        distribution,
+      });
+    } catch (err) {
+      console.error('[API] Calibration simulate error:', err);
+      res.status(500).json({ error: 'Failed to simulate distribution' });
     }
   });
 
