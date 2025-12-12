@@ -1,0 +1,252 @@
+Got it. Thank you for the correction.
+
+Below is a single, copy-paste-ready Replit Agent prompt.
+It is written as implementation instructions, not analysis, and assumes the agent already has repo access and context.
+This prompt is designed to fix the reconciliation failure and clear the ~772 unpriced bridge events with the minimum necessary changes.
+
+
+---
+
+Replit Agent Prompt – Fix Bridge Historical Pricing & Reconciliation
+
+You are working inside an existing DeFi Kingdoms (DFK Chain, chainId 53935) analytics codebase.
+Do not redesign the system.
+Your task is to fix historical pricing gaps and reconciliation errors using the current architecture.
+
+
+---
+
+Current State (Do Not Change)
+
+Bridge events are indexed into bridge_events with raw amounts
+
+usdValue is backfilled later via bridge-tracker/price-enrichment.js
+
+Price hierarchy:
+
+1. historical_prices table
+
+
+2. DefiLlama API
+
+
+3. CoinGecko API
+
+
+
+Token metadata comes from token_registry
+
+LP discovery, LP TVL, and staking TVL are already correct
+
+~772 bridge events still have usdValue = NULL
+
+Tokens for those events appear as "UNKNOWN"
+
+
+
+---
+
+Your Objective
+
+Make reconciliation converge by ensuring every bridge event is either priced or explicitly excluded, so:
+
+Net Bridged In − Net Bridged Out
+≈ LP TVL + Staking TVL + Contract Holdings + EOAs + Residual
+
+Residual should be small and explainable.
+
+
+---
+
+Step 1 — Identify Unpriceable Tokens
+
+Add a script or function to:
+
+Query all bridge_events where usdValue IS NULL
+
+Group by token_address
+
+For each token:
+
+Check if it exists in token_registry
+
+Check if it exists in any LP pair (via stored DEX pairs)
+
+Check if DefiLlama or CoinGecko has ever returned a price
+
+
+
+Persist results in a new table:
+
+unpriced_tokens (
+  token_address,
+  symbol,
+  first_seen_timestamp,
+  last_seen_timestamp,
+  total_events,
+  has_dex_liquidity BOOLEAN,
+  has_external_price BOOLEAN
+)
+
+
+---
+
+Step 2 — Enforce a Hard Pricing Rule
+
+Implement the following single rule (do not add options):
+
+Rule
+
+If a token:
+
+Has no external price
+
+AND no DEX liquidity → it is deprecated / dead
+
+
+Action
+
+Set usdValue = 0
+
+Set pricing_source = 'DEPRECATED_TOKEN'
+
+Exclude these events from:
+
+Net bridged USD totals
+
+TVL reconciliation math
+
+
+Keep raw token amounts for auditability
+
+
+
+---
+
+Step 3 — Add Minimal On-Chain DEX Pricing Fallback
+
+Only for tokens that:
+
+Are missing DefiLlama + CoinGecko price
+
+BUT do have DEX liquidity
+
+
+Implement:
+
+Identify deepest LP pair (highest reserves)
+
+Use daily average price (not per-block)
+
+Compute price as:
+
+price = reserveUSD / reserveToken
+
+Cache result in historical_prices
+
+Use source label: DEX_DERIVED
+
+
+This fallback must:
+
+Run only for tokens that fail external pricing
+
+Be rate-limited and cached
+
+Never override existing prices
+
+
+
+---
+
+Step 4 — Make Pricing Exhaustive
+
+After enrichment completes:
+
+There must be zero bridge_events where:
+
+usdValue IS NULL
+
+Every event must have:
+
+pricing_source ∈ { DEFI_LLAMA, COINGECKO, DEX_DERIVED, DEPRECATED_TOKEN }
+
+
+
+Add a verification query and fail the job if this condition is not met.
+
+
+---
+
+Step 5 — Reconciliation Output
+
+Add a reconciliation summary query that outputs:
+
+Total bridged in USD
+
+Total bridged out USD
+
+TVL by bucket:
+
+LP
+
+Staking
+
+Contracts
+
+EOAs
+
+
+Residual value
+
+
+Log this summary after enrichment completes.
+
+
+---
+
+Explicit Constraints
+
+Do NOT add LayerZero ingestion yet
+
+Do NOT refactor ingestion or DB schema beyond what is specified
+
+Do NOT add UI
+
+Do NOT add new external APIs
+
+Do NOT guess prices for dead tokens
+
+
+
+---
+
+Deliverables
+
+Code changes implementing steps 1–5
+
+SQL or logs proving:
+
+No usdValue IS NULL
+
+Deprecated tokens isolated
+
+Reconciliation residual reduced
+
+
+
+Proceed step-by-step and commit when complete.
+
+
+---
+
+If you want, next I can give you:
+
+A LayerZero ingestion prompt
+
+A residual-bucket debugger
+
+A v1 extractor scoring prompt
+
+
+But this prompt will unblock you now.

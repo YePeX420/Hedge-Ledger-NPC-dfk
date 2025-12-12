@@ -1,0 +1,210 @@
+Your instinct is correct: if your “bridged-in USD minus bridged-out USD” doesn’t reconcile to “where value currently sits,” it is almost always one (or more) of these issues:
+
+1. token universe drift (deprecated/bridges migrated/wrapped variants)
+
+
+2. pricing timestamp mismatch (block-time vs minute candles vs oracle)
+
+
+3. bridge accounting mismatch (lock/mint vs burn/release semantics; intermediate hop chains)
+
+
+4. double counting TVL components (LPs, staking, bridge contracts, protocol-owned liquidity, treasury, etc.)
+
+
+5. missing sinks (game contracts, vesting, fee collectors, burn addresses, “dead” tokens with no price)
+
+
+
+Below is a framework that will give you the “big picture” and also produces strong features for an extractor classifier.
+
+
+---
+
+1) Start by defining what you are trying to reconcile
+
+A. “Net bridged value into DFK Chain”
+
+Define this as:
+
+Net Inflow (USD) = Σ(Bridge-in events valued in USD at event time) − Σ(Bridge-out events valued in USD at event time)
+
+This is a flow metric. It will not equal TVL unless you align definitions and price bases.
+
+B. “Where value is now”
+
+This is a stock metric:
+
+Current Held Value (USD) = Σ(balance of each token held by each target address) × current USD price
+
+Now the key point: DefiLlama explicitly does not roll bridge TVL into chain TVL (they count bridge TVL as bridge projects, but don’t contribute it to chain TVL). 
+So if you’re using DefiLlama chain TVL to reconcile, you must treat bridges separately.
+
+Also: JEWEL is the native gas token on DFK Chain and has no ERC-20 address; pairs use wrapped variants, so your token lists and pricing must reflect that. 
+
+
+---
+
+2) Token coverage: “all swappable tokens” + “all bridged tokens”
+
+You already identified a likely gap: deprecated or legacy bridged assets.
+
+Swappable tokens (DEX universe)
+
+The most reliable definition is: all tokens that appear in any DEX pair (UniswapV2-style). This avoids “random ERC-20s” that are not tradable.
+
+Bridged tokens (bridge universe)
+
+DFK’s docs list the canonical bridged assets available on DFK Chain via Synapse (with contract addresses). 
+But historically (Harmony era), there were other routes (Multichain, Terra bridge, etc.), and you will see tokens like LUNA mentioned in older Harmony-specific bridging guides. 
+So, yes: you probably “remember LUNA” from the Harmony period, not necessarily current DFK Chain reality.
+
+Practical approach: build a union set:
+
+DEX-derived token list (what can be swapped now)
+
+Bridge-event-derived token list (what was bridged historically, even if now illiquid)
+
+Curated canonical list (DFK dev docs) as a “ground truth allowlist” for known bridged assets 
+
+
+
+---
+
+3) Pricing: how to value at “time of bridging”
+
+This is the most common reconciliation breaker.
+
+Recommended hierarchy (robust, implementable)
+
+1. If token is a canonical bridged asset and has a reliable price feed (e.g., CoinGecko has “Synapse Bridged wAVAX (DFK Chain)” style entries), use historical candles. 
+
+
+2. Otherwise, infer price from DFK DEX on-chain price near the bridge timestamp:
+
+find the token’s deepest pair (often vs USDC if present)
+
+compute spot price from reserves at the nearest block
+
+
+
+3. If no liquid pair exists at that time: mark as unpriced and exclude from “priced net flow,” but keep raw units so you can audit.
+
+
+
+This alone usually explains “it’s not adding up”: you’re missing prices for “dead”/deprecated bridged tokens or illiquid tokens.
+
+
+---
+
+4) Reconciliation model that actually balances
+
+If your goal is “bridged net flow ≈ current deployed value,” do it in layers:
+
+Layer 1 — Net bridged flow (priced)
+
+Compute net inflow by token in USD at event time.
+
+
+Layer 2 — Explain where it went
+
+Break “current value” into mutually exclusive buckets by address sets:
+
+1. LP TVL: DEX pair contracts (reserves)
+
+
+2. Staking TVL: staking contracts / masterchef / bank contracts
+
+
+3. Bridge custody: bridge escrow/lockbox contracts (if any on DFK Chain side)
+
+
+4. Game/protocol contracts: fee collectors, quest contracts, marketplace contracts, etc.
+
+
+5. EOA holdings: user wallets not in sets 1–4
+
+
+6. Unknown contracts: everything else (this becomes your “investigation” bucket)
+
+
+
+Then you can do:
+
+Net Bridged In (USD) − (Δ in all bucket values over same window) = residual
+
+Residual should shrink as your address sets improve.
+
+DefiLlama can help as an external benchmark for chain TVL/bridges, but their bridge accounting methodology differs (again: bridges are not included in chain TVL). 
+
+
+---
+
+5) Extractor identification: use the same pipeline
+
+Once you have:
+
+bridging flows (in/out)
+
+DEX activity
+
+staking participation
+
+holding time / churn
+
+
+You can build a clean “extractor” score. Typical signals:
+
+A. Bridge-and-dump
+
+Bridge in → swap to stablecoin quickly → bridge out
+
+Low time-weighted exposure to JEWEL/CRYSTAL ecosystem tokens
+
+
+B. Reward siphoning
+
+High interaction with reward contracts, low reinvestment into LP/staking
+
+Regular stablecoin outflows following reward claim cadence
+
+
+C. Minimal gameplay footprint
+
+No/low interactions with “game loop” contracts compared to financial contracts
+
+
+D. High net outflow ratio
+
+net_outflow_usd / net_inflow_usd above threshold over rolling windows (7d/30d)
+
+
+You don’t need perfect reconciliation to classify extractors—you need consistent feature construction.
+
+
+---
+
+6) What I would do next in your Replit setup (concrete)
+
+1. DEX token discovery from factory pairs (the definitive “swappable” set).
+
+
+2. Bridge event ingestion (Synapse on DFK Chain) + store per-event token + amount + txHash + blockTime.
+
+
+3. Pricing module with the hierarchy above (Coingecko/DEX-derived/fallback-unpriced).
+
+
+4. Address bucket registry (LP pairs, staking contracts, bridge contracts, “protocol/game” contracts).
+
+
+5. Produce two dashboards:
+
+Big picture: Net bridged flows, current bucket TVL, residual
+
+Extractor lens: cohort stats + wallet drill-down
+
+
+
+
+If you paste (or screenshot) what you currently have in Replit (tables + which data source you’re using for bridge events and prices), I’ll tell you exactly where the mismatch is most likely coming from and how to restructure the data model so deprecated tokens cannot “fall through the cracks.”
