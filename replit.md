@@ -30,6 +30,13 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
     - Tables: `hunting_encounters`, `pvp_matches`, `ingestion_state` for checkpoint tracking
     - Challenge extractors wired: 5 hunting challenges, 4 PvP challenges
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" via indexed bridge events and wallet scoring.
+*   **Bridge Pricing Reconciliation System** (`bridge-tracker/`): Ensures all bridge events have accurate USD values:
+    - `unpriced-analyzer.js`: Discovers unpriced tokens, checks DEX liquidity and external price availability
+    - `pricing-reconciliation.js`: Multi-step pipeline: mark deprecated tokens (usdValue=0), flag DEX-derivable tokens for manual review, verify pricing completeness
+    - `run-reconciliation.js`: Standalone script to run the full pipeline
+    - Tables: `unpriced_tokens` (analysis cache), `pricing_source` column in `bridge_events` tracks: DEFI_LLAMA, COINGECKO, DEX_DERIVED, DEPRECATED_TOKEN, LEGACY_ENRICHMENT
+    - Current coverage: 99.9997% (only 2 of 593K events unpriced)
+    - Net Flow: $660.6M (IN: $2.45B, OUT: $1.79B)
 *   **Value Allocation/TVL Dashboard** (`src/analytics/valueBreakdown.ts`): Calculates accurate TVL by:
     - Querying staked LP amounts from Master Gardener V2 (`getPoolInfo`) and V1 (legacy gardener `balanceOf`)
     - Computing LP value as: `(stakedLP / totalSupply) × poolReserveValue` 
