@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -18,6 +20,17 @@ import {
 } from 'lucide-react';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, PieChart as RechartsPieChart, Pie, Legend } from 'recharts';
+
+type TimeRange = '1w' | '1m' | '3m' | '1y' | '2y' | 'all';
+
+const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
+  { value: '1w', label: '1W' },
+  { value: '1m', label: '1M' },
+  { value: '3m', label: '3M' },
+  { value: '1y', label: '1Y' },
+  { value: '2y', label: '2Y' },
+  { value: 'all', label: 'All' },
+];
 
 interface BridgeOverview {
   events: {
@@ -80,12 +93,19 @@ const chartConfig: ChartConfig = {
 };
 
 export default function ExtractorsAnalysis() {
+  const [timeRange, setTimeRange] = useState<TimeRange>('all');
+
   const { data: overview, isLoading: overviewLoading } = useQuery<BridgeOverview>({
     queryKey: ['/api/admin/bridge/overview'],
   });
 
   const { data: extractors, isLoading: extractorsLoading } = useQuery<Extractor[]>({
-    queryKey: ['/api/admin/bridge/extractors'],
+    queryKey: ['/api/admin/bridge/extractors', timeRange],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/bridge/extractors?timeRange=${timeRange}&limit=1000`);
+      if (!res.ok) throw new Error('Failed to fetch extractors');
+      return res.json();
+    },
   });
 
   const safeOverview = overview && !('error' in overview) ? overview : null;
@@ -319,13 +339,31 @@ export default function ExtractorsAnalysis() {
       {/* Extractors Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            All Extractors
-          </CardTitle>
-          <CardDescription>
-            Wallets that have extracted more value than they brought in (net extracted &gt; $100)
-          </CardDescription>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                All Extractors
+              </CardTitle>
+              <CardDescription>
+                Wallets that have extracted more value than they brought in (net extracted &gt; $100)
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-1 p-1 bg-muted rounded-lg" data-testid="time-range-filter">
+              {TIME_RANGE_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  variant={timeRange === option.value ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setTimeRange(option.value)}
+                  className="h-7 px-3 text-xs font-medium"
+                  data-testid={`button-time-${option.value}`}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {extractorsLoading ? (

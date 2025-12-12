@@ -271,7 +271,38 @@ export async function refreshWalletMetrics(wallet) {
   return metrics;
 }
 
-export async function getTopExtractors(limit = 50) {
+export async function getTopExtractors(limit = 50, timeRange = 'all') {
+  let dateCutoff = null;
+  const now = new Date();
+  
+  switch (timeRange) {
+    case '1w':
+      dateCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      break;
+    case '1m':
+      dateCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      break;
+    case '3m':
+      dateCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      break;
+    case '1y':
+      dateCutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      break;
+    case '2y':
+      dateCutoff = new Date(now.getTime() - 730 * 24 * 60 * 60 * 1000);
+      break;
+    default:
+      dateCutoff = null;
+  }
+  
+  if (dateCutoff) {
+    return db.select()
+      .from(walletBridgeMetrics)
+      .where(sql`${walletBridgeMetrics.netExtractedUsd}::numeric > 0 AND ${walletBridgeMetrics.lastBridgeAt} >= ${dateCutoff}`)
+      .orderBy(desc(sql`${walletBridgeMetrics.netExtractedUsd}::numeric`))
+      .limit(limit);
+  }
+  
   return db.select()
     .from(walletBridgeMetrics)
     .where(sql`${walletBridgeMetrics.netExtractedUsd}::numeric > 0`)

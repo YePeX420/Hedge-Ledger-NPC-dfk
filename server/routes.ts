@@ -740,7 +740,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/bridge/extractors", isAdmin, async (req: any, res: any) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
-      const extractors = await getTopExtractors(limit);
+      const timeRange = (req.query.timeRange as string) || 'all';
+      const extractors = await getTopExtractors(limit, timeRange);
       
       // Fetch summoner names for extractors without names (on-demand)
       const walletsWithoutNames = extractors
