@@ -1,0 +1,157 @@
+We need to consolidate and fix the Tiering + Calibration system so it never mixes tier ladders again.
+
+Right now we have a mismatch where challenges with RARITY tiers (COMMON→MYTHIC) show calibration suggestions labeled Basic/Advanced/Elite/Exalted. This must be corrected by making tier ladders dynamic and challenge-aware.
+
+GOAL:
+Calibration, simulation, and “apply suggested thresholds” must use the actual tier ladder configured for the challenge (from DB), not hardcoded tier labels.
+
+=====================================================================
+A) Resolve effective tier system for the challenge (no guessing)
+=====================================================================
+
+Implement an “effectiveTierSystem” resolution rule:
+
+1) If the challenge has tierSystemOverride set, use it.
+2) Else inherit from the selected category’s tierSystem.
+3) If neither is available, default to RARITY.
+
+Persist this on the challenge model if needed, but at minimum compute it for UI rendering.
+
+=====================================================================
+B) Tier ladder must be dynamic (loaded from DB tiers)
+=====================================================================
+
+Stop hardcoding tier names in calibration.
+
+Instead, always load the tier ladder for the selected challenge from DB:
+
+- Query challenge_tiers for that challengeKey ordered by sortOrder
+- That ordered list of tierCodes is the tier ladder for:
+  - Tiering UI
+  - Calibration UI
+  - Simulation
+  - Apply logic
+
+Example ladders:
+- RARITY ladder: COMMON, UNCOMMON, RARE, LEGENDARY, MYTHIC (5 tiers)
+- GENE ladder: BASIC, ADVANCED, ELITE, EXALTED (4 tiers)
+- PRESTIGE ladder: usually only “Unlocked” (or treat as boolean-only)
+
+The calibration panel must display suggested thresholds using the tierCodes from this ladder.
+
+=====================================================================
+C) Suggested thresholds mapping must adapt to ladder length
+=====================================================================
+
+We already compute percentiles (p10, p25, p50, p75, p90, p95, p97, p99) plus targets.
+
+Suggested thresholds are based on targets:
+- basicPct default 0.40
+- advancedPct default 0.70
+- elitePct default 0.90
+- exaltedPct default 0.97
+(these remain editable in the UI and passed into refresh)
+
+Now map these to the actual ladder:
+
+CASE 1: ladder has 5 tiers (RARITY style):
+- Leave tier 1 (COMMON) as baseline (do NOT assign a percentile suggestion automatically)
+- Apply percentile suggestions to tiers 2–5:
+  tierLadder[1] = p40  (UNCOMMON)
+  tierLadder[2] = p70  (RARE)
+  tierLadder[3] = p90  (LEGENDARY)
+  tierLadder[4] = p97  (MYTHIC)
+
+CASE 2: ladder has 4 tiers (GENE style):
+- Apply percentile suggestions to tiers 1–4:
+  tierLadder[0] = p40  (BASIC)
+  tierLadder[1] = p70  (ADVANCED)
+  tierLadder[2] = p90  (ELITE)
+  tierLadder[3] = p97  (EXALTED)
+
+CASE 3: PRESTIGE / BOOLEAN:
+- Do not show tier suggestions.
+- Show unlocked rate and cohort counts only.
+
+IMPORTANT:
+The calibration UI must display suggested thresholds with the correct tier labels from the ladder.
+Example: Hero Riser should show suggested thresholds for UNCOMMON/RARE/LEGENDARY/MYTHIC, NOT Basic/Advanced/Elite/Exalted.
+
+=====================================================================
+D) Auto-simulation must use the real ladder and real thresholds
+=====================================================================
+
+Add/keep the simulation endpoint but it must simulate using the challenge’s tier ladder and thresholds from DB:
+
+Input:
+- challengeKey
+- cohortKey
+- thresholds per tierCode (either current or suggested)
+- ladder tierCodes in order
+
+Output:
+- counts and % per tierCode in the ladder
+
+For 5-tier ladders, simulation must include COMMON tier as:
+- values < UNCOMMON threshold (or tier2 threshold) fall into COMMON bucket
+
+For 4-tier ladders, simulation includes BASIC as:
+- values < BASIC threshold fall into “below Basic” bucket OR clamp into BASIC, depending on your UX
+(recommend: include “Below tier1” bucket explicitly for clarity)
+
+For PRESTIGE:
+- unlocked count / pct
+- locked count / pct
+
+=====================================================================
+E) Apply Suggested Thresholds must update tier rows by tierCode
+=====================================================================
+
+When clicking “Apply Suggested Thresholds”:
+
+- Do NOT overwrite tiers by assuming tier names.
+- Update challenge_tiers rows by matching tierCode for this challenge.
+- Only update tiers that have a suggested value (based on ladder length rules above).
+- Do not modify tier 1 for 5-tier ladders unless explicitly edited by admin.
+
+Also:
+- Only allow applying changes for challenges in DRAFT or VALIDATED state.
+- Save changes and update updatedAt.
+- Ensure the Tiering tab reflects updated values immediately.
+
+=====================================================================
+F) UI changes required (admin challenge editor)
+=====================================================================
+
+1) In Basic Info:
+- Display effectiveTierSystem (computed) and optionally allow editing tierSystemOverride.
+
+2) In Tiering tab:
+- Render tiers from DB ladder (tierCodes + displayName + thresholds)
+
+3) In Calibration tab/panel:
+- Use the DB tier ladder to label suggested thresholds.
+- Show editable percentile targets (basicPct/advancedPct/elitePct/exaltedPct).
+- Show cohort dropdown (ALL, NONZERO, ACTIVE_30D, SEASON_CURRENT).
+- Show “Load Stats” + “Refresh Stats”.
+- Show “Simulate Current Thresholds” and “Simulate Suggested Thresholds”.
+- Simulation results must display per tierCode in ladder order.
+
+=====================================================================
+G) Validation / Acceptance Test
+=====================================================================
+
+Confirm with Hero Riser (RARITY 5-tier ladder):
+- Tiering tab shows COMMON, UNCOMMON, RARE, LEGENDARY, MYTHIC
+- Calibration suggested thresholds are labeled UNCOMMON/RARE/LEGENDARY/MYTHIC
+- Apply Suggested Thresholds updates those tier rows correctly
+- Simulation output shows counts/% for COMMON/UNCOMMON/RARE/LEGENDARY/MYTHIC
+
+Confirm with a 4-tier challenge (GENE ladder):
+- Calibration shows BASIC/ADVANCED/ELITE/EXALTED labels correctly
+- Apply updates correct tiers
+
+Confirm with a PRESTIGE boolean challenge:
+- Calibration shows unlocked/locked only, no suggested tier thresholds.
+
+Please implement these changes as one consolidated fix so tier ladders never cross again.
