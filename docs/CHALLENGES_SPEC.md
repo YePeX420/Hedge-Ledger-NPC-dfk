@@ -1,7 +1,11 @@
 # Hedge Ledger Challenge System Specification
 
 ## Document Purpose
-This is the canonical reference for the gamified Challenge/Achievement system. Use this to understand, expand, or rebuild the challenge infrastructure.
+This is a **summary guide** for the gamified Challenge/Achievement system. Use this to understand the overall structure and architecture.
+
+**IMPORTANT:** The source of truth for all challenge definitions is `src/data/challengeConfig.ts`. This document provides an architectural overview and representative examples, but does NOT duplicate every tier threshold or configuration detail from the code.
+
+**To modify challenges:** Edit `src/data/challengeConfig.ts` directly. This document should be updated to reflect structural changes (new categories, tier system changes) but does not need to mirror every challenge attribute.
 
 ---
 
@@ -67,7 +71,7 @@ Challenges are the **gamified achievement layer** that:
 | `src/etl/loaders/challengeProgressLoader.ts` | Writes computed metrics to `player_challenge_progress` |
 | `src/etl/types.ts` | METRIC_REGISTRY mapping challenge keys to extractors |
 | `shared/schema.ts` | Database table definitions |
-| `docs/BACKEND_OVERVIEW_ETL.md` | ETL architecture documentation |
+| `docs/MASTER_CHALLENGE_SYSTEM.md` | Master narrative document |
 
 ### Data Flow
 ```
@@ -108,7 +112,7 @@ Blockchain Data (heroes, quests, summons, gardens)
 
 ## Tier Systems
 
-The system uses **dual tier taxonomies** to match DFK's rarity and gene systems:
+The system uses **four tier taxonomies** to match DFK's rarity and gene systems:
 
 ### RARITY Tier System (5 tiers)
 For quantity-based achievements that parallel hero rarity.
@@ -141,184 +145,200 @@ Ultra-rare achievements with only EXALTED and MYTHIC tiers.
 
 ## Category Breakdown
 
-### 8 Challenge Categories
+### 16 Challenge Categories (52 Total Challenges)
 
-| # | Key | Name | Tier System | Focus Area |
-|---|-----|------|-------------|------------|
-| 1 | `hero_progression` | Hero Progression | RARITY | Levels, quests, training, meditation |
-| 2 | `economy_strategy` | Economy & Strategy | GENE | Yields, reinvestment, optimization |
-| 3 | `profession_specialization` | Profession Specialization | MIXED | Mining, gardening, fishing, foraging |
-| 4 | `ownership_collection` | Ownership & Collection | RARITY | Heroes, pets, Gen0s |
-| 5 | `behavior_engagement` | Behavior & Engagement | GENE | Discord interaction, loyalty, anti-extractor |
-| 6 | `seasonal_events` | Seasonal Events | MIXED | Time-limited challenges |
-| 7 | `prestige_overall` | Prestige | PRESTIGE | Account-wide ultra-rare achievements |
-| 8 | `summoning_prestige` | Summoning Prestige | PRESTIGE | Ultra-rare hero summons |
+**Note:** `src/data/challengeConfig.ts` is the authoritative source of truth. This document provides an overview.
+
+| # | Key | Name | Tier System | Challenges | Focus Area |
+|---|-----|------|-------------|------------|------------|
+| 1 | `hero_progression` | Hero Progression | RARITY | 3 | Levels, hunting wins, PvP participation |
+| 2 | `economy_strategy` | Economy & Strategy | GENE | 3 | Gold vendors, LP, staking duration |
+| 3 | `profession_specialization` | Profession Specialization | MIXED | 2 | Mining, foraging quests |
+| 4 | `ownership_collection` | Ownership & Collection | RARITY | 2 | Heroes, pets |
+| 5 | `behavior_engagement` | Behavior & Engagement | GENE | 2 | Active days, Discord engagement |
+| 6 | `seasonal_events` | Seasonal & Events | MIXED | 1 | Seasonal voyager |
+| 7 | `prestige_overall` | Prestige | PRESTIGE | 1 | Account age |
+| 8 | `summoning_prestige` | Summoning & Bloodlines | PRESTIGE | 5 | Mutations, mythics, legendary classes |
+| 9 | `hunting_pve` | Hunting | RARITY | 4 | Boss kills, relics, miracles |
+| 10 | `pvp_competition` | PvP Competition | GENE | 3 | Wins, streaks, flawless |
+| 11 | `metis_pve` | METIS Patrols | RARITY | 2 | Patrol wins, elite patrols |
+| 12 | `metis_economy` | METIS Economy | MIXED | 4 | Shells, raffles, influence |
+| 13 | `metis_tournaments` | METIS Tournaments | GENE | 3 | Entries, wins, champion |
+| 14 | `defi_participation` | DeFi Participation | RARITY | 6 | LP depth, pools, harvests, Jeweler |
+| 15 | `epic_feats` | Epic Feats | PRESTIGE | 6 | Account-defining mythic achievements |
+| 16 | `global_meta_profile` | Global Meta Profile | MIXED | 5 | Aggregated mastery scores |
 
 ---
 
 ## Complete Challenge Catalog
 
-### Category 1: Hero Progression (14 challenges)
-
-| Key | Name | Metric Type | Source | Metric Key | Thresholds |
-|-----|------|-------------|--------|------------|------------|
-| `hero_riser` | Hero Riser | COUNT | onchain_heroes | total_levels | 100/300/600/1000/2000 |
-| `master_of_professions` | Master of Professions | COUNT | onchain_quests | profession_quests_total | 100/500/2000/5000/10000 |
-| `eternal_summoner` | The Eternal Summoner | COUNT | onchain_summons | total_summons | 5/15/30/60/120 |
-| `class_mastery_trial` | Class Mastery Trial | COUNT | onchain_heroes | classes_level10_plus | 3/5/7/10/14 |
-| `great_questor_streak` | The Great Questor | STREAK | behavior_model | quest_day_streak | 3/7/14/30/60 |
-| `trainers_path` | Trainer's Path | COUNT | onchain_quests | training_quests_total | 50/200/500/1500/3000 |
-| `stat_specialist` | Stat Specialist | SCORE | behavior_model | training_stat_match_pct | 40/60/80/95 (GENE) |
-| `crystal_seeker` | Crystal Seeker | COUNT | onchain_quests | training_crystals_obtained | 5/15/40/100/250 |
-| `dedicated_trainer` | The Dedicated Trainer | STREAK | behavior_model | training_day_streak | 3/7/14/30/60 |
-| `crystal_consumer` | Crystal Consumer | COUNT | onchain_meditation | crystals_used_total | 5/20/50/150/300 |
-| `focused_meditation` | Focused Meditation | SCORE | behavior_model | correct_crystal_usage_pct | 40/60/80/95 (GENE) |
-| `enlightened_one` | The Enlightened One | COUNT | onchain_meditation | total_meditations | 10/30/75/200/400 |
-| `stat_mastery` | Stat Mastery | COUNT | onchain_meditation | total_stat_gain | 20/60/150/400/800 |
-| `genetic_enlightenment` | Genetic Enlightenment | COUNT | onchain_meditation | perfect_meditations | 1/5 (PRESTIGE) |
-
-**Data Capture Plan:**
-- `onchain_heroes`: GraphQL query for hero list, compute total_levels, count unique classes at L10+
-- `onchain_quests`: GraphQL query hero quest history, count by quest type
-- `onchain_summons`: GraphQL query summon events, count totals
-- `onchain_meditation`: Query MeditationCircle contract events for crystal usage and stat gains
-- `behavior_model`: Compute streaks from daily activity timestamps, efficiency % from training stat matching
+**Note:** For exact tier thresholds and full challenge details, see `src/data/challengeConfig.ts`. Challenges use GENE tiers (BASIC/ADVANCED/ELITE/EXALTED) or RARITY tiers (COMMON/UNCOMMON/RARE/LEGENDARY/MYTHIC) depending on the category's tier system.
 
 ---
 
-### Category 2: Economy & Strategy (5 challenges)
+### Category 1: Hero Progression (`hero_progression`) - 3 challenges
 
-| Key | Name | Metric Type | Source | Metric Key | Thresholds |
-|-----|------|-------------|--------|------------|------------|
-| `yield_strategist` | Yield Strategist | SCORE | behavior_model | quest_efficiency_pct | 50/70/85/95 |
-| `garden_architect` | Garden Architect | COUNT | onchain_gardens | lp_yield_token_equivalent | 500/2500/10000/25000 |
-| `token_steward` | Token Steward | SCORE | onchain_portfolio | jewel_equivalent_balance | 100/300/1000/5000 |
-| `reinvestment_sage` | Reinvestment Sage | SCORE | behavior_model | reinvest_ratio_pct | 30/50/70/85 |
-| `optimization_follower` | Optimization Follower | COUNT | behavior_model | optimizations_completed | 1/5/15/40 |
-
-**Data Capture Plan:**
-- `onchain_gardens`: LP position detection via MasterGardener contract, yield calculations
-- `onchain_portfolio`: Balance fetcher for JEWEL/CRYSTAL/cJEWEL
-- `behavior_model`: 
-  - quest_efficiency_pct: Compare actual quest completions vs theoretical max
-  - reinvest_ratio_pct: (tokens reinvested / tokens earned) * 100
-  - optimizations_completed: Count of garden optimization suggestions followed
-
-**Player Classification Signal:**
-- `reinvestment_sage` tier directly feeds extractor detection (low reinvestment = extractor signal)
-- `yield_strategist` + `garden_architect` tiers indicate "optimizer" archetype
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `hero_riser` | Hero Riser | COUNT | Accumulate total hero levels (RARITY tiers: 100→2000) |
+| `hunters_triumph` | Hunter's Triumph | COUNT | Win Hunting encounters (GENE tiers: 10→1000) |
+| `arena_challenger` | Arena Challenger | COUNT | Participate in ranked PvP matches (GENE tiers: 5→250) |
 
 ---
 
-### Category 3: Profession Specialization (6 challenges)
+### Category 2: Economy & Strategy (`economy_strategy`) - 3 challenges
 
-| Key | Name | Metric Type | Source | Metric Key | Thresholds |
-|-----|------|-------------|--------|------------|------------|
-| `great_miner` | The Great Miner | COUNT | onchain_quests | mining_quests | 50/250/1000/3000/6000 |
-| `herbalist` | The Herbalist | COUNT | onchain_quests | gardening_quests | 50/250/1000/3000/6000 |
-| `fisher_king` | The Fisher King | COUNT | onchain_quests | fishing_quests | 50/250/1000/3000/6000 |
-| `ranger_of_the_wilds` | Ranger of the Wilds | COUNT | onchain_quests | foraging_quests | 50/250/1000/3000/6000 |
-| `profession_purist` | Profession Purist | SCORE | behavior_model | profession_match_pct | 60/75/85/95 (GENE) |
-| `bonus_trigger_master` | Bonus Trigger Master | SCORE | behavior_model | profession_bonus_trigger_pct | 20/35/50/65 (GENE) |
-
-**Data Capture Plan:**
-- `onchain_quests`: Filter quest completions by quest contract address (mining/gardening/fishing/foraging)
-- `behavior_model`:
-  - profession_match_pct: (heroes with matching profession / total questing heroes) * 100
-  - profession_bonus_trigger_pct: (bonus triggers / total quest attempts) * 100
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `vendor_tycoon` | Vendor Tycoon | COUNT | Spend gold at NPC vendors (GENE tiers: 1K→100K) |
+| `market_maker` | Market Maker | COUNT | Provide LP liquidity (GENE tiers: 7→180 days) |
+| `jeweler_loyalty` | Jeweler Loyalty | COUNT | Maintain Jeweler staking (GENE tiers: 7→365 days) |
 
 ---
 
-### Category 4: Ownership & Collection (3 challenges)
+### Category 3: Profession Specialization (`profession_specialization`) - 2 challenges
 
-| Key | Name | Metric Type | Source | Metric Key | Thresholds |
-|-----|------|-------------|--------|------------|------------|
-| `house_of_heroes` | House of Heroes | COUNT | onchain_heroes | hero_count | 5/15/30/60/120 |
-| `pet_sanctuary` | Pet Sanctuary | COUNT | onchain_pets | pet_count | 2/5/10/20/40 |
-| `gen0_monarch` | Gen0 Monarch | COUNT | onchain_heroes | gen0_count | 1/3/5/10/20 |
-
-**Data Capture Plan:**
-- `onchain_heroes`: Simple count from hero list, filter for generation=0
-- `onchain_pets`: Query Pet contract for owned pets
-
-**Player Classification Signal:**
-- `house_of_heroes` tier indicates portfolio size (whale detection)
-- `gen0_monarch` indicates long-term investment commitment
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `miner_master` | Master Miner | COUNT | Complete Mining quests (GENE tiers: 50→2000) |
+| `herbalist_master` | Master Herbalist | COUNT | Complete Foraging quests (GENE tiers: 50→2000) |
 
 ---
 
-### Category 5: Behavior & Engagement (4 challenges)
+### Category 4: Ownership & Collection (`ownership_collection`) - 2 challenges
 
-| Key | Name | Metric Type | Source | Metric Key | Thresholds |
-|-----|------|-------------|--------|------------|------------|
-| `kingdom_calls` | The Kingdom Calls | COUNT | discord_interactions | messages_to_hedge | 10/50/200/1000 |
-| `loyal_follower` | Loyal Follower | STREAK | discord_interactions | hedge_day_streak | 3/7/14/30 |
-| `non_extractor` | The Non-Extractor | SCORE | behavior_model | extractor_score_inverted | 30/50/70/85 |
-| `hedges_chosen` | Hedge's Chosen | COUNT | payment_events | jewel_sent_to_hedge | 1/5/20/50 |
-
-**Data Capture Plan:**
-- `discord_interactions`: Query bot interaction logs for message counts per user
-- `behavior_model`:
-  - extractor_score_inverted: 100 - extractorScore (from bridge tracker)
-- `payment_events`: Query payment monitor for JEWEL transfers to Hedge wallet
-
-**Player Classification Signal:**
-- `non_extractor` is the **primary extractor detection signal**
-  - BASIC (30+) = extractor_score < 70%
-  - EXALTED (85+) = extractor_score < 15% (verified builder)
-- `hedges_chosen` indicates premium subscriber loyalty
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `house_of_heroes` | House of Heroes | COUNT | Own heroes (RARITY tiers: 10→200) |
+| `pet_sanctuary` | Pet Sanctuary | COUNT | Collect pets by rarity score (RARITY tiers: 10→200) |
 
 ---
 
-### Category 6: Seasonal Events (1 challenge - inactive)
+### Category 5: Behavior & Engagement (`behavior_engagement`) - 2 challenges
 
-| Key | Name | Metric Type | Source | Metric Key | Thresholds |
-|-----|------|-------------|--------|------------|------------|
-| `winters_solstice` | Winter's Solstice | COUNT | event_progress | winter_level_ups | 3/5/8/12/20 |
-
-**Status:** `isActive: false` - Activate during winter event windows.
-
-**Data Capture Plan:**
-- `event_progress`: Track level-ups during defined event date ranges
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `kingdom_calls` | The Kingdom Calls | COUNT | Active days in the Kingdom (GENE tiers: 7→365 days) |
+| `loyal_follower` | Loyal Follower | COUNT | Discord engagement score (GENE tiers: 10→250) |
 
 ---
 
-### Category 7: Prestige (4 challenges)
+### Category 6: Seasonal & Events (`seasonal_events`) - 1 challenge
 
-| Key | Name | Metric Type | Source | Metric Key | Thresholds |
-|-----|------|-------------|--------|------------|------------|
-| `true_exalted_bloodline` | True Exalted Bloodline | COUNT | onchain_heroes | exalted_gene_hero_count | 10 (EXALTED) |
-| `mythic_hoarder` | Mythic Hoarder | COUNT | onchain_heroes | mythic_hero_count | 3 (MYTHIC) |
-| `eternal_activity` | Eternal Activity | STREAK | behavior_model | long_term_active_days | 120 (MYTHIC) |
-| `master_of_all_trades` | Master of All Trades | BOOLEAN | behavior_model | all_categories_rare_plus | 1 (EXALTED) |
-
-**Data Capture Plan:**
-- `onchain_heroes`: Filter for rarity=mythic, decode genes for exalted tier
-- `behavior_model`:
-  - long_term_active_days: Estimated from first tx date + activity frequency
-  - all_categories_rare_plus: Check if player has RARE+ in all main categories
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `seasonal_voyager` | Seasonal Voyager | COUNT | Participate in seasonal events (GENE tiers: 10→100) |
 
 ---
 
-### Category 8: Summoning Prestige (8 challenges)
+### Category 7: Prestige (`prestige_overall`) - 1 challenge
 
-| Key | Name | Metric Type | Source | Metric Key | Thresholds |
-|-----|------|-------------|--------|------------|------------|
-| `summon_dragoon` | The Dragonborn | COUNT | onchain_summons | summons_dragoon | 1(E)/3(X)/5(M) |
-| `summon_dreadknight` | The Dread Summoner | COUNT | onchain_summons | summons_dreadknight | 1(X)/2(M) |
-| `summon_sage` | The Ascended Sages | COUNT | onchain_summons | summons_sage | 1(E)/3(X)/5(M) |
-| `summon_paladin` | Blade of Light | COUNT | onchain_summons | summons_paladin | 1(A)/3(E)/5(X)/10(M) |
-| `summon_dark_knight` | Shadowmaker | COUNT | onchain_summons | summons_dark_knight | 1(A)/3(E)/5(X)/10(M) |
-| `summon_high_tier_genes` | Gene Alchemist | COUNT | onchain_summons | summons_high_tier_genes | 1(B)/3(A)/5(E)/10(X) |
-| `summon_mythic_heroes` | Mythmaker | COUNT | onchain_summons | summons_mythic_rarity | 1(E)/2(X)/3(M) |
-| `summon_trifecta` | Royal Lineage | BOOLEAN | onchain_summons | has_trifecta_ultra_rare | 1(X)/2(M) |
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `long_road_home` | Long Road Home | COUNT | Remain active for 365+ days (MYTHIC only) |
 
-**Data Capture Plan:**
-- `onchain_summons`: Query HeroSummoningUpgradeable contract events
-  - Filter by summoned hero class for Dragoon/Dreadknight/Sage/Paladin/DarkKnight
-  - Decode genes for high-tier gene detection
-  - Check rarity for mythic summons
-  - Boolean for trifecta (has summoned at least 1 of each ultra-rare)
+---
+
+### Category 8: Summoning & Bloodlines (`summoning_prestige`) - 5 challenges
+
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `perfect_pairing` | Perfect Pairing | BOOLEAN | Summon hero with 2+ upward mutations (MYTHIC unlock) |
+| `mutagenic_specialist` | Mutagenic Specialist | COUNT | Summon heroes with 3+ mutations (GENE tiers: 1→25) |
+| `mythmaker` | Mythmaker | COUNT | Summon Mythic-rarity heroes (GENE tiers: 1→25) |
+| `royal_lineage` | Royal Lineage | COUNT | Inherit mutations from mutated parents (GENE tiers: 1→25) |
+| `summoner_of_legends` | Summoner of Legends | COMPOSITE | Summon Dragoon, Sage, Spellbow, Dreadknight (MYTHIC unlock) |
+
+---
+
+### Category 9: Hunting (`hunting_pve`) - 4 challenges
+
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `motherclucker_slayer` | Motherclucker Slayer | COUNT | Defeat Motherclucker boss (GENE tiers: 1→100) |
+| `mad_boar_slayer` | Mad Boar Slayer | COUNT | Defeat Mad Boar boss (GENE tiers: 1→100) |
+| `relic_tracker` | Relic Tracker | COUNT | Collect ultra-rare relics (GENE tiers: 1→25) |
+| `clucker_miracle` | Clucker Miracle | BOOLEAN | Defeat Motherclucker with 1 hero at 1 HP (MYTHIC unlock) |
+
+---
+
+### Category 10: PvP Competition (`pvp_competition`) - 3 challenges
+
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `arena_victor` | Arena Victor | COUNT | Win ranked PvP matches (GENE tiers: 3→150) |
+| `win_streak` | Win Streak | STREAK | Consecutive PvP victories (GENE tiers: 2→20) |
+| `flawless_victory` | Flawless Victory | BOOLEAN | Win PvP with zero hero deaths (MYTHIC unlock) |
+
+---
+
+### Category 11: METIS Patrols (`metis_pve`) - 2 challenges
+
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `patrol_warden` | Patrol Warden | COUNT | Win METIS patrol encounters (GENE tiers: 5→300) |
+| `elite_patroller` | Elite Patroller | COUNT | Win elite-tier patrols (GENE tiers: 1→50) |
+
+---
+
+### Category 12: METIS Economy (`metis_economy`) - 4 challenges
+
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `shell_collector` | Shell Collector | COUNT | Accumulate METIS shells (GENE tiers: 10→1000) |
+| `shell_gambler` | Shell Gambler | COUNT | Enter shell raffles (GENE tiers: 5→250) |
+| `shell_jackpot` | Shell Jackpot | BOOLEAN | Win a shell raffle (MYTHIC unlock) |
+| `influence_strategist` | Influence Strategist | COUNT | Win Influence predictions (GENE tiers: 1→50) |
+
+---
+
+### Category 13: METIS Tournaments (`metis_tournaments`) - 3 challenges
+
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `tournament_challenger` | Tournament Challenger | COUNT | Enter METIS tournaments (GENE tiers: 1→20) |
+| `tournament_victor` | Tournament Victor | COUNT | Win tournament matches (GENE tiers: 1→25) |
+| `metis_champion` | METIS Champion | BOOLEAN | Finish in top bracket (MYTHIC unlock) |
+
+---
+
+### Category 14: DeFi Participation (`defi_participation`) - 6 challenges
+
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `lp_depth` | Liquidity Depth | COUNT | USD value in LP pools (GENE tiers: 1K→100K) |
+| `lp_diversified` | Diversified Provider | COUNT | LP across multiple pools (GENE tiers: 2→10) |
+| `yield_harvester` | Yield Harvester | COUNT | Harvest LP rewards (GENE tiers: 5→200) |
+| `diamond_hand_lp` | Diamond-Hand LP | COUNT | LP position duration (GENE tiers: 7→180 days) |
+| `jeweler_stakeholder` | Jeweler Stakeholder | COUNT | Stake USD value at Jeweler (GENE tiers: 1K→100K) |
+| `jeweler_whale` | Jeweler Whale | BOOLEAN | 10K+ JEWEL stake (MYTHIC unlock) |
+
+---
+
+### Category 15: Epic Feats (`epic_feats`) - 6 challenges
+
+All Epic Feats are BOOLEAN with MYTHIC unlock only:
+
+| Key | Name | Description |
+|-----|------|-------------|
+| `vangardian` | Vangardian | Achieve mastery across METIS patrols, economy, influence, and tournaments |
+| `worldforged_summoner` | Worldforged Summoner | Summon a Dreadknight with 4+ upward mutations |
+| `grandmaster_geneweaver` | Grandmaster Geneweaver | Create 3-generation lineage with escalating mutation depth |
+| `eternal_collector` | Eternal Collector | Own Mythic heroes of every class |
+| `crowned_jeweler` | Crowned Jeweler | Maintain continuous JEWEL lock for 1000 days |
+| `mythic_menagerie` | Mythic Menagerie | Own Odd/Ultra Odd variant from every pet family |
+
+---
+
+### Category 16: Global Meta Profile (`global_meta_profile`) - 5 challenges
+
+| Key | Name | Type | Description |
+|-----|------|------|-------------|
+| `prestige_collector` | Prestige Collector | COUNT | Unlock prestige achievements (GENE tiers: 1→12) |
+| `category_master` | Category Master | COUNT | Achieve EXALTED in categories (GENE tiers: 1→10) |
+| `summoning_prestige_score` | Summoning Prestige Score | SCORE | Composite summoning score (25→400) |
+| `pvp_mastery_score` | PvP Mastery Score | SCORE | Composite PvP score (25→400) |
+| `metis_mastery_score` | METIS Mastery Score | SCORE | Composite METIS score (25→400) |
 
 ---
 
@@ -332,37 +352,17 @@ Ultra-rare achievements with only EXALTED and MYTHIC tiers.
 | `onchain_quests` | Quest completion history | GraphQL: hero quest history + RPC events |
 | `onchain_summons` | Summon events | RPC: HeroSummoningUpgradeable events |
 | `onchain_pets` | Pet ownership | RPC: Pet contract ownership query |
-| `onchain_meditation` | Meditation/crystal usage | RPC: MeditationCircle events |
-| `onchain_gardens` | LP positions/yields | RPC: MasterGardener userInfo + balanceOf |
-| `onchain_portfolio` | Token balances | RPC: ERC20 balanceOf calls |
-| `behavior_model` | Computed behavior metrics | Transform phase calculations |
-| `discord_interactions` | Discord bot usage | Database: interaction logs |
-| `payment_events` | JEWEL payments to Hedge | Database: payment monitor logs |
-| `event_progress` | Seasonal event tracking | Special event-scoped tracking |
-
-### METRIC_REGISTRY Pattern
-
-In `src/etl/types.ts`, register extractors:
-
-```typescript
-export const METRIC_REGISTRY: Record<string, MetricExtractor> = {
-  // Hero metrics
-  'onchain_heroes:total_levels': {
-    extractor: (data) => data.heroes.totalLevels,
-  },
-  'onchain_heroes:hero_count': {
-    extractor: (data) => data.heroes.heroCount,
-  },
-  'onchain_heroes:gen0_count': {
-    extractor: (data) => data.heroes.heroes.filter(h => h.generation === 0).length,
-  },
-  // Quest metrics
-  'onchain_quests:profession_quests_total': {
-    extractor: (data) => data.quests.professionQuestsTotal,
-  },
-  // ... more extractors
-};
-```
+| `onchain_hunting` | Hunting encounters | RPC: Hunting contract events |
+| `onchain_pvp` | PvP match results | RPC: PvP contract events |
+| `onchain_lp` | LP positions/yields | RPC: MasterGardener userInfo + balanceOf |
+| `onchain_staking` | Jeweler stakes | RPC: Jeweler contract balances |
+| `onchain_patrols` | METIS patrol results | RPC: METIS patrol contract events |
+| `onchain_tournaments` | Tournament participation | RPC: Tournament contract events |
+| `behavior_events` | Computed behavior metrics | Transform phase calculations |
+| `seasonal_events` | Seasonal event tracking | Special event-scoped tracking |
+| `metis_economy` | METIS economy data | RPC: Shell/raffle/influence contracts |
+| `epic_feats` | Epic achievement tracking | Composite calculations |
+| `meta_profile` | Aggregated profile data | Cross-challenge calculations |
 
 ---
 
@@ -391,20 +391,6 @@ CREATE INDEX idx_pcp_challenge_key ON player_challenge_progress(challenge_key);
 CREATE INDEX idx_pcp_wallet ON player_challenge_progress(wallet_address);
 ```
 
-### Meta Field Structure
-
-For STREAK challenges:
-```json
-{
-  "streakStart": "2024-12-01T00:00:00Z",
-  "streakEnd": "2024-12-09T00:00:00Z",
-  "history": [
-    { "value": 3, "date": "2024-12-01" },
-    { "value": 5, "date": "2024-12-05" }
-  ]
-}
-```
-
 ---
 
 ## ETL Pipeline
@@ -412,9 +398,9 @@ For STREAK challenges:
 ### Trigger Points
 
 1. **First wallet link** → Auto-trigger ETL for cluster
-2. **Incremental (10 min)** → Active wallets only
-3. **Daily snapshot (03:00 UTC)** → All wallets
-4. **Manual trigger** → `/api/debug/trigger-etl`
+2. **Incremental (every 6 hours)** → Active wallets only
+3. **Daily snapshot (04:00 UTC)** → Full snapshot
+4. **Manual trigger** → Admin dashboard button
 
 ### challengeProgressLoader Flow
 
@@ -443,36 +429,12 @@ async function loadChallengeProgress(ctx, data, transform) {
 
 | Challenge | Classification Signal |
 |-----------|----------------------|
-| `non_extractor` tier | Direct extractor score input |
-| `reinvestment_sage` tier | Reinvestment ratio for builder vs extractor |
+| `kingdom_calls` tier | Activity level for engagement |
+| `loyal_follower` tier | Discord engagement |
 | `house_of_heroes` tier | Portfolio size (whale indicator) |
-| `hedges_chosen` tier | Premium subscriber loyalty |
-| `eternal_activity` tier | Long-term commitment |
+| `lp_depth` tier | DeFi commitment |
+| `jeweler_stakeholder` tier | Staking commitment |
 | Multiple prestige tiers | "Power player" archetype |
-
-### Example Classification Logic
-
-```typescript
-function classifyPlayer(challengeProgress) {
-  const nonExtractor = getProgress('non_extractor');
-  const reinvestment = getProgress('reinvestment_sage');
-  const heroes = getProgress('house_of_heroes');
-  
-  if (nonExtractor.highestTier < 'BASIC') {
-    return 'EXTRACTOR'; // extractor_score > 70%
-  }
-  
-  if (heroes.highestTier >= 'LEGENDARY' && reinvestment.highestTier >= 'ELITE') {
-    return 'WHALE_BUILDER';
-  }
-  
-  if (reinvestment.highestTier >= 'ADVANCED') {
-    return 'BUILDER';
-  }
-  
-  return 'CASUAL';
-}
-```
 
 ---
 
@@ -508,16 +470,9 @@ function classifyPlayer(challengeProgress) {
 },
 ```
 
-3. **If behavior_model source, add transformer logic:**
-```typescript
-// In behaviorTransformer.ts
-newMetricKey: computeNewMetric(data),
-```
+3. **If behavior_model source, add transformer logic**
 
-4. **Run ETL to populate data:**
-```bash
-POST /api/debug/trigger-etl
-```
+4. **Run ETL to populate data**
 
 ### Adding a New Category
 
@@ -528,7 +483,7 @@ POST /api/debug/trigger-etl
   name: "New Category Name",
   description: "What this category represents.",
   tierSystem: "GENE", // RARITY | GENE | MIXED | PRESTIGE
-  sortOrder: 9,
+  sortOrder: 17,
 },
 ```
 
@@ -536,642 +491,18 @@ POST /api/debug/trigger-etl
 
 ### Deactivating a Challenge
 
-Simply set `isActive: false` in the challenge definition. The ETL will skip it but existing progress is preserved.
+Set `isActive: false` in the challenge definition. The ETL will skip it but existing progress is preserved.
 
 ---
 
-## Appendix A: Complete Challenge Reference
+## Version History
 
-### Category 1: Hero Progression
-
-#### 1.1 Hero Riser
-- **Key:** `hero_riser`
-- **Description:** Accumulate total hero levels across your roster.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 100 total levels
-  - Uncommon: 300 total levels
-  - Rare: 600 total levels
-  - Legendary: 1,000 total levels
-  - Mythic: 2,000 total levels (Prestige)
-- **Data Capture Plan:** GraphQL query `getAllHeroesByOwner()`, sum all hero levels from the returned hero array.
-- **Player Classification Signal:** None directly; supports overall portfolio assessment.
-
-#### 1.2 Master of Professions
-- **Key:** `master_of_professions`
-- **Description:** Complete profession quests with any heroes.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 100 profession quests
-  - Uncommon: 500 profession quests
-  - Rare: 2,000 profession quests
-  - Legendary: 5,000 profession quests
-  - Mythic: 10,000 profession quests (Prestige)
-- **Data Capture Plan:** Query hero quest history via GraphQL, filter by profession quest contract addresses (mining, gardening, fishing, foraging), count completions.
-- **Player Classification Signal:** High activity indicates active player; supports Builder archetype detection.
-
-#### 1.3 The Eternal Summoner
-- **Key:** `eternal_summoner`
-- **Description:** Perform hero summons.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 5 summons
-  - Uncommon: 15 summons
-  - Rare: 30 summons
-  - Legendary: 60 summons
-  - Mythic: 120 summons (Prestige)
-- **Data Capture Plan:** Query HeroSummoningUpgradeable contract events for `HeroSummoned` events where the summoner matches the wallet.
-- **Player Classification Signal:** High summon count indicates reinvestment behavior; supports Builder detection.
-
-#### 1.4 Class Mastery Trial
-- **Key:** `class_mastery_trial`
-- **Description:** Level different hero classes to 10+.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 3 unique classes at L10+
-  - Uncommon: 5 unique classes at L10+
-  - Rare: 7 unique classes at L10+
-  - Legendary: 10 unique classes at L10+
-  - Mythic: 14 unique classes at L10+ (all basic + advanced classes) (Prestige)
-- **Data Capture Plan:** From hero list, group by `mainClassStr`, filter for level >= 10, count unique classes.
-- **Player Classification Signal:** Diversity indicates strategic player; supports Optimizer archetype.
-
-#### 1.5 The Great Questor
-- **Key:** `great_questor_streak`
-- **Description:** Maintain a streak of days with at least one quest.
-- **Metric Type:** STREAK
-- **Thresholds:**
-  - Common: 3-day streak
-  - Uncommon: 7-day streak
-  - Rare: 14-day streak
-  - Legendary: 30-day streak
-  - Mythic: 60-day streak (Prestige)
-- **Data Capture Plan:** Analyze quest completion timestamps, compute consecutive days with activity. Store streak start/end in meta field.
-- **Player Classification Signal:** Long streaks indicate committed player; supports Builder and anti-Extractor detection.
-
-#### 1.6 Trainer's Path
-- **Key:** `trainers_path`
-- **Description:** Complete training quests.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 50 training quests
-  - Uncommon: 200 training quests
-  - Rare: 500 training quests
-  - Legendary: 1,500 training quests
-  - Mythic: 3,000 training quests (Prestige)
-- **Data Capture Plan:** Query quest history, filter by training quest contract addresses, count completions.
-- **Player Classification Signal:** Training focus indicates long-term investment mindset.
-
-#### 1.7 Stat Specialist
-- **Key:** `stat_specialist`
-- **Description:** Complete training quests using the optimal training stat for your heroes.
-- **Metric Type:** SCORE (percentage)
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 40% optimal stat match
-  - Advanced: 60% optimal stat match
-  - Elite: 80% optimal stat match
-  - Exalted: 95% optimal stat match (Prestige)
-- **Data Capture Plan:** Compare training quest stat selection vs hero's primary growth stat. Calculate (matching quests / total training quests) * 100.
-- **Player Classification Signal:** High efficiency indicates Optimizer archetype.
-
-#### 1.8 Crystal Seeker
-- **Key:** `crystal_seeker`
-- **Description:** Obtain lesser training crystals from training quests.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 5 crystals obtained
-  - Uncommon: 15 crystals obtained
-  - Rare: 40 crystals obtained
-  - Legendary: 100 crystals obtained
-  - Mythic: 250 crystals obtained (Prestige)
-- **Data Capture Plan:** Parse training quest reward events for crystal drops, count by wallet.
-- **Player Classification Signal:** None directly; supports training engagement metrics.
-
-#### 1.9 The Dedicated Trainer
-- **Key:** `dedicated_trainer`
-- **Description:** Maintain a daily streak of training quests.
-- **Metric Type:** STREAK
-- **Thresholds:**
-  - Common: 3-day streak
-  - Uncommon: 7-day streak
-  - Rare: 14-day streak
-  - Legendary: 30-day streak
-  - Mythic: 60-day streak (Prestige)
-- **Data Capture Plan:** Analyze training quest timestamps for consecutive days. Store streak metadata.
-- **Player Classification Signal:** Consistency indicates Builder behavior.
-
-#### 1.10 Crystal Consumer
-- **Key:** `crystal_consumer`
-- **Description:** Use lesser training crystals during meditation.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 5 crystals used
-  - Uncommon: 20 crystals used
-  - Rare: 50 crystals used
-  - Legendary: 150 crystals used
-  - Mythic: 300 crystals used (Prestige)
-- **Data Capture Plan:** Query MeditationCircle contract for `MeditationCompleted` events, parse crystal parameters.
-- **Player Classification Signal:** Crystal usage indicates reinvestment; supports Builder detection.
-
-#### 1.11 Focused Meditation
-- **Key:** `focused_meditation`
-- **Description:** Use the correct type of crystal for the stats you are targeting.
-- **Metric Type:** SCORE (percentage)
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 40% correct crystal usage
-  - Advanced: 60% correct crystal usage
-  - Elite: 80% correct crystal usage
-  - Exalted: 95% correct crystal usage (Prestige)
-- **Data Capture Plan:** Compare crystal type used vs stat targeted in meditation. Calculate (correct usage / total meditations) * 100.
-- **Player Classification Signal:** Efficiency indicates Optimizer archetype.
-
-#### 1.12 The Enlightened One
-- **Key:** `enlightened_one`
-- **Description:** Perform meditations to advance your heroes using crystals and runes.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 10 meditations
-  - Uncommon: 30 meditations
-  - Rare: 75 meditations
-  - Legendary: 200 meditations
-  - Mythic: 400 meditations (Prestige)
-- **Data Capture Plan:** Count `MeditationCompleted` events from MeditationCircle contract.
-- **Player Classification Signal:** Meditation count indicates hero development investment.
-
-#### 1.13 Stat Mastery
-- **Key:** `stat_mastery`
-- **Description:** Achieve total stat increases across all meditations.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 20 total stat points gained
-  - Uncommon: 60 total stat points gained
-  - Rare: 150 total stat points gained
-  - Legendary: 400 total stat points gained
-  - Mythic: 800 total stat points gained (Prestige)
-- **Data Capture Plan:** Sum stat gain values from meditation events.
-- **Player Classification Signal:** High stat gains indicate long-term hero investment.
-
-#### 1.14 Genetic Enlightenment
-- **Key:** `genetic_enlightenment`
-- **Description:** Achieve perfect meditations where all selected stats succeed.
-- **Metric Type:** COUNT
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Exalted: 1 perfect meditation (Prestige)
-  - Mythic: 5 perfect meditations (Prestige)
-- **Data Capture Plan:** Parse meditation events for success flags on all attempted stats.
-- **Player Classification Signal:** Ultra-rare achievement; indicates Power Player archetype.
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | Initial | 8 categories |
+| 2.0 | Dec 2024 | 16 categories - added Hunting, PvP, METIS categories, DeFi Participation, Epic Feats, Global Meta Profile |
 
 ---
 
-### Category 2: Economy & Strategy
-
-#### 2.1 Yield Strategist
-- **Key:** `yield_strategist`
-- **Description:** Optimize questing APR compared to your heroes' theoretical max potential.
-- **Metric Type:** SCORE (percentage)
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 50% efficiency
-  - Advanced: 70% efficiency
-  - Elite: 85% efficiency
-  - Exalted: 95% efficiency for 30+ days (Prestige)
-- **Data Capture Plan:** Calculate actual quest yields vs theoretical maximum based on hero stats/professions. Compute efficiency ratio.
-- **Player Classification Signal:** High efficiency strongly indicates Optimizer archetype.
-
-#### 2.2 Garden Architect
-- **Key:** `garden_architect`
-- **Description:** Accumulate yield from Gardens and LP positions.
-- **Metric Type:** COUNT (token equivalent)
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 500 JEWEL equivalent yield
-  - Advanced: 2,500 JEWEL equivalent yield
-  - Elite: 10,000 JEWEL equivalent yield
-  - Exalted: 25,000 JEWEL equivalent yield (Prestige)
-- **Data Capture Plan:** Query MasterGardener for LP positions, calculate yields using garden analytics engine.
-- **Player Classification Signal:** LP engagement indicates long-term DeFi commitment; supports Builder detection.
-
-#### 2.3 Token Steward
-- **Key:** `token_steward`
-- **Description:** Maintain a healthy JEWEL/CRYSTAL/METIS portfolio.
-- **Metric Type:** SCORE (token count)
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 100 JEWEL equivalent
-  - Advanced: 300 JEWEL equivalent
-  - Elite: 1,000 JEWEL equivalent
-  - Exalted: 5,000 JEWEL equivalent (Prestige)
-- **Data Capture Plan:** Query ERC20 balanceOf for JEWEL, CRYSTAL, cJEWEL. Convert to JEWEL equivalent using price oracle.
-- **Player Classification Signal:** Large portfolio indicates Whale archetype.
-
-#### 2.4 Reinvestment Sage
-- **Key:** `reinvestment_sage`
-- **Description:** Reinvest a healthy percentage of your profits back into the Kingdom.
-- **Metric Type:** SCORE (percentage)
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 30% reinvestment ratio
-  - Advanced: 50% reinvestment ratio
-  - Elite: 70% reinvestment ratio
-  - Exalted: 85% reinvestment ratio (Prestige)
-- **Data Capture Plan:** Calculate (tokens spent on summons/heroes/LP / tokens earned from quests/sales) * 100.
-- **Player Classification Signal:** **PRIMARY BUILDER VS EXTRACTOR SIGNAL.** Low reinvestment = Extractor. High reinvestment = Builder.
-
-#### 2.5 Optimization Follower
-- **Key:** `optimization_follower`
-- **Description:** Complete optimizations suggested by Hedge.
-- **Metric Type:** COUNT
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 1 optimization completed
-  - Advanced: 5 optimizations completed
-  - Elite: 15 optimizations completed
-  - Exalted: 40 optimizations completed (Prestige)
-- **Data Capture Plan:** Track user actions following Hedge recommendations (garden rebalances, quest assignments).
-- **Player Classification Signal:** Engagement with Hedge indicates premium user; supports Hedge Loyalist archetype.
-
----
-
-### Category 3: Profession Specialization
-
-#### 3.1 The Great Miner
-- **Key:** `great_miner`
-- **Description:** Complete mining quests.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 50 mining quests
-  - Uncommon: 250 mining quests
-  - Rare: 1,000 mining quests
-  - Legendary: 3,000 mining quests
-  - Mythic: 6,000 mining quests (Prestige)
-- **Data Capture Plan:** Filter quest completions by mining quest contract address.
-- **Player Classification Signal:** Profession focus indicates specialization; supports strategic player detection.
-
-#### 3.2 The Herbalist
-- **Key:** `herbalist`
-- **Description:** Complete gardening quests.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 50 gardening quests
-  - Uncommon: 250 gardening quests
-  - Rare: 1,000 gardening quests
-  - Legendary: 3,000 gardening quests
-  - Mythic: 6,000 gardening quests (Prestige)
-- **Data Capture Plan:** Filter quest completions by gardening quest contract address.
-- **Player Classification Signal:** Gardening focus often correlates with LP engagement.
-
-#### 3.3 The Fisher King
-- **Key:** `fisher_king`
-- **Description:** Complete fishing quests.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 50 fishing quests
-  - Uncommon: 250 fishing quests
-  - Rare: 1,000 fishing quests
-  - Legendary: 3,000 fishing quests
-  - Mythic: 6,000 fishing quests (Prestige)
-- **Data Capture Plan:** Filter quest completions by fishing quest contract address.
-- **Player Classification Signal:** Profession specialization metric.
-
-#### 3.4 Ranger of the Wilds
-- **Key:** `ranger_of_the_wilds`
-- **Description:** Complete foraging quests.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 50 foraging quests
-  - Uncommon: 250 foraging quests
-  - Rare: 1,000 foraging quests
-  - Legendary: 3,000 foraging quests
-  - Mythic: 6,000 foraging quests (Prestige)
-- **Data Capture Plan:** Filter quest completions by foraging quest contract address.
-- **Player Classification Signal:** Profession specialization metric.
-
-#### 3.5 Profession Purist
-- **Key:** `profession_purist`
-- **Description:** Run profession quests with heroes that match the quest profession.
-- **Metric Type:** SCORE (percentage)
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 60% hero-profession match
-  - Advanced: 75% hero-profession match
-  - Elite: 85% hero-profession match
-  - Exalted: 95% hero-profession match (Prestige)
-- **Data Capture Plan:** Compare hero's professionStr vs quest type. Calculate (matching / total) * 100.
-- **Player Classification Signal:** Efficiency indicates Optimizer archetype.
-
-#### 3.6 Bonus Trigger Master
-- **Key:** `bonus_trigger_master`
-- **Description:** Trigger profession quest bonuses with high consistency.
-- **Metric Type:** SCORE (percentage)
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 20% bonus trigger rate
-  - Advanced: 35% bonus trigger rate
-  - Elite: 50% bonus trigger rate
-  - Exalted: 65% bonus trigger rate (Prestige)
-- **Data Capture Plan:** Parse quest reward events for bonus flags. Calculate (bonus triggers / total quests) * 100.
-- **Player Classification Signal:** High bonus rate indicates optimized hero selection.
-
----
-
-### Category 4: Ownership & Collection
-
-#### 4.1 House of Heroes
-- **Key:** `house_of_heroes`
-- **Description:** Own multiple heroes.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 5 heroes
-  - Uncommon: 15 heroes
-  - Rare: 30 heroes
-  - Legendary: 60 heroes
-  - Mythic: 120 heroes (Prestige)
-- **Data Capture Plan:** Count heroes from `getAllHeroesByOwner()` response.
-- **Player Classification Signal:** **PRIMARY PORTFOLIO SIZE INDICATOR.** High count indicates Whale archetype.
-
-#### 4.2 Pet Sanctuary
-- **Key:** `pet_sanctuary`
-- **Description:** Bond and own pets.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 2 pets
-  - Uncommon: 5 pets
-  - Rare: 10 pets
-  - Legendary: 20 pets
-  - Mythic: 40 pets (Prestige)
-- **Data Capture Plan:** Query Pet contract for owned pets by wallet.
-- **Player Classification Signal:** Pet ownership indicates ecosystem engagement.
-
-#### 4.3 Gen0 Monarch
-- **Key:** `gen0_monarch`
-- **Description:** Own Gen0 heroes.
-- **Metric Type:** COUNT
-- **Thresholds:**
-  - Common: 1 Gen0 hero
-  - Uncommon: 3 Gen0 heroes
-  - Rare: 5 Gen0 heroes
-  - Legendary: 10 Gen0 heroes
-  - Mythic: 20 Gen0 heroes (Prestige)
-- **Data Capture Plan:** Filter hero list for generation === 0.
-- **Player Classification Signal:** Gen0 ownership indicates early adopter / long-term commitment.
-
----
-
-### Category 5: Behavior & Engagement
-
-#### 5.1 The Kingdom Calls
-- **Key:** `kingdom_calls`
-- **Description:** Interact with Hedge Ledger.
-- **Metric Type:** COUNT
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 10 messages to Hedge
-  - Advanced: 50 messages to Hedge
-  - Elite: 200 messages to Hedge
-  - Exalted: 1,000 messages to Hedge (Prestige)
-- **Data Capture Plan:** Query Discord bot interaction logs, count messages per user.
-- **Player Classification Signal:** Hedge engagement indicates premium user interest.
-
-#### 5.2 Loyal Follower
-- **Key:** `loyal_follower`
-- **Description:** Maintain a daily interaction streak with Hedge.
-- **Metric Type:** STREAK
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 3-day streak
-  - Advanced: 7-day streak
-  - Elite: 14-day streak
-  - Exalted: 30-day streak (Prestige)
-- **Data Capture Plan:** Analyze interaction timestamps for consecutive days.
-- **Player Classification Signal:** Consistency indicates committed user.
-
-#### 5.3 The Non-Extractor
-- **Key:** `non_extractor`
-- **Description:** Maintain a healthy behavioral profile with low extractor score.
-- **Metric Type:** SCORE (inverted percentage)
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 30+ (extractor score < 70%)
-  - Advanced: 50+ (extractor score < 50%)
-  - Elite: 70+ (extractor score < 30%)
-  - Exalted: 85+ (extractor score < 15%) (Prestige)
-- **Data Capture Plan:** Calculate 100 - extractorScore from bridge tracker data.
-- **Player Classification Signal:** **PRIMARY EXTRACTOR DETECTION SIGNAL.**
-  - No tier = likely Extractor (score > 70%)
-  - Exalted tier = verified Builder (score < 15%)
-
-#### 5.4 Hedge's Chosen
-- **Key:** `hedges_chosen`
-- **Description:** Send JEWEL to Hedge as a show of faith.
-- **Metric Type:** COUNT
-- **Tier System:** GENE
-- **Thresholds:**
-  - Basic: 1 JEWEL sent
-  - Advanced: 5 JEWEL sent
-  - Elite: 20 JEWEL sent
-  - Exalted: 50 JEWEL sent (Prestige)
-- **Data Capture Plan:** Query payment monitor for JEWEL transfers to Hedge treasury wallet.
-- **Player Classification Signal:** **PREMIUM SUBSCRIBER LOYALTY INDICATOR.** Supports Hedge Loyalist archetype.
-
----
-
-### Category 6: Seasonal Events
-
-#### 6.1 Winter's Solstice
-- **Key:** `winters_solstice`
-- **Description:** Level heroes during the winter event window.
-- **Metric Type:** COUNT
-- **Status:** INACTIVE (activate during winter events)
-- **Thresholds:**
-  - Common: 3 level-ups during event
-  - Uncommon: 5 level-ups during event
-  - Rare: 8 level-ups during event
-  - Legendary: 12 level-ups during event
-  - Mythic: 20 level-ups during event (Prestige)
-- **Data Capture Plan:** Track level-up events within defined event date range.
-- **Player Classification Signal:** Event participation indicates engaged player.
-
----
-
-### Category 7: Prestige (Overall)
-
-#### 7.1 True Exalted Bloodline
-- **Key:** `true_exalted_bloodline`
-- **Description:** Own multiple Exalted-gene heroes.
-- **Metric Type:** COUNT
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Exalted: 10 Exalted-gene heroes (Prestige)
-- **Data Capture Plan:** Decode hero genes, filter for Exalted tier in any gene slot.
-- **Player Classification Signal:** Rare achievement indicates Power Player archetype.
-
-#### 7.2 Mythic Hoarder
-- **Key:** `mythic_hoarder`
-- **Description:** Own Mythic rarity heroes.
-- **Metric Type:** COUNT
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Mythic: 3 Mythic-rarity heroes (Prestige)
-- **Data Capture Plan:** Filter hero list for rarity === 'mythic'.
-- **Player Classification Signal:** Whale indicator; Mythic heroes are extremely rare/expensive.
-
-#### 7.3 Eternal Activity
-- **Key:** `eternal_activity`
-- **Description:** Maintain long-term daily activity.
-- **Metric Type:** STREAK
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Mythic: 120 days of activity (Prestige)
-- **Data Capture Plan:** Estimate from first transaction date + activity frequency metrics.
-- **Player Classification Signal:** Long-term commitment; strong Builder indicator.
-
-#### 7.4 Master of All Trades
-- **Key:** `master_of_all_trades`
-- **Description:** Reach Rare tier or higher in every main challenge category.
-- **Metric Type:** BOOLEAN
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Exalted: All main categories at Rare+ (Prestige)
-- **Data Capture Plan:** Check player_challenge_progress for RARE+ in categories 1-5.
-- **Player Classification Signal:** Meta-achievement; indicates well-rounded Power Player.
-
----
-
-### Category 8: Summoning Prestige
-
-#### 8.1 The Dragonborn
-- **Key:** `summon_dragoon`
-- **Description:** Summon Dragoons and shape a draconic bloodline.
-- **Metric Type:** COUNT
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Elite: 1 Dragoon summoned
-  - Exalted: 3 Dragoons summoned (Prestige)
-  - Mythic: 5 Dragoons summoned (Prestige)
-- **Data Capture Plan:** Query summon events, filter for mainClass === 'dragoon'.
-- **Player Classification Signal:** Ultra-rare summons indicate genetic investment and luck.
-
-#### 8.2 The Dread Summoner
-- **Key:** `summon_dreadknight`
-- **Description:** Summon a Dreadknight and bind one of the rarest souls in the Kingdom.
-- **Metric Type:** COUNT
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Exalted: 1 Dreadknight summoned (Prestige)
-  - Mythic: 2 Dreadknights summoned (Prestige)
-- **Data Capture Plan:** Query summon events, filter for mainClass === 'dreadKnight'.
-- **Player Classification Signal:** Rarest class in game; indicates extreme luck or whale-level breeding.
-
-#### 8.3 The Ascended Sages
-- **Key:** `summon_sage`
-- **Description:** Summon Sages and guide the wisdom of the realms.
-- **Metric Type:** COUNT
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Elite: 1 Sage summoned
-  - Exalted: 3 Sages summoned (Prestige)
-  - Mythic: 5 Sages summoned (Prestige)
-- **Data Capture Plan:** Query summon events, filter for mainClass === 'sage'.
-- **Player Classification Signal:** Ultra-rare class achievement.
-
-#### 8.4 Blade of Light
-- **Key:** `summon_paladin`
-- **Description:** Summon Paladins to stand as shields of the Kingdom.
-- **Metric Type:** COUNT
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Advanced: 1 Paladin summoned
-  - Elite: 3 Paladins summoned
-  - Exalted: 5 Paladins summoned (Prestige)
-  - Mythic: 10 Paladins summoned (Prestige)
-- **Data Capture Plan:** Query summon events, filter for mainClass === 'paladin'.
-- **Player Classification Signal:** Rare advanced class; indicates focused breeding.
-
-#### 8.5 Shadowmaker
-- **Key:** `summon_dark_knight`
-- **Description:** Summon Dark Knights from the edge of the void.
-- **Metric Type:** COUNT
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Advanced: 1 Dark Knight summoned
-  - Elite: 3 Dark Knights summoned
-  - Exalted: 5 Dark Knights summoned (Prestige)
-  - Mythic: 10 Dark Knights summoned (Prestige)
-- **Data Capture Plan:** Query summon events, filter for mainClass === 'darkKnight'.
-- **Player Classification Signal:** Rare advanced class achievement.
-
-#### 8.6 Gene Alchemist
-- **Key:** `summon_high_tier_genes`
-- **Description:** Summon heroes with Advanced, Elite, and Exalted genes in their bloodlines.
-- **Metric Type:** COUNT
-- **Tier System:** MIXED
-- **Thresholds:**
-  - Basic: 1 hero with Advanced gene
-  - Advanced: 3 heroes with Elite genes
-  - Elite: 5 heroes with Exalted genes
-  - Exalted: 10 high-tier gene heroes (Prestige)
-- **Data Capture Plan:** Decode genes from summoned heroes, filter for tier >= Advanced.
-- **Player Classification Signal:** Genetic focus indicates breeding specialist.
-
-#### 8.7 Mythmaker
-- **Key:** `summon_mythic_heroes`
-- **Description:** Summon Mythic rarity heroes.
-- **Metric Type:** COUNT
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Elite: 1 Mythic hero summoned
-  - Exalted: 2 Mythic heroes summoned (Prestige)
-  - Mythic: 3 Mythic heroes summoned (Prestige)
-- **Data Capture Plan:** Query summon events, filter for rarity === 'mythic'.
-- **Player Classification Signal:** Extreme rarity; indicates whale-level activity or extraordinary luck.
-
-#### 8.8 Royal Lineage
-- **Key:** `summon_trifecta`
-- **Description:** Summon the trifecta: Dreadknight, Dragoon, and Sage across your account.
-- **Metric Type:** BOOLEAN
-- **Tier System:** PRESTIGE
-- **Thresholds:**
-  - Exalted: Has summoned 1 of each ultra-rare (Prestige)
-  - Mythic: Has summoned 2+ of each ultra-rare (Prestige)
-- **Data Capture Plan:** Check summon history for at least 1 Dreadknight, 1 Dragoon, and 1 Sage.
-- **Player Classification Signal:** Ultimate summoning achievement; indicates Power Player whale.
-
----
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/challenges` | GET | List all active categories and challenges |
-| `/api/challenges/progress/:userId` | GET | User's progress across all challenges |
-| `/api/challenges/leaderboard/:challengeKey` | GET | Top players for a specific challenge |
-| `/api/debug/trigger-etl` | POST | Manual ETL trigger (admin) |
-
----
-
-## Metric Types Reference
-
-| Type | Description | Example |
-|------|-------------|---------|
-| `COUNT` | Simple accumulator | hero_count, total_levels |
-| `STREAK` | Consecutive day tracking | quest_day_streak |
-| `SCORE` | Percentage or efficiency metric | profession_match_pct |
-| `BOOLEAN` | True/false achievement | has_trifecta_ultra_rare |
-| `COMPOSITE` | Computed from multiple sources | all_categories_rare_plus |
-
----
-
-## Summary Stats
-
-- **8 Categories**
-- **45 Total Challenges** (44 active, 1 seasonal inactive)
-- **2 Tier Systems** (RARITY: 5 tiers, GENE: 4 tiers)
-- **10 Metric Sources**
-- **5 Metric Types**
-
----
-
-*Document version: 1.0 | Last updated: December 2024*
+*Last Updated: December 2024*
+*Synced with: `src/data/challengeConfig.ts`*

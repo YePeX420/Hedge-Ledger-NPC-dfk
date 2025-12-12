@@ -19,7 +19,7 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
 *   **Tavern Bargain Finder**: Scans the marketplace for hero pairs with optimal genetics and pricing for specific class summoning.
 *   **Player User Model System**: Classifies players into archetypes for personalized bot responses and smurf detection.
 *   **Smurf Detection & League Signup System**: Manages competitive leagues with multi-account detection, power snapshots, and rule-based smurf identification.
-*   **Challenge/Achievement System**: A gamified progression system with categories and challenges, utilizing an ETL subsystem for metric extraction and progress computation.
+*   **Challenge/Achievement System**: A gamified progression system with 16 categories and 52 challenges, utilizing an ETL subsystem for metric extraction and progress computation. Categories span Hero Progression, Economy, Professions, Ownership, Behavior, Seasonal, Prestige, Summoning, Hunting, PvP, METIS (Patrols/Economy/Tournaments), DeFi Participation, Epic Feats, and Global Meta Profile.
     - ETL Scheduler (`src/etl/scheduler/etlScheduler.ts`): Runs automatically every 6 hours for incremental updates and daily at 04:00 UTC for full snapshots
     - Admin refresh button on `/admin/challenges` page for manual ETL triggers
     - API endpoints: `GET /api/admin/etl/status`, `POST /api/admin/etl/trigger`
