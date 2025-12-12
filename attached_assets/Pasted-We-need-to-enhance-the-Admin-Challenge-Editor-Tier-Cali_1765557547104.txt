@@ -1,0 +1,185 @@
+We need to enhance the Admin Challenge Editor Tier Calibration system with:
+
+1) Auto-simulation (preview how many clusters fall into each tier based on current or suggested thresholds)
+2) Editable percentile targets (so p40/p70/p90/p97 are configurable, not hardcoded)
+
+The calibration system must still be:
+- Based on challenge_progress (aggregated cluster metrics)
+- Cached in DB
+- Safe (no gameplay impact unless admin applies)
+
+=====================================================================
+1) DATABASE: Add cached calibration stats table
+=====================================================================
+
+We already planned a challenge_metric_stats table. Extend it to support editable percentile targets.
+
+Table: challenge_metric_stats
+Fields:
+- id (pk)
+- challengeKey (text)
+- cohortKey (text)
+- computedAt (timestamptz)
+- clusterCount (int)
+- nonzeroCount (int)
+- min (numeric)
+- p10, p25, p40, p50, p70, p75, p90, p95, p97, p99 (numeric)
+- max (numeric)
+- mean (numeric optional)
+
+- targetBasicPct (numeric)      // default 0.40
+- targetAdvancedPct (numeric)   // default 0.70
+- targetElitePct (numeric)      // default 0.90
+- targetExaltedPct (numeric)    // default 0.97
+
+- suggestedBasic (numeric)      // percentile_cont(targetBasicPct)
+- suggestedAdvanced (numeric)   // percentile_cont(targetAdvancedPct)
+- suggestedElite (numeric)      // percentile_cont(targetElitePct)
+- suggestedExalted (numeric)    // percentile_cont(targetExaltedPct)
+
+- meta (jsonb optional: warnings)
+
+Unique constraint:
+(challengeKey, cohortKey)
+
+=====================================================================
+2) BACKEND: Calibration computation must accept target percentiles
+=====================================================================
+
+Update the calibration compute function signature to:
+
+computeCalibrationStats(challengeKey, cohortKey, targets)
+
+Where targets include:
+- basicPct (default 0.40)
+- advancedPct (default 0.70)
+- elitePct (default 0.90)
+- exaltedPct (default 0.97)
+
+The service should compute:
+- standard percentiles (p10, p25, p50, p75, p90, p95, p99) for display
+- plus compute suggested thresholds using percentile_cont(targetPct)
+
+Cache results including the targets used.
+
+Warnings:
+- zeroInflated: nonzeroCount/clusterCount < 0.30
+- whaleSkew: max / p95 >= 20
+- lowSample: clusterCount < 25
+
+=====================================================================
+3) ADMIN API ENDPOINTS (add targets support + simulation)
+=====================================================================
+
+A) GET calibration:
+GET /api/admin/challenges/:challengeKey/calibration?cohortKey=ALL&basicPct=0.40&advancedPct=0.70&elitePct=0.90&exaltedPct=0.97
+- Returns cached stats if present for the same (challengeKey, cohortKey, targets) OR recomputes if targets differ.
+- Alternatively: cache only by (challengeKey, cohortKey) and store “last used targets” in the row; simplest is fine.
+
+B) Refresh calibration:
+POST /api/admin/challenges/:challengeKey/calibration/refresh
+Body:
+{
+  cohortKey: "ALL",
+  targets: { basicPct, advancedPct, elitePct, exaltedPct }
+}
+- Forces recompute with those targets and overwrites cache.
+
+C) Apply suggested thresholds:
+POST /api/admin/challenges/:challengeKey/calibration/apply
+Body:
+{
+  cohortKey: "ALL",
+  thresholds: { basic, advanced, elite, exalted }
+}
+- Applies thresholds into the challenge tier thresholds in DB.
+- Only allow apply when challenge state is DRAFT or VALIDATED.
+
+D) Simulation endpoint (AUTO-SIMULATION):
+POST /api/admin/challenges/:challengeKey/calibration/simulate
+Body:
+{
+  cohortKey: "ALL",
+  thresholds: { basic, advanced, elite, exalted },
+  mode: "RARITY" | "GENE" | "MIXED"
+}
+- Returns distribution counts for each tier bucket based on challenge_progress.value:
+  - count < basic
+  - basic ≤ value < advanced
+  - advanced ≤ value < elite
+  - elite ≤ value < exalted
+  - value ≥ exalted
+- Return counts and percentages.
+
+This endpoint should be fast and use SQL counts only.
+
+=====================================================================
+4) ADMIN UI: Calibration panel enhancements
+=====================================================================
+
+On the Challenge Editor page below tier config, show a “Calibration & Distribution” panel with:
+
+A) Cohort dropdown:
+- ALL
+- NONZERO
+- ACTIVE_30D
+- SEASON_CURRENT
+
+B) Editable target percentiles (new):
+- Inputs or sliders:
+  - Basic percentile target (default 0.40)
+  - Advanced percentile target (default 0.70)
+  - Elite percentile target (default 0.90)
+  - Exalted percentile target (default 0.97)
+- Must constrain 0 < basic < advanced < elite < exalted < 1
+- Provide a “Reset to defaults” button.
+
+C) Buttons:
+- Load Stats
+- Refresh Stats
+
+D) Stats table:
+- clusterCount, nonzeroCount
+- min, p10, p25, p50, p75, p90, p95, p99, max
+- computedAt
+- warning badges
+
+E) Suggested thresholds section:
+- Show suggestedBasic/suggestedAdvanced/suggestedElite/suggestedExalted
+- Button: “Apply Suggested Thresholds” (fills tier inputs + calls apply endpoint if admin confirms)
+
+F) AUTO-SIMULATION section:
+- Show a live preview chart/table of how many clusters land in each tier using:
+  1) Current configured thresholds (already in tier inputs)
+  2) Suggested thresholds (from calibration)
+- Add buttons:
+  - “Simulate Current Thresholds”
+  - “Simulate Suggested Thresholds”
+
+Simulation output should show:
+- Below Basic: count + %
+- Basic: count + %
+- Advanced: count + %
+- Elite: count + %
+- Exalted: count + %
+
+This is the “tier assignment preview” so we can tune thresholds safely.
+
+=====================================================================
+5) Acceptance Checks
+=====================================================================
+
+For a challenge like hero_riser:
+- Load stats for ALL cohort with default targets.
+- Suggested thresholds appear.
+- Simulation shows tier distribution.
+- Adjust percentile targets and refresh; suggested thresholds change.
+- Apply suggestions updates tier thresholds.
+- Simulation updates accordingly.
+
+For a zero-inflated challenge like clucker_miracle:
+- ALL cohort shows zeroInflated warning.
+- NONZERO cohort gives meaningful suggested thresholds.
+- Simulation correctly shows almost everyone below Basic in ALL cohort.
+
+Implement this end-to-end: DB changes, backend service, endpoints, and UI panel.
