@@ -675,6 +675,7 @@ export const bridgeEvents = pgTable("bridge_events", {
   // USD value at time of bridge
   usdValue: numeric("usd_value", { precision: 15, scale: 2 }),
   tokenPriceUsd: numeric("token_price_usd", { precision: 15, scale: 6 }), // price used for calculation
+  pricingSource: text("pricing_source"), // 'DEFI_LLAMA', 'COINGECKO', 'DEX_DERIVED', 'DEPRECATED_TOKEN'
   
   // Chain info
   srcChainId: integer("src_chain_id").notNull(),
@@ -764,6 +765,33 @@ export const historicalPrices = pgTable("historical_prices", {
 export const insertHistoricalPriceSchema = createInsertSchema(historicalPrices).omit({ id: true, createdAt: true });
 export type InsertHistoricalPrice = z.infer<typeof insertHistoricalPriceSchema>;
 export type HistoricalPrice = typeof historicalPrices.$inferSelect;
+
+/**
+ * Unpriced tokens - tracks tokens that appear in bridge events but cannot be priced
+ * Used to identify deprecated/dead tokens and tokens needing DEX price derivation
+ */
+export const unpricedTokens = pgTable("unpriced_tokens", {
+  id: serial("id").primaryKey(),
+  tokenAddress: text("token_address").notNull().unique(),
+  tokenSymbol: text("token_symbol"),
+  firstSeenTimestamp: timestamp("first_seen_timestamp", { withTimezone: true }),
+  lastSeenTimestamp: timestamp("last_seen_timestamp", { withTimezone: true }),
+  totalEvents: integer("total_events").notNull().default(0),
+  hasDexLiquidity: boolean("has_dex_liquidity").notNull().default(false),
+  hasExternalPrice: boolean("has_external_price").notNull().default(false),
+  pricingStatus: text("pricing_status").notNull().default('unknown'), // 'unknown', 'deprecated', 'dex_derivable', 'priced'
+  lpPairAddress: text("lp_pair_address"), // deepest LP pair if exists
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  tokenAddressIdx: uniqueIndex("unpriced_tokens_address_idx").on(table.tokenAddress),
+  statusIdx: index("unpriced_tokens_status_idx").on(table.pricingStatus),
+}));
+
+export const insertUnpricedTokenSchema = createInsertSchema(unpricedTokens).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertUnpricedToken = z.infer<typeof insertUnpricedTokenSchema>;
+export type UnpricedToken = typeof unpricedTokens.$inferSelect;
 
 /**
  * Bridge indexer progress - tracks the last indexed block for resumable indexing
