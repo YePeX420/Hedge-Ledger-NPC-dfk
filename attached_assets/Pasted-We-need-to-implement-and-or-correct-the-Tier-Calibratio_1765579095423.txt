@@ -1,0 +1,212 @@
+We need to implement and/or correct the Tier Calibration + Tier Assignment system with the following consolidated requirements. This is one unified change set—please treat it as a single coherent feature with no “Option A/B” language or assumptions.
+
+====================================================================
+A) Canonical tiering + calibration population: ON-CHAIN last 180 days
+====================================================================
+
+1) All tiered Challenges use a rolling 180-day (6-month) window.
+   - “Rolling” means: now() minus 180 days, updated daily (or per ETL run).
+   - Window key should be '180d'.
+
+2) Tier calibration (percentiles) must be based on on-chain activity for the last 180 days.
+   - Do NOT restrict calibration to linked clusters.
+   - Compute percentiles over the full on-chain “active wallet” population for the last 180 days for that metric.
+   - Cluster identity can still exist for UX, but it must NOT gate percentile math.
+
+3) Founder’s Mark (lifetime) still uses cluster identity:
+   - Founder’s Mark is a lifetime marker showing a player reached the top tier at least once.
+   - It persists forever even if the rolling tier drops.
+   - Triggered when any wallet belonging to a cluster reaches the top tier in the rolling window.
+
+====================================================================
+B) DB schema changes: rolling window table + Founder’s Mark fields
+====================================================================
+
+1) Create a new table: challenge_progress_windowed
+   Columns:
+   - wallet_address (text, not null)  // population identity for calibration + rolling tiers
+   - cluster_id (uuid, nullable)      // optional for UX; store if available
+   - challenge_key (text, not null)
+   - window_key (text, not null)      // '180d'
+   - value (numeric, not null, default 0)
+   - tier_code (text, nullable)
+   - computed_at (timestamptz, not null)
+
+   Primary key:
+   (wallet_address, challenge_key, window_key)
+
+   Indexes:
+   - (challenge_key, window_key)
+   - (wallet_address, window_key)
+   - (cluster_id, window_key) if cluster_id is stored
+
+2) Add lifetime Founder’s Mark fields to the lifetime challenge progress table (challenge_progress):
+   - founders_mark boolean default false
+   - founders_mark_at timestamptz nullable
+
+   Rule: founders_mark is never unset once true.
+
+3) Create a cached calibration stats table: challenge_metric_stats
+   Columns:
+   - id (pk)
+   - challenge_key (text)
+   - cohort_key (text)              // supported: ALL_WALLETS_180D (default), plus future cohorts if needed
+   - computed_at (timestamptz)
+   - wallet_count (int)
+   - nonzero_count (int)
+   - min (numeric)
+   - p10, p25, p40, p50, p70, p75, p90, p95, p97, p99 (numeric)
+   - max (numeric)
+   - target_basic_pct (numeric)     // default 0.40 (editable)
+   - target_advanced_pct (numeric)  // default 0.70 (editable)
+   - target_elite_pct (numeric)     // default 0.90 (editable)
+   - target_exalted_pct (numeric)   // default 0.97 (editable)
+   - suggested_thresholds (jsonb)   // keyed by tierCode, e.g. {"UNCOMMON": 6762, "RARE": 11570, ...}
+   - meta (jsonb)                  // warnings: whaleSkew, lowSample, etc.
+
+   Unique constraint:
+   (challenge_key, cohort_key)
+
+====================================================================
+C) Tier system correctness: dynamic ladders, no hardcoding
+====================================================================
+
+1) Determine effective tier system for each challenge:
+   - Use challenge.tierSystemOverride if set.
+   - Else inherit category.tierSystem.
+   - No guessing.
+
+2) Tier ladder must be loaded dynamically from DB challenge tiers:
+   - Fetch challenge_tiers for the selected challenge ordered by sortOrder.
+   - That ordered list of tierCodes IS the ladder.
+   - Do not hardcode “Basic/Advanced/Elite/Exalted” anywhere.
+
+3) Calibration suggested thresholds must adapt to ladder length:
+   - For 5-tier RARITY ladder: COMMON, UNCOMMON, RARE, LEGENDARY, MYTHIC
+     * COMMON is baseline; suggestions apply to tiers 2–5:
+       UNCOMMON = p40
+       RARE = p70
+       LEGENDARY = p90
+       MYTHIC = p97
+     * Show COMMON explicitly as “< UNCOMMON threshold” (derived), even if not directly suggested.
+
+   - For 4-tier ladder (GENE-style): BASIC, ADVANCED, ELITE, EXALTED
+       BASIC = p40
+       ADVANCED = p70
+       ELITE = p90
+       EXALTED = p97
+
+   - For PRESTIGE/Feats:
+     no tier suggestions; show unlocked/locked rate only.
+
+4) Apply Suggested Thresholds must update tier rows by tierCode:
+   - Update challenge_tiers.thresholdValue where challenge_key matches and tierCode matches.
+   - Do not assume tier names.
+   - Only allow apply in DRAFT or VALIDATED state.
+
+====================================================================
+D) Rolling 180d ETL: compute wallet values + tier codes
+====================================================================
+
+Implement an ETL job that computes rolling 180-day values per wallet per challenge:
+
+1) For each tiered challenge:
+   - Compute value_180d at wallet level for last 180 days.
+   - Use event tables when available (hunting_encounters, pvp_matches, etc.) filtered by timestamp >= now()-180d.
+   - For snapshot-based metrics (hero levels, hero count, LP depth, staking), use the latest snapshot within last 180d (or compute delta if you already store snapshots).
+
+2) Write/update challenge_progress_windowed rows for (wallet_address, challenge_key, '180d'):
+   - value
+   - tier_code (computed from dynamic ladder thresholds)
+   - computed_at
+
+3) Founder’s Mark trigger (cluster-level):
+   - If any wallet that maps to a cluster reaches top tier in rolling window (MYTHIC for rarity ladders, EXALTED for gene ladders):
+     set founders_mark = true for that cluster+challenge_key in lifetime challenge_progress, and set founders_mark_at if null.
+
+====================================================================
+E) Admin calibration panel: cohort, editable percentiles, simulation, apply
+====================================================================
+
+On /admin/challenges/:id/edit, below Tier Configuration, add “Calibration & Distribution” panel.
+
+1) Cohort:
+   - Default cohort = ALL_WALLETS_180D (wallet population active in last 180d for that challenge).
+   - (We can add additional cohorts later, but do not block this implementation.)
+
+2) Editable percentile targets:
+   - Inputs for:
+     basicPct default 0.40
+     advancedPct default 0.70
+     elitePct default 0.90
+     exaltedPct default 0.97
+   - Enforce 0 < basic < advanced < elite < exalted < 1.
+
+3) Cache + refresh:
+   - “Load Stats” uses cached stats from challenge_metric_stats if present.
+   - “Refresh Stats” recomputes and overwrites cache for this challenge/cohort/targets.
+
+4) Suggested thresholds display:
+   - Show suggested thresholds labeled by the challenge’s real tier ladder (tierCodes).
+   - For RARITY ladder, show COMMON as derived: “COMMON: < UNCOMMON threshold”.
+
+5) Auto-simulation:
+   - Add a simulation action that, given thresholds, returns how many wallets fall into each tier bucket (counts + %).
+   - Provide:
+     - Simulate Current Thresholds
+     - Simulate Suggested Thresholds
+   - Simulation output must be keyed by tierCode in ladder order.
+
+6) Apply:
+   - “Apply Suggested Thresholds” updates tier rows by tierCode (draft/validated only).
+
+====================================================================
+F) Color semantics: keep tier colors, stop using them for percentiles
+====================================================================
+
+Tier colors are fixed and must match emblems:
+- Common = gray
+- Uncommon = green
+- Rare = blue
+- Legendary = orange
+- Mythic = purple
+
+Rules:
+1) Percentile distribution views (calibration analytics) MUST NOT use tier colors.
+   - Use neutral colors (grayscale or single hue).
+   - Label ranges as percentiles (e.g., p40–p70), not tier names.
+   - Add helper text: “Percentile distribution, not tier assignment.”
+
+2) Tier simulation results (after applying thresholds) MUST use tier colors above.
+   - Label buckets by tierCode.
+
+3) Challenge cards and tier ladders continue using tier emblem colors above.
+
+====================================================================
+G) Naming cleanup: Feats + Founder’s Mark
+====================================================================
+
+1) Rename “Prestige Challenges” to “Feats” in UI copy.
+   - Feats are lifetime binary (locked/unlocked), not tiered, not rolling.
+
+2) The permanent border/overlay concept is “Founder’s Mark” (not “Prestige border”).
+   - Founder’s Mark is lifetime, shown even if current rolling tier drops.
+
+====================================================================
+H) Acceptance checks
+====================================================================
+
+1) For a RARITY 5-tier challenge like Hero Riser:
+   - Tiering tab shows COMMON→UNCOMMON→RARE→LEGENDARY→MYTHIC.
+   - Calibration suggested thresholds show UNCOMMON/RARE/LEGENDARY/MYTHIC suggestions and COMMON derived.
+   - Simulation shows descending counts by tier.
+   - No “Basic/Advanced/Elite/Exalted” appears for this challenge.
+
+2) Percentile math sanity:
+   - With a real wallet sample size, Mythic count should never exceed Rare count in tier simulation.
+   - If sample size is tiny, show lowSample warning in meta.
+
+3) Founder’s Mark:
+   - Once a wallet hits top tier and the cluster is identified, founders_mark remains true even if tier drops later.
+
+Please implement all of the above as one consolidated fix set.
