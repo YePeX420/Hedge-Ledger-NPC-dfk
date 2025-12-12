@@ -22,6 +22,14 @@ interface Contract {
   token1Balance?: number;
   token0ValueUSD?: number;
   token1ValueUSD?: number;
+  pid?: number;
+  v2StakedLP?: number;
+  v1StakedLP?: number;
+  totalStakedLP?: number;
+  totalLPSupply?: number;
+  stakedRatio?: number;
+  v2ValueUSD?: number;
+  v1ValueUSD?: number;
 }
 
 interface Category {
@@ -294,10 +302,10 @@ export default function ValueAllocationPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Coins className="w-5 h-5 text-green-500" />
-                LP Pools Breakdown
+                LP Pools Staked Value (V2 + V1)
               </CardTitle>
               <CardDescription>
-                Liquidity pool reserves and value distribution
+                Value of LP tokens staked in Master Gardener V2 and legacy V1 contracts
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -306,11 +314,11 @@ export default function ValueAllocationPage() {
                   <TableRow>
                     <TableHead>Pool</TableHead>
                     <TableHead>Contract</TableHead>
-                    <TableHead className="text-right">Token 0</TableHead>
-                    <TableHead className="text-right">Token 1</TableHead>
-                    <TableHead className="text-right">Token 0 Value</TableHead>
-                    <TableHead className="text-right">Token 1 Value</TableHead>
-                    <TableHead className="text-right">Total USD</TableHead>
+                    <TableHead className="text-right">Staked Token 0</TableHead>
+                    <TableHead className="text-right">Staked Token 1</TableHead>
+                    <TableHead className="text-right text-blue-400">V2 Value</TableHead>
+                    <TableHead className="text-right text-amber-400">V1 Value</TableHead>
+                    <TableHead className="text-right">Total Staked</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -350,11 +358,11 @@ export default function ValueAllocationPage() {
                           <span className="text-xs text-muted-foreground">{contract.token1Symbol}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right text-sm">
-                        {formatUSD(contract.token0ValueUSD || 0)}
+                      <TableCell className="text-right text-sm text-blue-400 font-mono">
+                        {formatUSD(contract.v2ValueUSD || 0)}
                       </TableCell>
-                      <TableCell className="text-right text-sm">
-                        {formatUSD(contract.token1ValueUSD || 0)}
+                      <TableCell className="text-right text-sm text-amber-400 font-mono">
+                        {formatUSD(contract.v1ValueUSD || 0)}
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatUSD(contract.totalValueUSD)}
@@ -362,8 +370,13 @@ export default function ValueAllocationPage() {
                     </TableRow>
                   ))}
                   <TableRow className="bg-green-500/5 font-medium">
-                    <TableCell colSpan={4}>Total LP Pools</TableCell>
-                    <TableCell colSpan={2}></TableCell>
+                    <TableCell colSpan={4}>Total Staked LP</TableCell>
+                    <TableCell className="text-right text-blue-400">
+                      {formatUSD((lpPools?.contracts ?? []).reduce((sum, c) => sum + (c.v2ValueUSD || 0), 0))}
+                    </TableCell>
+                    <TableCell className="text-right text-amber-400">
+                      {formatUSD((lpPools?.contracts ?? []).reduce((sum, c) => sum + (c.v1ValueUSD || 0), 0))}
+                    </TableCell>
                     <TableCell className="text-right text-green-500">
                       {formatUSD(lpPools?.totalValueUSD || 0)}
                     </TableCell>

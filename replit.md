@@ -30,6 +30,11 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
     - Tables: `hunting_encounters`, `pvp_matches`, `ingestion_state` for checkpoint tracking
     - Challenge extractors wired: 5 hunting challenges, 4 PvP challenges
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" via indexed bridge events and wallet scoring.
+*   **Value Allocation/TVL Dashboard** (`src/analytics/valueBreakdown.ts`): Calculates accurate TVL by:
+    - Querying staked LP amounts from Master Gardener V2 (`getPoolInfo`) and V1 (legacy gardener `balanceOf`)
+    - Computing LP value as: `(stakedLP / totalSupply) × poolReserveValue` 
+    - Using DefiLlama prices for token valuation with fallback prices
+    - Sequential RPC requests with 100ms throttling to avoid rate limiting
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules, entry fees, prizes, and a state machine for managing races.
 *   **Leaderboard System**: Provides snapshot-based rankings with historical tracking across various time windows, scoring players based on defined metrics.
 *   **Season Engine**: Manages challenge passes with weighted scoring and seasonal progression, calculating player points and levels.

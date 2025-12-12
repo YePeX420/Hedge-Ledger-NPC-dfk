@@ -87,7 +87,7 @@ const LP_ABI = [
 ];
 
 const MASTER_GARDENER_ABI = [
-  'function getPoolInfo(uint256 _pid) view returns (tuple(address lpToken, uint256 allocPoint, uint256 lastRewardBlock, uint256 accRewardPerShare, uint256 totalStaked, uint256 totalRewards) _poolInfo)',
+  'function getPoolInfo(uint256 _pid) view returns (tuple(address lpToken, uint256 allocPoint, uint256 lastRewardBlock, uint256 accRewardPerShare, uint256 totalStaked) _poolInfo)',
   'function poolInfo(uint256 _pid) view returns (tuple(address lpToken, uint256 allocPoint, uint256 lastRewardBlock, uint256 accRewardPerShare) _poolInfoLegacy)',
   'function getPoolLength() view returns (uint256 _poolLength)',
 ];
@@ -364,7 +364,8 @@ async function getLPReserves(
       reserve0: parseFloat(ethers.formatUnits(reserves[0], decimals0)),
       reserve1: parseFloat(ethers.formatUnits(reserves[1], decimals1)),
     };
-  } catch {
+  } catch (err) {
+    console.error(`[LPReserves] Error for ${lpAddress}:`, (err as Error).message);
     return { token0: '', token1: '', reserve0: 0, reserve1: 0 };
   }
 }
@@ -398,8 +399,14 @@ async function getStakedLPAmounts(
     const lpContract = new ethers.Contract(lpAddress, LP_ABI, provider);
     
     const [v2PoolInfo, totalSupply] = await Promise.all([
-      gardenerContract.getPoolInfo(pid).catch(() => null),
-      lpContract.totalSupply(),
+      gardenerContract.getPoolInfo(pid).catch((err: Error) => {
+        console.error(`[StakedLP] getPoolInfo(${pid}) failed:`, err.message);
+        return null;
+      }),
+      lpContract.totalSupply().catch((err: Error) => {
+        console.error(`[StakedLP] totalSupply failed for ${lpAddress}:`, err.message);
+        return BigInt(0);
+      }),
     ]);
     
     const v2Staked = v2PoolInfo && v2PoolInfo.totalStaked 
@@ -408,11 +415,11 @@ async function getStakedLPAmounts(
     
     let v1Staked = 0;
     try {
-      const v1PoolInfo = await gardenerContract.poolInfo(pid);
       const legacyGardenerBalance = await lpContract.balanceOf('0x57dec9cc7f492d6583c773e2e7ad66dcdc6940fb');
-      const estimatedV1 = parseFloat(ethers.formatEther(legacyGardenerBalance)) - v2Staked;
-      v1Staked = estimatedV1 > 0 ? estimatedV1 : 0;
-    } catch {
+      const totalGardenerLPRaw = parseFloat(ethers.formatEther(legacyGardenerBalance));
+      v1Staked = totalGardenerLPRaw > v2Staked ? totalGardenerLPRaw - v2Staked : 0;
+    } catch (err) {
+      console.error(`[StakedLP] V1 balance check failed:`, (err as Error).message);
       v1Staked = 0;
     }
     
@@ -421,10 +428,13 @@ async function getStakedLPAmounts(
       v1Staked,
       totalSupply: parseFloat(ethers.formatEther(totalSupply)),
     };
-  } catch {
+  } catch (err) {
+    console.error(`[StakedLP] Error for PID ${pid}:`, (err as Error).message);
     return { v2Staked: 0, v1Staked: 0, totalSupply: 0 };
   }
 }
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
@@ -436,9 +446,13 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
 
   const categories: CategoryBreakdown[] = [];
 
-  const lpPoolContracts: LpPoolContract[] = await Promise.all(
-    Object.entries(LP_POOLS).map(async ([name, config]) => {
+  const lpPoolContracts: LpPoolContract[] = [];
+  
+  for (const [name, config] of Object.entries(LP_POOLS)) {
       const { address, pid } = config;
+      
+      await delay(100);
+      
       const [reserves, stakingInfo] = await Promise.all([
         getLPReserves(provider, address),
         getStakedLPAmounts(provider, pid, address),
@@ -466,7 +480,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       const v2ValueUSD = totalPoolReserveValue * v2Ratio;
       const v1ValueUSD = totalPoolReserveValue * v1Ratio;
 
-      return {
+      lpPoolContracts.push({
         name,
         address,
         pid,
@@ -484,9 +498,8 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
         stakedRatio,
         v2ValueUSD,
         v1ValueUSD,
-      };
-    })
-  );
+      });
+  }
 
   categories.push({
     category: 'LP Pools',
