@@ -5762,33 +5762,111 @@ async function startAdminWebServer() {
   // ============================================================================
 
   // GET /api/challenges - Get all challenge categories with their challenges
+  // Query params:
+  //   type: 'challenges' (default) = tiered/seasonal, 'feats' = prestige type, 'all' = everything
   app.get('/api/challenges', async (req, res) => {
     try {
+      const typeFilter = req.query.type || 'challenges';
+      
       const [categories, allChallenges, allTiers] = await Promise.all([
         db.select().from(challengeCategories).orderBy(challengeCategories.sortOrder),
         db.select().from(challenges).where(eq(challenges.isActive, true)).orderBy(challenges.sortOrder),
         db.select().from(challengeTiers).orderBy(challengeTiers.sortOrder),
       ]);
 
+      // Filter challenges based on type parameter
+      // 'challenges' = tiered + seasonal (regular rolling challenges)
+      // 'feats' = prestige type (binary lifetime accomplishments)
+      // 'all' = everything
+      let filteredChallenges = allChallenges;
+      if (typeFilter === 'challenges') {
+        filteredChallenges = allChallenges.filter(c => c.challengeType !== 'prestige');
+      } else if (typeFilter === 'feats') {
+        filteredChallenges = allChallenges.filter(c => c.challengeType === 'prestige');
+      }
+      // 'all' returns everything
+
       // Group challenges by category and attach tiers
       const result = categories.map(cat => ({
         ...cat,
-        challenges: allChallenges
+        challenges: filteredChallenges
           .filter(c => c.categoryKey === cat.key)
           .map(challenge => ({
             ...challenge,
             tiers: allTiers.filter(t => t.challengeKey === challenge.key),
           })),
-      }));
+      })).filter(cat => cat.challenges.length > 0); // Only include categories that have challenges after filtering
 
       res.json({ 
         categories: result,
-        totalChallenges: allChallenges.length,
-        totalTiers: allTiers.length
+        totalChallenges: filteredChallenges.length,
+        totalTiers: allTiers.filter(t => filteredChallenges.some(c => c.key === t.challengeKey)).length,
+        filter: typeFilter
       });
     } catch (err) {
       console.error('[API] Failed to get challenges:', err);
       res.status(500).json({ error: 'Failed to get challenges' });
+    }
+  });
+  
+  // GET /api/feats - Dedicated endpoint for Feats (binary lifetime accomplishments)
+  // Returns a flat list of all feats with locked/unlocked status for a user
+  app.get('/api/feats', async (req, res) => {
+    try {
+      const userId = req.query.userId;
+      
+      // Get all prestige-type challenges (Feats)
+      const [allFeats, allTiers] = await Promise.all([
+        db.select().from(challenges)
+          .where(and(eq(challenges.isActive, true), eq(challenges.challengeType, 'prestige')))
+          .orderBy(challenges.sortOrder),
+        db.select().from(challengeTiers).orderBy(challengeTiers.sortOrder),
+      ]);
+      
+      // Get user progress if userId provided
+      let userProgress = {};
+      if (userId) {
+        const progress = await db
+          .select()
+          .from(playerChallengeProgress)
+          .where(eq(playerChallengeProgress.userId, userId));
+        for (const p of progress) {
+          userProgress[p.challengeKey] = p;
+        }
+      }
+      
+      // Map feats with unlock status
+      const featsWithStatus = allFeats.map(feat => {
+        const tiers = allTiers.filter(t => t.challengeKey === feat.key);
+        const progress = userProgress[feat.key];
+        
+        // A feat is "unlocked" if user has any tier achieved, or specifically the prestige tier
+        const isUnlocked = progress?.highestTierAchieved != null;
+        const unlockedAt = progress?.achievedAt;
+        
+        return {
+          key: feat.key,
+          name: feat.name,
+          description: feat.description,
+          descriptionLong: feat.descriptionLong,
+          categoryKey: feat.categoryKey,
+          meta: feat.meta,
+          tiers,
+          isUnlocked,
+          unlockedAt,
+          currentValue: progress?.currentValue || 0,
+        };
+      });
+      
+      res.json({
+        feats: featsWithStatus,
+        totalFeats: allFeats.length,
+        unlockedCount: featsWithStatus.filter(f => f.isUnlocked).length,
+        userId: userId || null,
+      });
+    } catch (err) {
+      console.error('[API] Failed to get feats:', err);
+      res.status(500).json({ error: 'Failed to get feats' });
     }
   });
 
@@ -5855,9 +5933,14 @@ async function startAdminWebServer() {
 
       // Find highest tier achieved (use Number() for safety)
       let highestTier = null;
+      let isTopTierAchieved = false;
       for (const tier of tiers) {
         if (numericValue >= Number(tier.thresholdValue)) {
           highestTier = tier.tierCode;
+          // Check if this tier is the top tier (isPrestige=true means top of ladder)
+          if (tier.isPrestige) {
+            isTopTierAchieved = true;
+          }
           break;
         }
       }
@@ -5877,6 +5960,12 @@ async function startAdminWebServer() {
         const existingAchievedAt = existing[0].achievedAt;
         const finalTier = highestTier || existingTier;
         const finalAchievedAt = highestTier && !existingTier ? new Date() : existingAchievedAt;
+        
+        // Founder's Mark: once achieved, never removed (track if ever reached top tier)
+        const existingFoundersMark = existing[0].foundersMarkAchieved;
+        const existingFoundersMarkAt = existing[0].foundersMarkAt;
+        const finalFoundersMark = existingFoundersMark || isTopTierAchieved;
+        const finalFoundersMarkAt = existingFoundersMark ? existingFoundersMarkAt : (isTopTierAchieved ? new Date() : null);
 
         await db
           .update(playerChallengeProgress)
@@ -5884,6 +5973,8 @@ async function startAdminWebServer() {
             currentValue: numericValue,
             highestTierAchieved: finalTier,
             achievedAt: finalAchievedAt,
+            foundersMarkAchieved: finalFoundersMark,
+            foundersMarkAt: finalFoundersMarkAt,
             lastUpdated: new Date(),
             walletAddress: walletAddress || existing[0].walletAddress,
           })
@@ -5895,6 +5986,8 @@ async function startAdminWebServer() {
           currentValue: numericValue,
           highestTierAchieved: highestTier,
           achievedAt: highestTier ? new Date() : null,
+          foundersMarkAchieved: isTopTierAchieved,
+          foundersMarkAt: isTopTierAchieved ? new Date() : null,
           lastUpdated: new Date(),
           walletAddress: walletAddress || null,
         });
@@ -5905,7 +5998,9 @@ async function startAdminWebServer() {
         userId, 
         challengeKey, 
         currentValue: numericValue, 
-        highestTierAchieved: highestTier 
+        highestTierAchieved: highestTier,
+        foundersMarkAchieved: existing.length > 0 ? (existing[0].foundersMarkAchieved || isTopTierAchieved) : isTopTierAchieved,
+        foundersMarkAt: existing.length > 0 ? (existing[0].foundersMarkAt || (isTopTierAchieved ? new Date() : null)) : (isTopTierAchieved ? new Date() : null)
       });
     } catch (err) {
       console.error('[API] Failed to update challenge progress:', err);
@@ -5937,6 +6032,8 @@ async function startAdminWebServer() {
           currentValue: playerChallengeProgress.currentValue,
           highestTierAchieved: playerChallengeProgress.highestTierAchieved,
           achievedAt: playerChallengeProgress.achievedAt,
+          foundersMarkAchieved: playerChallengeProgress.foundersMarkAchieved,
+          foundersMarkAt: playerChallengeProgress.foundersMarkAt,
         })
         .from(playerChallengeProgress)
         .where(eq(playerChallengeProgress.challengeKey, challengeKey))

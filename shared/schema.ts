@@ -1470,6 +1470,8 @@ export const playerChallengeProgress = pgTable("player_challenge_progress", {
   currentValue: integer("current_value").notNull().default(0), // Current progress value (renamed to 'value' in queries)
   highestTierAchieved: varchar("highest_tier_achieved", { length: 32 }), // Tier code of highest tier achieved
   achievedAt: timestamp("achieved_at", { withTimezone: true }), // When the highest tier was achieved
+  foundersMarkAchieved: boolean("founders_mark_achieved").notNull().default(false), // True if ever reached top tier (isPrestige=true tier)
+  foundersMarkAt: timestamp("founders_mark_at", { withTimezone: true }), // When founder's mark was earned
   lastUpdated: timestamp("last_updated", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(), // For time-windowed leaderboards
   meta: json("meta").$type<{

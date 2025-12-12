@@ -50,7 +50,7 @@ const categoryLabels: Record<string, string> = {
   heroes: "Hero Progression",
   hunting: "Hunting & PvE",
   pvp: "PvP Competition",
-  summoning: "Summoning Prestige",
+  summoning: "Summoning Feats",
   defi: "DeFi Participation",
   season: "Seasonal",
   overall: "Overall",

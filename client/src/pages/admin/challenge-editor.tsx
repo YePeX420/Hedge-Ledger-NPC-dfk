@@ -1225,9 +1225,9 @@ export default function ChallengeEditor() {
                             checked={tier.isPrestige}
                             onCheckedChange={(v) => updateTier(index, "isPrestige", v)}
                             disabled={!canEdit || !isEditMode}
-                            data-testid={`switch-tier-prestige-${index}`}
+                            data-testid={`switch-tier-top-tier-${index}`}
                           />
-                          <span className="text-sm text-muted-foreground">Prestige</span>
+                          <span className="text-sm text-muted-foreground">Top Tier</span>
                         </div>
                       </div>
                       {canEdit && isEditMode && (
