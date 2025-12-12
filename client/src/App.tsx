@@ -20,6 +20,7 @@ import AdminChallenges from "@/pages/admin/challenges";
 import ChallengeEditor from "@/pages/admin/challenge-editor";
 import AdminLevelRacer from "@/pages/admin/level-racer";
 import AdminTokens from "@/pages/admin/tokens";
+import AdminExtractors from "@/pages/admin/extractors";
 import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
 import NotFound from "@/pages/not-found";
@@ -140,6 +141,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminTokens />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/extractors">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminExtractors />
           </ProtectedAdminPage>
         )}
       </Route>

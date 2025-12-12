@@ -14,7 +14,8 @@ import {
   Trophy,
   Swords,
   PieChart,
-  Coins
+  Coins,
+  TrendingDown
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -30,6 +31,7 @@ const navItems = [
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
   { href: '/admin/expenses', label: 'Expenses', icon: Receipt },
   { href: '/admin/bridge', label: 'Bridge', icon: ArrowLeftRight },
+  { href: '/admin/extractors', label: 'Extractors', icon: TrendingDown },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 
