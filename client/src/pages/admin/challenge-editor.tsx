@@ -872,7 +872,7 @@ export default function ChallengeEditor() {
 
   const updateTier = (index: number, field: keyof ChallengeTier, value: unknown) => {
     const newTiers = [...tiers];
-    (newTiers[index] as Record<string, unknown>)[field] = value;
+    (newTiers[index] as unknown as Record<string, unknown>)[field] = value;
     setTiers(newTiers);
   };
 
