@@ -381,12 +381,12 @@ export default function ExtractorsAnalysis() {
               <div className="space-y-1">
                 {/* Header */}
                 <div className="grid grid-cols-8 gap-2 px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/50 rounded-md">
-                  <div>Wallet / Summoner</div>
+                  <div>Wallet</div>
+                  <div>Summoner</div>
                   <div className="text-right">Bridged In</div>
                   <div className="text-right">Bridged Out</div>
                   <div className="text-right">Net Extracted</div>
                   <div className="text-right">Last Bridge Amt</div>
-                  <div className="text-right">Heroes In/Out</div>
                   <div className="text-center">Flags</div>
                   <div className="text-right">Last Bridge</div>
                 </div>
@@ -403,25 +403,21 @@ export default function ExtractorsAnalysis() {
                       className="grid grid-cols-8 gap-2 px-3 py-3 text-sm items-center hover-elevate rounded-md"
                       data-testid={`row-extractor-${extractor.id}`}
                     >
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center gap-2">
-                          <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
-                          <a 
-                            href={`https://subnets.avax.network/defi-kingdoms/address/${extractor.wallet}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-mono text-xs hover:underline flex items-center gap-1"
-                            data-testid={`link-wallet-${extractor.id}`}
-                          >
-                            {shortenAddress(extractor.wallet)}
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        </div>
-                        {extractor.summonerName && (
-                          <span className="text-xs text-primary font-medium pl-6" data-testid={`text-summoner-${extractor.id}`}>
-                            {extractor.summonerName}
-                          </span>
-                        )}
+                      <div className="flex items-center gap-2">
+                        <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <a 
+                          href={`https://subnets.avax.network/defi-kingdoms/address/${extractor.wallet}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-xs hover:underline flex items-center gap-1"
+                          data-testid={`link-wallet-${extractor.id}`}
+                        >
+                          {shortenAddress(extractor.wallet)}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                      <div className="text-xs text-primary font-medium truncate" data-testid={`text-summoner-${extractor.id}`}>
+                        {extractor.summonerName || '*'}
                       </div>
                       <div className="text-right text-green-600 font-medium">
                         {formatUsd(extractor.totalBridgedInUsd)}
@@ -434,9 +430,6 @@ export default function ExtractorsAnalysis() {
                       </div>
                       <div className="text-right text-muted-foreground">
                         {extractor.lastBridgeAmountUsd ? formatUsd(extractor.lastBridgeAmountUsd) : '-'}
-                      </div>
-                      <div className="text-right text-muted-foreground">
-                        {extractor.heroesIn} / {extractor.heroesOut}
                       </div>
                       <div className="flex justify-center gap-1 flex-wrap">
                         {isHeavy && (

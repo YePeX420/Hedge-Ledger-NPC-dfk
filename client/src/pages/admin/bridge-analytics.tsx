@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle, Play, Loader2, Square, DollarSign, Database, Zap, PieChart } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle, Play, Loader2, Square, DollarSign, Database, Zap, PieChart, Wallet, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -47,7 +47,20 @@ interface Extractor {
   extractorFlags: string[];
   totalTransactions: number;
   lastBridgeAt: string;
+  lastBridgeAmountUsd: string | null;
+  summonerName: string | null;
 }
+
+type TimeRange = '1w' | '1m' | '3m' | '1y' | '2y' | 'all';
+
+const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
+  { value: '1w', label: '1W' },
+  { value: '1m', label: '1M' },
+  { value: '3m', label: '3M' },
+  { value: '1y', label: '1Y' },
+  { value: '2y', label: '2Y' },
+  { value: 'all', label: 'All' },
+];
 
 interface WalletDetails {
   summary: Extractor | null;
@@ -220,13 +233,19 @@ export default function BridgeAnalytics() {
   const { toast } = useToast();
   const [walletSearch, setWalletSearch] = useState('');
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState<TimeRange>('all');
 
   const { data: overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useQuery<BridgeOverview>({
     queryKey: ['/api/admin/bridge/overview'],
   });
 
   const { data: extractors, isLoading: extractorsLoading, isError: extractorsError } = useQuery<Extractor[]>({
-    queryKey: ['/api/admin/bridge/extractors'],
+    queryKey: ['/api/admin/bridge/extractors', timeRange],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/bridge/extractors?timeRange=${timeRange}&limit=1000`);
+      if (!res.ok) throw new Error('Failed to fetch extractors');
+      return res.json();
+    },
   });
   
   const safeOverview = overview && !('error' in overview) ? overview : null;
@@ -446,6 +465,20 @@ export default function BridgeAnalytics() {
 
   const formatUsd = (value: number | string) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num);
+  };
+
+  const formatUsdCompact = (value: number | string) => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (num >= 1_000_000_000) {
+      return `$${(num / 1_000_000_000).toFixed(2)}B`;
+    }
+    if (num >= 1_000_000) {
+      return `$${(num / 1_000_000).toFixed(2)}M`;
+    }
+    if (num >= 1_000) {
+      return `$${(num / 1_000).toFixed(2)}K`;
+    }
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num);
   };
 
@@ -1234,61 +1267,124 @@ export default function BridgeAnalytics() {
       {/* Top Extractors */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <TrendingDown className="h-5 w-5 text-orange-500" />
-            Top Extractors
-          </CardTitle>
-          <CardDescription>Wallets with highest net value extracted from DFK Chain</CardDescription>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <TrendingDown className="h-5 w-5 text-orange-500" />
+                Top Extractors
+              </CardTitle>
+              <CardDescription>Wallets with highest net value extracted from DFK Chain</CardDescription>
+            </div>
+            <div className="flex items-center gap-1 p-1 bg-muted rounded-lg" data-testid="time-range-filter">
+              {TIME_RANGE_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  variant={timeRange === option.value ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setTimeRange(option.value)}
+                  className="h-7 px-3 text-xs font-medium"
+                  data-testid={`button-time-${option.value}`}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {extractorsLoading ? (
             <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-16 w-full" />
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
-          ) : safeExtractors.length > 0 ? (
-            <ScrollArea className="h-[400px]">
-              <div className="space-y-2">
-                {safeExtractors.map((extractor, index) => (
-                  <div 
-                    key={extractor.id} 
-                    className="flex items-center justify-between p-3 rounded-lg bg-muted/50 cursor-pointer hover-elevate"
-                    onClick={() => setSelectedWallet(extractor.wallet)}
-                    data-testid={`extractor-row-${index}`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <span className="text-lg font-bold text-muted-foreground w-8">
-                        #{index + 1}
-                      </span>
-                      <div>
-                        <p className="font-mono text-sm">{shortenAddress(extractor.wallet)}</p>
-                        <div className="flex gap-2 mt-1">
-                          {extractor.extractorFlags?.map((flag) => (
-                            <Badge key={flag} variant="outline" className="text-xs">
-                              {flag.replace(/_/g, ' ')}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-orange-600">
-                        {formatUsd(extractor.netExtractedUsd)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Score: {extractor.extractorScore}/10
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          ) : (
+          ) : safeExtractors.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <p>No extractors identified yet</p>
               <p className="text-sm">Index some wallets to start tracking</p>
             </div>
+          ) : (
+            <ScrollArea className="h-[500px]">
+              <div className="space-y-1">
+                {/* Header */}
+                <div className="grid grid-cols-8 gap-2 px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/50 rounded-md">
+                  <div>Wallet</div>
+                  <div>Summoner</div>
+                  <div className="text-right">Bridged In</div>
+                  <div className="text-right">Bridged Out</div>
+                  <div className="text-right">Net Extracted</div>
+                  <div className="text-right">Last Bridge Amt</div>
+                  <div className="text-center">Flags</div>
+                  <div className="text-right">Last Bridge</div>
+                </div>
+                <Separator />
+                
+                {safeExtractors.map((extractor) => {
+                  const netExtracted = parseFloat(extractor.netExtractedUsd);
+                  const isHeavy = extractor.extractorFlags?.includes('heavy_extractor');
+                  const isNet = extractor.extractorFlags?.includes('net_extractor');
+                  
+                  return (
+                    <div 
+                      key={extractor.id}
+                      className="grid grid-cols-8 gap-2 px-3 py-3 text-sm items-center hover-elevate rounded-md cursor-pointer"
+                      onClick={() => setSelectedWallet(extractor.wallet)}
+                      data-testid={`row-extractor-${extractor.id}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <a 
+                          href={`https://subnets.avax.network/defi-kingdoms/address/${extractor.wallet}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-xs hover:underline flex items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                          data-testid={`link-wallet-${extractor.id}`}
+                        >
+                          {shortenAddress(extractor.wallet)}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                      <div className="text-xs text-primary font-medium truncate" data-testid={`text-summoner-${extractor.id}`}>
+                        {extractor.summonerName || '*'}
+                      </div>
+                      <div className="text-right text-green-600 font-medium">
+                        {formatUsdCompact(extractor.totalBridgedInUsd)}
+                      </div>
+                      <div className="text-right text-red-600 font-medium">
+                        {formatUsdCompact(extractor.totalBridgedOutUsd)}
+                      </div>
+                      <div className={`text-right font-bold ${netExtracted > 0 ? 'text-amber-600' : 'text-foreground'}`}>
+                        {formatUsdCompact(netExtracted)}
+                      </div>
+                      <div className="text-right text-muted-foreground">
+                        {extractor.lastBridgeAmountUsd ? formatUsdCompact(extractor.lastBridgeAmountUsd) : '-'}
+                      </div>
+                      <div className="flex justify-center gap-1 flex-wrap">
+                        {isHeavy && (
+                          <Badge variant="destructive" className="text-xs">
+                            Heavy
+                          </Badge>
+                        )}
+                        {isNet && !isHeavy && (
+                          <Badge variant="secondary" className="text-xs">
+                            Net
+                          </Badge>
+                        )}
+                        {!isHeavy && !isNet && (
+                          <Badge variant="outline" className="text-xs">
+                            -
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-right text-muted-foreground text-xs">
+                        {extractor.lastBridgeAt ? formatDate(extractor.lastBridgeAt) : '-'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </ScrollArea>
           )}
         </CardContent>
       </Card>
