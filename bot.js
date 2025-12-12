@@ -77,6 +77,7 @@ import {
 } from './bridge-tracker/price-enrichment.js';
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
 import { getValueBreakdown } from './src/analytics/valueBreakdown.ts';
+import { syncTokenRegistry, getAllTokens, getTokenAddressMap } from './src/services/tokenRegistryService.ts';
 import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeValidation, challengeAuditLog, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
@@ -4991,6 +4992,45 @@ async function startAdminWebServer() {
     } catch (error) {
       console.error('[API] Error fetching value breakdown:', error);
       res.status(500).json({ error: 'Failed to fetch value breakdown' });
+    }
+  });
+
+  // ============================================================================
+  // TOKEN REGISTRY ENDPOINTS
+  // ============================================================================
+
+  // GET /api/admin/tokens - List all tokens in registry
+  app.get('/api/admin/tokens', isAdmin, async (req, res) => {
+    try {
+      const tokens = await getAllTokens();
+      res.json({ tokens, count: tokens.length });
+    } catch (error) {
+      console.error('[API] Error fetching tokens:', error);
+      res.status(500).json({ error: 'Failed to fetch tokens' });
+    }
+  });
+
+  // POST /api/admin/tokens/sync - Sync tokens from RouteScan
+  app.post('/api/admin/tokens/sync', isAdmin, async (req, res) => {
+    try {
+      const fullSync = req.body?.fullSync === true;
+      console.log(`[API] Starting token sync (fullSync: ${fullSync})...`);
+      const result = await syncTokenRegistry(fullSync);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error('[API] Error syncing tokens:', error);
+      res.status(500).json({ error: 'Failed to sync tokens' });
+    }
+  });
+
+  // GET /api/admin/tokens/map - Get address -> symbol mapping
+  app.get('/api/admin/tokens/map', isAdmin, async (req, res) => {
+    try {
+      const map = await getTokenAddressMap();
+      res.json(map);
+    } catch (error) {
+      console.error('[API] Error fetching token map:', error);
+      res.status(500).json({ error: 'Failed to fetch token map' });
     }
   });
 

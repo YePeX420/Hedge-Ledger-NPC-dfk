@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { getTokenAddressMap } from '../services/tokenRegistryService.js';
 
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 
@@ -439,7 +440,12 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
   
-  const allPrices = await getAllTokenPrices();
+  const [allPrices, tokenNamesFromRegistry] = await Promise.all([
+    getAllTokenPrices(),
+    getTokenAddressMap().catch(() => ({})),
+  ]);
+  
+  const tokenNames = { ...TOKEN_NAMES, ...tokenNamesFromRegistry };
   
   const jewelPrice = allPrices['JEWEL'] || FALLBACK_PRICES['JEWEL'];
   const crystalPrice = allPrices['CRYSTAL'] || FALLBACK_PRICES['CRYSTAL'];
@@ -458,8 +464,8 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
         getStakedLPAmounts(provider, pid, address),
       ]);
       
-      const token0Symbol = TOKEN_NAMES[reserves.token0] || 'Unknown';
-      const token1Symbol = TOKEN_NAMES[reserves.token1] || 'Unknown';
+      const token0Symbol = tokenNames[reserves.token0] || 'Unknown';
+      const token1Symbol = tokenNames[reserves.token1] || 'Unknown';
       
       const token0Price = getTokenPriceFromMap(allPrices, reserves.token0);
       const token1Price = getTokenPriceFromMap(allPrices, reserves.token1);

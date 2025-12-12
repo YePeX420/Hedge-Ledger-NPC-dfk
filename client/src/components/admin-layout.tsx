@@ -13,7 +13,8 @@ import {
   ArrowLeftRight,
   Trophy,
   Swords,
-  PieChart
+  PieChart,
+  Coins
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -24,6 +25,7 @@ const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/value-allocation', label: 'Value Allocation', icon: PieChart },
+  { href: '/admin/tokens', label: 'Token Registry', icon: Coins },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
   { href: '/admin/expenses', label: 'Expenses', icon: Receipt },
