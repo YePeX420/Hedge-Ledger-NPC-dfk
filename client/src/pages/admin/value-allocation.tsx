@@ -16,6 +16,12 @@ interface Contract {
   jewelValueUSD: number;
   crystalValueUSD: number;
   totalValueUSD: number;
+  token0Symbol?: string;
+  token1Symbol?: string;
+  token0Balance?: number;
+  token1Balance?: number;
+  token0ValueUSD?: number;
+  token1ValueUSD?: number;
 }
 
 interface Category {
@@ -75,14 +81,6 @@ function formatNumber(value: number): string {
 
 function shortenAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
-function parsePoolTokens(poolName: string): { token0: string; token1: string } {
-  const parts = poolName.split('-');
-  return {
-    token0: parts[0] || 'TOKEN0',
-    token1: parts[1] || 'TOKEN1',
-  };
 }
 
 export default function ValueAllocationPage() {
@@ -276,66 +274,63 @@ export default function ValueAllocationPage() {
                   <TableRow>
                     <TableHead>Pool</TableHead>
                     <TableHead>Contract</TableHead>
-                    <TableHead className="text-right">JEWEL</TableHead>
-                    <TableHead className="text-right">CRYSTAL</TableHead>
-                    <TableHead className="text-right">JEWEL Value</TableHead>
-                    <TableHead className="text-right">CRYSTAL Value</TableHead>
+                    <TableHead className="text-right">Token 0</TableHead>
+                    <TableHead className="text-right">Token 1</TableHead>
+                    <TableHead className="text-right">Token 0 Value</TableHead>
+                    <TableHead className="text-right">Token 1 Value</TableHead>
                     <TableHead className="text-right">Total USD</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {lpPools?.contracts.map((contract) => {
-                    const tokens = parsePoolTokens(contract.name);
-                    return (
-                      <TableRow key={contract.address} data-testid={`row-lp-${contract.name}`}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="font-mono text-xs">
-                              {tokens.token0}
-                            </Badge>
-                            <span className="text-muted-foreground">/</span>
-                            <Badge variant="secondary" className="font-mono text-xs">
-                              {tokens.token1}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <a
-                            href={`https://subnets.avax.network/defi-kingdoms/address/${contract.address}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-foreground"
-                          >
-                            {shortenAddress(contract.address)}
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {formatNumber(contract.jewelBalance)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {formatNumber(contract.crystalBalance)}
-                        </TableCell>
-                        <TableCell className="text-right text-sm">
-                          {formatUSD(contract.jewelValueUSD)}
-                        </TableCell>
-                        <TableCell className="text-right text-sm">
-                          {formatUSD(contract.crystalValueUSD)}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {formatUSD(contract.totalValueUSD)}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                  {(lpPools?.contracts ?? []).map((contract) => (
+                    <TableRow key={contract.address} data-testid={`row-lp-${contract.name}`}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="font-mono text-xs">
+                            {contract.token0Symbol || 'TOKEN0'}
+                          </Badge>
+                          <span className="text-muted-foreground">/</span>
+                          <Badge variant="secondary" className="font-mono text-xs">
+                            {contract.token1Symbol || 'TOKEN1'}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <a
+                          href={`https://subnets.avax.network/defi-kingdoms/address/${contract.address}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-foreground"
+                        >
+                          {shortenAddress(contract.address)}
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm">
+                        <div className="flex flex-col items-end">
+                          <span>{formatNumber(contract.token0Balance || 0)}</span>
+                          <span className="text-xs text-muted-foreground">{contract.token0Symbol}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm">
+                        <div className="flex flex-col items-end">
+                          <span>{formatNumber(contract.token1Balance || 0)}</span>
+                          <span className="text-xs text-muted-foreground">{contract.token1Symbol}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right text-sm">
+                        {formatUSD(contract.token0ValueUSD || 0)}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">
+                        {formatUSD(contract.token1ValueUSD || 0)}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatUSD(contract.totalValueUSD)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
                   <TableRow className="bg-green-500/5 font-medium">
-                    <TableCell colSpan={2}>Total LP Pools</TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatNumber(lpPools?.totalJewel || 0)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatNumber(lpPools?.totalCrystal || 0)}
-                    </TableCell>
+                    <TableCell colSpan={4}>Total LP Pools</TableCell>
                     <TableCell colSpan={2}></TableCell>
                     <TableCell className="text-right text-green-500">
                       {formatUSD(lpPools?.totalValueUSD || 0)}
@@ -368,7 +363,7 @@ export default function ValueAllocationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {staking?.contracts.map((contract) => (
+                  {(staking?.contracts ?? []).map((contract) => (
                     <TableRow key={contract.address} data-testid={`row-staking-${contract.name}`}>
                       <TableCell className="font-medium">{contract.name}</TableCell>
                       <TableCell>
@@ -432,7 +427,7 @@ export default function ValueAllocationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {bridges?.contracts.map((contract) => (
+                  {(bridges?.contracts ?? []).map((contract) => (
                     <TableRow key={contract.address} data-testid={`row-bridge-${contract.name}`}>
                       <TableCell className="font-medium">{contract.name}</TableCell>
                       <TableCell>
@@ -496,7 +491,7 @@ export default function ValueAllocationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {system?.contracts.map((contract) => (
+                  {(system?.contracts ?? []).map((contract) => (
                     <TableRow key={contract.address} data-testid={`row-system-${contract.name}`}>
                       <TableCell className="font-medium">{contract.name}</TableCell>
                       <TableCell>

@@ -7,7 +7,34 @@ const TOKENS = {
   CRYSTAL: '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb',
   cJEWEL: '0x9ed2c155632C042CB8bC20634571fF1CA26f5742',
   xCRYSTAL: '0x6e7185872bcdf3f7a6cbbe81356e50daffb002d2',
-  xJEWEL_LEGACY: '0xA9cE83507D872C5e1273E745aBcfDa849DAA654F',
+  xJEWEL: '0x77f2656d04E158f915bC22f07B779D94c1DC47Ff',
+  AVAX: '0xB57B60DeBDB0b8172bb6316a9164bd3C695F133a',
+  USDC: '0x3AD9DFE640E1A9Cc1D9B0948620820D975c3803a',
+  ETH: '0xfBDF0E31808d0aa7b9509AA6aBC9754E48C58852',
+  BTC_B: '0x7516EB8B8Edfa420f540a162335eACF3ea05a247',
+  KLAY: '0x97855Ba65aa7ed2F65Ed832a776537268158B78a',
+};
+
+const TOKEN_DECIMALS: Record<string, number> = {
+  [TOKENS.JEWEL.toLowerCase()]: 18,
+  [TOKENS.CRYSTAL.toLowerCase()]: 18,
+  [TOKENS.xJEWEL.toLowerCase()]: 18,
+  [TOKENS.AVAX.toLowerCase()]: 18,
+  [TOKENS.USDC.toLowerCase()]: 18,
+  [TOKENS.ETH.toLowerCase()]: 18,
+  [TOKENS.BTC_B.toLowerCase()]: 8,
+  [TOKENS.KLAY.toLowerCase()]: 18,
+};
+
+const TOKEN_NAMES: Record<string, string> = {
+  [TOKENS.JEWEL.toLowerCase()]: 'JEWEL',
+  [TOKENS.CRYSTAL.toLowerCase()]: 'CRYSTAL',
+  [TOKENS.xJEWEL.toLowerCase()]: 'xJEWEL',
+  [TOKENS.AVAX.toLowerCase()]: 'AVAX',
+  [TOKENS.USDC.toLowerCase()]: 'USDC',
+  [TOKENS.ETH.toLowerCase()]: 'ETH',
+  [TOKENS.BTC_B.toLowerCase()]: 'BTC.b',
+  [TOKENS.KLAY.toLowerCase()]: 'KLAY',
 };
 
 const LP_POOLS = {
@@ -58,21 +85,43 @@ interface TokenBalance {
   balanceFormatted: number;
 }
 
-interface CategoryBreakdown {
+interface LpPoolContract {
+  name: string;
+  address: string;
+  token0Symbol: string;
+  token1Symbol: string;
+  token0Balance: number;
+  token1Balance: number;
+  token0ValueUSD: number;
+  token1ValueUSD: number;
+  totalValueUSD: number;
+}
+
+interface StandardContract {
+  name: string;
+  address: string;
+  jewelBalance: number;
+  crystalBalance: number;
+  jewelValueUSD: number;
+  crystalValueUSD: number;
+  totalValueUSD: number;
+}
+
+interface LpPoolsCategory {
+  category: 'LP Pools';
+  contracts: LpPoolContract[];
+  totalValueUSD: number;
+}
+
+interface StandardCategory {
   category: string;
-  contracts: {
-    name: string;
-    address: string;
-    jewelBalance: number;
-    crystalBalance: number;
-    jewelValueUSD: number;
-    crystalValueUSD: number;
-    totalValueUSD: number;
-  }[];
+  contracts: StandardContract[];
   totalJewel: number;
   totalCrystal: number;
   totalValueUSD: number;
 }
+
+type CategoryBreakdown = LpPoolsCategory | StandardCategory;
 
 interface ValueBreakdownResult {
   timestamp: string;
@@ -100,86 +149,154 @@ interface PriceResult {
   timestamp: number;
 }
 
-const priceCache: { jewel?: PriceResult; crystal?: PriceResult } = {};
+const priceCache: Record<string, PriceResult> = {};
 const CACHE_TTL_MS = 60000;
 
-async function fetchDefiLlamaPrices(): Promise<{ jewel: number | null; crystal: number | null }> {
+const COINGECKO_IDS: Record<string, string> = {
+  'JEWEL': 'defi-kingdoms',
+  'CRYSTAL': 'defi-kingdoms-crystal',
+  'AVAX': 'avalanche-2',
+  'ETH': 'ethereum',
+  'BTC.b': 'bitcoin',
+  'USDC': 'usd-coin',
+  'KLAY': 'klay-token',
+  'xJEWEL': 'defi-kingdoms',
+};
+
+const FALLBACK_PRICES: Record<string, number> = {
+  'JEWEL': 0.0165,
+  'CRYSTAL': 0.0044,
+  'xJEWEL': 0.0165,
+  'AVAX': 45.0,
+  'ETH': 3900.0,
+  'BTC.b': 100000.0,
+  'USDC': 1.0,
+  'KLAY': 0.15,
+};
+
+async function fetchAllDefiLlamaPrices(): Promise<Record<string, number>> {
   try {
-    const jewelAddress = 'dfk:0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260';
-    const crystalAddress = 'dfk:0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
+    const tokenAddresses = [
+      `dfk:${TOKENS.JEWEL}`,
+      `dfk:${TOKENS.CRYSTAL}`,
+      `avax:${TOKENS.AVAX}`,
+      `dfk:${TOKENS.ETH}`,
+      `dfk:${TOKENS.BTC_B}`,
+      `dfk:${TOKENS.USDC}`,
+      `dfk:${TOKENS.KLAY}`,
+    ];
     
     const response = await fetch(
-      `https://coins.llama.fi/prices/current/${jewelAddress},${crystalAddress}`,
+      `https://coins.llama.fi/prices/current/${tokenAddresses.join(',')}`,
       { signal: AbortSignal.timeout(10000) }
     );
     
     if (!response.ok) {
       console.log('[ValueBreakdown] DefiLlama API returned status:', response.status);
-      return { jewel: null, crystal: null };
+      return {};
     }
     
     const data = await response.json();
-    const jewelData = data.coins?.[jewelAddress];
-    const crystalData = data.coins?.[crystalAddress];
+    const prices: Record<string, number> = {};
     
-    console.log('[ValueBreakdown] DefiLlama response:', JSON.stringify(data.coins || {}, null, 2));
+    for (const [key, value] of Object.entries(data.coins || {})) {
+      const price = (value as any)?.price;
+      if (price) {
+        const addr = key.split(':')[1]?.toLowerCase();
+        if (addr) prices[addr] = price;
+      }
+    }
     
-    return {
-      jewel: jewelData?.price || null,
-      crystal: crystalData?.price || null,
-    };
+    console.log('[ValueBreakdown] DefiLlama prices fetched:', Object.keys(prices).length, 'tokens');
+    return prices;
   } catch (err) {
     console.log('[ValueBreakdown] DefiLlama fetch failed:', err);
-    return { jewel: null, crystal: null };
+    return {};
   }
 }
 
-async function fetchCoinGeckoPrice(token: 'JEWEL' | 'CRYSTAL'): Promise<number | null> {
+async function fetchCoinGeckoPrices(symbols: string[]): Promise<Record<string, number>> {
   try {
-    const id = token === 'JEWEL' ? 'defi-kingdoms' : 'defi-kingdoms-crystal';
+    const ids = symbols.map(s => COINGECKO_IDS[s]).filter(Boolean);
+    if (ids.length === 0) return {};
+    
     const response = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`,
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`,
       { signal: AbortSignal.timeout(10000) }
     );
     
-    if (!response.ok) return null;
+    if (!response.ok) return {};
     
     const data = await response.json();
-    return data[id]?.usd || null;
+    const prices: Record<string, number> = {};
+    
+    for (const symbol of symbols) {
+      const geckoId = COINGECKO_IDS[symbol];
+      if (geckoId && data[geckoId]?.usd) {
+        prices[symbol] = data[geckoId].usd;
+      }
+    }
+    
+    return prices;
   } catch {
-    return null;
+    return {};
   }
 }
 
+let cachedAllPrices: { prices: Record<string, number>; timestamp: number } | null = null;
+
+async function getAllTokenPrices(): Promise<Record<string, number>> {
+  if (cachedAllPrices && Date.now() - cachedAllPrices.timestamp < CACHE_TTL_MS) {
+    return cachedAllPrices.prices;
+  }
+  
+  const llamaPrices = await fetchAllDefiLlamaPrices();
+  
+  const addressToSymbol: Record<string, string> = {};
+  for (const [name, addr] of Object.entries(TOKENS)) {
+    const symbol = name === 'BTC_B' ? 'BTC.b' : name;
+    addressToSymbol[addr.toLowerCase()] = symbol;
+  }
+  
+  const prices: Record<string, number> = {};
+  for (const [addr, price] of Object.entries(llamaPrices)) {
+    const symbol = addressToSymbol[addr];
+    if (symbol) prices[symbol] = price;
+  }
+  
+  const missingSymbols = Object.keys(FALLBACK_PRICES).filter(s => !prices[s]);
+  if (missingSymbols.length > 0) {
+    const geckoPrices = await fetchCoinGeckoPrices(missingSymbols);
+    for (const [symbol, price] of Object.entries(geckoPrices)) {
+      if (!prices[symbol]) prices[symbol] = price;
+    }
+  }
+  
+  for (const [symbol, fallback] of Object.entries(FALLBACK_PRICES)) {
+    if (!prices[symbol]) {
+      prices[symbol] = fallback;
+      console.warn(`[ValueBreakdown] Using fallback price for ${symbol}: $${fallback}`);
+    }
+  }
+  
+  cachedAllPrices = { prices, timestamp: Date.now() };
+  console.log('[ValueBreakdown] Token prices:', prices);
+  return prices;
+}
+
+function getTokenPriceFromMap(prices: Record<string, number>, tokenAddr: string): number {
+  const symbol = TOKEN_NAMES[tokenAddr.toLowerCase()];
+  if (symbol && prices[symbol]) return prices[symbol];
+  if (tokenAddr.toLowerCase() === TOKENS.xJEWEL.toLowerCase()) {
+    return prices['JEWEL'] || FALLBACK_PRICES['JEWEL'];
+  }
+  return 0;
+}
+
 async function getTokenPrice(token: 'JEWEL' | 'CRYSTAL'): Promise<PriceResult> {
-  const cacheKey = token.toLowerCase() as 'jewel' | 'crystal';
-  const cached = priceCache[cacheKey];
-  
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return cached;
-  }
-  
-  const llamaPrices = await fetchDefiLlamaPrices();
-  const llamaPrice = token === 'JEWEL' ? llamaPrices.jewel : llamaPrices.crystal;
-  
-  if (llamaPrice && llamaPrice > 0) {
-    const result: PriceResult = { price: llamaPrice, source: 'defillama', timestamp: Date.now() };
-    priceCache[cacheKey] = result;
-    console.log(`[ValueBreakdown] ${token} price from DefiLlama: $${llamaPrice}`);
-    return result;
-  }
-  
-  const geckoPrice = await fetchCoinGeckoPrice(token);
-  if (geckoPrice && geckoPrice > 0) {
-    const result: PriceResult = { price: geckoPrice, source: 'coingecko', timestamp: Date.now() };
-    priceCache[cacheKey] = result;
-    console.log(`[ValueBreakdown] ${token} price from CoinGecko: $${geckoPrice}`);
-    return result;
-  }
-  
-  const fallbackPrice = token === 'JEWEL' ? 0.15 : 0.02;
-  console.warn(`[ValueBreakdown] Using fallback price for ${token}: $${fallbackPrice}`);
-  return { price: fallbackPrice, source: 'fallback', timestamp: Date.now() };
+  const prices = await getAllTokenPrices();
+  const price = prices[token] || FALLBACK_PRICES[token];
+  return { price, source: 'defillama', timestamp: Date.now() };
 }
 
 async function getTokenBalance(
@@ -207,11 +324,17 @@ async function getLPReserves(
       contract.token0(),
       contract.token1(),
     ]);
+    
+    const token0Lower = token0.toLowerCase();
+    const token1Lower = token1.toLowerCase();
+    const decimals0 = TOKEN_DECIMALS[token0Lower] ?? 18;
+    const decimals1 = TOKEN_DECIMALS[token1Lower] ?? 18;
+    
     return {
-      token0: token0.toLowerCase(),
-      token1: token1.toLowerCase(),
-      reserve0: parseFloat(ethers.formatEther(reserves[0])),
-      reserve1: parseFloat(ethers.formatEther(reserves[1])),
+      token0: token0Lower,
+      token1: token1Lower,
+      reserve0: parseFloat(ethers.formatUnits(reserves[0], decimals0)),
+      reserve1: parseFloat(ethers.formatUnits(reserves[1], decimals1)),
     };
   } catch {
     return { token0: '', token1: '', reserve0: 0, reserve1: 0 };
@@ -234,41 +357,36 @@ async function getStakedTokenSupply(
 export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
   
-  const [jewelPriceResult, crystalPriceResult] = await Promise.all([
-    getTokenPrice('JEWEL'),
-    getTokenPrice('CRYSTAL'),
-  ]);
+  const allPrices = await getAllTokenPrices();
   
-  const jewelPrice = jewelPriceResult.price;
-  const crystalPrice = crystalPriceResult.price;
+  const jewelPrice = allPrices['JEWEL'] || FALLBACK_PRICES['JEWEL'];
+  const crystalPrice = allPrices['CRYSTAL'] || FALLBACK_PRICES['CRYSTAL'];
 
   const categories: CategoryBreakdown[] = [];
 
-  const lpPoolContracts = await Promise.all(
+  const lpPoolContracts: LpPoolContract[] = await Promise.all(
     Object.entries(LP_POOLS).map(async ([name, address]) => {
       const reserves = await getLPReserves(provider, address);
-      let jewelBalance = 0;
-      let crystalBalance = 0;
-
-      const jewelAddr = TOKENS.JEWEL.toLowerCase();
-      const crystalAddr = TOKENS.CRYSTAL.toLowerCase();
-
-      if (reserves.token0 === jewelAddr) jewelBalance = reserves.reserve0;
-      if (reserves.token1 === jewelAddr) jewelBalance = reserves.reserve1;
-      if (reserves.token0 === crystalAddr) crystalBalance = reserves.reserve0;
-      if (reserves.token1 === crystalAddr) crystalBalance = reserves.reserve1;
-
-      const jewelValueUSD = jewelBalance * jewelPrice;
-      const crystalValueUSD = crystalBalance * crystalPrice;
+      
+      const token0Symbol = TOKEN_NAMES[reserves.token0] || 'Unknown';
+      const token1Symbol = TOKEN_NAMES[reserves.token1] || 'Unknown';
+      
+      const token0Price = getTokenPriceFromMap(allPrices, reserves.token0);
+      const token1Price = getTokenPriceFromMap(allPrices, reserves.token1);
+      
+      const token0ValueUSD = reserves.reserve0 * token0Price;
+      const token1ValueUSD = reserves.reserve1 * token1Price;
 
       return {
         name,
         address,
-        jewelBalance,
-        crystalBalance,
-        jewelValueUSD,
-        crystalValueUSD,
-        totalValueUSD: jewelValueUSD + crystalValueUSD,
+        token0Symbol,
+        token1Symbol,
+        token0Balance: reserves.reserve0,
+        token1Balance: reserves.reserve1,
+        token0ValueUSD,
+        token1ValueUSD,
+        totalValueUSD: token0ValueUSD + token1ValueUSD,
       };
     })
   );
@@ -276,10 +394,8 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   categories.push({
     category: 'LP Pools',
     contracts: lpPoolContracts,
-    totalJewel: lpPoolContracts.reduce((sum, c) => sum + c.jewelBalance, 0),
-    totalCrystal: lpPoolContracts.reduce((sum, c) => sum + c.crystalBalance, 0),
     totalValueUSD: lpPoolContracts.reduce((sum, c) => sum + c.totalValueUSD, 0),
-  });
+  } as LpPoolsCategory);
 
   const [cJewelSupply, xCrystalSupply] = await Promise.all([
     getStakedTokenSupply(provider, TOKENS.cJEWEL),
@@ -369,23 +485,27 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     totalValueUSD: systemContracts.reduce((sum, c) => sum + c.totalValueUSD, 0),
   });
 
-  const lpCat = categories.find(c => c.category === 'LP Pools');
-  const stakingCat = categories.find(c => c.category === 'Staking/Governance');
-  const bridgeCat = categories.find(c => c.category === 'Bridge Contracts');
-  const systemCat = categories.find(c => c.category === 'System Contracts');
+  const lpCat = categories.find(c => c.category === 'LP Pools') as LpPoolsCategory | undefined;
+  const stakingCat = categories.find(c => c.category === 'Staking/Governance') as StandardCategory | undefined;
+  const bridgeCat = categories.find(c => c.category === 'Bridge Contracts') as StandardCategory | undefined;
+  const systemCat = categories.find(c => c.category === 'System Contracts') as StandardCategory | undefined;
+
+  const standardCats = [stakingCat, bridgeCat, systemCat].filter(Boolean) as StandardCategory[];
+  const totalJewelLocked = standardCats.reduce((sum, c) => sum + c.totalJewel, 0);
+  const totalCrystalLocked = standardCats.reduce((sum, c) => sum + c.totalCrystal, 0);
 
   return {
     timestamp: new Date().toISOString(),
     prices: {
       jewel: jewelPrice,
       crystal: crystalPrice,
-      jewelSource: jewelPriceResult.source,
-      crystalSource: crystalPriceResult.source,
+      jewelSource: 'defillama' as const,
+      crystalSource: 'defillama' as const,
     },
     categories,
     summary: {
-      totalJewelLocked: categories.reduce((sum, c) => sum + c.totalJewel, 0),
-      totalCrystalLocked: categories.reduce((sum, c) => sum + c.totalCrystal, 0),
+      totalJewelLocked,
+      totalCrystalLocked,
       totalValueUSD: categories.reduce((sum, c) => sum + c.totalValueUSD, 0),
       lpPoolsValue: lpCat?.totalValueUSD || 0,
       stakingValue: stakingCat?.totalValueUSD || 0,
@@ -404,15 +524,27 @@ export function formatValueBreakdown(data: ValueBreakdownResult): string {
 
   for (const category of data.categories) {
     lines.push(`--- ${category.category} ---`);
-    for (const contract of category.contracts) {
-      lines.push(`  ${contract.name}:`);
-      if (contract.jewelBalance > 0) {
-        lines.push(`    JEWEL: ${contract.jewelBalance.toLocaleString()} ($${contract.jewelValueUSD.toLocaleString()})`);
+    
+    if (category.category === 'LP Pools') {
+      const lpCat = category as LpPoolsCategory;
+      for (const contract of lpCat.contracts) {
+        lines.push(`  ${contract.name}:`);
+        lines.push(`    ${contract.token0Symbol}: ${contract.token0Balance.toLocaleString()} ($${contract.token0ValueUSD.toLocaleString()})`);
+        lines.push(`    ${contract.token1Symbol}: ${contract.token1Balance.toLocaleString()} ($${contract.token1ValueUSD.toLocaleString()})`);
+        lines.push(`    Total: $${contract.totalValueUSD.toLocaleString()}`);
       }
-      if (contract.crystalBalance > 0) {
-        lines.push(`    CRYSTAL: ${contract.crystalBalance.toLocaleString()} ($${contract.crystalValueUSD.toLocaleString()})`);
+    } else {
+      const stdCat = category as StandardCategory;
+      for (const contract of stdCat.contracts) {
+        lines.push(`  ${contract.name}:`);
+        if (contract.jewelBalance > 0) {
+          lines.push(`    JEWEL: ${contract.jewelBalance.toLocaleString()} ($${contract.jewelValueUSD.toLocaleString()})`);
+        }
+        if (contract.crystalBalance > 0) {
+          lines.push(`    CRYSTAL: ${contract.crystalBalance.toLocaleString()} ($${contract.crystalValueUSD.toLocaleString()})`);
+        }
+        lines.push(`    Total: $${contract.totalValueUSD.toLocaleString()}`);
       }
-      lines.push(`    Total: $${contract.totalValueUSD.toLocaleString()}`);
     }
     lines.push(`  Category Total: $${category.totalValueUSD.toLocaleString()}`);
     lines.push('');
