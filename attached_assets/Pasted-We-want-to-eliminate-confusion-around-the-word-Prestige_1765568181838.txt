@@ -1,0 +1,74 @@
+We want to eliminate confusion around the word “Prestige” by clearly separating three concepts:
+
+1) Challenges (rolling, tiered)
+2) Founder’s Mark (permanent peak-tier marker per challenge)
+3) Feats (lifetime binary accomplishments)
+
+Please apply the following changes at the UI and API layer (no breaking ETL or scoring changes required right now).
+
+====================================================
+1) Rename “Prestige Challenges” → “Feats”
+====================================================
+
+- Anywhere in the UI, admin, or API responses that currently refers to “Prestige Challenges” should be renamed to “Feats”.
+- Feats are:
+  - Lifetime
+  - Binary (locked / unlocked)
+  - Not tiered
+  - Not rolling
+  - Not part of season scoring or calibration
+- Update headers, tabs, tooltips, and copy accordingly.
+- Do NOT change underlying DB tables yet; this is a naming/UX refactor.
+
+====================================================
+2) Introduce “Founder’s Mark” for Challenges
+====================================================
+
+- A Founder’s Mark is a permanent marker indicating that a player has **ever achieved the top tier** (e.g. Mythic) for a given Challenge.
+- Founder’s Marks:
+  - Are evaluated from historical tier results
+  - Once earned, are never removed
+  - Are independent of the current rolling tier
+  - Are purely visual/identity markers
+
+Backend/API:
+- Add (or expose if already present):
+  - founders_mark (boolean)
+  - founders_mark_at (timestamp, optional)
+- These fields should be returned with the challenge progress payload.
+
+====================================================
+3) UI Behavior
+====================================================
+
+Challenge Cards:
+- Show current tier emblem based on rolling window (e.g. 180d).
+- If founders_mark === true:
+  - Render a permanent “Founder’s Mark” border or overlay on the card.
+  - This border remains even if the current tier drops.
+
+Feats Page:
+- Display Feats separately from Challenges.
+- Each Feat shows Locked / Unlocked state only.
+- No tiers, no progress bars, no calibration.
+
+====================================================
+4) Remove “Prestige” Terminology from Player-Facing UI
+====================================================
+
+- Replace all player-facing uses of “Prestige” with:
+  - “Feats” (for lifetime accomplishments)
+  - “Founder’s Mark” (for peak-tier achievement)
+- The word “Prestige” should not appear in player-facing challenge UI.
+
+====================================================
+5) Validation
+====================================================
+
+Confirm:
+- A Challenge with rolling tiers shows:
+  - Current Tier (from rolling window)
+  - Founder’s Mark if previously achieved top tier
+- A Feat shows only Locked / Unlocked
+- No tier ladders appear on Feats
+- Calibration and simulation continue to apply only to Challenges
