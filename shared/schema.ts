@@ -1734,3 +1734,33 @@ export const ingestionState = pgTable("ingestion_state", {
 export const insertIngestionStateSchema = createInsertSchema(ingestionState).omit({ lastUpdatedAt: true });
 export type InsertIngestionState = z.infer<typeof insertIngestionStateSchema>;
 export type IngestionState = typeof ingestionState.$inferSelect;
+
+// ============================================================================
+// TOKEN REGISTRY
+// Stores DFK Chain token information from RouteScan for symbol resolution
+// ============================================================================
+
+/**
+ * Token registry - caches token metadata from RouteScan
+ * Used for resolving token addresses to symbols across the app
+ */
+export const tokenRegistry = pgTable("token_registry", {
+  id: serial("id").primaryKey(),
+  address: text("address").notNull().unique(), // lowercase token contract address
+  symbol: text("symbol").notNull(),
+  name: text("name").notNull(),
+  decimals: integer("decimals").notNull().default(18),
+  holders: integer("holders"), // number of holders (nullable, may not be available)
+  priceUsd: numeric("price_usd", { precision: 30, scale: 18 }), // optional price data
+  chain: text("chain").notNull().default("dfk"), // dfk, klaytn, metis
+  lastUpdatedAt: timestamp("last_updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  addressIdx: uniqueIndex("token_registry_address_idx").on(table.address),
+  symbolIdx: index("token_registry_symbol_idx").on(table.symbol),
+  chainIdx: index("token_registry_chain_idx").on(table.chain),
+}));
+
+export const insertTokenRegistrySchema = createInsertSchema(tokenRegistry).omit({ id: true, createdAt: true, lastUpdatedAt: true });
+export type InsertTokenRegistry = z.infer<typeof insertTokenRegistrySchema>;
+export type TokenRegistry = typeof tokenRegistry.$inferSelect;
