@@ -109,6 +109,7 @@ export class EtlService {
         const result = await this.runForWallet(walletAddress, {
           includeSnapshots: true,
           includeTransfers: true,
+          includeWindowedProgress: true,
         });
         results.push(result);
       }
