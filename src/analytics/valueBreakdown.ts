@@ -37,21 +37,28 @@ const TOKEN_NAMES: Record<string, string> = {
   [TOKENS.KLAY.toLowerCase()]: 'KLAY',
 };
 
-const LP_POOLS = {
-  'wJEWEL-xJEWEL': '0x6AC38A4C112F125eac0eBDbaDBed0BC8F4575d0d',
-  'CRYSTAL-AVAX': '0x9f378F48d0c1328fd0C80d7Ae544C6CadB5Ba99E',
-  'CRYSTAL-wJEWEL': '0x48658E69D741024b4686C8f7b236D3F1D291f386',
-  'CRYSTAL-USDC': '0x04Dec678825b8DfD2D0d9bD83B538bE3fbDA2926',
-  'ETH-USDC': '0x7d4daa9eB74264b082A92F3f559ff167224484aC',
-  'wJEWEL-USDC': '0xCF329b34049033dE26e4449aeBCb41f1992724D3',
-  'CRYSTAL-ETH': '0x78C893E262e2681Dbd6B6eBA6CCA2AaD45de19AD',
-  'CRYSTAL-BTC.b': '0x00BD81c9bAc29a3b6aea7ABc92d2C9a3366Bb4dD',
-  'CRYSTAL-KLAY': '0xaFC1fBc3F3fB517EB54Bb2472051A6f0b2105320',
-  'wJEWEL-KLAY': '0x561091E2385C90d41b4c0dAef651A4b33E1a5CfE',
-  'wJEWEL-AVAX': '0xF3EabeD6Bd905e0FcD68FC3dBCd6e3A4aEE55E98',
-  'wJEWEL-BTC.b': '0xfAa8507e822397bd56eFD4480Fb12ADC41ff940B',
-  'wJEWEL-ETH': '0x79724B6996502afc773feB3Ff8Bb3C23ADf2854B',
-  'BTC.b-USDC': '0x59D642B471dd54207Cb1CDe2e7507b0Ce1b1a6a5',
+const MASTER_GARDENER_V2 = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
+
+interface LpPoolConfig {
+  address: string;
+  pid: number;
+}
+
+const LP_POOLS: Record<string, LpPoolConfig> = {
+  'wJEWEL-xJEWEL': { address: '0x6AC38A4C112F125eac0eBDbaDBed0BC8F4575d0d', pid: 0 },
+  'CRYSTAL-AVAX': { address: '0x9f378F48d0c1328fd0C80d7Ae544C6CadB5Ba99E', pid: 1 },
+  'CRYSTAL-wJEWEL': { address: '0x48658E69D741024b4686C8f7b236D3F1D291f386', pid: 2 },
+  'CRYSTAL-USDC': { address: '0x04Dec678825b8DfD2D0d9bD83B538bE3fbDA2926', pid: 3 },
+  'ETH-USDC': { address: '0x7d4daa9eB74264b082A92F3f559ff167224484aC', pid: 4 },
+  'wJEWEL-USDC': { address: '0xCF329b34049033dE26e4449aeBCb41f1992724D3', pid: 5 },
+  'CRYSTAL-ETH': { address: '0x78C893E262e2681Dbd6B6eBA6CCA2AaD45de19AD', pid: 6 },
+  'CRYSTAL-BTC.b': { address: '0x00BD81c9bAc29a3b6aea7ABc92d2C9a3366Bb4dD', pid: 7 },
+  'CRYSTAL-KLAY': { address: '0xaFC1fBc3F3fB517EB54Bb2472051A6f0b2105320', pid: 8 },
+  'wJEWEL-KLAY': { address: '0x561091E2385C90d41b4c0dAef651A4b33E1a5CfE', pid: 9 },
+  'wJEWEL-AVAX': { address: '0xF3EabeD6Bd905e0FcD68FC3dBCd6e3A4aEE55E98', pid: 10 },
+  'wJEWEL-BTC.b': { address: '0xfAa8507e822397bd56eFD4480Fb12ADC41ff940B', pid: 11 },
+  'wJEWEL-ETH': { address: '0x79724B6996502afc773feB3Ff8Bb3C23ADf2854B', pid: 12 },
+  'BTC.b-USDC': { address: '0x59D642B471dd54207Cb1CDe2e7507b0Ce1b1a6a5', pid: 13 },
 };
 
 const SYSTEM_CONTRACTS = {
@@ -79,6 +86,12 @@ const LP_ABI = [
   'function token1() view returns (address)',
 ];
 
+const MASTER_GARDENER_ABI = [
+  'function getPoolInfo(uint256 _pid) view returns (tuple(address lpToken, uint256 allocPoint, uint256 lastRewardBlock, uint256 accRewardPerShare, uint256 totalStaked, uint256 totalRewards) _poolInfo)',
+  'function poolInfo(uint256 _pid) view returns (tuple(address lpToken, uint256 allocPoint, uint256 lastRewardBlock, uint256 accRewardPerShare) _poolInfoLegacy)',
+  'function getPoolLength() view returns (uint256 _poolLength)',
+];
+
 interface TokenBalance {
   address: string;
   balance: string;
@@ -88,6 +101,7 @@ interface TokenBalance {
 interface LpPoolContract {
   name: string;
   address: string;
+  pid: number;
   token0Symbol: string;
   token1Symbol: string;
   token0Balance: number;
@@ -95,6 +109,13 @@ interface LpPoolContract {
   token0ValueUSD: number;
   token1ValueUSD: number;
   totalValueUSD: number;
+  v2StakedLP: number;
+  v1StakedLP: number;
+  totalStakedLP: number;
+  totalLPSupply: number;
+  stakedRatio: number;
+  v2ValueUSD: number;
+  v1ValueUSD: number;
 }
 
 interface StandardContract {
@@ -361,6 +382,50 @@ async function getStakedTokenSupply(
   }
 }
 
+interface StakedLPInfo {
+  v2Staked: number;
+  v1Staked: number;
+  totalSupply: number;
+}
+
+async function getStakedLPAmounts(
+  provider: ethers.JsonRpcProvider,
+  pid: number,
+  lpAddress: string
+): Promise<StakedLPInfo> {
+  try {
+    const gardenerContract = new ethers.Contract(MASTER_GARDENER_V2, MASTER_GARDENER_ABI, provider);
+    const lpContract = new ethers.Contract(lpAddress, LP_ABI, provider);
+    
+    const [v2PoolInfo, totalSupply] = await Promise.all([
+      gardenerContract.getPoolInfo(pid).catch(() => null),
+      lpContract.totalSupply(),
+    ]);
+    
+    const v2Staked = v2PoolInfo && v2PoolInfo.totalStaked 
+      ? parseFloat(ethers.formatEther(v2PoolInfo.totalStaked))
+      : 0;
+    
+    let v1Staked = 0;
+    try {
+      const v1PoolInfo = await gardenerContract.poolInfo(pid);
+      const legacyGardenerBalance = await lpContract.balanceOf('0x57dec9cc7f492d6583c773e2e7ad66dcdc6940fb');
+      const estimatedV1 = parseFloat(ethers.formatEther(legacyGardenerBalance)) - v2Staked;
+      v1Staked = estimatedV1 > 0 ? estimatedV1 : 0;
+    } catch {
+      v1Staked = 0;
+    }
+    
+    return {
+      v2Staked,
+      v1Staked,
+      totalSupply: parseFloat(ethers.formatEther(totalSupply)),
+    };
+  } catch {
+    return { v2Staked: 0, v1Staked: 0, totalSupply: 0 };
+  }
+}
+
 export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
   
@@ -372,8 +437,12 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const categories: CategoryBreakdown[] = [];
 
   const lpPoolContracts: LpPoolContract[] = await Promise.all(
-    Object.entries(LP_POOLS).map(async ([name, address]) => {
-      const reserves = await getLPReserves(provider, address);
+    Object.entries(LP_POOLS).map(async ([name, config]) => {
+      const { address, pid } = config;
+      const [reserves, stakingInfo] = await Promise.all([
+        getLPReserves(provider, address),
+        getStakedLPAmounts(provider, pid, address),
+      ]);
       
       const token0Symbol = TOKEN_NAMES[reserves.token0] || 'Unknown';
       const token1Symbol = TOKEN_NAMES[reserves.token1] || 'Unknown';
@@ -381,19 +450,40 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       const token0Price = getTokenPriceFromMap(allPrices, reserves.token0);
       const token1Price = getTokenPriceFromMap(allPrices, reserves.token1);
       
-      const token0ValueUSD = reserves.reserve0 * token0Price;
-      const token1ValueUSD = reserves.reserve1 * token1Price;
+      const totalPoolReserveValue = reserves.reserve0 * token0Price + reserves.reserve1 * token1Price;
+      
+      const totalStakedLP = stakingInfo.v2Staked + stakingInfo.v1Staked;
+      const stakedRatio = stakingInfo.totalSupply > 0 ? totalStakedLP / stakingInfo.totalSupply : 0;
+      
+      const stakedToken0 = reserves.reserve0 * stakedRatio;
+      const stakedToken1 = reserves.reserve1 * stakedRatio;
+      const token0ValueUSD = stakedToken0 * token0Price;
+      const token1ValueUSD = stakedToken1 * token1Price;
+      const totalValueUSD = token0ValueUSD + token1ValueUSD;
+      
+      const v2Ratio = stakingInfo.totalSupply > 0 ? stakingInfo.v2Staked / stakingInfo.totalSupply : 0;
+      const v1Ratio = stakingInfo.totalSupply > 0 ? stakingInfo.v1Staked / stakingInfo.totalSupply : 0;
+      const v2ValueUSD = totalPoolReserveValue * v2Ratio;
+      const v1ValueUSD = totalPoolReserveValue * v1Ratio;
 
       return {
         name,
         address,
+        pid,
         token0Symbol,
         token1Symbol,
-        token0Balance: reserves.reserve0,
-        token1Balance: reserves.reserve1,
+        token0Balance: stakedToken0,
+        token1Balance: stakedToken1,
         token0ValueUSD,
         token1ValueUSD,
-        totalValueUSD: token0ValueUSD + token1ValueUSD,
+        totalValueUSD,
+        v2StakedLP: stakingInfo.v2Staked,
+        v1StakedLP: stakingInfo.v1Staked,
+        totalStakedLP,
+        totalLPSupply: stakingInfo.totalSupply,
+        stakedRatio,
+        v2ValueUSD,
+        v1ValueUSD,
       };
     })
   );
