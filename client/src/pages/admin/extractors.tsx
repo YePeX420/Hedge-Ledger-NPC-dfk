@@ -52,6 +52,8 @@ interface Extractor {
   extractorFlags: string[];
   totalTransactions: number;
   lastBridgeAt: string;
+  lastBridgeAmountUsd: string | null;
+  summonerName: string | null;
 }
 
 const chartConfig: ChartConfig = {
@@ -340,11 +342,12 @@ export default function ExtractorsAnalysis() {
             <ScrollArea className="h-[500px]">
               <div className="space-y-1">
                 {/* Header */}
-                <div className="grid grid-cols-7 gap-2 px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/50 rounded-md">
-                  <div>Wallet</div>
+                <div className="grid grid-cols-8 gap-2 px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/50 rounded-md">
+                  <div>Wallet / Summoner</div>
                   <div className="text-right">Bridged In</div>
                   <div className="text-right">Bridged Out</div>
                   <div className="text-right">Net Extracted</div>
+                  <div className="text-right">Last Bridge Amt</div>
                   <div className="text-right">Heroes In/Out</div>
                   <div className="text-center">Flags</div>
                   <div className="text-right">Last Bridge</div>
@@ -353,27 +356,34 @@ export default function ExtractorsAnalysis() {
                 
                 {safeExtractors.map((extractor) => {
                   const netExtracted = parseFloat(extractor.netExtractedUsd);
-                  const isMajor = extractor.extractorFlags?.includes('major_extractor');
-                  const isSignificant = extractor.extractorFlags?.includes('significant_extractor');
+                  const isHeavy = extractor.extractorFlags?.includes('heavy_extractor');
+                  const isNet = extractor.extractorFlags?.includes('net_extractor');
                   
                   return (
                     <div 
                       key={extractor.id}
-                      className="grid grid-cols-7 gap-2 px-3 py-3 text-sm items-center hover-elevate rounded-md"
+                      className="grid grid-cols-8 gap-2 px-3 py-3 text-sm items-center hover-elevate rounded-md"
                       data-testid={`row-extractor-${extractor.id}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <Wallet className="h-4 w-4 text-muted-foreground" />
-                        <a 
-                          href={`https://subnets.avax.network/defi-kingdoms/address/${extractor.wallet}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-mono text-xs hover:underline flex items-center gap-1"
-                          data-testid={`link-wallet-${extractor.id}`}
-                        >
-                          {shortenAddress(extractor.wallet)}
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <a 
+                            href={`https://subnets.avax.network/defi-kingdoms/address/${extractor.wallet}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-mono text-xs hover:underline flex items-center gap-1"
+                            data-testid={`link-wallet-${extractor.id}`}
+                          >
+                            {shortenAddress(extractor.wallet)}
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
+                        {extractor.summonerName && (
+                          <span className="text-xs text-primary font-medium pl-6" data-testid={`text-summoner-${extractor.id}`}>
+                            {extractor.summonerName}
+                          </span>
+                        )}
                       </div>
                       <div className="text-right text-green-600 font-medium">
                         {formatUsd(extractor.totalBridgedInUsd)}
@@ -385,22 +395,25 @@ export default function ExtractorsAnalysis() {
                         {formatUsd(netExtracted)}
                       </div>
                       <div className="text-right text-muted-foreground">
+                        {extractor.lastBridgeAmountUsd ? formatUsd(extractor.lastBridgeAmountUsd) : '-'}
+                      </div>
+                      <div className="text-right text-muted-foreground">
                         {extractor.heroesIn} / {extractor.heroesOut}
                       </div>
                       <div className="flex justify-center gap-1 flex-wrap">
-                        {isMajor && (
+                        {isHeavy && (
                           <Badge variant="destructive" className="text-xs">
-                            Major
+                            Heavy
                           </Badge>
                         )}
-                        {isSignificant && !isMajor && (
+                        {isNet && !isHeavy && (
                           <Badge variant="secondary" className="text-xs">
-                            Significant
+                            Net
                           </Badge>
                         )}
-                        {!isMajor && !isSignificant && (
+                        {!isHeavy && !isNet && (
                           <Badge variant="outline" className="text-xs">
-                            Net
+                            -
                           </Badge>
                         )}
                       </div>

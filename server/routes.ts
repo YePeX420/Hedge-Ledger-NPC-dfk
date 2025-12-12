@@ -7,7 +7,7 @@ import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
 import { detectWalletLPPositions } from "../wallet-lp-detector.js";
 // buildPlayerSnapshot is imported dynamically in the route handler to avoid import issues
 import { indexWallet, runFullIndex, getLatestBlock, getIndexerProgress, initIndexerProgress, runWorkerBatch, getAllWorkerProgress, getWorkerIndexerName, MAIN_INDEXER_NAME } from "../bridge-tracker/bridge-indexer.js";
-import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics, bulkComputeAllMetrics } from "../bridge-tracker/bridge-metrics.js";
+import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics, bulkComputeAllMetrics, updateSummonerNamesForExtractors, fetchSummonerNames } from "../bridge-tracker/bridge-metrics.js";
 import { backfillAllTokens, fetchCurrentPrices } from "../bridge-tracker/price-history.js";
 
 // Debug: Verify bridge indexer imports
@@ -741,10 +741,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
       const extractors = await getTopExtractors(limit);
+      
+      // Fetch summoner names for extractors without names (on-demand)
+      const walletsWithoutNames = extractors
+        .filter((e: any) => !e.summonerName)
+        .map((e: any) => e.wallet)
+        .slice(0, 50);
+      
+      if (walletsWithoutNames.length > 0) {
+        try {
+          const names = await fetchSummonerNames(walletsWithoutNames);
+          // Update extractors with fetched names
+          for (const extractor of extractors as any[]) {
+            const name = names[extractor.wallet.toLowerCase()];
+            if (name) {
+              extractor.summonerName = name;
+              // Also persist to DB in background
+              db.update(walletBridgeMetrics)
+                .set({ summonerName: name, updatedAt: new Date() })
+                .where(eq(walletBridgeMetrics.wallet, extractor.wallet))
+                .execute()
+                .catch((err: Error) => console.error('[API] Failed to persist summoner name:', err.message));
+            }
+          }
+        } catch (nameErr) {
+          console.error('[API] Error fetching summoner names:', nameErr);
+        }
+      }
+      
       res.json(extractors);
     } catch (error) {
       console.error('[API] Error fetching extractors:', error);
       res.status(500).json({ error: 'Failed to fetch extractors' });
+    }
+  });
+
+  // POST /api/admin/bridge/update-summoner-names - Update summoner names for extractors
+  app.post("/api/admin/bridge/update-summoner-names", isAdmin, async (req: any, res: any) => {
+    try {
+      const limit = parseInt(req.body.limit) || 100;
+      const updated = await updateSummonerNamesForExtractors(limit);
+      res.json({ success: true, updated });
+    } catch (error) {
+      console.error('[API] Error updating summoner names:', error);
+      res.status(500).json({ error: 'Failed to update summoner names' });
     }
   });
 

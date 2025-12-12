@@ -1,9 +1,73 @@
 import { db } from '../server/db.js';
 import { bridgeEvents, walletBridgeMetrics, players } from '../shared/schema.js';
-import { eq, sql, and, desc } from 'drizzle-orm';
+import { eq, sql, and, desc, inArray } from 'drizzle-orm';
 import { getPriceAtTimestamp, fetchCurrentPrices } from './price-history.js';
 import { tokenAmountToUsd, addUsd, subtractUsd, parseUsdToNumber } from './bigint-utils.js';
 import Decimal from 'decimal.js';
+import { GraphQLClient, gql } from 'graphql-request';
+
+const dfkClient = new GraphQLClient('https://api.defikingdoms.com/graphql');
+
+export async function fetchSummonerNames(walletAddresses) {
+  if (!walletAddresses || walletAddresses.length === 0) {
+    return {};
+  }
+  
+  const results = {};
+  
+  const query = gql`
+    query GetProfiles($ids: [ID!]!) {
+      profiles(where: { id_in: $ids }) {
+        id
+        name
+      }
+    }
+  `;
+  
+  try {
+    const lowercaseAddresses = walletAddresses.map(addr => addr.toLowerCase());
+    const data = await dfkClient.request(query, { ids: lowercaseAddresses });
+    
+    if (data?.profiles) {
+      for (const profile of data.profiles) {
+        results[profile.id.toLowerCase()] = profile.name;
+      }
+    }
+  } catch (error) {
+    console.error('[BridgeMetrics] Error fetching summoner names:', error.message);
+  }
+  
+  return results;
+}
+
+export async function updateSummonerNamesForExtractors(limit = 100) {
+  const extractors = await db.select({ wallet: walletBridgeMetrics.wallet })
+    .from(walletBridgeMetrics)
+    .where(sql`${walletBridgeMetrics.netExtractedUsd}::numeric > 0 AND ${walletBridgeMetrics.summonerName} IS NULL`)
+    .orderBy(desc(sql`${walletBridgeMetrics.netExtractedUsd}::numeric`))
+    .limit(limit);
+  
+  if (extractors.length === 0) {
+    console.log('[BridgeMetrics] No extractors without summoner names');
+    return 0;
+  }
+  
+  const wallets = extractors.map(e => e.wallet);
+  const names = await fetchSummonerNames(wallets);
+  
+  let updated = 0;
+  for (const [wallet, name] of Object.entries(names)) {
+    if (name) {
+      await db.update(walletBridgeMetrics)
+        .set({ summonerName: name, updatedAt: new Date() })
+        .where(eq(walletBridgeMetrics.wallet, wallet));
+      updated++;
+    }
+  }
+  
+  console.log(`[BridgeMetrics] Updated ${updated} summoner names`);
+  return updated;
+}
 
 const TOKEN_DECIMALS = {
   CRYSTAL: 18,
@@ -324,6 +388,7 @@ export async function getOverviewStats() {
 export async function bulkComputeAllMetrics() {
   console.log('[BridgeMetrics] Starting bulk metrics computation...');
   
+  // First compute basic metrics
   const result = await db.execute(sql`
     INSERT INTO wallet_bridge_metrics (
       wallet,
@@ -376,6 +441,19 @@ export async function bulkComputeAllMetrics() {
       extractor_score = EXCLUDED.extractor_score,
       extractor_flags = EXCLUDED.extractor_flags,
       updated_at = NOW()
+  `);
+  
+  // Then update last_bridge_amount_usd using a subquery
+  console.log('[BridgeMetrics] Updating last bridge amounts...');
+  await db.execute(sql`
+    UPDATE wallet_bridge_metrics wm
+    SET last_bridge_amount_usd = (
+      SELECT be.usd_value::numeric
+      FROM bridge_events be
+      WHERE be.wallet = wm.wallet
+      ORDER BY be.block_timestamp DESC
+      LIMIT 1
+    )
   `);
   
   const countResult = await db.select({ count: sql`COUNT(*)` })

@@ -727,8 +727,12 @@ export const walletBridgeMetrics = pgTable("wallet_bridge_metrics", {
   // Tracking state
   firstBridgeAt: timestamp("first_bridge_at", { withTimezone: true }),
   lastBridgeAt: timestamp("last_bridge_at", { withTimezone: true }),
+  lastBridgeAmountUsd: numeric("last_bridge_amount_usd", { precision: 15, scale: 2 }),
   lastProcessedBlock: bigint("last_processed_block", { mode: "number" }).notNull().default(0),
   totalTransactions: integer("total_transactions").notNull().default(0),
+  
+  // DFK profile info
+  summonerName: text("summoner_name"), // From DFK GraphQL profile lookup
   
   // Extractor scoring
   extractorScore: numeric("extractor_score", { precision: 5, scale: 2 }), // 0-10 scale
