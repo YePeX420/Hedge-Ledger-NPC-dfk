@@ -320,3 +320,75 @@ export async function getOverviewStats() {
     totalExtractedUsd: totalExtracted[0]?.sum?.toString() || '0'
   };
 }
+
+export async function bulkComputeAllMetrics() {
+  console.log('[BridgeMetrics] Starting bulk metrics computation...');
+  
+  const result = await db.execute(sql`
+    INSERT INTO wallet_bridge_metrics (
+      wallet,
+      total_bridged_in_usd,
+      total_bridged_out_usd,
+      net_extracted_usd,
+      first_bridge_at,
+      last_bridge_at,
+      total_transactions,
+      extractor_score,
+      extractor_flags,
+      updated_at
+    )
+    SELECT 
+      wallet,
+      COALESCE(SUM(CASE WHEN direction = 'in' THEN usd_value::numeric ELSE 0 END), 0) as total_bridged_in_usd,
+      COALESCE(SUM(CASE WHEN direction = 'out' THEN usd_value::numeric ELSE 0 END), 0) as total_bridged_out_usd,
+      (COALESCE(SUM(CASE WHEN direction = 'out' THEN usd_value::numeric ELSE 0 END), 0) - 
+       COALESCE(SUM(CASE WHEN direction = 'in' THEN usd_value::numeric ELSE 0 END), 0)) as net_extracted_usd,
+      MIN(block_timestamp) as first_bridge_at,
+      MAX(block_timestamp) as last_bridge_at,
+      COUNT(*)::integer as total_transactions,
+      CASE 
+        WHEN COALESCE(SUM(CASE WHEN direction = 'in' THEN usd_value::numeric ELSE 0 END), 0) = 0 THEN 100.00
+        ELSE LEAST(100, (
+          COALESCE(SUM(CASE WHEN direction = 'out' THEN usd_value::numeric ELSE 0 END), 0) /
+          NULLIF(COALESCE(SUM(CASE WHEN direction = 'in' THEN usd_value::numeric ELSE 0 END), 0), 0) * 100
+        ))
+      END as extractor_score,
+      CASE 
+        WHEN COALESCE(SUM(CASE WHEN direction = 'out' THEN usd_value::numeric ELSE 0 END), 0) >
+             COALESCE(SUM(CASE WHEN direction = 'in' THEN usd_value::numeric ELSE 0 END), 0) * 2
+        THEN '["heavy_extractor"]'::jsonb
+        WHEN COALESCE(SUM(CASE WHEN direction = 'out' THEN usd_value::numeric ELSE 0 END), 0) >
+             COALESCE(SUM(CASE WHEN direction = 'in' THEN usd_value::numeric ELSE 0 END), 0)
+        THEN '["net_extractor"]'::jsonb
+        ELSE '[]'::jsonb
+      END as extractor_flags,
+      NOW() as updated_at
+    FROM bridge_events
+    WHERE usd_value IS NOT NULL
+    GROUP BY wallet
+    ON CONFLICT (wallet) DO UPDATE SET
+      total_bridged_in_usd = EXCLUDED.total_bridged_in_usd,
+      total_bridged_out_usd = EXCLUDED.total_bridged_out_usd,
+      net_extracted_usd = EXCLUDED.net_extracted_usd,
+      first_bridge_at = EXCLUDED.first_bridge_at,
+      last_bridge_at = EXCLUDED.last_bridge_at,
+      total_transactions = EXCLUDED.total_transactions,
+      extractor_score = EXCLUDED.extractor_score,
+      extractor_flags = EXCLUDED.extractor_flags,
+      updated_at = NOW()
+  `);
+  
+  const countResult = await db.select({ count: sql`COUNT(*)` })
+    .from(walletBridgeMetrics);
+  
+  const extractorCount = await db.select({ count: sql`COUNT(*)` })
+    .from(walletBridgeMetrics)
+    .where(sql`${walletBridgeMetrics.netExtractedUsd}::numeric > 0`);
+  
+  console.log(`[BridgeMetrics] Bulk computation complete: ${countResult[0]?.count} wallets, ${extractorCount[0]?.count} extractors`);
+  
+  return {
+    totalWallets: countResult[0]?.count || 0,
+    extractorCount: extractorCount[0]?.count || 0
+  };
+}

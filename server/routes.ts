@@ -7,7 +7,7 @@ import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
 import { detectWalletLPPositions } from "../wallet-lp-detector.js";
 // buildPlayerSnapshot is imported dynamically in the route handler to avoid import issues
 import { indexWallet, runFullIndex, getLatestBlock, getIndexerProgress, initIndexerProgress, runWorkerBatch, getAllWorkerProgress, getWorkerIndexerName, MAIN_INDEXER_NAME } from "../bridge-tracker/bridge-indexer.js";
-import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics } from "../bridge-tracker/bridge-metrics.js";
+import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics, bulkComputeAllMetrics } from "../bridge-tracker/bridge-metrics.js";
 import { backfillAllTokens, fetchCurrentPrices } from "../bridge-tracker/price-history.js";
 
 // Debug: Verify bridge indexer imports
@@ -798,6 +798,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[API] Error refreshing metrics:', error);
       res.status(500).json({ error: 'Failed to refresh metrics' });
+    }
+  });
+
+  // POST /api/admin/bridge/bulk-compute-metrics - Bulk compute all wallet metrics (fast SQL approach)
+  app.post("/api/admin/bridge/bulk-compute-metrics", isAdmin, async (req: any, res: any) => {
+    try {
+      const result = await bulkComputeAllMetrics();
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error('[API] Error bulk computing metrics:', error);
+      res.status(500).json({ error: 'Failed to bulk compute metrics' });
     }
   });
 

@@ -30,6 +30,12 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
     - Tables: `hunting_encounters`, `pvp_matches`, `ingestion_state` for checkpoint tracking
     - Challenge extractors wired: 5 hunting challenges, 4 PvP challenges
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors" via indexed bridge events and wallet scoring.
+*   **Extractor Analysis Dashboard** (`/admin/extractors`): Identifies wallets extracting more value than they contribute:
+    - Summary cards: Bridged In ($2.45B), Bridged Out ($1.79B), Net Flow (+$660M), Extractor Count (21,980)
+    - Bulk SQL computation via `bulkComputeAllMetrics()` in `bridge-tracker/bridge-metrics.js`
+    - Wallet metrics table: `wallet_bridge_metrics` with totals, flags (`heavy_extractor`, `net_extractor`)
+    - Top extractors table with wallet links to DFK profile and extracted amounts
+    - API endpoints: `GET /api/admin/bridge/extractors`, `POST /api/admin/bridge/bulk-compute-metrics`
 *   **Bridge Pricing Reconciliation System** (`bridge-tracker/`): Ensures all bridge events have accurate USD values:
     - `unpriced-analyzer.js`: Discovers unpriced tokens, checks DEX liquidity and external price availability
     - `pricing-reconciliation.js`: Multi-step pipeline: mark deprecated tokens (usdValue=0), flag DEX-derivable tokens for manual review, verify pricing completeness
