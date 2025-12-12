@@ -125,6 +125,14 @@ interface ChallengeCategory {
   tierSystem: string;
 }
 
+interface TierLadderItem {
+  tierCode: string;
+  displayName: string;
+  thresholdValue: number;
+  isPrestige: boolean;
+  sortOrder: number;
+}
+
 interface CalibrationStats {
   cached: boolean;
   challengeKey: string;
@@ -132,6 +140,10 @@ interface CalibrationStats {
   computedAt: string;
   clusterCount: number;
   nonzeroCount: number;
+  tierSystem: string;
+  tierLadder: TierLadderItem[];
+  suggestableTiers: TierLadderItem[];
+  isPrestige: boolean;
   percentiles: {
     min: number;
     p10: number;
@@ -148,17 +160,12 @@ interface CalibrationStats {
     mean: number;
   };
   targets: {
-    basicPct: number;
-    advancedPct: number;
-    elitePct: number;
-    exaltedPct: number;
+    pct1: number;
+    pct2: number;
+    pct3: number;
+    pct4: number;
   };
-  suggested: {
-    basic: number;
-    advanced: number;
-    elite: number;
-    exalted: number;
-  };
+  suggestedByTier: Record<string, number>;
   warnings: string[];
   zeroInflated: boolean;
   whaleSkew: boolean;
@@ -167,13 +174,10 @@ interface CalibrationStats {
 
 interface SimulationResult {
   total: number;
-  distribution: {
-    belowBasic: { count: number; pct: number };
-    basic: { count: number; pct: number };
-    advanced: { count: number; pct: number };
-    elite: { count: number; pct: number };
-    exalted: { count: number; pct: number };
-  };
+  tierSystem?: string;
+  tierLadder?: string[];
+  isPrestige?: boolean;
+  distribution: Record<string, { count: number; pct: number }>;
 }
 
 interface CalibrationPanelProps {
@@ -187,10 +191,10 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
   const { toast } = useToast();
   const [cohortKey, setCohortKey] = useState("ALL");
   const [targets, setTargets] = useState({
-    basicPct: 0.40,
-    advancedPct: 0.70,
-    elitePct: 0.90,
-    exaltedPct: 0.97,
+    pct1: 0.40,
+    pct2: 0.70,
+    pct3: 0.90,
+    pct4: 0.97,
   });
   const [stats, setStats] = useState<CalibrationStats | null>(null);
   const [simulation, setSimulation] = useState<SimulationResult | null>(null);
@@ -198,6 +202,32 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
+
+  const tierColors: Record<string, string> = {
+    COMMON: "text-gray-500",
+    UNCOMMON: "text-green-600",
+    RARE: "text-blue-600",
+    LEGENDARY: "text-purple-600",
+    MYTHIC: "text-amber-600",
+    BASIC: "text-blue-600",
+    ADVANCED: "text-green-600",
+    ELITE: "text-purple-600",
+    EXALTED: "text-amber-600",
+    UNLOCKED: "text-green-600",
+    LOCKED: "text-gray-500",
+  };
+
+  const tierProgressColors: Record<string, string> = {
+    COMMON: "[&>div]:bg-gray-400",
+    UNCOMMON: "[&>div]:bg-green-500",
+    RARE: "[&>div]:bg-blue-500",
+    LEGENDARY: "[&>div]:bg-purple-500",
+    MYTHIC: "[&>div]:bg-amber-500",
+    BASIC: "[&>div]:bg-blue-500",
+    ADVANCED: "[&>div]:bg-green-500",
+    ELITE: "[&>div]:bg-purple-500",
+    EXALTED: "[&>div]:bg-amber-500",
+  };
 
   const loadStats = async () => {
     setIsLoading(true);
@@ -212,7 +242,14 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
       const data = await res.json();
       if (data.cached) {
         setStats(data);
-        setTargets(data.targets);
+        if (data.targets) {
+          setTargets({
+            pct1: data.targets.pct1 ?? 0.40,
+            pct2: data.targets.pct2 ?? 0.70,
+            pct3: data.targets.pct3 ?? 0.90,
+            pct4: data.targets.pct4 ?? 0.97,
+          });
+        }
       } else {
         setStats(null);
         toast({ title: "No Cached Stats", description: "Click Refresh to compute calibration stats", variant: "default" });
@@ -245,9 +282,13 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
           computedAt: new Date().toISOString(),
           clusterCount: data.clusterCount,
           nonzeroCount: data.nonzeroCount,
+          tierSystem: data.tierSystem,
+          tierLadder: data.tierLadder || [],
+          suggestableTiers: data.suggestableTiers || [],
+          isPrestige: data.isPrestige || false,
           percentiles: data.percentiles,
           targets: data.targets,
-          suggested: data.suggested,
+          suggestedByTier: data.suggestedByTier || {},
           warnings: data.warnings || [],
           zeroInflated: data.zeroInflated || false,
           whaleSkew: data.whaleSkew || false,
@@ -263,7 +304,7 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
     setIsRefreshing(false);
   };
 
-  const simulateThresholds = async (thresholds: { basic: number; advanced: number; elite: number; exalted: number }, isSuggested = false) => {
+  const simulateThresholds = async (thresholds: Record<string, number>, isSuggested = false) => {
     setIsSimulating(true);
     try {
       const res = await fetch(`/api/admin/challenges/${challengeKey}/calibration/simulate`, {
@@ -288,7 +329,7 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
     setIsSimulating(false);
   };
 
-  const applyThresholds = async (thresholds: { basic: number; advanced: number; elite: number; exalted: number }) => {
+  const applyThresholds = async (thresholds: Record<string, number>) => {
     try {
       const res = await fetch(`/api/admin/challenges/${challengeKey}/calibration/apply`, {
         method: "POST",
@@ -302,14 +343,13 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
       }
       const data = await res.json();
       if (data.success) {
-        setTiers([
-          { tierCode: "BASIC", displayName: "Basic", thresholdValue: Math.round(thresholds.basic), isPrestige: false, sortOrder: 1 },
-          { tierCode: "ADVANCED", displayName: "Advanced", thresholdValue: Math.round(thresholds.advanced), isPrestige: false, sortOrder: 2 },
-          { tierCode: "ELITE", displayName: "Elite", thresholdValue: Math.round(thresholds.elite), isPrestige: false, sortOrder: 3 },
-          { tierCode: "EXALTED", displayName: "Exalted", thresholdValue: Math.round(thresholds.exalted), isPrestige: false, sortOrder: 4 },
-        ]);
+        const updatedTiers = tiers.map(t => {
+          const newVal = thresholds[t.tierCode];
+          return newVal !== undefined ? { ...t, thresholdValue: Math.round(newVal) } : t;
+        });
+        setTiers(updatedTiers);
         queryClient.invalidateQueries({ queryKey: ["/api/admin/challenges"] });
-        toast({ title: "Thresholds Applied", description: "New tier thresholds saved to challenge configuration" });
+        toast({ title: "Thresholds Applied", description: `Updated ${data.updatedTiers?.length || 0} tier thresholds` });
       } else {
         throw new Error(data.error || "Apply failed");
       }
@@ -318,16 +358,21 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
     }
   };
 
-  const getCurrentThresholds = () => {
-    const basic = tiers.find(t => t.tierCode === "BASIC")?.thresholdValue || 0;
-    const advanced = tiers.find(t => t.tierCode === "ADVANCED")?.thresholdValue || 0;
-    const elite = tiers.find(t => t.tierCode === "ELITE")?.thresholdValue || 0;
-    const exalted = tiers.find(t => t.tierCode === "EXALTED")?.thresholdValue || 0;
-    return { basic, advanced, elite, exalted };
+  const getCurrentThresholds = (): Record<string, number> => {
+    const thresholds: Record<string, number> = {};
+    for (const tier of tiers) {
+      thresholds[tier.tierCode] = tier.thresholdValue;
+    }
+    return thresholds;
+  };
+
+  const getSuggestableTiers = (): TierLadderItem[] => {
+    // Use server-provided suggestableTiers (already filtered for ladder type)
+    return stats?.suggestableTiers || [];
   };
 
   const resetTargets = () => {
-    setTargets({ basicPct: 0.40, advancedPct: 0.70, elitePct: 0.90, exaltedPct: 0.97 });
+    setTargets({ pct1: 0.40, pct2: 0.70, pct3: 0.90, pct4: 0.97 });
   };
 
   return (
@@ -368,54 +413,57 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
             <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
               <Target className="w-4 h-4" />
               Target Percentiles
+              {stats?.tierSystem && (
+                <Badge variant="outline" className="text-xs">{stats.tierSystem}</Badge>
+              )}
             </h4>
             <div className="grid gap-4 md:grid-cols-4">
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Basic (p{Math.round(targets.basicPct * 100)})</label>
+                <label className="text-xs text-muted-foreground">Tier 2 (p{Math.round(targets.pct1 * 100)})</label>
                 <Input
                   type="number"
                   step="0.01"
                   min="0"
                   max="1"
-                  value={targets.basicPct}
-                  onChange={(e) => setTargets({ ...targets, basicPct: parseFloat(e.target.value) || 0 })}
-                  data-testid="input-target-basic"
+                  value={targets.pct1}
+                  onChange={(e) => setTargets({ ...targets, pct1: parseFloat(e.target.value) || 0 })}
+                  data-testid="input-target-pct1"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Advanced (p{Math.round(targets.advancedPct * 100)})</label>
+                <label className="text-xs text-muted-foreground">Tier 3 (p{Math.round(targets.pct2 * 100)})</label>
                 <Input
                   type="number"
                   step="0.01"
                   min="0"
                   max="1"
-                  value={targets.advancedPct}
-                  onChange={(e) => setTargets({ ...targets, advancedPct: parseFloat(e.target.value) || 0 })}
-                  data-testid="input-target-advanced"
+                  value={targets.pct2}
+                  onChange={(e) => setTargets({ ...targets, pct2: parseFloat(e.target.value) || 0 })}
+                  data-testid="input-target-pct2"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Elite (p{Math.round(targets.elitePct * 100)})</label>
+                <label className="text-xs text-muted-foreground">Tier 4 (p{Math.round(targets.pct3 * 100)})</label>
                 <Input
                   type="number"
                   step="0.01"
                   min="0"
                   max="1"
-                  value={targets.elitePct}
-                  onChange={(e) => setTargets({ ...targets, elitePct: parseFloat(e.target.value) || 0 })}
-                  data-testid="input-target-elite"
+                  value={targets.pct3}
+                  onChange={(e) => setTargets({ ...targets, pct3: parseFloat(e.target.value) || 0 })}
+                  data-testid="input-target-pct3"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Exalted (p{Math.round(targets.exaltedPct * 100)})</label>
+                <label className="text-xs text-muted-foreground">Tier 5 (p{Math.round(targets.pct4 * 100)})</label>
                 <Input
                   type="number"
                   step="0.01"
                   min="0"
                   max="1"
-                  value={targets.exaltedPct}
-                  onChange={(e) => setTargets({ ...targets, exaltedPct: parseFloat(e.target.value) || 0 })}
-                  data-testid="input-target-exalted"
+                  value={targets.pct4}
+                  onChange={(e) => setTargets({ ...targets, pct4: parseFloat(e.target.value) || 0 })}
+                  data-testid="input-target-pct4"
                 />
               </div>
             </div>
@@ -510,33 +558,34 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
                 <h4 className="text-sm font-medium flex items-center gap-2">
                   <Calculator className="w-4 h-4" />
                   Suggested Thresholds
+                  <Badge variant="outline" className="text-xs">{stats.tierSystem}</Badge>
                 </h4>
-                <div className="grid gap-4 md:grid-cols-4">
-                  <div className="text-center p-3 bg-muted/50 rounded">
-                    <div className="text-lg font-bold text-blue-600" data-testid="text-suggested-basic">{Math.round(stats.suggested.basic).toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Basic</p>
+                {stats.isPrestige ? (
+                  <div className="text-sm text-muted-foreground">
+                    PRESTIGE challenges use boolean (unlocked/locked) and don't have threshold suggestions.
                   </div>
-                  <div className="text-center p-3 bg-muted/50 rounded">
-                    <div className="text-lg font-bold text-green-600" data-testid="text-suggested-advanced">{Math.round(stats.suggested.advanced).toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Advanced</p>
-                  </div>
-                  <div className="text-center p-3 bg-muted/50 rounded">
-                    <div className="text-lg font-bold text-purple-600" data-testid="text-suggested-elite">{Math.round(stats.suggested.elite).toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Elite</p>
-                  </div>
-                  <div className="text-center p-3 bg-muted/50 rounded">
-                    <div className="text-lg font-bold text-amber-600" data-testid="text-suggested-exalted">{Math.round(stats.suggested.exalted).toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Exalted</p>
-                  </div>
-                </div>
-                {canEdit && (
-                  <Button 
-                    variant="outline" 
-                    onClick={() => applyThresholds(stats.suggested)}
-                    data-testid="button-apply-suggested"
-                  >
-                    Apply Suggested Thresholds
-                  </Button>
+                ) : (
+                  <>
+                    <div className={`grid gap-4 md:grid-cols-${getSuggestableTiers().length}`}>
+                      {getSuggestableTiers().map((tier) => (
+                        <div key={tier.tierCode} className="text-center p-3 bg-muted/50 rounded">
+                          <div className={`text-lg font-bold ${tierColors[tier.tierCode] || "text-foreground"}`} data-testid={`text-suggested-${tier.tierCode.toLowerCase()}`}>
+                            {Math.round(stats.suggestedByTier[tier.tierCode] || 0).toLocaleString()}
+                          </div>
+                          <p className="text-xs text-muted-foreground">{tier.displayName || tier.tierCode}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {canEdit && Object.keys(stats.suggestedByTier).length > 0 && (
+                      <Button 
+                        variant="outline" 
+                        onClick={() => applyThresholds(stats.suggestedByTier)}
+                        data-testid="button-apply-suggested"
+                      >
+                        Apply Suggested Thresholds
+                      </Button>
+                    )}
+                  </>
                 )}
               </div>
             </>
@@ -562,10 +611,10 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
             >
               Simulate Current Thresholds
             </Button>
-            {stats && (
+            {stats && !stats.isPrestige && (
               <Button 
                 variant="outline" 
-                onClick={() => simulateThresholds(stats.suggested, true)}
+                onClick={() => simulateThresholds(stats.suggestedByTier, true)}
                 disabled={isSimulating}
                 data-testid="button-simulate-suggested"
               >
@@ -580,31 +629,20 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
                 <div className="border rounded-lg p-4">
                   <h5 className="font-medium mb-3">Current Thresholds</h5>
                   <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Below Basic</span>
-                      <span>{simulation.distribution.belowBasic.count} ({simulation.distribution.belowBasic.pct}%)</span>
-                    </div>
-                    <Progress value={simulation.distribution.belowBasic.pct} className="h-2" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-blue-600">Basic</span>
-                      <span>{simulation.distribution.basic.count} ({simulation.distribution.basic.pct}%)</span>
-                    </div>
-                    <Progress value={simulation.distribution.basic.pct} className="h-2 [&>div]:bg-blue-500" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-green-600">Advanced</span>
-                      <span>{simulation.distribution.advanced.count} ({simulation.distribution.advanced.pct}%)</span>
-                    </div>
-                    <Progress value={simulation.distribution.advanced.pct} className="h-2 [&>div]:bg-green-500" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-purple-600">Elite</span>
-                      <span>{simulation.distribution.elite.count} ({simulation.distribution.elite.pct}%)</span>
-                    </div>
-                    <Progress value={simulation.distribution.elite.pct} className="h-2 [&>div]:bg-purple-500" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-amber-600">Exalted</span>
-                      <span>{simulation.distribution.exalted.count} ({simulation.distribution.exalted.pct}%)</span>
-                    </div>
-                    <Progress value={simulation.distribution.exalted.pct} className="h-2 [&>div]:bg-amber-500" />
+                    {Object.entries(simulation.distribution).map(([tierCode, data]) => (
+                      <div key={tierCode}>
+                        <div className="flex justify-between text-sm">
+                          <span className={tierCode === "_BELOW_TIER1" ? "text-muted-foreground" : tierColors[tierCode] || "text-foreground"}>
+                            {tierCode === "_BELOW_TIER1" ? "Below Tier 1" : tierCode}
+                          </span>
+                          <span>{data.count.toLocaleString()} ({data.pct}%)</span>
+                        </div>
+                        <Progress 
+                          value={data.pct} 
+                          className={`h-2 ${tierCode === "_BELOW_TIER1" ? "" : tierProgressColors[tierCode] || ""}`} 
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -612,31 +650,20 @@ function CalibrationPanel({ challengeKey, canEdit, tiers, setTiers }: Calibratio
                 <div className="border rounded-lg p-4">
                   <h5 className="font-medium mb-3">Suggested Thresholds</h5>
                   <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Below Basic</span>
-                      <span>{suggestedSimulation.distribution.belowBasic.count} ({suggestedSimulation.distribution.belowBasic.pct}%)</span>
-                    </div>
-                    <Progress value={suggestedSimulation.distribution.belowBasic.pct} className="h-2" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-blue-600">Basic</span>
-                      <span>{suggestedSimulation.distribution.basic.count} ({suggestedSimulation.distribution.basic.pct}%)</span>
-                    </div>
-                    <Progress value={suggestedSimulation.distribution.basic.pct} className="h-2 [&>div]:bg-blue-500" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-green-600">Advanced</span>
-                      <span>{suggestedSimulation.distribution.advanced.count} ({suggestedSimulation.distribution.advanced.pct}%)</span>
-                    </div>
-                    <Progress value={suggestedSimulation.distribution.advanced.pct} className="h-2 [&>div]:bg-green-500" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-purple-600">Elite</span>
-                      <span>{suggestedSimulation.distribution.elite.count} ({suggestedSimulation.distribution.elite.pct}%)</span>
-                    </div>
-                    <Progress value={suggestedSimulation.distribution.elite.pct} className="h-2 [&>div]:bg-purple-500" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-amber-600">Exalted</span>
-                      <span>{suggestedSimulation.distribution.exalted.count} ({suggestedSimulation.distribution.exalted.pct}%)</span>
-                    </div>
-                    <Progress value={suggestedSimulation.distribution.exalted.pct} className="h-2 [&>div]:bg-amber-500" />
+                    {Object.entries(suggestedSimulation.distribution).map(([tierCode, data]) => (
+                      <div key={tierCode}>
+                        <div className="flex justify-between text-sm">
+                          <span className={tierCode === "_BELOW_TIER1" ? "text-muted-foreground" : tierColors[tierCode] || "text-foreground"}>
+                            {tierCode === "_BELOW_TIER1" ? "Below Tier 1" : tierCode}
+                          </span>
+                          <span>{data.count.toLocaleString()} ({data.pct}%)</span>
+                        </div>
+                        <Progress 
+                          value={data.pct} 
+                          className={`h-2 ${tierCode === "_BELOW_TIER1" ? "" : tierProgressColors[tierCode] || ""}`} 
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

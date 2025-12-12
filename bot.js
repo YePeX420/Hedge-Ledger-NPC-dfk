@@ -7003,11 +7003,119 @@ async function startAdminWebServer() {
   // CALIBRATION ENDPOINTS - Tier threshold calibration based on challenge_progress
   // ============================================================================
 
+  /**
+   * Resolves effective tier system for a challenge:
+   * 1) If challenge has tierSystemOverride set, use it
+   * 2) Else inherit from category's tierSystem
+   * 3) Default to RARITY if neither available
+   * 
+   * Returns: { tierSystem, tierLadder, suggestableTiers, isPrestige }
+   * - tierLadder: All tiers from DB in sortOrder
+   * - suggestableTiers: Tiers eligible for threshold suggestions (excludes baseline for RARITY)
+   */
+  async function resolveTierLadder(challengeKey) {
+    // Get challenge with its category
+    const [challenge] = await db
+      .select({
+        id: challenges.id,
+        key: challenges.key,
+        categoryKey: challenges.categoryKey,
+        tierSystemOverride: challenges.tierSystemOverride,
+      })
+      .from(challenges)
+      .where(eq(challenges.key, challengeKey));
+    
+    if (!challenge) {
+      return { tierSystem: 'RARITY', tierLadder: [], suggestableTiers: [], isPrestige: false, error: 'Challenge not found' };
+    }
+    
+    // Get category's tier system
+    let categoryTierSystem = 'RARITY';
+    if (challenge.categoryKey) {
+      const [category] = await db
+        .select({ tierSystem: challengeCategories.tierSystem })
+        .from(challengeCategories)
+        .where(eq(challengeCategories.key, challenge.categoryKey));
+      if (category) {
+        categoryTierSystem = category.tierSystem;
+      }
+    }
+    
+    // Resolve effective tier system: override > category > default
+    const effectiveTierSystem = challenge.tierSystemOverride || categoryTierSystem || 'RARITY';
+    const isPrestige = effectiveTierSystem === 'PRESTIGE';
+    
+    // Load tier ladder from DB (ordered by sortOrder)
+    const tierLadder = await db
+      .select({
+        tierCode: challengeTiers.tierCode,
+        displayName: challengeTiers.displayName,
+        thresholdValue: challengeTiers.thresholdValue,
+        isPrestige: challengeTiers.isPrestige,
+        sortOrder: challengeTiers.sortOrder,
+      })
+      .from(challengeTiers)
+      .where(eq(challengeTiers.challengeKey, challengeKey))
+      .orderBy(asc(challengeTiers.sortOrder));
+    
+    // Compute suggestableTiers (tiers that get percentile-based suggestions)
+    // - For RARITY: skip first tier (COMMON as baseline), all remaining tiers get suggestions
+    // - For GENE/MIXED/other: all tiers in ladder get suggestions
+    // - For PRESTIGE: no suggestions (returns empty array)
+    let suggestableTiers = [];
+    if (!isPrestige && tierLadder.length > 0) {
+      if (effectiveTierSystem === 'RARITY') {
+        // RARITY-style: Skip baseline tier 1 (COMMON), suggest for all remaining tiers
+        suggestableTiers = tierLadder.slice(1);
+      } else {
+        // GENE/MIXED/other systems: All tiers get suggestions
+        suggestableTiers = tierLadder.slice();
+      }
+    }
+    
+    return { 
+      tierSystem: effectiveTierSystem, 
+      tierLadder, 
+      suggestableTiers,
+      isPrestige,
+      challengeId: challenge.id,
+    };
+  }
+
+  /**
+   * Maps percentile targets to suggestable tier codes
+   * Input: suggestableTiers array (already filtered for ladder type)
+   * Output: { tierCode: percentileValue, ... }
+   */
+  function mapPercentilestoTiers(suggestableTiers, percentileValues) {
+    if (!suggestableTiers || suggestableTiers.length === 0) {
+      return {};
+    }
+    
+    const suggested = {};
+    const pValues = [
+      percentileValues.p40,
+      percentileValues.p70,
+      percentileValues.p90,
+      percentileValues.p97,
+    ];
+    
+    // Map percentile values to suggestable tiers in order
+    for (let i = 0; i < Math.min(suggestableTiers.length, pValues.length); i++) {
+      suggested[suggestableTiers[i].tierCode] = pValues[i] || 0;
+    }
+    
+    return suggested;
+  }
+
   // GET /api/admin/challenges/:challengeKey/calibration - Get cached calibration stats
   app.get('/api/admin/challenges/:challengeKey/calibration', isAdmin, async (req, res) => {
     try {
       const { challengeKey } = req.params;
       const cohortKey = req.query.cohortKey || 'ALL';
+      
+      // Resolve tier ladder for this challenge
+      const { tierSystem, tierLadder, suggestableTiers, isPrestige } = await resolveTierLadder(challengeKey);
       
       // Look for cached stats
       const [cached] = await db
@@ -7021,9 +7129,24 @@ async function startAdminWebServer() {
       if (!cached) {
         return res.json({ 
           cached: false, 
-          message: 'No cached stats. Use POST /refresh to compute.' 
+          message: 'No cached stats. Use POST /refresh to compute.',
+          tierSystem,
+          tierLadder,
+          suggestableTiers,
+          isPrestige,
         });
       }
+      
+      // Get percentile values for mapping
+      const percentileValues = {
+        p40: parseFloat(cached.suggestedBasic) || 0,
+        p70: parseFloat(cached.suggestedAdvanced) || 0,
+        p90: parseFloat(cached.suggestedElite) || 0,
+        p97: parseFloat(cached.suggestedExalted) || 0,
+      };
+      
+      // Map suggested thresholds to actual tier codes (using pre-filtered suggestableTiers)
+      const suggestedByTier = mapPercentilestoTiers(suggestableTiers, percentileValues);
       
       res.json({
         cached: true,
@@ -7032,6 +7155,10 @@ async function startAdminWebServer() {
         computedAt: cached.computedAt?.toISOString(),
         clusterCount: cached.clusterCount,
         nonzeroCount: cached.nonzeroCount,
+        tierSystem,
+        tierLadder,
+        suggestableTiers,
+        isPrestige,
         percentiles: {
           min: parseFloat(cached.minValue) || 0,
           p10: parseFloat(cached.p10) || 0,
@@ -7048,17 +7175,12 @@ async function startAdminWebServer() {
           mean: parseFloat(cached.meanValue) || 0,
         },
         targets: {
-          basicPct: parseFloat(cached.targetBasicPct) || 0.40,
-          advancedPct: parseFloat(cached.targetAdvancedPct) || 0.70,
-          elitePct: parseFloat(cached.targetElitePct) || 0.90,
-          exaltedPct: parseFloat(cached.targetExaltedPct) || 0.97,
+          pct1: parseFloat(cached.targetBasicPct) || 0.40,
+          pct2: parseFloat(cached.targetAdvancedPct) || 0.70,
+          pct3: parseFloat(cached.targetElitePct) || 0.90,
+          pct4: parseFloat(cached.targetExaltedPct) || 0.97,
         },
-        suggested: {
-          basic: parseFloat(cached.suggestedBasic) || 0,
-          advanced: parseFloat(cached.suggestedAdvanced) || 0,
-          elite: parseFloat(cached.suggestedElite) || 0,
-          exalted: parseFloat(cached.suggestedExalted) || 0,
-        },
+        suggestedByTier,
         warnings: cached.meta?.warnings || [],
         zeroInflated: cached.meta?.zeroInflated || false,
         whaleSkew: cached.meta?.whaleSkew || false,
@@ -7077,10 +7199,14 @@ async function startAdminWebServer() {
       const cohortKey = req.body.cohortKey || 'ALL';
       const targets = req.body.targets || {};
       
-      const basicPct = targets.basicPct ?? 0.40;
-      const advancedPct = targets.advancedPct ?? 0.70;
-      const elitePct = targets.elitePct ?? 0.90;
-      const exaltedPct = targets.exaltedPct ?? 0.97;
+      // Resolve tier ladder for this challenge
+      const { tierSystem, tierLadder, suggestableTiers, isPrestige } = await resolveTierLadder(challengeKey);
+      
+      // Use generic percentile targets (pct1-4) instead of hardcoded names
+      const pct1 = targets.pct1 ?? targets.basicPct ?? 0.40;
+      const pct2 = targets.pct2 ?? targets.advancedPct ?? 0.70;
+      const pct3 = targets.pct3 ?? targets.elitePct ?? 0.90;
+      const pct4 = targets.pct4 ?? targets.exaltedPct ?? 0.97;
       
       // Build cohort filter for the SQL query
       let cohortFilter = sql`1=1`;
@@ -7114,10 +7240,10 @@ async function startAdminWebServer() {
           PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY value) as p99,
           MAX(value) as max_value,
           AVG(value) as mean_value,
-          PERCENTILE_CONT(${basicPct}) WITHIN GROUP (ORDER BY value) as suggested_basic,
-          PERCENTILE_CONT(${advancedPct}) WITHIN GROUP (ORDER BY value) as suggested_advanced,
-          PERCENTILE_CONT(${elitePct}) WITHIN GROUP (ORDER BY value) as suggested_elite,
-          PERCENTILE_CONT(${exaltedPct}) WITHIN GROUP (ORDER BY value) as suggested_exalted
+          PERCENTILE_CONT(${pct1}) WITHIN GROUP (ORDER BY value) as suggested_pct1,
+          PERCENTILE_CONT(${pct2}) WITHIN GROUP (ORDER BY value) as suggested_pct2,
+          PERCENTILE_CONT(${pct3}) WITHIN GROUP (ORDER BY value) as suggested_pct3,
+          PERCENTILE_CONT(${pct4}) WITHIN GROUP (ORDER BY value) as suggested_pct4
         FROM progress_data
       `);
       
@@ -7138,7 +7264,7 @@ async function startAdminWebServer() {
       if (whaleSkew) warnings.push('whaleSkew: max/p95 >= 20x');
       if (lowSample) warnings.push('lowSample: fewer than 25 clusters');
       
-      // Upsert into challenge_metric_stats
+      // Upsert into challenge_metric_stats (using old column names for DB compatibility)
       const upsertData = {
         challengeKey,
         cohortKey,
@@ -7157,14 +7283,14 @@ async function startAdminWebServer() {
         p99: stats.p99?.toString(),
         maxValue: stats.max_value?.toString(),
         meanValue: stats.mean_value?.toString(),
-        targetBasicPct: basicPct.toString(),
-        targetAdvancedPct: advancedPct.toString(),
-        targetElitePct: elitePct.toString(),
-        targetExaltedPct: exaltedPct.toString(),
-        suggestedBasic: stats.suggested_basic?.toString(),
-        suggestedAdvanced: stats.suggested_advanced?.toString(),
-        suggestedElite: stats.suggested_elite?.toString(),
-        suggestedExalted: stats.suggested_exalted?.toString(),
+        targetBasicPct: pct1.toString(),
+        targetAdvancedPct: pct2.toString(),
+        targetElitePct: pct3.toString(),
+        targetExaltedPct: pct4.toString(),
+        suggestedBasic: stats.suggested_pct1?.toString(),
+        suggestedAdvanced: stats.suggested_pct2?.toString(),
+        suggestedElite: stats.suggested_pct3?.toString(),
+        suggestedExalted: stats.suggested_pct4?.toString(),
         meta: { warnings, zeroInflated, whaleSkew, lowSample },
         computedAt: new Date(),
       };
@@ -7179,12 +7305,25 @@ async function startAdminWebServer() {
       
       console.log(`[Calibration] Refreshed stats for ${challengeKey}/${cohortKey}: ${clusterCount} clusters, ${nonzeroCount} nonzero`);
       
+      // Map suggested thresholds to actual tier codes
+      const percentileValues = {
+        p40: parseFloat(stats.suggested_pct1) || 0,
+        p70: parseFloat(stats.suggested_pct2) || 0,
+        p90: parseFloat(stats.suggested_pct3) || 0,
+        p97: parseFloat(stats.suggested_pct4) || 0,
+      };
+      const suggestedByTier = mapPercentilestoTiers(suggestableTiers, percentileValues);
+      
       res.json({
         success: true,
         challengeKey,
         cohortKey,
         clusterCount,
         nonzeroCount,
+        tierSystem,
+        tierLadder,
+        suggestableTiers,
+        isPrestige,
         percentiles: {
           min: parseFloat(stats.min_value) || 0,
           p10: parseFloat(stats.p10) || 0,
@@ -7200,13 +7339,8 @@ async function startAdminWebServer() {
           max: parseFloat(stats.max_value) || 0,
           mean: parseFloat(stats.mean_value) || 0,
         },
-        targets: { basicPct, advancedPct, elitePct, exaltedPct },
-        suggested: {
-          basic: parseFloat(stats.suggested_basic) || 0,
-          advanced: parseFloat(stats.suggested_advanced) || 0,
-          elite: parseFloat(stats.suggested_elite) || 0,
-          exalted: parseFloat(stats.suggested_exalted) || 0,
-        },
+        targets: { pct1, pct2, pct3, pct4 },
+        suggestedByTier,
         warnings,
         zeroInflated,
         whaleSkew,
@@ -7225,8 +7359,16 @@ async function startAdminWebServer() {
       const adminId = req.adminUser?.discordId || 'unknown';
       const { thresholds } = req.body;
       
+      // thresholds should be an object keyed by tierCode: { UNCOMMON: 10, RARE: 50, ... }
       if (!thresholds || typeof thresholds !== 'object') {
-        return res.status(400).json({ error: 'thresholds object required (basic, advanced, elite, exalted)' });
+        return res.status(400).json({ error: 'thresholds object required, keyed by tierCode (e.g., { UNCOMMON: 10, RARE: 50 })' });
+      }
+      
+      // Resolve tier ladder for this challenge
+      const { tierSystem, tierLadder, suggestableTiers, isPrestige, challengeId } = await resolveTierLadder(challengeKey);
+      
+      if (isPrestige) {
+        return res.status(400).json({ error: 'PRESTIGE challenges do not support threshold calibration' });
       }
       
       // Get the challenge to check state
@@ -7243,39 +7385,39 @@ async function startAdminWebServer() {
         return res.status(400).json({ error: 'Can only apply thresholds to draft or validated challenges' });
       }
       
-      // Define the tier mappings for GENE tier system
-      const tierMappings = [
-        { tierCode: 'BASIC', thresholdValue: Math.round(thresholds.basic || 0), sortOrder: 1 },
-        { tierCode: 'ADVANCED', thresholdValue: Math.round(thresholds.advanced || 0), sortOrder: 2 },
-        { tierCode: 'ELITE', thresholdValue: Math.round(thresholds.elite || 0), sortOrder: 3 },
-        { tierCode: 'EXALTED', thresholdValue: Math.round(thresholds.exalted || 0), sortOrder: 4 },
-      ];
+      // Update existing tiers by tierCode match (don't delete/recreate)
+      const updatedTiers = [];
+      for (const tier of tierLadder) {
+        const newValue = thresholds[tier.tierCode];
+        if (newValue !== undefined && newValue !== null) {
+          await db
+            .update(challengeTiers)
+            .set({ thresholdValue: Math.round(newValue) })
+            .where(and(
+              eq(challengeTiers.challengeKey, challengeKey),
+              eq(challengeTiers.tierCode, tier.tierCode)
+            ));
+          updatedTiers.push({ tierCode: tier.tierCode, thresholdValue: Math.round(newValue) });
+        }
+      }
       
-      // Delete existing tiers and insert new ones
-      await db.delete(challengeTiers).where(eq(challengeTiers.challengeKey, challengeKey));
-      
-      await db.insert(challengeTiers).values(
-        tierMappings.map(t => ({
-          challengeKey,
-          tierCode: t.tierCode,
-          displayName: t.tierCode.charAt(0) + t.tierCode.slice(1).toLowerCase(),
-          thresholdValue: t.thresholdValue,
-          isPrestige: false,
-          sortOrder: t.sortOrder,
-        }))
-      );
+      // Update challenge timestamp
+      await db
+        .update(challenges)
+        .set({ updatedAt: new Date() })
+        .where(eq(challenges.key, challengeKey));
       
       // Log the change
       await db.insert(challengeAuditLog).values({
         challengeId: challenge.id,
         actor: adminId,
         action: 'calibration_apply',
-        payloadDiff: { appliedThresholds: thresholds },
+        payloadDiff: { appliedThresholds: thresholds, tierSystem },
       });
       
-      console.log(`[Calibration] Applied thresholds to ${challengeKey} by ${adminId}`);
+      console.log(`[Calibration] Applied thresholds to ${challengeKey} (${tierSystem}) by ${adminId}: ${updatedTiers.length} tiers updated`);
       
-      res.json({ success: true, appliedThresholds: thresholds });
+      res.json({ success: true, tierSystem, updatedTiers, appliedThresholds: thresholds });
     } catch (err) {
       console.error('[API] Calibration apply error:', err);
       res.status(500).json({ error: 'Failed to apply thresholds' });
@@ -7289,60 +7431,120 @@ async function startAdminWebServer() {
       const cohortKey = req.body.cohortKey || 'ALL';
       const { thresholds } = req.body;
       
+      // thresholds should be an object keyed by tierCode: { UNCOMMON: 10, RARE: 50, ... }
       if (!thresholds || typeof thresholds !== 'object') {
-        return res.status(400).json({ error: 'thresholds object required (basic, advanced, elite, exalted)' });
+        return res.status(400).json({ error: 'thresholds object required, keyed by tierCode' });
       }
       
-      const basic = thresholds.basic ?? 0;
-      const advanced = thresholds.advanced ?? 0;
-      const elite = thresholds.elite ?? 0;
-      const exalted = thresholds.exalted ?? 0;
+      // Resolve tier ladder for this challenge
+      const { tierSystem, tierLadder, suggestableTiers, isPrestige } = await resolveTierLadder(challengeKey);
+      
+      // Handle PRESTIGE challenges separately
+      if (isPrestige) {
+        // Build cohort filter
+        let cohortWhere = '';
+        if (cohortKey === 'NONZERO') cohortWhere = 'AND current_value > 0';
+        else if (cohortKey === 'ACTIVE_30D') cohortWhere = "AND last_updated > NOW() - INTERVAL '30 days'";
+        
+        const presResult = await db.execute(sql.raw(`
+          SELECT
+            COUNT(*)::int as total,
+            COUNT(CASE WHEN current_value > 0 THEN 1 END)::int as unlocked
+          FROM player_challenge_progress
+          WHERE challenge_key = '${challengeKey}'
+          ${cohortWhere}
+        `));
+        
+        const pres = presResult.rows?.[0] || presResult[0] || {};
+        const total = parseInt(pres.total) || 0;
+        const unlocked = parseInt(pres.unlocked) || 0;
+        const locked = total - unlocked;
+        
+        return res.json({
+          challengeKey,
+          cohortKey,
+          tierSystem,
+          isPrestige: true,
+          total,
+          distribution: {
+            UNLOCKED: { count: unlocked, pct: total > 0 ? Math.round((unlocked / total) * 10000) / 100 : 0 },
+            LOCKED: { count: locked, pct: total > 0 ? Math.round((locked / total) * 10000) / 100 : 0 },
+          },
+        });
+      }
       
       // Build cohort filter
-      let cohortFilter = sql`1=1`;
-      if (cohortKey === 'NONZERO') {
-        cohortFilter = sql`current_value > 0`;
-      } else if (cohortKey === 'ACTIVE_30D') {
-        cohortFilter = sql`last_updated > NOW() - INTERVAL '30 days'`;
+      let cohortWhere = '';
+      if (cohortKey === 'NONZERO') cohortWhere = 'AND current_value > 0';
+      else if (cohortKey === 'ACTIVE_30D') cohortWhere = "AND last_updated > NOW() - INTERVAL '30 days'";
+      
+      // Get ordered threshold values from the suggestable tiers (excludes baseline for RARITY)
+      // This ensures we only count tiers that have thresholds set by the calibration system
+      const orderedThresholds = suggestableTiers
+        .map(t => ({ tierCode: t.tierCode, displayName: t.displayName, threshold: thresholds[t.tierCode] ?? t.thresholdValue ?? 0 }))
+        .sort((a, b) => a.threshold - b.threshold);
+      
+      // Build dynamic CASE statements for tier buckets
+      let caseClauses = [`COUNT(*)::int as total`];
+      
+      // Below first tier
+      if (orderedThresholds.length > 0) {
+        caseClauses.push(`COUNT(CASE WHEN current_value < ${orderedThresholds[0].threshold} THEN 1 END)::int as below_first`);
       }
       
-      // Count clusters in each tier bucket
-      const simResult = await db.execute(sql`
-        SELECT
-          COUNT(*)::int as total,
-          COUNT(CASE WHEN current_value < ${basic} THEN 1 END)::int as below_basic,
-          COUNT(CASE WHEN current_value >= ${basic} AND current_value < ${advanced} THEN 1 END)::int as tier_basic,
-          COUNT(CASE WHEN current_value >= ${advanced} AND current_value < ${elite} THEN 1 END)::int as tier_advanced,
-          COUNT(CASE WHEN current_value >= ${elite} AND current_value < ${exalted} THEN 1 END)::int as tier_elite,
-          COUNT(CASE WHEN current_value >= ${exalted} THEN 1 END)::int as tier_exalted
-        FROM player_challenge_progress
-        WHERE challenge_key = ${challengeKey}
-          AND ${cohortFilter}
-      `);
+      // Each tier bucket
+      for (let i = 0; i < orderedThresholds.length; i++) {
+        const tierCode = orderedThresholds[i].tierCode.toLowerCase();
+        const thisThresh = orderedThresholds[i].threshold;
+        const nextThresh = orderedThresholds[i + 1]?.threshold;
+        
+        if (nextThresh !== undefined) {
+          caseClauses.push(`COUNT(CASE WHEN current_value >= ${thisThresh} AND current_value < ${nextThresh} THEN 1 END)::int as tier_${tierCode}`);
+        } else {
+          // Last tier: >= threshold
+          caseClauses.push(`COUNT(CASE WHEN current_value >= ${thisThresh} THEN 1 END)::int as tier_${tierCode}`);
+        }
+      }
       
+      const simQuery = `
+        SELECT ${caseClauses.join(',\n')}
+        FROM player_challenge_progress
+        WHERE challenge_key = '${challengeKey}'
+        ${cohortWhere}
+      `;
+      
+      const simResult = await db.execute(sql.raw(simQuery));
       const sim = simResult.rows?.[0] || simResult[0] || {};
       const total = parseInt(sim.total) || 0;
       
-      const distribution = {
-        belowBasic: { count: parseInt(sim.below_basic) || 0, pct: 0 },
-        basic: { count: parseInt(sim.tier_basic) || 0, pct: 0 },
-        advanced: { count: parseInt(sim.tier_advanced) || 0, pct: 0 },
-        elite: { count: parseInt(sim.tier_elite) || 0, pct: 0 },
-        exalted: { count: parseInt(sim.tier_exalted) || 0, pct: 0 },
-      };
+      // Build distribution by tier
+      const distribution = {};
       
-      if (total > 0) {
-        distribution.belowBasic.pct = Math.round((distribution.belowBasic.count / total) * 10000) / 100;
-        distribution.basic.pct = Math.round((distribution.basic.count / total) * 10000) / 100;
-        distribution.advanced.pct = Math.round((distribution.advanced.count / total) * 10000) / 100;
-        distribution.elite.pct = Math.round((distribution.elite.count / total) * 10000) / 100;
-        distribution.exalted.pct = Math.round((distribution.exalted.count / total) * 10000) / 100;
+      // Below first tier
+      if (orderedThresholds.length > 0) {
+        const belowCount = parseInt(sim.below_first) || 0;
+        distribution['_BELOW_TIER1'] = { 
+          count: belowCount, 
+          pct: total > 0 ? Math.round((belowCount / total) * 10000) / 100 : 0,
+        };
+      }
+      
+      // Each tier
+      for (const t of orderedThresholds) {
+        const key = `tier_${t.tierCode.toLowerCase()}`;
+        const count = parseInt(sim[key]) || 0;
+        distribution[t.tierCode] = { 
+          count, 
+          pct: total > 0 ? Math.round((count / total) * 10000) / 100 : 0,
+        };
       }
       
       res.json({
         challengeKey,
         cohortKey,
-        thresholds: { basic, advanced, elite, exalted },
+        tierSystem,
+        suggestableTiers: suggestableTiers.map(t => t.tierCode),
+        thresholds,
         total,
         distribution,
       });
