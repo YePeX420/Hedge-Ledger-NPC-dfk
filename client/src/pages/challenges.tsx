@@ -63,6 +63,13 @@ interface ChallengeProgress {
   achievedAt?: string;
   foundersMarkAchieved?: boolean;
   foundersMarkAt?: string;
+  // Rolling 180-day windowed values
+  value_180d?: number | null;
+  tier_code_180d?: string | null;
+  windowed_computed_at?: string | null;
+  // Explicit Founder's Mark fields from API
+  founders_mark?: boolean;
+  founders_mark_at?: string | null;
 }
 
 interface ProgressResponse {
@@ -123,12 +130,15 @@ function ChallengeCard({
   challenge: Challenge; 
   progress?: ChallengeProgress;
 }) {
-  const currentValue = progress?.currentValue || 0;
-  const hasFoundersMark = progress?.foundersMarkAchieved;
+  // Use rolling 180d value if available, fallback to lifetime value
+  const currentValue = progress?.value_180d ?? progress?.currentValue ?? 0;
+  // Founder's Mark uses explicit field or legacy field
+  const hasFoundersMark = progress?.founders_mark ?? progress?.foundersMarkAchieved ?? false;
   
   const sortedTiers = [...challenge.tiers].sort((a, b) => a.sortOrder - b.sortOrder);
   const topTier = sortedTiers.find(t => t.isPrestige) || sortedTiers[sortedTiers.length - 1];
-  const currentTier = progress?.highestTierAchieved;
+  // Use rolling 180d tier as current emblem, fallback to lifetime tier
+  const currentTier = progress?.tier_code_180d ?? progress?.highestTierAchieved;
   
   const nextTier = sortedTiers.find(t => t.thresholdValue > currentValue);
   const progressToNext = nextTier 

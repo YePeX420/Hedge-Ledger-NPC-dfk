@@ -186,6 +186,7 @@ export class EtlService {
           await this.runForWallet(wallet, {
             includeSnapshots: true,
             includeTransfers: true,
+            includeWindowedProgress: true,
           });
           processed++;
         } catch (err) {

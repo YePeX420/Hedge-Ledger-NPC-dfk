@@ -78,7 +78,7 @@ import {
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
 import { getValueBreakdown } from './src/analytics/valueBreakdown.ts';
 import { syncTokenRegistry, getAllTokens, getTokenAddressMap } from './src/services/tokenRegistryService.ts';
-import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeValidation, challengeAuditLog, challengeMetricStats, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
+import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeProgressWindowed, challengeValidation, challengeAuditLog, challengeMetricStats, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
 import levelRacerRoutes from './src/modules/levelRacer/levelRacer.routes.ts';
@@ -5875,18 +5875,63 @@ async function startAdminWebServer() {
     try {
       const { userId } = req.params;
 
+      // Get lifetime progress
       const progress = await db
         .select()
         .from(playerChallengeProgress)
         .where(eq(playerChallengeProgress.userId, userId));
 
-      // Group by challenge key for easy lookup
-      const progressMap = {};
-      for (const p of progress) {
-        progressMap[p.challengeKey] = p;
+      // Find user's cluster for windowed progress lookup
+      let clusterKey = null;
+      const cluster = await db
+        .select()
+        .from(walletClusters)
+        .where(eq(walletClusters.userId, userId))
+        .limit(1);
+      
+      if (cluster.length > 0) {
+        clusterKey = cluster[0].clusterKey;
       }
 
-      res.json({ userId, progress: progressMap });
+      // Get windowed (180d rolling) progress if cluster exists
+      let windowedProgressMap = {};
+      if (clusterKey) {
+        const windowed = await db
+          .select()
+          .from(challengeProgressWindowed)
+          .where(
+            and(
+              eq(challengeProgressWindowed.clusterId, clusterKey),
+              eq(challengeProgressWindowed.windowKey, '180d')
+            )
+          );
+        
+        for (const w of windowed) {
+          windowedProgressMap[w.challengeKey] = {
+            value_180d: Number(w.value),
+            tier_code_180d: w.tierCode,
+            computed_at: w.computedAt,
+          };
+        }
+      }
+
+      // Group by challenge key and merge windowed data
+      const progressMap = {};
+      for (const p of progress) {
+        const windowed = windowedProgressMap[p.challengeKey] || {};
+        progressMap[p.challengeKey] = {
+          ...p,
+          // Windowed (rolling 180d) values
+          value_180d: windowed.value_180d ?? null,
+          tier_code_180d: windowed.tier_code_180d ?? null,
+          windowed_computed_at: windowed.computed_at ?? null,
+          // Founder's Mark (already in p but explicitly include for clarity)
+          founders_mark: p.foundersMarkAchieved || false,
+          founders_mark_at: p.foundersMarkAt || null,
+        };
+      }
+
+      res.json({ userId, clusterKey, progress: progressMap });
     } catch (err) {
       console.error('[API] Failed to get challenge progress:', err);
       res.status(500).json({ error: 'Failed to get challenge progress' });
@@ -7305,20 +7350,21 @@ async function startAdminWebServer() {
       const pct3 = targets.pct3 ?? targets.elitePct ?? 0.90;
       const pct4 = targets.pct4 ?? targets.exaltedPct ?? 0.97;
       
-      // Build cohort filter for the SQL query
+      // Build cohort filter for the SQL query (using windowed table columns)
       let cohortFilter = sql`1=1`;
       if (cohortKey === 'NONZERO') {
-        cohortFilter = sql`${playerChallengeProgress.currentValue} > 0`;
+        cohortFilter = sql`${challengeProgressWindowed.value}::numeric > 0`;
       } else if (cohortKey === 'ACTIVE_30D') {
-        cohortFilter = sql`${playerChallengeProgress.lastUpdated} > NOW() - INTERVAL '30 days'`;
+        cohortFilter = sql`${challengeProgressWindowed.computedAt} > NOW() - INTERVAL '30 days'`;
       }
       
-      // Compute percentile stats from player_challenge_progress
+      // Compute percentile stats from challenge_progress_windowed (180d rolling window)
       const statsResult = await db.execute(sql`
         WITH progress_data AS (
-          SELECT current_value::numeric as value
-          FROM player_challenge_progress
+          SELECT value::numeric as value
+          FROM challenge_progress_windowed
           WHERE challenge_key = ${challengeKey}
+            AND window_key = '180d'
             AND ${cohortFilter}
         )
         SELECT
