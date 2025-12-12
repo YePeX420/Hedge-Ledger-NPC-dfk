@@ -18,10 +18,11 @@ export async function loadWindowedProgress(
   data: FullExtractResult,
   transform: TransformResult
 ): Promise<number> {
-  const clusterKey = ctx.clusterKey;
+  const walletAddress = ctx.walletAddress;
+  const clusterKey = ctx.clusterKey; // Optional - may be null
   
-  if (!clusterKey) {
-    console.warn(`[WindowedProgressLoader] No clusterKey provided, skipping windowed progress`);
+  if (!walletAddress) {
+    console.warn(`[WindowedProgressLoader] No walletAddress provided, skipping windowed progress`);
     return 0;
   }
   
@@ -40,7 +41,10 @@ export async function loadWindowedProgress(
       let value: number | null = null;
       
       if (isEventBackedSource(challenge.metricSource)) {
-        value = await computeEventBackedValue(challenge, clusterKey, windowStart);
+        // Event-backed still uses cluster for aggregation if available
+        value = clusterKey 
+          ? await computeEventBackedValue(challenge, clusterKey, windowStart)
+          : 0;
       } else {
         value = computeSnapshotValue(challenge, data, transform);
       }
@@ -53,7 +57,8 @@ export async function loadWindowedProgress(
       await db
         .insert(challengeProgressWindowed)
         .values({
-          clusterId: clusterKey,
+          walletAddress: walletAddress.toLowerCase(),
+          clusterId: clusterKey || null,
           challengeKey: challenge.key,
           windowKey: WINDOW_KEY,
           value: numericValue.toString(),
@@ -62,11 +67,12 @@ export async function loadWindowedProgress(
         })
         .onConflictDoUpdate({
           target: [
-            challengeProgressWindowed.clusterId,
+            challengeProgressWindowed.walletAddress,
             challengeProgressWindowed.challengeKey,
             challengeProgressWindowed.windowKey,
           ],
           set: {
+            clusterId: clusterKey || null,
             value: numericValue.toString(),
             tierCode,
             computedAt: now,
@@ -75,7 +81,7 @@ export async function loadWindowedProgress(
       
       updated++;
       
-      if (tierCode) {
+      if (tierCode && clusterKey) {
         await checkAndSetFoundersMark(clusterKey, challenge.key, tierCode, challenge);
       }
     } catch (err) {
@@ -83,7 +89,7 @@ export async function loadWindowedProgress(
     }
   }
   
-  console.log(`[WindowedProgressLoader] Updated ${updated} windowed progress records for cluster ${clusterKey}`);
+  console.log(`[WindowedProgressLoader] Updated ${updated} windowed progress records for wallet ${walletAddress}`);
   return updated;
 }
 

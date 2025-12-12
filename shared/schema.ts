@@ -1495,18 +1495,21 @@ export type PlayerChallengeProgress = typeof playerChallengeProgress.$inferSelec
 /**
  * Challenge progress windowed - rolling 180-day challenge values and tiers
  * Represents the current competitive state of a challenge within a time window
+ * Primary key is (wallet_address, challenge_key, window_key) for per-wallet tracking
  */
 export const challengeProgressWindowed = pgTable("challenge_progress_windowed", {
-  clusterId: varchar("cluster_id", { length: 128 }).notNull(),
+  walletAddress: text("wallet_address").notNull(), // Primary key - individual wallet
+  clusterId: varchar("cluster_id", { length: 128 }), // Nullable - linked cluster if known
   challengeKey: varchar("challenge_key", { length: 64 }).notNull(),
   windowKey: varchar("window_key", { length: 16 }).notNull().default('180d'), // Start with '180d'
   value: numeric("value", { precision: 20, scale: 4 }).notNull().default('0'),
   tierCode: varchar("tier_code", { length: 32 }), // Computed tier based on value
   computedAt: timestamp("computed_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.clusterId, table.challengeKey, table.windowKey] }),
-  windowChallengeIdx: index("challenge_progress_windowed_window_challenge_idx").on(table.windowKey, table.challengeKey),
-  clusterWindowIdx: index("challenge_progress_windowed_cluster_window_idx").on(table.clusterId, table.windowKey),
+  pk: primaryKey({ columns: [table.walletAddress, table.challengeKey, table.windowKey] }),
+  challengeWindowIdx: index("cpw_challenge_window_idx").on(table.challengeKey, table.windowKey),
+  walletWindowIdx: index("cpw_wallet_window_idx").on(table.walletAddress, table.windowKey),
+  clusterWindowIdx: index("cpw_cluster_window_idx").on(table.clusterId, table.windowKey),
 }));
 
 export const insertChallengeProgressWindowedSchema = createInsertSchema(challengeProgressWindowed);
