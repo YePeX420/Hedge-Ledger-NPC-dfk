@@ -243,6 +243,7 @@ export interface LoadResult {
   walletSnapshots: number;
   walletPowerSnapshots: number;
   walletTransferAggregates: number;
+  windowedProgress?: number;
 }
 
 export interface EtlScheduleConfig {

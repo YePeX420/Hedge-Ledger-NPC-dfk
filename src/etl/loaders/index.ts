@@ -6,8 +6,10 @@ import { loadChallengeProgress } from './challengeProgressLoader.js';
 import { loadWalletActivity } from './walletActivityLoader.js';
 import { loadWalletSnapshot, loadPowerSnapshot } from './snapshotLoader.js';
 import { loadTransferAggregate } from './transferAggregateLoader.js';
+import { loadWindowedProgress } from './windowedProgressLoader.js';
 
 export interface LoadOptions {
+  includeWindowedProgress?: boolean;
   includeSnapshots?: boolean;
   includeTransfers?: boolean;
 }
@@ -42,11 +44,17 @@ export async function loadAllData(
     transferAggregateCount = await loadTransferAggregate(ctx, data);
   }
   
-  const result = {
+  let windowedProgressCount = 0;
+  if (options.includeWindowedProgress) {
+    windowedProgressCount = await loadWindowedProgress(ctx, data, transform);
+  }
+  
+  const result: LoadResult = {
     playerChallengeProgress: challengeProgress,
     walletActivity: walletActivityCount,
     walletSnapshots: walletSnapshotCount,
     walletPowerSnapshots: powerSnapshotCount,
+    windowedProgress: windowedProgressCount,
     walletTransferAggregates: transferAggregateCount,
   };
   
@@ -61,4 +69,5 @@ export {
   loadWalletSnapshot,
   loadPowerSnapshot,
   loadTransferAggregate,
+  loadWindowedProgress,
 };
