@@ -4,9 +4,39 @@ import { eq, sql, and, desc, inArray } from 'drizzle-orm';
 import { getPriceAtTimestamp, fetchCurrentPrices } from './price-history.js';
 import { tokenAmountToUsd, addUsd, subtractUsd, parseUsdToNumber } from './bigint-utils.js';
 import Decimal from 'decimal.js';
-import { GraphQLClient, gql } from 'graphql-request';
+import { ethers } from 'ethers';
 
-const dfkClient = new GraphQLClient('https://api.defikingdoms.com/graphql');
+const DFK_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
+const PROFILES_CONTRACT = '0xC4cD8C09D1A90b21Be417be91A81603B03993E81';
+
+const PROFILES_ABI = [
+  {
+    inputs: [{ name: '', type: 'address' }],
+    name: 'addressToProfile',
+    outputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'name', type: 'string' },
+      { name: 'created', type: 'uint64' },
+      { name: 'nftId', type: 'uint256' },
+      { name: 'collectionId', type: 'uint256' },
+      { name: 'picUri', type: 'string' }
+    ],
+    stateMutability: 'view',
+    type: 'function'
+  }
+];
+
+const provider = new ethers.JsonRpcProvider(DFK_RPC);
+const profilesContract = new ethers.Contract(PROFILES_CONTRACT, PROFILES_ABI, provider);
+
+async function getSummonerNameFromContract(walletAddress) {
+  try {
+    const profile = await profilesContract.addressToProfile(walletAddress);
+    return profile.name && profile.name.length > 0 ? profile.name : null;
+  } catch (err) {
+    return null;
+  }
+}
 
 export async function fetchSummonerNames(walletAddresses) {
   if (!walletAddresses || walletAddresses.length === 0) {
@@ -14,29 +44,31 @@ export async function fetchSummonerNames(walletAddresses) {
   }
   
   const results = {};
+  const batchSize = 10;
+  const delayMs = 50;
   
-  const query = gql`
-    query GetProfiles($ids: [ID!]!) {
-      profiles(where: { id_in: $ids }) {
-        id
-        name
-      }
-    }
-  `;
-  
-  try {
-    const lowercaseAddresses = walletAddresses.map(addr => addr.toLowerCase());
-    const data = await dfkClient.request(query, { ids: lowercaseAddresses });
+  for (let i = 0; i < walletAddresses.length; i += batchSize) {
+    const batch = walletAddresses.slice(i, i + batchSize);
     
-    if (data?.profiles) {
-      for (const profile of data.profiles) {
-        results[profile.id.toLowerCase()] = profile.name;
+    const batchResults = await Promise.all(
+      batch.map(async (addr) => {
+        const name = await getSummonerNameFromContract(addr);
+        return { addr: addr.toLowerCase(), name };
+      })
+    );
+    
+    for (const { addr, name } of batchResults) {
+      if (name) {
+        results[addr] = name;
       }
     }
-  } catch (error) {
-    console.error('[BridgeMetrics] Error fetching summoner names:', error.message);
+    
+    if (i + batchSize < walletAddresses.length) {
+      await new Promise(r => setTimeout(r, delayMs));
+    }
   }
   
+  console.log(`[BridgeMetrics] Fetched ${Object.keys(results).length} summoner names from ${walletAddresses.length} wallets`);
   return results;
 }
 
