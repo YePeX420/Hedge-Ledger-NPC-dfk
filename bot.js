@@ -7616,10 +7616,10 @@ async function startAdminWebServer() {
         });
       }
       
-      // Build cohort filter
+      // Build cohort filter for windowed table (180d rolling window)
       let cohortWhere = '';
-      if (cohortKey === 'NONZERO') cohortWhere = 'AND current_value > 0';
-      else if (cohortKey === 'ACTIVE_30D') cohortWhere = "AND last_updated > NOW() - INTERVAL '30 days'";
+      if (cohortKey === 'NONZERO') cohortWhere = 'AND value::numeric > 0';
+      else if (cohortKey === 'ACTIVE_30D') cohortWhere = "AND computed_at > NOW() - INTERVAL '30 days'";
       
       // Get ordered threshold values from the suggestable tiers (excludes baseline for RARITY)
       // This ensures we only count tiers that have thresholds set by the calibration system
@@ -7632,7 +7632,7 @@ async function startAdminWebServer() {
       
       // Below first tier
       if (orderedThresholds.length > 0) {
-        caseClauses.push(`COUNT(CASE WHEN current_value < ${orderedThresholds[0].threshold} THEN 1 END)::int as below_first`);
+        caseClauses.push(`COUNT(CASE WHEN value::numeric < ${orderedThresholds[0].threshold} THEN 1 END)::int as below_first`);
       }
       
       // Each tier bucket
@@ -7642,17 +7642,19 @@ async function startAdminWebServer() {
         const nextThresh = orderedThresholds[i + 1]?.threshold;
         
         if (nextThresh !== undefined) {
-          caseClauses.push(`COUNT(CASE WHEN current_value >= ${thisThresh} AND current_value < ${nextThresh} THEN 1 END)::int as tier_${tierCode}`);
+          caseClauses.push(`COUNT(CASE WHEN value::numeric >= ${thisThresh} AND value::numeric < ${nextThresh} THEN 1 END)::int as tier_${tierCode}`);
         } else {
           // Last tier: >= threshold
-          caseClauses.push(`COUNT(CASE WHEN current_value >= ${thisThresh} THEN 1 END)::int as tier_${tierCode}`);
+          caseClauses.push(`COUNT(CASE WHEN value::numeric >= ${thisThresh} THEN 1 END)::int as tier_${tierCode}`);
         }
       }
       
+      // Use challenge_progress_windowed for 180d rolling window (per-wallet)
       const simQuery = `
         SELECT ${caseClauses.join(',\n')}
-        FROM player_challenge_progress
+        FROM challenge_progress_windowed
         WHERE challenge_key = '${challengeKey}'
+          AND window_key = '180d'
         ${cohortWhere}
       `;
       
