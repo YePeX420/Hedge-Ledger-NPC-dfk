@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, bigint, numeric, timestamp, integer, boolean, json, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, bigint, numeric, timestamp, integer, boolean, json, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1491,6 +1491,27 @@ export const playerChallengeProgress = pgTable("player_challenge_progress", {
 export const insertPlayerChallengeProgressSchema = createInsertSchema(playerChallengeProgress).omit({ id: true });
 export type InsertPlayerChallengeProgress = z.infer<typeof insertPlayerChallengeProgressSchema>;
 export type PlayerChallengeProgress = typeof playerChallengeProgress.$inferSelect;
+
+/**
+ * Challenge progress windowed - rolling 180-day challenge values and tiers
+ * Represents the current competitive state of a challenge within a time window
+ */
+export const challengeProgressWindowed = pgTable("challenge_progress_windowed", {
+  clusterId: varchar("cluster_id", { length: 128 }).notNull(),
+  challengeKey: varchar("challenge_key", { length: 64 }).notNull(),
+  windowKey: varchar("window_key", { length: 16 }).notNull().default('180d'), // Start with '180d'
+  value: numeric("value", { precision: 20, scale: 4 }).notNull().default('0'),
+  tierCode: varchar("tier_code", { length: 32 }), // Computed tier based on value
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.clusterId, table.challengeKey, table.windowKey] }),
+  windowChallengeIdx: index("challenge_progress_windowed_window_challenge_idx").on(table.windowKey, table.challengeKey),
+  clusterWindowIdx: index("challenge_progress_windowed_cluster_window_idx").on(table.clusterId, table.windowKey),
+}));
+
+export const insertChallengeProgressWindowedSchema = createInsertSchema(challengeProgressWindowed);
+export type InsertChallengeProgressWindowed = z.infer<typeof insertChallengeProgressWindowedSchema>;
+export type ChallengeProgressWindowed = typeof challengeProgressWindowed.$inferSelect;
 
 // ============================================================================
 // LEVEL RACER - CLASS ARENA EDITION
