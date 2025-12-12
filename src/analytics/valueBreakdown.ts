@@ -123,6 +123,12 @@ interface StandardCategory {
 
 type CategoryBreakdown = LpPoolsCategory | StandardCategory;
 
+interface TokenPrice {
+  symbol: string;
+  price: number;
+  source: 'defillama' | 'coingecko' | 'fallback';
+}
+
 interface ValueBreakdownResult {
   timestamp: string;
   prices: {
@@ -131,6 +137,7 @@ interface ValueBreakdownResult {
     jewelSource: 'defillama' | 'coingecko' | 'fallback';
     crystalSource: 'defillama' | 'coingecko' | 'fallback';
   };
+  tokenPrices: TokenPrice[];
   categories: CategoryBreakdown[];
   summary: {
     totalJewelLocked: number;
@@ -494,6 +501,17 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const totalJewelLocked = standardCats.reduce((sum, c) => sum + c.totalJewel, 0);
   const totalCrystalLocked = standardCats.reduce((sum, c) => sum + c.totalCrystal, 0);
 
+  const tokenPricesList: TokenPrice[] = [
+    { symbol: 'JEWEL', price: allPrices['JEWEL'] || 0, source: 'defillama' },
+    { symbol: 'CRYSTAL', price: allPrices['CRYSTAL'] || 0, source: 'defillama' },
+    { symbol: 'xJEWEL', price: allPrices['xJEWEL'] || allPrices['JEWEL'] || 0, source: 'defillama' },
+    { symbol: 'AVAX', price: allPrices['AVAX'] || 0, source: 'defillama' },
+    { symbol: 'ETH', price: allPrices['ETH'] || 0, source: 'defillama' },
+    { symbol: 'BTC.b', price: allPrices['BTC.b'] || 0, source: 'defillama' },
+    { symbol: 'USDC', price: allPrices['USDC'] || 1.0, source: 'defillama' },
+    { symbol: 'KLAY', price: allPrices['KLAY'] || 0, source: 'defillama' },
+  ];
+
   return {
     timestamp: new Date().toISOString(),
     prices: {
@@ -502,6 +520,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       jewelSource: 'defillama' as const,
       crystalSource: 'defillama' as const,
     },
+    tokenPrices: tokenPricesList,
     categories,
     summary: {
       totalJewelLocked,

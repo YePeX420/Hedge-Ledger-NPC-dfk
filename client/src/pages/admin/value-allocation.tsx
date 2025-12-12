@@ -32,6 +32,12 @@ interface Category {
   totalValueUSD: number;
 }
 
+interface TokenPrice {
+  symbol: string;
+  price: number;
+  source: string;
+}
+
 interface ValueBreakdownData {
   timestamp: string;
   prices: {
@@ -40,6 +46,7 @@ interface ValueBreakdownData {
     jewelSource: string;
     crystalSource: string;
   };
+  tokenPrices: TokenPrice[];
   categories: Category[];
   summary: {
     totalJewelLocked: number;
@@ -257,6 +264,31 @@ export default function ValueAllocationPage() {
               </CardContent>
             </Card>
           </div>
+
+          <Card data-testid="card-token-prices">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Coins className="w-5 h-5 text-yellow-500" />
+                Token Prices
+              </CardTitle>
+              <CardDescription>
+                Current prices used for TVL calculations
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+                {(data.tokenPrices ?? []).map((token) => (
+                  <div key={token.symbol} className="p-3 rounded-lg bg-muted/50" data-testid={`token-price-${token.symbol}`}>
+                    <div className="text-sm font-medium">{token.symbol}</div>
+                    <div className="text-lg font-bold font-mono">
+                      {token.price >= 1 ? `$${token.price.toFixed(2)}` : `$${token.price.toFixed(4)}`}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{token.source}</div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
 
           <Card data-testid="card-lp-pools">
             <CardHeader>
