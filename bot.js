@@ -27,7 +27,7 @@ import { decodeHeroGenes } from './hero-genetics.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings, leagueSeasons, leagueSignups, seasonTierLocks, walletClusters, walletLinks, smurfIncidents, walletPowerSnapshots } from './shared/schema.ts';
 import { runPreSeasonChecks, runInSeasonChecks, getOrCreateCluster, linkWalletToCluster } from './smurf-detection-service.js';
-import { eq, desc, sql, inArray, and, gt, lt } from 'drizzle-orm';
+import { eq, desc, asc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
 import express from 'express';
 import cors from 'cors';
