@@ -10,7 +10,7 @@ packages = ["jq", "pandoc"]
 deploymentTarget = "gce"
 build = ["sh", "-c", "npm install && npm run build"]
 run = ["sh", "-c", "npx tsx bot.js"]
-ignorePorts = true
+ignorePorts = false
 
 [[ports]]
 localPort = 5000
