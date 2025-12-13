@@ -89,6 +89,73 @@ import { seedHeroClasses, ensurePoolsForAllClasses } from './src/modules/levelRa
 
 const execAsync = promisify(exec);
 
+// ============================================================
+// STARTUP DIAGNOSTICS - Log everything for production debugging
+// ============================================================
+console.log('='.repeat(60));
+console.log('🚀 BOT.JS STARTUP - ' + new Date().toISOString());
+console.log('='.repeat(60));
+console.log('📦 Node version:', process.version);
+console.log('🖥️  Platform:', process.platform, process.arch);
+console.log('📁 Working directory:', process.cwd());
+console.log('💾 Memory:', Math.round(process.memoryUsage().heapUsed / 1024 / 1024), 'MB used');
+
+// Process-level error handlers - catch uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('💥 UNCAUGHT EXCEPTION:', error.message);
+  console.error('Stack:', error.stack);
+  // Don't exit - let the server keep running if possible
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 UNHANDLED REJECTION at:', promise);
+  console.error('Reason:', reason);
+});
+
+// Environment variable validation
+const ENV_CHECKS = {
+  // Required for Discord bot
+  DISCORD_TOKEN: process.env.DISCORD_TOKEN,
+  DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
+  DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
+  DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET,
+  
+  // Required for database
+  DATABASE_URL: process.env.DATABASE_URL,
+  
+  // Required for OpenAI
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  
+  // OAuth callback
+  OAUTH_CALLBACK_URL: process.env.OAUTH_CALLBACK_URL,
+  
+  // Optional but important
+  COOKIE_DOMAIN: process.env.COOKIE_DOMAIN,
+  ADMIN_USER_IDS: process.env.ADMIN_USER_IDS,
+  ALLOW_OAUTH_BYPASS: process.env.ALLOW_OAUTH_BYPASS,
+};
+
+console.log('\n📋 ENVIRONMENT VARIABLES STATUS:');
+console.log('-'.repeat(40));
+let missingRequired = [];
+for (const [key, value] of Object.entries(ENV_CHECKS)) {
+  const status = value ? '✅' : '❌';
+  const displayValue = value ? `(${value.substring(0, 8)}...)` : '(MISSING)';
+  console.log(`${status} ${key}: ${displayValue}`);
+  
+  // Track critical missing vars
+  if (!value && ['DISCORD_TOKEN', 'DATABASE_URL', 'DISCORD_CLIENT_ID'].includes(key)) {
+    missingRequired.push(key);
+  }
+}
+
+if (missingRequired.length > 0) {
+  console.error('\n⚠️  CRITICAL: Missing required environment variables:', missingRequired.join(', '));
+  console.error('The server may fail to start properly without these.');
+}
+console.log('-'.repeat(40));
+console.log('');
+
 // --- Runtime status flags for health checks ---
 let paymentMonitorStarted = false;
 let poolCacheInitialized = false;
@@ -3473,6 +3540,36 @@ async function startAdminWebServer() {
   app.use((req, res, next) => {
     console.log(`[HTTP] ${req.method} ${req.path}`);
     next();
+  });
+
+  // Health check endpoint - detailed startup diagnostics
+  app.get('/health', (req, res) => {
+    const health = {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      memory: {
+        used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      },
+      env: {
+        DISCORD_TOKEN: !!process.env.DISCORD_TOKEN,
+        DISCORD_CLIENT_ID: !!process.env.DISCORD_CLIENT_ID,
+        DISCORD_GUILD_ID: !!process.env.DISCORD_GUILD_ID,
+        DISCORD_CLIENT_SECRET: !!process.env.DISCORD_CLIENT_SECRET,
+        DATABASE_URL: !!process.env.DATABASE_URL,
+        OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
+        OAUTH_CALLBACK_URL: process.env.OAUTH_CALLBACK_URL || 'NOT SET',
+        COOKIE_DOMAIN: process.env.COOKIE_DOMAIN || 'NOT SET',
+      },
+      services: {
+        paymentMonitor: paymentMonitorStarted,
+        poolCache: poolCacheInitialized,
+        optimizationProcessor: optimizationProcessorStarted,
+        snapshotJob: snapshotJobStarted,
+      }
+    };
+    res.json(health);
   });
 
   // Session management middleware
