@@ -46,3 +46,6 @@ integrations = ["javascript_openai:1.0.0"]
 
 [userenv.development]
 ALLOW_OAUTH_BYPASS = "true"
+
+[userenv.production]
+ALLOW_OAUTH_BYPASS = "false"
