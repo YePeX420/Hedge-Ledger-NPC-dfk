@@ -9,7 +9,7 @@ packages = ["jq", "pandoc"]
 [deployment]
 deploymentTarget = "gce"
 build = ["npm", "run", "build"]
-run = ["npm", "run", "start"]
+run = ["sh", "-c", "node bot.js"]
 ignorePorts = true
 
 [[ports]]
