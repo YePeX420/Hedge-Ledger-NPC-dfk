@@ -3493,7 +3493,8 @@ async function startAdminWebServer() {
       if (options.httpOnly) cookieParts.push('HttpOnly');
       if (options.secure) cookieParts.push('Secure');
       if (options.sameSite) cookieParts.push(`SameSite=${options.sameSite}`);
-      if (options.maxAge) cookieParts.push(`Max-Age=${options.maxAge}`);
+      if (options.maxAge !== undefined) cookieParts.push(`Max-Age=${options.maxAge}`);
+      if (options.domain) cookieParts.push(`Domain=${options.domain}`);
       // Always include Path - defaults to '/' for site-wide cookies
       cookieParts.push(`Path=${options.path || '/'}`);
       res.setHeader('Set-Cookie', cookieParts.join('; '));
@@ -7876,12 +7877,15 @@ async function startAdminWebServer() {
         expiresAt,
       });
 
+      // Determine cookie domain for cross-subdomain auth
+      const cookieDomain = process.env.COOKIE_DOMAIN || undefined;
       res.setCookie('session_token', sessionToken, {
         maxAge: 30 * 24 * 60 * 60, // 30 days for "remember me"
         httpOnly: true,
         secure: true,
-        sameSite: 'Lax',
+        sameSite: 'None', // Required for cross-site cookies
         path: '/',
+        domain: cookieDomain,
       });
 
       // Check if user is an admin

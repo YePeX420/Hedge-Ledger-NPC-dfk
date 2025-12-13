@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { API_BASE_URL } from './queryClient';
 
 interface AdminUser {
   discordId: string;
@@ -25,7 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshAuth = useCallback(async () => {
     try {
-      const response = await fetch('/auth/status', {
+      const response = await fetch(`${API_BASE_URL}/auth/status`, {
         credentials: 'include',
       });
       
@@ -59,12 +60,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshAuth]);
 
   const login = useCallback(() => {
-    window.location.href = '/auth/discord';
+    window.location.href = `${API_BASE_URL}/auth/discord`;
   }, []);
 
   const logout = useCallback(async () => {
     try {
-      await fetch('/auth/logout', {
+      await fetch(`${API_BASE_URL}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
