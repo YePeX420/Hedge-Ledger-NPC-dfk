@@ -3452,8 +3452,20 @@ async function startAdminWebServer() {
   app.use(express.json());
   
   // CORS for cross-origin frontend
+  const allowedOrigins = [
+    'https://hedgeledger.ai',
+    'https://www.hedgeledger.ai',
+    'https://9734175a-4359-4feb-bbd8-48688d3217dd-00-22lw70hk2l6gm.kirk.replit.dev'
+  ];
   app.use(cors({
-    origin: 'https://9734175a-4359-4feb-bbd8-48688d3217dd-00-22lw70hk2l6gm.kirk.replit.dev',
+    origin: function(origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
     credentials: true
   }));
 
