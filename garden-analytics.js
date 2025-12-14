@@ -119,8 +119,21 @@ export async function getPreviousUTCDayBlockRange() {
     // Find corresponding blocks
     // fromBlock: First block at or after 00:00:00 UTC yesterday
     // toBlock: Last block at or before 23:59:59 UTC yesterday
-    const fromBlock = await findBlockAtOrAfter(startTimestamp, latestBlock);
-    const toBlock = await findBlockAtOrBefore(endTimestamp, latestBlock);
+    let fromBlock = await findBlockAtOrAfter(startTimestamp, latestBlock);
+    let toBlock = await findBlockAtOrBefore(endTimestamp, latestBlock);
+    
+    // Sanity check: if fromBlock >= toBlock, the binary search failed (RPC errors)
+    // Fall back to estimated block range based on ~2 second block time
+    if (fromBlock >= toBlock) {
+      console.warn(`[BlockRange] Invalid range detected (${fromBlock} >= ${toBlock}), using estimated blocks`);
+      const secondsPerBlock = 2;
+      const now = Math.floor(Date.now() / 1000);
+      const blocksToStart = Math.floor((now - startTimestamp) / secondsPerBlock);
+      const blocksToEnd = Math.floor((now - endTimestamp) / secondsPerBlock);
+      fromBlock = latestBlock - blocksToStart;
+      toBlock = latestBlock - blocksToEnd;
+      console.log(`[BlockRange] Estimated: ${fromBlock} to ${toBlock} (${toBlock - fromBlock} blocks)`);
+    }
     
     console.log(`Previous UTC day: ${previousDayStart.toISOString()} to ${previousDayEnd.toISOString()}`);
     console.log(`Block range: ${fromBlock} to ${toBlock} (${toBlock - fromBlock} blocks)`);
