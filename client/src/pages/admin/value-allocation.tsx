@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +100,7 @@ function shortenAddress(address: string): string {
 }
 
 export default function ValueAllocationPage() {
+  const [, setLocation] = useLocation();
   const { data, isLoading, refetch, isFetching } = useQuery<ValueBreakdownData>({
     queryKey: ['/api/admin/bridge/value-breakdown'],
     refetchInterval: 300000,
@@ -323,7 +325,12 @@ export default function ValueAllocationPage() {
                 </TableHeader>
                 <TableBody>
                   {(lpPools?.contracts ?? []).map((contract) => (
-                    <TableRow key={contract.address} data-testid={`row-lp-${contract.name}`}>
+                    <TableRow 
+                      key={contract.address} 
+                      data-testid={`row-lp-${contract.name}`}
+                      className={contract.pid !== undefined ? "cursor-pointer hover-elevate" : ""}
+                      onClick={() => contract.pid !== undefined && setLocation(`/admin/pools/${contract.pid}`)}
+                    >
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Badge variant="secondary" className="font-mono text-xs">
@@ -341,6 +348,7 @@ export default function ValueAllocationPage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-foreground"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {shortenAddress(contract.address)}
                           <ExternalLink className="w-3 h-3" />
