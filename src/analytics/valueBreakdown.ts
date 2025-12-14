@@ -419,8 +419,7 @@ async function getStakedLPAmounts(
     let v1Staked = 0;
     try {
       const legacyGardenerBalance = await lpContract.balanceOf('0x57dec9cc7f492d6583c773e2e7ad66dcdc6940fb');
-      const totalGardenerLPRaw = parseFloat(ethers.formatEther(legacyGardenerBalance));
-      v1Staked = totalGardenerLPRaw > v2Staked ? totalGardenerLPRaw - v2Staked : 0;
+      v1Staked = parseFloat(ethers.formatEther(legacyGardenerBalance));
     } catch (err) {
       console.error(`[StakedLP] V1 balance check failed:`, (err as Error).message);
       v1Staked = 0;

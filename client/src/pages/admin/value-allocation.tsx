@@ -345,7 +345,7 @@ export default function ValueAllocationPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm text-green-400">
-                        {contract.passive24hAPR !== undefined ? `${contract.passive24hAPR.toFixed(2)}%` : '-'}
+                        {contract.passive24hAPR != null ? `${contract.passive24hAPR.toFixed(2)}%` : '-'}
                       </TableCell>
                       <TableCell>
                         <a
