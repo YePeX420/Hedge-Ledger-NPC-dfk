@@ -1098,7 +1098,8 @@ export async function getAllPoolStakers(pid, fromBlock = null) {
     const currentBlock = await provider.getBlockNumber();
     
     // Default to ~7 days ago (~2 second blocks = 43200 blocks/day)
-    // This provides reasonable coverage while keeping scan time manageable (~10-20s)
+    // This provides fast scans (~300K blocks = ~150 RPC calls) while catching recent activity
+    // For complete staker lists, combine with known wallets from registered players
     if (fromBlock === null) {
       const blocksFor7Days = 43200 * 7; // ~302K blocks
       fromBlock = Math.max(0, currentBlock - blocksFor7Days);
