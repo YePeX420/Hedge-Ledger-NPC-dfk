@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { getTokenAddressMap } from '../services/tokenRegistryService.js';
+import { getCachedPool } from '../../pool-cache.js';
 
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 
@@ -117,6 +118,7 @@ interface LpPoolContract {
   stakedRatio: number;
   v2ValueUSD: number;
   v1ValueUSD: number;
+  passive24hAPR?: number;
 }
 
 interface StandardContract {
@@ -486,6 +488,18 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       const v2ValueUSD = totalPoolReserveValue * v2Ratio;
       const v1ValueUSD = totalPoolReserveValue * v1Ratio;
 
+      let passive24hAPR: number | undefined;
+      try {
+        const cachedPool = getCachedPool(pid);
+        if (cachedPool) {
+          const feeAPR = parseFloat((cachedPool.fee24hAPR || '0%').replace('%', '')) || 0;
+          const harvestAPR = parseFloat((cachedPool.harvesting24hAPR || '0%').replace('%', '')) || 0;
+          passive24hAPR = feeAPR + harvestAPR;
+        }
+      } catch (err) {
+        console.warn(`[ValueBreakdown] Could not get cached pool APR for pid ${pid}:`, err);
+      }
+
       lpPoolContracts.push({
         name,
         address,
@@ -504,6 +518,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
         stakedRatio,
         v2ValueUSD,
         v1ValueUSD,
+        passive24hAPR,
       });
   }
 

@@ -31,6 +31,7 @@ interface Contract {
   stakedRatio?: number;
   v2ValueUSD?: number;
   v1ValueUSD?: number;
+  passive24hAPR?: number;
 }
 
 interface Category {
@@ -315,6 +316,7 @@ export default function ValueAllocationPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Pool</TableHead>
+                    <TableHead className="text-right text-green-400">24hr APR</TableHead>
                     <TableHead>Contract</TableHead>
                     <TableHead className="text-right">Staked Token 0</TableHead>
                     <TableHead className="text-right">Staked Token 1</TableHead>
@@ -341,6 +343,9 @@ export default function ValueAllocationPage() {
                             {contract.token1Symbol || 'TOKEN1'}
                           </Badge>
                         </div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm text-green-400">
+                        {contract.passive24hAPR !== undefined ? `${contract.passive24hAPR.toFixed(2)}%` : '-'}
                       </TableCell>
                       <TableCell>
                         <a
@@ -378,7 +383,7 @@ export default function ValueAllocationPage() {
                     </TableRow>
                   ))}
                   <TableRow className="bg-green-500/5 font-medium">
-                    <TableCell colSpan={4}>Total Staked LP</TableCell>
+                    <TableCell colSpan={5}>Total Staked LP</TableCell>
                     <TableCell className="text-right text-blue-400">
                       {formatUSD((lpPools?.contracts ?? []).reduce((sum, c) => sum + (c.v2ValueUSD || 0), 0))}
                     </TableCell>
