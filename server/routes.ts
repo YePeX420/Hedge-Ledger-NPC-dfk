@@ -9,6 +9,7 @@ import { detectWalletLPPositions } from "../wallet-lp-detector.js";
 import { indexWallet, runFullIndex, getLatestBlock, getIndexerProgress, initIndexerProgress, runWorkerBatch, getAllWorkerProgress, getWorkerIndexerName, MAIN_INDEXER_NAME } from "../bridge-tracker/bridge-indexer.js";
 import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics, bulkComputeAllMetrics, updateSummonerNamesForExtractors, fetchSummonerNames } from "../bridge-tracker/bridge-metrics.js";
 import { backfillAllTokens, fetchCurrentPrices } from "../bridge-tracker/price-history.js";
+import { getCachedPool, getCachedPoolAnalytics } from "../pool-cache.js";
 
 // Debug: Verify bridge indexer imports
 console.log('[BridgeIndexer] Import check - runFullIndex type:', typeof runFullIndex);
@@ -601,6 +602,138 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[API] Error fetching LP positions:', error);
       res.status(500).json({ error: 'Failed to fetch LP positions' });
+    }
+  });
+
+  // Helper: Parse APR string like "1.23%" to number 1.23
+  function parseAprString(aprStr: string | undefined): number {
+    if (!aprStr) return 0;
+    const match = String(aprStr).match(/^([\d.]+)/);
+    return match ? parseFloat(match[1]) : 0;
+  }
+
+  // GET /api/admin/pools/:pid - Get pool detail with APR breakdown
+  app.get("/api/admin/pools/:pid", isAdmin, async (req: any, res: any) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      console.log(`[HTTP] GET /api/admin/pools/${pid}`);
+      
+      if (isNaN(pid)) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      
+      const pool = getCachedPool(pid);
+      
+      if (!pool) {
+        return res.status(404).json({ error: 'Pool not found' });
+      }
+      
+      // Parse APR strings to numbers for frontend
+      const feeAprValue = parseAprString(pool.fee24hAPR);
+      const harvestAprValue = parseAprString(pool.harvesting24hAPR);
+      const questAprWorst = parseAprString(pool.gardeningQuestAPR?.worst);
+      const questAprBest = parseAprString(pool.gardeningQuestAPR?.best);
+      
+      const totalPassive = feeAprValue + harvestAprValue;
+      const totalWorst = totalPassive + questAprWorst;
+      const totalBest = totalPassive + questAprBest;
+      
+      res.json({
+        pool: {
+          pid: pool.pid,
+          pairName: pool.pairName,
+          lpToken: pool.lpToken,
+          token0: pool.token0,
+          token1: pool.token1,
+          totalTVL: pool.totalTVL || 0
+        },
+        aprBreakdown: {
+          passive: {
+            feeAprValue,
+            harvestAprValue,
+            totalPassive
+          },
+          active: {
+            questAprWorst,
+            questAprBest
+          },
+          total: {
+            worst: totalWorst,
+            best: totalBest
+          }
+        }
+      });
+    } catch (error) {
+      console.error('[API] Error fetching pool detail:', error);
+      res.status(500).json({ error: 'Failed to fetch pool detail' });
+    }
+  });
+
+  // GET /api/admin/pools/:pid/providers - Get gardeners with positions in pool
+  app.get("/api/admin/pools/:pid/providers", isAdmin, async (req: any, res: any) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      console.log(`[HTTP] GET /api/admin/pools/${pid}/providers`);
+      
+      if (isNaN(pid)) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      
+      const pool = getCachedPool(pid);
+      if (!pool) {
+        return res.status(404).json({ error: 'Pool not found' });
+      }
+      
+      // Get all players with wallets
+      const playersWithWallets = await db
+        .select({
+          id: players.id,
+          discordId: players.discordId,
+          discordUsername: players.discordUsername,
+          walletAddress: players.primaryWallet,
+        })
+        .from(players)
+        .where(sql`${players.primaryWallet} IS NOT NULL`);
+      
+      const providers: any[] = [];
+      
+      // For each player, check if they have a position in this pool
+      for (const player of playersWithWallets) {
+        try {
+          const positions = await detectWalletLPPositions(player.walletAddress);
+          const poolPosition = positions.find((p: any) => p.pid === pid);
+          
+          if (poolPosition && parseFloat(poolPosition.userTVL || '0') > 0) {
+            const stakedValue = parseFloat(poolPosition.userTVL || '0');
+            const poolTVL = pool.totalTVL || pool.v2TVL || 1;
+            
+            providers.push({
+              wallet: player.walletAddress,
+              discordId: player.discordId,
+              username: player.discordUsername,
+              stakedLP: parseFloat(poolPosition.userStaked || '0'),
+              stakedValue,
+              sharePercent: stakedValue / poolTVL,
+              heroes: 0, // Would need hero query
+              realizedQuestAPR: null
+            });
+          }
+        } catch (err) {
+          // Skip wallets that fail to fetch
+        }
+      }
+      
+      // Sort by staked value descending
+      providers.sort((a, b) => b.stakedValue - a.stakedValue);
+      
+      res.json({
+        providers: providers.slice(0, 50), // Top 50
+        count: providers.length,
+        totalStaked: providers.reduce((sum, p) => sum + p.stakedValue, 0)
+      });
+    } catch (error) {
+      console.error('[API] Error fetching pool providers:', error);
+      res.status(500).json({ error: 'Failed to fetch pool providers' });
     }
   });
   
