@@ -5913,7 +5913,7 @@ async function startAdminWebServer() {
         discordUsername: players.discordUsername,
         primaryWallet: players.primaryWallet,
         wallets: players.wallets,
-      }).from(players).where(sql`${players.wallets} IS NOT NULL AND array_length(${players.wallets}, 1) > 0`);
+      }).from(players).where(sql`${players.wallets} IS NOT NULL AND json_array_length(${players.wallets}) > 0`);
       
       if (playersWithWallets.length === 0) {
         return res.json({ providers: [], poolId: pid, message: 'No registered wallets found' });

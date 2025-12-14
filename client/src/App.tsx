@@ -21,6 +21,8 @@ import ChallengeEditor from "@/pages/admin/challenge-editor";
 import AdminLevelRacer from "@/pages/admin/level-racer";
 import AdminTokens from "@/pages/admin/tokens";
 import AdminExtractors from "@/pages/admin/extractors";
+import AdminPools from "@/pages/admin/pools";
+import PoolDetailPage from "@/pages/admin/pool-detail";
 import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
 import ChallengesPage from "@/pages/challenges";
@@ -150,6 +152,22 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminExtractors />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/pools/:pid">
+        {() => (
+          <ProtectedAdminPage>
+            <PoolDetailPage />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/pools">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminPools />
           </ProtectedAdminPage>
         )}
       </Route>
