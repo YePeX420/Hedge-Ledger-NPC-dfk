@@ -1880,3 +1880,58 @@ export const tokenRegistry = pgTable("token_registry", {
 export const insertTokenRegistrySchema = createInsertSchema(tokenRegistry).omit({ id: true, createdAt: true, lastUpdatedAt: true });
 export type InsertTokenRegistry = z.infer<typeof insertTokenRegistrySchema>;
 export type TokenRegistry = typeof tokenRegistry.$inferSelect;
+
+// ============================================================================
+// POOL STAKERS INDEX
+// Indexed staker positions from Deposit/Withdraw events for fast queries
+// ============================================================================
+
+/**
+ * Pool stakers - stores current staker positions indexed from blockchain events
+ * Updated by the pool staker indexer, consumed by the admin dashboard
+ */
+export const poolStakers = pgTable("pool_stakers", {
+  id: serial("id").primaryKey(),
+  wallet: text("wallet").notNull(), // lowercase wallet address
+  pid: integer("pid").notNull(), // pool ID
+  stakedLP: numeric("staked_lp", { precision: 38, scale: 18 }).notNull().default("0"), // current staked LP tokens
+  summonerName: text("summoner_name"), // DFK profile name (nullable if not registered)
+  lastActivityType: text("last_activity_type"), // 'Deposit' or 'Withdraw'
+  lastActivityAmount: numeric("last_activity_amount", { precision: 38, scale: 18 }), // last activity LP amount
+  lastActivityBlock: bigint("last_activity_block", { mode: "number" }), // block number of last activity
+  lastActivityTxHash: text("last_activity_tx_hash"), // tx hash of last activity
+  lastUpdatedAt: timestamp("last_updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletPidIdx: uniqueIndex("pool_stakers_wallet_pid_idx").on(table.wallet, table.pid),
+  pidIdx: index("pool_stakers_pid_idx").on(table.pid),
+  stakedLpIdx: index("pool_stakers_staked_lp_idx").on(table.stakedLP),
+}));
+
+export const insertPoolStakerSchema = createInsertSchema(poolStakers).omit({ id: true, createdAt: true, lastUpdatedAt: true });
+export type InsertPoolStaker = z.infer<typeof insertPoolStakerSchema>;
+export type PoolStaker = typeof poolStakers.$inferSelect;
+
+/**
+ * Pool staker indexer progress - tracks indexing progress per pool
+ * Allows resumable indexing and worker-based parallel processing
+ */
+export const poolStakerIndexerProgress = pgTable("pool_staker_indexer_progress", {
+  id: serial("id").primaryKey(),
+  indexerName: text("indexer_name").notNull().unique(), // 'pool_0', 'pool_1', etc. or 'pool_0_worker_1_of_4'
+  pid: integer("pid").notNull(), // pool ID this indexer is for
+  lastIndexedBlock: bigint("last_indexed_block", { mode: "number" }).notNull(),
+  genesisBlock: bigint("genesis_block", { mode: "number" }).notNull(), // starting block for this pool
+  status: text("status").notNull().default("idle"), // 'idle', 'running', 'complete', 'error'
+  totalEventsIndexed: integer("total_events_indexed").notNull().default(0),
+  totalStakersFound: integer("total_stakers_found").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  pidIdx: index("pool_staker_indexer_progress_pid_idx").on(table.pid),
+}));
+
+export const insertPoolStakerIndexerProgressSchema = createInsertSchema(poolStakerIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPoolStakerIndexerProgress = z.infer<typeof insertPoolStakerIndexerProgressSchema>;
+export type PoolStakerIndexerProgress = typeof poolStakerIndexerProgress.$inferSelect;
