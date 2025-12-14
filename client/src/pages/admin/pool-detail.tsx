@@ -28,26 +28,28 @@ import {
   ExternalLink
 } from "lucide-react";
 
-interface PoolDetail {
+interface PoolInfo {
   pid: number;
   pairName: string;
   lpToken: string;
-  tokens: { symbol: string; address: string }[];
-  tvl: number;
-  passiveAPR: {
-    feeAPR: number;
-    harvestingAPR: number;
-    total: number;
+  token0: string;
+  token1: string;
+  totalTVL: number;
+}
+
+interface APRBreakdown {
+  passive: {
+    feeAprValue: number;
+    harvestAprValue: number;
+    totalPassive: number;
   };
-  activeAPR: {
+  active: {
+    questAprWorst: number;
+    questAprBest: number;
+  };
+  total: {
     worst: number;
     best: number;
-    average: number;
-  };
-  totalAPR: {
-    min: number;
-    max: number;
-    average: number;
   };
 }
 
@@ -69,7 +71,8 @@ interface ProvidersResponse {
 }
 
 interface PoolDetailResponse {
-  pool: PoolDetail;
+  pool: PoolInfo;
+  aprBreakdown: APRBreakdown;
 }
 
 export default function PoolDetailPage() {
@@ -86,7 +89,8 @@ export default function PoolDetailPage() {
     enabled: !!pid,
   });
 
-  const formatCurrency = (value: number) => {
+  const formatCurrency = (value: number | null | undefined) => {
+    if (value == null) return "$0.00";
     if (value >= 1000000) {
       return `$${(value / 1000000).toFixed(2)}M`;
     } else if (value >= 1000) {
@@ -95,8 +99,9 @@ export default function PoolDetailPage() {
     return `$${value.toFixed(2)}`;
   };
 
-  const formatAPR = (value: number) => {
-    return `${(value * 100).toFixed(2)}%`;
+  const formatAPR = (value: number | null | undefined) => {
+    if (value == null) return "0.00%";
+    return `${value.toFixed(2)}%`;
   };
 
   const formatAddress = (address: string) => {
@@ -109,6 +114,7 @@ export default function PoolDetailPage() {
   };
 
   const pool = poolData?.pool;
+  const apr = poolData?.aprBreakdown;
   const isLoading = poolLoading || providersLoading;
 
   return (
@@ -157,7 +163,7 @@ export default function PoolDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold" data-testid="text-tvl">
-                  {formatCurrency(pool.tvl)}
+                  {formatCurrency(pool.totalTVL)}
                 </div>
               </CardContent>
             </Card>
@@ -169,10 +175,10 @@ export default function PoolDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold" data-testid="text-passive-apr">
-                  {formatAPR(pool.passiveAPR.total)}
+                  {formatAPR(apr?.passive?.totalPassive)}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Fee: {formatAPR(pool.passiveAPR.feeAPR)} + Harvest: {formatAPR(pool.passiveAPR.harvestingAPR)}
+                  Fee: {formatAPR(apr?.passive?.feeAprValue)} + Harvest: {formatAPR(apr?.passive?.harvestAprValue)}
                 </p>
               </CardContent>
             </Card>
@@ -184,9 +190,9 @@ export default function PoolDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold" data-testid="text-active-apr">
-                  {pool.activeAPR.worst === pool.activeAPR.best 
-                    ? formatAPR(pool.activeAPR.worst)
-                    : `${formatAPR(pool.activeAPR.worst)} - ${formatAPR(pool.activeAPR.best)}`
+                  {apr?.active?.questAprWorst === apr?.active?.questAprBest 
+                    ? formatAPR(apr?.active?.questAprWorst)
+                    : `${formatAPR(apr?.active?.questAprWorst)} - ${formatAPR(apr?.active?.questAprBest)}`
                   }
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -202,13 +208,13 @@ export default function PoolDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-total-apr">
-                  {pool.totalAPR.min === pool.totalAPR.max 
-                    ? formatAPR(pool.totalAPR.min)
-                    : `${formatAPR(pool.totalAPR.min)} - ${formatAPR(pool.totalAPR.max)}`
+                  {apr?.total?.worst === apr?.total?.best 
+                    ? formatAPR(apr?.total?.worst)
+                    : `${formatAPR(apr?.total?.worst)} - ${formatAPR(apr?.total?.best)}`
                   }
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Avg: {formatAPR(pool.totalAPR.average)}
+                  Combined passive + active APR
                 </p>
               </CardContent>
             </Card>
