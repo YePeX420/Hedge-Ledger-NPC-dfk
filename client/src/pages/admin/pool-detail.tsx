@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
 import {
@@ -117,6 +118,25 @@ export default function PoolDetailPage() {
   const apr = poolData?.aprBreakdown;
   const isLoading = poolLoading || providersLoading;
 
+  const [aprWindow, setAprWindow] = useState<'1y' | '1m' | '24h'>('1y');
+
+  const scaleApr = (annualizedApr: number | null | undefined) => {
+    if (annualizedApr == null) return 0;
+    switch (aprWindow) {
+      case '1m': return annualizedApr / 12;
+      case '24h': return annualizedApr / 365;
+      default: return annualizedApr;
+    }
+  };
+
+  const getWindowLabel = () => {
+    switch (aprWindow) {
+      case '1m': return 'Monthly';
+      case '24h': return 'Daily';
+      default: return 'Annual';
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -155,6 +175,24 @@ export default function PoolDetailPage() {
         </div>
       ) : pool ? (
         <>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm text-muted-foreground">APR Window:</span>
+            <div className="flex gap-1">
+              {(['1y', '1m', '24h'] as const).map((w) => (
+                <Button
+                  key={w}
+                  variant={aprWindow === w ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setAprWindow(w)}
+                  data-testid={`button-apr-${w}`}
+                >
+                  {w.toUpperCase()}
+                </Button>
+              ))}
+            </div>
+            <span className="text-xs text-muted-foreground ml-2">({getWindowLabel()} rates)</span>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
@@ -175,10 +213,10 @@ export default function PoolDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold" data-testid="text-passive-apr">
-                  {formatAPR(apr?.passive?.totalPassive)}
+                  {formatAPR(scaleApr(apr?.passive?.totalPassive))}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Fee: {formatAPR(apr?.passive?.feeAprValue)} + Harvest: {formatAPR(apr?.passive?.harvestAprValue)}
+                  Fee: {formatAPR(scaleApr(apr?.passive?.feeAprValue))} + Harvest: {formatAPR(scaleApr(apr?.passive?.harvestAprValue))}
                 </p>
               </CardContent>
             </Card>
@@ -190,9 +228,9 @@ export default function PoolDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold" data-testid="text-active-apr">
-                  {apr?.active?.questAprWorst === apr?.active?.questAprBest 
-                    ? formatAPR(apr?.active?.questAprWorst)
-                    : `${formatAPR(apr?.active?.questAprWorst)} - ${formatAPR(apr?.active?.questAprBest)}`
+                  {scaleApr(apr?.active?.questAprWorst) === scaleApr(apr?.active?.questAprBest) 
+                    ? formatAPR(scaleApr(apr?.active?.questAprWorst))
+                    : `${formatAPR(scaleApr(apr?.active?.questAprWorst))} - ${formatAPR(scaleApr(apr?.active?.questAprBest))}`
                   }
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -208,9 +246,9 @@ export default function PoolDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-total-apr">
-                  {apr?.total?.worst === apr?.total?.best 
-                    ? formatAPR(apr?.total?.worst)
-                    : `${formatAPR(apr?.total?.worst)} - ${formatAPR(apr?.total?.best)}`
+                  {scaleApr(apr?.total?.worst) === scaleApr(apr?.total?.best) 
+                    ? formatAPR(scaleApr(apr?.total?.worst))
+                    : `${formatAPR(scaleApr(apr?.total?.worst))} - ${formatAPR(scaleApr(apr?.total?.best))}`
                   }
                 </div>
                 <p className="text-xs text-muted-foreground">
