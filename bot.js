@@ -86,6 +86,7 @@ import leaderboardRoutes from './src/modules/leaderboards/leaderboard.routes.ts'
 import publicLeaderboardRoutes from './src/modules/leaderboards/public.routes.ts';
 import seasonRoutes from './src/modules/seasons/season.routes.ts';
 import { seedHeroClasses, ensurePoolsForAllClasses } from './src/modules/levelRacer/levelRacer.service.ts';
+import * as poolStakerIndexer from './src/etl/ingestion/poolStakerIndexer.js';
 
 const execAsync = promisify(exec);
 
@@ -5820,7 +5821,7 @@ async function startAdminWebServer() {
     }
   });
   
-  // GET /api/admin/pools/:pid/all-stakers - Get ALL wallets staked in a pool from onchain events
+  // GET /api/admin/pools/:pid/all-stakers - Get ALL wallets staked in a pool from indexed DB
   // NOTE: This route MUST be registered before /api/admin/pools/:pid to avoid route conflicts
   app.get('/api/admin/pools/:pid/all-stakers', isAdmin, async (req, res) => {
     try {
@@ -5844,8 +5845,16 @@ async function startAdminWebServer() {
         return res.status(404).json({ error: 'Pool not found', pid });
       }
       
-      // Get all stakers from onchain events
-      const stakers = await analytics.getAllPoolStakers(pid);
+      // Try to get stakers from indexed DB first
+      let stakers = await poolStakerIndexer.getActivePoolStakersFromDB(pid, 500);
+      let source = 'indexed';
+      
+      // If DB is empty, fall back to on-chain scan
+      if (!stakers || stakers.length === 0) {
+        console.log(`[HTTP] No indexed stakers for pool ${pid}, falling back to onchain scan...`);
+        stakers = await analytics.getAllPoolStakers(pid);
+        source = 'onchain';
+      }
       
       // Use ACTUAL pool total from cache (not just discovered stakers)
       // pool.totalStaked is the real on-chain total from getPoolInfo()
@@ -5861,12 +5870,21 @@ async function startAdminWebServer() {
         const poolShare = actualPoolTotalLP > 0 ? stakedLP / actualPoolTotalLP : 0;
         const stakedValue = poolShare * poolTVL;
         
+        // Handle both DB format and onchain format for lastActivity
+        const lastActivity = staker.lastActivity || (staker.lastActivityType ? {
+          type: staker.lastActivityType,
+          amount: staker.lastActivityAmount || '0',
+          blockNumber: staker.lastActivityBlock || 0,
+          txHash: staker.lastActivityTxHash || ''
+        } : { type: 'Unknown', amount: '0', blockNumber: 0, txHash: '' });
+        
         return {
           wallet: staker.wallet,
+          summonerName: staker.summonerName || null,
           stakedLP: staker.stakedLP,
           stakedValue: stakedValue.toFixed(2),
           poolShare: (poolShare * 100).toFixed(4),
-          lastActivity: staker.lastActivity
+          lastActivity
         };
       });
       
@@ -5875,11 +5893,71 @@ async function startAdminWebServer() {
         count: enrichedStakers.length,
         poolTVL: poolTVL,
         totalPoolLP: actualPoolTotalLP.toFixed(6),
-        discoveredStakersLP: discoveredStakersLP.toFixed(6)
+        discoveredStakersLP: discoveredStakersLP.toFixed(6),
+        source
       });
     } catch (error) {
       console.error('[API] Error fetching all stakers:', error);
       res.status(500).json({ error: 'Failed to fetch all stakers', details: error.message });
+    }
+  });
+  
+  // GET /api/admin/pool-staker-indexer/status - Get all indexer progress
+  app.get('/api/admin/pool-staker-indexer/status', isAdmin, async (req, res) => {
+    try {
+      const progress = await poolStakerIndexer.getAllIndexerProgress();
+      res.json({ indexers: progress });
+    } catch (error) {
+      console.error('[API] Error getting indexer status:', error);
+      res.status(500).json({ error: 'Failed to get indexer status', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-staker-indexer/:pid/run-batch - Trigger indexing for a pool
+  app.post('/api/admin/pool-staker-indexer/:pid/run-batch', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      console.log(`[HTTP] POST /api/admin/pool-staker-indexer/${pid}/run-batch`);
+      const result = await poolStakerIndexer.runIncrementalBatch(pid);
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error running indexer batch:', error);
+      res.status(500).json({ error: 'Failed to run indexer batch', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-staker-indexer/:pid/update-names - Update summoner names for pool stakers
+  app.post('/api/admin/pool-staker-indexer/:pid/update-names', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      console.log(`[HTTP] POST /api/admin/pool-staker-indexer/${pid}/update-names`);
+      const result = await poolStakerIndexer.updateSummonerNamesForPool(pid);
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error updating summoner names:', error);
+      res.status(500).json({ error: 'Failed to update summoner names', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-staker-indexer/:pid/reset - Reset indexer for a pool
+  app.post('/api/admin/pool-staker-indexer/:pid/reset', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      console.log(`[HTTP] POST /api/admin/pool-staker-indexer/${pid}/reset`);
+      const result = await poolStakerIndexer.resetIndexerProgress(pid);
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error resetting indexer:', error);
+      res.status(500).json({ error: 'Failed to reset indexer', details: error.message });
     }
   });
   

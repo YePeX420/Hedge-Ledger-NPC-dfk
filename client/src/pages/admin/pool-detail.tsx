@@ -56,11 +56,12 @@ interface APRBreakdown {
 
 interface Staker {
   wallet: string;
+  summonerName?: string | null;
   stakedLP: string;
   stakedValue: string;
   poolShare: string;
   lastActivity: {
-    type: 'Deposit' | 'Withdraw';
+    type: 'Deposit' | 'Withdraw' | 'Unknown';
     amount: string;
     blockNumber: number;
     txHash: string;
@@ -72,6 +73,7 @@ interface AllStakersResponse {
   count: number;
   poolTVL: number;
   totalStakedLP: number;
+  source?: 'indexed' | 'onchain';
 }
 
 interface PoolDetailResponse {
@@ -268,8 +270,13 @@ export default function PoolDetailPage() {
                   <Users className="h-5 w-5" />
                   All Gardeners List
                 </CardTitle>
-                <CardDescription>
-                  {stakersData?.count || 0} wallets staked in this pool (onchain data)
+                <CardDescription className="flex items-center gap-2">
+                  {stakersData?.count || 0} wallets staked in this pool
+                  {stakersData?.source && (
+                    <Badge variant={stakersData.source === 'indexed' ? 'default' : 'secondary'}>
+                      {stakersData.source === 'indexed' ? 'Indexed' : 'Live Scan'}
+                    </Badge>
+                  )}
                 </CardDescription>
               </div>
               <Button
@@ -294,6 +301,7 @@ export default function PoolDetailPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Wallet</TableHead>
+                      <TableHead>Summoner</TableHead>
                       <TableHead className="text-right">Staked Value</TableHead>
                       <TableHead className="text-right">Pool Share</TableHead>
                       <TableHead className="text-right">Last Activity</TableHead>
@@ -316,6 +324,13 @@ export default function PoolDetailPage() {
                             </code>
                             <ExternalLink className="h-3 w-3" />
                           </a>
+                        </TableCell>
+                        <TableCell data-testid={`text-summoner-${index}`}>
+                          {staker.summonerName ? (
+                            <span className="font-medium text-primary">{staker.summonerName}</span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-medium" data-testid={`text-staked-${index}`}>
                           ${parseFloat(staker.stakedValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -345,7 +360,7 @@ export default function PoolDetailPage() {
                     ))}
                     {(!stakersData?.stakers || stakersData.stakers.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                           No stakers found. Click "Fetch Stakers" to scan blockchain.
                         </TableCell>
                       </TableRow>
