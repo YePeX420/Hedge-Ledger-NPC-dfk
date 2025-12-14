@@ -12,6 +12,7 @@ const LP_STAKING_ADDRESS = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
 const QUEST_CORE_V3_ADDRESS = '0x530fff22987E137e7C8D2aDcC4c15eb45b4FA752';
 const UNISWAP_V2_FACTORY = '0x794C07912474351b3134E6D6B3B7b3b4A07cbAAa';
 const USDC_ADDRESS = '0x3AD9DFE640E1A9Cc1D9B0948620820D975c3803a'; // USDC.e on DFK Chain
+const LEGACY_GARDENER = '0x57dec9cc7f492d6583c773e2e7ad66dcdc6940fb'; // V1 Legacy gardener (still has staked LP)
 const BLOCKS_PER_DAY = 43200; // ~2 second blocks
 
 // LP Fee Rate: 0.20% of swap volume goes to LPs (from 0.30% total swap fee)
@@ -586,44 +587,72 @@ export async function calculateEmissionAPR(pid, rewardTokenPrice, stakedLiquidit
 }
 
 /**
- * Calculate TVL from reserves and token prices (using BigInt precision)
+ * Get V1 staked LP amount from legacy gardener contract
+ * @param {string} lpAddress - LP token address
+ * @returns {Promise<number>} V1 staked LP amount as float
  */
-export function calculateTVL(lpDetails, priceGraph, totalStaked) {
+async function getV1StakedAmount(lpAddress) {
+  try {
+    const lpContract = new ethers.Contract(lpAddress, uniswapPairABI, provider);
+    const v1Balance = await lpContract.balanceOf(LEGACY_GARDENER);
+    return parseFloat(ethers.formatEther(v1Balance));
+  } catch (err) {
+    console.error(`Error getting V1 staked for ${lpAddress}:`, err.message);
+    return 0;
+  }
+}
+
+/**
+ * Calculate TVL from reserves and token prices
+ * Uses float math for precision (matching valueBreakdown.ts approach)
+ * 
+ * @param {Object} lpDetails - LP token details from getLPTokenDetails
+ * @param {Map} priceGraph - Token price map
+ * @param {bigint} v2StakedBigInt - V2 staked LP amount (from Master Gardener V2)
+ * @param {number} v1StakedFloat - V1 staked LP amount as float (from Legacy Gardener balance)
+ */
+export function calculateTVL(lpDetails, priceGraph, v2StakedBigInt, v1StakedFloat = 0) {
   const token0Price = priceGraph.get(lpDetails.token0.address.toLowerCase()) || 0;
   const token1Price = priceGraph.get(lpDetails.token1.address.toLowerCase()) || 0;
   
-  // Convert reserves to USD using high precision
+  // Convert reserves to USD
   const reserve0Float = parseFloat(ethers.formatUnits(lpDetails.reserve0, lpDetails.token0.decimals));
   const reserve1Float = parseFloat(ethers.formatUnits(lpDetails.reserve1, lpDetails.token1.decimals));
   
-  const totalLiquidityUSD = (reserve0Float * token0Price) + (reserve1Float * token1Price);
+  const totalPoolLiquidityUSD = (reserve0Float * token0Price) + (reserve1Float * token1Price);
   
-  // Calculate staked ratio using BigInt to maintain precision
-  if (lpDetails.totalSupply === 0n) {
+  // Convert BigInt values to float for ratio calculations (matching valueBreakdown.ts)
+  const totalSupplyFloat = parseFloat(ethers.formatEther(lpDetails.totalSupply));
+  const v2StakedFloat = parseFloat(ethers.formatEther(v2StakedBigInt));
+  
+  if (totalSupplyFloat === 0) {
     return { 
-      tvlUSD: totalLiquidityUSD, 
+      tvlUSD: 0, 
       stakedLiquidityUSD: 0, 
+      v1LiquidityUSD: 0,
       stakedRatio: 0 
     };
   }
   
-  // Use BigInt ratio calculation for high precision
-  // stakedRatio = totalStaked / totalSupply (both in 1e18 units)
-  // Multiply by 1e6 for precision before converting to float
-  const PRECISION = 1_000_000n;
-  const stakedRatioBigInt = (totalStaked * PRECISION) / lpDetails.totalSupply;
-  const stakedRatio = Number(stakedRatioBigInt) / Number(PRECISION);
+  // Calculate ratios using float math (matching valueBreakdown.ts)
+  const v2Ratio = v2StakedFloat / totalSupplyFloat;
+  const v1Ratio = v1StakedFloat / totalSupplyFloat;
   
-  const stakedLiquidityUSD = totalLiquidityUSD * stakedRatio;
+  // Calculate USD values
+  const v2LiquidityUSD = totalPoolLiquidityUSD * v2Ratio;
+  const v1LiquidityUSD = totalPoolLiquidityUSD * v1Ratio;
   
-  // Calculate V1 TVL (legacy staking - still has liquidity but no CRYSTAL rewards)
-  const v1LiquidityUSD = totalLiquidityUSD - stakedLiquidityUSD;
+  // Total staked = V2 + V1
+  const totalStakedRatio = v2Ratio + v1Ratio;
+  const totalStakedLiquidityUSD = v2LiquidityUSD + v1LiquidityUSD;
   
   return {
-    tvlUSD: totalLiquidityUSD,
-    stakedLiquidityUSD,
-    v1LiquidityUSD,
-    stakedRatio
+    tvlUSD: totalStakedLiquidityUSD,      // Total staked TVL (V1 + V2)
+    stakedLiquidityUSD: v2LiquidityUSD,   // V2 only (gets CRYSTAL rewards)
+    v1LiquidityUSD,                        // V1 only (no CRYSTAL rewards)
+    stakedRatio: totalStakedRatio,         // Combined staked ratio
+    v2Ratio,
+    v1Ratio
   };
 }
 
@@ -724,8 +753,11 @@ export async function getPoolAnalytics(pid, sharedData = null) {
     // Use shared block range or fetch fresh
     const blockRange = sharedData?.blockRange || await getPreviousUTCDayBlockRange();
     
-    // Calculate TVL
-    const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked);
+    // Get V1 staked amount from legacy gardener
+    const v1Staked = await getV1StakedAmount(pool.lpToken);
+    
+    // Calculate TVL (now includes both V2 and V1 staked amounts)
+    const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked, v1Staked);
     
     // Calculate 24h fee APR (use total pool TVL including V1+V2)
     const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD, blockRange);
@@ -823,8 +855,11 @@ export async function getAllPoolAnalytics(limit = 100) {
         // Progress indicator for each pool
         console.log(`[Analytics]   Pool ${i + 1}/${poolsToProcess}: ${lpDetails.pairName}`);
         
-        // Calculate TVL
-        const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked);
+        // Get V1 staked amount from legacy gardener
+        const v1Staked = await getV1StakedAmount(pool.lpToken);
+        
+        // Calculate TVL (now includes both V2 and V1 staked amounts)
+        const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked, v1Staked);
         
         // Calculate 24h fee APR (use total pool TVL including V1+V2)
         const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD, blockRange);
