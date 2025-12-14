@@ -1086,14 +1086,25 @@ export async function getHeroGardeningAssignment(heroId) {
  * Get all wallets that have staked LP in a pool by scanning Deposit/Withdraw events
  * Returns current staked balances and last activity for each wallet
  * 
+ * Note: Uses a default fromBlock of ~90 days ago for reasonable performance.
+ * This covers most active staking activity. For complete history, pass fromBlock=0.
+ * 
  * @param {number} pid - Pool ID
- * @param {number} fromBlock - Start block for event scanning (default: 0)
+ * @param {number} fromBlock - Start block for event scanning (default: ~90 days ago)
  * @returns {Promise<Array<{wallet: string, stakedLP: string, lastActivity: Object}>>}
  */
-export async function getAllPoolStakers(pid, fromBlock = 0) {
+export async function getAllPoolStakers(pid, fromBlock = null) {
   try {
     const currentBlock = await provider.getBlockNumber();
-    console.log(`[AllStakers] Scanning pool ${pid} from block ${fromBlock} to ${currentBlock}`);
+    
+    // Default to ~7 days ago (~2 second blocks = 43200 blocks/day)
+    // This provides reasonable coverage while keeping scan time manageable (~10-20s)
+    if (fromBlock === null) {
+      const blocksFor7Days = 43200 * 7; // ~302K blocks
+      fromBlock = Math.max(0, currentBlock - blocksFor7Days);
+    }
+    
+    console.log(`[AllStakers] Scanning pool ${pid} from block ${fromBlock} to ${currentBlock} (${currentBlock - fromBlock} blocks)`);
     
     // Query Deposit events for this pool
     const depositFilter = stakingContract.filters.Deposit(null, pid);

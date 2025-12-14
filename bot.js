@@ -5820,6 +5820,65 @@ async function startAdminWebServer() {
     }
   });
   
+  // GET /api/admin/pools/:pid/all-stakers - Get ALL wallets staked in a pool from onchain events
+  // NOTE: This route MUST be registered before /api/admin/pools/:pid to avoid route conflicts
+  app.get('/api/admin/pools/:pid/all-stakers', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      console.log(`[HTTP] GET /api/admin/pools/${pid}/all-stakers`);
+      
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      
+      const cached = getCachedPoolAnalytics();
+      if (!cached || !cached.data || cached.data.length === 0) {
+        return res.status(503).json({ 
+          error: 'Pool cache not ready', 
+          message: 'Pool analytics are still loading. Please try again in a few minutes.' 
+        });
+      }
+      
+      const pool = cached.data.find(p => p.pid === pid);
+      if (!pool) {
+        return res.status(404).json({ error: 'Pool not found', pid });
+      }
+      
+      // Get all stakers from onchain events
+      const stakers = await analytics.getAllPoolStakers(pid);
+      
+      // Calculate total staked LP from actual staker data
+      const totalStakedLP = stakers.reduce((sum, s) => sum + parseFloat(s.stakedLP || '0'), 0);
+      
+      // Use v2TVL for value calculations
+      const poolTVL = pool.v2TVL || pool.totalTVL || 0;
+      
+      const enrichedStakers = stakers.map((staker) => {
+        const stakedLP = parseFloat(staker.stakedLP || '0');
+        const poolShare = totalStakedLP > 0 ? stakedLP / totalStakedLP : 0;
+        const stakedValue = poolShare * poolTVL;
+        
+        return {
+          wallet: staker.wallet,
+          stakedLP: staker.stakedLP,
+          stakedValue: stakedValue.toFixed(2),
+          poolShare: (poolShare * 100).toFixed(4),
+          lastActivity: staker.lastActivity
+        };
+      });
+      
+      res.json({
+        stakers: enrichedStakers,
+        count: enrichedStakers.length,
+        poolTVL: poolTVL,
+        totalStakedLP: totalStakedLP.toFixed(6)
+      });
+    } catch (error) {
+      console.error('[API] Error fetching all stakers:', error);
+      res.status(500).json({ error: 'Failed to fetch all stakers', details: error.message });
+    }
+  });
+  
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
     try {
