@@ -5777,6 +5777,190 @@ async function startAdminWebServer() {
     }
   });
 
+  // ============================================================================
+  // LP POOLS API (Garden Pools with APR Analytics)
+  // ============================================================================
+  
+  // GET /api/admin/pools - Get all pools with basic APR data
+  app.get('/api/admin/pools', isAdmin, async (req, res) => {
+    try {
+      const cached = getCachedPoolAnalytics();
+      
+      if (!cached || !cached.data || cached.data.length === 0) {
+        return res.status(503).json({ 
+          error: 'Pool cache not ready', 
+          message: 'Pool analytics are still loading. Please try again in a few minutes.' 
+        });
+      }
+      
+      const pools = cached.data.map(pool => ({
+        pid: pool.pid,
+        pairName: pool.pairName,
+        lpToken: pool.lpToken,
+        token0: pool.token0,
+        token1: pool.token1,
+        totalTVL: pool.totalTVL,
+        v2TVL: pool.v2TVL,
+        volume24hUSD: pool.volume24hUSD,
+        fees24hUSD: pool.fees24hUSD,
+        feeAPR: pool.fee24hAPR,
+        harvestingAPR: pool.harvesting24hAPR,
+        gardeningQuestAPR: pool.gardeningQuestAPR,
+        totalAPR: pool.totalAPR,
+      }));
+      
+      res.json({
+        pools,
+        lastUpdated: cached.lastUpdated,
+        count: pools.length,
+      });
+    } catch (error) {
+      console.error('[API] Error getting pools:', error);
+      res.status(500).json({ error: 'Failed to get pools', details: error.message });
+    }
+  });
+  
+  // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
+  app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      
+      const cached = getCachedPoolAnalytics();
+      
+      if (!cached || !cached.data || cached.data.length === 0) {
+        return res.status(503).json({ 
+          error: 'Pool cache not ready', 
+          message: 'Pool analytics are still loading. Please try again in a few minutes.' 
+        });
+      }
+      
+      const pool = cached.data.find(p => p.pid === pid);
+      
+      if (!pool) {
+        return res.status(404).json({ error: 'Pool not found', pid });
+      }
+      
+      // Parse APR percentages for detailed breakdown
+      const parseAprPercent = (aprStr) => {
+        if (!aprStr) return 0;
+        const match = String(aprStr).match(/[\d.]+/);
+        return match ? parseFloat(match[0]) : 0;
+      };
+      
+      const feeAprValue = parseAprPercent(pool.fee24hAPR);
+      const harvestAprValue = parseAprPercent(pool.harvesting24hAPR);
+      const questAprWorst = parseAprPercent(pool.gardeningQuestAPR?.worst);
+      const questAprBest = parseAprPercent(pool.gardeningQuestAPR?.best);
+      
+      res.json({
+        pool: {
+          pid: pool.pid,
+          pairName: pool.pairName,
+          lpToken: pool.lpToken,
+          token0: pool.token0,
+          token1: pool.token1,
+          totalTVL: pool.totalTVL,
+          v2TVL: pool.v2TVL,
+          volume24hUSD: pool.volume24hUSD,
+          fees24hUSD: pool.fees24hUSD,
+        },
+        aprBreakdown: {
+          passive: {
+            feeAPR: pool.fee24hAPR,
+            feeAprValue,
+            harvestingAPR: pool.harvesting24hAPR,
+            harvestAprValue,
+            totalPassive: feeAprValue + harvestAprValue,
+            description: 'Earned passively from swap fees and CRYSTAL emissions',
+          },
+          active: {
+            gardeningQuestAPR: pool.gardeningQuestAPR,
+            questAprWorst,
+            questAprBest,
+            description: 'Hero-dependent: requires heroes with Gardening profession to quest',
+          },
+          total: {
+            worst: feeAprValue + harvestAprValue + questAprWorst,
+            best: feeAprValue + harvestAprValue + questAprBest,
+            displayed: pool.totalAPR,
+          },
+        },
+        lastUpdated: cached.lastUpdated,
+      });
+    } catch (error) {
+      console.error('[API] Error getting pool detail:', error);
+      res.status(500).json({ error: 'Failed to get pool details', details: error.message });
+    }
+  });
+  
+  // GET /api/admin/pools/:pid/providers - Get top LP providers for a pool
+  app.get('/api/admin/pools/:pid/providers', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      const limit = parseInt(req.query.limit) || 20;
+      
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      
+      // Get registered wallets from players table
+      const playersWithWallets = await db.select({
+        discordId: players.discordId,
+        discordUsername: players.discordUsername,
+        primaryWallet: players.primaryWallet,
+        wallets: players.wallets,
+      }).from(players).where(sql`${players.wallets} IS NOT NULL AND array_length(${players.wallets}, 1) > 0`);
+      
+      if (playersWithWallets.length === 0) {
+        return res.json({ providers: [], poolId: pid, message: 'No registered wallets found' });
+      }
+      
+      // Import getUserGardenPositions
+      const { getUserGardenPositions } = await import('./onchain-data.js');
+      
+      const providers = [];
+      
+      // Check each wallet's position in this pool (limit concurrent requests)
+      for (const player of playersWithWallets.slice(0, 50)) {
+        const wallets = player.wallets || [];
+        for (const wallet of wallets) {
+          try {
+            const positions = await getUserGardenPositions(wallet, 'dfk');
+            const poolPosition = positions.find(p => p.pid === pid);
+            
+            if (poolPosition && parseFloat(poolPosition.stakedAmount) > 0) {
+              providers.push({
+                wallet,
+                discordUsername: player.discordUsername,
+                stakedAmount: poolPosition.stakedAmount,
+                stakedAmountRaw: poolPosition.stakedAmountRaw?.toString(),
+              });
+            }
+          } catch (err) {
+            console.warn(`[Pools API] Error checking wallet ${wallet}:`, err.message);
+          }
+        }
+      }
+      
+      // Sort by staked amount descending
+      providers.sort((a, b) => parseFloat(b.stakedAmount) - parseFloat(a.stakedAmount));
+      
+      res.json({
+        providers: providers.slice(0, limit),
+        poolId: pid,
+        totalProviders: providers.length,
+        note: 'Based on registered player wallets only',
+      });
+    } catch (error) {
+      console.error('[API] Error getting pool providers:', error);
+      res.status(500).json({ error: 'Failed to get pool providers', details: error.message });
+    }
+  });
+
   // POST /api/admin/etl/run-all - Run ETL for all wallet clusters
   app.post('/api/admin/etl/run-all', isAdmin, async (req, res) => {
     try {
