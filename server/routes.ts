@@ -10,6 +10,7 @@ import { indexWallet, runFullIndex, getLatestBlock, getIndexerProgress, initInde
 import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics, bulkComputeAllMetrics, updateSummonerNamesForExtractors, fetchSummonerNames } from "../bridge-tracker/bridge-metrics.js";
 import { backfillAllTokens, fetchCurrentPrices } from "../bridge-tracker/price-history.js";
 import { getCachedPool, getCachedPoolAnalytics } from "../pool-cache.js";
+import { getAllPoolStakers } from "../garden-analytics.js";
 
 // Debug: Verify bridge indexer imports
 console.log('[BridgeIndexer] Import check - runFullIndex type:', typeof runFullIndex);
@@ -611,6 +612,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const match = String(aprStr).match(/^([\d.]+)/);
     return match ? parseFloat(match[1]) : 0;
   }
+
+  // GET /api/admin/pools - List all garden pools with analytics
+  app.get("/api/admin/pools", isAdmin, async (req: any, res: any) => {
+    try {
+      console.log(`[HTTP] GET /api/admin/pools`);
+      
+      const cache = getCachedPoolAnalytics();
+      const rawPools = cache.data || [];
+      
+      // Transform pools to match frontend expected format
+      const pools = rawPools.map((pool: any) => {
+        // Parse APR strings to numbers (e.g., "12.34%" -> 0.1234)
+        const feeAPR = parseAprString(pool.fee24hAPR) / 100;
+        const harvestAPR = parseAprString(pool.harvesting24hAPR) / 100;
+        const gardenWorst = parseAprString(pool.gardeningQuestAPR?.worst) / 100;
+        const gardenBest = parseAprString(pool.gardeningQuestAPR?.best) / 100;
+        
+        // Passive APR = fee APR + harvest APR
+        const passiveAPR = feeAPR + harvestAPR;
+        
+        // Active APR = gardening quest APR range
+        const activeAPRMin = gardenWorst;
+        const activeAPRMax = gardenBest;
+        
+        // Total APR = passive + active
+        const totalAPRMin = passiveAPR + activeAPRMin;
+        const totalAPRMax = passiveAPR + activeAPRMax;
+        
+        return {
+          pid: pool.pid,
+          pairName: pool.pairName,
+          lpToken: pool.lpToken,
+          tokens: [
+            { symbol: pool.token0 || '', address: '' },
+            { symbol: pool.token1 || '', address: '' }
+          ],
+          tvl: pool.totalTVL || 0,
+          passiveAPR,
+          activeAPRMin,
+          activeAPRMax,
+          totalAPRMin,
+          totalAPRMax
+        };
+      });
+      
+      // Sort by TVL descending
+      const sortedPools = [...pools].sort((a: any, b: any) => (b.tvl || 0) - (a.tvl || 0));
+      
+      res.json({
+        success: true,
+        pools: sortedPools,
+        lastUpdated: cache.lastUpdated,
+        count: sortedPools.length
+      });
+    } catch (error) {
+      console.error('[API] Error fetching pools list:', error);
+      res.status(500).json({ error: 'Failed to fetch pools' });
+    }
+  });
+
+  // GET /api/admin/pools/:pid/all-stakers - Get ALL wallets staked in pool from onchain events
+  // NOTE: This route MUST be registered before /api/admin/pools/:pid to avoid route conflicts
+  app.get("/api/admin/pools/:pid/all-stakers", isAdmin, async (req: any, res: any) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      console.log(`[HTTP] GET /api/admin/pools/${pid}/all-stakers`);
+      
+      if (isNaN(pid)) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      
+      const pool = getCachedPool(pid);
+      if (!pool) {
+        return res.status(404).json({ error: 'Pool not found' });
+      }
+      
+      // Get all stakers from onchain events
+      const stakers = await getAllPoolStakers(pid);
+      
+      // Calculate total staked LP from actual staker data (sum of all active stakers)
+      const totalStakedLP = stakers.reduce((sum: number, s: any) => sum + parseFloat(s.stakedLP || '0'), 0);
+      
+      // Use v2TVL (V2 staked TVL in USD) for value calculations
+      const poolTVL = pool.v2TVL || pool.totalTVL || 0;
+      
+      const enrichedStakers = stakers.map((staker: any) => {
+        const stakedLP = parseFloat(staker.stakedLP || '0');
+        const poolShare = totalStakedLP > 0 ? stakedLP / totalStakedLP : 0;
+        const stakedValue = poolShare * poolTVL;
+        
+        return {
+          wallet: staker.wallet,
+          stakedLP: staker.stakedLP,
+          stakedValue: stakedValue.toFixed(2),
+          poolShare: (poolShare * 100).toFixed(4),
+          lastActivity: staker.lastActivity
+        };
+      });
+      
+      res.json({
+        stakers: enrichedStakers,
+        count: enrichedStakers.length,
+        poolTVL: poolTVL,
+        totalStakedLP: totalStakedLP.toFixed(6)
+      });
+    } catch (error) {
+      console.error('[API] Error fetching all stakers:', error);
+      res.status(500).json({ error: 'Failed to fetch all stakers' });
+    }
+  });
 
   // GET /api/admin/pools/:pid - Get pool detail with APR breakdown
   app.get("/api/admin/pools/:pid", isAdmin, async (req: any, res: any) => {

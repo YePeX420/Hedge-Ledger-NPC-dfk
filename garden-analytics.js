@@ -1068,3 +1068,122 @@ export async function getHeroGardeningAssignment(heroId) {
     return null;
   }
 }
+
+/**
+ * Get all wallets that have staked LP in a pool by scanning Deposit/Withdraw events
+ * Returns current staked balances and last activity for each wallet
+ * 
+ * @param {number} pid - Pool ID
+ * @param {number} fromBlock - Start block for event scanning (default: 0)
+ * @returns {Promise<Array<{wallet: string, stakedLP: string, lastActivity: Object}>>}
+ */
+export async function getAllPoolStakers(pid, fromBlock = 0) {
+  try {
+    const currentBlock = await provider.getBlockNumber();
+    console.log(`[AllStakers] Scanning pool ${pid} from block ${fromBlock} to ${currentBlock}`);
+    
+    // Query Deposit events for this pool
+    const depositFilter = stakingContract.filters.Deposit(null, pid);
+    const depositEvents = await queryEventsInChunks(
+      stakingContract,
+      depositFilter,
+      fromBlock,
+      currentBlock,
+      2048
+    );
+    
+    // Query Withdraw events for this pool
+    const withdrawFilter = stakingContract.filters.Withdraw(null, pid);
+    const withdrawEvents = await queryEventsInChunks(
+      stakingContract,
+      withdrawFilter,
+      fromBlock,
+      currentBlock,
+      2048
+    );
+    
+    console.log(`[AllStakers] Found ${depositEvents.length} deposits, ${withdrawEvents.length} withdrawals`);
+    
+    // Build set of unique wallets and track last activity
+    const walletActivity = new Map(); // wallet -> { type, amount, blockNumber, txHash }
+    
+    for (const event of depositEvents) {
+      const wallet = event.args.user.toLowerCase();
+      const existing = walletActivity.get(wallet);
+      if (!existing || event.blockNumber > existing.blockNumber) {
+        walletActivity.set(wallet, {
+          type: 'Deposit',
+          amount: ethers.formatEther(event.args.amount),
+          blockNumber: event.blockNumber,
+          txHash: event.transactionHash
+        });
+      }
+    }
+    
+    for (const event of withdrawEvents) {
+      const wallet = event.args.user.toLowerCase();
+      const existing = walletActivity.get(wallet);
+      if (!existing || event.blockNumber > existing.blockNumber) {
+        walletActivity.set(wallet, {
+          type: 'Withdraw',
+          amount: ethers.formatEther(event.args.amount),
+          blockNumber: event.blockNumber,
+          txHash: event.transactionHash
+        });
+      }
+    }
+    
+    console.log(`[AllStakers] Found ${walletActivity.size} unique wallets`);
+    
+    // Get current staked balance for each wallet using getUserInfo
+    const stakers = [];
+    const wallets = Array.from(walletActivity.keys());
+    
+    // Batch calls in groups of 10 to avoid RPC overload
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < wallets.length; i += BATCH_SIZE) {
+      const batch = wallets.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (wallet) => {
+          try {
+            const userInfo = await stakingContract.getUserInfo(pid, wallet);
+            return {
+              wallet,
+              stakedLP: ethers.formatEther(userInfo.amount),
+              stakedLPRaw: userInfo.amount.toString(),
+              lastDepositTimestamp: userInfo.lastDepositTimestamp?.toString() || '0',
+              lastActivity: walletActivity.get(wallet)
+            };
+          } catch (err) {
+            console.error(`[AllStakers] Error fetching userInfo for ${wallet}:`, err.message);
+            return {
+              wallet,
+              stakedLP: '0',
+              stakedLPRaw: '0',
+              lastDepositTimestamp: '0',
+              lastActivity: walletActivity.get(wallet)
+            };
+          }
+        })
+      );
+      stakers.push(...batchResults);
+      
+      // Small delay between batches
+      if (i + BATCH_SIZE < wallets.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    
+    // Filter to only wallets with current balance > 0 and sort by staked amount (descending)
+    const activeStakers = stakers
+      .filter(s => parseFloat(s.stakedLP) > 0)
+      .sort((a, b) => parseFloat(b.stakedLP) - parseFloat(a.stakedLP));
+    
+    console.log(`[AllStakers] ${activeStakers.length} wallets currently staking in pool ${pid}`);
+    
+    return activeStakers;
+  } catch (err) {
+    console.error(`[AllStakers] Error scanning pool ${pid}:`, err.message);
+    throw err;
+  }
+}

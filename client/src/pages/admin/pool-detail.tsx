@@ -54,21 +54,24 @@ interface APRBreakdown {
   };
 }
 
-interface Provider {
+interface Staker {
   wallet: string;
-  discordId: string | null;
-  username: string | null;
-  stakedLP: number;
-  stakedValue: number;
-  sharePercent: number;
-  heroes: number;
-  realizedQuestAPR: number | null;
+  stakedLP: string;
+  stakedValue: string;
+  poolShare: string;
+  lastActivity: {
+    type: 'Deposit' | 'Withdraw';
+    amount: string;
+    blockNumber: number;
+    txHash: string;
+  };
 }
 
-interface ProvidersResponse {
-  providers: Provider[];
+interface AllStakersResponse {
+  stakers: Staker[];
   count: number;
-  totalStaked: number;
+  poolTVL: number;
+  totalStakedLP: number;
 }
 
 interface PoolDetailResponse {
@@ -85,8 +88,8 @@ export default function PoolDetailPage() {
     enabled: !!pid,
   });
 
-  const { data: providersData, isLoading: providersLoading, refetch: refetchProviders } = useQuery<ProvidersResponse>({
-    queryKey: ["/api/admin/pools", pid, "providers"],
+  const { data: stakersData, isLoading: stakersLoading, refetch: refetchStakers, isFetching: stakersFetching } = useQuery<AllStakersResponse>({
+    queryKey: ["/api/admin/pools", pid, "all-stakers"],
     enabled: !!pid,
   });
 
@@ -111,12 +114,12 @@ export default function PoolDetailPage() {
 
   const handleRefresh = () => {
     refetchPool();
-    refetchProviders();
+    refetchStakers();
   };
 
   const pool = poolData?.pool;
   const apr = poolData?.aprBreakdown;
-  const isLoading = poolLoading || providersLoading;
+  const isLoading = poolLoading || stakersLoading;
 
   const [aprWindow, setAprWindow] = useState<'1y' | '1m' | '24h'>('1y');
 
@@ -259,51 +262,49 @@ export default function PoolDetailPage() {
           </div>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                Top Gardeners
-              </CardTitle>
-              <CardDescription>
-                {providersData?.count || 0} registered players with positions in this pool
-              </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  All Gardeners List
+                </CardTitle>
+                <CardDescription>
+                  {stakersData?.count || 0} wallets staked in this pool (onchain data)
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchStakers()}
+                disabled={stakersFetching}
+                data-testid="button-fetch-stakers"
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${stakersFetching ? "animate-spin" : ""}`} />
+                {stakersFetching ? "Fetching..." : "Fetch Stakers"}
+              </Button>
             </CardHeader>
             <CardContent>
-              {providersLoading ? (
+              {stakersLoading || stakersFetching ? (
                 <div className="flex items-center justify-center py-8">
                   <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-muted-foreground">Scanning blockchain...</span>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Player</TableHead>
                       <TableHead>Wallet</TableHead>
                       <TableHead className="text-right">Staked Value</TableHead>
                       <TableHead className="text-right">Pool Share</TableHead>
-                      <TableHead className="text-right">Heroes</TableHead>
-                      <TableHead className="text-right">Realized Quest APR</TableHead>
+                      <TableHead className="text-right">Last Activity</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {providersData?.providers.map((provider, index) => (
-                      <TableRow key={provider.wallet} data-testid={`row-provider-${index}`}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {provider.username ? (
-                              <span className="font-medium" data-testid={`text-username-${index}`}>
-                                {provider.username}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground italic">
-                                Unknown
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
+                    {stakersData?.stakers.map((staker, index) => (
+                      <TableRow key={staker.wallet} data-testid={`row-staker-${index}`}>
                         <TableCell>
                           <a 
-                            href={`https://subnets.avax.network/defi-kingdoms/address/${provider.wallet}`}
+                            href={`https://subnets.avax.network/defi-kingdoms/address/${staker.wallet}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-sm hover:underline"
@@ -311,43 +312,41 @@ export default function PoolDetailPage() {
                             data-testid={`link-wallet-${index}`}
                           >
                             <code className="text-xs bg-muted px-2 py-1 rounded">
-                              {formatAddress(provider.wallet)}
+                              {formatAddress(staker.wallet)}
                             </code>
                             <ExternalLink className="h-3 w-3" />
                           </a>
                         </TableCell>
                         <TableCell className="text-right font-medium" data-testid={`text-staked-${index}`}>
-                          {formatCurrency(provider.stakedValue)}
+                          ${parseFloat(staker.stakedValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell className="text-right" data-testid={`text-share-${index}`}>
                           <div className="flex items-center justify-end gap-2">
                             <Progress 
-                              value={Math.min(provider.sharePercent * 100, 100)} 
+                              value={Math.min(parseFloat(staker.poolShare), 100)} 
                               className="w-16 h-2"
                             />
-                            <span className="text-sm text-muted-foreground w-12 text-right">
-                              {(provider.sharePercent * 100).toFixed(2)}%
+                            <span className="text-sm text-muted-foreground w-14 text-right">
+                              {parseFloat(staker.poolShare).toFixed(2)}%
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right" data-testid={`text-heroes-${index}`}>
-                          <Badge variant="outline">{provider.heroes}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right" data-testid={`text-quest-apr-${index}`}>
-                          {provider.realizedQuestAPR !== null ? (
-                            <Badge variant="secondary">
-                              {formatAPR(provider.realizedQuestAPR)}
+                        <TableCell className="text-right" data-testid={`text-activity-${index}`}>
+                          <div className="flex flex-col items-end">
+                            <Badge variant={staker.lastActivity.type === 'Deposit' ? 'default' : 'secondary'}>
+                              {staker.lastActivity.type}
                             </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
+                            <span className="text-xs text-muted-foreground mt-1">
+                              {parseFloat(staker.lastActivity.amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} LP
+                            </span>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
-                    {(!providersData?.providers || providersData.providers.length === 0) && (
+                    {(!stakersData?.stakers || stakersData.stakers.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                          No registered players found with positions in this pool.
+                        <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                          No stakers found. Click "Fetch Stakers" to scan blockchain.
                         </TableCell>
                       </TableRow>
                     )}
