@@ -41,6 +41,7 @@ function buildBasicCacheEntry(pool) {
 
     // TVL & APR placeholders (basic fallback - no real values)
     totalTVL: 0,
+    totalStaked: pool.totalStaked || '0', // Total LP staked in pool
     volume24hUSD: 0,
     fees24hUSD: 0,
     fee24hAPR: '0%',
@@ -68,6 +69,7 @@ function buildAnalyticsCacheEntry(pool) {
     // Real TVL and APR values from analytics
     totalTVL: pool.totalTVL || 0,
     v2TVL: pool.v2TVL || 0, // V2 staked TVL only (for accurate position calculations)
+    totalStaked: pool.totalStaked || '0', // Total LP staked in pool (for accurate pool share %)
     volume24hUSD: pool.volume24hUSD || 0,
     fees24hUSD: pool.fees24hUSD || 0,
     fee24hAPR: pool.fee24hAPR || '0%',

@@ -5847,15 +5847,18 @@ async function startAdminWebServer() {
       // Get all stakers from onchain events
       const stakers = await analytics.getAllPoolStakers(pid);
       
-      // Calculate total staked LP from actual staker data
-      const totalStakedLP = stakers.reduce((sum, s) => sum + parseFloat(s.stakedLP || '0'), 0);
+      // Use ACTUAL pool total from cache (not just discovered stakers)
+      // pool.totalStaked is the real on-chain total from getPoolInfo()
+      const actualPoolTotalLP = parseFloat(pool.totalStaked || '0');
+      const discoveredStakersLP = stakers.reduce((sum, s) => sum + parseFloat(s.stakedLP || '0'), 0);
       
       // Use v2TVL for value calculations
       const poolTVL = pool.v2TVL || pool.totalTVL || 0;
       
       const enrichedStakers = stakers.map((staker) => {
         const stakedLP = parseFloat(staker.stakedLP || '0');
-        const poolShare = totalStakedLP > 0 ? stakedLP / totalStakedLP : 0;
+        // Use actual pool total for accurate share calculation
+        const poolShare = actualPoolTotalLP > 0 ? stakedLP / actualPoolTotalLP : 0;
         const stakedValue = poolShare * poolTVL;
         
         return {
@@ -5871,7 +5874,8 @@ async function startAdminWebServer() {
         stakers: enrichedStakers,
         count: enrichedStakers.length,
         poolTVL: poolTVL,
-        totalStakedLP: totalStakedLP.toFixed(6)
+        totalPoolLP: actualPoolTotalLP.toFixed(6),
+        discoveredStakersLP: discoveredStakersLP.toFixed(6)
       });
     } catch (error) {
       console.error('[API] Error fetching all stakers:', error);
