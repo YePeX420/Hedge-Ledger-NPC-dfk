@@ -5,6 +5,7 @@ import uniswapFactoryABI from './UniswapV2Factory.json' with { type: 'json' };
 import erc20ABI from './ERC20.json' with { type: 'json' };
 import questCoreABI from './QuestCoreV3.json' with { type: 'json' };
 import { computeFeeAprPct } from './apr-utils.js';
+import { getLatestAggregate } from './src/etl/aggregation/poolDailyAggregator.js';
 
 // DFK Chain configuration
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
@@ -500,10 +501,42 @@ async function queryEventsInChunks(contract, filter, fromBlock, toBlock, maxChun
 
 /**
  * Calculate 24h fee APR from Swap events (previous UTC day)
+ * Now checks for indexed aggregate data first, falling back to RPC queries
  */
-export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stakedLiquidity, blockRange = null) {
+export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stakedLiquidity, blockRange = null, pid = null) {
   try {
-    // Use provided block range (previous UTC day) or calculate fresh
+    // Check for recent indexed data first (if pid is provided)
+    if (pid !== null) {
+      try {
+        const aggregate = await getLatestAggregate(pid);
+        if (aggregate) {
+          const aggregateDate = new Date(aggregate.date);
+          const now = new Date();
+          const daysDiff = (now.getTime() - aggregateDate.getTime()) / (1000 * 60 * 60 * 24);
+          
+          // Use indexed data if it's from the last 2 days
+          if (daysDiff <= 2) {
+            const volume24h = parseFloat(aggregate.volume24h) || 0;
+            const fees24h = parseFloat(aggregate.fees24h) || 0;
+            const feeApr = parseFloat(aggregate.feeApr) || 0;
+            
+            console.log(`[FeeAPR] Pool ${pid}: Using indexed data from ${aggregate.date} (volume=$${volume24h.toFixed(2)}, fees=$${fees24h.toFixed(2)}, APR=${feeApr.toFixed(2)}%)`);
+            
+            return {
+              feeAPR: feeApr,
+              volume24hUSD: volume24h,
+              fees24hUSD: fees24h,
+              swapCount: aggregate.swapCount24h || 0,
+              source: 'indexed'
+            };
+          }
+        }
+      } catch (indexErr) {
+        console.log(`[FeeAPR] Pool ${pid}: Indexed data unavailable, falling back to RPC (${indexErr.message})`);
+      }
+    }
+    
+    // Fallback to RPC query for swap events
     const range = blockRange || await getPreviousUTCDayBlockRange();
     const { fromBlock, toBlock } = range;
     
@@ -539,7 +572,7 @@ export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stake
     const dailyFeesUSD = totalVolumeUSD * LP_FEE_RATE;
     
     // Calculate APR using centralized utility
-    if (stakedLiquidity === 0) return { feeAPR: 0, volume24hUSD: totalVolumeUSD, fees24hUSD: dailyFeesUSD, swapCount: swapEvents.length };
+    if (stakedLiquidity === 0) return { feeAPR: 0, volume24hUSD: totalVolumeUSD, fees24hUSD: dailyFeesUSD, swapCount: swapEvents.length, source: 'rpc' };
     
     // Use centralized APR calculation from apr-utils
     const feeAPR = computeFeeAprPct({ volume24hUsd: totalVolumeUSD, poolTvlUsd: stakedLiquidity });
@@ -548,20 +581,51 @@ export async function calculate24hFeeAPR(lpAddress, lpDetails, priceGraph, stake
       feeAPR,
       volume24hUSD: totalVolumeUSD,
       fees24hUSD: dailyFeesUSD,
-      swapCount: swapEvents.length
+      swapCount: swapEvents.length,
+      source: 'rpc'
     };
   } catch (err) {
     console.error('Error calculating fee APR:', err.message);
-    return { feeAPR: 0, volume24hUSD: 0, fees24hUSD: 0, swapCount: 0 };
+    return { feeAPR: 0, volume24hUSD: 0, fees24hUSD: 0, swapCount: 0, source: 'error' };
   }
 }
 
 /**
  * Calculate emission APR from RewardCollected events (previous UTC day)
+ * Now checks for indexed aggregate data first, falling back to RPC queries
  */
 export async function calculateEmissionAPR(pid, rewardTokenPrice, stakedLiquidity, blockRange = null) {
   try {
-    // Use provided block range (previous UTC day) or calculate fresh
+    // Check for recent indexed data first
+    try {
+      const aggregate = await getLatestAggregate(pid);
+      if (aggregate) {
+        const aggregateDate = new Date(aggregate.date);
+        const now = new Date();
+        const daysDiff = (now.getTime() - aggregateDate.getTime()) / (1000 * 60 * 60 * 24);
+        
+        // Use indexed data if it's from the last 2 days
+        if (daysDiff <= 2) {
+          const rewardsFloat = parseFloat(aggregate.rewards24h) || 0;
+          const rewardsUsd = parseFloat(aggregate.rewardsUsd24h) || 0;
+          const harvestApr = parseFloat(aggregate.harvestApr) || 0;
+          
+          console.log(`[EmissionAPR] Pool ${pid}: Using indexed data from ${aggregate.date} (rewards=${rewardsFloat.toFixed(4)}, USD=$${rewardsUsd.toFixed(2)}, APR=${harvestApr.toFixed(2)}%)`);
+          
+          return {
+            emissionAPR: harvestApr,
+            rewards24hUSD: rewardsUsd,
+            rewardTokenAmount: rewardsFloat,
+            eventCount: aggregate.rewardEventCount24h || 0,
+            source: 'indexed'
+          };
+        }
+      }
+    } catch (indexErr) {
+      console.log(`[EmissionAPR] Pool ${pid}: Indexed data unavailable, falling back to RPC (${indexErr.message})`);
+    }
+    
+    // Fallback to RPC query for reward events
     const range = blockRange || await getPreviousUTCDayBlockRange();
     const { fromBlock, toBlock } = range;
     
@@ -584,18 +648,19 @@ export async function calculateEmissionAPR(pid, rewardTokenPrice, stakedLiquidit
     const rewards24hUSD = rewardsFloat * rewardTokenPrice;
     
     // Calculate APR
-    if (stakedLiquidity === 0) return 0;
+    if (stakedLiquidity === 0) return { emissionAPR: 0, rewards24hUSD: 0, rewardTokenAmount: 0, eventCount: 0, source: 'rpc' };
     const emissionAPR = (rewards24hUSD / stakedLiquidity) * 365 * 100;
     
     return {
       emissionAPR,
       rewards24hUSD,
       rewardTokenAmount: rewardsFloat,
-      eventCount: rewardEvents.length
+      eventCount: rewardEvents.length,
+      source: 'rpc'
     };
   } catch (err) {
     console.error('Error calculating emission APR:', err.message);
-    return { emissionAPR: 0, rewards24hUSD: 0, rewardTokenAmount: 0, eventCount: 0 };
+    return { emissionAPR: 0, rewards24hUSD: 0, rewardTokenAmount: 0, eventCount: 0, source: 'error' };
   }
 }
 
@@ -772,8 +837,8 @@ export async function getPoolAnalytics(pid, sharedData = null) {
     // Calculate TVL (now includes both V2 and V1 staked amounts)
     const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked, v1Staked);
     
-    // Calculate 24h fee APR (use total pool TVL including V1+V2)
-    const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD, blockRange);
+    // Calculate 24h fee APR (use total pool TVL including V1+V2, pass pid for indexed data lookup)
+    const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD, blockRange, pid);
     
     // Calculate emission APR (use only V2 staked amount - only V2 gets CRYSTAL rewards)
     const emissionData = await calculateEmissionAPR(pid, crystalPrice, tvlData.stakedLiquidityUSD, blockRange);
@@ -874,8 +939,8 @@ export async function getAllPoolAnalytics(limit = 100) {
         // Calculate TVL (now includes both V2 and V1 staked amounts)
         const tvlData = calculateTVL(lpDetails, priceGraph, pool.totalStaked, v1Staked);
         
-        // Calculate 24h fee APR (use total pool TVL including V1+V2)
-        const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD, blockRange);
+        // Calculate 24h fee APR (use total pool TVL including V1+V2, pass pid for indexed data lookup)
+        const feeData = await calculate24hFeeAPR(pool.lpToken, lpDetails, priceGraph, tvlData.tvlUSD, blockRange, pool.pid);
         
         // Calculate emission APR (use only V2 staked amount - only V2 gets CRYSTAL rewards)
         const emissionData = await calculateEmissionAPR(pool.pid, crystalPrice, tvlData.stakedLiquidityUSD, blockRange);
