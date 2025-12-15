@@ -13,7 +13,7 @@ export interface IngestionResult {
   };
   pvp: {
     dfk: { processed: number; inserted: number; fromBlock: number; toBlock: number };
-    metis: { processed: number; inserted: number; fromBlock: number; toBlock: number };
+    klaytn: { processed: number; inserted: number; fromBlock: number; toBlock: number };
   };
   completedAt: Date;
 }
@@ -35,7 +35,7 @@ export async function runAllIngestion(): Promise<IngestionResult> {
   console.log(`[Ingestion] Completed in ${elapsed}s`);
   console.log(`[Ingestion] Hunting: ${huntingResult.inserted} new encounters`);
   console.log(`[Ingestion] PvP DFK: ${pvpResult.dfk.inserted} new matches`);
-  console.log(`[Ingestion] PvP METIS: ${pvpResult.metis.inserted} new matches`);
+  console.log(`[Ingestion] PvP Klaytn: ${pvpResult.klaytn.inserted} new matches`);
   
   return {
     hunting: huntingResult,
@@ -50,8 +50,8 @@ export async function runAllIngestion(): Promise<IngestionResult> {
 export async function getIngestionStatus(): Promise<{
   hunting: { key: string; lastBlock: number; currentBlock: number; blocksRemaining: number };
   pvp: {
-    dfk: { key: string; lastBlock: number; currentBlock: number; blocksRemaining: number };
-    metis: { key: string; lastBlock: number; currentBlock: number; blocksRemaining: number };
+    dfk: { key: string; lastBlock: number; currentBlock: number; blocksRemaining: number; contractConfigured: boolean };
+    klaytn: { key: string; lastBlock: number; currentBlock: number; blocksRemaining: number; contractConfigured: boolean };
   };
 }> {
   const [huntingStatus, pvpStatus] = await Promise.all([
@@ -68,3 +68,7 @@ export async function getIngestionStatus(): Promise<{
 // Re-export individual indexers for granular control
 export { runHuntingIndexer, getHuntingIndexerStatus } from './huntingIndexer.js';
 export { runPvpIndexer, getPvpIndexerStatus } from './pvpIndexer.js';
+
+// Pool event indexers for APR calculations
+export * from './poolSwapIndexer.js';
+export * from './poolRewardIndexer.js';
