@@ -150,23 +150,41 @@ export default function PoolDetailPage() {
     enabled: !!pid,
   });
 
-  const { data: indexerStatus, refetch: refetchIndexerStatus } = useQuery<{ progress: IndexerProgress[] }>({
-    queryKey: ["/api/admin/pool-staker-indexer/status"],
+  const { data: indexerStatus, refetch: refetchIndexerStatus } = useQuery<{ unifiedIndexers: { pid: number; lastIndexedBlock: number; totalEventsIndexed: number; status: string; updatedAt: string; live?: { isRunning: boolean; currentBlock: number; targetBlock: number; percentComplete: number; stakersFound: number; swapsFound: number; rewardsFound: number; } | null; autoRun?: { intervalMs: number; startedAt: string; runsCompleted: number; } | null; }[] }>({
+    queryKey: ["/api/admin/pool-indexer/status"],
+    refetchInterval: 2000,
   });
 
-  const currentProgress = indexerStatus?.progress?.find(p => p.pid === Number(pid));
+  const currentUnifiedIndexer = indexerStatus?.unifiedIndexers?.find(p => p.pid === Number(pid));
 
-  const { data: autoRunData, refetch: refetchAutoRunStatus } = useQuery<AutoRunStatus>({
-    queryKey: ["/api/admin/pool-staker-indexer", pid, "auto-run", "status"],
-    enabled: !!pid,
-    refetchInterval: 2000, // Poll every 2 seconds for real-time progress updates
-  });
+  const liveProgress: LiveProgress | null = currentUnifiedIndexer?.live ? {
+    isRunning: currentUnifiedIndexer.live.isRunning,
+    currentBlock: currentUnifiedIndexer.live.currentBlock,
+    targetBlock: currentUnifiedIndexer.live.targetBlock,
+    totalEventsFound: (currentUnifiedIndexer.live.stakersFound || 0) + (currentUnifiedIndexer.live.swapsFound || 0) + (currentUnifiedIndexer.live.rewardsFound || 0),
+    totalStakersFound: currentUnifiedIndexer.live.stakersFound || 0,
+    batchesCompleted: 0,
+    startedAt: null,
+    lastBatchAt: null,
+    lastBatchEventsFound: 0,
+    percentComplete: currentUnifiedIndexer.live.percentComplete,
+  } : null;
 
-  const liveProgress = autoRunData?.liveProgress;
+  const currentProgress: IndexerProgress | undefined = currentUnifiedIndexer ? {
+    pid: currentUnifiedIndexer.pid,
+    lastBlock: currentUnifiedIndexer.lastIndexedBlock,
+    stakersFound: currentUnifiedIndexer.live?.stakersFound || 0,
+    lastUpdated: currentUnifiedIndexer.updatedAt,
+    isComplete: currentUnifiedIndexer.status === 'complete',
+  } : undefined;
+
+  const isAutoRunning = !!currentUnifiedIndexer?.autoRun;
 
   const startAutoRunMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/auto-run/start`, { 
+      const res = await apiRequest("POST", `/api/admin/pool-indexer/unified/auto-run`, { 
+        pid: Number(pid),
+        action: 'start',
         intervalMs: parseInt(autoRunInterval) 
       });
       const text = await res.text();
@@ -175,9 +193,8 @@ export default function PoolDetailPage() {
     onSuccess: () => {
       toast({
         title: "Auto-Run Started",
-        description: `Indexer will run automatically every ${parseInt(autoRunInterval) / 60000} minutes.`,
+        description: `Unified indexer will run automatically every ${parseInt(autoRunInterval) / 60000} minutes.`,
       });
-      refetchAutoRunStatus();
       refetchIndexerStatus();
     },
     onError: (error: Error) => {
@@ -191,17 +208,19 @@ export default function PoolDetailPage() {
 
   const stopAutoRunMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/auto-run/stop`);
+      const res = await apiRequest("POST", `/api/admin/pool-indexer/unified/auto-run`, {
+        pid: Number(pid),
+        action: 'stop'
+      });
       const text = await res.text();
       return text ? JSON.parse(text) : { success: true };
     },
     onSuccess: (data: unknown) => {
-      const result = data as { runsCompleted?: number };
+      const result = data as { result?: { runsCompleted?: number } };
       toast({
         title: "Auto-Run Stopped",
-        description: `Completed ${result.runsCompleted || 0} runs before stopping.`,
+        description: `Completed ${result.result?.runsCompleted || 0} runs before stopping.`,
       });
-      refetchAutoRunStatus();
       refetchIndexerStatus();
     },
     onError: (error: Error) => {
@@ -223,15 +242,15 @@ export default function PoolDetailPage() {
 
   const runBatchMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/run-batch`, { workers: workerCount });
+      const res = await apiRequest("POST", `/api/admin/pool-indexer/unified/trigger`, { pid: Number(pid) });
       const text = await res.text();
       return text ? JSON.parse(text) : { success: true };
     },
     onSuccess: (data: unknown) => {
-      const result = data as { newStakers?: number; message?: string };
+      const result = data as { result?: { stakersUpdated?: number; swapsSaved?: number; rewardsSaved?: number } };
       toast({
-        title: "Indexer Batch Complete",
-        description: `Found ${result.newStakers || 0} new stakers. ${result.message || ''}`,
+        title: "Unified Batch Complete",
+        description: `Found ${result.result?.stakersUpdated || 0} stakers, ${result.result?.swapsSaved || 0} swaps, ${result.result?.rewardsSaved || 0} rewards.`,
       });
       refetchIndexerStatus();
       refetchStakers();
@@ -247,16 +266,13 @@ export default function PoolDetailPage() {
 
   const updateNamesMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/update-names`);
-      const text = await res.text();
-      return text ? JSON.parse(text) : { success: true };
-    },
-    onSuccess: (data: unknown) => {
-      const result = data as { updated?: number };
       toast({
-        title: "Names Updated",
-        description: `Updated ${result.updated || 0} summoner names.`,
+        title: "Names Update",
+        description: "Summoner name updates happen automatically during indexing.",
       });
+      return { success: true };
+    },
+    onSuccess: () => {
       refetchStakers();
     },
     onError: (error: Error) => {
@@ -270,14 +286,14 @@ export default function PoolDetailPage() {
 
   const resetIndexMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/reset`);
+      const res = await apiRequest("POST", `/api/admin/pool-indexer/unified/reset`, { pid: Number(pid) });
       const text = await res.text();
       return text ? JSON.parse(text) : { success: true };
     },
     onSuccess: () => {
       toast({
         title: "Index Reset",
-        description: "Pool staker index has been reset. Run indexer to rebuild.",
+        description: "Unified indexer has been reset. Run indexer to rebuild.",
       });
       refetchIndexerStatus();
       refetchStakers();
@@ -571,15 +587,15 @@ export default function PoolDetailPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Database className="h-5 w-5" />
-                Staker Indexer
+                Unified Indexer
               </CardTitle>
               <CardDescription>
-                Index stakers from blockchain events for fast lookups and summoner name resolution
+                Scans Deposit, Withdraw, Swap, and Harvest events in a single blockchain pass
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Live Progress Section - shown when indexing is running or recently completed */}
-              {liveProgress && (liveProgress.isRunning || (liveProgress.completedAt && autoRunData?.isAutoRunning)) && (
+              {liveProgress && (liveProgress.isRunning || (liveProgress.completedAt && isAutoRunning)) && (
                 <div className="p-4 rounded-lg bg-muted/50 border space-y-3" data-testid="section-live-progress">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -672,10 +688,10 @@ export default function PoolDetailPage() {
 
               <div className="flex flex-wrap items-center gap-4 pt-4 border-t">
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                  <Power className={`h-4 w-4 ${autoRunData?.isAutoRunning ? 'text-green-500' : 'text-muted-foreground'}`} />
+                  <Power className={`h-4 w-4 ${isAutoRunning ? 'text-green-500' : 'text-muted-foreground'}`} />
                   <span className="text-sm font-medium">Auto-Run:</span>
                   <Switch
-                    checked={autoRunData?.isAutoRunning || false}
+                    checked={isAutoRunning}
                     onCheckedChange={handleAutoRunToggle}
                     disabled={startAutoRunMutation.isPending || stopAutoRunMutation.isPending}
                     data-testid="switch-auto-run"
@@ -683,7 +699,7 @@ export default function PoolDetailPage() {
                   <Select
                     value={autoRunInterval}
                     onValueChange={setAutoRunInterval}
-                    disabled={autoRunData?.isAutoRunning}
+                    disabled={isAutoRunning}
                   >
                     <SelectTrigger className="w-28" data-testid="select-auto-run-interval">
                       <SelectValue />
@@ -696,13 +712,10 @@ export default function PoolDetailPage() {
                       <SelectItem value="3600000">1 hour</SelectItem>
                     </SelectContent>
                   </Select>
-                  {autoRunData?.isAutoRunning && autoRunData.autoRunInfo && (
+                  {isAutoRunning && currentUnifiedIndexer?.autoRun && (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Timer className="h-3 w-3" />
-                      <span>{autoRunData.autoRunInfo.runsCompleted} runs</span>
-                      {autoRunData.autoRunInfo.lastRunAt && (
-                        <span>• Last: {new Date(autoRunData.autoRunInfo.lastRunAt).toLocaleTimeString()}</span>
-                      )}
+                      <span>{currentUnifiedIndexer.autoRun.runsCompleted} runs</span>
                     </div>
                   )}
                 </div>

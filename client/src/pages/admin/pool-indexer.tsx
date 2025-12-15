@@ -88,9 +88,42 @@ interface DailyAggregate {
   rewardEventCount24h: number;
 }
 
+interface UnifiedIndexerProgress {
+  id: number;
+  indexerName: string;
+  indexerType: string;
+  pid: number;
+  lpToken: string;
+  lastIndexedBlock: number;
+  genesisBlock: number;
+  status: string;
+  totalEventsIndexed: number;
+  lastError: string | null;
+  updatedAt: string;
+  live?: {
+    isRunning: boolean;
+    currentBlock: number;
+    targetBlock: number;
+    percentComplete: number;
+    stakersFound: number;
+    swapsFound: number;
+    rewardsFound: number;
+    batchesCompleted: number;
+    lastBatchAt: string | null;
+  } | null;
+  autoRun?: {
+    pid: number;
+    intervalMs: number;
+    startedAt: string;
+    lastRunAt: string | null;
+    runsCompleted: number;
+  } | null;
+}
+
 interface IndexerStatus {
   swapIndexers: IndexerProgress[];
   rewardIndexers: IndexerProgress[];
+  unifiedIndexers: UnifiedIndexerProgress[];
   aggregates: DailyAggregate[];
 }
 
@@ -346,9 +379,128 @@ function AggregatesTable({ aggregates }: { aggregates: DailyAggregate[] }) {
   );
 }
 
+function UnifiedIndexerTable({ 
+  indexers, 
+  onTrigger,
+  onAutoRun,
+  isTriggering,
+}: { 
+  indexers: UnifiedIndexerProgress[];
+  onTrigger: (pid: number) => void;
+  onAutoRun: (pid: number, action: 'start' | 'stop') => void;
+  isTriggering: boolean;
+}) {
+  if (!indexers || indexers.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center text-muted-foreground">
+          No unified indexers found. Trigger a batch to initialize a pool.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-16">Pool</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Progress</TableHead>
+              <TableHead className="text-right">Stakers</TableHead>
+              <TableHead className="text-right">Swaps</TableHead>
+              <TableHead className="text-right">Rewards</TableHead>
+              <TableHead className="text-right">Last Block</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {indexers.map((indexer) => {
+              const isRunning = indexer.live?.isRunning || false;
+              const percentComplete = indexer.live?.percentComplete || 0;
+              const hasAutoRun = !!indexer.autoRun;
+              
+              return (
+                <TableRow key={indexer.indexerName} data-testid={`row-indexer-unified-${indexer.pid}`}>
+                  <TableCell className="font-mono font-medium">
+                    #{indexer.pid}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      <StatusBadge status={indexer.status} isRunning={isRunning} />
+                      {hasAutoRun && (
+                        <Badge variant="outline" className="bg-purple-500/20 text-purple-500 border-purple-500/30 gap-1 text-xs">
+                          <Zap className="w-3 h-3" />
+                          Auto ({indexer.autoRun!.runsCompleted} runs)
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {isRunning && (
+                      <div className="space-y-1">
+                        <Progress value={percentComplete} className="h-2 w-24" />
+                        <span className="text-xs text-muted-foreground">
+                          {percentComplete.toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
+                    {!isRunning && indexer.status === 'complete' && (
+                      <span className="text-xs text-green-500">Synced</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {formatNumber(indexer.live?.stakersFound || 0)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {formatNumber(indexer.live?.swapsFound || 0)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {formatNumber(indexer.live?.rewardsFound || 0)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {formatBlock(indexer.live?.currentBlock || indexer.lastIndexedBlock)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex gap-1 justify-end">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onTrigger(indexer.pid)}
+                        disabled={isRunning || isTriggering}
+                        data-testid={`button-trigger-unified-${indexer.pid}`}
+                      >
+                        {isTriggering ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={hasAutoRun ? "destructive" : "outline"}
+                        onClick={() => onAutoRun(indexer.pid, hasAutoRun ? 'stop' : 'start')}
+                        data-testid={`button-auto-unified-${indexer.pid}`}
+                      >
+                        {hasAutoRun ? <Square className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminPoolIndexer() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("swaps");
+  const [activeTab, setActiveTab] = useState("unified");
   
   const { data: status, isLoading, error, refetch } = useQuery<IndexerStatus>({
     queryKey: ["/api/admin/pool-indexer/status"],
@@ -425,6 +577,35 @@ export default function AdminPoolIndexer() {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
+  
+  const triggerUnifiedMutation = useMutation({
+    mutationFn: async (pid: number) => {
+      return apiRequest("POST", "/api/admin/pool-indexer/unified/trigger", { pid });
+    },
+    onSuccess: () => {
+      toast({ title: "Unified indexer triggered", description: "Scanning all event types" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pool-indexer/status"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+  
+  const unifiedAutoRunMutation = useMutation({
+    mutationFn: async ({ pid, action }: { pid: number; action: 'start' | 'stop' }) => {
+      return apiRequest("POST", "/api/admin/pool-indexer/unified/auto-run", { pid, action });
+    },
+    onSuccess: (_, vars) => {
+      toast({ 
+        title: `Unified auto-run ${vars.action === 'start' ? 'started' : 'stopped'}`,
+        description: `Pool #${vars.pid}` 
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pool-indexer/status"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -454,12 +635,14 @@ export default function AdminPoolIndexer() {
 
   const swapIndexers = status?.swapIndexers || [];
   const rewardIndexers = status?.rewardIndexers || [];
+  const unifiedIndexers = status?.unifiedIndexers || [];
   const aggregates = status?.aggregates || [];
   
   const totalSwapEvents = swapIndexers.reduce((sum, i) => sum + (i.totalEventsIndexed || 0), 0);
   const totalRewardEvents = rewardIndexers.reduce((sum, i) => sum + (i.totalEventsIndexed || 0), 0);
   const runningSwaps = swapIndexers.filter(i => i.live?.isRunning).length;
   const runningRewards = rewardIndexers.filter(i => i.live?.isRunning).length;
+  const runningUnified = unifiedIndexers.filter(i => i.live?.isRunning).length;
 
   return (
     <div className="p-6 space-y-6">
@@ -541,20 +724,42 @@ export default function AdminPoolIndexer() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="flex-wrap gap-1">
+          <TabsTrigger value="unified" data-testid="tab-unified">
+            <Zap className="w-4 h-4 mr-2" />
+            Unified ({unifiedIndexers.length})
+          </TabsTrigger>
           <TabsTrigger value="swaps" data-testid="tab-swaps">
             <ArrowLeftRight className="w-4 h-4 mr-2" />
-            Swap Indexers ({swapIndexers.length})
+            Swaps ({swapIndexers.length})
           </TabsTrigger>
           <TabsTrigger value="rewards" data-testid="tab-rewards">
             <Coins className="w-4 h-4 mr-2" />
-            Reward Indexers ({rewardIndexers.length})
+            Rewards ({rewardIndexers.length})
           </TabsTrigger>
           <TabsTrigger value="aggregates" data-testid="tab-aggregates">
             <Calculator className="w-4 h-4 mr-2" />
-            Daily Aggregates ({aggregates.length})
+            Aggregates ({aggregates.length})
           </TabsTrigger>
         </TabsList>
+        
+        <TabsContent value="unified" className="mt-4">
+          <Card className="mb-4">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Unified Indexer</CardTitle>
+              <CardDescription>
+                Scans all event types (Deposit, Withdraw, Swap, Harvest) in a single blockchain pass per pool.
+                This consolidates staker tracking, swap volume analytics, and reward distribution into one efficient indexer.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+          <UnifiedIndexerTable
+            indexers={unifiedIndexers}
+            onTrigger={(pid) => triggerUnifiedMutation.mutate(pid)}
+            onAutoRun={(pid, action) => unifiedAutoRunMutation.mutate({ pid, action })}
+            isTriggering={triggerUnifiedMutation.isPending}
+          />
+        </TabsContent>
         
         <TabsContent value="swaps" className="mt-4">
           <IndexerTable

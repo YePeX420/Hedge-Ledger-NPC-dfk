@@ -1509,18 +1509,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { getAllSwapIndexerProgress, getAllSwapLiveProgress, getSwapAutoRunStatus } = await import('../src/etl/ingestion/poolSwapIndexer.js');
       const { getAllRewardIndexerProgress, getAllRewardLiveProgress, getRewardAutoRunStatus } = await import('../src/etl/ingestion/poolRewardIndexer.js');
+      const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
       const { getAllLatestAggregates } = await import('../src/etl/aggregation/poolDailyAggregator.js');
       
-      const [swapProgress, rewardProgress, latestAggregatesRaw] = await Promise.all([
+      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw] = await Promise.all([
         getAllSwapIndexerProgress(),
         getAllRewardIndexerProgress(),
+        getAllUnifiedIndexerProgress(),
         getAllLatestAggregates(),
       ]);
       
       const swapLiveProgress = getAllSwapLiveProgress();
       const rewardLiveProgress = getAllRewardLiveProgress();
+      const unifiedLiveProgress = getAllUnifiedLiveProgress();
       const swapAutoRuns = getSwapAutoRunStatus();
       const rewardAutoRuns = getRewardAutoRunStatus();
+      const unifiedAutoRuns = getUnifiedAutoRunStatus();
       
       // Flatten aggregates - innerJoin returns { pool_daily_aggregates: {...}, latest: {...} }
       const aggregates = (latestAggregatesRaw || [])
@@ -1537,6 +1541,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...p,
           live: rewardLiveProgress.find((l: any) => l.pid === p.pid) || null,
           autoRun: rewardAutoRuns.find((a: any) => a.pid === p.pid) || null,
+        })),
+        unifiedIndexers: unifiedProgress.map((p: any) => ({
+          ...p,
+          live: unifiedLiveProgress.find((l: any) => l.pid === p.pid) || null,
+          autoRun: unifiedAutoRuns.find((a: any) => a.pid === p.pid) || null,
         })),
         aggregates,
       });
@@ -1651,6 +1660,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error('[API] Error triggering aggregation:', error);
       res.status(500).json({ error: 'Failed to trigger aggregation', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-indexer/unified/trigger - Trigger unified indexer batch (scans all event types)
+  app.post("/api/admin/pool-indexer/unified/trigger", isAdmin, async (req: any, res: any) => {
+    try {
+      const { pid } = req.body;
+      if (pid === undefined) {
+        return res.status(400).json({ error: 'pid is required' });
+      }
+      
+      const { runUnifiedIncrementalBatch } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
+      const result = await runUnifiedIncrementalBatch(parseInt(pid));
+      
+      res.json({ success: true, result });
+    } catch (error: any) {
+      console.error('[API] Error triggering unified indexer:', error);
+      res.status(500).json({ error: 'Failed to trigger unified indexer', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-indexer/unified/auto-run - Start/stop unified auto-run
+  app.post("/api/admin/pool-indexer/unified/auto-run", isAdmin, async (req: any, res: any) => {
+    try {
+      const { pid, action, intervalMs } = req.body;
+      if (pid === undefined || !action) {
+        return res.status(400).json({ error: 'pid and action are required' });
+      }
+      
+      const { startUnifiedAutoRun, stopUnifiedAutoRun } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
+      
+      let result;
+      if (action === 'start') {
+        result = startUnifiedAutoRun(parseInt(pid), intervalMs || 5 * 60 * 1000);
+      } else if (action === 'stop') {
+        result = stopUnifiedAutoRun(parseInt(pid));
+      } else {
+        return res.status(400).json({ error: 'action must be start or stop' });
+      }
+      
+      res.json({ success: true, result });
+    } catch (error: any) {
+      console.error('[API] Error managing unified auto-run:', error);
+      res.status(500).json({ error: 'Failed to manage unified auto-run', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-indexer/unified/reset - Reset unified indexer for a pool
+  app.post("/api/admin/pool-indexer/unified/reset", isAdmin, async (req: any, res: any) => {
+    try {
+      const { pid } = req.body;
+      if (pid === undefined) {
+        return res.status(400).json({ error: 'pid is required' });
+      }
+      
+      const { resetUnifiedIndexerProgress } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
+      const result = await resetUnifiedIndexerProgress(parseInt(pid));
+      
+      res.json({ success: true, result });
+    } catch (error: any) {
+      console.error('[API] Error resetting unified indexer:', error);
+      res.status(500).json({ error: 'Failed to reset unified indexer', details: error.message });
+    }
+  });
+  
+  // GET /api/admin/pool-indexer/unified/stakers/:pid - Get stakers for a pool from unified indexer
+  app.get("/api/admin/pool-indexer/unified/stakers/:pid", isAdmin, async (req: any, res: any) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      const limit = parseInt(req.query.limit) || 500;
+      const activeOnly = req.query.active === 'true';
+      
+      const { getActivePoolStakersFromDB, getPoolStakersFromDB } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
+      
+      const stakers = activeOnly 
+        ? await getActivePoolStakersFromDB(pid, limit)
+        : await getPoolStakersFromDB(pid, limit);
+      
+      res.json({ stakers, count: stakers.length });
+    } catch (error: any) {
+      console.error('[API] Error fetching pool stakers:', error);
+      res.status(500).json({ error: 'Failed to fetch pool stakers', details: error.message });
     }
   });
 
