@@ -1935,3 +1935,130 @@ export const poolStakerIndexerProgress = pgTable("pool_staker_indexer_progress",
 export const insertPoolStakerIndexerProgressSchema = createInsertSchema(poolStakerIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPoolStakerIndexerProgress = z.infer<typeof insertPoolStakerIndexerProgressSchema>;
 export type PoolStakerIndexerProgress = typeof poolStakerIndexerProgress.$inferSelect;
+
+// ============================================================================
+// POOL SWAP & REWARD EVENTS FOR APR CALCULATIONS
+// Indexed swap and reward events from LP pairs and MasterGardener
+// ============================================================================
+
+/**
+ * Pool swap events - Swap events from LP pair contracts for volume/fee APR
+ * Used to calculate trading fees earned by LPs
+ */
+export const poolSwapEvents = pgTable("pool_swap_events", {
+  id: serial("id").primaryKey(),
+  pid: integer("pid").notNull(), // pool ID (maps to lpToken)
+  lpToken: text("lp_token").notNull(), // LP token contract address
+  blockNumber: bigint("block_number", { mode: "number" }).notNull(),
+  txHash: text("tx_hash").notNull(),
+  logIndex: integer("log_index").notNull(), // to ensure uniqueness within a tx
+  sender: text("sender").notNull(),
+  recipient: text("recipient").notNull(), // "to" address
+  amount0In: numeric("amount0_in", { precision: 38, scale: 18 }).notNull(),
+  amount1In: numeric("amount1_in", { precision: 38, scale: 18 }).notNull(),
+  amount0Out: numeric("amount0_out", { precision: 38, scale: 18 }).notNull(),
+  amount1Out: numeric("amount1_out", { precision: 38, scale: 18 }).notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  pidIdx: index("pool_swap_events_pid_idx").on(table.pid),
+  blockNumberIdx: index("pool_swap_events_block_idx").on(table.blockNumber),
+  timestampIdx: index("pool_swap_events_timestamp_idx").on(table.timestamp),
+  uniqueEventIdx: uniqueIndex("pool_swap_events_unique_idx").on(table.txHash, table.logIndex),
+}));
+
+export const insertPoolSwapEventSchema = createInsertSchema(poolSwapEvents).omit({ id: true, createdAt: true });
+export type InsertPoolSwapEvent = z.infer<typeof insertPoolSwapEventSchema>;
+export type PoolSwapEvent = typeof poolSwapEvents.$inferSelect;
+
+/**
+ * Pool reward events - CRYSTAL reward distributions from MasterGardener
+ * Used to calculate harvest APR
+ */
+export const poolRewardEvents = pgTable("pool_reward_events", {
+  id: serial("id").primaryKey(),
+  pid: integer("pid").notNull(),
+  blockNumber: bigint("block_number", { mode: "number" }).notNull(),
+  txHash: text("tx_hash").notNull(),
+  logIndex: integer("log_index").notNull(),
+  user: text("user").notNull(), // address receiving rewards
+  rewardAmount: numeric("reward_amount", { precision: 38, scale: 18 }).notNull(), // CRYSTAL amount
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  pidIdx: index("pool_reward_events_pid_idx").on(table.pid),
+  blockNumberIdx: index("pool_reward_events_block_idx").on(table.blockNumber),
+  timestampIdx: index("pool_reward_events_timestamp_idx").on(table.timestamp),
+  uniqueEventIdx: uniqueIndex("pool_reward_events_unique_idx").on(table.txHash, table.logIndex),
+}));
+
+export const insertPoolRewardEventSchema = createInsertSchema(poolRewardEvents).omit({ id: true, createdAt: true });
+export type InsertPoolRewardEvent = z.infer<typeof insertPoolRewardEventSchema>;
+export type PoolRewardEvent = typeof poolRewardEvents.$inferSelect;
+
+/**
+ * Pool daily aggregates - Pre-computed daily APR data
+ * Cutoff at 8 PM ET (00:00/01:00 UTC depending on DST)
+ */
+export const poolDailyAggregates = pgTable("pool_daily_aggregates", {
+  id: serial("id").primaryKey(),
+  pid: integer("pid").notNull(),
+  date: text("date").notNull(), // YYYY-MM-DD format (8 PM ET cutoff day)
+  
+  // Volume and fees (in USD)
+  volume24h: numeric("volume_24h", { precision: 30, scale: 2 }).default("0"),
+  fees24h: numeric("fees_24h", { precision: 30, scale: 2 }).default("0"), // typically 0.3% of volume
+  
+  // Rewards (CRYSTAL amount and USD value)
+  rewards24h: numeric("rewards_24h", { precision: 38, scale: 18 }).default("0"), // raw CRYSTAL
+  rewardsUsd24h: numeric("rewards_usd_24h", { precision: 30, scale: 2 }).default("0"),
+  
+  // TVL at snapshot time
+  tvl: numeric("tvl", { precision: 30, scale: 2 }).default("0"),
+  stakedLp: numeric("staked_lp", { precision: 38, scale: 18 }).default("0"),
+  
+  // Computed APRs (annualized percentages)
+  feeApr: numeric("fee_apr", { precision: 10, scale: 4 }).default("0"), // trading fee APR
+  harvestApr: numeric("harvest_apr", { precision: 10, scale: 4 }).default("0"), // CRYSTAL reward APR
+  totalApr: numeric("total_apr", { precision: 10, scale: 4 }).default("0"), // fee + harvest
+  
+  // Metadata
+  swapCount24h: integer("swap_count_24h").default(0),
+  rewardEventCount24h: integer("reward_event_count_24h").default(0),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  pidDateIdx: uniqueIndex("pool_daily_aggregates_pid_date_idx").on(table.pid, table.date),
+  dateIdx: index("pool_daily_aggregates_date_idx").on(table.date),
+}));
+
+export const insertPoolDailyAggregateSchema = createInsertSchema(poolDailyAggregates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPoolDailyAggregate = z.infer<typeof insertPoolDailyAggregateSchema>;
+export type PoolDailyAggregate = typeof poolDailyAggregates.$inferSelect;
+
+/**
+ * Pool indexer progress (swap/reward) - tracks indexing progress for swap and reward events
+ * Separate from staker indexer to allow independent operation
+ */
+export const poolEventIndexerProgress = pgTable("pool_event_indexer_progress", {
+  id: serial("id").primaryKey(),
+  indexerName: text("indexer_name").notNull().unique(), // 'swaps_pool_0', 'rewards_pool_0', etc.
+  indexerType: text("indexer_type").notNull(), // 'swaps' or 'rewards'
+  pid: integer("pid").notNull(),
+  lpToken: text("lp_token"), // LP token address for swap indexers
+  lastIndexedBlock: bigint("last_indexed_block", { mode: "number" }).notNull(),
+  genesisBlock: bigint("genesis_block", { mode: "number" }).notNull(),
+  status: text("status").notNull().default("idle"), // 'idle', 'running', 'complete', 'error'
+  totalEventsIndexed: integer("total_events_indexed").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  pidIdx: index("pool_event_indexer_progress_pid_idx").on(table.pid),
+  typeIdx: index("pool_event_indexer_progress_type_idx").on(table.indexerType),
+}));
+
+export const insertPoolEventIndexerProgressSchema = createInsertSchema(poolEventIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPoolEventIndexerProgress = z.infer<typeof insertPoolEventIndexerProgressSchema>;
+export type PoolEventIndexerProgress = typeof poolEventIndexerProgress.$inferSelect;
