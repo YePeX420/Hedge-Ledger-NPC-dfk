@@ -69,6 +69,7 @@ function updateLiveProgress(pid, updates) {
     isRunning: false,
     currentBlock: 0,
     targetBlock: 0,
+    genesisBlock: 0,
     stakersFound: 0,
     swapsFound: 0,
     rewardsFound: 0,
@@ -79,8 +80,10 @@ function updateLiveProgress(pid, updates) {
     completedAt: null,
   };
   const updated = { ...current, ...updates };
-  if (updates.percentComplete === undefined && updated.targetBlock > 0) {
-    updated.percentComplete = Math.min(100, (updated.currentBlock / updated.targetBlock) * 100);
+  if (updates.percentComplete === undefined && updated.targetBlock > updated.genesisBlock) {
+    const totalBlocks = updated.targetBlock - updated.genesisBlock;
+    const indexedBlocks = updated.currentBlock - updated.genesisBlock;
+    updated.percentComplete = Math.min(100, Math.max(0, (indexedBlocks / totalBlocks) * 100));
   }
   liveProgress.set(key, updated);
   return updated;
@@ -416,10 +419,12 @@ export async function runUnifiedIncrementalBatch(pid, options = {}) {
     const endBlock = Math.min(startBlock + batchSize, latestBlock);
     
     const existingLive = getUnifiedLiveProgress(pid);
+    const dbGenesisBlock = progress.genesisBlock || 0;
     updateLiveProgress(pid, {
       isRunning: true,
       currentBlock: startBlock,
       targetBlock: latestBlock,
+      genesisBlock: dbGenesisBlock > 0 ? dbGenesisBlock : (existingLive?.genesisBlock || dbGenesisBlock),
       stakersFound: existingLive?.stakersFound || 0,
       swapsFound: existingLive?.swapsFound || 0,
       rewardsFound: existingLive?.rewardsFound || 0,
