@@ -10,6 +10,47 @@ const DFK_GENESIS_BLOCK = 0;
 const BLOCKS_PER_QUERY = 2000;
 const INCREMENTAL_BATCH_SIZE = 10000;
 
+// Live progress tracking for real-time UI updates
+const liveProgress = new Map();
+
+export function getLiveProgress(pid) {
+  return liveProgress.get(pid) || null;
+}
+
+export function getAllLiveProgress() {
+  const result = [];
+  for (const [pid, progress] of liveProgress.entries()) {
+    result.push({ pid, ...progress });
+  }
+  return result;
+}
+
+function updateLiveProgress(pid, updates) {
+  const current = liveProgress.get(pid) || {
+    isRunning: false,
+    currentBlock: 0,
+    targetBlock: 0,
+    totalEventsFound: 0,
+    totalStakersFound: 0,
+    batchesCompleted: 0,
+    startedAt: null,
+    lastBatchAt: null,
+    lastBatchEventsFound: 0,
+    percentComplete: 0,
+  };
+  const updated = { ...current, ...updates };
+  // Calculate percent complete
+  if (updated.targetBlock > 0) {
+    updated.percentComplete = Math.min(100, (updated.currentBlock / updated.targetBlock) * 100);
+  }
+  liveProgress.set(pid, updated);
+  return updated;
+}
+
+function clearLiveProgress(pid) {
+  liveProgress.delete(pid);
+}
+
 const LP_STAKING_ABI = [
   'event Deposit(address indexed user, uint256 indexed pid, uint256 amount)',
   'event Withdraw(address indexed user, uint256 indexed pid, uint256 amount)',
@@ -291,8 +332,22 @@ export async function runIncrementalBatch(pid, options = {}) {
     const startBlock = progress.lastIndexedBlock;
     const endBlock = Math.min(startBlock + batchSize, latestBlock);
     
+    // Initialize live progress tracking
+    const existingLive = getLiveProgress(pid);
+    updateLiveProgress(pid, {
+      isRunning: true,
+      currentBlock: startBlock,
+      targetBlock: latestBlock,
+      totalEventsFound: existingLive?.totalEventsFound || progress.totalEventsIndexed || 0,
+      totalStakersFound: existingLive?.totalStakersFound || progress.totalStakersFound || 0,
+      batchesCompleted: existingLive?.batchesCompleted || 0,
+      startedAt: existingLive?.startedAt || new Date().toISOString(),
+      lastBatchAt: null,
+    });
+    
     if (startBlock >= latestBlock) {
       runningWorkers.set(indexerName, false);
+      updateLiveProgress(pid, { isRunning: false, currentBlock: latestBlock });
       return {
         status: 'complete',
         message: 'Already at latest block',
@@ -369,11 +424,27 @@ export async function runIncrementalBatch(pid, options = {}) {
       ));
     const totalStakers = uniqueStakersResult[0]?.count || 0;
     
+    const totalEventsIndexed = (progress.totalEventsIndexed || 0) + events.length;
+    
     await updateIndexerProgress(indexerName, {
       lastIndexedBlock: endBlock,
-      totalEventsIndexed: (progress.totalEventsIndexed || 0) + events.length,
+      totalEventsIndexed,
       totalStakersFound: totalStakers,
       status: endBlock >= latestBlock ? 'complete' : 'idle',
+    });
+    
+    // Update live progress with batch results
+    // isRunning stays true while auto-run is active AND more blocks remain
+    const currentLive = getLiveProgress(pid);
+    updateLiveProgress(pid, {
+      isRunning: isAutoRunning(pid) && endBlock < latestBlock,
+      currentBlock: endBlock,
+      targetBlock: latestBlock,
+      totalEventsFound: totalEventsIndexed,
+      totalStakersFound: totalStakers,
+      batchesCompleted: (currentLive?.batchesCompleted || 0) + 1,
+      lastBatchAt: new Date().toISOString(),
+      lastBatchEventsFound: events.length,
     });
     
     console.log(`[PoolStakerIndexer] Pool ${pid}: Complete. ${events.length} events, ${upserted} stakers updated in ${(runtimeMs / 1000).toFixed(1)}s`);
@@ -398,6 +469,12 @@ export async function runIncrementalBatch(pid, options = {}) {
     
     await updateIndexerProgress(indexerName, {
       status: 'error',
+      lastError: error.message,
+    });
+    
+    // Update live progress to show error state
+    updateLiveProgress(pid, {
+      isRunning: false,
       lastError: error.message,
     });
     
@@ -489,6 +566,9 @@ export function startAutoRun(pid, intervalMs = 5 * 60 * 1000) {
   
   console.log(`[PoolStakerIndexer] Starting auto-run for pool ${pid} (interval: ${intervalMs / 1000}s)`);
   
+  // Clear any stale live progress and start fresh
+  clearLiveProgress(pid);
+  
   const info = {
     intervalMs,
     startedAt: new Date().toISOString(),
@@ -551,6 +631,9 @@ export function stopAutoRun(pid) {
   
   clearInterval(info.interval);
   autoRunIntervals.delete(pid);
+  
+  // Clear live progress when stopping
+  clearLiveProgress(pid);
   
   console.log(`[PoolStakerIndexer] Stopped auto-run for pool ${pid} (completed ${info.runsCompleted} runs)`);
   

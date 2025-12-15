@@ -106,6 +106,20 @@ interface IndexerProgress {
   isComplete: boolean;
 }
 
+interface LiveProgress {
+  isRunning: boolean;
+  currentBlock: number;
+  targetBlock: number;
+  totalEventsFound: number;
+  totalStakersFound: number;
+  batchesCompleted: number;
+  startedAt: string | null;
+  lastBatchAt: string | null;
+  lastBatchEventsFound: number;
+  percentComplete: number;
+  lastError?: string;
+}
+
 interface AutoRunStatus {
   pid: number;
   isAutoRunning: boolean;
@@ -115,6 +129,7 @@ interface AutoRunStatus {
     lastRunAt: string | null;
     runsCompleted: number;
   } | null;
+  liveProgress: LiveProgress | null;
 }
 
 export default function PoolDetailPage() {
@@ -143,8 +158,10 @@ export default function PoolDetailPage() {
   const { data: autoRunData, refetch: refetchAutoRunStatus } = useQuery<AutoRunStatus>({
     queryKey: ["/api/admin/pool-staker-indexer", pid, "auto-run", "status"],
     enabled: !!pid,
-    refetchInterval: 10000, // Poll every 10 seconds when auto-run is active
+    refetchInterval: 2000, // Poll every 2 seconds for real-time progress updates
   });
+
+  const liveProgress = autoRunData?.liveProgress;
 
   const startAutoRunMutation = useMutation({
     mutationFn: async () => {
@@ -560,34 +577,80 @@ export default function PoolDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Live Progress Section - shown when indexing is running */}
+              {liveProgress && liveProgress.isRunning && (
+                <div className="p-4 rounded-lg bg-muted/50 border space-y-3" data-testid="section-live-progress">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                      <span className="font-medium">Indexing in Progress</span>
+                    </div>
+                    <Badge variant="default" data-testid="badge-percent-complete">
+                      {liveProgress.percentComplete.toFixed(1)}%
+                    </Badge>
+                  </div>
+                  <Progress value={liveProgress.percentComplete} className="h-2" data-testid="progress-indexer" />
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Current Block</p>
+                      <p className="font-semibold" data-testid="text-live-current-block">
+                        {liveProgress.currentBlock.toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Target Block</p>
+                      <p className="font-semibold" data-testid="text-live-target-block">
+                        {liveProgress.targetBlock.toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Events Found</p>
+                      <p className="font-semibold" data-testid="text-live-events">
+                        {liveProgress.totalEventsFound.toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Batches Completed</p>
+                      <p className="font-semibold" data-testid="text-live-batches">
+                        {liveProgress.batchesCompleted.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  {liveProgress.lastBatchAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Last batch: {new Date(liveProgress.lastBatchAt).toLocaleTimeString()} 
+                      ({liveProgress.lastBatchEventsFound} events)
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="grid gap-4 md:grid-cols-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Last Indexed Block</p>
                   <p className="text-lg font-semibold" data-testid="text-indexer-block">
-                    {currentProgress?.lastBlock?.toLocaleString() || "Not started"}
+                    {liveProgress?.currentBlock?.toLocaleString() || currentProgress?.lastBlock?.toLocaleString() || "Not started"}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Stakers Found</p>
                   <p className="text-lg font-semibold" data-testid="text-indexer-stakers">
-                    {currentProgress?.stakersFound?.toLocaleString() || "0"}
+                    {liveProgress?.totalStakersFound?.toLocaleString() || currentProgress?.stakersFound?.toLocaleString() || "0"}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Last Updated</p>
-                  <p className="text-lg font-semibold" data-testid="text-indexer-updated">
-                    {currentProgress?.lastUpdated 
-                      ? new Date(currentProgress.lastUpdated).toLocaleString()
-                      : "Never"}
+                  <p className="text-sm text-muted-foreground">Events Indexed</p>
+                  <p className="text-lg font-semibold" data-testid="text-indexer-events">
+                    {liveProgress?.totalEventsFound?.toLocaleString() || "0"}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
                   <Badge 
-                    variant={currentProgress?.isComplete ? "default" : "secondary"}
+                    variant={liveProgress?.isRunning ? "default" : currentProgress?.isComplete ? "default" : "secondary"}
                     data-testid="badge-indexer-status"
                   >
-                    {currentProgress?.isComplete ? "Complete" : "In Progress"}
+                    {liveProgress?.isRunning ? "Indexing..." : currentProgress?.isComplete ? "Complete" : "Idle"}
                   </Badge>
                 </div>
               </div>

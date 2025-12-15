@@ -6015,10 +6015,12 @@ async function startAdminWebServer() {
       const isRunning = poolStakerIndexer.isAutoRunning(pid);
       const allStatus = poolStakerIndexer.getAutoRunStatus();
       const poolStatus = allStatus.find(s => s.pid === pid) || null;
+      const liveProgress = poolStakerIndexer.getLiveProgress(pid);
       res.json({ 
         pid, 
         isAutoRunning: isRunning,
         autoRunInfo: poolStatus,
+        liveProgress,
       });
     } catch (error) {
       console.error('[API] Error getting pool auto-run status:', error);
