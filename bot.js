@@ -6037,8 +6037,8 @@ async function startAdminWebServer() {
   // POST /api/admin/pool-indexer/aggregate/trigger - Trigger aggregation for all pools
   app.post('/api/admin/pool-indexer/aggregate/trigger', isAdmin, async (req, res) => {
     try {
-      const { runAggregationForAllPools } = await import('./src/etl/aggregation/poolDailyAggregator.js');
-      const result = await runAggregationForAllPools();
+      const { computeAllPoolAggregates } = await import('./src/etl/aggregation/poolDailyAggregator.js');
+      const result = await computeAllPoolAggregates();
       res.json({ success: true, result });
     } catch (error) {
       console.error('[API] Error triggering aggregation:', error);
