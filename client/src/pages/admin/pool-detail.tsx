@@ -118,6 +118,7 @@ interface LiveProgress {
   lastBatchEventsFound: number;
   percentComplete: number;
   lastError?: string;
+  completedAt?: string | null;
 }
 
 interface AutoRunStatus {
@@ -577,15 +578,24 @@ export default function PoolDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Live Progress Section - shown when indexing is running */}
-              {liveProgress && liveProgress.isRunning && (
+              {/* Live Progress Section - shown when indexing is running or recently completed */}
+              {liveProgress && (liveProgress.isRunning || (liveProgress.completedAt && autoRunData?.isAutoRunning)) && (
                 <div className="p-4 rounded-lg bg-muted/50 border space-y-3" data-testid="section-live-progress">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <RefreshCw className="h-4 w-4 animate-spin text-primary" />
-                      <span className="font-medium">Indexing in Progress</span>
+                      {liveProgress.isRunning ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                          <span className="font-medium">Indexing in Progress</span>
+                        </>
+                      ) : (
+                        <>
+                          <Database className="h-4 w-4 text-green-500" />
+                          <span className="font-medium text-green-600 dark:text-green-400">Sync Complete</span>
+                        </>
+                      )}
                     </div>
-                    <Badge variant="default" data-testid="badge-percent-complete">
+                    <Badge variant={liveProgress.isRunning ? "default" : "secondary"} data-testid="badge-percent-complete">
                       {liveProgress.percentComplete.toFixed(1)}%
                     </Badge>
                   </div>
@@ -616,7 +626,12 @@ export default function PoolDetailPage() {
                       </p>
                     </div>
                   </div>
-                  {liveProgress.lastBatchAt && (
+                  {liveProgress.completedAt && !liveProgress.isRunning && (
+                    <p className="text-xs text-green-600 dark:text-green-400">
+                      Completed at {new Date(liveProgress.completedAt).toLocaleTimeString()} - waiting for new blocks
+                    </p>
+                  )}
+                  {liveProgress.lastBatchAt && liveProgress.isRunning && (
                     <p className="text-xs text-muted-foreground">
                       Last batch: {new Date(liveProgress.lastBatchAt).toLocaleTimeString()} 
                       ({liveProgress.lastBatchEventsFound} events)

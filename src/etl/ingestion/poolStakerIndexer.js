@@ -37,10 +37,11 @@ function updateLiveProgress(pid, updates) {
     lastBatchAt: null,
     lastBatchEventsFound: 0,
     percentComplete: 0,
+    completedAt: null,
   };
   const updated = { ...current, ...updates };
-  // Calculate percent complete
-  if (updated.targetBlock > 0) {
+  // Calculate percent complete only if not explicitly set
+  if (updates.percentComplete === undefined && updated.targetBlock > 0) {
     updated.percentComplete = Math.min(100, (updated.currentBlock / updated.targetBlock) * 100);
   }
   liveProgress.set(pid, updated);
@@ -347,7 +348,14 @@ export async function runIncrementalBatch(pid, options = {}) {
     
     if (startBlock >= latestBlock) {
       runningWorkers.set(indexerName, false);
-      updateLiveProgress(pid, { isRunning: false, currentBlock: latestBlock });
+      // Keep progress visible with completedAt for UI to show completion state
+      updateLiveProgress(pid, { 
+        isRunning: false, 
+        currentBlock: latestBlock,
+        targetBlock: latestBlock,
+        percentComplete: 100,
+        completedAt: new Date().toISOString(),
+      });
       return {
         status: 'complete',
         message: 'Already at latest block',
@@ -436,8 +444,9 @@ export async function runIncrementalBatch(pid, options = {}) {
     // Update live progress with batch results
     // isRunning stays true while auto-run is active AND more blocks remain
     const currentLive = getLiveProgress(pid);
+    const caughtUp = endBlock >= latestBlock;
     updateLiveProgress(pid, {
-      isRunning: isAutoRunning(pid) && endBlock < latestBlock,
+      isRunning: isAutoRunning(pid) && !caughtUp,
       currentBlock: endBlock,
       targetBlock: latestBlock,
       totalEventsFound: totalEventsIndexed,
@@ -445,6 +454,8 @@ export async function runIncrementalBatch(pid, options = {}) {
       batchesCompleted: (currentLive?.batchesCompleted || 0) + 1,
       lastBatchAt: new Date().toISOString(),
       lastBatchEventsFound: events.length,
+      percentComplete: caughtUp ? 100 : undefined,
+      completedAt: caughtUp ? new Date().toISOString() : currentLive?.completedAt,
     });
     
     console.log(`[PoolStakerIndexer] Pool ${pid}: Complete. ${events.length} events, ${upserted} stakers updated in ${(runtimeMs / 1000).toFixed(1)}s`);
