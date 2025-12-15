@@ -30,8 +30,11 @@ import {
   Database,
   Play,
   RotateCcw,
-  UserCheck
+  UserCheck,
+  Timer,
+  Power
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -103,11 +106,23 @@ interface IndexerProgress {
   isComplete: boolean;
 }
 
+interface AutoRunStatus {
+  pid: number;
+  isAutoRunning: boolean;
+  autoRunInfo: {
+    intervalMs: number;
+    startedAt: string;
+    lastRunAt: string | null;
+    runsCompleted: number;
+  } | null;
+}
+
 export default function PoolDetailPage() {
   const { pid } = useParams<{ pid: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [workerCount, setWorkerCount] = useState<number>(4);
+  const [autoRunInterval, setAutoRunInterval] = useState<string>("300000"); // 5 min default
 
   const { data: poolData, isLoading: poolLoading, refetch: refetchPool } = useQuery<PoolDetailResponse>({
     queryKey: ["/api/admin/pools", pid],
@@ -124,6 +139,69 @@ export default function PoolDetailPage() {
   });
 
   const currentProgress = indexerStatus?.progress?.find(p => p.pid === Number(pid));
+
+  const { data: autoRunData, refetch: refetchAutoRunStatus } = useQuery<AutoRunStatus>({
+    queryKey: ["/api/admin/pool-staker-indexer", pid, "auto-run", "status"],
+    enabled: !!pid,
+    refetchInterval: 10000, // Poll every 10 seconds when auto-run is active
+  });
+
+  const startAutoRunMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/auto-run/start`, { 
+        intervalMs: parseInt(autoRunInterval) 
+      });
+      const text = await res.text();
+      return text ? JSON.parse(text) : { success: true };
+    },
+    onSuccess: () => {
+      toast({
+        title: "Auto-Run Started",
+        description: `Indexer will run automatically every ${parseInt(autoRunInterval) / 60000} minutes.`,
+      });
+      refetchAutoRunStatus();
+      refetchIndexerStatus();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error Starting Auto-Run",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const stopAutoRunMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/auto-run/stop`);
+      const text = await res.text();
+      return text ? JSON.parse(text) : { success: true };
+    },
+    onSuccess: (data: unknown) => {
+      const result = data as { runsCompleted?: number };
+      toast({
+        title: "Auto-Run Stopped",
+        description: `Completed ${result.runsCompleted || 0} runs before stopping.`,
+      });
+      refetchAutoRunStatus();
+      refetchIndexerStatus();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error Stopping Auto-Run",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAutoRunToggle = (checked: boolean) => {
+    if (checked) {
+      startAutoRunMutation.mutate();
+    } else {
+      stopAutoRunMutation.mutate();
+    }
+  };
 
   const runBatchMutation = useMutation({
     mutationFn: async () => {
@@ -511,6 +589,44 @@ export default function PoolDetailPage() {
                   >
                     {currentProgress?.isComplete ? "Complete" : "In Progress"}
                   </Badge>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4 pt-4 border-t">
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                  <Power className={`h-4 w-4 ${autoRunData?.isAutoRunning ? 'text-green-500' : 'text-muted-foreground'}`} />
+                  <span className="text-sm font-medium">Auto-Run:</span>
+                  <Switch
+                    checked={autoRunData?.isAutoRunning || false}
+                    onCheckedChange={handleAutoRunToggle}
+                    disabled={startAutoRunMutation.isPending || stopAutoRunMutation.isPending}
+                    data-testid="switch-auto-run"
+                  />
+                  <Select
+                    value={autoRunInterval}
+                    onValueChange={setAutoRunInterval}
+                    disabled={autoRunData?.isAutoRunning}
+                  >
+                    <SelectTrigger className="w-28" data-testid="select-auto-run-interval">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="60000">1 min</SelectItem>
+                      <SelectItem value="300000">5 min</SelectItem>
+                      <SelectItem value="600000">10 min</SelectItem>
+                      <SelectItem value="1800000">30 min</SelectItem>
+                      <SelectItem value="3600000">1 hour</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {autoRunData?.isAutoRunning && autoRunData.autoRunInfo && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Timer className="h-3 w-3" />
+                      <span>{autoRunData.autoRunInfo.runsCompleted} runs</span>
+                      {autoRunData.autoRunInfo.lastRunAt && (
+                        <span>• Last: {new Date(autoRunData.autoRunInfo.lastRunAt).toLocaleTimeString()}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

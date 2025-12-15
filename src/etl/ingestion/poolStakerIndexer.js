@@ -459,3 +459,120 @@ export async function resetIndexerProgress(pid) {
   console.log(`[PoolStakerIndexer] Reset indexer for pool ${pid}`);
   return { reset: true };
 }
+
+// Auto-run scheduler system
+const autoRunIntervals = new Map();
+
+export function isAutoRunning(pid) {
+  return autoRunIntervals.has(pid);
+}
+
+export function getAutoRunStatus() {
+  const status = [];
+  for (const [pid, info] of autoRunIntervals.entries()) {
+    status.push({
+      pid,
+      intervalMs: info.intervalMs,
+      startedAt: info.startedAt,
+      lastRunAt: info.lastRunAt,
+      runsCompleted: info.runsCompleted,
+    });
+  }
+  return status;
+}
+
+export function startAutoRun(pid, intervalMs = 5 * 60 * 1000) {
+  if (autoRunIntervals.has(pid)) {
+    console.log(`[PoolStakerIndexer] Auto-run already running for pool ${pid}`);
+    return { status: 'already_running', pid };
+  }
+  
+  console.log(`[PoolStakerIndexer] Starting auto-run for pool ${pid} (interval: ${intervalMs / 1000}s)`);
+  
+  const info = {
+    intervalMs,
+    startedAt: new Date().toISOString(),
+    lastRunAt: null,
+    runsCompleted: 0,
+    interval: null,
+  };
+  
+  // Set the map entry FIRST to prevent duplicate starts
+  autoRunIntervals.set(pid, info);
+  
+  // Run immediately on start (async, non-blocking)
+  (async () => {
+    try {
+      console.log(`[PoolStakerIndexer] Auto-run initial batch for pool ${pid}`);
+      await runIncrementalBatch(pid);
+      info.lastRunAt = new Date().toISOString();
+      info.runsCompleted++;
+    } catch (err) {
+      console.error(`[PoolStakerIndexer] Auto-run initial error for pool ${pid}:`, err.message);
+    }
+  })();
+  
+  // Then run on interval
+  info.interval = setInterval(async () => {
+    // Skip if auto-run was stopped
+    if (!autoRunIntervals.has(pid)) {
+      return;
+    }
+    try {
+      console.log(`[PoolStakerIndexer] Auto-run batch for pool ${pid}`);
+      const result = await runIncrementalBatch(pid);
+      info.lastRunAt = new Date().toISOString();
+      info.runsCompleted++;
+      
+      // If we've caught up to the latest block, we can just wait for next interval
+      if (result.status === 'complete' && result.blocksRemaining === 0) {
+        console.log(`[PoolStakerIndexer] Pool ${pid} is fully synced, waiting for new blocks`);
+      }
+    } catch (err) {
+      console.error(`[PoolStakerIndexer] Auto-run error for pool ${pid}:`, err.message);
+    }
+  }, intervalMs);
+  
+  return { 
+    status: 'started', 
+    pid, 
+    intervalMs,
+    startedAt: info.startedAt,
+  };
+}
+
+export function stopAutoRun(pid) {
+  const info = autoRunIntervals.get(pid);
+  
+  if (!info) {
+    console.log(`[PoolStakerIndexer] No auto-run active for pool ${pid}`);
+    return { status: 'not_running', pid };
+  }
+  
+  clearInterval(info.interval);
+  autoRunIntervals.delete(pid);
+  
+  console.log(`[PoolStakerIndexer] Stopped auto-run for pool ${pid} (completed ${info.runsCompleted} runs)`);
+  
+  return { 
+    status: 'stopped', 
+    pid,
+    runsCompleted: info.runsCompleted,
+    startedAt: info.startedAt,
+    stoppedAt: new Date().toISOString(),
+  };
+}
+
+export function stopAllAutoRuns() {
+  const stopped = [];
+  
+  for (const [pid, info] of autoRunIntervals.entries()) {
+    clearInterval(info.interval);
+    stopped.push({ pid, runsCompleted: info.runsCompleted });
+  }
+  
+  autoRunIntervals.clear();
+  console.log(`[PoolStakerIndexer] Stopped all auto-runs (${stopped.length} pools)`);
+  
+  return { status: 'all_stopped', stopped };
+}

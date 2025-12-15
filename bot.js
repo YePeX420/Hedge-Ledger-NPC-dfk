@@ -5961,6 +5961,71 @@ async function startAdminWebServer() {
     }
   });
   
+  // POST /api/admin/pool-staker-indexer/:pid/auto-run/start - Start auto-run for a pool
+  app.post('/api/admin/pool-staker-indexer/:pid/auto-run/start', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      const intervalMs = parseInt(req.body.intervalMs) || 5 * 60 * 1000; // Default 5 minutes
+      console.log(`[HTTP] POST /api/admin/pool-staker-indexer/${pid}/auto-run/start (interval: ${intervalMs}ms)`);
+      const result = poolStakerIndexer.startAutoRun(pid, intervalMs);
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error starting auto-run:', error);
+      res.status(500).json({ error: 'Failed to start auto-run', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-staker-indexer/:pid/auto-run/stop - Stop auto-run for a pool
+  app.post('/api/admin/pool-staker-indexer/:pid/auto-run/stop', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      console.log(`[HTTP] POST /api/admin/pool-staker-indexer/${pid}/auto-run/stop`);
+      const result = poolStakerIndexer.stopAutoRun(pid);
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error stopping auto-run:', error);
+      res.status(500).json({ error: 'Failed to stop auto-run', details: error.message });
+    }
+  });
+  
+  // GET /api/admin/pool-staker-indexer/auto-run/status - Get all auto-run statuses
+  app.get('/api/admin/pool-staker-indexer/auto-run/status', isAdmin, async (req, res) => {
+    try {
+      const status = poolStakerIndexer.getAutoRunStatus();
+      res.json({ autoRuns: status });
+    } catch (error) {
+      console.error('[API] Error getting auto-run status:', error);
+      res.status(500).json({ error: 'Failed to get auto-run status', details: error.message });
+    }
+  });
+  
+  // GET /api/admin/pool-staker-indexer/:pid/auto-run/status - Get auto-run status for a specific pool
+  app.get('/api/admin/pool-staker-indexer/:pid/auto-run/status', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      const isRunning = poolStakerIndexer.isAutoRunning(pid);
+      const allStatus = poolStakerIndexer.getAutoRunStatus();
+      const poolStatus = allStatus.find(s => s.pid === pid) || null;
+      res.json({ 
+        pid, 
+        isAutoRunning: isRunning,
+        autoRunInfo: poolStatus,
+      });
+    } catch (error) {
+      console.error('[API] Error getting pool auto-run status:', error);
+      res.status(500).json({ error: 'Failed to get auto-run status', details: error.message });
+    }
+  });
+  
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
     try {
