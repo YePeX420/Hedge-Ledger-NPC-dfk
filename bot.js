@@ -6053,8 +6053,8 @@ async function startAdminWebServer() {
       if (pid === undefined) {
         return res.status(400).json({ error: 'pid is required' });
       }
-      const { executeUnifiedIndexerBatch } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
-      const result = await executeUnifiedIndexerBatch(parseInt(pid));
+      const { runUnifiedIncrementalBatch } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
+      const result = await runUnifiedIncrementalBatch(parseInt(pid));
       res.json({ success: true, result });
     } catch (error) {
       console.error('[API] Error triggering unified indexer:', error);
