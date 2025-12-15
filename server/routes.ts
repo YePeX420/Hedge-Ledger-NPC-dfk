@@ -1500,6 +1500,160 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // - src/modules/seasons/season.routes.ts (mounted in bot.js)
   // This file (routes.ts) is NOT used by bot.js - all routes are registered directly in bot.js
 
+  // ============================================================================
+  // POOL INDEXER ADMIN ROUTES
+  // ============================================================================
+  
+  // GET /api/admin/pool-indexer/status - Get all indexer progress
+  app.get("/api/admin/pool-indexer/status", isAdmin, async (req: any, res: any) => {
+    try {
+      const { getAllSwapIndexerProgress, getAllSwapLiveProgress, getSwapAutoRunStatus } = await import('../src/etl/ingestion/poolSwapIndexer.js');
+      const { getAllRewardIndexerProgress, getAllRewardLiveProgress, getRewardAutoRunStatus } = await import('../src/etl/ingestion/poolRewardIndexer.js');
+      const { getAllLatestAggregates } = await import('../src/etl/aggregation/poolDailyAggregator.js');
+      
+      const [swapProgress, rewardProgress, latestAggregatesRaw] = await Promise.all([
+        getAllSwapIndexerProgress(),
+        getAllRewardIndexerProgress(),
+        getAllLatestAggregates(),
+      ]);
+      
+      const swapLiveProgress = getAllSwapLiveProgress();
+      const rewardLiveProgress = getAllRewardLiveProgress();
+      const swapAutoRuns = getSwapAutoRunStatus();
+      const rewardAutoRuns = getRewardAutoRunStatus();
+      
+      // Flatten aggregates - innerJoin returns { pool_daily_aggregates: {...}, latest: {...} }
+      const aggregates = (latestAggregatesRaw || [])
+        .map((row: any) => row.pool_daily_aggregates || row.poolDailyAggregates || row)
+        .filter((agg: any) => agg && agg.pid !== undefined);
+      
+      res.json({
+        swapIndexers: swapProgress.map((p: any) => ({
+          ...p,
+          live: swapLiveProgress.find((l: any) => l.pid === p.pid) || null,
+          autoRun: swapAutoRuns.find((a: any) => a.pid === p.pid) || null,
+        })),
+        rewardIndexers: rewardProgress.map((p: any) => ({
+          ...p,
+          live: rewardLiveProgress.find((l: any) => l.pid === p.pid) || null,
+          autoRun: rewardAutoRuns.find((a: any) => a.pid === p.pid) || null,
+        })),
+        aggregates,
+      });
+    } catch (error: any) {
+      console.error('[API] Error fetching pool indexer status:', error);
+      res.status(500).json({ error: 'Failed to fetch pool indexer status', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-indexer/swap/trigger - Trigger swap indexer batch
+  app.post("/api/admin/pool-indexer/swap/trigger", isAdmin, async (req: any, res: any) => {
+    try {
+      const { pid } = req.body;
+      if (pid === undefined) {
+        return res.status(400).json({ error: 'pid is required' });
+      }
+      
+      const { runSwapIncrementalBatch } = await import('../src/etl/ingestion/poolSwapIndexer.js');
+      const result = await runSwapIncrementalBatch(parseInt(pid));
+      
+      res.json({ success: true, result });
+    } catch (error: any) {
+      console.error('[API] Error triggering swap indexer:', error);
+      res.status(500).json({ error: 'Failed to trigger swap indexer', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-indexer/swap/auto-run - Start/stop swap auto-run
+  app.post("/api/admin/pool-indexer/swap/auto-run", isAdmin, async (req: any, res: any) => {
+    try {
+      const { pid, action, intervalMs } = req.body;
+      if (pid === undefined || !action) {
+        return res.status(400).json({ error: 'pid and action are required' });
+      }
+      
+      const { startSwapAutoRun, stopSwapAutoRun } = await import('../src/etl/ingestion/poolSwapIndexer.js');
+      
+      let result;
+      if (action === 'start') {
+        result = startSwapAutoRun(parseInt(pid), intervalMs || 5 * 60 * 1000);
+      } else if (action === 'stop') {
+        result = stopSwapAutoRun(parseInt(pid));
+      } else {
+        return res.status(400).json({ error: 'action must be start or stop' });
+      }
+      
+      res.json({ success: true, result });
+    } catch (error: any) {
+      console.error('[API] Error managing swap auto-run:', error);
+      res.status(500).json({ error: 'Failed to manage swap auto-run', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-indexer/reward/trigger - Trigger reward indexer batch
+  app.post("/api/admin/pool-indexer/reward/trigger", isAdmin, async (req: any, res: any) => {
+    try {
+      const { pid } = req.body;
+      if (pid === undefined) {
+        return res.status(400).json({ error: 'pid is required' });
+      }
+      
+      const { runRewardIncrementalBatch } = await import('../src/etl/ingestion/poolRewardIndexer.js');
+      const result = await runRewardIncrementalBatch(parseInt(pid));
+      
+      res.json({ success: true, result });
+    } catch (error: any) {
+      console.error('[API] Error triggering reward indexer:', error);
+      res.status(500).json({ error: 'Failed to trigger reward indexer', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-indexer/reward/auto-run - Start/stop reward auto-run
+  app.post("/api/admin/pool-indexer/reward/auto-run", isAdmin, async (req: any, res: any) => {
+    try {
+      const { pid, action, intervalMs } = req.body;
+      if (pid === undefined || !action) {
+        return res.status(400).json({ error: 'pid and action are required' });
+      }
+      
+      const { startRewardAutoRun, stopRewardAutoRun } = await import('../src/etl/ingestion/poolRewardIndexer.js');
+      
+      let result;
+      if (action === 'start') {
+        result = startRewardAutoRun(parseInt(pid), intervalMs || 5 * 60 * 1000);
+      } else if (action === 'stop') {
+        result = stopRewardAutoRun(parseInt(pid));
+      } else {
+        return res.status(400).json({ error: 'action must be start or stop' });
+      }
+      
+      res.json({ success: true, result });
+    } catch (error: any) {
+      console.error('[API] Error managing reward auto-run:', error);
+      res.status(500).json({ error: 'Failed to manage reward auto-run', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/pool-indexer/aggregate/trigger - Trigger aggregation for all pools
+  app.post("/api/admin/pool-indexer/aggregate/trigger", isAdmin, async (req: any, res: any) => {
+    try {
+      const { pid, date } = req.body;
+      const { computeDailyAggregate, computeAllPoolAggregates } = await import('../src/etl/aggregation/poolDailyAggregator.js');
+      
+      let result;
+      if (pid !== undefined) {
+        result = await computeDailyAggregate(parseInt(pid), date || null);
+      } else {
+        result = await computeAllPoolAggregates(date || null);
+      }
+      
+      res.json({ success: true, result });
+    } catch (error: any) {
+      console.error('[API] Error triggering aggregation:', error);
+      res.status(500).json({ error: 'Failed to trigger aggregation', details: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

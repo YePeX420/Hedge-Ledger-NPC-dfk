@@ -23,6 +23,7 @@ import AdminTokens from "@/pages/admin/tokens";
 import AdminExtractors from "@/pages/admin/extractors";
 import AdminPools from "@/pages/admin/pools";
 import PoolDetailPage from "@/pages/admin/pool-detail";
+import AdminPoolIndexer from "@/pages/admin/pool-indexer";
 import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
 import ChallengesPage from "@/pages/challenges";
@@ -168,6 +169,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminPools />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/pool-indexer">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminPoolIndexer />
           </ProtectedAdminPage>
         )}
       </Route>
