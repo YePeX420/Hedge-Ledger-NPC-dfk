@@ -15,7 +15,9 @@ import {
   Swords,
   PieChart,
   Coins,
-  TrendingDown
+  TrendingDown,
+  Droplets,
+  Database
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -27,6 +29,8 @@ const navItems = [
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/value-allocation', label: 'Value Allocation', icon: PieChart },
   { href: '/admin/tokens', label: 'Token Registry', icon: Coins },
+  { href: '/admin/pools', label: 'Pools', icon: Droplets },
+  { href: '/admin/pool-indexer', label: 'Pool Indexer', icon: Database },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
   { href: '/admin/expenses', label: 'Expenses', icon: Receipt },
