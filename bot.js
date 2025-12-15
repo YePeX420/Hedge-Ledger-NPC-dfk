@@ -8635,7 +8635,34 @@ async function startAdminWebServer() {
     
     // Auto-start parallel sync if not running and indexing is incomplete
     await autoStartParallelSync();
+    
+    // Auto-start unified pool indexer for all pools
+    await autoStartUnifiedPoolIndexer();
   });
+  
+  // Auto-start unified pool indexer on server startup
+  async function autoStartUnifiedPoolIndexer() {
+    try {
+      // Wait a bit for database connections to stabilize
+      await new Promise(r => setTimeout(r, 5000));
+      
+      console.log('[UnifiedIndexer] Auto-starting unified pool indexers...');
+      const { startAllUnifiedAutoRun, getUnifiedAutoRunStatus } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
+      
+      // Check if any are already running
+      const currentStatus = getUnifiedAutoRunStatus();
+      if (currentStatus.length > 0) {
+        console.log(`[UnifiedIndexer] ${currentStatus.length} workers already running, skipping auto-start`);
+        return;
+      }
+      
+      // Start all pool indexers with 5 minute interval
+      const result = startAllUnifiedAutoRun(5 * 60 * 1000);
+      console.log(`[UnifiedIndexer] Auto-start complete: ${result.started} workers started`);
+    } catch (err) {
+      console.error('[UnifiedIndexer] Auto-start error:', err.message);
+    }
+  }
   
   // Auto-start parallel sync on server startup
   async function autoStartParallelSync() {

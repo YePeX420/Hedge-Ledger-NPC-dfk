@@ -786,3 +786,29 @@ export function stopAllUnifiedAutoRuns() {
   console.log(`[UnifiedIndexer] Stopped all auto-runs (${stopped.length} pools)`);
   return { status: 'all_stopped', stopped };
 }
+
+// All known pool IDs (Master Gardener V2 pools)
+const ALL_POOL_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+
+export function startAllUnifiedAutoRun(intervalMs = 5 * 60 * 1000) {
+  console.log(`[UnifiedIndexer] Starting auto-run for all ${ALL_POOL_IDS.length} pools...`);
+  
+  const results = [];
+  for (const pid of ALL_POOL_IDS) {
+    const result = startUnifiedAutoRun(pid, intervalMs);
+    results.push({ pid, ...result });
+  }
+  
+  const started = results.filter(r => r.status === 'started').length;
+  const alreadyRunning = results.filter(r => r.status === 'already_running').length;
+  
+  console.log(`[UnifiedIndexer] Started ${started} workers, ${alreadyRunning} already running`);
+  
+  return {
+    status: 'all_started',
+    started,
+    alreadyRunning,
+    total: ALL_POOL_IDS.length,
+    results,
+  };
+}
