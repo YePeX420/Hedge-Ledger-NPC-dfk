@@ -6101,6 +6101,18 @@ async function startAdminWebServer() {
     }
   });
   
+  // GET /api/admin/pool-indexer/unified/status - Get unified indexer worker status
+  app.get('/api/admin/pool-indexer/unified/status', isAdmin, async (req, res) => {
+    try {
+      const { getAutoRunStatus } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
+      const status = getAutoRunStatus();
+      res.json(status);
+    } catch (error) {
+      console.error('[API] Error getting unified indexer status:', error);
+      res.status(500).json({ error: 'Failed to get unified indexer status', details: error.message });
+    }
+  });
+
   // GET /api/admin/pool-indexer/unified/stakers/:pid - Get stakers for a pool
   app.get('/api/admin/pool-indexer/unified/stakers/:pid', isAdmin, async (req, res) => {
     try {

@@ -127,6 +127,17 @@ interface IndexerStatus {
   aggregates: DailyAggregate[];
 }
 
+interface UnifiedWorkerStatus {
+  activeWorkers: number;
+  pools: Array<{
+    pid: number;
+    intervalMs: number;
+    startedAt: string;
+    lastRunAt: string | null;
+    runsCompleted: number;
+  }>;
+}
+
 function StatusBadge({ status, isRunning }: { status: string; isRunning?: boolean }) {
   if (isRunning) {
     return (
@@ -507,6 +518,11 @@ export default function AdminPoolIndexer() {
     refetchInterval: 5000,
   });
   
+  const { data: workerStatus } = useQuery<UnifiedWorkerStatus>({
+    queryKey: ["/api/admin/pool-indexer/unified/status"],
+    refetchInterval: 5000,
+  });
+  
   const triggerSwapMutation = useMutation({
     mutationFn: async (pid: number) => {
       return apiRequest("POST", "/api/admin/pool-indexer/swap/trigger", { pid });
@@ -662,7 +678,26 @@ export default function AdminPoolIndexer() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Active Workers</CardTitle>
+            <Zap className={`h-4 w-4 ${workerStatus?.activeWorkers ? 'text-green-500' : 'text-muted-foreground'}`} />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-active-workers">
+              {workerStatus?.activeWorkers ?? 0}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {workerStatus?.activeWorkers ? (
+                <>unified auto-run{workerStatus.activeWorkers > 1 ? 's' : ''}</>
+              ) : (
+                'no workers running'
+              )}
+            </p>
+          </CardContent>
+        </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <CardTitle className="text-sm font-medium">Swap Events</CardTitle>
