@@ -26,8 +26,22 @@ import {
   Zap, 
   Users,
   Droplets,
-  ExternalLink
+  ExternalLink,
+  Database,
+  Play,
+  RotateCcw,
+  UserCheck
 } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface PoolInfo {
   pid: number;
@@ -81,9 +95,19 @@ interface PoolDetailResponse {
   aprBreakdown: APRBreakdown;
 }
 
+interface IndexerProgress {
+  pid: number;
+  lastBlock: number;
+  stakersFound: number;
+  lastUpdated: string;
+  isComplete: boolean;
+}
+
 export default function PoolDetailPage() {
   const { pid } = useParams<{ pid: string }>();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const [workerCount, setWorkerCount] = useState<number>(4);
 
   const { data: poolData, isLoading: poolLoading, refetch: refetchPool } = useQuery<PoolDetailResponse>({
     queryKey: ["/api/admin/pools", pid],
@@ -93,6 +117,82 @@ export default function PoolDetailPage() {
   const { data: stakersData, isLoading: stakersLoading, refetch: refetchStakers, isFetching: stakersFetching } = useQuery<AllStakersResponse>({
     queryKey: ["/api/admin/pools", pid, "all-stakers"],
     enabled: !!pid,
+  });
+
+  const { data: indexerStatus, refetch: refetchIndexerStatus } = useQuery<{ progress: IndexerProgress[] }>({
+    queryKey: ["/api/admin/pool-staker-indexer/status"],
+  });
+
+  const currentProgress = indexerStatus?.progress?.find(p => p.pid === Number(pid));
+
+  const runBatchMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/run-batch`, { workers: workerCount });
+      const text = await res.text();
+      return text ? JSON.parse(text) : { success: true };
+    },
+    onSuccess: (data: unknown) => {
+      const result = data as { newStakers?: number; message?: string };
+      toast({
+        title: "Indexer Batch Complete",
+        description: `Found ${result.newStakers || 0} new stakers. ${result.message || ''}`,
+      });
+      refetchIndexerStatus();
+      refetchStakers();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Indexer Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateNamesMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/update-names`);
+      const text = await res.text();
+      return text ? JSON.parse(text) : { success: true };
+    },
+    onSuccess: (data: unknown) => {
+      const result = data as { updated?: number };
+      toast({
+        title: "Names Updated",
+        description: `Updated ${result.updated || 0} summoner names.`,
+      });
+      refetchStakers();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const resetIndexMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/pool-staker-indexer/${pid}/reset`);
+      const text = await res.text();
+      return text ? JSON.parse(text) : { success: true };
+    },
+    onSuccess: () => {
+      toast({
+        title: "Index Reset",
+        description: "Pool staker index has been reset. Run indexer to rebuild.",
+      });
+      refetchIndexerStatus();
+      refetchStakers();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Reset Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const formatCurrency = (value: number | null | undefined) => {
@@ -368,6 +468,111 @@ export default function PoolDetailPage() {
                   </TableBody>
                 </Table>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Staker Indexer
+              </CardTitle>
+              <CardDescription>
+                Index stakers from blockchain events for fast lookups and summoner name resolution
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Last Indexed Block</p>
+                  <p className="text-lg font-semibold" data-testid="text-indexer-block">
+                    {currentProgress?.lastBlock?.toLocaleString() || "Not started"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Stakers Found</p>
+                  <p className="text-lg font-semibold" data-testid="text-indexer-stakers">
+                    {currentProgress?.stakersFound?.toLocaleString() || "0"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Last Updated</p>
+                  <p className="text-lg font-semibold" data-testid="text-indexer-updated">
+                    {currentProgress?.lastUpdated 
+                      ? new Date(currentProgress.lastUpdated).toLocaleString()
+                      : "Never"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <Badge 
+                    variant={currentProgress?.isComplete ? "default" : "secondary"}
+                    data-testid="badge-indexer-status"
+                  >
+                    {currentProgress?.isComplete ? "Complete" : "In Progress"}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4 pt-4 border-t">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Workers:</span>
+                  <Select
+                    value={workerCount.toString()}
+                    onValueChange={(val) => setWorkerCount(Number(val))}
+                  >
+                    <SelectTrigger className="w-20" data-testid="select-workers">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[1, 2, 4, 6, 8].map((n) => (
+                        <SelectItem key={n} value={n.toString()}>{n}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Button
+                  onClick={() => runBatchMutation.mutate()}
+                  disabled={runBatchMutation.isPending}
+                  data-testid="button-run-indexer"
+                >
+                  {runBatchMutation.isPending ? (
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="mr-2 h-4 w-4" />
+                  )}
+                  {runBatchMutation.isPending ? "Indexing..." : "Run Indexer Batch"}
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={() => updateNamesMutation.mutate()}
+                  disabled={updateNamesMutation.isPending}
+                  data-testid="button-update-names"
+                >
+                  {updateNamesMutation.isPending ? (
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <UserCheck className="mr-2 h-4 w-4" />
+                  )}
+                  {updateNamesMutation.isPending ? "Updating..." : "Update Summoner Names"}
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={() => resetIndexMutation.mutate()}
+                  disabled={resetIndexMutation.isPending}
+                  data-testid="button-reset-index"
+                >
+                  {resetIndexMutation.isPending ? (
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Reset Index
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
