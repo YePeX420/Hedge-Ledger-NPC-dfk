@@ -44,7 +44,10 @@ export default function AdminPools() {
     queryKey: ["/api/admin/pools"],
   });
 
-  const formatCurrency = (value: number) => {
+  const formatCurrency = (value: number | undefined | null) => {
+    if (value === undefined || value === null || isNaN(value)) {
+      return "$0.00";
+    }
     if (value >= 1000000) {
       return `$${(value / 1000000).toFixed(2)}M`;
     } else if (value >= 1000) {
@@ -53,7 +56,10 @@ export default function AdminPools() {
     return `$${value.toFixed(2)}`;
   };
 
-  const formatAPR = (value: number) => {
+  const formatAPR = (value: number | undefined | null) => {
+    if (value === undefined || value === null || isNaN(value)) {
+      return "0.00%";
+    }
     return `${(value * 100).toFixed(2)}%`;
   };
 
