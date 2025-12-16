@@ -8,7 +8,7 @@ const MASTER_GARDENER_V2 = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
 
 const DFK_GENESIS_BLOCK = 0;
 const BLOCKS_PER_QUERY = 2000;
-const INCREMENTAL_BATCH_SIZE = 10000;
+const INCREMENTAL_BATCH_SIZE = 100000; // 10x batch size for faster indexing
 
 const MASTER_GARDENER_ABI = [
   'event Deposit(address indexed user, uint256 indexed pid, uint256 amount)',
