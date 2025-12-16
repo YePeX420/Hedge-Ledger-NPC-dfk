@@ -8656,8 +8656,8 @@ async function startAdminWebServer() {
         return;
       }
       
-      // Start all pool indexers with 5 minute interval
-      const result = startAllUnifiedAutoRun(5 * 60 * 1000);
+      // Start all pool indexers (uses module's default 1 minute interval)
+      const result = startAllUnifiedAutoRun();
       console.log(`[UnifiedIndexer] Auto-start complete: ${result.started} workers started`);
     } catch (err) {
       console.error('[UnifiedIndexer] Auto-start error:', err.message);

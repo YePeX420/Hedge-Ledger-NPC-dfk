@@ -8,7 +8,8 @@ const MASTER_GARDENER_V2 = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
 
 const DFK_GENESIS_BLOCK = 0;
 const BLOCKS_PER_QUERY = 2000;
-const INCREMENTAL_BATCH_SIZE = 100000; // 10x batch size for faster indexing
+const INCREMENTAL_BATCH_SIZE = 200000; // 200k blocks per batch for faster indexing
+const AUTO_RUN_INTERVAL_MS = 60 * 1000; // 1 minute between batches
 
 const MASTER_GARDENER_ABI = [
   'event Deposit(address indexed user, uint256 indexed pid, uint256 amount)',
@@ -684,7 +685,7 @@ export function getUnifiedAutoRunStatus() {
   return status;
 }
 
-export function startUnifiedAutoRun(pid, intervalMs = 5 * 60 * 1000) {
+export function startUnifiedAutoRun(pid, intervalMs = AUTO_RUN_INTERVAL_MS) {
   const key = `unified_${pid}`;
   if (autoRunIntervals.has(key)) {
     console.log(`[UnifiedIndexer] Auto-run already running for pool ${pid}`);
@@ -790,7 +791,7 @@ export function stopAllUnifiedAutoRuns() {
 // All known pool IDs (Master Gardener V2 pools)
 const ALL_POOL_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
-export function startAllUnifiedAutoRun(intervalMs = 5 * 60 * 1000) {
+export function startAllUnifiedAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) {
   console.log(`[UnifiedIndexer] Starting auto-run for all ${ALL_POOL_IDS.length} pools...`);
   
   const results = [];
