@@ -6104,11 +6104,20 @@ async function startAdminWebServer() {
   // GET /api/admin/pool-indexer/unified/status - Get unified indexer worker status
   app.get('/api/admin/pool-indexer/unified/status', isAdmin, async (req, res) => {
     try {
-      const { getUnifiedAutoRunStatus, WORKERS_PER_POOL } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
+      const { 
+        getUnifiedAutoRunStatus, 
+        WORKERS_PER_POOL, 
+        MIN_WORKERS_PER_POOL,
+        getPoolWorkerCountSummary 
+      } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
       const workers = getUnifiedAutoRunStatus();
+      const workerSummary = getPoolWorkerCountSummary();
       res.json({
         activeWorkers: workers.length,
-        workersPerPool: WORKERS_PER_POOL,
+        maxWorkersPerPool: WORKERS_PER_POOL,
+        minWorkersPerPool: MIN_WORKERS_PER_POOL,
+        workersPerPool: WORKERS_PER_POOL, // backward compat
+        workerSummary,
         pools: workers,
       });
     } catch (error) {

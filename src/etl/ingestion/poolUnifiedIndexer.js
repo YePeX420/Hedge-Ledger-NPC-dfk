@@ -10,7 +10,11 @@ const DFK_GENESIS_BLOCK = 0;
 const BLOCKS_PER_QUERY = 2000;
 const INCREMENTAL_BATCH_SIZE = 200000; // 200k blocks per batch for faster indexing
 const AUTO_RUN_INTERVAL_MS = 60 * 1000; // 1 minute between batches
-export const WORKERS_PER_POOL = 3; // Number of parallel workers per pool
+export const WORKERS_PER_POOL = 5; // Maximum number of parallel workers per pool
+export const MIN_WORKERS_PER_POOL = 3; // Minimum workers (fallback on RPC failures)
+
+// Track actual worker counts per pool (may vary from MIN to MAX based on RPC capacity)
+const poolWorkerCounts = new Map();
 
 const MASTER_GARDENER_ABI = [
   'event Deposit(address indexed user, uint256 indexed pid, uint256 amount)',
@@ -771,8 +775,9 @@ export function getUnifiedAutoRunStatus() {
   for (const [key, info] of autoRunIntervals.entries()) {
     const match = key.match(/unified_(\d+)_w(\d+)/);
     if (match) {
+      const pid = parseInt(match[1]);
       status.push({
-        pid: parseInt(match[1]),
+        pid,
         workerId: parseInt(match[2]),
         intervalMs: info.intervalMs,
         startedAt: info.startedAt,
@@ -784,6 +789,25 @@ export function getUnifiedAutoRunStatus() {
     }
   }
   return status.sort((a, b) => a.pid === b.pid ? a.workerId - b.workerId : a.pid - b.pid);
+}
+
+// Get actual worker count for a pool (may differ from WORKERS_PER_POOL due to RPC failsafe)
+export function getPoolWorkerCount(pid) {
+  return poolWorkerCounts.get(pid) || 0;
+}
+
+// Get summary of actual workers per pool
+export function getPoolWorkerCountSummary() {
+  const summary = {};
+  for (const [pid, count] of poolWorkerCounts.entries()) {
+    summary[pid] = count;
+  }
+  return {
+    maxWorkersPerPool: WORKERS_PER_POOL,
+    minWorkersPerPool: MIN_WORKERS_PER_POOL,
+    poolCounts: summary,
+    totalWorkers: Array.from(poolWorkerCounts.values()).reduce((sum, c) => sum + c, 0),
+  };
 }
 
 // Start a single worker for a pool with specific block range
@@ -812,10 +836,12 @@ export async function startUnifiedWorkerAutoRun(pid, workerId, rangeStart, range
   
   autoRunIntervals.set(key, info);
   
-  // Calculate offset to stagger workers (distributes 42 workers across the interval period)
+  // Calculate offset to stagger workers (distributes up to 70 workers across the interval period)
   // Each worker starts at a different time offset to avoid RPC saturation
-  const workerIndex = pid * WORKERS_PER_POOL + workerId; // 0-41
-  const offsetMs = Math.floor((workerIndex / 42) * intervalMs); // Spread evenly
+  const totalPools = 14; // ALL_POOL_IDS.length
+  const maxTotalWorkers = totalPools * WORKERS_PER_POOL; // 70 max (14 pools × 5 workers)
+  const workerIndex = pid * WORKERS_PER_POOL + workerId; // 0-69
+  const offsetMs = Math.floor((workerIndex / maxTotalWorkers) * intervalMs); // Spread evenly
   
   // Run initial batch with offset delay
   (async () => {
@@ -852,28 +878,76 @@ export async function startUnifiedWorkerAutoRun(pid, workerId, rangeStart, range
   return { status: 'started', pid, workerId, rangeStart, rangeEnd, intervalMs, offsetMs };
 }
 
-// Start all workers for a single pool (splits block range among WORKERS_PER_POOL workers)
-export async function startPoolWorkersAutoRun(pid, intervalMs = AUTO_RUN_INTERVAL_MS) {
-  const latestBlock = await getLatestBlock();
-  const blocksPerWorker = Math.ceil(latestBlock / WORKERS_PER_POOL);
+// Start all workers for a single pool with RPC failsafe
+// Tries to start WORKERS_PER_POOL (5) workers, falls back to fewer on RPC failures (min: MIN_WORKERS_PER_POOL)
+export async function startPoolWorkersAutoRun(pid, intervalMs = AUTO_RUN_INTERVAL_MS, targetWorkers = WORKERS_PER_POOL) {
+  let workerCount = Math.min(targetWorkers, WORKERS_PER_POOL);
+  let latestBlock;
   
-  console.log(`[UnifiedIndexer] Starting ${WORKERS_PER_POOL} workers for pool ${pid} (${blocksPerWorker.toLocaleString()} blocks each)`);
+  // Try to get latest block with retry on failure
+  try {
+    latestBlock = await getLatestBlock();
+  } catch (err) {
+    console.error(`[UnifiedIndexer] Failed to get latest block for pool ${pid}:`, err.message);
+    // Retry with backoff
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      latestBlock = await getLatestBlock();
+    } catch (err2) {
+      console.error(`[UnifiedIndexer] RPC unavailable, cannot start pool ${pid}`);
+      return { status: 'rpc_failed', pid, error: err2.message };
+    }
+  }
+  
+  const blocksPerWorker = Math.ceil(latestBlock / workerCount);
+  
+  console.log(`[UnifiedIndexer] Starting ${workerCount} workers for pool ${pid} (${blocksPerWorker.toLocaleString()} blocks each)`);
   
   const results = [];
-  for (let w = 0; w < WORKERS_PER_POOL; w++) {
+  let consecutiveFailures = 0;
+  const MAX_CONSECUTIVE_FAILURES = 2;
+  
+  for (let w = 0; w < workerCount; w++) {
     const rangeStart = w * blocksPerWorker;
     // Last worker tracks to latest, others have fixed end
-    const rangeEnd = (w === WORKERS_PER_POOL - 1) ? null : (w + 1) * blocksPerWorker;
+    const rangeEnd = (w === workerCount - 1) ? null : (w + 1) * blocksPerWorker;
     
     // Stagger worker starts by 500ms to avoid RPC burst
     await new Promise(r => setTimeout(r, 500));
     
-    const result = await startUnifiedWorkerAutoRun(pid, w, rangeStart, rangeEnd, intervalMs);
-    results.push(result);
+    try {
+      const result = await startUnifiedWorkerAutoRun(pid, w, rangeStart, rangeEnd, intervalMs);
+      results.push(result);
+      consecutiveFailures = 0; // Reset on success
+    } catch (err) {
+      consecutiveFailures++;
+      console.error(`[UnifiedIndexer] Worker ${w} failed to start for pool ${pid}:`, err.message);
+      
+      // If we hit consecutive failures and can reduce workers, restart with fewer
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && workerCount > MIN_WORKERS_PER_POOL) {
+        const newWorkerCount = workerCount - 1;
+        console.warn(`[UnifiedIndexer] RPC failsafe: Reducing pool ${pid} from ${workerCount} to ${newWorkerCount} workers`);
+        
+        // Stop already-started workers for this pool
+        for (const r of results) {
+          if (r.status === 'started') {
+            stopUnifiedAutoRun(pid, r.workerId);
+          }
+        }
+        
+        // Retry with fewer workers after a short delay
+        await new Promise(r => setTimeout(r, 3000));
+        return startPoolWorkersAutoRun(pid, intervalMs, newWorkerCount);
+      }
+      
+      results.push({ status: 'failed', pid, workerId: w, error: err.message });
+    }
   }
   
   const started = results.filter(r => r.status === 'started').length;
-  return { status: 'pool_started', pid, workersStarted: started, results };
+  poolWorkerCounts.set(pid, started); // Track actual workers for this pool
+  
+  return { status: 'pool_started', pid, workersStarted: started, targetWorkers: workerCount, results };
 }
 
 // Legacy single-worker start (for backward compatibility)
@@ -948,10 +1022,11 @@ export function stopAllUnifiedAutoRuns() {
 // All known pool IDs (Master Gardener V2 pools)
 const ALL_POOL_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
-// Start all workers for all pools (14 pools × 3 workers = 42 total workers)
+// Start all workers for all pools (14 pools × up to 5 workers = up to 70 total workers)
+// RPC failsafe may reduce workers per pool to minimum of 3
 export async function startAllUnifiedAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) {
-  const totalWorkers = ALL_POOL_IDS.length * WORKERS_PER_POOL;
-  console.log(`[UnifiedIndexer] Starting ${totalWorkers} workers (${WORKERS_PER_POOL} per pool × ${ALL_POOL_IDS.length} pools)...`);
+  const maxWorkers = ALL_POOL_IDS.length * WORKERS_PER_POOL;
+  console.log(`[UnifiedIndexer] Starting up to ${maxWorkers} workers (max ${WORKERS_PER_POOL} per pool × ${ALL_POOL_IDS.length} pools, min ${MIN_WORKERS_PER_POOL} on RPC failures)...`);
   
   const results = [];
   for (const pid of ALL_POOL_IDS) {
@@ -961,7 +1036,8 @@ export async function startAllUnifiedAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) 
     await new Promise(r => setTimeout(r, 1000));
   }
   
-  const started = results.reduce((sum, r) => sum + r.workersStarted, 0);
+  const started = results.reduce((sum, r) => sum + (r.workersStarted || 0), 0);
+  const workerSummary = getPoolWorkerCountSummary();
   
   console.log(`[UnifiedIndexer] Started ${started} workers across ${ALL_POOL_IDS.length} pools`);
   
@@ -969,7 +1045,9 @@ export async function startAllUnifiedAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) 
     status: 'all_started',
     started,
     totalPools: ALL_POOL_IDS.length,
-    workersPerPool: WORKERS_PER_POOL,
+    maxWorkersPerPool: WORKERS_PER_POOL,
+    minWorkersPerPool: MIN_WORKERS_PER_POOL,
+    workerSummary,
     results,
   };
 }
