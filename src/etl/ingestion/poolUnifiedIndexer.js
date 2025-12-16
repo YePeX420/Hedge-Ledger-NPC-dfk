@@ -10,6 +10,7 @@ const DFK_GENESIS_BLOCK = 0;
 const BLOCKS_PER_QUERY = 2000;
 const INCREMENTAL_BATCH_SIZE = 200000; // 200k blocks per batch for faster indexing
 const AUTO_RUN_INTERVAL_MS = 60 * 1000; // 1 minute between batches
+const WORKERS_PER_POOL = 3; // Number of parallel workers per pool
 
 const MASTER_GARDENER_ABI = [
   'event Deposit(address indexed user, uint256 indexed pid, uint256 amount)',
@@ -49,28 +50,72 @@ const PROFILES_ABI = [
 
 const liveProgress = new Map();
 
-export function getUnifiedLiveProgress(pid) {
-  return liveProgress.get(`unified_${pid}`) || null;
+// Generate key for a specific worker (workerId=0 for legacy single-worker mode)
+function getWorkerKey(pid, workerId = 0) {
+  return `unified_${pid}_w${workerId}`;
+}
+
+export function getUnifiedLiveProgress(pid, workerId = null) {
+  // If workerId is specified, get that specific worker
+  if (workerId !== null) {
+    return liveProgress.get(getWorkerKey(pid, workerId)) || null;
+  }
+  // Otherwise return combined progress for all workers of this pool
+  const workers = [];
+  for (let w = 0; w < WORKERS_PER_POOL; w++) {
+    const progress = liveProgress.get(getWorkerKey(pid, w));
+    if (progress) workers.push({ workerId: w, ...progress });
+  }
+  // Also check legacy key (for backward compatibility)
+  const legacy = liveProgress.get(`unified_${pid}`);
+  if (legacy && workers.length === 0) {
+    return legacy;
+  }
+  if (workers.length === 0) return null;
+  
+  // Aggregate worker progress
+  const aggregated = {
+    isRunning: workers.some(w => w.isRunning),
+    currentBlock: Math.max(...workers.map(w => w.currentBlock || 0)),
+    targetBlock: Math.max(...workers.map(w => w.targetBlock || 0)),
+    genesisBlock: Math.min(...workers.map(w => w.genesisBlock || 0)),
+    stakersFound: workers.reduce((sum, w) => sum + (w.stakersFound || 0), 0),
+    swapsFound: workers.reduce((sum, w) => sum + (w.swapsFound || 0), 0),
+    rewardsFound: workers.reduce((sum, w) => sum + (w.rewardsFound || 0), 0),
+    batchesCompleted: workers.reduce((sum, w) => sum + (w.batchesCompleted || 0), 0),
+    startedAt: workers[0]?.startedAt,
+    lastBatchAt: workers.map(w => w.lastBatchAt).filter(Boolean).sort().pop() || null,
+    percentComplete: workers.reduce((sum, w) => sum + (w.percentComplete || 0), 0) / workers.length,
+    completedAt: workers.every(w => w.completedAt) ? workers.map(w => w.completedAt).sort().pop() : null,
+    workers,
+  };
+  return aggregated;
 }
 
 export function getAllUnifiedLiveProgress() {
   const result = [];
-  for (const [key, progress] of liveProgress.entries()) {
-    if (key.startsWith('unified_')) {
-      const pid = parseInt(key.replace('unified_', ''));
-      result.push({ pid, ...progress });
-    }
+  // Group by pool ID
+  const poolIds = new Set();
+  for (const key of liveProgress.keys()) {
+    const match = key.match(/unified_(\d+)(?:_w\d+)?$/);
+    if (match) poolIds.add(parseInt(match[1]));
+  }
+  for (const pid of Array.from(poolIds).sort((a, b) => a - b)) {
+    const progress = getUnifiedLiveProgress(pid);
+    if (progress) result.push({ pid, ...progress });
   }
   return result;
 }
 
-function updateLiveProgress(pid, updates) {
-  const key = `unified_${pid}`;
+function updateLiveProgress(pid, updates, workerId = 0) {
+  const key = getWorkerKey(pid, workerId);
   const current = liveProgress.get(key) || {
     isRunning: false,
     currentBlock: 0,
     targetBlock: 0,
     genesisBlock: 0,
+    rangeStart: 0,
+    rangeEnd: 0,
     stakersFound: 0,
     swapsFound: 0,
     rewardsFound: 0,
@@ -79,19 +124,30 @@ function updateLiveProgress(pid, updates) {
     lastBatchAt: null,
     percentComplete: 0,
     completedAt: null,
+    workerId,
   };
-  const updated = { ...current, ...updates };
-  if (updates.percentComplete === undefined && updated.targetBlock > updated.genesisBlock) {
-    const totalBlocks = updated.targetBlock - updated.genesisBlock;
-    const indexedBlocks = updated.currentBlock - updated.genesisBlock;
+  const updated = { ...current, ...updates, workerId };
+  // Calculate percent complete within this worker's assigned range
+  if (updates.percentComplete === undefined && updated.rangeEnd > updated.rangeStart) {
+    const totalBlocks = updated.rangeEnd - updated.rangeStart;
+    const indexedBlocks = updated.currentBlock - updated.rangeStart;
     updated.percentComplete = Math.min(100, Math.max(0, (indexedBlocks / totalBlocks) * 100));
   }
   liveProgress.set(key, updated);
   return updated;
 }
 
-function clearLiveProgress(pid) {
-  liveProgress.delete(`unified_${pid}`);
+function clearLiveProgress(pid, workerId = null) {
+  if (workerId !== null) {
+    liveProgress.delete(getWorkerKey(pid, workerId));
+  } else {
+    // Clear all workers for this pool
+    for (let w = 0; w < WORKERS_PER_POOL; w++) {
+      liveProgress.delete(getWorkerKey(pid, w));
+    }
+    // Also clear legacy key
+    liveProgress.delete(`unified_${pid}`);
+  }
 }
 
 let providerInstance = null;
@@ -188,7 +244,10 @@ export async function getCurrentStakedBalance(pid, wallet) {
   }
 }
 
-export function getUnifiedIndexerName(pid) {
+export function getUnifiedIndexerName(pid, workerId = null) {
+  if (workerId !== null && workerId > 0) {
+    return `unified_pool_${pid}_w${workerId}`;
+  }
   return `unified_pool_${pid}`;
 }
 
@@ -200,7 +259,7 @@ export async function getUnifiedIndexerProgress(indexerName) {
   return progress;
 }
 
-export async function initUnifiedIndexerProgress(indexerName, pid, lpToken, genesisBlock = DFK_GENESIS_BLOCK) {
+export async function initUnifiedIndexerProgress(indexerName, pid, lpToken, genesisBlock = DFK_GENESIS_BLOCK, rangeEnd = null) {
   const existing = await getUnifiedIndexerProgress(indexerName);
   if (existing) return existing;
   
@@ -211,6 +270,7 @@ export async function initUnifiedIndexerProgress(indexerName, pid, lpToken, gene
     lpToken,
     lastIndexedBlock: genesisBlock,
     genesisBlock,
+    rangeEnd: rangeEnd || null, // Worker's assigned end block (null = track to latest)
     status: 'idle',
     totalEventsIndexed: 0,
   });
@@ -394,9 +454,12 @@ export async function runUnifiedIncrementalBatch(pid, options = {}) {
   const {
     batchSize = INCREMENTAL_BATCH_SIZE,
     lookupSummonerNames = true,
+    workerId = 0,
+    rangeStart = null, // Worker's assigned start block
+    rangeEnd = null,   // Worker's assigned end block (null = track to latest)
   } = options;
   
-  const indexerName = getUnifiedIndexerName(pid);
+  const indexerName = getUnifiedIndexerName(pid, workerId);
   
   if (runningWorkers.get(indexerName)) {
     console.log(`[UnifiedIndexer] Indexer ${indexerName} already running, skipping...`);
@@ -413,47 +476,59 @@ export async function runUnifiedIncrementalBatch(pid, options = {}) {
       return { status: 'error', error: 'Could not get LP token address' };
     }
     
-    let progress = await initUnifiedIndexerProgress(indexerName, pid, lpToken);
+    // Worker's genesis is either specified rangeStart or default
+    const workerGenesisBlock = rangeStart !== null ? rangeStart : DFK_GENESIS_BLOCK;
+    let progress = await initUnifiedIndexerProgress(indexerName, pid, lpToken, workerGenesisBlock, rangeEnd);
     const latestBlock = await getLatestBlock();
     
-    const startBlock = progress.lastIndexedBlock;
-    const endBlock = Math.min(startBlock + batchSize, latestBlock);
+    // Worker's target is either its assigned rangeEnd or latest block
+    const workerTargetBlock = (progress.rangeEnd !== null && progress.rangeEnd !== undefined) 
+      ? Math.min(progress.rangeEnd, latestBlock) 
+      : latestBlock;
     
-    const existingLive = getUnifiedLiveProgress(pid);
+    const startBlock = progress.lastIndexedBlock;
+    const endBlock = Math.min(startBlock + batchSize, workerTargetBlock);
+    
+    const existingLive = getUnifiedLiveProgress(pid, workerId);
     const dbGenesisBlock = progress.genesisBlock || 0;
     updateLiveProgress(pid, {
       isRunning: true,
       currentBlock: startBlock,
-      targetBlock: latestBlock,
-      genesisBlock: dbGenesisBlock > 0 ? dbGenesisBlock : (existingLive?.genesisBlock || dbGenesisBlock),
+      targetBlock: workerTargetBlock,
+      genesisBlock: dbGenesisBlock,
+      rangeStart: workerGenesisBlock,
+      rangeEnd: workerTargetBlock,
       stakersFound: existingLive?.stakersFound || 0,
       swapsFound: existingLive?.swapsFound || 0,
       rewardsFound: existingLive?.rewardsFound || 0,
       batchesCompleted: existingLive?.batchesCompleted || 0,
       startedAt: existingLive?.startedAt || new Date().toISOString(),
       lastBatchAt: null,
-    });
+    }, workerId);
     
-    if (startBlock >= latestBlock) {
+    if (startBlock >= workerTargetBlock) {
       runningWorkers.set(indexerName, false);
       updateLiveProgress(pid, { 
         isRunning: false, 
-        currentBlock: latestBlock,
-        targetBlock: latestBlock,
+        currentBlock: workerTargetBlock,
+        targetBlock: workerTargetBlock,
         percentComplete: 100,
         completedAt: new Date().toISOString(),
-      });
+      }, workerId);
       return {
         status: 'complete',
-        message: 'Already at latest block',
+        message: workerId > 0 ? `Worker ${workerId} reached assigned range end` : 'Already at latest block',
         startBlock,
         endBlock: startBlock,
         latestBlock,
+        workerTargetBlock,
+        workerId,
         runtimeMs: Date.now() - startTime,
       };
     }
     
-    console.log(`[UnifiedIndexer] Pool ${pid}: Indexing all events from blocks ${startBlock} to ${endBlock} (${endBlock - startBlock} blocks)`);
+    const workerLabel = workerId > 0 ? ` (w${workerId})` : '';
+    console.log(`[UnifiedIndexer] Pool ${pid}${workerLabel}: Indexing blocks ${startBlock} to ${endBlock} (${endBlock - startBlock} blocks)`);
     
     await updateUnifiedIndexerProgress(indexerName, { status: 'running' });
     
@@ -527,12 +602,15 @@ export async function runUnifiedIncrementalBatch(pid, options = {}) {
       status: endBlock >= latestBlock ? 'complete' : 'idle',
     });
     
-    const currentLive = getUnifiedLiveProgress(pid);
-    const caughtUp = endBlock >= latestBlock;
+    const currentLive = getUnifiedLiveProgress(pid, workerId);
+    const workerTarget = (progress.rangeEnd !== null && progress.rangeEnd !== undefined) 
+      ? Math.min(progress.rangeEnd, latestBlock) 
+      : latestBlock;
+    const caughtUp = endBlock >= workerTarget;
     updateLiveProgress(pid, {
-      isRunning: isUnifiedAutoRunning(pid) && !caughtUp,
+      isRunning: isUnifiedAutoRunning(pid, workerId) && !caughtUp,
       currentBlock: endBlock,
-      targetBlock: latestBlock,
+      targetBlock: workerTarget,
       stakersFound: (currentLive?.stakersFound || 0) + stakerResult.upserted,
       swapsFound: (currentLive?.swapsFound || 0) + swapResult.saved,
       rewardsFound: (currentLive?.rewardsFound || 0) + rewardResult.saved,
@@ -540,9 +618,9 @@ export async function runUnifiedIncrementalBatch(pid, options = {}) {
       lastBatchAt: new Date().toISOString(),
       percentComplete: caughtUp ? 100 : undefined,
       completedAt: caughtUp ? new Date().toISOString() : currentLive?.completedAt,
-    });
+    }, workerId);
     
-    console.log(`[UnifiedIndexer] Pool ${pid}: Complete. ${stakerEvents.length} staker events, ${events.swaps.length} swaps, ${events.harvests.length} rewards in ${(runtimeMs / 1000).toFixed(1)}s`);
+    console.log(`[UnifiedIndexer] Pool ${pid}${workerLabel}: ${stakerEvents.length} staker events, ${events.swaps.length} swaps, ${events.harvests.length} rewards in ${(runtimeMs / 1000).toFixed(1)}s`);
     
     runningWorkers.set(indexerName, false);
     
@@ -564,7 +642,8 @@ export async function runUnifiedIncrementalBatch(pid, options = {}) {
     };
   } catch (error) {
     runningWorkers.set(indexerName, false);
-    console.error(`[UnifiedIndexer] Pool ${pid} error:`, error);
+    const workerLabel = workerId > 0 ? ` (w${workerId})` : '';
+    console.error(`[UnifiedIndexer] Pool ${pid}${workerLabel} error:`, error);
     
     await updateUnifiedIndexerProgress(indexerName, {
       status: 'error',
@@ -574,11 +653,12 @@ export async function runUnifiedIncrementalBatch(pid, options = {}) {
     updateLiveProgress(pid, {
       isRunning: false,
       lastError: error.message,
-    });
+    }, workerId);
     
     return {
       status: 'error',
       error: error.message,
+      workerId,
       runtimeMs: Date.now() - startTime,
     };
   }
@@ -642,10 +722,16 @@ export async function updateSummonerNamesForPool(pid, batchSize = 50) {
 }
 
 export async function resetUnifiedIndexerProgress(pid) {
-  const indexerName = getUnifiedIndexerName(pid);
-  
+  // Delete progress for all workers of this pool
+  for (let w = 0; w < WORKERS_PER_POOL; w++) {
+    const indexerName = getUnifiedIndexerName(pid, w);
+    await db.delete(poolEventIndexerProgress)
+      .where(eq(poolEventIndexerProgress.indexerName, indexerName));
+  }
+  // Also delete legacy single-worker progress
+  const legacyName = getUnifiedIndexerName(pid, null);
   await db.delete(poolEventIndexerProgress)
-    .where(eq(poolEventIndexerProgress.indexerName, indexerName));
+    .where(eq(poolEventIndexerProgress.indexerName, legacyName));
   
   await db.delete(poolStakers)
     .where(eq(poolStakers.pid, pid));
@@ -658,46 +744,66 @@ export async function resetUnifiedIndexerProgress(pid) {
   
   clearLiveProgress(pid);
   
-  console.log(`[UnifiedIndexer] Reset unified indexer for pool ${pid}`);
+  console.log(`[UnifiedIndexer] Reset unified indexer for pool ${pid} (all workers)`);
   return { reset: true };
 }
 
 const autoRunIntervals = new Map();
 
-export function isUnifiedAutoRunning(pid) {
-  return autoRunIntervals.has(`unified_${pid}`);
+// Generate key for auto-run interval map
+function getAutoRunKey(pid, workerId = 0) {
+  return `unified_${pid}_w${workerId}`;
+}
+
+export function isUnifiedAutoRunning(pid, workerId = null) {
+  if (workerId !== null) {
+    return autoRunIntervals.has(getAutoRunKey(pid, workerId));
+  }
+  // Check if any worker is running for this pool
+  for (let w = 0; w < WORKERS_PER_POOL; w++) {
+    if (autoRunIntervals.has(getAutoRunKey(pid, w))) return true;
+  }
+  return false;
 }
 
 export function getUnifiedAutoRunStatus() {
   const status = [];
   for (const [key, info] of autoRunIntervals.entries()) {
-    if (key.startsWith('unified_')) {
-      const pid = parseInt(key.replace('unified_', ''));
+    const match = key.match(/unified_(\d+)_w(\d+)/);
+    if (match) {
       status.push({
-        pid,
+        pid: parseInt(match[1]),
+        workerId: parseInt(match[2]),
         intervalMs: info.intervalMs,
         startedAt: info.startedAt,
         lastRunAt: info.lastRunAt,
         runsCompleted: info.runsCompleted,
+        rangeStart: info.rangeStart,
+        rangeEnd: info.rangeEnd,
       });
     }
   }
-  return status;
+  return status.sort((a, b) => a.pid === b.pid ? a.workerId - b.workerId : a.pid - b.pid);
 }
 
-export function startUnifiedAutoRun(pid, intervalMs = AUTO_RUN_INTERVAL_MS) {
-  const key = `unified_${pid}`;
+// Start a single worker for a pool with specific block range
+export async function startUnifiedWorkerAutoRun(pid, workerId, rangeStart, rangeEnd, intervalMs = AUTO_RUN_INTERVAL_MS) {
+  const key = getAutoRunKey(pid, workerId);
   if (autoRunIntervals.has(key)) {
-    console.log(`[UnifiedIndexer] Auto-run already running for pool ${pid}`);
-    return { status: 'already_running', pid };
+    console.log(`[UnifiedIndexer] Worker ${workerId} already running for pool ${pid}`);
+    return { status: 'already_running', pid, workerId };
   }
   
-  console.log(`[UnifiedIndexer] Starting unified auto-run for pool ${pid} (interval: ${intervalMs / 1000}s)`);
+  const workerLabel = `pool ${pid} worker ${workerId}`;
+  console.log(`[UnifiedIndexer] Starting ${workerLabel} (blocks ${rangeStart}-${rangeEnd || 'latest'}, interval: ${intervalMs / 1000}s)`);
   
-  clearLiveProgress(pid);
+  clearLiveProgress(pid, workerId);
   
   const info = {
     intervalMs,
+    workerId,
+    rangeStart,
+    rangeEnd,
     startedAt: new Date().toISOString(),
     lastRunAt: null,
     runsCompleted: 0,
@@ -706,65 +812,109 @@ export function startUnifiedAutoRun(pid, intervalMs = AUTO_RUN_INTERVAL_MS) {
   
   autoRunIntervals.set(key, info);
   
+  // Calculate offset to stagger workers (distributes 42 workers across the interval period)
+  // Each worker starts at a different time offset to avoid RPC saturation
+  const workerIndex = pid * WORKERS_PER_POOL + workerId; // 0-41
+  const offsetMs = Math.floor((workerIndex / 42) * intervalMs); // Spread evenly
+  
+  // Run initial batch with offset delay
   (async () => {
     try {
-      console.log(`[UnifiedIndexer] Auto-run initial batch for pool ${pid}`);
-      await runUnifiedIncrementalBatch(pid);
+      // Wait for offset before initial batch
+      if (offsetMs > 0) {
+        await new Promise(r => setTimeout(r, offsetMs));
+      }
+      console.log(`[UnifiedIndexer] Initial batch for ${workerLabel} (offset ${(offsetMs/1000).toFixed(1)}s)`);
+      await runUnifiedIncrementalBatch(pid, { workerId, rangeStart, rangeEnd });
       info.lastRunAt = new Date().toISOString();
       info.runsCompleted++;
     } catch (err) {
-      console.error(`[UnifiedIndexer] Auto-run initial error for pool ${pid}:`, err.message);
+      console.error(`[UnifiedIndexer] Initial error for ${workerLabel}:`, err.message);
     }
   })();
   
+  // Set up recurring batch with same offset
   info.interval = setInterval(async () => {
-    if (!autoRunIntervals.has(key)) {
-      return;
-    }
+    if (!autoRunIntervals.has(key)) return;
     try {
-      console.log(`[UnifiedIndexer] Auto-run batch for pool ${pid}`);
-      const result = await runUnifiedIncrementalBatch(pid);
+      const result = await runUnifiedIncrementalBatch(pid, { workerId, rangeStart, rangeEnd });
       info.lastRunAt = new Date().toISOString();
       info.runsCompleted++;
       
-      if (result.status === 'complete' && result.blocksRemaining === 0) {
-        console.log(`[UnifiedIndexer] Pool ${pid} is fully synced, waiting for new blocks`);
+      if (result.status === 'complete') {
+        console.log(`[UnifiedIndexer] ${workerLabel} completed its range`);
       }
     } catch (err) {
-      console.error(`[UnifiedIndexer] Auto-run error for pool ${pid}:`, err.message);
+      console.error(`[UnifiedIndexer] Error for ${workerLabel}:`, err.message);
     }
   }, intervalMs);
   
-  return { 
-    status: 'started', 
-    pid, 
-    intervalMs,
-    startedAt: info.startedAt,
-  };
+  return { status: 'started', pid, workerId, rangeStart, rangeEnd, intervalMs, offsetMs };
 }
 
-export function stopUnifiedAutoRun(pid) {
-  const key = `unified_${pid}`;
-  const info = autoRunIntervals.get(key);
+// Start all workers for a single pool (splits block range among WORKERS_PER_POOL workers)
+export async function startPoolWorkersAutoRun(pid, intervalMs = AUTO_RUN_INTERVAL_MS) {
+  const latestBlock = await getLatestBlock();
+  const blocksPerWorker = Math.ceil(latestBlock / WORKERS_PER_POOL);
   
-  if (!info) {
-    console.log(`[UnifiedIndexer] No auto-run active for pool ${pid}`);
+  console.log(`[UnifiedIndexer] Starting ${WORKERS_PER_POOL} workers for pool ${pid} (${blocksPerWorker.toLocaleString()} blocks each)`);
+  
+  const results = [];
+  for (let w = 0; w < WORKERS_PER_POOL; w++) {
+    const rangeStart = w * blocksPerWorker;
+    // Last worker tracks to latest, others have fixed end
+    const rangeEnd = (w === WORKERS_PER_POOL - 1) ? null : (w + 1) * blocksPerWorker;
+    
+    // Stagger worker starts by 500ms to avoid RPC burst
+    await new Promise(r => setTimeout(r, 500));
+    
+    const result = await startUnifiedWorkerAutoRun(pid, w, rangeStart, rangeEnd, intervalMs);
+    results.push(result);
+  }
+  
+  const started = results.filter(r => r.status === 'started').length;
+  return { status: 'pool_started', pid, workersStarted: started, results };
+}
+
+// Legacy single-worker start (for backward compatibility)
+export function startUnifiedAutoRun(pid, intervalMs = AUTO_RUN_INTERVAL_MS) {
+  return startUnifiedWorkerAutoRun(pid, 0, 0, null, intervalMs);
+}
+
+export function stopUnifiedAutoRun(pid, workerId = null) {
+  const stopped = [];
+  
+  if (workerId !== null) {
+    // Stop specific worker
+    const key = getAutoRunKey(pid, workerId);
+    const info = autoRunIntervals.get(key);
+    if (info) {
+      clearInterval(info.interval);
+      autoRunIntervals.delete(key);
+      clearLiveProgress(pid, workerId);
+      stopped.push({ pid, workerId, runsCompleted: info.runsCompleted });
+    }
+  } else {
+    // Stop all workers for this pool
+    for (let w = 0; w < WORKERS_PER_POOL; w++) {
+      const key = getAutoRunKey(pid, w);
+      const info = autoRunIntervals.get(key);
+      if (info) {
+        clearInterval(info.interval);
+        autoRunIntervals.delete(key);
+        clearLiveProgress(pid, w);
+        stopped.push({ pid, workerId: w, runsCompleted: info.runsCompleted });
+      }
+    }
+  }
+  
+  if (stopped.length === 0) {
+    console.log(`[UnifiedIndexer] No workers active for pool ${pid}`);
     return { status: 'not_running', pid };
   }
   
-  clearInterval(info.interval);
-  autoRunIntervals.delete(key);
-  clearLiveProgress(pid);
-  
-  console.log(`[UnifiedIndexer] Stopped auto-run for pool ${pid} (completed ${info.runsCompleted} runs)`);
-  
-  return { 
-    status: 'stopped', 
-    pid,
-    runsCompleted: info.runsCompleted,
-    startedAt: info.startedAt,
-    stoppedAt: new Date().toISOString(),
-  };
+  console.log(`[UnifiedIndexer] Stopped ${stopped.length} workers for pool ${pid}`);
+  return { status: 'stopped', pid, stopped };
 }
 
 export function stopAllUnifiedAutoRuns() {
@@ -773,8 +923,10 @@ export function stopAllUnifiedAutoRuns() {
   for (const [key, info] of autoRunIntervals.entries()) {
     if (key.startsWith('unified_')) {
       clearInterval(info.interval);
-      const pid = parseInt(key.replace('unified_', ''));
-      stopped.push({ pid, runsCompleted: info.runsCompleted });
+      const match = key.match(/unified_(\d+)_w(\d+)/);
+      if (match) {
+        stopped.push({ pid: parseInt(match[1]), workerId: parseInt(match[2]), runsCompleted: info.runsCompleted });
+      }
     }
   }
   
@@ -784,32 +936,40 @@ export function stopAllUnifiedAutoRuns() {
     }
   }
   
-  console.log(`[UnifiedIndexer] Stopped all auto-runs (${stopped.length} pools)`);
-  return { status: 'all_stopped', stopped };
+  // Clear all live progress
+  for (const pid of ALL_POOL_IDS) {
+    clearLiveProgress(pid);
+  }
+  
+  console.log(`[UnifiedIndexer] Stopped all auto-runs (${stopped.length} workers)`);
+  return { status: 'all_stopped', stopped, totalWorkers: stopped.length };
 }
 
 // All known pool IDs (Master Gardener V2 pools)
 const ALL_POOL_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
-export function startAllUnifiedAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) {
-  console.log(`[UnifiedIndexer] Starting auto-run for all ${ALL_POOL_IDS.length} pools...`);
+// Start all workers for all pools (14 pools × 3 workers = 42 total workers)
+export async function startAllUnifiedAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) {
+  const totalWorkers = ALL_POOL_IDS.length * WORKERS_PER_POOL;
+  console.log(`[UnifiedIndexer] Starting ${totalWorkers} workers (${WORKERS_PER_POOL} per pool × ${ALL_POOL_IDS.length} pools)...`);
   
   const results = [];
   for (const pid of ALL_POOL_IDS) {
-    const result = startUnifiedAutoRun(pid, intervalMs);
-    results.push({ pid, ...result });
+    const poolResult = await startPoolWorkersAutoRun(pid, intervalMs);
+    results.push(poolResult);
+    // Small delay between pools to spread RPC load
+    await new Promise(r => setTimeout(r, 1000));
   }
   
-  const started = results.filter(r => r.status === 'started').length;
-  const alreadyRunning = results.filter(r => r.status === 'already_running').length;
+  const started = results.reduce((sum, r) => sum + r.workersStarted, 0);
   
-  console.log(`[UnifiedIndexer] Started ${started} workers, ${alreadyRunning} already running`);
+  console.log(`[UnifiedIndexer] Started ${started} workers across ${ALL_POOL_IDS.length} pools`);
   
   return {
     status: 'all_started',
     started,
-    alreadyRunning,
-    total: ALL_POOL_IDS.length,
+    totalPools: ALL_POOL_IDS.length,
+    workersPerPool: WORKERS_PER_POOL,
     results,
   };
 }

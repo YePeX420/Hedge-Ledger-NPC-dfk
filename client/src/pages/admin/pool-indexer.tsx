@@ -88,6 +88,21 @@ interface DailyAggregate {
   rewardEventCount24h: number;
 }
 
+interface WorkerProgress {
+  workerId: number;
+  isRunning: boolean;
+  currentBlock: number;
+  targetBlock: number;
+  rangeStart: number;
+  rangeEnd: number;
+  percentComplete: number;
+  stakersFound: number;
+  swapsFound: number;
+  rewardsFound: number;
+  batchesCompleted: number;
+  lastBatchAt: string | null;
+}
+
 interface UnifiedIndexerProgress {
   id: number;
   indexerName: string;
@@ -110,6 +125,7 @@ interface UnifiedIndexerProgress {
     rewardsFound: number;
     batchesCompleted: number;
     lastBatchAt: string | null;
+    workers?: WorkerProgress[];
   } | null;
   autoRun?: {
     pid: number;
@@ -129,12 +145,16 @@ interface IndexerStatus {
 
 interface UnifiedWorkerStatus {
   activeWorkers: number;
+  workersPerPool: number;
   pools: Array<{
     pid: number;
+    workerId: number;
     intervalMs: number;
     startedAt: string;
     lastRunAt: string | null;
     runsCompleted: number;
+    rangeStart: number;
+    rangeEnd: number | null;
   }>;
 }
 
@@ -390,16 +410,39 @@ function AggregatesTable({ aggregates }: { aggregates: DailyAggregate[] }) {
   );
 }
 
+function WorkerProgressBars({ workers }: { workers?: WorkerProgress[] }) {
+  if (!workers || workers.length === 0) return null;
+  
+  return (
+    <div className="space-y-1">
+      {workers.map((worker) => (
+        <div key={worker.workerId} className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground w-6">W{worker.workerId}</span>
+          <Progress 
+            value={worker.percentComplete} 
+            className={`h-1.5 flex-1 ${worker.isRunning ? 'bg-blue-100' : ''}`} 
+          />
+          <span className="text-xs text-muted-foreground w-10 text-right">
+            {worker.percentComplete.toFixed(0)}%
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function UnifiedIndexerTable({ 
   indexers, 
   onTrigger,
   onAutoRun,
   isTriggering,
+  workerStatus,
 }: { 
   indexers: UnifiedIndexerProgress[];
   onTrigger: (pid: number) => void;
   onAutoRun: (pid: number, action: 'start' | 'stop') => void;
   isTriggering: boolean;
+  workerStatus?: UnifiedWorkerStatus;
 }) {
   if (!indexers || indexers.length === 0) {
     return (
@@ -411,6 +454,14 @@ function UnifiedIndexerTable({
     );
   }
 
+  // Count workers per pool from workerStatus
+  const workersPerPoolMap = new Map<number, number>();
+  if (workerStatus?.pools) {
+    for (const worker of workerStatus.pools) {
+      workersPerPoolMap.set(worker.pid, (workersPerPoolMap.get(worker.pid) || 0) + 1);
+    }
+  }
+
   return (
     <Card>
       <CardContent className="p-0">
@@ -419,11 +470,10 @@ function UnifiedIndexerTable({
             <TableRow>
               <TableHead className="w-16">Pool</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Progress</TableHead>
+              <TableHead className="w-48">Workers</TableHead>
               <TableHead className="text-right">Stakers</TableHead>
               <TableHead className="text-right">Swaps</TableHead>
               <TableHead className="text-right">Rewards</TableHead>
-              <TableHead className="text-right">Last Block</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -431,7 +481,9 @@ function UnifiedIndexerTable({
             {indexers.map((indexer) => {
               const isRunning = indexer.live?.isRunning || false;
               const percentComplete = indexer.live?.percentComplete || 0;
-              const hasAutoRun = !!indexer.autoRun;
+              const workers = indexer.live?.workers || [];
+              const activeWorkerCount = workersPerPoolMap.get(indexer.pid) || 0;
+              const hasAutoRun = activeWorkerCount > 0;
               
               return (
                 <TableRow key={indexer.indexerName} data-testid={`row-indexer-unified-${indexer.pid}`}>
@@ -444,22 +496,25 @@ function UnifiedIndexerTable({
                       {hasAutoRun && (
                         <Badge variant="outline" className="bg-purple-500/20 text-purple-500 border-purple-500/30 gap-1 text-xs">
                           <Zap className="w-3 h-3" />
-                          Auto ({indexer.autoRun!.runsCompleted} runs)
+                          {activeWorkerCount} workers
                         </Badge>
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
-                    {isRunning && (
+                    {workers.length > 0 ? (
+                      <WorkerProgressBars workers={workers} />
+                    ) : isRunning ? (
                       <div className="space-y-1">
-                        <Progress value={percentComplete} className="h-2 w-24" />
+                        <Progress value={percentComplete} className="h-2 w-full" />
                         <span className="text-xs text-muted-foreground">
                           {percentComplete.toFixed(1)}%
                         </span>
                       </div>
-                    )}
-                    {!isRunning && indexer.status === 'complete' && (
+                    ) : indexer.status === 'complete' ? (
                       <span className="text-xs text-green-500">Synced</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right font-mono">
@@ -470,9 +525,6 @@ function UnifiedIndexerTable({
                   </TableCell>
                   <TableCell className="text-right font-mono">
                     {formatNumber(indexer.live?.rewardsFound || 0)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
-                    {formatBlock(indexer.live?.currentBlock || indexer.lastIndexedBlock)}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-1 justify-end">
@@ -793,6 +845,7 @@ export default function AdminPoolIndexer() {
             onTrigger={(pid) => triggerUnifiedMutation.mutate(pid)}
             onAutoRun={(pid, action) => unifiedAutoRunMutation.mutate({ pid, action })}
             isTriggering={triggerUnifiedMutation.isPending}
+            workerStatus={workerStatus}
           />
         </TabsContent>
         

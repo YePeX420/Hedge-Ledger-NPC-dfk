@@ -2043,12 +2043,13 @@ export type PoolDailyAggregate = typeof poolDailyAggregates.$inferSelect;
  */
 export const poolEventIndexerProgress = pgTable("pool_event_indexer_progress", {
   id: serial("id").primaryKey(),
-  indexerName: text("indexer_name").notNull().unique(), // 'swaps_pool_0', 'rewards_pool_0', etc.
-  indexerType: text("indexer_type").notNull(), // 'swaps' or 'rewards'
+  indexerName: text("indexer_name").notNull().unique(), // 'swaps_pool_0', 'unified_pool_0_w1', etc.
+  indexerType: text("indexer_type").notNull(), // 'swaps', 'rewards', or 'unified'
   pid: integer("pid").notNull(),
   lpToken: text("lp_token"), // LP token address for swap indexers
   lastIndexedBlock: bigint("last_indexed_block", { mode: "number" }).notNull(),
   genesisBlock: bigint("genesis_block", { mode: "number" }).notNull(),
+  rangeEnd: bigint("range_end", { mode: "number" }), // Worker's assigned end block (null = track to latest)
   status: text("status").notNull().default("idle"), // 'idle', 'running', 'complete', 'error'
   totalEventsIndexed: integer("total_events_indexed").notNull().default(0),
   lastError: text("last_error"),
