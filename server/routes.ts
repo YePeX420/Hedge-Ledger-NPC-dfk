@@ -1663,6 +1663,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // GET /api/admin/pool-indexer/unified/status - Get unified indexer worker status
+  app.get("/api/admin/pool-indexer/unified/status", isAdmin, async (req: any, res: any) => {
+    try {
+      const { getUnifiedAutoRunStatus, WORKERS_PER_POOL } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
+      
+      const workers = getUnifiedAutoRunStatus();
+      
+      res.json({
+        activeWorkers: workers.length,
+        workersPerPool: WORKERS_PER_POOL,
+        pools: workers,
+      });
+    } catch (error: any) {
+      console.error('[API] Error fetching unified worker status:', error);
+      res.status(500).json({ error: 'Failed to fetch unified worker status', details: error.message });
+    }
+  });
+  
   // POST /api/admin/pool-indexer/unified/trigger - Trigger unified indexer batch (scans all event types)
   app.post("/api/admin/pool-indexer/unified/trigger", isAdmin, async (req: any, res: any) => {
     try {

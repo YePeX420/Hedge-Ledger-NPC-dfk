@@ -6104,9 +6104,13 @@ async function startAdminWebServer() {
   // GET /api/admin/pool-indexer/unified/status - Get unified indexer worker status
   app.get('/api/admin/pool-indexer/unified/status', isAdmin, async (req, res) => {
     try {
-      const { getUnifiedAutoRunStatus } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
-      const status = getUnifiedAutoRunStatus();
-      res.json(status);
+      const { getUnifiedAutoRunStatus, WORKERS_PER_POOL } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
+      const workers = getUnifiedAutoRunStatus();
+      res.json({
+        activeWorkers: workers.length,
+        workersPerPool: WORKERS_PER_POOL,
+        pools: workers,
+      });
     } catch (error) {
       console.error('[API] Error getting unified indexer status:', error);
       res.status(500).json({ error: 'Failed to get unified indexer status', details: error.message });

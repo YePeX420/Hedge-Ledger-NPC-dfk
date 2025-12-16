@@ -10,7 +10,7 @@ const DFK_GENESIS_BLOCK = 0;
 const BLOCKS_PER_QUERY = 2000;
 const INCREMENTAL_BATCH_SIZE = 200000; // 200k blocks per batch for faster indexing
 const AUTO_RUN_INTERVAL_MS = 60 * 1000; // 1 minute between batches
-const WORKERS_PER_POOL = 3; // Number of parallel workers per pool
+export const WORKERS_PER_POOL = 3; // Number of parallel workers per pool
 
 const MASTER_GARDENER_ABI = [
   'event Deposit(address indexed user, uint256 indexed pid, uint256 amount)',
