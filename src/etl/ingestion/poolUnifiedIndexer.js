@@ -928,12 +928,8 @@ export async function startPoolWorkersAutoRun(pid, intervalMs = AUTO_RUN_INTERVA
         const newWorkerCount = workerCount - 1;
         console.warn(`[UnifiedIndexer] RPC failsafe: Reducing pool ${pid} from ${workerCount} to ${newWorkerCount} workers`);
         
-        // Stop already-started workers for this pool
-        for (const r of results) {
-          if (r.status === 'started') {
-            stopUnifiedAutoRun(pid, r.workerId);
-          }
-        }
+        // Stop all already-started workers for this pool and clear state
+        stopUnifiedAutoRun(pid); // Clears all workers and poolWorkerCounts for this pool
         
         // Retry with fewer workers after a short delay
         await new Promise(r => setTimeout(r, 3000));
@@ -980,6 +976,8 @@ export function stopUnifiedAutoRun(pid, workerId = null) {
         stopped.push({ pid, workerId: w, runsCompleted: info.runsCompleted });
       }
     }
+    // Clear the pool worker count when stopping all workers
+    poolWorkerCounts.delete(pid);
   }
   
   if (stopped.length === 0) {
