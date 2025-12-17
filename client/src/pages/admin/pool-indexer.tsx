@@ -213,6 +213,39 @@ function formatBlock(block: number): string {
   return block.toLocaleString();
 }
 
+function calculateETA(startedAt: string | null | undefined, percentComplete: number): string | null {
+  if (!startedAt || percentComplete <= 0 || percentComplete >= 100) return null;
+  
+  const startTime = new Date(startedAt).getTime();
+  if (isNaN(startTime)) return null;
+  
+  const now = Date.now();
+  const elapsedMs = now - startTime;
+  
+  if (elapsedMs < 5000) return null;
+  
+  const rate = percentComplete / elapsedMs;
+  if (!isFinite(rate) || rate <= 0) return null;
+  
+  const remainingPercent = 100 - percentComplete;
+  const remainingMs = remainingPercent / rate;
+  if (!isFinite(remainingMs)) return null;
+  
+  const remainingSec = Math.floor(remainingMs / 1000);
+  if (remainingSec < 60) return `~${remainingSec}s`;
+  
+  const remainingMin = Math.floor(remainingSec / 60);
+  if (remainingMin < 60) return `~${remainingMin}m`;
+  
+  const hours = Math.floor(remainingMin / 60);
+  const mins = remainingMin % 60;
+  if (hours < 24) return `~${hours}h ${mins}m`;
+  
+  const days = Math.floor(hours / 24);
+  const hrs = hours % 24;
+  return `~${days}d ${hrs}h`;
+}
+
 function LoadingSkeleton() {
   return (
     <div className="space-y-4">
@@ -454,11 +487,16 @@ function UnifiedIndexerTable({
     );
   }
 
-  // Count workers per pool from workerStatus
+  // Count workers per pool and find earliest startedAt
   const workersPerPoolMap = new Map<number, number>();
+  const poolStartedAtMap = new Map<number, string>();
   if (workerStatus?.pools) {
     for (const worker of workerStatus.pools) {
       workersPerPoolMap.set(worker.pid, (workersPerPoolMap.get(worker.pid) || 0) + 1);
+      const existingStart = poolStartedAtMap.get(worker.pid);
+      if (!existingStart || new Date(worker.startedAt) < new Date(existingStart)) {
+        poolStartedAtMap.set(worker.pid, worker.startedAt);
+      }
     }
   }
 
@@ -484,6 +522,8 @@ function UnifiedIndexerTable({
               const workers = indexer.live?.workers || [];
               const activeWorkerCount = workersPerPoolMap.get(indexer.pid) || 0;
               const hasAutoRun = activeWorkerCount > 0;
+              const poolStartedAt = poolStartedAtMap.get(indexer.pid);
+              const eta = isRunning ? calculateETA(poolStartedAt, percentComplete) : null;
               
               return (
                 <TableRow key={indexer.indexerName} data-testid={`row-indexer-unified-${indexer.pid}`}>
@@ -498,6 +538,11 @@ function UnifiedIndexerTable({
                           <Zap className="w-3 h-3" />
                           {activeWorkerCount} workers
                         </Badge>
+                      )}
+                      {eta && (
+                        <span className="text-xs text-muted-foreground" data-testid={`eta-unified-${indexer.pid}`}>
+                          ETA: {eta}
+                        </span>
                       )}
                     </div>
                   </TableCell>
