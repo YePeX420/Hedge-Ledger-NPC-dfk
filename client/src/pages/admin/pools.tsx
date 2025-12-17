@@ -42,6 +42,7 @@ export default function AdminPools() {
   
   const { data, isLoading, refetch } = useQuery<PoolsResponse>({
     queryKey: ["/api/admin/pools"],
+    refetchInterval: 30000, // Auto-refresh every 30 seconds to get updated cache
   });
 
   const formatCurrency = (value: number | undefined | null) => {

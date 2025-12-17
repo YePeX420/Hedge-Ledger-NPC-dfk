@@ -5794,21 +5794,48 @@ async function startAdminWebServer() {
         });
       }
       
-      const pools = cached.data.map(pool => ({
-        pid: pool.pid,
-        pairName: pool.pairName,
-        lpToken: pool.lpToken,
-        token0: pool.token0,
-        token1: pool.token1,
-        totalTVL: pool.totalTVL,
-        v2TVL: pool.v2TVL,
-        volume24hUSD: pool.volume24hUSD,
-        fees24hUSD: pool.fees24hUSD,
-        feeAPR: pool.fee24hAPR,
-        harvestingAPR: pool.harvesting24hAPR,
-        gardeningQuestAPR: pool.gardeningQuestAPR,
-        totalAPR: pool.totalAPR,
-      }));
+      // Helper to parse APR strings like "1.23%" to decimal 0.0123
+      const parseAprToDecimal = (aprStr) => {
+        if (!aprStr) return 0;
+        const match = String(aprStr).match(/^([\d.]+)/);
+        return match ? parseFloat(match[1]) / 100 : 0;
+      };
+      
+      const pools = cached.data.map(pool => {
+        // Parse APR strings to decimals for frontend calculations
+        const feeAPR = parseAprToDecimal(pool.fee24hAPR);
+        const harvestAPR = parseAprToDecimal(pool.harvesting24hAPR);
+        const gardenWorst = parseAprToDecimal(pool.gardeningQuestAPR?.worst);
+        const gardenBest = parseAprToDecimal(pool.gardeningQuestAPR?.best);
+        
+        // Passive APR = fee + harvest
+        const passiveAPR = feeAPR + harvestAPR;
+        // Active APR = gardening quest range
+        const activeAPRMin = gardenWorst;
+        const activeAPRMax = gardenBest;
+        // Total APR = passive + active
+        const totalAPRMin = passiveAPR + activeAPRMin;
+        const totalAPRMax = passiveAPR + activeAPRMax;
+        
+        return {
+          pid: pool.pid,
+          pairName: pool.pairName,
+          lpToken: pool.lpToken,
+          tokens: [
+            { symbol: pool.token0 || '', address: '' },
+            { symbol: pool.token1 || '', address: '' }
+          ],
+          tvl: pool.totalTVL || 0,
+          passiveAPR,
+          activeAPRMin,
+          activeAPRMax,
+          totalAPRMin,
+          totalAPRMax
+        };
+      });
+      
+      // Sort by TVL descending
+      pools.sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
       
       res.json({
         pools,
