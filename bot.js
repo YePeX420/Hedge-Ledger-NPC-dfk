@@ -6168,6 +6168,177 @@ async function startAdminWebServer() {
       res.status(500).json({ error: 'Failed to fetch pool stakers', details: error.message });
     }
   });
+
+  // ============================================================================
+  // V1 POOL INDEXER API (Legacy Master Gardener)
+  // ============================================================================
+
+  // GET /api/admin/pool-indexer-v1/status - Get V1 indexer status
+  app.get('/api/admin/pool-indexer-v1/status', isAdmin, async (req, res) => {
+    try {
+      const {
+        getAllUnifiedIndexerProgressV1,
+        getAllUnifiedLiveProgressV1,
+        getUnifiedAutoRunStatusV1,
+        WORKERS_PER_POOL_V1,
+        MIN_WORKERS_PER_POOL_V1,
+        getPoolWorkerCountSummaryV1,
+      } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
+      
+      const dbProgress = await getAllUnifiedIndexerProgressV1();
+      const liveProgress = getAllUnifiedLiveProgressV1();
+      const autoRunStatus = getUnifiedAutoRunStatusV1();
+      const workerSummary = getPoolWorkerCountSummaryV1();
+      
+      // Merge live progress into DB progress
+      const indexers = [];
+      const seenPids = new Set();
+      
+      for (const progress of dbProgress) {
+        const live = liveProgress.find(l => l.pid === progress.pid);
+        const autoRun = autoRunStatus.filter(a => a.pid === progress.pid);
+        seenPids.add(progress.pid);
+        indexers.push({
+          ...progress,
+          live: live || null,
+          autoRun: autoRun.length > 0 ? autoRun[0] : null,
+        });
+      }
+      
+      // Add pools that have live progress but no DB entry yet
+      for (const live of liveProgress) {
+        if (!seenPids.has(live.pid)) {
+          indexers.push({
+            id: null,
+            indexerName: `unified_v1_pool_${live.pid}`,
+            indexerType: 'unified_v1',
+            pid: live.pid,
+            lpToken: null,
+            lastIndexedBlock: live.currentBlock,
+            genesisBlock: live.genesisBlock,
+            status: live.isRunning ? 'running' : 'idle',
+            totalEventsIndexed: 0,
+            lastError: null,
+            updatedAt: new Date().toISOString(),
+            live,
+            autoRun: autoRunStatus.find(a => a.pid === live.pid) || null,
+          });
+        }
+      }
+      
+      // Sort by PID
+      indexers.sort((a, b) => a.pid - b.pid);
+      
+      res.json({
+        indexers,
+        workerStatus: {
+          activeWorkers: autoRunStatus.length,
+          maxWorkersPerPool: WORKERS_PER_POOL_V1,
+          minWorkersPerPool: MIN_WORKERS_PER_POOL_V1,
+          workersPerPool: WORKERS_PER_POOL_V1,
+          workerSummary,
+          pools: autoRunStatus,
+        },
+      });
+    } catch (error) {
+      console.error('[API] Error getting V1 indexer status:', error);
+      res.status(500).json({ error: 'Failed to get V1 indexer status', details: error.message });
+    }
+  });
+
+  // POST /api/admin/pool-indexer-v1/trigger - Trigger V1 indexer batch
+  app.post('/api/admin/pool-indexer-v1/trigger', isAdmin, async (req, res) => {
+    try {
+      const { pid } = req.body;
+      if (pid === undefined || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      const { runUnifiedIncrementalBatchV1 } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
+      const result = await runUnifiedIncrementalBatchV1(pid);
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error triggering V1 indexer:', error);
+      res.status(500).json({ error: 'Failed to trigger V1 indexer', details: error.message });
+    }
+  });
+
+  // POST /api/admin/pool-indexer-v1/auto-run - Start/stop V1 auto-run
+  app.post('/api/admin/pool-indexer-v1/auto-run', isAdmin, async (req, res) => {
+    try {
+      const { pid, action } = req.body;
+      if (pid === undefined || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      if (action !== 'start' && action !== 'stop') {
+        return res.status(400).json({ error: 'Invalid action (must be start or stop)' });
+      }
+      
+      const { startPoolWorkersAutoRunV1, stopUnifiedAutoRunV1 } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
+      
+      if (action === 'start') {
+        const result = await startPoolWorkersAutoRunV1(pid);
+        res.json(result);
+      } else {
+        const result = stopUnifiedAutoRunV1(pid);
+        res.json(result);
+      }
+    } catch (error) {
+      console.error('[API] Error toggling V1 auto-run:', error);
+      res.status(500).json({ error: 'Failed to toggle V1 auto-run', details: error.message });
+    }
+  });
+
+  // POST /api/admin/pool-indexer-v1/start-all - Start all V1 indexers
+  app.post('/api/admin/pool-indexer-v1/start-all', isAdmin, async (req, res) => {
+    try {
+      const { startAllUnifiedAutoRunV1 } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
+      const result = await startAllUnifiedAutoRunV1();
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error starting all V1 indexers:', error);
+      res.status(500).json({ error: 'Failed to start all V1 indexers', details: error.message });
+    }
+  });
+
+  // POST /api/admin/pool-indexer-v1/stop-all - Stop all V1 indexers
+  app.post('/api/admin/pool-indexer-v1/stop-all', isAdmin, async (req, res) => {
+    try {
+      const { stopAllUnifiedAutoRunsV1 } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
+      const result = stopAllUnifiedAutoRunsV1();
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error stopping all V1 indexers:', error);
+      res.status(500).json({ error: 'Failed to stop all V1 indexers', details: error.message });
+    }
+  });
+
+  // GET /api/admin/pool-indexer-v1/stakers/:pid - Get V1 stakers for a pool
+  app.get('/api/admin/pool-indexer-v1/stakers/:pid', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      const { getActivePoolStakersFromDBV1 } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
+      const stakers = await getActivePoolStakersFromDBV1(pid, 500);
+      res.json({ stakers, count: stakers.length });
+    } catch (error) {
+      console.error('[API] Error fetching V1 pool stakers:', error);
+      res.status(500).json({ error: 'Failed to fetch V1 pool stakers', details: error.message });
+    }
+  });
+
+  // GET /api/admin/pool-indexer-v1/totals - Get V1 staked totals for all pools
+  app.get('/api/admin/pool-indexer-v1/totals', isAdmin, async (req, res) => {
+    try {
+      const { getAllV1StakedTotals } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
+      const totals = await getAllV1StakedTotals();
+      res.json({ totals });
+    } catch (error) {
+      console.error('[API] Error fetching V1 totals:', error);
+      res.status(500).json({ error: 'Failed to fetch V1 totals', details: error.message });
+    }
+  });
   
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
