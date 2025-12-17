@@ -8847,11 +8847,14 @@ async function startAdminWebServer() {
     // Auto-start parallel sync if not running and indexing is incomplete
     await autoStartParallelSync();
     
-    // Auto-start unified pool indexer for all pools
+    // Auto-start unified pool indexer for all pools (V2)
     await autoStartUnifiedPoolIndexer();
+    
+    // Auto-start unified pool indexer V1 (legacy)
+    await autoStartUnifiedPoolIndexerV1();
   });
   
-  // Auto-start unified pool indexer on server startup
+  // Auto-start unified pool indexer V2 on server startup
   async function autoStartUnifiedPoolIndexer() {
     try {
       // Wait a bit for database connections to stabilize
@@ -8872,6 +8875,30 @@ async function startAdminWebServer() {
       console.log(`[UnifiedIndexer] Auto-start complete: ${result.started} workers across ${result.totalPools} pools`);
     } catch (err) {
       console.error('[UnifiedIndexer] Auto-start error:', err.message);
+    }
+  }
+  
+  // Auto-start unified pool indexer V1 (legacy) on server startup
+  async function autoStartUnifiedPoolIndexerV1() {
+    try {
+      // Wait a bit after V2 starts to stagger RPC load
+      await new Promise(r => setTimeout(r, 8000));
+      
+      console.log('[UnifiedIndexerV1] Auto-starting V1 pool indexers (legacy)...');
+      const { startAllUnifiedAutoRunV1, getUnifiedAutoRunStatusV1 } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
+      
+      // Check if any are already running
+      const currentStatus = getUnifiedAutoRunStatusV1();
+      if (currentStatus.length > 0) {
+        console.log(`[UnifiedIndexerV1] ${currentStatus.length} workers already running, skipping auto-start`);
+        return;
+      }
+      
+      // Start all V1 pool indexers
+      const result = await startAllUnifiedAutoRunV1();
+      console.log(`[UnifiedIndexerV1] Auto-start complete: ${result.started} workers across ${result.totalPools} pools`);
+    } catch (err) {
+      console.error('[UnifiedIndexerV1] Auto-start error:', err.message);
     }
   }
   
