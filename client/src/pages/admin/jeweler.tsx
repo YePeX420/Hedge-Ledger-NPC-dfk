@@ -328,6 +328,7 @@ export default function AdminJeweler() {
                   <TableHead>Summoner</TableHead>
                   <TableHead className="text-right">cJEWEL</TableHead>
                   <TableHead className="text-right">JEWEL Value</TableHead>
+                  <TableHead className="text-right">Lock End</TableHead>
                   <TableHead className="text-right">Last Activity</TableHead>
                 </TableRow>
               </TableHeader>
@@ -358,6 +359,15 @@ export default function AdminJeweler() {
                     <TableCell className="text-right font-mono text-green-500">
                       {formatNumber(staker.stakedJewel)}
                     </TableCell>
+                    <TableCell className="text-right font-mono text-sm">
+                      {staker.lockEnd ? (
+                        <span className={new Date(staker.lockEnd) > new Date() ? 'text-yellow-500' : 'text-muted-foreground'}>
+                          {new Date(staker.lockEnd).toLocaleDateString()}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       {staker.lastActivityType && (
                         <Badge variant="outline" className={
@@ -373,7 +383,7 @@ export default function AdminJeweler() {
                 ))}
                 {(!leaderboardData?.stakers || leaderboardData.stakers.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                       No stakers found. Run the indexer to populate data.
                     </TableCell>
                   </TableRow>

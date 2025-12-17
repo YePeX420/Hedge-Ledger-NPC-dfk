@@ -2157,6 +2157,7 @@ export const jewelerStakers = pgTable("jeweler_stakers", {
   wallet: text("wallet").notNull().unique(),
   stakedJewel: numeric("staked_jewel", { precision: 38, scale: 18 }).notNull().default("0"),
   cjewelBalance: numeric("cjewel_balance", { precision: 38, scale: 18 }).notNull().default("0"),
+  lockEnd: timestamp("lock_end", { withTimezone: true }),
   summonerName: text("summoner_name"),
   lastActivityType: text("last_activity_type"),
   lastActivityAmount: numeric("last_activity_amount", { precision: 38, scale: 18 }),
@@ -2167,6 +2168,7 @@ export const jewelerStakers = pgTable("jeweler_stakers", {
 }, (table) => ({
   walletIdx: uniqueIndex("jeweler_stakers_wallet_idx").on(table.wallet),
   cjewelBalanceIdx: index("jeweler_stakers_cjewel_balance_idx").on(table.cjewelBalance),
+  lockEndIdx: index("jeweler_stakers_lock_end_idx").on(table.lockEnd),
 }));
 
 export const insertJewelerStakerSchema = createInsertSchema(jewelerStakers).omit({ id: true, createdAt: true, lastUpdatedAt: true });

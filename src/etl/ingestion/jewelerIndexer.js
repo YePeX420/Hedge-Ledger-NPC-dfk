@@ -16,6 +16,7 @@ const CJEWEL_ABI = [
   'event Transfer(address indexed from, address indexed to, uint256 value)',
   'function balanceOf(address owner) view returns (uint256)',
   'function totalSupply() view returns (uint256)',
+  'function getUserInfo(address _addr) view returns (tuple(uint256 amount, uint256 govTokenBalance, uint256 end, uint256 rewardDebt, uint256 availableSubBalance, uint32 subscriptionCount))',
 ];
 
 const JEWEL_ABI = [
@@ -232,11 +233,21 @@ export async function upsertStaker(wallet, activityType, amount, blockNumber, tx
   
   const cjewelContract = getCjewelContract();
   let cjewelBalance = '0';
+  let lockEnd = null;
+  
   try {
-    const balance = await cjewelContract.balanceOf(wallet);
+    const [balance, userInfo] = await Promise.all([
+      cjewelContract.balanceOf(wallet),
+      cjewelContract.getUserInfo(wallet),
+    ]);
     cjewelBalance = ethers.formatEther(balance);
+    
+    const lockEndTimestamp = Number(userInfo.end);
+    if (lockEndTimestamp > 0) {
+      lockEnd = new Date(lockEndTimestamp * 1000);
+    }
   } catch (err) {
-    console.error(`[JewelerIndexer] Failed to get cJEWEL balance for ${wallet}:`, err.message);
+    console.error(`[JewelerIndexer] Failed to get cJEWEL info for ${wallet}:`, err.message);
   }
   
   const [existing] = await db.select()
@@ -248,6 +259,7 @@ export async function upsertStaker(wallet, activityType, amount, blockNumber, tx
     await db.update(jewelerStakers)
       .set({
         cjewelBalance,
+        lockEnd,
         lastActivityType: activityType,
         lastActivityAmount: amount,
         lastActivityBlock: blockNumber,
@@ -262,6 +274,7 @@ export async function upsertStaker(wallet, activityType, amount, blockNumber, tx
       .values({
         wallet: walletLower,
         cjewelBalance,
+        lockEnd,
         summonerName,
         lastActivityType: activityType,
         lastActivityAmount: amount,
