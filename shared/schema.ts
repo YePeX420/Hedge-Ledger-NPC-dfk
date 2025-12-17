@@ -2063,3 +2063,83 @@ export const poolEventIndexerProgress = pgTable("pool_event_indexer_progress", {
 export const insertPoolEventIndexerProgressSchema = createInsertSchema(poolEventIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPoolEventIndexerProgress = z.infer<typeof insertPoolEventIndexerProgressSchema>;
 export type PoolEventIndexerProgress = typeof poolEventIndexerProgress.$inferSelect;
+
+// ============================================================================
+// V1 POOL STAKERS INDEX (LEGACY MASTER GARDENER)
+// Same structure as V2 but for deprecated V1 gardener contract
+// ============================================================================
+
+/**
+ * V1 Pool stakers - stores current staker positions from legacy Master Gardener V1
+ */
+export const poolStakersV1 = pgTable("pool_stakers_v1", {
+  id: serial("id").primaryKey(),
+  wallet: text("wallet").notNull(),
+  pid: integer("pid").notNull(),
+  stakedLP: numeric("staked_lp", { precision: 38, scale: 18 }).notNull().default("0"),
+  summonerName: text("summoner_name"),
+  lastActivityType: text("last_activity_type"),
+  lastActivityAmount: numeric("last_activity_amount", { precision: 38, scale: 18 }),
+  lastActivityBlock: bigint("last_activity_block", { mode: "number" }),
+  lastActivityTxHash: text("last_activity_tx_hash"),
+  lastUpdatedAt: timestamp("last_updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletPidIdx: uniqueIndex("pool_stakers_v1_wallet_pid_idx").on(table.wallet, table.pid),
+  pidIdx: index("pool_stakers_v1_pid_idx").on(table.pid),
+  stakedLpIdx: index("pool_stakers_v1_staked_lp_idx").on(table.stakedLP),
+}));
+
+export const insertPoolStakerV1Schema = createInsertSchema(poolStakersV1).omit({ id: true, createdAt: true, lastUpdatedAt: true });
+export type InsertPoolStakerV1 = z.infer<typeof insertPoolStakerV1Schema>;
+export type PoolStakerV1 = typeof poolStakersV1.$inferSelect;
+
+/**
+ * V1 Pool reward events - JEWEL/CRYSTAL rewards from legacy MasterGardener V1
+ */
+export const poolRewardEventsV1 = pgTable("pool_reward_events_v1", {
+  id: serial("id").primaryKey(),
+  pid: integer("pid").notNull(),
+  blockNumber: bigint("block_number", { mode: "number" }).notNull(),
+  txHash: text("tx_hash").notNull(),
+  logIndex: integer("log_index").notNull(),
+  user: text("user").notNull(),
+  rewardAmount: numeric("reward_amount", { precision: 38, scale: 18 }).notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  pidIdx: index("pool_reward_events_v1_pid_idx").on(table.pid),
+  blockNumberIdx: index("pool_reward_events_v1_block_idx").on(table.blockNumber),
+  timestampIdx: index("pool_reward_events_v1_timestamp_idx").on(table.timestamp),
+  uniqueEventIdx: uniqueIndex("pool_reward_events_v1_unique_idx").on(table.txHash, table.logIndex),
+}));
+
+export const insertPoolRewardEventV1Schema = createInsertSchema(poolRewardEventsV1).omit({ id: true, createdAt: true });
+export type InsertPoolRewardEventV1 = z.infer<typeof insertPoolRewardEventV1Schema>;
+export type PoolRewardEventV1 = typeof poolRewardEventsV1.$inferSelect;
+
+/**
+ * V1 Pool indexer progress - tracks indexing progress for V1 Master Gardener
+ */
+export const poolEventIndexerProgressV1 = pgTable("pool_event_indexer_progress_v1", {
+  id: serial("id").primaryKey(),
+  indexerName: text("indexer_name").notNull().unique(),
+  indexerType: text("indexer_type").notNull(),
+  pid: integer("pid").notNull(),
+  lpToken: text("lp_token"),
+  lastIndexedBlock: bigint("last_indexed_block", { mode: "number" }).notNull(),
+  genesisBlock: bigint("genesis_block", { mode: "number" }).notNull(),
+  rangeEnd: bigint("range_end", { mode: "number" }),
+  status: text("status").notNull().default("idle"),
+  totalEventsIndexed: integer("total_events_indexed").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  pidIdx: index("pool_event_indexer_progress_v1_pid_idx").on(table.pid),
+  typeIdx: index("pool_event_indexer_progress_v1_type_idx").on(table.indexerType),
+}));
+
+export const insertPoolEventIndexerProgressV1Schema = createInsertSchema(poolEventIndexerProgressV1).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPoolEventIndexerProgressV1 = z.infer<typeof insertPoolEventIndexerProgressV1Schema>;
+export type PoolEventIndexerProgressV1 = typeof poolEventIndexerProgressV1.$inferSelect;
