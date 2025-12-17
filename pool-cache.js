@@ -68,6 +68,7 @@ function buildAnalyticsCacheEntry(pool) {
 
     // Real TVL and APR values from analytics
     totalTVL: pool.totalTVL || 0,
+    v1TVL: pool.v1TVL || 0, // V1 legacy staked TVL (for accurate total TVL)
     v2TVL: pool.v2TVL || 0, // V2 staked TVL only (for accurate position calculations)
     totalStaked: pool.totalStaked || '0', // Total LP staked in pool (for accurate pool share %)
     volume24hUSD: pool.volume24hUSD || 0,
