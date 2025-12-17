@@ -423,7 +423,7 @@ function WorkerProgressBars({ workers }: { workers?: WorkerProgress[] }) {
             className={`h-1.5 flex-1 ${worker.isRunning ? 'bg-blue-100' : ''}`} 
           />
           <span className="text-xs text-muted-foreground w-10 text-right">
-            {worker.percentComplete.toFixed(0)}%
+            {(worker.percentComplete ?? 0).toFixed(0)}%
           </span>
         </div>
       ))}
