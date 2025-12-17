@@ -16,7 +16,7 @@ const CJEWEL_ABI = [
   'event Transfer(address indexed from, address indexed to, uint256 value)',
   'function balanceOf(address owner) view returns (uint256)',
   'function totalSupply() view returns (uint256)',
-  'function getUserInfo(address _addr) view returns (tuple(uint256 amount, uint256 govTokenBalance, uint256 end, uint256 rewardDebt, uint256 availableSubBalance, uint32 subscriptionCount))',
+  'function getUserInfo(address _addr) view returns (uint256 amount, uint256 cJewelBalance, uint256 end, uint256 rewardPerSharePaid, uint256 rewards)',
 ];
 
 const JEWEL_ABI = [
@@ -327,6 +327,59 @@ export function startJewelerAutoRun() {
 
 export function isJewelerAutoRunning() {
   return autoRunIntervals.has('jeweler');
+}
+
+export async function refreshAllStakerBalances() {
+  console.log('[JewelerIndexer] Starting balance refresh for all stakers...');
+  
+  const allStakers = await db.select({ wallet: jewelerStakers.wallet })
+    .from(jewelerStakers)
+    .orderBy(desc(jewelerStakers.lastUpdatedAt));
+  
+  console.log(`[JewelerIndexer] Refreshing ${allStakers.length} stakers...`);
+  
+  const cjewelContract = getCjewelContract();
+  let updated = 0;
+  let errors = 0;
+  
+  for (const staker of allStakers) {
+    try {
+      const [balance, userInfo] = await Promise.all([
+        cjewelContract.balanceOf(staker.wallet),
+        cjewelContract.getUserInfo(staker.wallet),
+      ]);
+      
+      const cjewelBalance = ethers.formatEther(balance);
+      const lockEndTimestamp = Number(userInfo.end);
+      const lockEnd = lockEndTimestamp > 0 ? new Date(lockEndTimestamp * 1000) : null;
+      const summonerName = await getSummonerName(staker.wallet);
+      
+      await db.update(jewelerStakers)
+        .set({
+          cjewelBalance,
+          lockEnd,
+          summonerName,
+          lastUpdatedAt: sql`CURRENT_TIMESTAMP`,
+        })
+        .where(eq(jewelerStakers.wallet, staker.wallet));
+      
+      updated++;
+      
+      if (updated % 50 === 0) {
+        console.log(`[JewelerIndexer] Refreshed ${updated}/${allStakers.length} stakers`);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } catch (err) {
+      errors++;
+      if (errors <= 5) {
+        console.error(`[JewelerIndexer] Error refreshing ${staker.wallet}:`, err.message);
+      }
+    }
+  }
+  
+  console.log(`[JewelerIndexer] Balance refresh complete: ${updated} updated, ${errors} errors`);
+  return { updated, errors, total: allStakers.length };
 }
 
 export async function runJewelerIndexer() {

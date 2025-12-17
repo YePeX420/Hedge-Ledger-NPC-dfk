@@ -6416,6 +6416,18 @@ async function startAdminWebServer() {
       res.status(500).json({ error: 'Failed to fetch jeweler APR', details: error.message });
     }
   });
+
+  // POST /api/admin/jeweler/refresh-balances - Refresh all staker balances
+  app.post('/api/admin/jeweler/refresh-balances', isAdmin, async (req, res) => {
+    try {
+      const { refreshAllStakerBalances } = await import('./src/etl/ingestion/jewelerIndexer.js');
+      refreshAllStakerBalances().catch(err => console.error('[JewelerIndexer] Background refresh error:', err));
+      res.json({ success: true, message: 'Balance refresh started in background' });
+    } catch (error) {
+      console.error('[API] Error starting balance refresh:', error);
+      res.status(500).json({ error: 'Failed to start balance refresh', details: error.message });
+    }
+  });
   
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
