@@ -67,6 +67,15 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
     - Used by valueBreakdown.ts for dynamic token symbol resolution
     - Admin UI at `/admin/tokens` with sync buttons and token list display
     - API endpoints: `GET /api/admin/tokens`, `POST /api/admin/tokens/sync`, `GET /api/admin/tokens/map`
+*   **Unified Pool Indexer System**: Tracks LP staking positions across both V1 and V2 Master Gardener contracts:
+    - V2 Indexer (`src/etl/ingestion/poolUnifiedIndexer.js`): Targets current Master Gardener V2 (`0xB04e8D6aED037904B77A9F0b08002592925833b7`)
+    - V1 Indexer (`src/etl/ingestion/poolUnifiedIndexerV1.js`): Targets legacy Master Gardener (`0x57dec9cc7f492d6583c773e2e7ad66dcdc6940fb`)
+    - Dynamic parallel workers: 3-5 workers per pool (42-70 total for 14 pools), with RPC failsafe auto-reduction on rate limits
+    - Tables: `pool_stakers`, `pool_swap_events`, `pool_reward_events`, `pool_event_indexer_progress` (separate V1 versions with `_v1` suffix)
+    - Admin UI: `/admin/pool-indexer` (V2) and `/admin/pool-indexer-v1` (V1) with start/stop controls per pool
+    - TVL calculation: `garden-analytics.js` combines V1 + V2 staked amounts for accurate total TVL
+    - Cache: `pool-cache.js` exposes `totalTVL`, `v1TVL`, `v2TVL` fields for each pool
+    - API endpoints: `GET /api/admin/pool-indexer/unified/status`, `POST /api/admin/pool-indexer/unified/trigger`, etc. (V1 uses `/pool-indexer-v1/` prefix)
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules, entry fees, prizes, and a state machine for managing races.
 *   **Leaderboard System**: Provides snapshot-based rankings with historical tracking across various time windows, scoring players based on defined metrics.
 *   **Season Engine**: Manages challenge passes with weighted scoring and seasonal progression, calculating player points and levels.
