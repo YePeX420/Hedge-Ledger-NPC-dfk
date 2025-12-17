@@ -78,6 +78,15 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
     - TVL calculation: `garden-analytics.js` combines V1 + V2 staked amounts for accurate total TVL
     - Cache: `pool-cache.js` exposes `totalTVL`, `v1TVL`, `v2TVL` fields for each pool
     - API endpoints: `GET /api/admin/pool-indexer/unified/status`, `POST /api/admin/pool-indexer/unified/trigger`, etc. (V1 uses `/pool-indexer-v1/` prefix)
+*   **Jeweler Indexer System**: Tracks cJEWEL staking positions with leaderboard and APR calculations:
+    - Indexer (`src/etl/ingestion/jewelerIndexer.js`): Targets cJEWEL contract (`0x9ed2c155632C042CB8bC20634571fF1CA26f5742`)
+    - Tracks mint/burn events (deposits/withdrawals) via Transfer events to/from zero address
+    - Derives JEWEL value dynamically using on-chain ratio: `JEWEL_locked / cJEWEL_supply`
+    - APR calculation from ratio history snapshots (7d, 30d, overall)
+    - DFK summoner name lookup via Profiles contract
+    - Tables: `jeweler_stakers`, `jeweler_events`, `jeweler_ratio_history`, `jeweler_indexer_progress`
+    - Admin UI: `/admin/jeweler` with stats cards (JEWEL locked, stakers, ratio, APR), indexer controls, and top holders leaderboard
+    - API endpoints: `GET /api/admin/jeweler/status`, `POST /api/admin/jeweler/trigger`, `POST /api/admin/jeweler/auto-run`, `GET /api/admin/jeweler/leaderboard`, `GET /api/admin/jeweler/apr`
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules, entry fees, prizes, and a state machine for managing races.
 *   **Leaderboard System**: Provides snapshot-based rankings with historical tracking across various time windows, scoring players based on defined metrics.
 *   **Season Engine**: Manages challenge passes with weighted scoring and seasonal progression, calculating player points and levels.
