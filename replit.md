@@ -70,7 +70,9 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
 *   **Unified Pool Indexer System**: Tracks LP staking positions across both V1 and V2 Master Gardener contracts:
     - V2 Indexer (`src/etl/ingestion/poolUnifiedIndexer.js`): Targets current Master Gardener V2 (`0xB04e8D6aED037904B77A9F0b08002592925833b7`)
     - V1 Indexer (`src/etl/ingestion/poolUnifiedIndexerV1.js`): Targets legacy Master Gardener (`0x57dec9cc7f492d6583c773e2e7ad66dcdc6940fb`)
-    - Dynamic parallel workers: 3-5 workers per pool (42-70 total for 14 pools), with RPC failsafe auto-reduction on rate limits
+    - Dynamic parallel workers: 5 workers per pool (70 total for 14 pools), with RPC failsafe auto-reduction on rate limits
+    - Work-stealing: When a worker completes its range, it automatically steals half the remaining blocks from the slowest worker in the same pool, preventing idle workers while others are still busy
+    - Race condition protection: Donor reservation system prevents multiple workers from stealing from the same donor simultaneously
     - Tables: `pool_stakers`, `pool_swap_events`, `pool_reward_events`, `pool_event_indexer_progress` (separate V1 versions with `_v1` suffix)
     - Admin UI: `/admin/pool-indexer` (V2) and `/admin/pool-indexer-v1` (V1) with start/stop controls per pool
     - TVL calculation: `garden-analytics.js` combines V1 + V2 staked amounts for accurate total TVL

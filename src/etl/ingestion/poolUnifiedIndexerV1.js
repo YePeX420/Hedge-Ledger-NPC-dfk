@@ -592,6 +592,142 @@ function getAutoRunKeyV1(pid, workerId = 0) {
   return `unified_v1_${pid}_w${workerId}`;
 }
 
+// Track donors currently being stolen from (prevents race conditions)
+// Reservations are explicitly released after steal completes; timeout is only a failsafe for crashes
+const donorReservationsV1 = new Map(); // key: "pid_workerId" -> timestamp
+
+// Work-stealing: Find work from slowest worker in the same pool
+// Uses reservation system to prevent race conditions
+function findWorkToStealV1(pid, thiefWorkerId) {
+  const MIN_BLOCKS_TO_STEAL = 500000; // Don't steal less than 500k blocks
+  const RESERVATION_TIMEOUT_MS = 60000; // Failsafe: reservations expire after 60s if not released
+  
+  let bestDonor = null;
+  let maxRemainingBlocks = 0;
+  const now = Date.now();
+  
+  for (let w = 0; w < WORKERS_PER_POOL_V1; w++) {
+    if (w === thiefWorkerId) continue;
+    
+    const key = getAutoRunKeyV1(pid, w);
+    const workerInfo = autoRunIntervalsV1.get(key);
+    if (!workerInfo) continue;
+    
+    // Check if this donor is already reserved (race condition prevention)
+    const reservationKey = `${pid}_${w}`;
+    const reservedAt = donorReservationsV1.get(reservationKey);
+    if (reservedAt && (now - reservedAt) < RESERVATION_TIMEOUT_MS) {
+      continue; // Skip reserved donors
+    }
+    
+    const progress = liveProgressV1.get(getWorkerKeyV1(pid, w));
+    if (!progress || progress.completedAt) continue;
+    
+    const currentBlock = progress.currentBlock || workerInfo.rangeStart || 0;
+    const targetBlock = progress.targetBlock || workerInfo.rangeEnd;
+    
+    if (!targetBlock) continue;
+    
+    const remainingBlocks = targetBlock - currentBlock;
+    
+    if (remainingBlocks > maxRemainingBlocks && remainingBlocks > MIN_BLOCKS_TO_STEAL * 2) {
+      maxRemainingBlocks = remainingBlocks;
+      bestDonor = {
+        workerId: w,
+        currentBlock,
+        targetBlock,
+        remainingBlocks,
+      };
+    }
+  }
+  
+  if (!bestDonor) return null;
+  
+  // Reserve this donor immediately to prevent race conditions
+  const reservationKey = `${pid}_${bestDonor.workerId}`;
+  donorReservationsV1.set(reservationKey, now);
+  
+  const blocksToSteal = Math.floor(bestDonor.remainingBlocks / 2);
+  if (blocksToSteal < MIN_BLOCKS_TO_STEAL) {
+    donorReservationsV1.delete(reservationKey); // Release reservation
+    return null;
+  }
+  
+  const newRangeStart = bestDonor.targetBlock - blocksToSteal;
+  const newRangeEnd = bestDonor.targetBlock;
+  
+  return {
+    donorWorkerId: bestDonor.workerId,
+    donorCurrentBlock: bestDonor.currentBlock,
+    newDonorRangeEnd: newRangeStart,
+    newRangeStart,
+    newRangeEnd,
+    blocksStolen: blocksToSteal,
+    reservationKey, // Used to release reservation after completion
+  };
+}
+
+// Release a donor reservation after work-stealing is complete
+function releaseDonorReservationV1(reservationKey) {
+  donorReservationsV1.delete(reservationKey);
+}
+
+// Reassign a V1 worker's range (for work-stealing)
+async function reassignWorkerRangeV1(pid, workerId, newRangeStart, newRangeEnd) {
+  const key = getAutoRunKeyV1(pid, workerId);
+  const workerInfo = autoRunIntervalsV1.get(key);
+  if (!workerInfo) return false;
+  
+  workerInfo.rangeStart = newRangeStart;
+  workerInfo.rangeEnd = newRangeEnd;
+  
+  const indexerName = getUnifiedIndexerNameV1(pid, workerId);
+  await db.update(poolEventIndexerProgressV1)
+    .set({
+      lastIndexedBlock: newRangeStart,
+      rangeStart: newRangeStart,
+      rangeEnd: newRangeEnd,
+      status: 'running',
+    })
+    .where(eq(poolEventIndexerProgressV1.indexerName, indexerName));
+  
+  updateLiveProgressV1(pid, {
+    isRunning: true,
+    currentBlock: newRangeStart,
+    targetBlock: newRangeEnd,
+    rangeStart: newRangeStart,
+    rangeEnd: newRangeEnd,
+    percentComplete: 0,
+    completedAt: null,
+  }, workerId);
+  
+  return true;
+}
+
+// Shrink a donor V1 worker's range after work was stolen
+async function shrinkWorkerRangeV1(pid, workerId, newRangeEnd) {
+  const key = getAutoRunKeyV1(pid, workerId);
+  const workerInfo = autoRunIntervalsV1.get(key);
+  if (!workerInfo) return false;
+  
+  workerInfo.rangeEnd = newRangeEnd;
+  
+  const indexerName = getUnifiedIndexerNameV1(pid, workerId);
+  await db.update(poolEventIndexerProgressV1)
+    .set({ rangeEnd: newRangeEnd })
+    .where(eq(poolEventIndexerProgressV1.indexerName, indexerName));
+  
+  const progress = liveProgressV1.get(getWorkerKeyV1(pid, workerId));
+  if (progress) {
+    updateLiveProgressV1(pid, {
+      targetBlock: newRangeEnd,
+      rangeEnd: newRangeEnd,
+    }, workerId);
+  }
+  
+  return true;
+}
+
 export function isUnifiedAutoRunningV1(pid, workerId = null) {
   if (workerId !== null) {
     return autoRunIntervalsV1.has(getAutoRunKeyV1(pid, workerId));
@@ -686,13 +822,41 @@ export async function startUnifiedWorkerAutoRunV1(pid, workerId, rangeStart, ran
   
   info.interval = setInterval(async () => {
     if (!autoRunIntervalsV1.has(key)) return;
+    
+    // Read current range from info (may have been updated by work-stealing)
+    const currentRangeStart = info.rangeStart;
+    const currentRangeEnd = info.rangeEnd;
+    
     try {
-      const result = await runUnifiedIncrementalBatchV1(pid, { workerId, rangeStart, rangeEnd });
+      const result = await runUnifiedIncrementalBatchV1(pid, { 
+        workerId, 
+        rangeStart: currentRangeStart, 
+        rangeEnd: currentRangeEnd 
+      });
       info.lastRunAt = new Date().toISOString();
       info.runsCompleted++;
       
       if (result.status === 'complete') {
         console.log(`[V1Indexer] ${workerLabel} completed its range`);
+        
+        // Try to steal work from another worker in this pool
+        const stolen = findWorkToStealV1(pid, workerId);
+        if (stolen) {
+          try {
+            console.log(`[V1Indexer] ${workerLabel} stealing ${(stolen.blocksStolen / 1000000).toFixed(1)}M blocks from worker ${stolen.donorWorkerId}`);
+            
+            // Shrink the donor worker's range first (prevents overlap)
+            await shrinkWorkerRangeV1(pid, stolen.donorWorkerId, stolen.newDonorRangeEnd);
+            
+            // Reassign this worker to the stolen range
+            await reassignWorkerRangeV1(pid, workerId, stolen.newRangeStart, stolen.newRangeEnd);
+            
+            console.log(`[V1Indexer] ${workerLabel} now working on blocks ${stolen.newRangeStart.toLocaleString()}-${stolen.newRangeEnd.toLocaleString()}`);
+          } finally {
+            // Always release the reservation
+            releaseDonorReservationV1(stolen.reservationKey);
+          }
+        }
       }
     } catch (err) {
       console.error(`[V1Indexer] Error for ${workerLabel}:`, err.message);
