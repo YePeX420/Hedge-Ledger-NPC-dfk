@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import {
@@ -213,23 +213,57 @@ function formatBlock(block: number): string {
   return block.toLocaleString();
 }
 
-function calculateETA(startedAt: string | null | undefined, percentComplete: number): string | null {
-  if (!startedAt || percentComplete <= 0 || percentComplete >= 100) return null;
+type ProgressSnapshot = { time: number; percent: number };
+type ProgressHistory = Map<string, ProgressSnapshot[]>;
+
+function calculateETAFromHistory(
+  key: string,
+  percentComplete: number,
+  history: ProgressHistory
+): string | null {
+  if (percentComplete <= 0 || percentComplete >= 100) return null;
   
-  const startTime = new Date(startedAt).getTime();
-  if (isNaN(startTime)) return null;
+  const snapshots = history.get(key);
+  if (!snapshots || snapshots.length < 2) return null;
   
+  const WINDOW_MS = 30000;
   const now = Date.now();
-  const elapsedMs = now - startTime;
+  const cutoff = now - WINDOW_MS;
   
-  if (elapsedMs < 5000) return null;
+  const recent = snapshots.filter(s => s.time >= cutoff);
+  if (recent.length < 2) {
+    if (snapshots.length >= 2) {
+      const first = snapshots[0];
+      const last = snapshots[snapshots.length - 1];
+      const elapsed = last.time - first.time;
+      const progress = last.percent - first.percent;
+      if (elapsed < 5000 || progress <= 0) return null;
+      const rate = progress / elapsed;
+      if (!isFinite(rate) || rate <= 0) return null;
+      const remainingMs = (100 - percentComplete) / rate;
+      return formatETA(remainingMs);
+    }
+    return null;
+  }
   
-  const rate = percentComplete / elapsedMs;
+  const first = recent[0];
+  const last = recent[recent.length - 1];
+  const elapsed = last.time - first.time;
+  const progress = last.percent - first.percent;
+  
+  if (elapsed < 3000 || progress <= 0) return null;
+  
+  const rate = progress / elapsed;
   if (!isFinite(rate) || rate <= 0) return null;
   
-  const remainingPercent = 100 - percentComplete;
-  const remainingMs = remainingPercent / rate;
+  const remainingMs = (100 - percentComplete) / rate;
   if (!isFinite(remainingMs)) return null;
+  
+  return formatETA(remainingMs);
+}
+
+function formatETA(remainingMs: number): string | null {
+  if (!isFinite(remainingMs) || remainingMs < 0) return null;
   
   const remainingSec = Math.floor(remainingMs / 1000);
   if (remainingSec < 60) return `~${remainingSec}s`;
@@ -244,6 +278,37 @@ function calculateETA(startedAt: string | null | undefined, percentComplete: num
   const days = Math.floor(hours / 24);
   const hrs = hours % 24;
   return `~${days}d ${hrs}h`;
+}
+
+function updateProgressHistory(
+  history: ProgressHistory,
+  key: string,
+  percentComplete: number,
+  isRunning: boolean
+): void {
+  const now = Date.now();
+  const WINDOW_MS = 60000;
+  
+  if (!isRunning || percentComplete <= 0 || percentComplete >= 100) {
+    history.delete(key);
+    return;
+  }
+  
+  let snapshots = history.get(key);
+  if (!snapshots) {
+    snapshots = [];
+    history.set(key, snapshots);
+  }
+  
+  const lastSnapshot = snapshots[snapshots.length - 1];
+  if (!lastSnapshot || now - lastSnapshot.time >= 1000) {
+    snapshots.push({ time: now, percent: percentComplete });
+  }
+  
+  const cutoff = now - WINDOW_MS;
+  while (snapshots.length > 0 && snapshots[0].time < cutoff) {
+    snapshots.shift();
+  }
 }
 
 function LoadingSkeleton() {
@@ -470,13 +535,22 @@ function UnifiedIndexerTable({
   onAutoRun,
   isTriggering,
   workerStatus,
+  progressHistory,
 }: { 
   indexers: UnifiedIndexerProgress[];
   onTrigger: (pid: number) => void;
   onAutoRun: (pid: number, action: 'start' | 'stop') => void;
   isTriggering: boolean;
   workerStatus?: UnifiedWorkerStatus;
+  progressHistory: ProgressHistory;
 }) {
+  for (const indexer of indexers) {
+    const isRunning = indexer.live?.isRunning || false;
+    const percentComplete = indexer.live?.percentComplete || 0;
+    const key = `unified-${indexer.pid}`;
+    updateProgressHistory(progressHistory, key, percentComplete, isRunning);
+  }
+
   if (!indexers || indexers.length === 0) {
     return (
       <Card>
@@ -487,16 +561,10 @@ function UnifiedIndexerTable({
     );
   }
 
-  // Count workers per pool and find earliest startedAt
   const workersPerPoolMap = new Map<number, number>();
-  const poolStartedAtMap = new Map<number, string>();
   if (workerStatus?.pools) {
     for (const worker of workerStatus.pools) {
       workersPerPoolMap.set(worker.pid, (workersPerPoolMap.get(worker.pid) || 0) + 1);
-      const existingStart = poolStartedAtMap.get(worker.pid);
-      if (!existingStart || new Date(worker.startedAt) < new Date(existingStart)) {
-        poolStartedAtMap.set(worker.pid, worker.startedAt);
-      }
     }
   }
 
@@ -522,8 +590,8 @@ function UnifiedIndexerTable({
               const workers = indexer.live?.workers || [];
               const activeWorkerCount = workersPerPoolMap.get(indexer.pid) || 0;
               const hasAutoRun = activeWorkerCount > 0;
-              const poolStartedAt = poolStartedAtMap.get(indexer.pid);
-              const eta = isRunning ? calculateETA(poolStartedAt, percentComplete) : null;
+              const key = `unified-${indexer.pid}`;
+              const eta = isRunning ? calculateETAFromHistory(key, percentComplete, progressHistory) : null;
               
               return (
                 <TableRow key={indexer.indexerName} data-testid={`row-indexer-unified-${indexer.pid}`}>
@@ -609,6 +677,7 @@ function UnifiedIndexerTable({
 export default function AdminPoolIndexer() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("unified");
+  const progressHistoryRef = useRef<ProgressHistory>(new Map());
   
   const { data: status, isLoading, error, refetch } = useQuery<IndexerStatus>({
     queryKey: ["/api/admin/pool-indexer/status"],
@@ -891,6 +960,7 @@ export default function AdminPoolIndexer() {
             onAutoRun={(pid, action) => unifiedAutoRunMutation.mutate({ pid, action })}
             isTriggering={triggerUnifiedMutation.isPending}
             workerStatus={workerStatus}
+            progressHistory={progressHistoryRef.current}
           />
         </TabsContent>
         
