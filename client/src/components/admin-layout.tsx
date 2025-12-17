@@ -17,7 +17,8 @@ import {
   Coins,
   TrendingDown,
   Droplets,
-  Database
+  Database,
+  Gem
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -32,6 +33,7 @@ const navItems = [
   { href: '/admin/pools', label: 'Pools', icon: Droplets },
   { href: '/admin/pool-indexer', label: 'Pool Indexer V2', icon: Database },
   { href: '/admin/pool-indexer-v1', label: 'Pool Indexer V1', icon: Database },
+  { href: '/admin/jeweler', label: 'Jeweler', icon: Gem },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
   { href: '/admin/expenses', label: 'Expenses', icon: Receipt },

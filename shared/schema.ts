@@ -2143,3 +2143,97 @@ export const poolEventIndexerProgressV1 = pgTable("pool_event_indexer_progress_v
 export const insertPoolEventIndexerProgressV1Schema = createInsertSchema(poolEventIndexerProgressV1).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPoolEventIndexerProgressV1 = z.infer<typeof insertPoolEventIndexerProgressV1Schema>;
 export type PoolEventIndexerProgressV1 = typeof poolEventIndexerProgressV1.$inferSelect;
+
+// ============================================================================
+// JEWELER STAKING INDEX (cJEWEL)
+// Tracks JEWEL staking in the Jeweler for cJEWEL tokens
+// ============================================================================
+
+/**
+ * Jeweler stakers - stores current staker positions in the Jeweler
+ */
+export const jewelerStakers = pgTable("jeweler_stakers", {
+  id: serial("id").primaryKey(),
+  wallet: text("wallet").notNull().unique(),
+  stakedJewel: numeric("staked_jewel", { precision: 38, scale: 18 }).notNull().default("0"),
+  cjewelBalance: numeric("cjewel_balance", { precision: 38, scale: 18 }).notNull().default("0"),
+  summonerName: text("summoner_name"),
+  lastActivityType: text("last_activity_type"),
+  lastActivityAmount: numeric("last_activity_amount", { precision: 38, scale: 18 }),
+  lastActivityBlock: bigint("last_activity_block", { mode: "number" }),
+  lastActivityTxHash: text("last_activity_tx_hash"),
+  lastUpdatedAt: timestamp("last_updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletIdx: uniqueIndex("jeweler_stakers_wallet_idx").on(table.wallet),
+  cjewelBalanceIdx: index("jeweler_stakers_cjewel_balance_idx").on(table.cjewelBalance),
+}));
+
+export const insertJewelerStakerSchema = createInsertSchema(jewelerStakers).omit({ id: true, createdAt: true, lastUpdatedAt: true });
+export type InsertJewelerStaker = z.infer<typeof insertJewelerStakerSchema>;
+export type JewelerStaker = typeof jewelerStakers.$inferSelect;
+
+/**
+ * Jeweler events - raw deposit/withdraw events from the Jeweler contract
+ */
+export const jewelerEvents = pgTable("jeweler_events", {
+  id: serial("id").primaryKey(),
+  blockNumber: bigint("block_number", { mode: "number" }).notNull(),
+  txHash: text("tx_hash").notNull(),
+  logIndex: integer("log_index").notNull(),
+  eventType: text("event_type").notNull(),
+  user: text("user").notNull(),
+  jewelAmount: numeric("jewel_amount", { precision: 38, scale: 18 }).notNull(),
+  cjewelAmount: numeric("cjewel_amount", { precision: 38, scale: 18 }).notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  blockNumberIdx: index("jeweler_events_block_idx").on(table.blockNumber),
+  userIdx: index("jeweler_events_user_idx").on(table.user),
+  timestampIdx: index("jeweler_events_timestamp_idx").on(table.timestamp),
+  uniqueEventIdx: uniqueIndex("jeweler_events_unique_idx").on(table.txHash, table.logIndex),
+}));
+
+export const insertJewelerEventSchema = createInsertSchema(jewelerEvents).omit({ id: true, createdAt: true });
+export type InsertJewelerEvent = z.infer<typeof insertJewelerEventSchema>;
+export type JewelerEvent = typeof jewelerEvents.$inferSelect;
+
+/**
+ * Jeweler ratio history - tracks cJEWEL/JEWEL ratio over time for APR calculation
+ */
+export const jewelerRatioHistory = pgTable("jeweler_ratio_history", {
+  id: serial("id").primaryKey(),
+  blockNumber: bigint("block_number", { mode: "number" }).notNull(),
+  ratio: numeric("ratio", { precision: 38, scale: 18 }).notNull(),
+  totalJewelLocked: numeric("total_jewel_locked", { precision: 38, scale: 18 }).notNull(),
+  totalCjewelSupply: numeric("total_cjewel_supply", { precision: 38, scale: 18 }).notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  blockNumberIdx: uniqueIndex("jeweler_ratio_history_block_idx").on(table.blockNumber),
+  timestampIdx: index("jeweler_ratio_history_timestamp_idx").on(table.timestamp),
+}));
+
+export const insertJewelerRatioHistorySchema = createInsertSchema(jewelerRatioHistory).omit({ id: true, createdAt: true });
+export type InsertJewelerRatioHistory = z.infer<typeof insertJewelerRatioHistorySchema>;
+export type JewelerRatioHistory = typeof jewelerRatioHistory.$inferSelect;
+
+/**
+ * Jeweler indexer progress - tracks indexing progress for Jeweler
+ */
+export const jewelerIndexerProgress = pgTable("jeweler_indexer_progress", {
+  id: serial("id").primaryKey(),
+  indexerName: text("indexer_name").notNull().unique(),
+  lastIndexedBlock: bigint("last_indexed_block", { mode: "number" }).notNull(),
+  genesisBlock: bigint("genesis_block", { mode: "number" }).notNull(),
+  status: text("status").notNull().default("idle"),
+  totalEventsIndexed: integer("total_events_indexed").notNull().default(0),
+  totalStakersFound: integer("total_stakers_found").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertJewelerIndexerProgressSchema = createInsertSchema(jewelerIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertJewelerIndexerProgress = z.infer<typeof insertJewelerIndexerProgressSchema>;
+export type JewelerIndexerProgress = typeof jewelerIndexerProgress.$inferSelect;
