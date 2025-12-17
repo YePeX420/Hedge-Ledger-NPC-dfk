@@ -6339,6 +6339,83 @@ async function startAdminWebServer() {
       res.status(500).json({ error: 'Failed to fetch V1 totals', details: error.message });
     }
   });
+
+  // ============================================================================
+  // JEWELER INDEXER ROUTES
+  // ============================================================================
+
+  // GET /api/admin/jeweler/status - Get Jeweler indexer status and stats
+  app.get('/api/admin/jeweler/status', isAdmin, async (req, res) => {
+    try {
+      const { getJewelerStats } = await import('./src/etl/ingestion/jewelerIndexer.js');
+      const stats = await getJewelerStats();
+      res.json(stats);
+    } catch (error) {
+      console.error('[API] Error fetching jeweler status:', error);
+      res.status(500).json({ error: 'Failed to fetch jeweler status', details: error.message });
+    }
+  });
+
+  // POST /api/admin/jeweler/trigger - Trigger Jeweler indexer run
+  app.post('/api/admin/jeweler/trigger', isAdmin, async (req, res) => {
+    try {
+      const { runJewelerIndexer } = await import('./src/etl/ingestion/jewelerIndexer.js');
+      runJewelerIndexer().catch(err => console.error('[JewelerIndexer] Background error:', err));
+      res.json({ success: true, message: 'Jeweler indexer triggered' });
+    } catch (error) {
+      console.error('[API] Error triggering jeweler indexer:', error);
+      res.status(500).json({ error: 'Failed to trigger jeweler indexer', details: error.message });
+    }
+  });
+
+  // POST /api/admin/jeweler/auto-run - Start/stop Jeweler auto-run
+  app.post('/api/admin/jeweler/auto-run', isAdmin, async (req, res) => {
+    try {
+      const { action } = req.body;
+      if (!action || !['start', 'stop'].includes(action)) {
+        return res.status(400).json({ error: 'action must be start or stop' });
+      }
+      
+      const { startJewelerAutoRun, stopJewelerAutoRun } = await import('./src/etl/ingestion/jewelerIndexer.js');
+      
+      let result;
+      if (action === 'start') {
+        result = startJewelerAutoRun();
+      } else {
+        result = stopJewelerAutoRun();
+      }
+      
+      res.json({ success: true, result });
+    } catch (error) {
+      console.error('[API] Error managing jeweler auto-run:', error);
+      res.status(500).json({ error: 'Failed to manage jeweler auto-run', details: error.message });
+    }
+  });
+
+  // GET /api/admin/jeweler/leaderboard - Get top cJEWEL stakers
+  app.get('/api/admin/jeweler/leaderboard', isAdmin, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 50;
+      const { getJewelerLeaderboard } = await import('./src/etl/ingestion/jewelerIndexer.js');
+      const stakers = await getJewelerLeaderboard(limit);
+      res.json({ stakers, count: stakers.length });
+    } catch (error) {
+      console.error('[API] Error fetching jeweler leaderboard:', error);
+      res.status(500).json({ error: 'Failed to fetch jeweler leaderboard', details: error.message });
+    }
+  });
+
+  // GET /api/admin/jeweler/apr - Get Jeweler APR data
+  app.get('/api/admin/jeweler/apr', isAdmin, async (req, res) => {
+    try {
+      const { getJewelerAPR, getJewelerRatio } = await import('./src/etl/ingestion/jewelerIndexer.js');
+      const [aprData, ratioData] = await Promise.all([getJewelerAPR(), getJewelerRatio()]);
+      res.json({ ...aprData, ...ratioData });
+    } catch (error) {
+      console.error('[API] Error fetching jeweler APR:', error);
+      res.status(500).json({ error: 'Failed to fetch jeweler APR', details: error.message });
+    }
+  });
   
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
