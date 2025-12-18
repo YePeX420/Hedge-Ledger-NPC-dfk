@@ -18,17 +18,15 @@ const client = new GraphQLClient(DFK_GRAPHQL_ENDPOINT);
  */
 
 /**
- * Class combinations and probabilities
- * Each parent class appears ~40%, recessive class ~20%
+ * Class genes inherit using weighted rolls across dominant and recessive slots.
+ * Weights mirror the in-game probabilities for pulling each recessive gene.
  */
-const CLASS_PROBABILITIES = {
-  // Parent 1 class appears
-  parent1: 0.40,
-  // Parent 2 class appears
-  parent2: 0.40,
-  // Recessive class appears (from R1/R2/R3)
-  recessive: 0.20,
-};
+const GENE_WEIGHTS = [
+  0.75, // Dominant (D)
+  0.1875, // Recessive 1 (R1)
+  0.046875, // Recessive 2 (R2)
+  0.015625, // Recessive 3 (R3)
+];
 
 /**
  * Class mutation chart - which class combinations can produce which offspring
@@ -51,15 +49,24 @@ const CLASS_MUTATIONS = {
   'Warrior + Priest': ['Warrior', 'Priest', 'Paladin'],
   'Knight + Priest': ['Knight', 'Priest', 'Paladin'],
   'Thief + Archer': ['Thief', 'Archer', 'Ninja'],
-  'Wizard + Priest': ['Wizard', 'Priest', 'Sage'],
+  'Wizard + Priest': ['Wizard', 'Priest', 'Summoner'],
   'Archer + Wizard': ['Archer', 'Wizard', 'Sage'],
-  
+  'Priest + Wizard': ['Priest', 'Wizard', 'Summoner'],
+
   // Elite mutations
   'Paladin + Paladin': ['Paladin', 'Dragoon'],
   'DarkKnight + DarkKnight': ['DarkKnight', 'Dragoon'],
   'Ninja + Ninja': ['Ninja', 'Shapeshifter'],
   'Sage + Sage': ['Sage', 'Summoner'],
-  
+
+  // Cross-tier mutations
+  'Paladin + DarkKnight': ['Paladin', 'DarkKnight', 'Dragoon'],
+  'DarkKnight + Paladin': ['DarkKnight', 'Paladin', 'Dragoon'],
+  'Ninja + Summoner': ['Ninja', 'Summoner', 'Sage'],
+  'Summoner + Ninja': ['Summoner', 'Ninja', 'Sage'],
+  'Dragoon + Sage': ['Dragoon', 'Sage', 'DreadKnight'],
+  'Sage + Dragoon': ['Sage', 'Dragoon', 'DreadKnight'],
+
   // Add more as needed from official docs
 };
 
@@ -137,44 +144,67 @@ export function calculateSummonsRemaining(parent1Summons, parent2Summons, parent
  * @returns {Object} Class probabilities { className: probability }
  */
 export function calculateClassProbabilities(parent1Class, parent2Class, parent1Recessive = [], parent2Recessive = []) {
+  const parent1Genes = normalizeGeneArray(parent1Class, parent1Recessive);
+  const parent2Genes = normalizeGeneArray(parent2Class, parent2Recessive);
+
   const probabilities = {};
-  
-  // Direct inheritance from parent classes (40% each)
-  probabilities[parent1Class] = CLASS_PROBABILITIES.parent1;
-  probabilities[parent2Class] = (probabilities[parent2Class] || 0) + CLASS_PROBABILITIES.parent2;
-  
-  // Check for mutations
-  const combination = `${parent1Class} + ${parent2Class}`;
-  const reverseCombination = `${parent2Class} + ${parent1Class}`;
-  
-  const possibleMutations = CLASS_MUTATIONS[combination] || CLASS_MUTATIONS[reverseCombination] || [];
-  
-  // Add mutation classes if applicable
-  for (const mutationClass of possibleMutations) {
-    if (mutationClass !== parent1Class && mutationClass !== parent2Class) {
-      // This is a mutation class (advanced/elite)
-      // Split recessive probability among mutation classes
-      probabilities[mutationClass] = CLASS_PROBABILITIES.recessive / (possibleMutations.length - 2 || 1);
+
+  for (let i = 0; i < parent1Genes.length; i += 1) {
+    for (let j = 0; j < parent2Genes.length; j += 1) {
+      const geneProbability = GENE_WEIGHTS[i] * GENE_WEIGHTS[j];
+      const parentGeneClass = parent1Genes[i];
+      const partnerGeneClass = parent2Genes[j];
+
+      const resolvedClasses = resolveClassCombination(parentGeneClass, partnerGeneClass);
+
+      for (const [cls, weight] of Object.entries(resolvedClasses)) {
+        probabilities[cls] = (probabilities[cls] || 0) + geneProbability * weight;
+      }
     }
   }
-  
-  // Recessive classes from R1/R2/R3 genes (remaining probability)
-  const recessiveClasses = [...new Set([...parent1Recessive, ...parent2Recessive])];
-  const recessiveProbPerClass = CLASS_PROBABILITIES.recessive / (recessiveClasses.length || 1);
-  
-  for (const recessiveClass of recessiveClasses) {
-    if (!probabilities[recessiveClass]) {
-      probabilities[recessiveClass] = recessiveProbPerClass;
-    }
-  }
-  
-  // Normalize to ensure sum = 1.0
+
   const total = Object.values(probabilities).reduce((sum, p) => sum + p, 0);
-  for (const cls in probabilities) {
-    probabilities[cls] /= total;
+  if (total > 0) {
+    for (const cls in probabilities) {
+      probabilities[cls] /= total;
+    }
   }
-  
+
   return probabilities;
+}
+
+function normalizeGeneArray(mainClass, recessiveClasses = []) {
+  const genes = [mainClass, ...recessiveClasses.slice(0, 3)];
+
+  while (genes.length < 4) {
+    genes.push(mainClass);
+  }
+
+  return genes;
+}
+
+function resolveClassCombination(parentGeneClass, partnerGeneClass) {
+  if (parentGeneClass === partnerGeneClass) {
+    return { [parentGeneClass]: 1 };
+  }
+
+  const combination = `${parentGeneClass} + ${partnerGeneClass}`;
+  const reverseCombination = `${partnerGeneClass} + ${parentGeneClass}`;
+
+  const possibleOutcomes =
+    CLASS_MUTATIONS[combination] ||
+    CLASS_MUTATIONS[reverseCombination] ||
+    [parentGeneClass, partnerGeneClass];
+
+  const uniqueOutcomes = [...new Set(possibleOutcomes)];
+  const share = 1 / uniqueOutcomes.length;
+  const resolved = {};
+
+  for (const outcome of uniqueOutcomes) {
+    resolved[outcome] = share;
+  }
+
+  return resolved;
 }
 
 /**
@@ -503,4 +533,4 @@ export function formatSummoningOutcome(outcome) {
   return output;
 }
 
-export { CLASS_MUTATIONS, RARITY_INHERITANCE };
+export { CLASS_MUTATIONS, GENE_WEIGHTS, RARITY_INHERITANCE };
