@@ -23,7 +23,21 @@ const JEWEL_ABI = [
   'function balanceOf(address owner) view returns (uint256)',
 ];
 
-const PROFILES_CONTRACT = '0xC4cD8C09D1A90b21Be417be91A81603B03993E81';
+const PROFILE_CONTRACTS = {
+  crystalvale: {
+    rpc: DFK_CHAIN_RPC,
+    address: '0xC4cD8C09D1A90b21Be417be91A81603B03993E81',
+  },
+  harmony: {
+    rpc: 'https://api.harmony.one',
+    address: '0x6391F796D56201D279a42fD3141aDa7e26A3B4A5',
+  },
+  klaytn: {
+    rpc: 'https://public-en.node.kaia.io',
+    address: '0xe1b8C354BE50357c2ab90A962254526d08aF0D2D',
+  },
+};
+
 const PROFILES_ABI = [
   {
     inputs: [{ name: '', type: 'address' }],
@@ -33,8 +47,8 @@ const PROFILES_ABI = [
       { name: 'name', type: 'string' },
       { name: 'created', type: 'uint64' },
       { name: 'nftId', type: 'uint256' },
-      { name: 'picId', type: 'uint8' },
-      { name: 'heroId', type: 'uint256' },
+      { name: 'collectionId', type: 'uint256' },
+      { name: 'picUri', type: 'string' },
     ],
     stateMutability: 'view',
     type: 'function',
@@ -78,7 +92,8 @@ function clearLiveProgress() {
 let providerInstance = null;
 let cjewelContractInstance = null;
 let jewelContractInstance = null;
-let profilesContractInstance = null;
+const profileProviders = new Map();
+const profileContracts = new Map();
 
 export function getProvider() {
   if (!providerInstance) {
@@ -101,21 +116,44 @@ export function getJewelContract() {
   return jewelContractInstance;
 }
 
-export function getProfilesContract() {
-  if (!profilesContractInstance) {
-    profilesContractInstance = new ethers.Contract(PROFILES_CONTRACT, PROFILES_ABI, getProvider());
+export function getProfilesContract(realm = 'crystalvale') {
+  if (!profileContracts.has(realm)) {
+    const config = PROFILE_CONTRACTS[realm];
+    if (!config) {
+      throw new Error(`Unknown realm: ${realm}`);
+    }
+    if (!profileProviders.has(realm)) {
+      profileProviders.set(realm, new ethers.JsonRpcProvider(config.rpc));
+    }
+    profileContracts.set(realm, new ethers.Contract(config.address, PROFILES_ABI, profileProviders.get(realm)));
   }
-  return profilesContractInstance;
+  return profileContracts.get(realm);
 }
 
-export async function getSummonerName(wallet) {
+async function lookupProfileOnRealm(wallet, realm) {
   try {
-    const profilesContract = getProfilesContract();
-    const profile = await profilesContract.addressToProfile(wallet);
-    return profile.name || null;
+    const contract = getProfilesContract(realm);
+    const profile = await contract.addressToProfile(wallet);
+    if (profile.name && profile.owner !== '0x0000000000000000000000000000000000000000') {
+      return profile.name;
+    }
+    return null;
   } catch (err) {
     return null;
   }
+}
+
+export async function getSummonerName(wallet) {
+  const realms = ['crystalvale', 'harmony', 'klaytn'];
+  
+  for (const realm of realms) {
+    const name = await lookupProfileOnRealm(wallet, realm);
+    if (name) {
+      return name;
+    }
+  }
+  
+  return null;
 }
 
 async function getBlockTimestamp(blockNumber) {
