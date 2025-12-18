@@ -12,6 +12,9 @@ const BLOCKS_PER_QUERY = 2000;
 const INCREMENTAL_BATCH_SIZE = 200000;
 const AUTO_RUN_INTERVAL_MS = 60 * 1000;
 
+export const JEWELER_WORKERS = 5;
+export const MIN_JEWELER_WORKERS = 3;
+
 const CJEWEL_ABI = [
   'event Transfer(address indexed from, address indexed to, uint256 value)',
   'function balanceOf(address owner) view returns (uint256)',
