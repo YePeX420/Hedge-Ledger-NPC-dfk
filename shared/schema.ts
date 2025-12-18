@@ -2355,3 +2355,124 @@ export const gardeningQuestIndexerProgress = pgTable("gardening_quest_indexer_pr
 export const insertGardeningQuestIndexerProgressSchema = createInsertSchema(gardeningQuestIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertGardeningQuestIndexerProgress = z.infer<typeof insertGardeningQuestIndexerProgressSchema>;
 export type GardeningQuestIndexerProgress = typeof gardeningQuestIndexerProgress.$inferSelect;
+
+// ============================================================================
+// COMBAT CODEX TABLES
+// Knowledge base for DFK combat mechanics, skills, and class information
+// ============================================================================
+
+/**
+ * Combat keywords - game terminology definitions
+ */
+export const combatKeywords = pgTable("combat_keywords", {
+  keyword: text("keyword").primaryKey(),
+  definition: text("definition").notNull(),
+  sourceUrl: text("source_url").notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertCombatKeywordSchema = createInsertSchema(combatKeywords);
+export type InsertCombatKeyword = z.infer<typeof insertCombatKeywordSchema>;
+export type CombatKeyword = typeof combatKeywords.$inferSelect;
+
+/**
+ * Combat class metadata - overview info for each class
+ */
+export const combatClassMeta = pgTable("combat_class_meta", {
+  class: text("class").primaryKey(),
+  sourceUrl: text("source_url").notNull(),
+  lastUpdateNote: text("last_update_note"),
+  maturity: text("maturity").notNull(), // e.g., 'stable', 'beta', 'alpha'
+  disciplines: text("disciplines").array().notNull().default(sql`'{}'::text[]`),
+  summary: text("summary"),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertCombatClassMetaSchema = createInsertSchema(combatClassMeta);
+export type InsertCombatClassMeta = z.infer<typeof insertCombatClassMetaSchema>;
+export type CombatClassMeta = typeof combatClassMeta.$inferSelect;
+
+/**
+ * Combat skills - individual abilities and talents
+ */
+export const combatSkills = pgTable("combat_skills", {
+  id: serial("id").primaryKey(),
+  class: text("class").notNull(),
+  tier: integer("tier").notNull(),
+  skillPoints: integer("skill_points"),
+  discipline: text("discipline"),
+  ability: text("ability").notNull(),
+  descriptionRaw: text("description_raw"),
+  range: integer("range"),
+  manaCost: numeric("mana_cost", { precision: 10, scale: 2 }),
+  manaGrowth: numeric("mana_growth", { precision: 10, scale: 4 }),
+  dod: numeric("dod", { precision: 10, scale: 4 }),
+  tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+  sourceUrl: text("source_url").notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  classIdx: index("combat_skills_class_idx").on(table.class),
+  classTierIdx: index("combat_skills_class_tier_idx").on(table.class, table.tier),
+}));
+
+export const insertCombatSkillSchema = createInsertSchema(combatSkills).omit({ id: true });
+export type InsertCombatSkill = z.infer<typeof insertCombatSkillSchema>;
+export type CombatSkill = typeof combatSkills.$inferSelect;
+
+/**
+ * Combat sources - tracked source URLs for auto-discovery
+ */
+export const combatSources = pgTable("combat_sources", {
+  url: text("url").primaryKey(),
+  kind: text("kind").notNull(), // 'combat_overview' or 'combat_class'
+  enabled: boolean("enabled").notNull().default(true),
+  discoveredFrom: text("discovered_from"),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertCombatSourceSchema = createInsertSchema(combatSources);
+export type InsertCombatSource = z.infer<typeof insertCombatSourceSchema>;
+export type CombatSource = typeof combatSources.$inferSelect;
+
+// ============================================================================
+// ENTITLEMENT SYSTEM
+// Tier-based access control for API features
+// ============================================================================
+
+/**
+ * Entitlement tiers - subscription/access levels
+ */
+export const entitlementTiers = pgTable("entitlement_tiers", {
+  tierId: text("tier_id").primaryKey(),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  priceMonthly: numeric("price_monthly", { precision: 10, scale: 2 }),
+  enabled: boolean("enabled").notNull().default(true),
+  sortOrder: integer("sort_order").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertEntitlementTierSchema = createInsertSchema(entitlementTiers);
+export type InsertEntitlementTier = z.infer<typeof insertEntitlementTierSchema>;
+export type EntitlementTier = typeof entitlementTiers.$inferSelect;
+
+/**
+ * Entitlement rules - what each tier can access
+ */
+export const entitlementRules = pgTable("entitlement_rules", {
+  id: serial("id").primaryKey(),
+  domain: text("domain").notNull(), // e.g., 'combat', 'portfolio'
+  resource: text("resource").notNull(), // e.g., 'skills', 'keywords'
+  tierId: text("tier_id").notNull().references(() => entitlementTiers.tierId),
+  mode: text("mode").notNull(), // 'fields_allowlist' or 'feature_flags'
+  rule: json("rule").notNull(), // JSON defining allowed fields or feature flags
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  tierIdIdx: index("entitlement_rules_tier_idx").on(table.tierId),
+  domainResourceIdx: index("entitlement_rules_domain_resource_idx").on(table.domain, table.resource),
+}));
+
+export const insertEntitlementRuleSchema = createInsertSchema(entitlementRules).omit({ id: true });
+export type InsertEntitlementRule = z.infer<typeof insertEntitlementRuleSchema>;
+export type EntitlementRule = typeof entitlementRules.$inferSelect;
