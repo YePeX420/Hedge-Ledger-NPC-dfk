@@ -5938,14 +5938,15 @@ async function startAdminWebServer() {
     try {
       const { getAllSwapIndexerProgress, getAllSwapLiveProgress, getSwapAutoRunStatus } = await import('./src/etl/ingestion/poolSwapIndexer.js');
       const { getAllRewardIndexerProgress, getAllRewardLiveProgress, getRewardAutoRunStatus } = await import('./src/etl/ingestion/poolRewardIndexer.js');
-      const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
+      const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus, getAllV2StakedTotals } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
       const { getAllLatestAggregates } = await import('./src/etl/aggregation/poolDailyAggregator.js');
       
-      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw] = await Promise.all([
+      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw, stakerCounts] = await Promise.all([
         getAllSwapIndexerProgress(),
         getAllRewardIndexerProgress(),
         getAllUnifiedIndexerProgress(),
         getAllLatestAggregates(),
+        getAllV2StakedTotals(),
       ]);
       
       const swapLiveProgress = getAllSwapLiveProgress();
@@ -5959,6 +5960,38 @@ async function startAdminWebServer() {
         .map((row) => row.pool_daily_aggregates || row.poolDailyAggregates || row)
         .filter((agg) => agg && agg.pid !== undefined);
       
+      // Filter to main pool entries only (not worker entries like unified_pool_0_w1)
+      const mainPoolProgress = unifiedProgress.filter(p => !p.indexerName.includes('_w'));
+      
+      // Sum up total events from all workers for each pool
+      const eventsByPool = new Map();
+      for (const progress of unifiedProgress) {
+        const currentTotal = eventsByPool.get(progress.pid) || 0;
+        eventsByPool.set(progress.pid, currentTotal + (progress.totalEventsIndexed || 0));
+      }
+      
+      // Create staker count lookup map
+      const stakerCountMap = new Map();
+      for (const sc of stakerCounts) {
+        stakerCountMap.set(sc.pid, { count: Number(sc.stakerCount), totalStaked: sc.totalStaked });
+      }
+      
+      // Build unified indexers with merged data
+      const unifiedIndexers = mainPoolProgress.map((p) => {
+        const livePoolProgress = unifiedLiveProgress.find(l => l.pid === p.pid);
+        const stakerInfo = stakerCountMap.get(p.pid) || { count: 0, totalStaked: '0' };
+        
+        return {
+          ...p,
+          totalEventsIndexed: eventsByPool.get(p.pid) || p.totalEventsIndexed,
+          v2StakerCount: stakerInfo.count,
+          v2TotalStaked: stakerInfo.totalStaked,
+          live: livePoolProgress || null,
+          liveWorkers: livePoolProgress?.workers || [],
+          autoRun: unifiedAutoRuns.find((a) => a.pid === p.pid) || null,
+        };
+      });
+      
       res.json({
         swapIndexers: swapProgress.map((p) => ({
           ...p,
@@ -5970,11 +6003,9 @@ async function startAdminWebServer() {
           live: rewardLiveProgress.find((l) => l.pid === p.pid) || null,
           autoRun: rewardAutoRuns.find((a) => a.pid === p.pid) || null,
         })),
-        unifiedIndexers: unifiedProgress.map((p) => ({
-          ...p,
-          live: unifiedLiveProgress.find((l) => l.pid === p.pid) || null,
-          autoRun: unifiedAutoRuns.find((a) => a.pid === p.pid) || null,
-        })),
+        unifiedIndexers,
+        poolsIndexed: mainPoolProgress.length,
+        totalPools: 14,
         aggregates,
       });
     } catch (error) {

@@ -1220,3 +1220,18 @@ export async function startAllUnifiedAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) 
     results,
   };
 }
+
+// Get staker counts and total staked for all V2 pools from database
+export async function getAllV2StakedTotals() {
+  const results = await db.select({
+    pid: poolStakers.pid,
+    totalStaked: sql`COALESCE(SUM(CAST(${poolStakers.stakedLP} AS NUMERIC)), 0)::text`,
+    stakerCount: sql`COUNT(*)::int`,
+  })
+    .from(poolStakers)
+    .where(sql`CAST(${poolStakers.stakedLP} AS NUMERIC) > 0`)
+    .groupBy(poolStakers.pid)
+    .orderBy(poolStakers.pid);
+  
+  return results;
+}
