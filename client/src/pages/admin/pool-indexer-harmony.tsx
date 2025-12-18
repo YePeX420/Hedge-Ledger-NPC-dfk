@@ -269,11 +269,21 @@ export default function PoolIndexerHarmonyPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => refetch()}
+            data-testid="button-refresh"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setAutoRefresh(!autoRefresh)}
             data-testid="button-toggle-refresh"
           >
             <RefreshCw className={`w-4 h-4 mr-2 ${autoRefresh ? 'animate-spin' : ''}`} />
-            {autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
+            {autoRefresh ? 'Auto ON' : 'Auto OFF'}
           </Button>
           
           <Button
