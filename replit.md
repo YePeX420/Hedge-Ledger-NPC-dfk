@@ -102,11 +102,12 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
 **Design Decisions:**
 *   **Database**: PostgreSQL with Drizzle ORM, hosted on Neon serverless.
 *   **Deployment**: Unified Express server integrated with the bot.
-*   **UI/UX**: Responsive React admin dashboard with dark/light theme.
+*   **UI/UX**: Responsive React admin dashboard with dark/light theme, environment badge (DEV/PROD) in sidebar.
 *   **Authentication**: Discord OAuth2.
 *   **Payment Automation**: Blockchain monitoring for JEWEL payment verification.
 *   **Wallet Tracking**: Daily snapshots of JEWEL, CRYSTAL, and cJEWEL balances.
 *   **Debug Features**: Includes a debug dashboard for testing, with an OAuth bypass for development (never enabled in production).
+*   **Environment-Aware Indexers**: All indexers (Pool V1/V2, Jeweler, Gardening Quest, Bridge) auto-start only in production (`REPLIT_DEPLOYMENT` or `NODE_ENV=production`). In development, indexers require manual triggering from admin panel to avoid conflicts and unnecessary RPC usage.
 
 ## Database Configuration
 The application uses **Neon serverless PostgreSQL** for cost optimization.
