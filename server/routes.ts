@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { db } from "./db";
-import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions, bridgeEvents, walletBridgeMetrics, historicalPrices, walletClusters, walletLinks } from "@shared/schema";
+import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions, bridgeEvents, walletBridgeMetrics, historicalPrices, walletClusters, walletLinks, poolSwapEvents, poolRewardEvents } from "@shared/schema";
 import { desc, sql, eq, inArray, gte, lte } from "drizzle-orm";
 import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
 import { detectWalletLPPositions } from "../wallet-lp-detector.js";
@@ -1613,14 +1613,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { getAllSwapIndexerProgress, getAllSwapLiveProgress, getSwapAutoRunStatus } = await import('../src/etl/ingestion/poolSwapIndexer.js');
       const { getAllRewardIndexerProgress, getAllRewardLiveProgress, getRewardAutoRunStatus } = await import('../src/etl/ingestion/poolRewardIndexer.js');
-      const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
+      const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus, getAllV2StakedTotals } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
       const { getAllLatestAggregates } = await import('../src/etl/aggregation/poolDailyAggregator.js');
       
-      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw] = await Promise.all([
+      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw, stakerCounts, swapEventCounts, rewardEventCounts] = await Promise.all([
         getAllSwapIndexerProgress(),
         getAllRewardIndexerProgress(),
         getAllUnifiedIndexerProgress(),
         getAllLatestAggregates(),
+        getAllV2StakedTotals(),
+        db.select({ pid: poolSwapEvents.pid, eventCount: sql`COUNT(*)::int` })
+          .from(poolSwapEvents)
+          .groupBy(poolSwapEvents.pid),
+        db.select({ pid: poolRewardEvents.pid, eventCount: sql`COUNT(*)::int` })
+          .from(poolRewardEvents)
+          .groupBy(poolRewardEvents.pid),
       ]);
       
       const swapLiveProgress = getAllSwapLiveProgress();
@@ -1634,24 +1641,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const aggregates = (latestAggregatesRaw || [])
         .map((row: any) => row.pool_daily_aggregates || row.poolDailyAggregates || row)
         .filter((agg: any) => agg && agg.pid !== undefined);
+
+      const mainPoolProgress = unifiedProgress.filter((p: any) => !p.indexerName.includes('_w'));
+      const eventsByPool = new Map<number, number>();
+      for (const progress of unifiedProgress) {
+        const currentTotal = eventsByPool.get(progress.pid) || 0;
+        eventsByPool.set(progress.pid, currentTotal + (progress.totalEventsIndexed || 0));
+      }
+
+      const stakerCountMap = new Map<number, { count: number; totalStaked: string }>();
+      for (const sc of stakerCounts) {
+        stakerCountMap.set(sc.pid, { count: Number(sc.stakerCount), totalStaked: sc.totalStaked });
+      }
+
+      const swapEventCountMap = new Map<number, number>();
+      for (const row of swapEventCounts) {
+        swapEventCountMap.set(row.pid, Number(row.eventCount) || 0);
+      }
+
+      const rewardEventCountMap = new Map<number, number>();
+      for (const row of rewardEventCounts) {
+        rewardEventCountMap.set(row.pid, Number(row.eventCount) || 0);
+      }
+
+      const totalSwapEventCount = Array.from(swapEventCountMap.values()).reduce((sum, count) => sum + count, 0);
+      const totalRewardEventCount = Array.from(rewardEventCountMap.values()).reduce((sum, count) => sum + count, 0);
+
+      const unifiedIndexers = mainPoolProgress.map((p: any) => {
+        const livePoolProgress = unifiedLiveProgress.find((l: any) => l.pid === p.pid);
+        const stakerInfo = stakerCountMap.get(p.pid) || { count: 0, totalStaked: '0' };
+        const swapEventCount = swapEventCountMap.get(p.pid) || 0;
+        const rewardEventCount = rewardEventCountMap.get(p.pid) || 0;
+        
+        return {
+          ...p,
+          totalEventsIndexed: eventsByPool.get(p.pid) || p.totalEventsIndexed,
+          v2StakerCount: stakerInfo.count,
+          v2TotalStaked: stakerInfo.totalStaked,
+          swapEventCount,
+          rewardEventCount,
+          live: livePoolProgress || null,
+          liveWorkers: livePoolProgress?.workers || [],
+          autoRun: unifiedAutoRuns.find((a: any) => a.pid === p.pid) || null,
+        };
+      });
       
       res.json({
         swapIndexers: swapProgress.map((p: any) => ({
           ...p,
+          swapEventCount: swapEventCountMap.get(p.pid) || 0,
           live: swapLiveProgress.find((l: any) => l.pid === p.pid) || null,
           autoRun: swapAutoRuns.find((a: any) => a.pid === p.pid) || null,
         })),
         rewardIndexers: rewardProgress.map((p: any) => ({
           ...p,
+          rewardEventCount: rewardEventCountMap.get(p.pid) || 0,
           live: rewardLiveProgress.find((l: any) => l.pid === p.pid) || null,
           autoRun: rewardAutoRuns.find((a: any) => a.pid === p.pid) || null,
         })),
-        unifiedIndexers: unifiedProgress.map((p: any) => ({
-          ...p,
-          live: unifiedLiveProgress.find((l: any) => l.pid === p.pid) || null,
-          autoRun: unifiedAutoRuns.find((a: any) => a.pid === p.pid) || null,
-        })),
+        unifiedIndexers,
+        poolsIndexed: mainPoolProgress.length,
+        totalPools: 14,
         aggregates,
+        totalSwapEventCount,
+        totalRewardEventCount,
       });
     } catch (error: any) {
       console.error('[API] Error fetching pool indexer status:', error);

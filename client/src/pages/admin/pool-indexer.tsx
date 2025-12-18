@@ -51,6 +51,8 @@ interface IndexerProgress {
   genesisBlock: number;
   status: string;
   totalEventsIndexed: number;
+  swapEventCount?: number;
+  rewardEventCount?: number;
   lastError: string | null;
   updatedAt: string;
   live?: {
@@ -113,6 +115,8 @@ interface UnifiedIndexerProgress {
   genesisBlock: number;
   status: string;
   totalEventsIndexed: number;
+  swapEventCount?: number;
+  rewardEventCount?: number;
   v2StakerCount: number;
   v2TotalStaked: string;
   lastError: string | null;
@@ -146,6 +150,8 @@ interface IndexerStatus {
   poolsIndexed: number;
   totalPools: number;
   aggregates: DailyAggregate[];
+  totalSwapEventCount?: number;
+  totalRewardEventCount?: number;
 }
 
 interface UnifiedWorkerStatus {
@@ -858,12 +864,19 @@ export default function AdminPoolIndexer() {
   const rewardIndexers = status?.rewardIndexers || [];
   const unifiedIndexers = status?.unifiedIndexers || [];
   const aggregates = status?.aggregates || [];
-  
-  const totalSwapEvents = swapIndexers.reduce((sum, i) => sum + (i.totalEventsIndexed || 0), 0);
-  const totalRewardEvents = rewardIndexers.reduce((sum, i) => sum + (i.totalEventsIndexed || 0), 0);
+  const swapEventsFromIndexers = swapIndexers.reduce((sum, i) => sum + (i.swapEventCount ?? i.totalEventsIndexed ?? 0), 0);
+  const rewardEventsFromIndexers = rewardIndexers.reduce((sum, i) => sum + (i.rewardEventCount ?? i.totalEventsIndexed ?? 0), 0);
+  const totalSwapEvents = status?.totalSwapEventCount ?? swapEventsFromIndexers;
+  const totalRewardEvents = status?.totalRewardEventCount ?? rewardEventsFromIndexers;
   const runningSwaps = swapIndexers.filter(i => i.live?.isRunning).length;
   const runningRewards = rewardIndexers.filter(i => i.live?.isRunning).length;
   const runningUnified = unifiedIndexers.filter(i => i.live?.isRunning).length;
+  const hasDedicatedSwapIndexers = swapIndexers.length > 0;
+  const hasDedicatedRewardIndexers = rewardIndexers.length > 0;
+  const swapCardRunning = hasDedicatedSwapIndexers ? runningSwaps : runningUnified;
+  const rewardCardRunning = hasDedicatedRewardIndexers ? runningRewards : runningUnified;
+  const swapIndexerCount = hasDedicatedSwapIndexers ? swapIndexers.length : unifiedIndexers.length;
+  const rewardIndexerCount = hasDedicatedRewardIndexers ? rewardIndexers.length : unifiedIndexers.length;
 
   return (
     <div className="p-6 space-y-6">
@@ -911,7 +924,9 @@ export default function AdminPoolIndexer() {
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-total-swaps">{formatNumber(totalSwapEvents)}</div>
             <p className="text-xs text-muted-foreground">
-              {runningSwaps > 0 ? `${runningSwaps} indexer(s) running` : `${swapIndexers.length} indexers`}
+              {swapCardRunning > 0 
+                ? `${swapCardRunning} ${hasDedicatedSwapIndexers ? 'indexer(s)' : 'unified worker(s)'} running` 
+                : `${swapIndexerCount} ${hasDedicatedSwapIndexers ? 'indexers' : 'unified pools'}`}
             </p>
           </CardContent>
         </Card>
@@ -924,7 +939,9 @@ export default function AdminPoolIndexer() {
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-total-rewards">{formatNumber(totalRewardEvents)}</div>
             <p className="text-xs text-muted-foreground">
-              {runningRewards > 0 ? `${runningRewards} indexer(s) running` : `${rewardIndexers.length} indexers`}
+              {rewardCardRunning > 0 
+                ? `${rewardCardRunning} ${hasDedicatedRewardIndexers ? 'indexer(s)' : 'unified worker(s)'} running` 
+                : `${rewardIndexerCount} ${hasDedicatedRewardIndexers ? 'indexers' : 'unified pools'}`}
             </p>
           </CardContent>
         </Card>
