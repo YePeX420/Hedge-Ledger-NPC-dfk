@@ -135,16 +135,14 @@ export default function AdminJeweler() {
     mutationFn: async () => {
       return await apiRequest("POST", "/api/admin/jeweler/refresh-balances", {});
     },
-    onSuccess: (data: any) => {
+    onSuccess: () => {
       toast({ 
-        title: "Balance refresh complete", 
-        description: `Updated ${data.updated || 0} stakers with live balances and summoner names` 
+        title: "Balance refresh started", 
+        description: "Fetching live balances and summoner names for all stakers. This may take a few minutes - refresh the page to see updates." 
       });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/jeweler/status'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/jeweler/leaderboard'] });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to refresh balances", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to start balance refresh", description: error.message, variant: "destructive" });
     },
   });
   
