@@ -74,22 +74,23 @@ interface APRBreakdown {
 interface Staker {
   wallet: string;
   summonerName?: string | null;
-  stakedLP: string;
-  stakedValue: string;
-  poolShare: string;
+  v2Value: string;
+  v1Value: string;
+  totalValue: string;
   lastActivity: {
     type: 'Deposit' | 'Withdraw' | 'Unknown';
-    amount: string;
     blockNumber: number;
     txHash: string;
+    date: string | null;
   };
 }
 
 interface AllStakersResponse {
   stakers: Staker[];
   count: number;
-  poolTVL: number;
-  totalStakedLP: number;
+  v2TVL: number;
+  v1TVL: number;
+  totalTVL: number;
   source?: 'indexed' | 'onchain';
 }
 
@@ -514,8 +515,9 @@ export default function PoolDetailPage() {
                     <TableRow>
                       <TableHead>Wallet</TableHead>
                       <TableHead>Summoner</TableHead>
-                      <TableHead className="text-right">Staked Value</TableHead>
-                      <TableHead className="text-right">Pool Share</TableHead>
+                      <TableHead className="text-right">V2 USD</TableHead>
+                      <TableHead className="text-right">V1 USD</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
                       <TableHead className="text-right">Last Activity</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -544,35 +546,44 @@ export default function PoolDetailPage() {
                             <span className="text-muted-foreground text-xs">-</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-right font-medium" data-testid={`text-staked-${index}`}>
-                          ${parseFloat(staker.stakedValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </TableCell>
-                        <TableCell className="text-right" data-testid={`text-share-${index}`}>
-                          <div className="flex items-center justify-end gap-2">
-                            <Progress 
-                              value={Math.min(parseFloat(staker.poolShare), 100)} 
-                              className="w-16 h-2"
-                            />
-                            <span className="text-sm text-muted-foreground w-14 text-right">
-                              {parseFloat(staker.poolShare).toFixed(2)}%
+                        <TableCell className="text-right font-medium" data-testid={`text-v2-${index}`}>
+                          {parseFloat(staker.v2Value) > 0 ? (
+                            <span className="text-green-600 dark:text-green-400">
+                              ${parseFloat(staker.v2Value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
-                          </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium" data-testid={`text-v1-${index}`}>
+                          {parseFloat(staker.v1Value) > 0 ? (
+                            <span className="text-amber-600 dark:text-amber-400">
+                              ${parseFloat(staker.v1Value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium" data-testid={`text-total-${index}`}>
+                          ${parseFloat(staker.totalValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell className="text-right" data-testid={`text-activity-${index}`}>
                           <div className="flex flex-col items-end">
                             <Badge variant={staker.lastActivity.type === 'Deposit' ? 'default' : 'secondary'}>
                               {staker.lastActivity.type}
                             </Badge>
-                            <span className="text-xs text-muted-foreground mt-1">
-                              {parseFloat(staker.lastActivity.amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} LP
-                            </span>
+                            {staker.lastActivity.date && (
+                              <span className="text-xs text-muted-foreground mt-1">
+                                {new Date(staker.lastActivity.date).toLocaleDateString()}
+                              </span>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
                     ))}
                     {(!stakersData?.stakers || stakersData.stakers.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                           No stakers found. Click "Fetch Stakers" to scan blockchain.
                         </TableCell>
                       </TableRow>

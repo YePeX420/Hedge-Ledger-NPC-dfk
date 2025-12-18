@@ -672,7 +672,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // GET /api/admin/pools/:pid/all-stakers - Get ALL wallets staked in pool from onchain events
+  // GET /api/admin/pools/:pid/all-stakers - Get ALL wallets staked in pool from indexed V1+V2 data
   // NOTE: This route MUST be registered before /api/admin/pools/:pid to avoid route conflicts
   app.get("/api/admin/pools/:pid/all-stakers", isAdmin, async (req: any, res: any) => {
     try {
@@ -688,34 +688,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Pool not found' });
       }
       
-      // Get all stakers from onchain events
-      const stakers = await getAllPoolStakers(pid);
+      // Import the staker query functions
+      const { getActivePoolStakersFromDB } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
+      const { getActivePoolStakersFromDBV1 } = await import('../src/etl/ingestion/poolUnifiedIndexerV1.js');
       
-      // Calculate total staked LP from actual staker data (sum of all active stakers)
-      const totalStakedLP = stakers.reduce((sum: number, s: any) => sum + parseFloat(s.stakedLP || '0'), 0);
+      // Get V2 and V1 stakers from indexed tables
+      const [v2Stakers, v1Stakers] = await Promise.all([
+        getActivePoolStakersFromDB(pid, 10000),
+        getActivePoolStakersFromDBV1(pid, 10000)
+      ]);
       
-      // Use v2TVL (V2 staked TVL in USD) for value calculations
-      const poolTVL = pool.v2TVL || pool.totalTVL || 0;
+      // Calculate total staked LP for each version
+      const totalV2LP = v2Stakers.reduce((sum: number, s: any) => sum + parseFloat(s.stakedLP || '0'), 0);
+      const totalV1LP = v1Stakers.reduce((sum: number, s: any) => sum + parseFloat(s.stakedLP || '0'), 0);
+      const combinedLP = totalV2LP + totalV1LP;
       
-      const enrichedStakers = stakers.map((staker: any) => {
+      // Get TVL values - use specific TVL if available, otherwise split totalTVL proportionally
+      const totalTVL = pool.totalTVL || 0;
+      let v2TVL = pool.v2TVL || 0;
+      let v1TVL = pool.v1TVL || 0;
+      
+      // Fallback: if V1/V2 TVL not set but we have stakers and total TVL, split proportionally
+      // Only assign TVL to versions that actually have LP staked
+      if (totalTVL > 0 && (v2TVL === 0 || v1TVL === 0)) {
+        if (combinedLP > 0) {
+          // Split proportionally based on actual LP amounts
+          v2TVL = totalV2LP > 0 ? (totalV2LP / combinedLP) * totalTVL : 0;
+          v1TVL = totalV1LP > 0 ? (totalV1LP / combinedLP) * totalTVL : 0;
+        } else if (totalV2LP === 0 && totalV1LP === 0) {
+          // No LP staked anywhere - keep both at 0
+          v2TVL = 0;
+          v1TVL = 0;
+        }
+      }
+      
+      // Build a map of all wallets with their V1 and V2 positions
+      const walletMap = new Map<string, any>();
+      
+      // Add V2 stakers
+      for (const staker of v2Stakers) {
+        const wallet = staker.wallet.toLowerCase();
         const stakedLP = parseFloat(staker.stakedLP || '0');
-        const poolShare = totalStakedLP > 0 ? stakedLP / totalStakedLP : 0;
-        const stakedValue = poolShare * poolTVL;
+        const poolShare = totalV2LP > 0 ? stakedLP / totalV2LP : 0;
+        const v2Value = poolShare * v2TVL;
         
+        walletMap.set(wallet, {
+          wallet,
+          summonerName: staker.summonerName,
+          v2LP: staker.stakedLP,
+          v2Value: v2Value,
+          v1LP: '0',
+          v1Value: 0,
+          lastActivityType: staker.lastActivityType,
+          lastActivityBlock: staker.lastActivityBlock,
+          lastActivityTxHash: staker.lastActivityTxHash,
+          lastUpdatedAt: staker.lastUpdatedAt,
+        });
+      }
+      
+      // Add/merge V1 stakers
+      for (const staker of v1Stakers) {
+        const wallet = staker.wallet.toLowerCase();
+        const stakedLP = parseFloat(staker.stakedLP || '0');
+        const poolShare = totalV1LP > 0 ? stakedLP / totalV1LP : 0;
+        const v1Value = poolShare * v1TVL;
+        
+        const existing = walletMap.get(wallet);
+        if (existing) {
+          existing.v1LP = staker.stakedLP;
+          existing.v1Value = v1Value;
+          // Use V1 activity if more recent
+          if (staker.lastActivityBlock && (!existing.lastActivityBlock || staker.lastActivityBlock > existing.lastActivityBlock)) {
+            existing.lastActivityType = staker.lastActivityType;
+            existing.lastActivityBlock = staker.lastActivityBlock;
+            existing.lastActivityTxHash = staker.lastActivityTxHash;
+            existing.lastUpdatedAt = staker.lastUpdatedAt;
+          }
+          // Use summoner name if we don't have one
+          if (!existing.summonerName && staker.summonerName) {
+            existing.summonerName = staker.summonerName;
+          }
+        } else {
+          walletMap.set(wallet, {
+            wallet,
+            summonerName: staker.summonerName,
+            v2LP: '0',
+            v2Value: 0,
+            v1LP: staker.stakedLP,
+            v1Value: v1Value,
+            lastActivityType: staker.lastActivityType,
+            lastActivityBlock: staker.lastActivityBlock,
+            lastActivityTxHash: staker.lastActivityTxHash,
+            lastUpdatedAt: staker.lastUpdatedAt,
+          });
+        }
+      }
+      
+      // Convert to array and calculate totals
+      const enrichedStakers = Array.from(walletMap.values()).map((staker: any) => {
+        const totalValue = staker.v1Value + staker.v2Value;
         return {
           wallet: staker.wallet,
-          stakedLP: staker.stakedLP,
-          stakedValue: stakedValue.toFixed(2),
-          poolShare: (poolShare * 100).toFixed(4),
-          lastActivity: staker.lastActivity
+          summonerName: staker.summonerName,
+          v2Value: staker.v2Value.toFixed(2),
+          v1Value: staker.v1Value.toFixed(2),
+          totalValue: totalValue.toFixed(2),
+          lastActivity: {
+            type: staker.lastActivityType || 'Unknown',
+            blockNumber: staker.lastActivityBlock || 0,
+            txHash: staker.lastActivityTxHash || '',
+            date: staker.lastUpdatedAt ? new Date(staker.lastUpdatedAt).toISOString() : null,
+          }
         };
       });
+      
+      // Sort by total value descending
+      enrichedStakers.sort((a: any, b: any) => parseFloat(b.totalValue) - parseFloat(a.totalValue));
       
       res.json({
         stakers: enrichedStakers,
         count: enrichedStakers.length,
-        poolTVL: poolTVL,
-        totalStakedLP: totalStakedLP.toFixed(6)
+        v2TVL,
+        v1TVL,
+        totalTVL: v2TVL + v1TVL,
+        source: 'indexed'
       });
     } catch (error) {
       console.error('[API] Error fetching all stakers:', error);
