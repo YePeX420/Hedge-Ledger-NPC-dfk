@@ -79,6 +79,7 @@ interface Staker {
   totalValue: string;
   lastActivity: {
     type: 'Deposit' | 'Withdraw' | 'Unknown';
+    amount: string | null;
     blockNumber: number;
     txHash: string;
     date: string | null;
@@ -515,8 +516,8 @@ export default function PoolDetailPage() {
                     <TableRow>
                       <TableHead>Wallet</TableHead>
                       <TableHead>Summoner</TableHead>
-                      <TableHead className="text-right">V2 USD</TableHead>
                       <TableHead className="text-right">V1 USD</TableHead>
+                      <TableHead className="text-right">V2 USD</TableHead>
                       <TableHead className="text-right">Total</TableHead>
                       <TableHead className="text-right">Last Activity</TableHead>
                     </TableRow>
@@ -546,34 +547,55 @@ export default function PoolDetailPage() {
                             <span className="text-muted-foreground text-xs">-</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-right font-medium" data-testid={`text-v2-${index}`}>
-                          {parseFloat(staker.v2Value) > 0 ? (
-                            <span className="text-green-600 dark:text-green-400">
-                              ${parseFloat(staker.v2Value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
                         <TableCell className="text-right font-medium" data-testid={`text-v1-${index}`}>
-                          {parseFloat(staker.v1Value) > 0 ? (
-                            <span className="text-amber-600 dark:text-amber-400">
-                              ${parseFloat(staker.v1Value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
+                          {(() => {
+                            const val = parseFloat(staker.v1Value);
+                            if (!isNaN(val) && val > 0) {
+                              return (
+                                <span className="text-amber-600 dark:text-amber-400">
+                                  ${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              );
+                            }
+                            return <span className="text-muted-foreground">-</span>;
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-right font-medium" data-testid={`text-v2-${index}`}>
+                          {(() => {
+                            const val = parseFloat(staker.v2Value);
+                            if (!isNaN(val) && val > 0) {
+                              return (
+                                <span className="text-green-600 dark:text-green-400">
+                                  ${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              );
+                            }
+                            return <span className="text-muted-foreground">-</span>;
+                          })()}
                         </TableCell>
                         <TableCell className="text-right font-medium" data-testid={`text-total-${index}`}>
-                          ${parseFloat(staker.totalValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {(() => {
+                            const val = parseFloat(staker.totalValue);
+                            if (!isNaN(val) && val > 0) {
+                              return `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                            }
+                            return '-';
+                          })()}
                         </TableCell>
                         <TableCell className="text-right" data-testid={`text-activity-${index}`}>
-                          <div className="flex flex-col items-end">
+                          <div className="flex flex-col items-end gap-0.5">
                             <Badge variant={staker.lastActivity.type === 'Deposit' ? 'default' : 'secondary'}>
                               {staker.lastActivity.type}
                             </Badge>
+                            {staker.lastActivity.amount && (
+                              <span className="text-xs font-medium">
+                                {parseFloat(staker.lastActivity.amount) > 0.0001 
+                                  ? parseFloat(staker.lastActivity.amount).toFixed(4) 
+                                  : '<0.0001'} LP
+                              </span>
+                            )}
                             {staker.lastActivity.date && (
-                              <span className="text-xs text-muted-foreground mt-1">
+                              <span className="text-xs text-muted-foreground">
                                 {new Date(staker.lastActivity.date).toLocaleDateString()}
                               </span>
                             )}

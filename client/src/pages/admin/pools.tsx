@@ -25,6 +25,8 @@ interface Pool {
   lpToken: string;
   tokens: { symbol: string; address: string }[];
   tvl: number;
+  v1TVL: number;
+  v2TVL: number;
   passiveAPR: number;
   activeAPRMin: number;
   activeAPRMax: number;
@@ -109,7 +111,9 @@ export default function AdminPools() {
                 <TableRow>
                   <TableHead>PID</TableHead>
                   <TableHead>Pair</TableHead>
-                  <TableHead className="text-right">TVL</TableHead>
+                  <TableHead className="text-right">V1 TVL</TableHead>
+                  <TableHead className="text-right">V2 TVL</TableHead>
+                  <TableHead className="text-right">Total TVL</TableHead>
                   <TableHead className="text-right">Passive APR</TableHead>
                   <TableHead className="text-right">Active APR</TableHead>
                   <TableHead className="text-right">Total APR</TableHead>
@@ -135,6 +139,24 @@ export default function AdminPools() {
                           {pool.pairName}
                         </span>
                       </div>
+                    </TableCell>
+                    <TableCell className="text-right" data-testid={`text-v1-tvl-${pool.pid}`}>
+                      {pool.v1TVL > 0 ? (
+                        <span className="text-amber-600 dark:text-amber-400 font-medium">
+                          {formatCurrency(pool.v1TVL)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right" data-testid={`text-v2-tvl-${pool.pid}`}>
+                      {pool.v2TVL > 0 ? (
+                        <span className="text-green-600 dark:text-green-400 font-medium">
+                          {formatCurrency(pool.v2TVL)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right font-medium" data-testid={`text-tvl-${pool.pid}`}>
                       {formatCurrency(pool.tvl)}
@@ -170,7 +192,7 @@ export default function AdminPools() {
                 ))}
                 {(!data?.pools || data.pools.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       No pools found. Check that pool analytics cache is populated.
                     </TableCell>
                   </TableRow>

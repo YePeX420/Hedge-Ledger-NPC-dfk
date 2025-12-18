@@ -649,6 +649,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             { symbol: pool.token1 || '', address: '' }
           ],
           tvl: pool.totalTVL || 0,
+          v1TVL: pool.v1TVL || 0,
+          v2TVL: pool.v2TVL || 0,
           passiveAPR,
           activeAPRMin,
           activeAPRMax,
@@ -740,6 +742,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           v1LP: '0',
           v1Value: 0,
           lastActivityType: staker.lastActivityType,
+          lastActivityAmount: staker.lastActivityAmount,
           lastActivityBlock: staker.lastActivityBlock,
           lastActivityTxHash: staker.lastActivityTxHash,
           lastUpdatedAt: staker.lastUpdatedAt,
@@ -760,6 +763,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Use V1 activity if more recent
           if (staker.lastActivityBlock && (!existing.lastActivityBlock || staker.lastActivityBlock > existing.lastActivityBlock)) {
             existing.lastActivityType = staker.lastActivityType;
+            existing.lastActivityAmount = staker.lastActivityAmount;
             existing.lastActivityBlock = staker.lastActivityBlock;
             existing.lastActivityTxHash = staker.lastActivityTxHash;
             existing.lastUpdatedAt = staker.lastUpdatedAt;
@@ -777,6 +781,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             v1LP: staker.stakedLP,
             v1Value: v1Value,
             lastActivityType: staker.lastActivityType,
+            lastActivityAmount: staker.lastActivityAmount,
             lastActivityBlock: staker.lastActivityBlock,
             lastActivityTxHash: staker.lastActivityTxHash,
             lastUpdatedAt: staker.lastUpdatedAt,
@@ -786,15 +791,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Convert to array and calculate totals
       const enrichedStakers = Array.from(walletMap.values()).map((staker: any) => {
-        const totalValue = staker.v1Value + staker.v2Value;
+        const v1Val = isNaN(staker.v1Value) ? 0 : staker.v1Value;
+        const v2Val = isNaN(staker.v2Value) ? 0 : staker.v2Value;
+        const totalValue = v1Val + v2Val;
         return {
           wallet: staker.wallet,
           summonerName: staker.summonerName,
-          v2Value: staker.v2Value.toFixed(2),
-          v1Value: staker.v1Value.toFixed(2),
+          v2Value: v2Val.toFixed(2),
+          v1Value: v1Val.toFixed(2),
           totalValue: totalValue.toFixed(2),
           lastActivity: {
             type: staker.lastActivityType || 'Unknown',
+            amount: staker.lastActivityAmount || null,
             blockNumber: staker.lastActivityBlock || 0,
             txHash: staker.lastActivityTxHash || '',
             date: staker.lastUpdatedAt ? new Date(staker.lastUpdatedAt).toISOString() : null,
