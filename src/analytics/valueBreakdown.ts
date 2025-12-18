@@ -10,6 +10,7 @@ const TOKENS = {
   cJEWEL: '0x9ed2c155632C042CB8bC20634571fF1CA26f5742',
   xCRYSTAL: '0x6e7185872bcdf3f7a6cbbe81356e50daffb002d2',
   xJEWEL: '0x77f2656d04E158f915bC22f07B779D94c1DC47Ff',
+  wJEWEL: '0xFe6B19286885a4f7F55aDaD09c3cd1f906D23296',
   AVAX: '0xB57B60DeBDB0b8172bb6316a9164bd3C695F133a',
   USDC: '0x3AD9DFE640E1A9Cc1D9B0948620820D975c3803a',
   ETH: '0xfBDF0E31808d0aa7b9509AA6aBC9754E48C58852',
@@ -21,6 +22,7 @@ const TOKEN_DECIMALS: Record<string, number> = {
   [TOKENS.JEWEL.toLowerCase()]: 18,
   [TOKENS.CRYSTAL.toLowerCase()]: 18,
   [TOKENS.xJEWEL.toLowerCase()]: 18,
+  [TOKENS.wJEWEL.toLowerCase()]: 18,
   [TOKENS.AVAX.toLowerCase()]: 18,
   [TOKENS.USDC.toLowerCase()]: 18,
   [TOKENS.ETH.toLowerCase()]: 18,
@@ -32,6 +34,7 @@ const TOKEN_NAMES: Record<string, string> = {
   [TOKENS.JEWEL.toLowerCase()]: 'JEWEL',
   [TOKENS.CRYSTAL.toLowerCase()]: 'CRYSTAL',
   [TOKENS.xJEWEL.toLowerCase()]: 'xJEWEL',
+  [TOKENS.wJEWEL.toLowerCase()]: 'wJEWEL',
   [TOKENS.AVAX.toLowerCase()]: 'AVAX',
   [TOKENS.USDC.toLowerCase()]: 'USDC',
   [TOKENS.ETH.toLowerCase()]: 'ETH',
@@ -192,12 +195,14 @@ const COINGECKO_IDS: Record<string, string> = {
   'USDC': 'usd-coin',
   'KLAY': 'klay-token',
   'xJEWEL': 'defi-kingdoms',
+  'wJEWEL': 'defi-kingdoms',
 };
 
 const FALLBACK_PRICES: Record<string, number> = {
   'JEWEL': 0.0165,
   'CRYSTAL': 0.0044,
   'xJEWEL': 0.0165,
+  'wJEWEL': 0.0165,
   'AVAX': 45.0,
   'ETH': 3900.0,
   'BTC.b': 100000.0,
@@ -210,6 +215,7 @@ async function fetchAllDefiLlamaPrices(): Promise<Record<string, number>> {
     const tokenAddresses = [
       `dfk:${TOKENS.JEWEL}`,
       `dfk:${TOKENS.CRYSTAL}`,
+      `dfk:${TOKENS.wJEWEL}`,
       `avax:${TOKENS.AVAX}`,
       `dfk:${TOKENS.ETH}`,
       `dfk:${TOKENS.BTC_B}`,
@@ -309,6 +315,13 @@ async function getAllTokenPrices(): Promise<Record<string, number>> {
       console.warn(`[ValueBreakdown] Using fallback price for ${symbol}: $${fallback}`);
     }
   }
+
+  if (prices['JEWEL'] && !prices['wJEWEL']) {
+    prices['wJEWEL'] = prices['JEWEL'];
+  }
+  if (prices['JEWEL'] && !prices['xJEWEL']) {
+    prices['xJEWEL'] = prices['JEWEL'];
+  }
   
   cachedAllPrices = { prices, timestamp: Date.now() };
   console.log('[ValueBreakdown] Token prices:', prices);
@@ -318,7 +331,7 @@ async function getAllTokenPrices(): Promise<Record<string, number>> {
 function getTokenPriceFromMap(prices: Record<string, number>, tokenAddr: string): number {
   const symbol = TOKEN_NAMES[tokenAddr.toLowerCase()];
   if (symbol && prices[symbol]) return prices[symbol];
-  if (tokenAddr.toLowerCase() === TOKENS.xJEWEL.toLowerCase()) {
+  if (tokenAddr.toLowerCase() === TOKENS.xJEWEL.toLowerCase() || tokenAddr.toLowerCase() === TOKENS.wJEWEL.toLowerCase()) {
     return prices['JEWEL'] || FALLBACK_PRICES['JEWEL'];
   }
   return 0;
@@ -626,6 +639,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
 
   const tokenPricesList: TokenPrice[] = [
     { symbol: 'JEWEL', price: allPrices['JEWEL'] || 0, source: 'defillama' },
+    { symbol: 'wJEWEL', price: allPrices['wJEWEL'] || allPrices['JEWEL'] || 0, source: 'defillama' },
     { symbol: 'CRYSTAL', price: allPrices['CRYSTAL'] || 0, source: 'defillama' },
     { symbol: 'xJEWEL', price: allPrices['xJEWEL'] || allPrices['JEWEL'] || 0, source: 'defillama' },
     { symbol: 'AVAX', price: allPrices['AVAX'] || 0, source: 'defillama' },
