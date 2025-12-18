@@ -45,6 +45,7 @@ interface JewelerStaker {
   stakedJewel: string;
   cjewelBalance: string;
   summonerName: string | null;
+  lockEnd: string | null;
   lastActivityType: string | null;
   lastActivityAmount: string | null;
   lastActivityBlock: number | null;
@@ -127,6 +128,23 @@ export default function AdminJeweler() {
     },
     onError: (error: any) => {
       toast({ title: "Failed to manage auto-run", description: error.message, variant: "destructive" });
+    },
+  });
+  
+  const refreshBalancesMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/admin/jeweler/refresh-balances", {});
+    },
+    onSuccess: (data: any) => {
+      toast({ 
+        title: "Balance refresh complete", 
+        description: `Updated ${data.updated || 0} stakers with live balances and summoner names` 
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/jeweler/status'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/jeweler/leaderboard'] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to refresh balances", description: error.message, variant: "destructive" });
     },
   });
   
@@ -261,6 +279,20 @@ export default function AdminJeweler() {
                   <Play className="w-4 h-4 mr-2" />
                 )}
                 Run Now
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => refreshBalancesMutation.mutate()}
+                disabled={refreshBalancesMutation.isPending}
+                data-testid="button-refresh-balances"
+              >
+                {refreshBalancesMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                )}
+                Refresh Balances
               </Button>
               <Button
                 size="sm"
