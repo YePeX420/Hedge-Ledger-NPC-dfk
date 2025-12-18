@@ -6428,6 +6428,103 @@ async function startAdminWebServer() {
       res.status(500).json({ error: 'Failed to start balance refresh', details: error.message });
     }
   });
+
+  // =========================================================================
+  // GARDENING QUEST REWARDS INDEXER ROUTES
+  // =========================================================================
+
+  // GET /api/admin/gardening-quest/status - Get indexer status and stats
+  app.get('/api/admin/gardening-quest/status', isAdmin, async (req, res) => {
+    try {
+      const { getGardeningQuestStatus } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      const status = await getGardeningQuestStatus();
+      res.json(status);
+    } catch (error) {
+      console.error('[API] Error fetching gardening quest status:', error);
+      res.status(500).json({ error: 'Failed to fetch gardening quest status', details: error.message });
+    }
+  });
+
+  // POST /api/admin/gardening-quest/trigger - Trigger indexer run
+  app.post('/api/admin/gardening-quest/trigger', isAdmin, async (req, res) => {
+    try {
+      const { runGardeningQuestIndexer } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      runGardeningQuestIndexer().catch(err => console.error('[GardeningQuest] Background error:', err));
+      res.json({ status: 'triggered', message: 'Gardening quest indexer started in background' });
+    } catch (error) {
+      console.error('[API] Error triggering gardening quest indexer:', error);
+      res.status(500).json({ error: 'Failed to trigger gardening quest indexer', details: error.message });
+    }
+  });
+
+  // POST /api/admin/gardening-quest/auto-run - Start/stop auto-run
+  app.post('/api/admin/gardening-quest/auto-run', isAdmin, async (req, res) => {
+    try {
+      const { action } = req.body;
+      if (!action || !['start', 'stop'].includes(action)) {
+        return res.status(400).json({ error: 'Invalid action. Use "start" or "stop"' });
+      }
+      
+      const { startGardeningQuestAutoRun, stopGardeningQuestAutoRun } = 
+        await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      
+      if (action === 'start') {
+        const result = startGardeningQuestAutoRun();
+        res.json({ status: 'started', ...result });
+      } else {
+        const result = stopGardeningQuestAutoRun();
+        res.json({ status: 'stopped', ...result });
+      }
+    } catch (error) {
+      console.error('[API] Error managing gardening quest auto-run:', error);
+      res.status(500).json({ error: 'Failed to manage gardening quest auto-run', details: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-quest/hero/:heroId - Get rewards for a specific hero
+  app.get('/api/admin/gardening-quest/hero/:heroId', isAdmin, async (req, res) => {
+    try {
+      const heroId = parseInt(req.params.heroId);
+      const limit = parseInt(req.query.limit) || 100;
+      const { getHeroRewards, getHeroStats } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      const [rewards, stats] = await Promise.all([
+        getHeroRewards(heroId, limit),
+        getHeroStats(heroId),
+      ]);
+      res.json({ rewards, stats });
+    } catch (error) {
+      console.error('[API] Error fetching hero rewards:', error);
+      res.status(500).json({ error: 'Failed to fetch hero rewards', details: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-quest/player/:player - Get rewards for a specific player
+  app.get('/api/admin/gardening-quest/player/:player', isAdmin, async (req, res) => {
+    try {
+      const player = req.params.player;
+      const limit = parseInt(req.query.limit) || 100;
+      const { getPlayerRewards } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      const rewards = await getPlayerRewards(player, limit);
+      res.json({ rewards, count: rewards.length });
+    } catch (error) {
+      console.error('[API] Error fetching player rewards:', error);
+      res.status(500).json({ error: 'Failed to fetch player rewards', details: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-quest/pool/:poolId - Get rewards for a specific pool
+  app.get('/api/admin/gardening-quest/pool/:poolId', isAdmin, async (req, res) => {
+    try {
+      const poolId = parseInt(req.params.poolId);
+      const limit = parseInt(req.query.limit) || 100;
+      const { getRewardsByPool } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      const rewards = await getRewardsByPool(poolId, limit);
+      res.json({ rewards, count: rewards.length });
+    } catch (error) {
+      console.error('[API] Error fetching pool rewards:', error);
+      res.status(500).json({ error: 'Failed to fetch pool rewards', details: error.message });
+    }
+  });
   
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {

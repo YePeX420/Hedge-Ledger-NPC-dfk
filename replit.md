@@ -87,6 +87,14 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
     - Tables: `jeweler_stakers`, `jeweler_events`, `jeweler_ratio_history`, `jeweler_indexer_progress`
     - Admin UI: `/admin/jeweler` with stats cards (JEWEL locked, stakers, ratio, APR), indexer controls, and top holders leaderboard
     - API endpoints: `GET /api/admin/jeweler/status`, `POST /api/admin/jeweler/trigger`, `POST /api/admin/jeweler/auto-run`, `GET /api/admin/jeweler/leaderboard`, `GET /api/admin/jeweler/apr`
+*   **Gardening Quest Rewards Indexer**: Tracks actual CRYSTAL/JEWEL earned per hero from gardening quests:
+    - Indexer (`src/etl/ingestion/gardeningQuestIndexer.js`): Scans QuestCoreV3 (`0x530fff22987E137e7C8D2aDcC4c15eb45b4FA752`) RewardMinted events
+    - Extracts hero ID, player wallet, pool ID, reward token, and reward amount per quest completion
+    - Pool ID derived from questType (0-13 corresponds to LP pools)
+    - Auto-creates tables on first use via ensureTablesExist()
+    - Tables: `gardening_quest_rewards`, `gardening_quest_indexer_progress`
+    - Admin UI: `/admin/gardening-quest` with stats dashboard, hero search, and reward history
+    - API endpoints in bot.js: `GET /api/admin/gardening-quest/status`, `POST /trigger`, `POST /auto-run`, `GET /hero/:heroId`, `GET /player/:player`, `GET /pool/:poolId`
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules, entry fees, prizes, and a state machine for managing races.
 *   **Leaderboard System**: Provides snapshot-based rankings with historical tracking across various time windows, scoring players based on defined metrics.
 *   **Season Engine**: Manages challenge passes with weighted scoring and seasonal progression, calculating player points and levels.

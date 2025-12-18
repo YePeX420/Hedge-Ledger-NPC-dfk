@@ -26,6 +26,7 @@ import PoolDetailPage from "@/pages/admin/pool-detail";
 import AdminPoolIndexer from "@/pages/admin/pool-indexer";
 import AdminPoolIndexerV1 from "@/pages/admin/pool-indexer-v1";
 import AdminJeweler from "@/pages/admin/jeweler";
+import AdminGardeningQuest from "@/pages/admin/gardening-quest";
 import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
 import ChallengesPage from "@/pages/challenges";
@@ -195,6 +196,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminJeweler />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/gardening-quest">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminGardeningQuest />
           </ProtectedAdminPage>
         )}
       </Route>
