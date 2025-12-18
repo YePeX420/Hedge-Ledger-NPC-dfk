@@ -57,6 +57,8 @@ interface V1IndexerProgress {
   genesisBlock: number;
   status: string;
   totalEventsIndexed: number;
+  v1StakerCount: number;
+  v1TotalStaked: string;
   lastError: string | null;
   updatedAt: string;
   live?: {
@@ -74,6 +76,8 @@ interface V1IndexerProgress {
 
 interface V1IndexerStatus {
   indexers: V1IndexerProgress[];
+  poolsIndexed: number;
+  totalPools: number;
   workerStatus: {
     activeWorkers: number;
     workersPerPool: number;
@@ -438,7 +442,7 @@ export default function PoolIndexerV1Page() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-pools-indexed">
-              {indexers.filter(i => i.status === 'complete' || (i.live?.percentComplete || 0) > 0).length} / 14
+              {status?.poolsIndexed ?? 0} / {status?.totalPools ?? 14}
             </div>
             <p className="text-xs text-muted-foreground">Legacy staker positions</p>
           </CardContent>
@@ -548,7 +552,7 @@ export default function PoolIndexerV1Page() {
                         )}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {formatNumber(indexer.live?.stakersFound || 0)}
+                        {formatNumber(indexer.v1StakerCount || 0)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {formatNumber(indexer.totalEventsIndexed)}

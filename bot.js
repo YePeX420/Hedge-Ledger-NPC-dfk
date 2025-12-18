@@ -6183,23 +6183,45 @@ async function startAdminWebServer() {
         WORKERS_PER_POOL_V1,
         MIN_WORKERS_PER_POOL_V1,
         getPoolWorkerCountSummaryV1,
+        getAllV1StakedTotals,
       } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
       
       const dbProgress = await getAllUnifiedIndexerProgressV1();
       const liveProgress = getAllUnifiedLiveProgressV1();
       const autoRunStatus = getUnifiedAutoRunStatusV1();
       const workerSummary = getPoolWorkerCountSummaryV1();
+      const stakerCounts = await getAllV1StakedTotals();
       
-      // Merge live progress into DB progress
+      // Group DB progress by PID - only main pool entries (not worker entries)
+      const mainPoolProgress = dbProgress.filter(p => !p.indexerName.includes('_w'));
+      
+      // Sum up total events from all workers for each pool
+      const eventsByPool = new Map();
+      for (const progress of dbProgress) {
+        const currentTotal = eventsByPool.get(progress.pid) || 0;
+        eventsByPool.set(progress.pid, currentTotal + (progress.totalEventsIndexed || 0));
+      }
+      
+      // Create staker count lookup map
+      const stakerCountMap = new Map();
+      for (const sc of stakerCounts) {
+        stakerCountMap.set(sc.pid, { count: Number(sc.stakerCount), totalStaked: sc.totalStaked });
+      }
+      
+      // Merge live progress into main pool progress
       const indexers = [];
       const seenPids = new Set();
       
-      for (const progress of dbProgress) {
+      for (const progress of mainPoolProgress) {
         const live = liveProgress.find(l => l.pid === progress.pid);
         const autoRun = autoRunStatus.filter(a => a.pid === progress.pid);
+        const stakerData = stakerCountMap.get(progress.pid) || { count: 0, totalStaked: '0' };
         seenPids.add(progress.pid);
         indexers.push({
           ...progress,
+          totalEventsIndexed: eventsByPool.get(progress.pid) || progress.totalEventsIndexed,
+          v1StakerCount: stakerData.count,
+          v1TotalStaked: stakerData.totalStaked,
           live: live || null,
           autoRun: autoRun.length > 0 ? autoRun[0] : null,
         });
@@ -6208,6 +6230,7 @@ async function startAdminWebServer() {
       // Add pools that have live progress but no DB entry yet
       for (const live of liveProgress) {
         if (!seenPids.has(live.pid)) {
+          const stakerData = stakerCountMap.get(live.pid) || { count: 0, totalStaked: '0' };
           indexers.push({
             id: null,
             indexerName: `unified_v1_pool_${live.pid}`,
@@ -6218,6 +6241,8 @@ async function startAdminWebServer() {
             genesisBlock: live.genesisBlock,
             status: live.isRunning ? 'running' : 'idle',
             totalEventsIndexed: 0,
+            v1StakerCount: stakerData.count,
+            v1TotalStaked: stakerData.totalStaked,
             lastError: null,
             updatedAt: new Date().toISOString(),
             live,
@@ -6229,8 +6254,15 @@ async function startAdminWebServer() {
       // Sort by PID
       indexers.sort((a, b) => a.pid - b.pid);
       
+      // Count unique pools indexed (status complete or has progress)
+      const poolsIndexed = indexers.filter(i => 
+        i.status === 'complete' || (i.live?.percentComplete || 0) > 0 || i.totalEventsIndexed > 0
+      ).length;
+      
       res.json({
         indexers,
+        poolsIndexed,
+        totalPools: 14,
         workerStatus: {
           activeWorkers: autoRunStatus.length,
           maxWorkersPerPool: WORKERS_PER_POOL_V1,
