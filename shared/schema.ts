@@ -2228,6 +2228,8 @@ export const jewelerIndexerProgress = pgTable("jeweler_indexer_progress", {
   indexerName: text("indexer_name").notNull().unique(),
   lastIndexedBlock: bigint("last_indexed_block", { mode: "number" }).notNull(),
   genesisBlock: bigint("genesis_block", { mode: "number" }).notNull(),
+  rangeStart: bigint("range_start", { mode: "number" }),
+  rangeEnd: bigint("range_end", { mode: "number" }),
   status: text("status").notNull().default("idle"),
   totalEventsIndexed: integer("total_events_indexed").notNull().default(0),
   totalStakersFound: integer("total_stakers_found").notNull().default(0),

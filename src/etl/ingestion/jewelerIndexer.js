@@ -310,6 +310,511 @@ export async function upsertStaker(wallet, activityType, amount, blockNumber, tx
 }
 
 const autoRunIntervals = new Map();
+const runningWorkers = new Map();
+const workerLiveProgress = new Map();
+const donorReservations = new Map();
+let activeWorkerCount = 0;
+
+function getWorkerIndexerName(workerId) {
+  return `jeweler_w${workerId}`;
+}
+
+function getWorkerKey(workerId) {
+  return `jeweler_w${workerId}`;
+}
+
+export function getJewelerWorkerProgress(workerId) {
+  return workerLiveProgress.get(getWorkerKey(workerId)) || null;
+}
+
+export function getAllJewelerWorkersProgress() {
+  const workers = [];
+  for (let w = 0; w < JEWELER_WORKERS; w++) {
+    const progress = workerLiveProgress.get(getWorkerKey(w));
+    if (progress) {
+      workers.push({ workerId: w, ...progress });
+    }
+  }
+  return workers;
+}
+
+function updateWorkerLiveProgress(workerId, updates) {
+  const key = getWorkerKey(workerId);
+  const current = workerLiveProgress.get(key) || {
+    isRunning: false,
+    currentBlock: 0,
+    targetBlock: 0,
+    rangeStart: 0,
+    rangeEnd: null,
+    eventsFound: 0,
+    stakersFound: 0,
+    batchesCompleted: 0,
+    startedAt: null,
+    lastBatchAt: null,
+    percentComplete: 0,
+    completedAt: null,
+  };
+  const updated = { ...current, ...updates };
+  if (updates.percentComplete === undefined && updated.rangeEnd && updated.rangeEnd > updated.rangeStart) {
+    const totalBlocks = updated.rangeEnd - updated.rangeStart;
+    const indexedBlocks = updated.currentBlock - updated.rangeStart;
+    updated.percentComplete = Math.min(100, Math.max(0, (indexedBlocks / totalBlocks) * 100));
+  }
+  workerLiveProgress.set(key, updated);
+  return updated;
+}
+
+function clearWorkerLiveProgress(workerId) {
+  workerLiveProgress.delete(getWorkerKey(workerId));
+}
+
+async function initWorkerProgress(workerId, rangeStart, rangeEnd) {
+  const indexerName = getWorkerIndexerName(workerId);
+  
+  const [existing] = await db.select()
+    .from(jewelerIndexerProgress)
+    .where(eq(jewelerIndexerProgress.indexerName, indexerName))
+    .limit(1);
+  
+  if (existing) {
+    if (existing.rangeStart !== rangeStart || existing.rangeEnd !== rangeEnd) {
+      await db.update(jewelerIndexerProgress)
+        .set({
+          rangeStart,
+          rangeEnd,
+          lastIndexedBlock: rangeStart,
+          genesisBlock: rangeStart,
+          status: 'idle',
+          updatedAt: sql`CURRENT_TIMESTAMP`,
+        })
+        .where(eq(jewelerIndexerProgress.indexerName, indexerName));
+      return { ...existing, rangeStart, rangeEnd, lastIndexedBlock: rangeStart, genesisBlock: rangeStart };
+    }
+    return existing;
+  }
+  
+  const [created] = await db.insert(jewelerIndexerProgress)
+    .values({
+      indexerName,
+      lastIndexedBlock: rangeStart,
+      genesisBlock: rangeStart,
+      rangeStart,
+      rangeEnd,
+      status: 'idle',
+      totalEventsIndexed: 0,
+      totalStakersFound: 0,
+    })
+    .returning();
+  
+  return created;
+}
+
+async function getLatestBlock() {
+  const provider = getProvider();
+  return await provider.getBlockNumber();
+}
+
+export async function runJewelerWorkerBatch(workerId, options = {}) {
+  const {
+    batchSize = INCREMENTAL_BATCH_SIZE,
+  } = options;
+  
+  const indexerName = getWorkerIndexerName(workerId);
+  
+  if (runningWorkers.get(indexerName)) {
+    console.log(`[JewelerIndexer] Worker ${workerId} already running, skipping...`);
+    return { status: 'already_running' };
+  }
+  
+  runningWorkers.set(indexerName, true);
+  
+  try {
+    const [progress] = await db.select()
+      .from(jewelerIndexerProgress)
+      .where(eq(jewelerIndexerProgress.indexerName, indexerName))
+      .limit(1);
+    
+    if (!progress) {
+      runningWorkers.set(indexerName, false);
+      return { status: 'error', error: 'No progress record found' };
+    }
+    
+    const latestBlock = await getLatestBlock();
+    const workerTargetBlock = progress.rangeEnd !== null ? Math.min(progress.rangeEnd, latestBlock) : latestBlock;
+    const startBlock = progress.lastIndexedBlock;
+    const endBlock = Math.min(startBlock + batchSize, workerTargetBlock);
+    
+    updateWorkerLiveProgress(workerId, {
+      isRunning: true,
+      currentBlock: startBlock,
+      targetBlock: workerTargetBlock,
+      rangeStart: progress.rangeStart || 0,
+      rangeEnd: progress.rangeEnd,
+      startedAt: new Date().toISOString(),
+    });
+    
+    if (startBlock >= workerTargetBlock) {
+      runningWorkers.set(indexerName, false);
+      updateWorkerLiveProgress(workerId, {
+        isRunning: false,
+        currentBlock: workerTargetBlock,
+        targetBlock: workerTargetBlock,
+        percentComplete: 100,
+        completedAt: new Date().toISOString(),
+      });
+      return { status: 'completed', message: 'Worker reached target block' };
+    }
+    
+    console.log(`[JewelerIndexer] Worker ${workerId}: blocks ${startBlock.toLocaleString()} -> ${endBlock.toLocaleString()} (target: ${workerTargetBlock.toLocaleString()})`);
+    
+    let totalEvents = 0;
+    let uniqueStakers = new Set();
+    let currentBlock = startBlock;
+    let batchesCompleted = 0;
+    
+    while (currentBlock <= endBlock) {
+      const fromBlock = currentBlock;
+      const toBlock = Math.min(currentBlock + BLOCKS_PER_QUERY - 1, endBlock);
+      
+      try {
+        const events = await queryTransferEvents(fromBlock, toBlock);
+        
+        if (events.length > 0) {
+          const blockTimestamp = await getBlockTimestamp(fromBlock);
+          
+          for (const event of events) {
+            const result = await processTransferEvent(event, blockTimestamp);
+            if (result) {
+              totalEvents++;
+              uniqueStakers.add(result.user.toLowerCase());
+            }
+          }
+        }
+        
+        batchesCompleted++;
+        currentBlock = toBlock + 1;
+        
+        updateWorkerLiveProgress(workerId, {
+          currentBlock,
+          eventsFound: totalEvents,
+          stakersFound: uniqueStakers.size,
+          batchesCompleted,
+          lastBatchAt: new Date().toISOString(),
+        });
+        
+        await db.update(jewelerIndexerProgress)
+          .set({
+            lastIndexedBlock: toBlock,
+            totalEventsIndexed: sql`total_events_indexed + ${events.length}`,
+            totalStakersFound: sql`GREATEST(total_stakers_found, ${uniqueStakers.size})`,
+            status: 'running',
+            updatedAt: sql`CURRENT_TIMESTAMP`,
+          })
+          .where(eq(jewelerIndexerProgress.indexerName, indexerName));
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (err) {
+        console.error(`[JewelerIndexer] Worker ${workerId} error ${fromBlock}-${toBlock}:`, err.message);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    const isComplete = endBlock >= workerTargetBlock;
+    
+    await db.update(jewelerIndexerProgress)
+      .set({
+        status: isComplete ? 'complete' : 'idle',
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(jewelerIndexerProgress.indexerName, indexerName));
+    
+    updateWorkerLiveProgress(workerId, {
+      isRunning: false,
+      currentBlock: endBlock,
+      completedAt: isComplete ? new Date().toISOString() : null,
+      percentComplete: isComplete ? 100 : undefined,
+    });
+    
+    runningWorkers.set(indexerName, false);
+    
+    console.log(`[JewelerIndexer] Worker ${workerId} batch done: ${totalEvents} events, ${uniqueStakers.size} stakers`);
+    
+    return {
+      status: isComplete ? 'completed' : 'batch_done',
+      eventsFound: totalEvents,
+      stakersFound: uniqueStakers.size,
+      blocksIndexed: endBlock - startBlock,
+      currentBlock: endBlock,
+      targetBlock: workerTargetBlock,
+    };
+  } catch (err) {
+    console.error(`[JewelerIndexer] Worker ${workerId} error:`, err.message);
+    runningWorkers.set(indexerName, false);
+    updateWorkerLiveProgress(workerId, { isRunning: false });
+    return { status: 'error', error: err.message };
+  }
+}
+
+function findWorkToSteal(thiefWorkerId) {
+  const MIN_BLOCKS_TO_STEAL = 500000;
+  const RESERVATION_TIMEOUT_MS = 60000;
+  
+  let bestDonor = null;
+  let maxRemainingBlocks = 0;
+  const now = Date.now();
+  
+  for (let w = 0; w < activeWorkerCount; w++) {
+    if (w === thiefWorkerId) continue;
+    
+    const key = getWorkerKey(w);
+    const workerInfo = autoRunIntervals.get(key);
+    if (!workerInfo) continue;
+    
+    const reservationKey = `jeweler_${w}`;
+    const reservedAt = donorReservations.get(reservationKey);
+    if (reservedAt && (now - reservedAt) < RESERVATION_TIMEOUT_MS) {
+      continue;
+    }
+    
+    const progress = workerLiveProgress.get(key);
+    if (!progress || progress.completedAt) continue;
+    
+    const currentBlock = progress.currentBlock || workerInfo.rangeStart || 0;
+    const targetBlock = progress.targetBlock || workerInfo.rangeEnd;
+    
+    if (!targetBlock) continue;
+    
+    const remainingBlocks = targetBlock - currentBlock;
+    
+    if (remainingBlocks > maxRemainingBlocks && remainingBlocks > MIN_BLOCKS_TO_STEAL * 2) {
+      maxRemainingBlocks = remainingBlocks;
+      bestDonor = {
+        workerId: w,
+        currentBlock,
+        targetBlock,
+        remainingBlocks,
+      };
+    }
+  }
+  
+  if (!bestDonor) return null;
+  
+  const reservationKey = `jeweler_${bestDonor.workerId}`;
+  donorReservations.set(reservationKey, now);
+  
+  const blocksToSteal = Math.floor(bestDonor.remainingBlocks / 2);
+  if (blocksToSteal < MIN_BLOCKS_TO_STEAL) {
+    donorReservations.delete(reservationKey);
+    return null;
+  }
+  
+  const newRangeStart = bestDonor.targetBlock - blocksToSteal;
+  const newRangeEnd = bestDonor.targetBlock;
+  
+  return {
+    donorWorkerId: bestDonor.workerId,
+    donorCurrentBlock: bestDonor.currentBlock,
+    newDonorRangeEnd: newRangeStart,
+    newRangeStart,
+    newRangeEnd,
+    blocksStolen: blocksToSteal,
+    reservationKey,
+  };
+}
+
+async function applyWorkSteal(thiefWorkerId, stealInfo) {
+  const donorIndexerName = getWorkerIndexerName(stealInfo.donorWorkerId);
+  const thiefIndexerName = getWorkerIndexerName(thiefWorkerId);
+  
+  await db.update(jewelerIndexerProgress)
+    .set({
+      rangeEnd: stealInfo.newDonorRangeEnd,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    })
+    .where(eq(jewelerIndexerProgress.indexerName, donorIndexerName));
+  
+  const donorKey = getWorkerKey(stealInfo.donorWorkerId);
+  const donorWorkerInfo = autoRunIntervals.get(donorKey);
+  if (donorWorkerInfo) {
+    donorWorkerInfo.rangeEnd = stealInfo.newDonorRangeEnd;
+  }
+  
+  await db.update(jewelerIndexerProgress)
+    .set({
+      rangeStart: stealInfo.newRangeStart,
+      rangeEnd: stealInfo.newRangeEnd,
+      lastIndexedBlock: stealInfo.newRangeStart,
+      genesisBlock: stealInfo.newRangeStart,
+      status: 'idle',
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    })
+    .where(eq(jewelerIndexerProgress.indexerName, thiefIndexerName));
+  
+  const thiefKey = getWorkerKey(thiefWorkerId);
+  const thiefWorkerInfo = autoRunIntervals.get(thiefKey);
+  if (thiefWorkerInfo) {
+    thiefWorkerInfo.rangeStart = stealInfo.newRangeStart;
+    thiefWorkerInfo.rangeEnd = stealInfo.newRangeEnd;
+  }
+  
+  updateWorkerLiveProgress(thiefWorkerId, {
+    rangeStart: stealInfo.newRangeStart,
+    rangeEnd: stealInfo.newRangeEnd,
+    currentBlock: stealInfo.newRangeStart,
+    targetBlock: stealInfo.newRangeEnd,
+    completedAt: null,
+    percentComplete: 0,
+  });
+  
+  donorReservations.delete(stealInfo.reservationKey);
+  
+  console.log(`[JewelerIndexer] Worker ${thiefWorkerId} stole ${stealInfo.blocksStolen.toLocaleString()} blocks from worker ${stealInfo.donorWorkerId}`);
+}
+
+async function startJewelerWorkerAutoRun(workerId, rangeStart, rangeEnd, intervalMs = AUTO_RUN_INTERVAL_MS) {
+  const key = getWorkerKey(workerId);
+  if (autoRunIntervals.has(key)) {
+    console.log(`[JewelerIndexer] Worker ${workerId} already running`);
+    return { status: 'already_running', workerId };
+  }
+  
+  console.log(`[JewelerIndexer] Starting worker ${workerId} (blocks ${rangeStart.toLocaleString()}-${rangeEnd ? rangeEnd.toLocaleString() : 'latest'}, interval: ${intervalMs / 1000}s)`);
+  
+  clearWorkerLiveProgress(workerId);
+  await initWorkerProgress(workerId, rangeStart, rangeEnd);
+  
+  const info = {
+    intervalMs,
+    workerId,
+    rangeStart,
+    rangeEnd,
+    startedAt: new Date().toISOString(),
+    lastRunAt: null,
+    runsCompleted: 0,
+    interval: null,
+  };
+  
+  autoRunIntervals.set(key, info);
+  
+  const offsetMs = Math.floor((workerId / JEWELER_WORKERS) * intervalMs);
+  
+  (async () => {
+    try {
+      if (offsetMs > 0) {
+        await new Promise(r => setTimeout(r, offsetMs));
+      }
+      console.log(`[JewelerIndexer] Initial batch for worker ${workerId} (offset ${(offsetMs / 1000).toFixed(1)}s)`);
+      await runJewelerWorkerBatch(workerId);
+      info.lastRunAt = new Date().toISOString();
+      info.runsCompleted++;
+    } catch (err) {
+      console.error(`[JewelerIndexer] Initial error for worker ${workerId}:`, err.message);
+    }
+  })();
+  
+  info.interval = setInterval(async () => {
+    if (!autoRunIntervals.has(key)) return;
+    
+    try {
+      const result = await runJewelerWorkerBatch(workerId);
+      info.lastRunAt = new Date().toISOString();
+      info.runsCompleted++;
+      
+      if (result.status === 'completed') {
+        const stealInfo = findWorkToSteal(workerId);
+        if (stealInfo) {
+          await applyWorkSteal(workerId, stealInfo);
+          console.log(`[JewelerIndexer] Worker ${workerId} continuing with stolen work`);
+        } else {
+          console.log(`[JewelerIndexer] Worker ${workerId} completed, no work to steal`);
+        }
+      }
+    } catch (err) {
+      console.error(`[JewelerIndexer] Worker ${workerId} error:`, err.message);
+    }
+  }, intervalMs);
+  
+  return { status: 'started', workerId, rangeStart, rangeEnd };
+}
+
+export async function startJewelerWorkersAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS, targetWorkers = JEWELER_WORKERS) {
+  let workerCount = Math.min(targetWorkers, JEWELER_WORKERS);
+  let latestBlock;
+  
+  try {
+    latestBlock = await getLatestBlock();
+  } catch (err) {
+    console.error('[JewelerIndexer] Failed to get latest block:', err.message);
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      latestBlock = await getLatestBlock();
+    } catch (err2) {
+      console.error('[JewelerIndexer] RPC unavailable, cannot start workers');
+      return { status: 'rpc_failed', error: err2.message };
+    }
+  }
+  
+  const blocksPerWorker = Math.ceil(latestBlock / workerCount);
+  
+  console.log(`[JewelerIndexer] Starting ${workerCount} workers (${blocksPerWorker.toLocaleString()} blocks each, latest: ${latestBlock.toLocaleString()})`);
+  
+  const results = [];
+  let consecutiveFailures = 0;
+  const MAX_CONSECUTIVE_FAILURES = 2;
+  
+  for (let w = 0; w < workerCount; w++) {
+    const rangeStart = w * blocksPerWorker;
+    const rangeEnd = (w === workerCount - 1) ? null : (w + 1) * blocksPerWorker;
+    
+    await new Promise(r => setTimeout(r, 500));
+    
+    try {
+      const result = await startJewelerWorkerAutoRun(w, rangeStart, rangeEnd, intervalMs);
+      results.push(result);
+      consecutiveFailures = 0;
+    } catch (err) {
+      consecutiveFailures++;
+      console.error(`[JewelerIndexer] Worker ${w} failed to start:`, err.message);
+      
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && workerCount > MIN_JEWELER_WORKERS) {
+        const newWorkerCount = workerCount - 1;
+        console.warn(`[JewelerIndexer] RPC failsafe: Reducing from ${workerCount} to ${newWorkerCount} workers`);
+        
+        stopJewelerWorkersAutoRun();
+        
+        await new Promise(r => setTimeout(r, 3000));
+        return startJewelerWorkersAutoRun(intervalMs, newWorkerCount);
+      }
+      
+      results.push({ status: 'failed', workerId: w, error: err.message });
+    }
+  }
+  
+  const started = results.filter(r => r.status === 'started').length;
+  activeWorkerCount = started;
+  
+  return { status: 'workers_started', workersStarted: started, targetWorkers: workerCount, results };
+}
+
+export function stopJewelerWorkersAutoRun() {
+  let stopped = 0;
+  for (let w = 0; w < JEWELER_WORKERS; w++) {
+    const key = getWorkerKey(w);
+    const info = autoRunIntervals.get(key);
+    if (info) {
+      if (info.interval) {
+        clearInterval(info.interval);
+      }
+      autoRunIntervals.delete(key);
+      clearWorkerLiveProgress(w);
+      stopped++;
+    }
+  }
+  activeWorkerCount = 0;
+  donorReservations.clear();
+  console.log(`[JewelerIndexer] Stopped ${stopped} workers`);
+  return stopped;
+}
 
 export function stopJewelerAutoRun() {
   const interval = autoRunIntervals.get('jeweler');
@@ -319,10 +824,15 @@ export function stopJewelerAutoRun() {
     console.log('[JewelerIndexer] Auto-run stopped');
     return true;
   }
-  return false;
+  const stopped = stopJewelerWorkersAutoRun();
+  return stopped > 0;
 }
 
-export function startJewelerAutoRun() {
+export function startJewelerAutoRun(useParallelWorkers = true) {
+  if (useParallelWorkers) {
+    return startJewelerWorkersAutoRun();
+  }
+  
   if (autoRunIntervals.has('jeweler')) {
     return false;
   }
@@ -350,7 +860,34 @@ export function startJewelerAutoRun() {
 }
 
 export function isJewelerAutoRunning() {
-  return autoRunIntervals.has('jeweler');
+  if (autoRunIntervals.has('jeweler')) return true;
+  for (let w = 0; w < JEWELER_WORKERS; w++) {
+    if (autoRunIntervals.has(getWorkerKey(w))) return true;
+  }
+  return false;
+}
+
+export function getJewelerWorkersStatus() {
+  const workers = [];
+  for (let w = 0; w < JEWELER_WORKERS; w++) {
+    const key = getWorkerKey(w);
+    const info = autoRunIntervals.get(key);
+    const progress = workerLiveProgress.get(key);
+    if (info || progress) {
+      workers.push({
+        workerId: w,
+        isRunning: !!info,
+        ...info,
+        progress: progress || null,
+      });
+    }
+  }
+  return {
+    activeWorkers: activeWorkerCount,
+    maxWorkers: JEWELER_WORKERS,
+    minWorkers: MIN_JEWELER_WORKERS,
+    workers,
+  };
 }
 
 export async function refreshAllStakerBalances() {
