@@ -596,6 +596,18 @@ async function startGardeningWorkerAutoRun(workerId, rangeStart, rangeEnd, inter
   clearWorkerLiveProgress(workerId);
   await initWorkerProgress(workerId, rangeStart, rangeEnd);
   
+  updateWorkerLiveProgress(workerId, {
+    isRunning: false,
+    currentBlock: rangeStart,
+    targetBlock: rangeEnd || rangeStart,
+    rangeStart,
+    rangeEnd,
+    eventsFound: 0,
+    batchesCompleted: 0,
+    percentComplete: 0,
+    completedAt: null,
+  });
+  
   const info = {
     intervalMs,
     workerId,
