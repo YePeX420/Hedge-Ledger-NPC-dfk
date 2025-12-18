@@ -117,6 +117,8 @@ interface UnifiedIndexerProgress {
   v2TotalStaked: string;
   lastError: string | null;
   updatedAt: string;
+  swapEventCount?: number;
+  rewardEventCount?: number;
   live?: {
     isRunning: boolean;
     currentBlock: number;
@@ -631,6 +633,8 @@ function UnifiedIndexerTable({
               const hasAutoRun = activeWorkerCount > 0;
               const key = `unified-${indexer.pid}`;
               const eta = isRunning ? calculateETAFromHistory(key, percentComplete, progressHistory) : null;
+              const swapCount = indexer.live?.swapsFound ?? indexer.swapEventCount ?? 0;
+              const rewardCount = indexer.live?.rewardsFound ?? indexer.rewardEventCount ?? 0;
               
               return (
                 <TableRow key={indexer.indexerName} data-testid={`row-indexer-unified-${indexer.pid}`}>
@@ -673,10 +677,10 @@ function UnifiedIndexerTable({
                     {formatNumber(indexer.v2StakerCount || 0)}
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                    {formatNumber(indexer.live?.swapsFound || 0)}
+                    {formatNumber(swapCount)}
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                    {formatNumber(indexer.live?.rewardsFound || 0)}
+                    {formatNumber(rewardCount)}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-1 justify-end">

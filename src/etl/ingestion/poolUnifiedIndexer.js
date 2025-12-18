@@ -1235,3 +1235,46 @@ export async function getAllV2StakedTotals() {
   
   return results;
 }
+
+export async function getPoolEventCounts() {
+  const [swapCounts, rewardCounts] = await Promise.all([
+    db
+      .select({
+        pid: poolSwapEvents.pid,
+        swapEventCount: sql`COUNT(*)::bigint`,
+      })
+      .from(poolSwapEvents)
+      .groupBy(poolSwapEvents.pid),
+    db
+      .select({
+        pid: poolRewardEvents.pid,
+        rewardEventCount: sql`COUNT(*)::bigint`,
+      })
+      .from(poolRewardEvents)
+      .groupBy(poolRewardEvents.pid),
+  ]);
+
+  const countsByPid = new Map();
+
+  for (const row of swapCounts) {
+    countsByPid.set(row.pid, {
+      pid: row.pid,
+      swapEventCount: Number(row.swapEventCount) || 0,
+      rewardEventCount: 0,
+    });
+  }
+
+  for (const row of rewardCounts) {
+    const existing = countsByPid.get(row.pid) || {
+      pid: row.pid,
+      swapEventCount: 0,
+      rewardEventCount: 0,
+    };
+    countsByPid.set(row.pid, {
+      ...existing,
+      rewardEventCount: Number(row.rewardEventCount) || 0,
+    });
+  }
+
+  return Array.from(countsByPid.values()).sort((a, b) => a.pid - b.pid);
+}

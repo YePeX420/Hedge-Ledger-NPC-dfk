@@ -1613,14 +1613,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { getAllSwapIndexerProgress, getAllSwapLiveProgress, getSwapAutoRunStatus } = await import('../src/etl/ingestion/poolSwapIndexer.js');
       const { getAllRewardIndexerProgress, getAllRewardLiveProgress, getRewardAutoRunStatus } = await import('../src/etl/ingestion/poolRewardIndexer.js');
-      const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
+      const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus, getPoolEventCounts } = await import('../src/etl/ingestion/poolUnifiedIndexer.js');
       const { getAllLatestAggregates } = await import('../src/etl/aggregation/poolDailyAggregator.js');
       
-      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw] = await Promise.all([
+      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw, eventCounts] = await Promise.all([
         getAllSwapIndexerProgress(),
         getAllRewardIndexerProgress(),
         getAllUnifiedIndexerProgress(),
         getAllLatestAggregates(),
+        getPoolEventCounts(),
       ]);
       
       const swapLiveProgress = getAllSwapLiveProgress();
@@ -1629,6 +1630,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const swapAutoRuns = getSwapAutoRunStatus();
       const rewardAutoRuns = getRewardAutoRunStatus();
       const unifiedAutoRuns = getUnifiedAutoRunStatus();
+
+      const eventCountMap = new Map<number, { swapEventCount: number; rewardEventCount: number }>();
+      for (const counts of eventCounts || []) {
+        eventCountMap.set(counts.pid, {
+          swapEventCount: Number(counts.swapEventCount) || 0,
+          rewardEventCount: Number(counts.rewardEventCount) || 0,
+        });
+      }
       
       // Flatten aggregates - innerJoin returns { pool_daily_aggregates: {...}, latest: {...} }
       const aggregates = (latestAggregatesRaw || [])
@@ -1648,6 +1657,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })),
         unifiedIndexers: unifiedProgress.map((p: any) => ({
           ...p,
+          swapEventCount: eventCountMap.get(p.pid)?.swapEventCount || 0,
+          rewardEventCount: eventCountMap.get(p.pid)?.rewardEventCount || 0,
           live: unifiedLiveProgress.find((l: any) => l.pid === p.pid) || null,
           autoRun: unifiedAutoRuns.find((a: any) => a.pid === p.pid) || null,
         })),

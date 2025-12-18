@@ -5963,15 +5963,16 @@ async function startAdminWebServer() {
     try {
       const { getAllSwapIndexerProgress, getAllSwapLiveProgress, getSwapAutoRunStatus } = await import('./src/etl/ingestion/poolSwapIndexer.js');
       const { getAllRewardIndexerProgress, getAllRewardLiveProgress, getRewardAutoRunStatus } = await import('./src/etl/ingestion/poolRewardIndexer.js');
-      const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus, getAllV2StakedTotals } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
+      const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus, getAllV2StakedTotals, getPoolEventCounts } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
       const { getAllLatestAggregates } = await import('./src/etl/aggregation/poolDailyAggregator.js');
       
-      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw, stakerCounts] = await Promise.all([
+      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw, stakerCounts, eventCounts] = await Promise.all([
         getAllSwapIndexerProgress(),
         getAllRewardIndexerProgress(),
         getAllUnifiedIndexerProgress(),
         getAllLatestAggregates(),
         getAllV2StakedTotals(),
+        getPoolEventCounts(),
       ]);
       
       const swapLiveProgress = getAllSwapLiveProgress();
@@ -6000,17 +6001,29 @@ async function startAdminWebServer() {
       for (const sc of stakerCounts) {
         stakerCountMap.set(sc.pid, { count: Number(sc.stakerCount), totalStaked: sc.totalStaked });
       }
+
+      // Create swap/reward event count lookup map
+      const eventCountMap = new Map();
+      for (const counts of eventCounts || []) {
+        eventCountMap.set(counts.pid, {
+          swapEventCount: Number(counts.swapEventCount) || 0,
+          rewardEventCount: Number(counts.rewardEventCount) || 0,
+        });
+      }
       
       // Build unified indexers with merged data
       const unifiedIndexers = mainPoolProgress.map((p) => {
         const livePoolProgress = unifiedLiveProgress.find(l => l.pid === p.pid);
         const stakerInfo = stakerCountMap.get(p.pid) || { count: 0, totalStaked: '0' };
+        const eventCountsForPool = eventCountMap.get(p.pid) || { swapEventCount: 0, rewardEventCount: 0 };
         
         return {
           ...p,
           totalEventsIndexed: eventsByPool.get(p.pid) || p.totalEventsIndexed,
           v2StakerCount: stakerInfo.count,
           v2TotalStaked: stakerInfo.totalStaked,
+          swapEventCount: eventCountsForPool.swapEventCount,
+          rewardEventCount: eventCountsForPool.rewardEventCount,
           live: livePoolProgress || null,
           liveWorkers: livePoolProgress?.workers || [],
           autoRun: unifiedAutoRuns.find((a) => a.pid === p.pid) || null,
