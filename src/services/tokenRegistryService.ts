@@ -167,6 +167,18 @@ export async function getAllTokens(): Promise<typeof tokenRegistry.$inferSelect[
   return await db.select().from(tokenRegistry).orderBy(tokenRegistry.symbol);
 }
 
+export async function getTokenMetadataMap(): Promise<Record<string, { symbol: string; decimals: number }>> {
+  const tokens = await getAllTokens();
+  const map: Record<string, { symbol: string; decimals: number }> = {};
+  for (const token of tokens) {
+    map[token.address.toLowerCase()] = {
+      symbol: token.symbol,
+      decimals: token.decimals ?? 18,
+    };
+  }
+  return map;
+}
+
 export async function getTokenAddressMap(): Promise<Record<string, string>> {
   const tokens = await getAllTokens();
   const map: Record<string, string> = {};
