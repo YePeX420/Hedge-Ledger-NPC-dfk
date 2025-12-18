@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import {
@@ -30,6 +30,7 @@ import {
   ArrowLeftRight,
   Coins,
   Calculator,
+  Database,
   Play,
   Square,
   RefreshCw,
@@ -224,6 +225,21 @@ function formatBlock(block: number): string {
   return block.toLocaleString();
 }
 
+function formatBlockRange(current?: number, target?: number): string | null {
+  const hasCurrent = typeof current === 'number' && !isNaN(current);
+  const hasTarget = typeof target === 'number' && !isNaN(target);
+  if (!hasCurrent && !hasTarget) return null;
+  if (hasCurrent && hasTarget && current !== target) {
+    return `${formatBlock(current!)} → ${formatBlock(target!)}`;
+  }
+  const value = hasCurrent ? current! : target!;
+  return formatBlock(value);
+}
+
+function sortByPid<T extends { pid: number }>(arr: T[]): T[] {
+  return [...arr].sort((a, b) => a.pid - b.pid);
+}
+
 type ProgressSnapshot = { time: number; percent: number };
 type ProgressHistory = Map<string, ProgressSnapshot[]>;
 
@@ -386,7 +402,14 @@ function IndexerTable({
               const isRunning = indexer.live?.isRunning || false;
               const percentComplete = indexer.live?.percentComplete || 0;
               const hasAutoRun = !!indexer.autoRun;
-              
+              const currentBlock = indexer.live?.currentBlock ?? indexer.lastIndexedBlock;
+              const targetBlock = indexer.live?.targetBlock ?? indexer.lastIndexedBlock;
+              const blockRange = formatBlockRange(currentBlock, targetBlock);
+              const updatedTime = indexer.updatedAt ? new Date(indexer.updatedAt).toLocaleTimeString() : null;
+              const indexedEvents = type === 'swap'
+                ? (indexer.swapEventCount ?? indexer.live?.totalEventsFound ?? indexer.totalEventsIndexed)
+                : (indexer.rewardEventCount ?? indexer.live?.totalEventsFound ?? indexer.totalEventsIndexed);
+               
               return (
                 <TableRow key={indexer.indexerName} data-testid={`row-indexer-${type}-${indexer.pid}`}>
                   <TableCell className="font-mono font-medium">
@@ -410,20 +433,32 @@ function IndexerTable({
                         <span className="text-xs text-muted-foreground">
                           {percentComplete.toFixed(1)}%
                         </span>
+                        {blockRange && (
+                          <span className="text-[11px] text-muted-foreground block">
+                            Blocks {blockRange}
+                          </span>
+                        )}
                       </div>
                     )}
                     {!isRunning && indexer.status === 'complete' && (
-                      <span className="text-xs text-green-500">Synced</span>
+                      <div className="space-y-1">
+                        <span className="text-xs text-green-500">Synced</span>
+                        {blockRange && (
+                          <span className="text-[11px] text-muted-foreground block">
+                            Last at {blockRange}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                    {formatNumber(indexer.live?.totalEventsFound || indexer.totalEventsIndexed)}
+                    {formatNumber(indexedEvents || 0)}
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs">
-                    {formatBlock(indexer.live?.currentBlock || indexer.lastIndexedBlock)}
+                    {currentBlock !== undefined ? formatBlock(currentBlock) : '-'}
                   </TableCell>
                   <TableCell className="text-right text-xs text-muted-foreground">
-                    {indexer.updatedAt ? new Date(indexer.updatedAt).toLocaleTimeString() : '-'}
+                    {updatedTime || '-'}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-1 justify-end">
@@ -613,6 +648,8 @@ function UnifiedIndexerTable({
     }
   }
 
+  const sortedIndexers = sortByPid(indexers);
+
   return (
     <Card>
       <CardContent className="p-0">
@@ -629,15 +666,22 @@ function UnifiedIndexerTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {indexers.map((indexer) => {
+            {sortedIndexers.map((indexer) => {
               const isRunning = indexer.live?.isRunning || false;
               const percentComplete = indexer.live?.percentComplete || 0;
               const workers = indexer.liveWorkers || indexer.live?.workers || [];
               const activeWorkerCount = workersPerPoolMap.get(indexer.pid) || 0;
-              const hasAutoRun = activeWorkerCount > 0;
+              const hasAutoRun = activeWorkerCount > 0 || !!indexer.autoRun;
+              const autoRunInterval = indexer.autoRun?.intervalMs ? Math.round(indexer.autoRun.intervalMs / 60000) : null;
               const key = `unified-${indexer.pid}`;
               const eta = isRunning ? calculateETAFromHistory(key, percentComplete, progressHistory) : null;
-              
+              const blockRange = formatBlockRange(indexer.live?.currentBlock ?? indexer.lastIndexedBlock, indexer.live?.targetBlock ?? indexer.lastIndexedBlock);
+              const stakerCount = formatNumber(indexer.v2StakerCount || 0);
+              const stakedAmount = indexer.v2TotalStaked ? formatNumber(indexer.v2TotalStaked) : null;
+              const swapCount = indexer.swapEventCount ?? indexer.live?.swapsFound ?? 0;
+              const rewardCount = indexer.rewardEventCount ?? indexer.live?.rewardsFound ?? 0;
+              const lastUpdated = indexer.updatedAt ? new Date(indexer.updatedAt).toLocaleTimeString() : null;
+               
               return (
                 <TableRow key={indexer.indexerName} data-testid={`row-indexer-unified-${indexer.pid}`}>
                   <TableCell className="font-mono font-medium">
@@ -649,12 +693,23 @@ function UnifiedIndexerTable({
                       {hasAutoRun && (
                         <Badge variant="outline" className="bg-purple-500/20 text-purple-500 border-purple-500/30 gap-1 text-xs">
                           <Zap className="w-3 h-3" />
-                          {activeWorkerCount} workers
+                          {activeWorkerCount > 0 ? `${activeWorkerCount} workers` : 'Auto'}
+                          {autoRunInterval ? ` • ${autoRunInterval}m` : ''}
                         </Badge>
                       )}
                       {eta && (
                         <span className="text-xs text-muted-foreground" data-testid={`eta-unified-${indexer.pid}`}>
                           ETA: {eta}
+                        </span>
+                      )}
+                      {blockRange && (
+                        <span className="text-[11px] text-muted-foreground">
+                          Blocks {blockRange}
+                        </span>
+                      )}
+                      {lastUpdated && (
+                        <span className="text-[11px] text-muted-foreground">
+                          Updated {lastUpdated}
                         </span>
                       )}
                     </div>
@@ -668,21 +723,48 @@ function UnifiedIndexerTable({
                         <span className="text-xs text-muted-foreground">
                           {percentComplete.toFixed(1)}%
                         </span>
+                        {blockRange && (
+                          <span className="text-[11px] text-muted-foreground block">
+                            {blockRange}
+                          </span>
+                        )}
                       </div>
                     ) : indexer.status === 'complete' ? (
-                      <span className="text-xs text-green-500">Synced</span>
+                      <div className="space-y-1">
+                        <span className="text-xs text-green-500">Synced</span>
+                        {blockRange && (
+                          <span className="text-[11px] text-muted-foreground block">
+                            Last at {blockRange}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">-</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                    {formatNumber(indexer.v2StakerCount || 0)}
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span>{stakerCount}</span>
+                      {stakedAmount && (
+                        <span className="text-[11px] text-muted-foreground">{stakedAmount} staked</span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                    {formatNumber(indexer.live?.swapsFound || 0)}
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span>{formatNumber(swapCount)}</span>
+                      {isRunning && indexer.live?.swapsFound !== undefined && (
+                        <span className="text-[11px] text-muted-foreground">+{formatNumber(indexer.live.swapsFound)} this run</span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                    {formatNumber(indexer.live?.rewardsFound || 0)}
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span>{formatNumber(rewardCount)}</span>
+                      {isRunning && indexer.live?.rewardsFound !== undefined && (
+                        <span className="text-[11px] text-muted-foreground">+{formatNumber(indexer.live.rewardsFound)} this run</span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-1 justify-end">
@@ -860,14 +942,17 @@ export default function AdminPoolIndexer() {
     );
   }
 
-  const swapIndexers = status?.swapIndexers || [];
-  const rewardIndexers = status?.rewardIndexers || [];
-  const unifiedIndexers = status?.unifiedIndexers || [];
+  const swapIndexers = sortByPid(status?.swapIndexers || []);
+  const rewardIndexers = sortByPid(status?.rewardIndexers || []);
+  const unifiedIndexers = sortByPid(status?.unifiedIndexers || []);
   const aggregates = status?.aggregates || [];
   const swapEventsFromIndexers = swapIndexers.reduce((sum, i) => sum + (i.swapEventCount ?? i.totalEventsIndexed ?? 0), 0);
   const rewardEventsFromIndexers = rewardIndexers.reduce((sum, i) => sum + (i.rewardEventCount ?? i.totalEventsIndexed ?? 0), 0);
   const totalSwapEvents = status?.totalSwapEventCount ?? swapEventsFromIndexers;
   const totalRewardEvents = status?.totalRewardEventCount ?? rewardEventsFromIndexers;
+  const poolsIndexed = status?.poolsIndexed ?? unifiedIndexers.length;
+  const totalPools = status?.totalPools ?? Math.max(unifiedIndexers.length, swapIndexers.length, rewardIndexers.length);
+  const totalStakers = unifiedIndexers.reduce((sum, i) => sum + (i.v2StakerCount || 0), 0);
   const runningSwaps = swapIndexers.filter(i => i.live?.isRunning).length;
   const runningRewards = rewardIndexers.filter(i => i.live?.isRunning).length;
   const runningUnified = unifiedIndexers.filter(i => i.live?.isRunning).length;
@@ -915,6 +1000,19 @@ export default function AdminPoolIndexer() {
             </p>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Pools Indexed</CardTitle>
+            <Database className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-pools-indexed">{poolsIndexed} / {totalPools || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              {formatNumber(totalStakers)} stakers tracked
+            </p>
+          </CardContent>
+        </Card>
         
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
@@ -952,30 +1050,24 @@ export default function AdminPoolIndexer() {
             <Calculator className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-total-aggregates">{aggregates.length}</div>
-            <p className="text-xs text-muted-foreground">pools with data</p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-            <CardTitle className="text-sm font-medium">Compute All</CardTitle>
-            <Zap className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <Button 
-              onClick={() => triggerAggregateMutation.mutate()}
-              disabled={triggerAggregateMutation.isPending}
-              className="w-full"
-              data-testid="button-compute-all"
-            >
-              {triggerAggregateMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <Calculator className="w-4 h-4 mr-2" />
-              )}
-              Run Aggregation
-            </Button>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div className="text-2xl font-bold" data-testid="text-total-aggregates">{aggregates.length}</div>
+                <p className="text-xs text-muted-foreground">pools with data</p>
+              </div>
+              <Button 
+                onClick={() => triggerAggregateMutation.mutate()}
+                disabled={triggerAggregateMutation.isPending}
+                data-testid="button-compute-all"
+              >
+                {triggerAggregateMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Calculator className="w-4 h-4 mr-2" />
+                )}
+                Run All
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
