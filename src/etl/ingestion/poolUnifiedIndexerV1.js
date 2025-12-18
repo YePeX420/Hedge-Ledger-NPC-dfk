@@ -174,9 +174,8 @@ export async function getPoolLPTokenV1(pid) {
 
 export async function getSummonerNameV1(walletAddress) {
   try {
-    const contract = getProfilesContractV1();
-    const profile = await contract.addressToProfile(walletAddress);
-    return profile.name && profile.name.length > 0 ? profile.name : null;
+    const { getSummonerName } = await import('../../../src/services/profileLookupService.js');
+    return await getSummonerName(walletAddress);
   } catch (err) {
     return null;
   }

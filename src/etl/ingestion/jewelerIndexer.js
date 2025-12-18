@@ -130,30 +130,13 @@ export function getProfilesContract(realm = 'crystalvale') {
   return profileContracts.get(realm);
 }
 
-async function lookupProfileOnRealm(wallet, realm) {
+export async function getSummonerName(wallet) {
   try {
-    const contract = getProfilesContract(realm);
-    const profile = await contract.addressToProfile(wallet);
-    if (profile.name && profile.owner !== '0x0000000000000000000000000000000000000000') {
-      return profile.name;
-    }
-    return null;
+    const { getSummonerName: getMultiRealmSummonerName } = await import('../../../src/services/profileLookupService.js');
+    return await getMultiRealmSummonerName(wallet);
   } catch (err) {
     return null;
   }
-}
-
-export async function getSummonerName(wallet) {
-  const realms = ['crystalvale', 'harmony', 'klaytn'];
-  
-  for (const realm of realms) {
-    const name = await lookupProfileOnRealm(wallet, realm);
-    if (name) {
-      return name;
-    }
-  }
-  
-  return null;
 }
 
 async function getBlockTimestamp(blockNumber) {

@@ -31,8 +31,8 @@ const profilesContract = new ethers.Contract(PROFILES_CONTRACT, PROFILES_ABI, pr
 
 async function getSummonerNameFromContract(walletAddress) {
   try {
-    const profile = await profilesContract.addressToProfile(walletAddress);
-    return profile.name && profile.name.length > 0 ? profile.name : null;
+    const { getSummonerName } = await import('../src/services/profileLookupService.js');
+    return await getSummonerName(walletAddress);
   } catch (err) {
     return null;
   }
