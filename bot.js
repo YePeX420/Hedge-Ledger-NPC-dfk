@@ -6457,6 +6457,161 @@ async function startAdminWebServer() {
   });
 
   // ============================================================================
+  // HARMONY POOL INDEXER ROUTES
+  // ============================================================================
+
+  // GET /api/admin/pool-indexer-harmony/status - Get Harmony indexer status
+  app.get('/api/admin/pool-indexer-harmony/status', isAdmin, async (req, res) => {
+    try {
+      const { 
+        getHarmonyPoolStats, 
+        getAllUnifiedLiveProgressHarmony,
+        getAllUnifiedIndexerProgressHarmony,
+        getLatestBlockHarmony,
+        getPoolLengthHarmony,
+      } = await import('./src/etl/ingestion/poolHarmonyIndexer.js');
+      
+      const [poolStats, liveProgress, dbProgress, latestBlock, poolLength] = await Promise.all([
+        getHarmonyPoolStats(),
+        getAllUnifiedLiveProgressHarmony(),
+        getAllUnifiedIndexerProgressHarmony(),
+        getLatestBlockHarmony(),
+        getPoolLengthHarmony(),
+      ]);
+      
+      const liveProgressMap = new Map(liveProgress.map(p => [p.pid, p]));
+      
+      const pools = poolStats.map(pool => {
+        const livePoolProgress = liveProgressMap.get(pool.pid);
+        return {
+          ...pool,
+          liveWorkers: livePoolProgress?.workers || [],
+        };
+      });
+      
+      res.json({
+        latestBlock,
+        poolLength,
+        pools,
+        dbProgress,
+      });
+    } catch (error) {
+      console.error('[API] Error fetching Harmony indexer status:', error);
+      res.status(500).json({ error: 'Failed to fetch Harmony indexer status', details: error.message });
+    }
+  });
+
+  // POST /api/admin/pool-indexer-harmony/trigger - Trigger Harmony indexer batch
+  app.post('/api/admin/pool-indexer-harmony/trigger', isAdmin, async (req, res) => {
+    try {
+      const { pid } = req.body;
+      if (pid === undefined || pid === null) {
+        return res.status(400).json({ error: 'pid is required' });
+      }
+      
+      const { runUnifiedIncrementalBatchHarmony } = await import('./src/etl/ingestion/poolHarmonyIndexer.js');
+      runUnifiedIncrementalBatchHarmony(pid).catch(err => console.error('[HarmonyIndexer] Background error:', err));
+      res.json({ success: true, message: `Harmony indexer triggered for pool ${pid}` });
+    } catch (error) {
+      console.error('[API] Error triggering Harmony indexer:', error);
+      res.status(500).json({ error: 'Failed to trigger Harmony indexer', details: error.message });
+    }
+  });
+
+  // POST /api/admin/pool-indexer-harmony/auto-run - Start/stop Harmony auto-run
+  app.post('/api/admin/pool-indexer-harmony/auto-run', isAdmin, async (req, res) => {
+    try {
+      const { pid, action, workerCount } = req.body;
+      if (pid === undefined || pid === null) {
+        return res.status(400).json({ error: 'pid is required' });
+      }
+      if (!action || !['start', 'stop'].includes(action)) {
+        return res.status(400).json({ error: 'action must be start or stop' });
+      }
+      
+      const { startAutoRunHarmony, stopAutoRunHarmony } = await import('./src/etl/ingestion/poolHarmonyIndexer.js');
+      
+      let result;
+      if (action === 'start') {
+        result = startAutoRunHarmony(pid, { workerCount: workerCount || 5 });
+      } else {
+        result = stopAutoRunHarmony(pid);
+      }
+      
+      res.json({ success: true, result });
+    } catch (error) {
+      console.error('[API] Error managing Harmony auto-run:', error);
+      res.status(500).json({ error: 'Failed to manage Harmony auto-run', details: error.message });
+    }
+  });
+
+  // POST /api/admin/pool-indexer-harmony/start-all - Start all Harmony indexers
+  app.post('/api/admin/pool-indexer-harmony/start-all', isAdmin, async (req, res) => {
+    try {
+      const { getPoolLengthHarmony, startAutoRunHarmony } = await import('./src/etl/ingestion/poolHarmonyIndexer.js');
+      const poolLength = await getPoolLengthHarmony();
+      const started = [];
+      for (let pid = 0; pid < Math.min(poolLength, 20); pid++) {
+        startAutoRunHarmony(pid);
+        started.push(pid);
+      }
+      res.json({ success: true, started });
+    } catch (error) {
+      console.error('[API] Error starting all Harmony indexers:', error);
+      res.status(500).json({ error: 'Failed to start all Harmony indexers', details: error.message });
+    }
+  });
+
+  // POST /api/admin/pool-indexer-harmony/stop-all - Stop all Harmony indexers
+  app.post('/api/admin/pool-indexer-harmony/stop-all', isAdmin, async (req, res) => {
+    try {
+      const { getPoolLengthHarmony, stopAutoRunHarmony } = await import('./src/etl/ingestion/poolHarmonyIndexer.js');
+      const poolLength = await getPoolLengthHarmony();
+      const stopped = [];
+      for (let pid = 0; pid < Math.min(poolLength, 20); pid++) {
+        stopAutoRunHarmony(pid);
+        stopped.push(pid);
+      }
+      res.json({ success: true, stopped });
+    } catch (error) {
+      console.error('[API] Error stopping all Harmony indexers:', error);
+      res.status(500).json({ error: 'Failed to stop all Harmony indexers', details: error.message });
+    }
+  });
+
+  // GET /api/admin/pool-indexer-harmony/stakers/:pid - Get Harmony stakers for a pool
+  app.get('/api/admin/pool-indexer-harmony/stakers/:pid', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      const { getPoolStakersHarmony } = await import('./src/etl/ingestion/poolHarmonyIndexer.js');
+      const stakers = await getPoolStakersHarmony(pid);
+      res.json({ stakers: stakers.slice(0, 500), count: stakers.length });
+    } catch (error) {
+      console.error('[API] Error fetching Harmony pool stakers:', error);
+      res.status(500).json({ error: 'Failed to fetch Harmony pool stakers', details: error.message });
+    }
+  });
+
+  // POST /api/admin/pool-indexer-harmony/reset/:pid - Reset Harmony pool progress
+  app.post('/api/admin/pool-indexer-harmony/reset/:pid', isAdmin, async (req, res) => {
+    try {
+      const pid = parseInt(req.params.pid);
+      if (isNaN(pid) || pid < 0) {
+        return res.status(400).json({ error: 'Invalid pool ID' });
+      }
+      const { resetPoolProgressHarmony } = await import('./src/etl/ingestion/poolHarmonyIndexer.js');
+      const result = await resetPoolProgressHarmony(pid);
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error resetting Harmony pool progress:', error);
+      res.status(500).json({ error: 'Failed to reset Harmony pool progress', details: error.message });
+    }
+  });
+
+  // ============================================================================
   // JEWELER INDEXER ROUTES
   // ============================================================================
 

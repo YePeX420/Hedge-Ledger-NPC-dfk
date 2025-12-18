@@ -25,6 +25,7 @@ import AdminPools from "@/pages/admin/pools";
 import PoolDetailPage from "@/pages/admin/pool-detail";
 import AdminPoolIndexer from "@/pages/admin/pool-indexer";
 import AdminPoolIndexerV1 from "@/pages/admin/pool-indexer-v1";
+import AdminPoolIndexerHarmony from "@/pages/admin/pool-indexer-harmony";
 import AdminJeweler from "@/pages/admin/jeweler";
 import AdminGardeningQuest from "@/pages/admin/gardening-quest";
 import AccountPage from "@/pages/account";
@@ -188,6 +189,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminPoolIndexerV1 />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/pool-indexer-harmony">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminPoolIndexerHarmony />
           </ProtectedAdminPage>
         )}
       </Route>

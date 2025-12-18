@@ -42,6 +42,7 @@ const navItems = [
   { href: '/admin/pools', label: 'Pools', icon: Droplets },
   { href: '/admin/pool-indexer', label: 'Pool Indexer V2', icon: Database },
   { href: '/admin/pool-indexer-v1', label: 'Pool Indexer V1', icon: Database },
+  { href: '/admin/pool-indexer-harmony', label: 'Pool Indexer Harmony', icon: Database },
   { href: '/admin/jeweler', label: 'Jeweler', icon: Gem },
   { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
