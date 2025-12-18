@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { getTokenAddressMap } from '../services/tokenRegistryService.js';
+import { getTokenMetadataMap } from '../services/tokenRegistryService.js';
 import { getCachedPool } from '../../pool-cache.js';
 
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
@@ -22,7 +22,7 @@ const TOKEN_DECIMALS: Record<string, number> = {
   [TOKENS.CRYSTAL.toLowerCase()]: 18,
   [TOKENS.xJEWEL.toLowerCase()]: 18,
   [TOKENS.AVAX.toLowerCase()]: 18,
-  [TOKENS.USDC.toLowerCase()]: 18,
+  [TOKENS.USDC.toLowerCase()]: 6,
   [TOKENS.ETH.toLowerCase()]: 18,
   [TOKENS.BTC_B.toLowerCase()]: 8,
   [TOKENS.KLAY.toLowerCase()]: 18,
@@ -346,7 +346,8 @@ async function getTokenBalance(
 
 async function getLPReserves(
   provider: ethers.JsonRpcProvider,
-  lpAddress: string
+  lpAddress: string,
+  tokenDecimalsMap: Record<string, number> = {}
 ): Promise<{ token0: string; token1: string; reserve0: number; reserve1: number }> {
   try {
     const contract = new ethers.Contract(lpAddress, LP_ABI, provider);
@@ -358,8 +359,8 @@ async function getLPReserves(
     
     const token0Lower = token0.toLowerCase();
     const token1Lower = token1.toLowerCase();
-    const decimals0 = TOKEN_DECIMALS[token0Lower] ?? 18;
-    const decimals1 = TOKEN_DECIMALS[token1Lower] ?? 18;
+    const decimals0 = tokenDecimalsMap[token0Lower] ?? TOKEN_DECIMALS[token0Lower] ?? 18;
+    const decimals1 = tokenDecimalsMap[token1Lower] ?? TOKEN_DECIMALS[token1Lower] ?? 18;
     
     return {
       token0: token0Lower,
@@ -441,10 +442,17 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
   
-  const [allPrices, tokenNamesFromRegistry] = await Promise.all([
+  const [allPrices, tokenMetadataMap] = await Promise.all([
     getAllTokenPrices(),
-    getTokenAddressMap().catch(() => ({})),
+    getTokenMetadataMap().catch(() => ({} as Record<string, { symbol: string; decimals: number }>)),
   ]);
+  
+  const tokenNamesFromRegistry = Object.fromEntries(
+    Object.entries(tokenMetadataMap).map(([address, metadata]) => [address, metadata.symbol])
+  );
+  const tokenDecimalsMap = Object.fromEntries(
+    Object.entries(tokenMetadataMap).map(([address, metadata]) => [address, metadata.decimals])
+  );
   
   const tokenNames = { ...TOKEN_NAMES, ...tokenNamesFromRegistry };
   
@@ -461,7 +469,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       await delay(100);
       
       const [reserves, stakingInfo] = await Promise.all([
-        getLPReserves(provider, address),
+        getLPReserves(provider, address, tokenDecimalsMap),
         getStakedLPAmounts(provider, pid, address),
       ]);
       
