@@ -1,0 +1,252 @@
+Understood.
+I will now give you ONE prompt per message, written so you can copy–paste directly into the Replit backend project.
+
+We will proceed in architectural order.
+This message is Backend Prompt 1 only.
+
+
+---
+
+BACKEND PROMPT 1 — Foundation (DB, Env, Middleware, Routing Scaffolding)
+
+Objective
+
+Set up the backend foundation for Hedge that everything else will build on:
+
+Neon database schema (combat, discovery, entitlements)
+
+API namespaces (public vs admin)
+
+Security (API keys, CORS, rate limits)
+
+Server scaffolding (no ingestion logic yet)
+
+
+Do not implement combat ingestion yet.
+This prompt only establishes the skeleton.
+
+
+---
+
+Environment Variables (Backend Project)
+
+Add the following environment variables in Replit:
+
+DATABASE_URL=postgresql://...
+HEDGE_PUBLIC_API_KEY=<random-long-string>
+HEDGE_ADMIN_API_KEY=<different-random-long-string>
+HEDGE_ALLOWED_ORIGINS=https://your-frontend-domain.com
+HEDGE_BOT_UA=HedgeLedgerBot/1.0
+
+If HEDGE_ALLOWED_ORIGINS is empty, allow all origins (dev mode).
+
+
+---
+
+Database Migrations (Neon)
+
+Create migrations that add the following tables idempotently.
+
+Combat Data Tables
+
+create table if not exists combat_keywords (
+  keyword text primary key,
+  definition text not null,
+  source_url text not null,
+  last_seen_at timestamptz not null default now()
+);
+
+create table if not exists combat_class_meta (
+  class text primary key,
+  source_url text not null,
+  last_update_note text,
+  maturity text not null,
+  disciplines text[] not null default '{}',
+  summary text,
+  last_seen_at timestamptz not null default now()
+);
+
+create table if not exists combat_skills (
+  id bigserial primary key,
+  class text not null,
+  tier int not null,
+  skill_points int,
+  discipline text,
+  ability text not null,
+  description_raw text,
+  range int,
+  mana_cost numeric,
+  mana_growth numeric,
+  dod numeric,
+  tags text[] not null default '{}',
+  source_url text not null,
+  last_seen_at timestamptz not null default now()
+);
+
+create unique index if not exists ux_combat_skills_unique
+  on combat_skills (class, tier, coalesce(discipline,''), ability, coalesce(skill_points,-1));
+
+create index if not exists ix_combat_skills_class_tier
+  on combat_skills (class, tier);
+
+create index if not exists ix_combat_skills_tags
+  on combat_skills using gin (tags);
+
+
+---
+
+Combat Source Discovery
+
+create table if not exists combat_sources (
+  url text primary key,
+  kind text not null check (kind in ('combat_overview','combat_class')),
+  enabled boolean not null default true,
+  discovered_from text,
+  last_seen_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+
+---
+
+Entitlements (Tier Configuration)
+
+create table if not exists entitlement_tiers (
+  tier_id text primary key,
+  display_name text not null,
+  description text,
+  price_monthly numeric,
+  enabled boolean not null default true,
+  sort_order int not null,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists entitlement_rules (
+  id bigserial primary key,
+  domain text not null,
+  resource text not null,
+  tier_id text not null references entitlement_tiers(tier_id),
+  mode text not null check (mode in ('fields_allowlist','feature_flags')),
+  rule jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+Seed Default Tiers
+
+insert into entitlement_tiers (tier_id, display_name, description, sort_order, enabled)
+values
+  ('free','Free','Basic combat knowledge',1,true),
+  ('premium','Strategist','Full combat mechanics',2,true),
+  ('premium_plus','Operator','Optimization & automation',3,false)
+on conflict (tier_id) do nothing;
+
+
+---
+
+Server Middleware & Routing
+
+Requirements
+
+1. API Key Auth
+
+/api/public/* → requires HEDGE_PUBLIC_API_KEY
+
+/api/admin/* → requires HEDGE_ADMIN_API_KEY
+
+
+
+2. CORS
+
+Allow only HEDGE_ALLOWED_ORIGINS if set
+
+Allow all if empty (dev)
+
+
+
+3. Rate Limiting
+
+Apply to /api/public/*
+
+Example: 90 requests per minute per IP
+
+
+
+4. Namespaces Mount empty routers for now:
+
+/api/public/combat
+
+/api/admin/combat
+
+/api/admin/entitlements
+
+
+
+
+
+---
+
+Files to Create / Update
+
+Middleware
+
+src/middleware/publicKey.ts
+
+src/middleware/adminKey.ts
+
+
+Each should:
+
+Read expected key from env
+
+Accept key from x-hedge-api-key or Authorization: Bearer
+
+
+
+---
+
+Server Entry Point
+
+Update your server entry file (e.g. src/server.ts) to:
+
+Initialize Express
+
+Apply CORS
+
+Apply JSON body parsing
+
+Apply rate limiting
+
+Mount namespaces (routers can be empty stubs)
+
+Add /health endpoint
+
+Add 404 + error handler
+
+
+Do not implement business logic yet.
+
+
+---
+
+Acceptance Criteria
+
+Backend starts successfully
+
+/health returns { ok: true }
+
+Public routes reject requests without HEDGE_PUBLIC_API_KEY
+
+Admin routes reject requests without HEDGE_ADMIN_API_KEY
+
+Database tables exist in Neon
+
+No combat ingestion logic yet
+
+
+
+---
+
+When this prompt is complete
+
+Reply “Ready for Backend Prompt 2”
+and I will give you the Combat Codex ingestion + auto-discovery + sync tracking prompt next.
