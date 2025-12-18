@@ -7,8 +7,31 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Play, Square, RefreshCw, Gem, Coins, Users, Search, Sprout } from "lucide-react";
+import { Loader2, Play, Square, RefreshCw, Gem, Coins, Users, Search, Sprout, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+interface WorkerProgress {
+  workerId: number;
+  isActive: boolean;
+  isRunning: boolean;
+  currentBlock: number;
+  targetBlock: number;
+  rangeStart: number;
+  rangeEnd: number | null;
+  eventsFound: number;
+  batchesCompleted: number;
+  percentComplete: number;
+  completedAt: string | null;
+  runsCompleted: number;
+  lastRunAt: string | null;
+}
+
+interface WorkersStatus {
+  activeWorkers: number;
+  maxWorkers: number;
+  minWorkers: number;
+  workers: WorkerProgress[];
+}
 
 interface GardeningQuestStats {
   indexerProgress: {
@@ -30,6 +53,7 @@ interface GardeningQuestStats {
     completedAt: string | null;
   } | null;
   isAutoRunning: boolean;
+  workers: WorkersStatus;
   stats: {
     totalRewards: number;
     crystalCount: number;
@@ -72,8 +96,10 @@ function formatNumber(n: number | string): string {
   return num.toFixed(4);
 }
 
-function truncateAddress(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+function formatBlocks(n: number): string {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return n.toLocaleString();
 }
 
 function truncateTxHash(hash: string): string {
@@ -100,6 +126,48 @@ function StatusBadge({ status, isRunning }: { status: string; isRunning: boolean
     <Badge className={variants[status] || variants.idle}>
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </Badge>
+  );
+}
+
+function WorkerStatusCard({ worker }: { worker: WorkerProgress }) {
+  const isComplete = worker.completedAt !== null;
+  const statusColor = worker.isRunning 
+    ? 'text-blue-500' 
+    : isComplete 
+      ? 'text-green-500' 
+      : worker.isActive 
+        ? 'text-amber-500' 
+        : 'text-gray-500';
+
+  return (
+    <div className="p-3 rounded-lg bg-muted/50 space-y-2" data-testid={`worker-card-${worker.workerId}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="font-medium">Worker {worker.workerId}</span>
+          {worker.isRunning && <Loader2 className="w-3 h-3 animate-spin text-blue-500" />}
+          {isComplete && <Badge variant="outline" className="text-green-500 border-green-500/30">Done</Badge>}
+        </div>
+        <span className={`text-sm ${statusColor}`}>
+          {worker.isRunning ? 'Indexing...' : isComplete ? 'Complete' : worker.isActive ? 'Waiting' : 'Idle'}
+        </span>
+      </div>
+      
+      <div className="text-xs text-muted-foreground">
+        Range: {formatBlocks(worker.rangeStart)} - {worker.rangeEnd ? formatBlocks(worker.rangeEnd) : 'latest'}
+      </div>
+      
+      <Progress value={worker.percentComplete} className="h-2" />
+      
+      <div className="flex justify-between text-xs text-muted-foreground">
+        <span>Block {formatBlocks(worker.currentBlock)}</span>
+        <span>{worker.percentComplete.toFixed(1)}%</span>
+      </div>
+      
+      <div className="flex justify-between text-xs">
+        <span className="text-muted-foreground">Events: {worker.eventsFound}</span>
+        <span className="text-muted-foreground">Runs: {worker.runsCompleted}</span>
+      </div>
+    </div>
   );
 }
 
@@ -136,7 +204,7 @@ export default function AdminGardeningQuest() {
       return await apiRequest("POST", "/api/admin/gardening-quest/auto-run", { action });
     },
     onSuccess: (_, action) => {
-      toast({ title: `Auto-run ${action === 'start' ? 'started' : 'stopped'}` });
+      toast({ title: `Auto-run ${action === 'start' ? 'started with 5 parallel workers' : 'stopped'}` });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/gardening-quest/status'] });
     },
     onError: (error: any) => {
@@ -155,6 +223,8 @@ export default function AdminGardeningQuest() {
   const progress = status?.liveProgress;
   const indexerProgress = status?.indexerProgress;
   const stats = status?.stats;
+  const workers = status?.workers;
+  const hasActiveWorkers = (workers?.activeWorkers || 0) > 0;
 
   return (
     <div className="space-y-6" data-testid="page-gardening-quest">
@@ -239,18 +309,31 @@ export default function AdminGardeningQuest() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                <span>Indexer Status</span>
-                <StatusBadge status={indexerProgress?.status || 'idle'} isRunning={isRunning} />
+                <div className="flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-amber-500" />
+                  <span>Parallel Workers</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {hasActiveWorkers && (
+                    <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
+                      {workers?.activeWorkers} / {workers?.maxWorkers} Workers
+                    </Badge>
+                  )}
+                  <StatusBadge 
+                    status={indexerProgress?.status || 'idle'} 
+                    isRunning={hasActiveWorkers || isRunning} 
+                  />
+                </div>
               </CardTitle>
               <CardDescription>
-                Scans QuestCoreV3 RewardMinted events for gardening quests
+                5 parallel workers with work-stealing for fast historical scanning
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">
                 <Button
                   onClick={() => triggerMutation.mutate()}
-                  disabled={triggerMutation.isPending || isRunning}
+                  disabled={triggerMutation.isPending || isRunning || hasActiveWorkers}
                   size="sm"
                   data-testid="button-trigger"
                 >
@@ -271,7 +354,7 @@ export default function AdminGardeningQuest() {
                     data-testid="button-stop-auto"
                   >
                     <Square className="w-4 h-4 mr-2" />
-                    Stop Auto-Run
+                    Stop Workers
                   </Button>
                 ) : (
                   <Button
@@ -282,12 +365,20 @@ export default function AdminGardeningQuest() {
                     data-testid="button-start-auto"
                   >
                     <Play className="w-4 h-4 mr-2" />
-                    Start Auto-Run
+                    Start 5 Workers
                   </Button>
                 )}
               </div>
               
-              {progress && isRunning && (
+              {workers && workers.workers.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+                  {workers.workers.map((worker) => (
+                    <WorkerStatusCard key={worker.workerId} worker={worker} />
+                  ))}
+                </div>
+              )}
+              
+              {progress && isRunning && !hasActiveWorkers && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Block {progress.currentBlock.toLocaleString()} / {progress.targetBlock.toLocaleString()}</span>
@@ -301,7 +392,7 @@ export default function AdminGardeningQuest() {
               )}
               
               {indexerProgress && (
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-2 gap-4 text-sm border-t pt-4">
                   <div>
                     <span className="text-muted-foreground">Last Block:</span>
                     <span className="ml-2 font-mono">{indexerProgress.lastIndexedBlock.toLocaleString()}</span>

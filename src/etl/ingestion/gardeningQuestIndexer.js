@@ -11,6 +11,9 @@ const BLOCKS_PER_QUERY = 2000;
 const INCREMENTAL_BATCH_SIZE = 200000;
 const AUTO_RUN_INTERVAL_MS = 60 * 1000;
 
+export const GARDENING_WORKERS = 5;
+export const MIN_GARDENING_WORKERS = 3;
+
 const GARDENING_QUEST_ADDRESS = '0x6FF019415Ee105aCF2Ac52483A33F5B43eaDB8d0';
 
 const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11972dE7f66e4F7'.toLowerCase();
@@ -27,8 +30,12 @@ const QUEST_CORE_ABI = [
 ];
 
 const liveProgress = new Map();
-let autoRunInterval = null;
-let isAutoRunning = false;
+const workerLiveProgress = new Map();
+const autoRunIntervals = new Map();
+const runningWorkers = new Map();
+const donorReservations = new Map();
+
+let activeWorkerCount = 0;
 
 export function getGardeningQuestLiveProgress() {
   return liveProgress.get('gardening_quest') || null;
@@ -59,6 +66,55 @@ function updateLiveProgress(updates) {
 
 function clearLiveProgress() {
   liveProgress.delete('gardening_quest');
+}
+
+function getWorkerKey(workerId) {
+  return `gardening_quest_worker_${workerId}`;
+}
+
+function getWorkerIndexerName(workerId) {
+  return `gardening_quest_worker_${workerId}`;
+}
+
+function updateWorkerLiveProgress(workerId, updates) {
+  const key = getWorkerKey(workerId);
+  const current = workerLiveProgress.get(key) || {
+    workerId,
+    isRunning: false,
+    currentBlock: 0,
+    targetBlock: 0,
+    rangeStart: 0,
+    rangeEnd: null,
+    eventsFound: 0,
+    batchesCompleted: 0,
+    startedAt: null,
+    lastBatchAt: null,
+    percentComplete: 0,
+    completedAt: null,
+  };
+  const updated = { ...current, ...updates };
+  if (updates.percentComplete === undefined && updated.targetBlock > updated.rangeStart) {
+    const totalBlocks = updated.targetBlock - updated.rangeStart;
+    const indexedBlocks = updated.currentBlock - updated.rangeStart;
+    updated.percentComplete = Math.min(100, Math.max(0, (indexedBlocks / totalBlocks) * 100));
+  }
+  workerLiveProgress.set(key, updated);
+  return updated;
+}
+
+function clearWorkerLiveProgress(workerId) {
+  workerLiveProgress.delete(getWorkerKey(workerId));
+}
+
+export function getGardeningWorkersLiveProgress() {
+  const workers = [];
+  for (let w = 0; w < GARDENING_WORKERS; w++) {
+    const progress = workerLiveProgress.get(getWorkerKey(w));
+    if (progress) {
+      workers.push({ workerId: w, ...progress });
+    }
+  }
+  return workers;
 }
 
 let providerInstance = null;
@@ -170,6 +226,33 @@ export async function initIndexerProgress(indexerName, genesisBlock = DFK_GENESI
   return getIndexerProgress(indexerName);
 }
 
+async function initWorkerProgress(workerId, rangeStart, rangeEnd) {
+  const indexerName = getWorkerIndexerName(workerId);
+  const existing = await getIndexerProgress(indexerName);
+  
+  if (existing) {
+    await db.update(gardeningQuestIndexerProgress)
+      .set({
+        rangeStart,
+        rangeEnd,
+        status: 'idle',
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(gardeningQuestIndexerProgress.indexerName, indexerName));
+    return;
+  }
+  
+  await db.insert(gardeningQuestIndexerProgress).values({
+    indexerName,
+    lastIndexedBlock: rangeStart,
+    genesisBlock: rangeStart,
+    rangeStart,
+    rangeEnd,
+    status: 'idle',
+    totalEventsIndexed: 0,
+  });
+}
+
 export async function updateIndexerProgress(indexerName, updates) {
   await db.update(gardeningQuestIndexerProgress)
     .set({ ...updates, updatedAt: new Date() })
@@ -204,7 +287,7 @@ async function getQuestTypeFromTx(txHash) {
   }
 }
 
-async function indexBlockRange(fromBlock, toBlock, indexerName) {
+async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null) {
   const contract = getQuestContract();
   const provider = getProvider();
   
@@ -220,6 +303,7 @@ async function indexBlockRange(fromBlock, toBlock, indexerName) {
     try {
       const logs = await contract.queryFilter(rewardMintedFilter, currentBlock, endBlock);
       
+      let eventsInBatch = 0;
       if (logs.length > 0) {
         const events = [];
         const txQuestTypes = new Map();
@@ -261,30 +345,42 @@ async function indexBlockRange(fromBlock, toBlock, indexerName) {
             .onConflictDoNothing();
           
           totalEventsFound += events.length;
+          eventsInBatch = events.length;
         }
       }
       
       batchCount++;
       currentBlock = endBlock + 1;
       
-      updateLiveProgress({
-        currentBlock: endBlock,
-        eventsFound: totalEventsFound,
-        batchesCompleted: batchCount,
-        lastBatchAt: new Date().toISOString(),
-      });
+      if (workerId !== null) {
+        updateWorkerLiveProgress(workerId, {
+          currentBlock: endBlock,
+          eventsFound: totalEventsFound,
+          batchesCompleted: batchCount,
+          lastBatchAt: new Date().toISOString(),
+        });
+      } else {
+        updateLiveProgress({
+          currentBlock: endBlock,
+          eventsFound: totalEventsFound,
+          batchesCompleted: batchCount,
+          lastBatchAt: new Date().toISOString(),
+        });
+      }
       
       await updateIndexerProgress(indexerName, {
         lastIndexedBlock: endBlock,
-        totalEventsIndexed: sql`${gardeningQuestIndexerProgress.totalEventsIndexed} + ${events?.length || 0}`,
+        totalEventsIndexed: sql`${gardeningQuestIndexerProgress.totalEventsIndexed} + ${eventsInBatch}`,
       });
       
       if (batchCount % 50 === 0) {
-        console.log(`[GardeningQuest] Block ${endBlock}/${toBlock} (${((endBlock - fromBlock) / (toBlock - fromBlock) * 100).toFixed(1)}%) - ${totalEventsFound} rewards found`);
+        const prefix = workerId !== null ? `[GardeningQuest W${workerId}]` : '[GardeningQuest]';
+        console.log(`${prefix} Block ${endBlock}/${toBlock} (${((endBlock - fromBlock) / (toBlock - fromBlock) * 100).toFixed(1)}%) - ${totalEventsFound} rewards found`);
       }
       
     } catch (error) {
-      console.error(`[GardeningQuest] Error indexing blocks ${currentBlock}-${endBlock}:`, error.message);
+      const prefix = workerId !== null ? `[GardeningQuest W${workerId}]` : '[GardeningQuest]';
+      console.error(`${prefix} Error indexing blocks ${currentBlock}-${endBlock}:`, error.message);
       await updateIndexerProgress(indexerName, {
         status: 'error',
         lastError: error.message,
@@ -294,6 +390,343 @@ async function indexBlockRange(fromBlock, toBlock, indexerName) {
   }
   
   return { totalEventsFound, batchCount };
+}
+
+async function runGardeningWorkerBatch(workerId) {
+  const indexerName = getWorkerIndexerName(workerId);
+  
+  if (runningWorkers.get(indexerName)) {
+    return { status: 'already_running' };
+  }
+  
+  runningWorkers.set(indexerName, true);
+  
+  const progress = await getIndexerProgress(indexerName);
+  if (!progress) {
+    runningWorkers.set(indexerName, false);
+    return { status: 'no_progress_record' };
+  }
+  
+  const workerInfo = autoRunIntervals.get(getWorkerKey(workerId));
+  const workerTargetBlock = workerInfo?.rangeEnd || progress.rangeEnd || await getLatestBlock();
+  
+  const startBlock = progress.lastIndexedBlock + 1;
+  const endBlock = Math.min(startBlock + INCREMENTAL_BATCH_SIZE - 1, workerTargetBlock);
+  
+  if (startBlock > workerTargetBlock) {
+    runningWorkers.set(indexerName, false);
+    updateWorkerLiveProgress(workerId, { completedAt: new Date().toISOString(), percentComplete: 100 });
+    return { status: 'completed' };
+  }
+  
+  await updateIndexerProgress(indexerName, { status: 'running' });
+  
+  updateWorkerLiveProgress(workerId, {
+    isRunning: true,
+    currentBlock: startBlock,
+    targetBlock: workerTargetBlock,
+    rangeStart: progress.rangeStart || progress.genesisBlock,
+    rangeEnd: workerTargetBlock,
+    startedAt: new Date().toISOString(),
+  });
+  
+  try {
+    const result = await indexBlockRange(startBlock, endBlock, indexerName, workerId);
+    
+    const isComplete = endBlock >= workerTargetBlock;
+    
+    await db.update(gardeningQuestIndexerProgress)
+      .set({
+        status: isComplete ? 'complete' : 'idle',
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(gardeningQuestIndexerProgress.indexerName, indexerName));
+    
+    updateWorkerLiveProgress(workerId, {
+      isRunning: false,
+      currentBlock: endBlock,
+      completedAt: isComplete ? new Date().toISOString() : null,
+      percentComplete: isComplete ? 100 : undefined,
+    });
+    
+    runningWorkers.set(indexerName, false);
+    
+    console.log(`[GardeningQuest W${workerId}] Batch done: ${result.totalEventsFound} events in ${result.batchCount} batches`);
+    
+    return {
+      status: isComplete ? 'completed' : 'batch_done',
+      eventsFound: result.totalEventsFound,
+      blocksIndexed: endBlock - startBlock,
+      currentBlock: endBlock,
+      targetBlock: workerTargetBlock,
+    };
+  } catch (err) {
+    console.error(`[GardeningQuest W${workerId}] Error:`, err.message);
+    runningWorkers.set(indexerName, false);
+    updateWorkerLiveProgress(workerId, { isRunning: false });
+    return { status: 'error', error: err.message };
+  }
+}
+
+function findWorkToSteal(thiefWorkerId) {
+  const MIN_BLOCKS_TO_STEAL = 500000;
+  const RESERVATION_TIMEOUT_MS = 60000;
+  
+  let bestDonor = null;
+  let maxRemainingBlocks = 0;
+  const now = Date.now();
+  
+  for (let w = 0; w < activeWorkerCount; w++) {
+    if (w === thiefWorkerId) continue;
+    
+    const key = getWorkerKey(w);
+    const workerInfo = autoRunIntervals.get(key);
+    if (!workerInfo) continue;
+    
+    const reservationKey = `gardening_${w}`;
+    const reservedAt = donorReservations.get(reservationKey);
+    if (reservedAt && (now - reservedAt) < RESERVATION_TIMEOUT_MS) {
+      continue;
+    }
+    
+    const progress = workerLiveProgress.get(key);
+    if (!progress || progress.completedAt) continue;
+    
+    const currentBlock = progress.currentBlock || workerInfo.rangeStart || 0;
+    const targetBlock = progress.targetBlock || workerInfo.rangeEnd;
+    
+    if (!targetBlock) continue;
+    
+    const remainingBlocks = targetBlock - currentBlock;
+    
+    if (remainingBlocks > maxRemainingBlocks && remainingBlocks > MIN_BLOCKS_TO_STEAL * 2) {
+      maxRemainingBlocks = remainingBlocks;
+      bestDonor = {
+        workerId: w,
+        currentBlock,
+        targetBlock,
+        remainingBlocks,
+      };
+    }
+  }
+  
+  if (!bestDonor) return null;
+  
+  const reservationKey = `gardening_${bestDonor.workerId}`;
+  donorReservations.set(reservationKey, now);
+  
+  const blocksToSteal = Math.floor(bestDonor.remainingBlocks / 2);
+  if (blocksToSteal < MIN_BLOCKS_TO_STEAL) {
+    donorReservations.delete(reservationKey);
+    return null;
+  }
+  
+  const newRangeStart = bestDonor.targetBlock - blocksToSteal;
+  const newRangeEnd = bestDonor.targetBlock;
+  
+  return {
+    donorWorkerId: bestDonor.workerId,
+    donorCurrentBlock: bestDonor.currentBlock,
+    newDonorRangeEnd: newRangeStart,
+    newRangeStart,
+    newRangeEnd,
+    blocksStolen: blocksToSteal,
+    reservationKey,
+  };
+}
+
+async function applyWorkSteal(thiefWorkerId, stealInfo) {
+  const donorIndexerName = getWorkerIndexerName(stealInfo.donorWorkerId);
+  const thiefIndexerName = getWorkerIndexerName(thiefWorkerId);
+  
+  await db.update(gardeningQuestIndexerProgress)
+    .set({
+      rangeEnd: stealInfo.newDonorRangeEnd,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    })
+    .where(eq(gardeningQuestIndexerProgress.indexerName, donorIndexerName));
+  
+  const donorKey = getWorkerKey(stealInfo.donorWorkerId);
+  const donorWorkerInfo = autoRunIntervals.get(donorKey);
+  if (donorWorkerInfo) {
+    donorWorkerInfo.rangeEnd = stealInfo.newDonorRangeEnd;
+  }
+  
+  await db.update(gardeningQuestIndexerProgress)
+    .set({
+      rangeStart: stealInfo.newRangeStart,
+      rangeEnd: stealInfo.newRangeEnd,
+      lastIndexedBlock: stealInfo.newRangeStart,
+      genesisBlock: stealInfo.newRangeStart,
+      status: 'idle',
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    })
+    .where(eq(gardeningQuestIndexerProgress.indexerName, thiefIndexerName));
+  
+  const thiefKey = getWorkerKey(thiefWorkerId);
+  const thiefWorkerInfo = autoRunIntervals.get(thiefKey);
+  if (thiefWorkerInfo) {
+    thiefWorkerInfo.rangeStart = stealInfo.newRangeStart;
+    thiefWorkerInfo.rangeEnd = stealInfo.newRangeEnd;
+  }
+  
+  updateWorkerLiveProgress(thiefWorkerId, {
+    rangeStart: stealInfo.newRangeStart,
+    rangeEnd: stealInfo.newRangeEnd,
+    currentBlock: stealInfo.newRangeStart,
+    targetBlock: stealInfo.newRangeEnd,
+    completedAt: null,
+    percentComplete: 0,
+  });
+  
+  donorReservations.delete(stealInfo.reservationKey);
+  
+  console.log(`[GardeningQuest] Worker ${thiefWorkerId} stole ${stealInfo.blocksStolen.toLocaleString()} blocks from worker ${stealInfo.donorWorkerId}`);
+}
+
+async function startGardeningWorkerAutoRun(workerId, rangeStart, rangeEnd, intervalMs = AUTO_RUN_INTERVAL_MS) {
+  const key = getWorkerKey(workerId);
+  if (autoRunIntervals.has(key)) {
+    console.log(`[GardeningQuest] Worker ${workerId} already running`);
+    return { status: 'already_running', workerId };
+  }
+  
+  console.log(`[GardeningQuest] Starting worker ${workerId} (blocks ${rangeStart.toLocaleString()}-${rangeEnd ? rangeEnd.toLocaleString() : 'latest'}, interval: ${intervalMs / 1000}s)`);
+  
+  clearWorkerLiveProgress(workerId);
+  await initWorkerProgress(workerId, rangeStart, rangeEnd);
+  
+  const info = {
+    intervalMs,
+    workerId,
+    rangeStart,
+    rangeEnd,
+    startedAt: new Date().toISOString(),
+    lastRunAt: null,
+    runsCompleted: 0,
+    interval: null,
+  };
+  
+  autoRunIntervals.set(key, info);
+  
+  const offsetMs = Math.floor((workerId / GARDENING_WORKERS) * intervalMs);
+  
+  (async () => {
+    try {
+      if (offsetMs > 0) {
+        await new Promise(r => setTimeout(r, offsetMs));
+      }
+      console.log(`[GardeningQuest] Initial batch for worker ${workerId} (offset ${(offsetMs / 1000).toFixed(1)}s)`);
+      await runGardeningWorkerBatch(workerId);
+      info.lastRunAt = new Date().toISOString();
+      info.runsCompleted++;
+    } catch (err) {
+      console.error(`[GardeningQuest] Initial error for worker ${workerId}:`, err.message);
+    }
+  })();
+  
+  info.interval = setInterval(async () => {
+    if (!autoRunIntervals.has(key)) return;
+    
+    try {
+      const result = await runGardeningWorkerBatch(workerId);
+      info.lastRunAt = new Date().toISOString();
+      info.runsCompleted++;
+      
+      if (result.status === 'completed') {
+        const stealInfo = findWorkToSteal(workerId);
+        if (stealInfo) {
+          await applyWorkSteal(workerId, stealInfo);
+          console.log(`[GardeningQuest] Worker ${workerId} continuing with stolen work`);
+        } else {
+          console.log(`[GardeningQuest] Worker ${workerId} completed, no work to steal`);
+        }
+      }
+    } catch (err) {
+      console.error(`[GardeningQuest] Worker ${workerId} error:`, err.message);
+    }
+  }, intervalMs);
+  
+  return { status: 'started', workerId, rangeStart, rangeEnd };
+}
+
+export async function startGardeningWorkersAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS, targetWorkers = GARDENING_WORKERS) {
+  let workerCount = Math.min(targetWorkers, GARDENING_WORKERS);
+  let latestBlock;
+  
+  try {
+    latestBlock = await getLatestBlock();
+  } catch (err) {
+    console.error('[GardeningQuest] Failed to get latest block:', err.message);
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      latestBlock = await getLatestBlock();
+    } catch (err2) {
+      console.error('[GardeningQuest] RPC unavailable, cannot start workers');
+      return { status: 'rpc_failed', error: err2.message };
+    }
+  }
+  
+  const blocksPerWorker = Math.ceil(latestBlock / workerCount);
+  
+  console.log(`[GardeningQuest] Starting ${workerCount} workers (${blocksPerWorker.toLocaleString()} blocks each, latest: ${latestBlock.toLocaleString()})`);
+  
+  const results = [];
+  let consecutiveFailures = 0;
+  const MAX_CONSECUTIVE_FAILURES = 2;
+  
+  for (let w = 0; w < workerCount; w++) {
+    const rangeStart = w * blocksPerWorker;
+    const rangeEnd = (w === workerCount - 1) ? null : (w + 1) * blocksPerWorker;
+    
+    await new Promise(r => setTimeout(r, 500));
+    
+    try {
+      const result = await startGardeningWorkerAutoRun(w, rangeStart, rangeEnd, intervalMs);
+      results.push(result);
+      consecutiveFailures = 0;
+    } catch (err) {
+      consecutiveFailures++;
+      console.error(`[GardeningQuest] Worker ${w} failed to start:`, err.message);
+      
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && workerCount > MIN_GARDENING_WORKERS) {
+        const newWorkerCount = workerCount - 1;
+        console.warn(`[GardeningQuest] RPC failsafe: Reducing from ${workerCount} to ${newWorkerCount} workers`);
+        
+        stopGardeningWorkersAutoRun();
+        
+        await new Promise(r => setTimeout(r, 3000));
+        return startGardeningWorkersAutoRun(intervalMs, newWorkerCount);
+      }
+      
+      results.push({ status: 'failed', workerId: w, error: err.message });
+    }
+  }
+  
+  const started = results.filter(r => r.status === 'started').length;
+  activeWorkerCount = started;
+  
+  return { status: 'workers_started', workersStarted: started, targetWorkers: workerCount, results };
+}
+
+export function stopGardeningWorkersAutoRun() {
+  let stopped = 0;
+  for (let w = 0; w < GARDENING_WORKERS; w++) {
+    const key = getWorkerKey(w);
+    const info = autoRunIntervals.get(key);
+    if (info) {
+      if (info.interval) {
+        clearInterval(info.interval);
+      }
+      autoRunIntervals.delete(key);
+      clearWorkerLiveProgress(w);
+      stopped++;
+    }
+  }
+  activeWorkerCount = 0;
+  donorReservations.clear();
+  console.log(`[GardeningQuest] Stopped ${stopped} workers`);
+  return stopped;
 }
 
 export async function runGardeningQuestIndexer() {
@@ -357,53 +790,89 @@ export async function runGardeningQuestIndexer() {
   }
 }
 
-export function startGardeningQuestAutoRun() {
-  if (autoRunInterval) {
-    console.log('[GardeningQuest] Auto-run already started');
+export function startGardeningQuestAutoRun(useParallelWorkers = true) {
+  if (useParallelWorkers) {
+    return startGardeningWorkersAutoRun();
+  }
+  
+  if (autoRunIntervals.has('gardening_quest')) {
     return { status: 'already_running' };
   }
   
-  isAutoRunning = true;
-  console.log('[GardeningQuest] Starting auto-run...');
-  
-  runGardeningQuestIndexer().catch(e => console.error('[GardeningQuest] Auto-run error:', e.message));
-  
-  autoRunInterval = setInterval(async () => {
-    if (!isAutoRunning) return;
-    
+  const intervalId = setInterval(async () => {
     try {
       const progress = getGardeningQuestLiveProgress();
       if (progress?.isRunning) {
         return;
       }
       await runGardeningQuestIndexer();
-    } catch (error) {
-      console.error('[GardeningQuest] Auto-run iteration error:', error.message);
+    } catch (err) {
+      console.error('[GardeningQuest] Auto-run error:', err.message);
     }
   }, AUTO_RUN_INTERVAL_MS);
+  
+  autoRunIntervals.set('gardening_quest', intervalId);
+  runGardeningQuestIndexer().catch(e => console.error('[GardeningQuest] Initial run error:', e.message));
   
   return { status: 'started', interval: AUTO_RUN_INTERVAL_MS };
 }
 
 export function stopGardeningQuestAutoRun() {
-  isAutoRunning = false;
-  if (autoRunInterval) {
-    clearInterval(autoRunInterval);
-    autoRunInterval = null;
-    console.log('[GardeningQuest] Auto-run stopped');
-    return { status: 'stopped' };
+  let stoppedAny = false;
+  
+  const singleInterval = autoRunIntervals.get('gardening_quest');
+  if (singleInterval) {
+    clearInterval(singleInterval);
+    autoRunIntervals.delete('gardening_quest');
+    console.log('[GardeningQuest] Single auto-run stopped');
+    stoppedAny = true;
   }
-  return { status: 'not_running' };
+  
+  const workersStoppedCount = stopGardeningWorkersAutoRun();
+  if (workersStoppedCount > 0) {
+    stoppedAny = true;
+  }
+  
+  return stoppedAny;
 }
 
 export function isGardeningQuestAutoRunning() {
-  return isAutoRunning && autoRunInterval !== null;
+  if (autoRunIntervals.has('gardening_quest')) return true;
+  for (let w = 0; w < GARDENING_WORKERS; w++) {
+    if (autoRunIntervals.has(getWorkerKey(w))) return true;
+  }
+  return false;
+}
+
+export function getGardeningWorkersStatus() {
+  const workers = [];
+  for (let w = 0; w < GARDENING_WORKERS; w++) {
+    const key = getWorkerKey(w);
+    const info = autoRunIntervals.get(key);
+    const progress = workerLiveProgress.get(key);
+    if (info || progress) {
+      workers.push({
+        workerId: w,
+        isActive: !!info,
+        ...progress,
+        runsCompleted: info?.runsCompleted || 0,
+        lastRunAt: info?.lastRunAt,
+      });
+    }
+  }
+  return {
+    activeWorkers: activeWorkerCount,
+    maxWorkers: GARDENING_WORKERS,
+    minWorkers: MIN_GARDENING_WORKERS,
+    workers,
+  };
 }
 
 export async function getGardeningQuestStatus() {
   const indexerName = getIndexerName();
   const progress = await getIndexerProgress(indexerName);
-  const liveProgress = getGardeningQuestLiveProgress();
+  const liveProgressData = getGardeningQuestLiveProgress();
+  const workersStatus = getGardeningWorkersStatus();
   
   const [stats] = await db.select({
     totalRewards: sql`COUNT(*)`,
@@ -417,8 +886,9 @@ export async function getGardeningQuestStatus() {
   
   return {
     indexerProgress: progress,
-    liveProgress,
+    liveProgress: liveProgressData,
     isAutoRunning: isGardeningQuestAutoRunning(),
+    workers: workersStatus,
     stats: {
       totalRewards: Number(stats.totalRewards),
       crystalCount: Number(stats.crystalCount),
