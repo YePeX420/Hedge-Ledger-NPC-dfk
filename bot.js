@@ -25,7 +25,7 @@ import { calculateSummoningProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
 import { decodeHeroGenes } from './hero-genetics.js';
 import { db } from './server/db.js';
-import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings, leagueSeasons, leagueSignups, seasonTierLocks, walletClusters, walletLinks, smurfIncidents, walletPowerSnapshots } from './shared/schema.ts';
+import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings, leagueSeasons, leagueSignups, seasonTierLocks, walletClusters, walletLinks, smurfIncidents, walletPowerSnapshots, poolSwapEvents, poolRewardEvents } from './shared/schema.ts';
 import { runPreSeasonChecks, runInSeasonChecks, getOrCreateCluster, linkWalletToCluster } from './smurf-detection-service.js';
 import { eq, desc, asc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
@@ -5966,12 +5966,18 @@ async function startAdminWebServer() {
       const { getAllUnifiedIndexerProgress, getAllUnifiedLiveProgress, getUnifiedAutoRunStatus, getAllV2StakedTotals } = await import('./src/etl/ingestion/poolUnifiedIndexer.js');
       const { getAllLatestAggregates } = await import('./src/etl/aggregation/poolDailyAggregator.js');
       
-      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw, stakerCounts] = await Promise.all([
+      const [swapProgress, rewardProgress, unifiedProgress, latestAggregatesRaw, stakerCounts, swapEventCounts, rewardEventCounts] = await Promise.all([
         getAllSwapIndexerProgress(),
         getAllRewardIndexerProgress(),
         getAllUnifiedIndexerProgress(),
         getAllLatestAggregates(),
         getAllV2StakedTotals(),
+        db.select({ pid: poolSwapEvents.pid, eventCount: sql`COUNT(*)::int` })
+          .from(poolSwapEvents)
+          .groupBy(poolSwapEvents.pid),
+        db.select({ pid: poolRewardEvents.pid, eventCount: sql`COUNT(*)::int` })
+          .from(poolRewardEvents)
+          .groupBy(poolRewardEvents.pid),
       ]);
       
       const swapLiveProgress = getAllSwapLiveProgress();
@@ -6000,17 +6006,33 @@ async function startAdminWebServer() {
       for (const sc of stakerCounts) {
         stakerCountMap.set(sc.pid, { count: Number(sc.stakerCount), totalStaked: sc.totalStaked });
       }
+
+      const swapEventCountMap = new Map();
+      for (const row of swapEventCounts) {
+        swapEventCountMap.set(row.pid, Number(row.eventCount) || 0);
+      }
+
+      const rewardEventCountMap = new Map();
+      for (const row of rewardEventCounts) {
+        rewardEventCountMap.set(row.pid, Number(row.eventCount) || 0);
+      }
+      const totalSwapEventCount = Array.from(swapEventCountMap.values()).reduce((sum, count) => sum + count, 0);
+      const totalRewardEventCount = Array.from(rewardEventCountMap.values()).reduce((sum, count) => sum + count, 0);
       
       // Build unified indexers with merged data
       const unifiedIndexers = mainPoolProgress.map((p) => {
         const livePoolProgress = unifiedLiveProgress.find(l => l.pid === p.pid);
         const stakerInfo = stakerCountMap.get(p.pid) || { count: 0, totalStaked: '0' };
+        const swapEventCount = swapEventCountMap.get(p.pid) || 0;
+        const rewardEventCount = rewardEventCountMap.get(p.pid) || 0;
         
         return {
           ...p,
           totalEventsIndexed: eventsByPool.get(p.pid) || p.totalEventsIndexed,
           v2StakerCount: stakerInfo.count,
           v2TotalStaked: stakerInfo.totalStaked,
+          swapEventCount,
+          rewardEventCount,
           live: livePoolProgress || null,
           liveWorkers: livePoolProgress?.workers || [],
           autoRun: unifiedAutoRuns.find((a) => a.pid === p.pid) || null,
@@ -6020,11 +6042,13 @@ async function startAdminWebServer() {
       res.json({
         swapIndexers: swapProgress.map((p) => ({
           ...p,
+          swapEventCount: swapEventCountMap.get(p.pid) || 0,
           live: swapLiveProgress.find((l) => l.pid === p.pid) || null,
           autoRun: swapAutoRuns.find((a) => a.pid === p.pid) || null,
         })),
         rewardIndexers: rewardProgress.map((p) => ({
           ...p,
+          rewardEventCount: rewardEventCountMap.get(p.pid) || 0,
           live: rewardLiveProgress.find((l) => l.pid === p.pid) || null,
           autoRun: rewardAutoRuns.find((a) => a.pid === p.pid) || null,
         })),
@@ -6032,6 +6056,8 @@ async function startAdminWebServer() {
         poolsIndexed: mainPoolProgress.length,
         totalPools: 14,
         aggregates,
+        totalSwapEventCount,
+        totalRewardEventCount,
       });
     } catch (error) {
       console.error('[API] Error fetching pool indexer status:', error);
