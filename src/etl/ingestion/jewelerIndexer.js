@@ -817,15 +817,22 @@ export function stopJewelerWorkersAutoRun() {
 }
 
 export function stopJewelerAutoRun() {
-  const interval = autoRunIntervals.get('jeweler');
-  if (interval) {
-    clearInterval(interval);
+  let stoppedAny = false;
+  
+  const singleInterval = autoRunIntervals.get('jeweler');
+  if (singleInterval) {
+    clearInterval(singleInterval);
     autoRunIntervals.delete('jeweler');
-    console.log('[JewelerIndexer] Auto-run stopped');
-    return true;
+    console.log('[JewelerIndexer] Single auto-run stopped');
+    stoppedAny = true;
   }
-  const stopped = stopJewelerWorkersAutoRun();
-  return stopped > 0;
+  
+  const workersStoppedCount = stopJewelerWorkersAutoRun();
+  if (workersStoppedCount > 0) {
+    stoppedAny = true;
+  }
+  
+  return stoppedAny;
 }
 
 export function startJewelerAutoRun(useParallelWorkers = true) {

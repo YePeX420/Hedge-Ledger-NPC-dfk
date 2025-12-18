@@ -8,6 +8,35 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Loader2, Play, Zap, Square, RefreshCw, Gem, TrendingUp, Users, Coins } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+interface WorkerProgress {
+  workerId: number;
+  isRunning: boolean;
+  currentBlock: number;
+  targetBlock: number;
+  rangeStart: number;
+  rangeEnd: number | null;
+  eventsFound: number;
+  stakersFound: number;
+  batchesCompleted: number;
+  percentComplete: number;
+  startedAt: string | null;
+  lastBatchAt: string | null;
+  completedAt: string | null;
+}
+
+interface WorkersStatus {
+  activeWorkers: number;
+  maxWorkers: number;
+  minWorkers: number;
+  workers: Array<{
+    workerId: number;
+    isRunning: boolean;
+    rangeStart: number;
+    rangeEnd: number | null;
+    progress: WorkerProgress | null;
+  }>;
+}
+
 interface JewelerStats {
   totalStakers: number;
   totalJewelLocked: number;
@@ -37,6 +66,8 @@ interface JewelerStats {
     completedAt: string | null;
   } | null;
   isAutoRunning: boolean;
+  workersStatus?: WorkersStatus;
+  workersProgress?: WorkerProgress[];
 }
 
 interface JewelerStaker {
@@ -334,6 +365,49 @@ export default function AdminJeweler() {
               </p>
             </div>
           </div>
+          
+          {stats?.workersProgress && stats.workersProgress.length > 0 && (
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium">Parallel Workers ({stats.workersStatus?.activeWorkers || 0}/{stats.workersStatus?.maxWorkers || 5})</h4>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {stats.workersProgress.map((worker) => (
+                  <div 
+                    key={worker.workerId} 
+                    className="border rounded-lg p-3 space-y-2"
+                    data-testid={`worker-card-${worker.workerId}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm">Worker {worker.workerId}</span>
+                      {worker.isRunning ? (
+                        <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30 text-xs gap-1">
+                          <Loader2 className="w-2 h-2 animate-spin" />
+                          Running
+                        </Badge>
+                      ) : worker.completedAt ? (
+                        <Badge className="bg-green-500/20 text-green-500 border-green-500/30 text-xs">
+                          Done
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-gray-500/20 text-gray-500 border-gray-500/30 text-xs">
+                          Idle
+                        </Badge>
+                      )}
+                    </div>
+                    <Progress value={worker.percentComplete} className="h-1.5" />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{worker.percentComplete.toFixed(1)}%</span>
+                      <span>{worker.eventsFound.toLocaleString()} events</span>
+                    </div>
+                    <div className="text-xs font-mono text-muted-foreground">
+                      {worker.currentBlock.toLocaleString()} / {(worker.rangeEnd || worker.targetBlock || 0).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
       

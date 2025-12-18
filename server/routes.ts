@@ -1874,12 +1874,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/admin/jeweler/status - Get Jeweler indexer status and stats
   app.get("/api/admin/jeweler/status", isAdmin, async (req: any, res: any) => {
     try {
-      const { getJewelerStats, getJewelerLiveProgress, isJewelerAutoRunning } = await import('../src/etl/ingestion/jewelerIndexer.js');
+      const { getJewelerStats, getJewelerWorkersStatus, getAllJewelerWorkersProgress } = await import('../src/etl/ingestion/jewelerIndexer.js');
       const stats = await getJewelerStats();
-      res.json(stats);
+      const workersStatus = getJewelerWorkersStatus();
+      const workersProgress = getAllJewelerWorkersProgress();
+      res.json({ ...stats, workersStatus, workersProgress });
     } catch (error: any) {
       console.error('[API] Error fetching jeweler status:', error);
       res.status(500).json({ error: 'Failed to fetch jeweler status', details: error.message });
+    }
+  });
+  
+  // GET /api/admin/jeweler/workers - Get parallel workers status
+  app.get("/api/admin/jeweler/workers", isAdmin, async (req: any, res: any) => {
+    try {
+      const { getJewelerWorkersStatus, getAllJewelerWorkersProgress } = await import('../src/etl/ingestion/jewelerIndexer.js');
+      const status = getJewelerWorkersStatus();
+      const progress = getAllJewelerWorkersProgress();
+      res.json({ ...status, progress });
+    } catch (error: any) {
+      console.error('[API] Error fetching jeweler workers:', error);
+      res.status(500).json({ error: 'Failed to fetch jeweler workers', details: error.message });
     }
   });
   
@@ -1895,24 +1910,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // POST /api/admin/jeweler/auto-run - Start/stop Jeweler auto-run
+  // POST /api/admin/jeweler/auto-run - Start/stop Jeweler auto-run (with parallel workers)
   app.post("/api/admin/jeweler/auto-run", isAdmin, async (req: any, res: any) => {
     try {
-      const { action } = req.body;
+      const { action, useParallelWorkers = true } = req.body;
       if (!action || !['start', 'stop'].includes(action)) {
         return res.status(400).json({ error: 'action must be start or stop' });
       }
       
-      const { startJewelerAutoRun, stopJewelerAutoRun } = await import('../src/etl/ingestion/jewelerIndexer.js');
+      const { startJewelerAutoRun, stopJewelerAutoRun, startJewelerWorkersAutoRun, stopJewelerWorkersAutoRun } = await import('../src/etl/ingestion/jewelerIndexer.js');
       
       let result;
       if (action === 'start') {
-        result = startJewelerAutoRun();
+        if (useParallelWorkers) {
+          result = await startJewelerWorkersAutoRun();
+        } else {
+          result = startJewelerAutoRun(false);
+        }
       } else {
         result = stopJewelerAutoRun();
       }
       
-      res.json({ success: true, result });
+      res.json({ success: true, result, useParallelWorkers: action === 'start' ? useParallelWorkers : undefined });
     } catch (error: any) {
       console.error('[API] Error managing jeweler auto-run:', error);
       res.status(500).json({ error: 'Failed to manage jeweler auto-run', details: error.message });
