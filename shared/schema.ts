@@ -2145,6 +2145,62 @@ export type InsertPoolEventIndexerProgressV1 = z.infer<typeof insertPoolEventInd
 export type PoolEventIndexerProgressV1 = typeof poolEventIndexerProgressV1.$inferSelect;
 
 // ============================================================================
+// HARMONY POOL STAKING INDEX (Legacy Serendale)
+// Tracks LP staking positions in Serendale Master Gardener on Harmony
+// ============================================================================
+
+/**
+ * Harmony Pool stakers - stores current staker positions in Serendale Master Gardener (Harmony)
+ */
+export const poolStakersHarmony = pgTable("pool_stakers_harmony", {
+  id: serial("id").primaryKey(),
+  wallet: text("wallet").notNull(),
+  pid: integer("pid").notNull(),
+  stakedLP: numeric("staked_lp", { precision: 38, scale: 18 }).notNull().default("0"),
+  summonerName: text("summoner_name"),
+  lastActivityType: text("last_activity_type"),
+  lastActivityAmount: numeric("last_activity_amount", { precision: 38, scale: 18 }),
+  lastActivityBlock: bigint("last_activity_block", { mode: "number" }),
+  lastActivityTxHash: text("last_activity_tx_hash"),
+  lastUpdatedAt: timestamp("last_updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletPidIdx: uniqueIndex("pool_stakers_harmony_wallet_pid_idx").on(table.wallet, table.pid),
+  pidIdx: index("pool_stakers_harmony_pid_idx").on(table.pid),
+  stakedLpIdx: index("pool_stakers_harmony_staked_lp_idx").on(table.stakedLP),
+}));
+
+export const insertPoolStakerHarmonySchema = createInsertSchema(poolStakersHarmony).omit({ id: true, createdAt: true, lastUpdatedAt: true });
+export type InsertPoolStakerHarmony = z.infer<typeof insertPoolStakerHarmonySchema>;
+export type PoolStakerHarmony = typeof poolStakersHarmony.$inferSelect;
+
+/**
+ * Harmony Pool indexer progress - tracks indexing progress for Serendale Master Gardener
+ */
+export const poolEventIndexerProgressHarmony = pgTable("pool_event_indexer_progress_harmony", {
+  id: serial("id").primaryKey(),
+  indexerName: text("indexer_name").notNull().unique(),
+  indexerType: text("indexer_type").notNull(),
+  pid: integer("pid").notNull(),
+  lpToken: text("lp_token"),
+  lastIndexedBlock: bigint("last_indexed_block", { mode: "number" }).notNull(),
+  genesisBlock: bigint("genesis_block", { mode: "number" }).notNull(),
+  rangeEnd: bigint("range_end", { mode: "number" }),
+  status: text("status").notNull().default("idle"),
+  totalEventsIndexed: integer("total_events_indexed").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  pidIdx: index("pool_event_indexer_progress_harmony_pid_idx").on(table.pid),
+  typeIdx: index("pool_event_indexer_progress_harmony_type_idx").on(table.indexerType),
+}));
+
+export const insertPoolEventIndexerProgressHarmonySchema = createInsertSchema(poolEventIndexerProgressHarmony).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPoolEventIndexerProgressHarmony = z.infer<typeof insertPoolEventIndexerProgressHarmonySchema>;
+export type PoolEventIndexerProgressHarmony = typeof poolEventIndexerProgressHarmony.$inferSelect;
+
+// ============================================================================
 // JEWELER STAKING INDEX (cJEWEL)
 // Tracks JEWEL staking in the Jeweler for cJEWEL tokens
 // ============================================================================
