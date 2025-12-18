@@ -260,22 +260,56 @@ function LoadingSkeleton() {
 }
 
 function WorkerProgressBars({ workers }: { workers?: WorkerProgress[] }) {
+  const [expanded, setExpanded] = useState(false);
+  
   if (!workers || workers.length === 0) return null;
+  
+  const activeWorkers = workers.filter(w => w.isRunning);
+  const avgProgress = workers.reduce((sum, w) => sum + (w.percentComplete ?? 0), 0) / workers.length;
+  const minProgress = Math.min(...workers.map(w => w.percentComplete ?? 0));
+  const maxProgress = Math.max(...workers.map(w => w.percentComplete ?? 0));
   
   return (
     <div className="space-y-1">
-      {workers.map((worker) => (
-        <div key={worker.workerId} className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-6">W{worker.workerId}</span>
-          <Progress 
-            value={worker.percentComplete} 
-            className={`h-1.5 flex-1 ${worker.isRunning ? 'bg-blue-100' : ''}`} 
-          />
-          <span className="text-xs text-muted-foreground w-10 text-right">
-            {(worker.percentComplete ?? 0).toFixed(0)}%
-          </span>
+      <div 
+        className="flex items-center gap-2 cursor-pointer hover-elevate rounded px-1 py-0.5"
+        onClick={() => setExpanded(!expanded)}
+        data-testid="worker-summary"
+      >
+        <span className="text-xs text-muted-foreground w-14">
+          {activeWorkers.length}/{workers.length}w
+        </span>
+        <Progress 
+          value={avgProgress} 
+          className="h-1.5 flex-1 bg-blue-100" 
+        />
+        <span className="text-xs text-muted-foreground w-10 text-right">
+          {avgProgress.toFixed(0)}%
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {expanded ? '−' : '+'}
+        </span>
+      </div>
+      
+      {expanded && (
+        <div className="pl-2 space-y-0.5 border-l-2 border-muted ml-1">
+          <div className="text-xs text-muted-foreground">
+            Range: {minProgress.toFixed(0)}% - {maxProgress.toFixed(0)}%
+          </div>
+          {workers.map((worker) => (
+            <div key={worker.workerId} className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground w-6">W{worker.workerId}</span>
+              <Progress 
+                value={worker.percentComplete} 
+                className={`h-1 flex-1 ${worker.isRunning ? 'bg-blue-100' : 'bg-muted'}`} 
+              />
+              <span className="text-xs text-muted-foreground w-10 text-right">
+                {(worker.percentComplete ?? 0).toFixed(0)}%
+              </span>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
