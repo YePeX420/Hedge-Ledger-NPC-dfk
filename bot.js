@@ -90,6 +90,16 @@ import * as poolStakerIndexer from './src/etl/ingestion/poolStakerIndexer.js';
 
 const execAsync = promisify(exec);
 
+// Environment detection - production vs development
+// Check multiple indicators: REPLIT_DEPLOYMENT (any truthy value), NODE_ENV
+const isProduction = () => {
+  const replitDeployment = process.env.REPLIT_DEPLOYMENT;
+  const nodeEnv = process.env.NODE_ENV;
+  return !!(replitDeployment && replitDeployment !== '0' && replitDeployment !== 'false') || 
+         nodeEnv === 'production';
+};
+const getEnvironmentName = () => isProduction() ? 'production' : 'development';
+
 // ============================================================
 // STARTUP DIAGNOSTICS - Log everything for production debugging
 // ============================================================
@@ -4862,6 +4872,20 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/environment - Get current environment info
+  app.get('/api/admin/environment', async (req, res) => {
+    try {
+      res.json({
+        environment: getEnvironmentName(),
+        isProduction: isProduction(),
+        autoStartIndexers: isProduction(),
+      });
+    } catch (error) {
+      console.error('[API] Error fetching environment:', error);
+      res.status(500).json({ error: 'Failed to fetch environment info' });
+    }
+  });
+
   // GET /api/debug/recent-errors - Get recent error logs
   app.get('/api/debug/recent-errors', async (req, res) => {
     try {
@@ -9092,15 +9116,29 @@ async function startAdminWebServer() {
 
   server.listen(5000, async () => {
     console.log('✅ Web server listening on port 5000');
+    console.log(`📍 Environment: ${getEnvironmentName().toUpperCase()}`);
     
-    // Auto-start parallel sync if not running and indexing is incomplete
-    await autoStartParallelSync();
-    
-    // Auto-start unified pool indexer for all pools (V2)
-    await autoStartUnifiedPoolIndexer();
-    
-    // Auto-start unified pool indexer V1 (legacy)
-    await autoStartUnifiedPoolIndexerV1();
+    // Only auto-start indexers in production
+    if (isProduction()) {
+      console.log('[AutoStart] Production environment detected - auto-starting all indexers...');
+      
+      // Auto-start parallel sync if not running and indexing is incomplete
+      await autoStartParallelSync();
+      
+      // Auto-start unified pool indexer for all pools (V2)
+      await autoStartUnifiedPoolIndexer();
+      
+      // Auto-start unified pool indexer V1 (legacy)
+      await autoStartUnifiedPoolIndexerV1();
+      
+      // Auto-start Jeweler indexer
+      await autoStartJewelerIndexer();
+      
+      // Auto-start Gardening Quest indexer
+      await autoStartGardeningQuestIndexer();
+    } else {
+      console.log('[AutoStart] Development environment - indexers will only run when manually triggered from admin panel');
+    }
   });
   
   // Auto-start unified pool indexer V2 on server startup
@@ -9148,6 +9186,48 @@ async function startAdminWebServer() {
       console.log(`[UnifiedIndexerV1] Auto-start complete: ${result.started} workers across ${result.totalPools} pools`);
     } catch (err) {
       console.error('[UnifiedIndexerV1] Auto-start error:', err.message);
+    }
+  }
+  
+  // Auto-start Jeweler indexer on server startup (production only)
+  async function autoStartJewelerIndexer() {
+    try {
+      // Wait a bit after pool indexers to stagger RPC load
+      await new Promise(r => setTimeout(r, 12000));
+      
+      console.log('[JewelerIndexer] Auto-starting Jeweler indexer...');
+      const { startJewelerAutoRun, isJewelerAutoRunning } = await import('./src/etl/ingestion/jewelerIndexer.js');
+      
+      if (isJewelerAutoRunning()) {
+        console.log('[JewelerIndexer] Already running, skipping auto-start');
+        return;
+      }
+      
+      const result = startJewelerAutoRun();
+      console.log(`[JewelerIndexer] Auto-start complete: ${result.workersStarted || 1} workers started`);
+    } catch (err) {
+      console.error('[JewelerIndexer] Auto-start error:', err.message);
+    }
+  }
+  
+  // Auto-start Gardening Quest indexer on server startup (production only)
+  async function autoStartGardeningQuestIndexer() {
+    try {
+      // Wait a bit after Jeweler indexer to stagger RPC load
+      await new Promise(r => setTimeout(r, 15000));
+      
+      console.log('[GardeningQuestIndexer] Auto-starting Gardening Quest indexer...');
+      const { startGardeningQuestAutoRun, isGardeningQuestAutoRunning } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      
+      if (isGardeningQuestAutoRunning()) {
+        console.log('[GardeningQuestIndexer] Already running, skipping auto-start');
+        return;
+      }
+      
+      const result = startGardeningQuestAutoRun();
+      console.log(`[GardeningQuestIndexer] Auto-start complete: ${result.workersStarted || 1} workers started`);
+    } catch (err) {
+      console.error('[GardeningQuestIndexer] Auto-start error:', err.message);
     }
   }
   

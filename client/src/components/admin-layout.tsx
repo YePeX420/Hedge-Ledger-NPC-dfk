@@ -1,7 +1,9 @@
 import { ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useAuth } from '@/lib/auth';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   Users, 
@@ -21,6 +23,12 @@ import {
   Gem,
   Sprout
 } from 'lucide-react';
+
+interface EnvironmentInfo {
+  environment: string;
+  isProduction: boolean;
+  autoStartIndexers: boolean;
+}
 
 interface AdminLayoutProps {
   children: ReactNode;
@@ -48,6 +56,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const { user, logout } = useAuth();
   const [location] = useLocation();
 
+  const { data: envInfo } = useQuery<EnvironmentInfo>({
+    queryKey: ['/api/admin/environment'],
+    staleTime: Infinity,
+  });
+
   const avatarUrl = user?.avatar 
     ? `https://cdn.discordapp.com/avatars/${user.discordId}/${user.avatar}.png`
     : null;
@@ -62,9 +75,20 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm">
               HL
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="font-semibold text-sm">Hedge Ledger</h1>
-              <p className="text-xs text-muted-foreground">Admin Dashboard</p>
+              <div className="flex items-center gap-1">
+                <p className="text-xs text-muted-foreground">Admin</p>
+                {envInfo && (
+                  <Badge 
+                    variant={envInfo.isProduction ? "default" : "secondary"}
+                    className="text-[10px] px-1 py-0"
+                    data-testid="badge-environment"
+                  >
+                    {envInfo.isProduction ? 'PROD' : 'DEV'}
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
         </div>
