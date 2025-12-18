@@ -2241,3 +2241,61 @@ export const jewelerIndexerProgress = pgTable("jeweler_indexer_progress", {
 export const insertJewelerIndexerProgressSchema = createInsertSchema(jewelerIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertJewelerIndexerProgress = z.infer<typeof insertJewelerIndexerProgressSchema>;
 export type JewelerIndexerProgress = typeof jewelerIndexerProgress.$inferSelect;
+
+// ============================================================================
+// GARDENING QUEST REWARDS INDEX
+// Tracks actual CRYSTAL/JEWEL rewards per hero from gardening quests
+// ============================================================================
+
+/**
+ * Gardening quest rewards - individual rewards per hero from RewardMinted events
+ * Used to validate yield predictions against actual on-chain data
+ */
+export const gardeningQuestRewards = pgTable("gardening_quest_rewards", {
+  id: serial("id").primaryKey(),
+  questId: bigint("quest_id", { mode: "number" }).notNull(),
+  heroId: bigint("hero_id", { mode: "number" }).notNull(),
+  player: text("player").notNull(),
+  poolId: integer("pool_id").notNull(), // Garden pool ID (0-13)
+  rewardToken: text("reward_token").notNull(), // Token address (CRYSTAL, JEWEL, or item)
+  rewardSymbol: text("reward_symbol"), // Human-readable: CRYSTAL, JEWEL, etc.
+  rewardAmount: numeric("reward_amount", { precision: 38, scale: 18 }).notNull(),
+  blockNumber: bigint("block_number", { mode: "number" }).notNull(),
+  txHash: text("tx_hash").notNull(),
+  logIndex: integer("log_index").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  heroIdIdx: index("gardening_quest_rewards_hero_idx").on(table.heroId),
+  playerIdx: index("gardening_quest_rewards_player_idx").on(table.player),
+  poolIdIdx: index("gardening_quest_rewards_pool_idx").on(table.poolId),
+  rewardTokenIdx: index("gardening_quest_rewards_token_idx").on(table.rewardToken),
+  timestampIdx: index("gardening_quest_rewards_timestamp_idx").on(table.timestamp),
+  blockNumberIdx: index("gardening_quest_rewards_block_idx").on(table.blockNumber),
+  uniqueEventIdx: uniqueIndex("gardening_quest_rewards_unique_idx").on(table.txHash, table.logIndex),
+}));
+
+export const insertGardeningQuestRewardSchema = createInsertSchema(gardeningQuestRewards).omit({ id: true, createdAt: true });
+export type InsertGardeningQuestReward = z.infer<typeof insertGardeningQuestRewardSchema>;
+export type GardeningQuestReward = typeof gardeningQuestRewards.$inferSelect;
+
+/**
+ * Gardening quest indexer progress - tracks indexing progress
+ */
+export const gardeningQuestIndexerProgress = pgTable("gardening_quest_indexer_progress", {
+  id: serial("id").primaryKey(),
+  indexerName: text("indexer_name").notNull().unique(),
+  lastIndexedBlock: bigint("last_indexed_block", { mode: "number" }).notNull(),
+  genesisBlock: bigint("genesis_block", { mode: "number" }).notNull(),
+  rangeStart: bigint("range_start", { mode: "number" }),
+  rangeEnd: bigint("range_end", { mode: "number" }),
+  status: text("status").notNull().default("idle"),
+  totalEventsIndexed: integer("total_events_indexed").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertGardeningQuestIndexerProgressSchema = createInsertSchema(gardeningQuestIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertGardeningQuestIndexerProgress = z.infer<typeof insertGardeningQuestIndexerProgressSchema>;
+export type GardeningQuestIndexerProgress = typeof gardeningQuestIndexerProgress.$inferSelect;
