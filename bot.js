@@ -139,6 +139,7 @@ const ENV_CHECKS = {
   
   // OAuth callback
   OAUTH_CALLBACK_URL: process.env.OAUTH_CALLBACK_URL,
+  REDIRECT_URI: process.env.REDIRECT_URI,
   
   // Optional but important
   COOKIE_DOMAIN: process.env.COOKIE_DOMAIN,
