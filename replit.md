@@ -92,13 +92,30 @@ The project utilizes a Node.js backend with Discord.js for bot functionalities a
 *   **Season Engine**: Manages challenge passes with weighted scoring and seasonal progression, calculating player points and levels.
 
 **Design Decisions:**
-*   **Database**: PostgreSQL with Drizzle ORM.
+*   **Database**: PostgreSQL with Drizzle ORM, hosted on Neon serverless.
 *   **Deployment**: Unified Express server integrated with the bot.
 *   **UI/UX**: Responsive React admin dashboard with dark/light theme.
 *   **Authentication**: Discord OAuth2.
 *   **Payment Automation**: Blockchain monitoring for JEWEL payment verification.
 *   **Wallet Tracking**: Daily snapshots of JEWEL, CRYSTAL, and cJEWEL balances.
 *   **Debug Features**: Includes a debug dashboard for testing, with an OAuth bypass for development (never enabled in production).
+
+## Database Configuration
+The application uses **Neon serverless PostgreSQL** for cost optimization.
+
+**Connection Priority** (in `server/db.js`):
+1. `NEON_DATABASE_URL` - Primary (Neon pooled connection)
+2. `DATABASE_URL` - Fallback (legacy Replit PostgreSQL)
+
+**Neon Details:**
+- Host: `ep-solitary-bonus-afr5hsr8-pooler.c-2.us-west-2.aws.neon.tech`
+- Uses pooled connection for better serverless performance
+- Auto-cleans connection strings that have `psql '` prefix artifacts
+
+**Migration History:**
+- December 2025: Migrated from Replit PostgreSQL to Neon
+- Data migrated: 2.4 GB (4,571 jeweler stakers, 3.25M pool swaps, 952K bridge events)
+- Cost savings: ~$25-35/month ($40 Replit → $6-15 Neon)
 
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2.
