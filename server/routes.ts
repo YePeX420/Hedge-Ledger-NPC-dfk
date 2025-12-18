@@ -794,6 +794,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const v1Val = isNaN(staker.v1Value) ? 0 : staker.v1Value;
         const v2Val = isNaN(staker.v2Value) ? 0 : staker.v2Value;
         const totalValue = v1Val + v2Val;
+        const activityDate = staker.lastUpdatedAt ? new Date(staker.lastUpdatedAt) : null;
+        const activityDateIso = activityDate && !isNaN(activityDate.getTime())
+          ? new Date(activityDate.getTime()).toISOString()
+          : null;
+
         return {
           wallet: staker.wallet,
           summonerName: staker.summonerName,
@@ -805,10 +810,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
             amount: staker.lastActivityAmount || null,
             blockNumber: staker.lastActivityBlock || 0,
             txHash: staker.lastActivityTxHash || '',
-            date: staker.lastUpdatedAt ? new Date(staker.lastUpdatedAt).toISOString() : null,
+            date: activityDateIso,
           }
         };
       });
+
+      const now = new Date();
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      const activeWalletCount = enrichedStakers.reduce((count: number, staker: any) => {
+        if (!staker?.lastActivity?.date) return count;
+        const activityDate = new Date(staker.lastActivity.date);
+        if (isNaN(activityDate.getTime())) return count;
+
+        const isRecent = (now.getTime() - activityDate.getTime()) <= THIRTY_DAYS_MS;
+        const totalValue = parseFloat(staker.totalValue);
+        const hasValue = !isNaN(totalValue) && totalValue > 0;
+
+        return isRecent && hasValue ? count + 1 : count;
+      }, 0);
       
       // Sort by total value descending
       enrichedStakers.sort((a: any, b: any) => parseFloat(b.totalValue) - parseFloat(a.totalValue));
@@ -816,6 +835,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         stakers: enrichedStakers,
         count: enrichedStakers.length,
+        activeWalletCount,
         v2TVL,
         v1TVL,
         totalTVL: v2TVL + v1TVL,

@@ -45,6 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface PoolInfo {
   pid: number;
@@ -89,6 +90,7 @@ interface Staker {
 interface AllStakersResponse {
   stakers: Staker[];
   count: number;
+  activeWalletCount?: number;
   v2TVL: number;
   v1TVL: number;
   totalTVL: number;
@@ -484,8 +486,26 @@ export default function PoolDetailPage() {
                   <Users className="h-5 w-5" />
                   All Gardeners List
                 </CardTitle>
-                <CardDescription className="flex items-center gap-2">
+                <CardDescription className="flex items-center gap-2 flex-wrap">
                   {stakersData?.count || 0} wallets staked in this pool
+                  {typeof stakersData?.activeWalletCount === 'number' && (
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground cursor-default">
+                            <UserCheck className="h-3 w-3" />
+                            {stakersData.activeWalletCount} active wallets
+                            <span className="text-[10px]">(last 30d)</span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="max-w-xs text-sm">
+                            Active wallets have recent activity in the past 30 days and a non-zero stake across V1 or V2.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                   {stakersData?.source && (
                     <Badge variant={stakersData.source === 'indexed' ? 'default' : 'secondary'}>
                       {stakersData.source === 'indexed' ? 'Indexed' : 'Live Scan'}
