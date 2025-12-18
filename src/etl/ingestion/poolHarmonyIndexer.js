@@ -45,6 +45,64 @@ const PROFILES_ABI_HARMONY = [
 
 const liveProgressHarmony = new Map();
 
+let harmonyTablesInitialized = false;
+
+export async function ensureHarmonyTablesExist() {
+  if (harmonyTablesInitialized) return;
+  
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS pool_stakers_harmony (
+        id SERIAL PRIMARY KEY,
+        wallet TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        staked_lp NUMERIC(38, 18) NOT NULL DEFAULT '0',
+        summoner_name TEXT,
+        last_activity_type TEXT,
+        last_activity_amount NUMERIC(38, 18),
+        last_activity_block BIGINT,
+        last_activity_tx_hash TEXT,
+        last_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS pool_stakers_harmony_wallet_pid_idx ON pool_stakers_harmony(wallet, pid)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS pool_stakers_harmony_pid_idx ON pool_stakers_harmony(pid)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS pool_stakers_harmony_staked_lp_idx ON pool_stakers_harmony(staked_lp)`);
+    
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS pool_event_indexer_progress_harmony (
+        id SERIAL PRIMARY KEY,
+        indexer_name TEXT NOT NULL UNIQUE,
+        indexer_type TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        lp_token TEXT,
+        last_indexed_block BIGINT NOT NULL,
+        genesis_block BIGINT NOT NULL,
+        range_end BIGINT,
+        status TEXT NOT NULL DEFAULT 'idle',
+        total_events_indexed INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS pool_event_indexer_progress_harmony_pid_idx ON pool_event_indexer_progress_harmony(pid)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS pool_event_indexer_progress_harmony_type_idx ON pool_event_indexer_progress_harmony(indexer_type)`);
+    
+    harmonyTablesInitialized = true;
+    console.log('[HarmonyIndexer] ✓ Tables initialized');
+  } catch (error) {
+    if (error.code === '42P07') {
+      harmonyTablesInitialized = true;
+    } else {
+      console.error('[HarmonyIndexer] Error creating tables:', error.message);
+    }
+  }
+}
+
 function getWorkerKeyHarmony(pid, workerId = 0) {
   return `harmony_${pid}_w${workerId}`;
 }
@@ -262,6 +320,7 @@ export async function updateUnifiedIndexerProgressHarmony(indexerName, updates) 
 }
 
 export async function getAllUnifiedIndexerProgressHarmony() {
+  await ensureHarmonyTablesExist();
   return db.select()
     .from(poolEventIndexerProgressHarmony)
     .where(eq(poolEventIndexerProgressHarmony.indexerType, 'harmony'))
@@ -596,6 +655,7 @@ export async function getTotalStakedHarmony(pid) {
 }
 
 export async function getHarmonyPoolStats() {
+  await ensureHarmonyTablesExist();
   const poolLength = await getPoolLengthHarmony();
   const stats = [];
   

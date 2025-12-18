@@ -346,13 +346,19 @@ async function getTokenPrice(token: 'JEWEL' | 'CRYSTAL'): Promise<PriceResult> {
 async function getTokenBalance(
   provider: ethers.JsonRpcProvider,
   tokenAddress: string,
-  holderAddress: string
+  holderAddress: string,
+  tokenName?: string
 ): Promise<number> {
   try {
-    const contract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-    const balance = await contract.balanceOf(holderAddress);
-    return parseFloat(ethers.formatEther(balance));
-  } catch {
+    const normalizedToken = ethers.getAddress(tokenAddress.toLowerCase());
+    const normalizedHolder = ethers.getAddress(holderAddress.toLowerCase());
+    const contract = new ethers.Contract(normalizedToken, ERC20_ABI, provider);
+    const balance = await contract.balanceOf(normalizedHolder);
+    const parsed = parseFloat(ethers.formatEther(balance));
+    return parsed;
+  } catch (err) {
+    const tokenLabel = tokenName || tokenAddress.slice(0, 10);
+    console.error(`[ValueBreakdown] getTokenBalance FAILED for ${tokenLabel} at holder ${holderAddress.slice(0, 10)}...: ${(err as Error).message}`);
     return 0;
   }
 }
@@ -582,24 +588,24 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     totalValueUSD: stakingContracts.reduce((sum, c) => sum + c.totalValueUSD, 0),
   });
 
-  const bridgeContracts = await Promise.all(
-    Object.entries(BRIDGE_CONTRACTS).map(async ([name, address]) => {
-      const [jewelBalance, crystalBalance] = await Promise.all([
-        getTokenBalance(provider, TOKENS.JEWEL, address),
-        getTokenBalance(provider, TOKENS.CRYSTAL, address),
-      ]);
-
-      return {
-        name,
-        address,
-        jewelBalance,
-        crystalBalance,
-        jewelValueUSD: jewelBalance * jewelPrice,
-        crystalValueUSD: crystalBalance * crystalPrice,
-        totalValueUSD: jewelBalance * jewelPrice + crystalBalance * crystalPrice,
-      };
-    })
-  );
+  const bridgeContracts = [];
+  for (const [name, address] of Object.entries(BRIDGE_CONTRACTS)) {
+    await delay(150);
+    const jewelBalance = await getTokenBalance(provider, TOKENS.JEWEL, address, 'JEWEL');
+    await delay(150);
+    const crystalBalance = await getTokenBalance(provider, TOKENS.CRYSTAL, address, 'CRYSTAL');
+    
+    bridgeContracts.push({
+      name,
+      address,
+      jewelBalance,
+      crystalBalance,
+      jewelValueUSD: jewelBalance * jewelPrice,
+      crystalValueUSD: crystalBalance * crystalPrice,
+      totalValueUSD: jewelBalance * jewelPrice + crystalBalance * crystalPrice,
+    });
+    console.log(`[ValueBreakdown] ${name}: JEWEL=${jewelBalance.toFixed(2)}, CRYSTAL=${crystalBalance.toFixed(2)}`);
+  }
 
   categories.push({
     category: 'Bridge Contracts',
@@ -609,24 +615,24 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     totalValueUSD: bridgeContracts.reduce((sum, c) => sum + c.totalValueUSD, 0),
   });
 
-  const systemContracts = await Promise.all(
-    Object.entries(SYSTEM_CONTRACTS).map(async ([name, address]) => {
-      const [jewelBalance, crystalBalance] = await Promise.all([
-        getTokenBalance(provider, TOKENS.JEWEL, address),
-        getTokenBalance(provider, TOKENS.CRYSTAL, address),
-      ]);
-
-      return {
-        name,
-        address,
-        jewelBalance,
-        crystalBalance,
-        jewelValueUSD: jewelBalance * jewelPrice,
-        crystalValueUSD: crystalBalance * crystalPrice,
-        totalValueUSD: jewelBalance * jewelPrice + crystalBalance * crystalPrice,
-      };
-    })
-  );
+  const systemContracts = [];
+  for (const [name, address] of Object.entries(SYSTEM_CONTRACTS)) {
+    await delay(150);
+    const jewelBalance = await getTokenBalance(provider, TOKENS.JEWEL, address, 'JEWEL');
+    await delay(150);
+    const crystalBalance = await getTokenBalance(provider, TOKENS.CRYSTAL, address, 'CRYSTAL');
+    
+    systemContracts.push({
+      name,
+      address,
+      jewelBalance,
+      crystalBalance,
+      jewelValueUSD: jewelBalance * jewelPrice,
+      crystalValueUSD: crystalBalance * crystalPrice,
+      totalValueUSD: jewelBalance * jewelPrice + crystalBalance * crystalPrice,
+    });
+    console.log(`[ValueBreakdown] ${name}: JEWEL=${jewelBalance.toFixed(2)}, CRYSTAL=${crystalBalance.toFixed(2)}`);
+  }
 
   categories.push({
     category: 'System Contracts',
