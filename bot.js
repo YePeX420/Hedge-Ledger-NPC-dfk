@@ -5851,6 +5851,8 @@ async function startAdminWebServer() {
             { symbol: pool.token1 || '', address: '' }
           ],
           tvl: pool.totalTVL || 0,
+          v1TVL: pool.v1TVL || 0,
+          v2TVL: pool.v2TVL || 0,
           passiveAPR,
           activeAPRMin,
           activeAPRMax,
