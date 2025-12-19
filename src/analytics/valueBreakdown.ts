@@ -98,7 +98,7 @@ const TOKEN_DECIMALS: Record<string, number> = {
   [TOKENS.xJEWEL.toLowerCase()]: 18,
   [TOKENS.wJEWEL.toLowerCase()]: 18,
   [TOKENS.AVAX.toLowerCase()]: 18,
-  [TOKENS.USDC.toLowerCase()]: 6,
+  [TOKENS.USDC.toLowerCase()]: 18, // USDC on DFK Chain has 18 decimals (bridged)
   [TOKENS.ETH.toLowerCase()]: 18,
   [TOKENS.BTC_B.toLowerCase()]: 8,
   [TOKENS.KLAY.toLowerCase()]: 18,
@@ -588,8 +588,9 @@ async function getLPReserves(
     
     const token0Lower = token0.toLowerCase();
     const token1Lower = token1.toLowerCase();
-    const decimals0 = tokenDecimalsMap[token0Lower] ?? TOKEN_DECIMALS[token0Lower] ?? 18;
-    const decimals1 = tokenDecimalsMap[token1Lower] ?? TOKEN_DECIMALS[token1Lower] ?? 18;
+    // Use TOKEN_DECIMALS as authoritative source, fallback to registry, then default to 18
+    const decimals0 = TOKEN_DECIMALS[token0Lower] ?? tokenDecimalsMap[token0Lower] ?? 18;
+    const decimals1 = TOKEN_DECIMALS[token1Lower] ?? tokenDecimalsMap[token1Lower] ?? 18;
     
     return {
       token0: token0Lower,
