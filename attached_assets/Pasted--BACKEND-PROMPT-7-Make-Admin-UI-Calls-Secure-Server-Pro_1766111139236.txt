@@ -1,0 +1,160 @@
+# BACKEND PROMPT 7 — Make Admin UI Calls Secure (Server Proxy for Admin APIs)
+
+## Objective
+
+Ensure the backend project’s **admin frontend** can call admin APIs **without exposing `HEDGE_ADMIN_API_KEY` client-side**.
+
+Implement a **server-side proxy** under `/admin-api/*` that:
+
+* Runs on the backend server (same project)
+* Automatically injects admin auth internally
+* Forwards requests to the real admin endpoints (`/api/admin/*`)
+* Returns responses as-is
+
+Then update the admin frontend pages (Combat Sync Status + Plans & Access) to call `/admin-api/*` instead of `/api/admin/*`.
+
+This keeps admin key safe while preserving the same API semantics.
+
+---
+
+## A) Create server proxy router
+
+Create: `src/routes/adminProxy.ts`
+
+```ts
+import { Router } from "express";
+
+export const adminProxyRouter = Router();
+
+const ADMIN_KEY = process.env.HEDGE_ADMIN_API_KEY;
+
+function assertAdminKey() {
+  if (!ADMIN_KEY) throw new Error("Missing HEDGE_ADMIN_API_KEY");
+}
+
+// Only allow proxying these prefixes for safety
+const ALLOW_PREFIXES = [
+  "/combat/",
+  "/entitlements/",
+  "/schema/",
+];
+
+/**
+ * Proxy handler: forwards to /api/admin/*
+ * Example:
+ *  /admin-api/combat/status  -> /api/admin/combat/status
+ */
+adminProxyRouter.use(async (req, res) => {
+  try {
+    assertAdminKey();
+
+    const path = req.path; // e.g. "/combat/status"
+    const ok = ALLOW_PREFIXES.some((p) => path.startsWith(p));
+    if (!ok) return res.status(403).json({ ok: false, error: "Proxy path not allowed" });
+
+    const targetUrl = new URL(`/api/admin${path}`, `http://127.0.0.1:${process.env.PORT || 3000}`);
+
+    // Copy query params
+    for (const [k, v] of Object.entries(req.query)) {
+      if (Array.isArray(v)) v.forEach((vv) => targetUrl.searchParams.append(k, String(vv)));
+      else if (v !== undefined) targetUrl.searchParams.set(k, String(v));
+    }
+
+    // Read body (only for methods that can have body)
+    const method = req.method.toUpperCase();
+    const hasBody = ["POST", "PUT", "PATCH"].includes(method);
+
+    const fetchOpts: any = {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        "x-hedge-admin-key": ADMIN_KEY,
+      },
+    };
+
+    if (hasBody) fetchOpts.body = JSON.stringify(req.body ?? {});
+
+    const resp = await fetch(targetUrl.toString(), fetchOpts);
+    const text = await resp.text();
+
+    res.status(resp.status);
+    // try json passthrough, fallback to text
+    try {
+      res.json(JSON.parse(text));
+    } catch {
+      res.send(text);
+    }
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+```
+
+---
+
+## B) Mount proxy router
+
+In `src/server.ts` mount:
+
+```ts
+import { adminProxyRouter } from "./routes/adminProxy";
+
+app.use("/admin-api", adminProxyRouter);
+```
+
+This creates:
+
+* `/admin-api/combat/status` proxying to `/api/admin/combat/status`
+* `/admin-api/entitlements/tiers` proxying to `/api/admin/entitlements/tiers`
+* etc.
+
+---
+
+## C) Update Admin UI pages to use proxy endpoints
+
+In the backend admin frontend code for:
+
+* `/admin/combat-sync`
+* `/admin/plans-access`
+
+Change all API calls from:
+
+* `/api/admin/...`
+
+to:
+
+* `/admin-api/...`
+
+Examples:
+
+* `/api/admin/combat/sync/summary` → `/admin-api/combat/sync/summary`
+* `/api/admin/entitlements/tiers` → `/admin-api/entitlements/tiers`
+* `/api/admin/schema/combat/skills` → `/admin-api/schema/combat/skills`
+
+No headers needed in the browser. The server proxy injects the admin key.
+
+---
+
+## D) Security constraints
+
+1. Do NOT allow arbitrary proxying. Enforce allowlist prefixes (provided).
+2. Do NOT expose admin key in any client bundle.
+3. Ensure `/admin-api/*` is only accessible to authenticated admin users if you have an admin auth/session layer.
+
+   * If you currently have no admin login protection and rely purely on admin key, add at least a basic protection:
+
+     * Restrict `/admin-api/*` to internal/admin-only access (IP allowlist) or require a separate admin session cookie.
+   * If you already have admin auth, wrap `adminProxyRouter` with that auth middleware.
+
+---
+
+## Acceptance Criteria
+
+1. Browser devtools should never show `HEDGE_ADMIN_API_KEY` in headers or source code.
+2. Admin pages function normally using `/admin-api/*`.
+3. Proxy rejects unknown paths not in allowlist.
+4. Proxy works for GET/POST/PATCH/PUT used by admin pages.
+
+---
+
+When done, reply “Next” and I will provide the **Frontend Hedge webapp project prompts** (combat public fetch integration + tier-aware UI behavior), one per message.
