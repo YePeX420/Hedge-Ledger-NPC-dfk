@@ -78,6 +78,32 @@ const CEX_WALLETS: Record<string, string> = {
   // Gate.io, MEXC, etc. wallet addresses can be added once confirmed
 };
 
+// DFK Team Wallets - categories match DFK Helper tool (https://tools.dfkhelper.com/dfk-wallets)
+// These wallets hold team-controlled JEWEL for development, marketing, operations
+// Only verified addresses from on-chain analysis and official DFK documentation
+// NOTE: Bridge/system contracts are excluded here to avoid double-counting (tracked separately)
+const DFK_TEAM_WALLETS: Record<string, Record<string, string>> = {
+  'Fund Multisigs': {
+    'Development Fund': '0x33Bb4C3393082245Ea993Bf808b66F90F63dDBBD',
+    'Marketing Fund': '0x249CACA3b06c507aA55A56a9E6D3D3f6F3EBadb9',
+    'Founders Fund': '0x4f28c8C3c81fB2aE79d09595EDf2C194a0f309B8',
+    // Quest Reward Fund (0xE05c976d...) excluded - same as Bridge, tracked in Bridge Contracts
+    'Bridge Supply Fund': '0x0B608dE616aeC05df2da2BA3179f48e318060E2c',
+    'Jeweler (xJEWEL)': '0xA9cE83507D872C5e1273E745aBcfDa849DAA654F',
+  },
+  'Main / Gas Station': {
+    'Gas Station': '0x64a3dc745806d9d6e88ea5555F8fdA65B147a31D',
+    'Main Wallet': '0x79F0d0670D17a89f509Ad1c16BB6021187964A29',
+  },
+  'Multi-Sigs': {
+    'Validator Fees': '0xED6dC9FD092190C08e4afF8611496774Ded19D54',
+  },
+  'Private Wallets': {
+    'Frisky Fox': '0xBa5ED7D7DdD74e857a9D3F22e5F48AeEc2FC01e9',
+    'Dreamer': '0x17D348ee64e84DF453F8a1aBf31D63971Cdfd1a3',
+  },
+};
+
 const TOKENS = {
   JEWEL: '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260',
   CRYSTAL: '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb',
@@ -271,6 +297,16 @@ interface BurnData {
   sources: string[];
 }
 
+// Team wallet data - matches DFK Helper categories
+interface TeamWalletData {
+  categories: {
+    name: string;
+    wallets: { name: string; address: string; balance: number }[];
+    total: number;
+  }[];
+  totalBalance: number;
+}
+
 // Multi-chain JEWEL balance tracking
 interface ChainBalance {
   chain: string;
@@ -339,8 +375,16 @@ interface CoverageBreakdown {
     total: number;
     addresses: { address: string; balance: number }[];
   };
+  teamWallets: {
+    total: number;
+    categories: {
+      name: string;
+      wallets: { name: string; address: string; balance: number }[];
+      total: number;
+    }[];
+  };
   liquid: {
-    estimated: number; // Circulating - (locked + pooled + multiChain + burned)
+    estimated: number; // Circulating - (locked + pooled + multiChain + burned + teamWallets)
   };
   totalTracked: number;
   circulatingSupply: number;
@@ -1158,6 +1202,47 @@ async function fetchBurnedJewel(dfkProvider: ethers.JsonRpcProvider): Promise<Bu
   };
 }
 
+// Fetch DFK team wallet balances - matches DFK Helper tool categories
+async function fetchTeamWalletBalances(dfkProvider: ethers.JsonRpcProvider): Promise<TeamWalletData> {
+  const categories: TeamWalletData['categories'] = [];
+  let totalBalance = 0;
+  
+  for (const [categoryName, wallets] of Object.entries(DFK_TEAM_WALLETS)) {
+    const categoryWallets: { name: string; address: string; balance: number }[] = [];
+    let categoryTotal = 0;
+    
+    for (const [walletName, address] of Object.entries(wallets)) {
+      try {
+        // Check both JEWEL and wJEWEL balances
+        const jewelBalance = await getTokenBalance(dfkProvider, TOKENS.JEWEL, address, 'JEWEL');
+        const wJewelBalance = await getTokenBalance(dfkProvider, TOKENS.wJEWEL, address, 'wJEWEL');
+        const combinedBalance = jewelBalance + wJewelBalance;
+        
+        if (combinedBalance > 0) {
+          categoryWallets.push({ name: walletName, address, balance: combinedBalance });
+          categoryTotal += combinedBalance;
+          console.log(`[TeamWallets] ${categoryName} - ${walletName}: ${combinedBalance.toLocaleString()} JEWEL`);
+        }
+      } catch (err) {
+        console.warn(`[TeamWallets] Failed to fetch ${walletName}:`, (err as Error).message);
+      }
+    }
+    
+    if (categoryWallets.length > 0) {
+      categories.push({
+        name: categoryName,
+        wallets: categoryWallets,
+        total: categoryTotal,
+      });
+      totalBalance += categoryTotal;
+    }
+  }
+  
+  console.log(`[TeamWallets] Total team wallet balance: ${totalBalance.toLocaleString()} JEWEL`);
+  
+  return { categories, totalBalance };
+}
+
 export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
   
@@ -1480,9 +1565,9 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     { symbol: 'KLAY', price: allPrices['KLAY'] || 0, source: 'defillama' },
   ];
 
-  // Fetch JEWEL supply, burn data, multi-chain balances, LP reserves, and sJEWEL in parallel
+  // Fetch JEWEL supply, burn data, multi-chain balances, LP reserves, sJEWEL, and team wallets in parallel
   // Note: Avalanche LP tracking still disabled until verified on-chain
-  const [jewelSupply, burnData, multiChainBalances, harmonyLpReserves, metisLpReserves, kaiaLpReserves, sJewelSupply] = await Promise.all([
+  const [jewelSupply, burnData, multiChainBalances, harmonyLpReserves, metisLpReserves, kaiaLpReserves, sJewelSupply, teamWalletData] = await Promise.all([
     fetchJewelSupply(),
     fetchBurnedJewel(provider),
     getMultiChainJewelBalances(),
@@ -1490,6 +1575,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     getMetisLPReserves(), // Hercules DEX JEWEL-WMETIS (Algebra V3)
     getKaiaLPReserves(), // Serendale LPs on Kaia (JADE-JEWEL, JEWEL-KLAY)
     getSJewelSupply(), // sJEWEL staking on Kaia
+    fetchTeamWalletBalances(provider), // DFK team wallets (matches DFK Helper categories)
   ]);
   
   // Placeholder for disabled LP pools (Avalanche still pending verification)
@@ -1659,6 +1745,9 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   // 4. BURNED JEWEL - prefer official DFK API value if available
   const burnedTotal = jewelSupply?.burnedSupply || burnData.totalBurned;
   
+  // 5. TEAM WALLETS (DFK team multisigs and known wallets)
+  const teamWalletTotal = teamWalletData.totalBalance;
+  
   console.log(`[ValueBreakdown] Coverage Breakdown (Active JEWEL only):`);
   console.log(`  - DFK Locked (cJEWEL): ${lockedJewelCJewel.toLocaleString()}`);
   console.log(`  - Kaia Locked (sJEWEL): ${lockedJewelSJewel.toLocaleString()}`);
@@ -1676,10 +1765,11 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   console.log(`  - Avalanche Bridge (liquid): ${avalancheBridgeJewel.toLocaleString()}`);
   console.log(`  - Multi-Chain Bridges Total: ${multiChainBridgeTotal.toLocaleString()}`);
   console.log(`  - Burned: ${burnedTotal.toLocaleString()}`);
+  console.log(`  - Team Wallets: ${teamWalletTotal.toLocaleString()}`);
   console.log(`  - Total LP Contracts: ${lpContracts.length}`);
   
-  // Total tracked = Locked + ALL Pooled (DFK + Multi-chain) + Bridges (liquid) + Burned
-  const trackedJewel = lockedTotal + totalPooledJewel + multiChainBridgeTotal + burnedTotal;
+  // Total tracked = Locked + ALL Pooled (DFK + Multi-chain) + Bridges (liquid) + Burned + Team Wallets
+  const trackedJewel = lockedTotal + totalPooledJewel + multiChainBridgeTotal + burnedTotal + teamWalletTotal;
   
   // 5. LIQUID JEWEL (estimated) = Circulating - Tracked
   // This represents JEWEL in user wallets, CEX accounts, etc.
@@ -1715,6 +1805,10 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     burned: {
       total: burnedTotal,
       addresses: burnData.burnAddresses,
+    },
+    teamWallets: {
+      total: teamWalletTotal,
+      categories: teamWalletData.categories,
     },
     liquid: {
       estimated: liquidEstimate,
