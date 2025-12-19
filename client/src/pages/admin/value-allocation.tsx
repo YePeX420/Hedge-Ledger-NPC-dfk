@@ -229,9 +229,9 @@ export default function ValueAllocationPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="p-4 rounded-lg bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30" data-testid="card-total-usd">
+                <div className="p-4 rounded-lg bg-muted/50 border border-border" data-testid="card-total-usd">
                   <p className="text-sm text-muted-foreground">Total Value Locked</p>
-                  <p className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent" data-testid="text-total-usd">
+                  <p className="text-3xl font-bold text-foreground" data-testid="text-total-usd">
                     {formatUSD(data.summary.totalValueUSD)}
                   </p>
                 </div>
