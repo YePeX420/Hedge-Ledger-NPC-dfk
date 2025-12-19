@@ -842,38 +842,61 @@ async function fetchJewelSupply(): Promise<JewelSupplyData | null> {
   }
 }
 
-// Fetch burned JEWEL from known burn addresses
+// Fetch burned JEWEL from known burn addresses across multiple chains
 // Checks both JEWEL and wJEWEL (wrapped JEWEL) balances at burn addresses
-async function fetchBurnedJewel(provider: ethers.JsonRpcProvider): Promise<BurnData> {
-  const burnAddresses: { address: string; balance: number }[] = [];
+async function fetchBurnedJewel(dfkProvider: ethers.JsonRpcProvider): Promise<BurnData> {
+  const burnAddresses: { address: string; balance: number; chain?: string }[] = [];
   let totalBurned = 0;
   
+  // Check DFK Chain burn addresses
   for (const address of BURN_ADDRESSES) {
     try {
-      // Check native JEWEL balance
-      const jewelBalance = await getTokenBalance(provider, TOKENS.JEWEL, address, 'JEWEL');
-      // Check wJEWEL (wrapped) balance too - it's 1:1 with JEWEL
-      const wJewelBalance = await getTokenBalance(provider, TOKENS.wJEWEL, address, 'wJEWEL');
+      const jewelBalance = await getTokenBalance(dfkProvider, TOKENS.JEWEL, address, 'JEWEL');
+      const wJewelBalance = await getTokenBalance(dfkProvider, TOKENS.wJEWEL, address, 'wJEWEL');
       const combinedBalance = jewelBalance + wJewelBalance;
       
       if (combinedBalance > 0) {
-        burnAddresses.push({ address, balance: combinedBalance });
+        burnAddresses.push({ address, balance: combinedBalance, chain: 'DFK' });
         totalBurned += combinedBalance;
-        console.log(`[ValueBreakdown] Burn address ${address.slice(0, 10)}...: ${combinedBalance.toLocaleString()} JEWEL (native: ${jewelBalance.toFixed(2)}, wrapped: ${wJewelBalance.toFixed(2)})`);
+        console.log(`[Burn] DFK ${address.slice(0, 10)}...: ${combinedBalance.toLocaleString()} JEWEL`);
       }
     } catch (err) {
-      console.warn(`[ValueBreakdown] Could not check burn address ${address}:`, err);
+      console.warn(`[Burn] DFK check failed for ${address}:`, err);
     }
   }
   
-  if (totalBurned === 0) {
-    console.log(`[ValueBreakdown] No JEWEL found at known burn addresses`);
+  // Check Harmony burn addresses (original JEWEL burned before migration)
+  try {
+    const harmonyProvider = new ethers.JsonRpcProvider(HARMONY_RPC, undefined, { staticNetwork: true });
+    const jewelContract = new ethers.Contract(JEWEL_TOKENS.HARMONY, ERC20_ABI, harmonyProvider);
+    
+    for (const address of BURN_ADDRESSES) {
+      try {
+        const balance = await Promise.race([
+          jewelContract.balanceOf(address),
+          new Promise<bigint>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
+        ]);
+        const burnedAmount = parseFloat(ethers.formatEther(balance));
+        
+        if (burnedAmount > 0) {
+          burnAddresses.push({ address, balance: burnedAmount, chain: 'Harmony' });
+          totalBurned += burnedAmount;
+          console.log(`[Burn] Harmony ${address.slice(0, 10)}...: ${burnedAmount.toLocaleString()} JEWEL`);
+        }
+      } catch (err) {
+        // Silent fail for individual addresses
+      }
+    }
+  } catch (err) {
+    console.warn(`[Burn] Harmony burn check failed:`, (err as Error).message);
   }
+  
+  console.log(`[Burn] Total burned across chains: ${totalBurned.toLocaleString()} JEWEL`);
   
   return {
     totalBurned,
     burnAddresses,
-    sources: ['Zero address', 'Dead address', 'EIP-1559 burns'],
+    sources: ['Zero address', 'Dead address', 'EIP-1559 burns', 'Harmony burns'],
   };
 }
 
