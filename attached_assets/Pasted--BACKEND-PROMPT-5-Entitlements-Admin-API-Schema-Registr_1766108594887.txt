@@ -1,0 +1,347 @@
+# BACKEND PROMPT 5 — Entitlements Admin API + Schema Registry + Sync Status Enhancements
+
+## Objective
+
+Add backend admin APIs so your **backend-admin frontend page** can:
+
+1. Manage tiers (names, descriptions, enable/disable, sort order, price display)
+2. Manage entitlement rules (fields allowlists + feature flags) per tier
+3. Preview shaping results (“what would free see vs premium?”)
+4. Provide a schema registry for safe field selection
+5. Improve combat sync status data for the Admin Sync Status page
+
+This prompt is API-only (no UI components yet). All endpoints are under `/api/admin/*` and require admin key.
+
+---
+
+## A) Add uniqueness constraint for entitlement rules (if not already)
+
+Add migration (idempotent):
+
+```sql
+create unique index if not exists ux_entitlement_rules_unique
+on entitlement_rules(domain, resource, tier_id, mode);
+```
+
+---
+
+## B) Create schema registry constants
+
+Create: `src/schema/combatSchemas.ts`
+
+```ts
+export const CombatSkillFields = [
+  "class",
+  "tier",
+  "skill_points",
+  "discipline",
+  "ability",
+  "description_raw",
+  "summary",
+  "range",
+  "mana_cost",
+  "mana_growth",
+  "dod",
+  "tags",
+  "source_url",
+  "last_seen_at",
+  // future premium_plus:
+  "codex_score",
+  "synergy_notes",
+  "recommended_roles",
+] as const;
+
+export type CombatSkillField = (typeof CombatSkillFields)[number];
+```
+
+---
+
+## C) Create Entitlements Admin Router
+
+Create: `src/routes/admin/entitlements.ts`
+
+```ts
+import { Router } from "express";
+import { withClient } from "../../db";
+import { getEntitlements, shapeObjectByAllowlist } from "../../entitlements/entitlements";
+
+export const adminEntitlementsRouter = Router();
+
+/**
+ * GET /api/admin/entitlements/tiers
+ */
+adminEntitlementsRouter.get("/tiers", async (_req, res) => {
+  try {
+    const rows = await withClient(async (client) => {
+      const q = await client.query(
+        `
+        select tier_id, display_name, description, price_monthly, enabled, sort_order, updated_at
+        from entitlement_tiers
+        order by sort_order asc
+        `
+      );
+      return q.rows;
+    });
+    res.json({ ok: true, count: rows.length, results: rows });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * PATCH /api/admin/entitlements/tiers/:tierId
+ * Body can include: display_name, description, price_monthly, enabled, sort_order
+ */
+adminEntitlementsRouter.patch("/tiers/:tierId", async (req, res) => {
+  try {
+    const tierId = req.params.tierId;
+    const allowed = ["display_name", "description", "price_monthly", "enabled", "sort_order"] as const;
+
+    const patch: any = {};
+    for (const k of allowed) {
+      if (req.body?.[k] !== undefined) patch[k] = req.body[k];
+    }
+    if (Object.keys(patch).length === 0) return res.status(400).json({ ok: false, error: "No patch fields provided" });
+
+    const updated = await withClient(async (client) => {
+      const fields: string[] = [];
+      const vals: any[] = [];
+      let i = 1;
+      for (const [k, v] of Object.entries(patch)) {
+        fields.push(`${k} = $${i++}`);
+        vals.push(v);
+      }
+      vals.push(tierId);
+
+      const q = await client.query(
+        `
+        update entitlement_tiers
+        set ${fields.join(", ")}, updated_at = now()
+        where tier_id = $${i}
+        returning tier_id, display_name, description, price_monthly, enabled, sort_order, updated_at
+        `,
+        vals
+      );
+      return q.rows[0] ?? null;
+    });
+
+    if (!updated) return res.status(404).json({ ok: false, error: "Tier not found" });
+    res.json({ ok: true, result: updated });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * GET /api/admin/entitlements/rules?domain=&resource=
+ * Returns all rules for the specified domain/resource, grouped by tier.
+ */
+adminEntitlementsRouter.get("/rules", async (req, res) => {
+  try {
+    const domain = String(req.query.domain || "").trim();
+    const resource = String(req.query.resource || "").trim();
+    if (!domain || !resource) return res.status(400).json({ ok: false, error: "domain and resource are required" });
+
+    const rows = await withClient(async (client) => {
+      const q = await client.query(
+        `
+        select id, domain, resource, tier_id, mode, rule, updated_at
+        from entitlement_rules
+        where domain=$1 and resource=$2
+        order by tier_id asc, mode asc
+        `,
+        [domain, resource]
+      );
+      return q.rows;
+    });
+
+    res.json({ ok: true, count: rows.length, results: rows });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * PUT /api/admin/entitlements/rules
+ * Upsert one rule:
+ * { domain, resource, tier_id, mode, rule }
+ */
+adminEntitlementsRouter.put("/rules", async (req, res) => {
+  try {
+    const { domain, resource, tier_id, mode, rule } = req.body || {};
+    if (!domain || !resource || !tier_id || !mode || !rule) {
+      return res.status(400).json({ ok: false, error: "domain, resource, tier_id, mode, rule are required" });
+    }
+
+    const updated = await withClient(async (client) => {
+      const q = await client.query(
+        `
+        insert into entitlement_rules(domain, resource, tier_id, mode, rule, updated_at)
+        values ($1,$2,$3,$4,$5,now())
+        on conflict (domain, resource, tier_id, mode)
+        do update set rule = excluded.rule, updated_at = now()
+        returning id, domain, resource, tier_id, mode, rule, updated_at
+        `,
+        [domain, resource, tier_id, mode, rule]
+      );
+      return q.rows[0];
+    });
+
+    res.json({ ok: true, result: updated });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * POST /api/admin/entitlements/preview
+ * Body: { domain, resource, tier_id, sample }
+ * Returns the shaped version (fields allowlist applied) + flags.
+ */
+adminEntitlementsRouter.post("/preview", async (req, res) => {
+  try {
+    const { domain, resource, tier_id, sample } = req.body || {};
+    if (!domain || !resource || !tier_id || !sample) {
+      return res.status(400).json({ ok: false, error: "domain, resource, tier_id, sample required" });
+    }
+
+    // reuse entitlement resolver used by public API
+    const ent = await getEntitlements(domain, resource, tier_id);
+
+    const shaped = shapeObjectByAllowlist(sample, ent.allowFields);
+
+    res.json({ ok: true, tier: tier_id, features: ent.flags, result: shaped });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+```
+
+---
+
+## D) Add Schema Registry Admin Router
+
+Create: `src/routes/admin/schema.ts`
+
+```ts
+import { Router } from "express";
+import { CombatSkillFields } from "../../schema/combatSchemas";
+
+export const adminSchemaRouter = Router();
+
+/**
+ * GET /api/admin/schema/combat/skills
+ * Returns allowed field names for allowlist editor.
+ */
+adminSchemaRouter.get("/combat/skills", async (_req, res) => {
+  res.json({ ok: true, fields: CombatSkillFields });
+});
+```
+
+---
+
+## E) Add Sync Status Enhancement Endpoint (admin)
+
+You already have `/api/admin/combat/status` and `/api/admin/combat/sync/*`.
+Add one more endpoint for a clean Admin dashboard header:
+
+Create: `src/routes/admin/combatSyncSummary.ts`
+
+```ts
+import { Router } from "express";
+import { withClient } from "../../db";
+
+export const adminCombatSyncSummaryRouter = Router();
+
+/**
+ * GET /api/admin/combat/sync/summary
+ * Returns:
+ * - lastSuccess
+ * - lastRun (any status)
+ * - runningRun (if any)
+ * - quick counts
+ */
+adminCombatSyncSummaryRouter.get("/sync/summary", async (_req, res) => {
+  try {
+    const data = await withClient(async (client) => {
+      const counts = await client.query(`
+        select
+          (select count(*)::int from combat_keywords) as keywords,
+          (select count(*)::int from combat_class_meta) as classes,
+          (select count(*)::int from combat_skills) as skills
+      `);
+
+      const lastSuccess = await client.query(`
+        select id, started_at, finished_at, discovered_urls, classes_ingested, skills_upserted
+        from sync_runs
+        where domain='combat_codex' and status='success'
+        order by started_at desc
+        limit 1
+      `);
+
+      const lastRun = await client.query(`
+        select id, started_at, finished_at, status, error
+        from sync_runs
+        where domain='combat_codex'
+        order by started_at desc
+        limit 1
+      `);
+
+      const runningRun = await client.query(`
+        select id, started_at
+        from sync_runs
+        where domain='combat_codex' and status='running'
+        order by started_at desc
+        limit 1
+      `);
+
+      return {
+        counts: counts.rows[0],
+        lastSuccess: lastSuccess.rows[0] ?? null,
+        lastRun: lastRun.rows[0] ?? null,
+        runningRun: runningRun.rows[0] ?? null,
+      };
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+```
+
+---
+
+## F) Mount admin routers in server
+
+In `src/server.ts`, mount:
+
+```ts
+import { adminEntitlementsRouter } from "./routes/admin/entitlements";
+import { adminSchemaRouter } from "./routes/admin/schema";
+import { adminCombatSyncSummaryRouter } from "./routes/admin/combatSyncSummary";
+
+app.use("/api/admin/entitlements", adminEntitlementsRouter);
+app.use("/api/admin/schema", adminSchemaRouter);
+app.use("/api/admin/combat", adminCombatSyncSummaryRouter);
+```
+
+Note: `adminCombatSyncSummaryRouter` mounts under the same `/api/admin/combat` namespace as the existing admin combat router (Prompt 3), so it becomes:
+
+* `/api/admin/combat/sync/summary`
+
+---
+
+## Acceptance Criteria
+
+1. `GET /api/admin/entitlements/tiers` returns tiers
+2. `PATCH /api/admin/entitlements/tiers/free` updates tier display fields
+3. `GET /api/admin/entitlements/rules?domain=combat&resource=skills.search` returns rules
+4. `PUT /api/admin/entitlements/rules` upserts a rule and is immediately reflected in public API shaping
+5. `POST /api/admin/entitlements/preview` returns a shaped object
+6. `GET /api/admin/schema/combat/skills` returns the field list
+7. `GET /api/admin/combat/sync/summary` returns quick sync health data for admin dashboard header
+
+---
+
+When you’re done, reply “Next” and I will provide **Backend Prompt 6 (Admin UI pages: Sync Status + Plans & Access)** as a single pasteable prompt (still one per message).
