@@ -255,22 +255,22 @@ export default function CoverageDetailsPage() {
         // NOTE: Not adding to totalTracked - bridge contracts are excluded to avoid double-counting
       }
 
-      // 3. Multi-Chain (Total Supply on each chain - all JEWEL holders)
+      // 3. Multi-Chain (Bridge contracts + LPs - NOT totalSupply which includes locked tokens)
       if (coverage.multiChain.total > 0) {
         const multiChainContracts: { name: string; address: string; jewel: number }[] = [];
         
         if (coverage.multiChain.harmonyTotal > 0) {
-          multiChainContracts.push({ name: 'Harmony (All Holders)', address: 'Harmony Chain', jewel: coverage.multiChain.harmonyTotal });
+          multiChainContracts.push({ name: 'Harmony (Bridge + LPs)', address: 'Harmony Chain', jewel: coverage.multiChain.harmonyTotal });
         }
         if (coverage.multiChain.kaiaTotal > 0) {
-          multiChainContracts.push({ name: 'Kaia (All Holders)', address: 'Kaia Chain', jewel: coverage.multiChain.kaiaTotal });
+          multiChainContracts.push({ name: 'Kaia (Bridge)', address: 'Kaia Chain', jewel: coverage.multiChain.kaiaTotal });
         }
         if (coverage.multiChain.metisTotal > 0) {
-          multiChainContracts.push({ name: 'Metis (All Holders)', address: 'Metis Chain', jewel: coverage.multiChain.metisTotal });
+          multiChainContracts.push({ name: 'Metis (Bridge)', address: 'Metis Chain', jewel: coverage.multiChain.metisTotal });
         }
         
         sourceBreakdown.push({
-          name: 'Multi-Chain JEWEL',
+          name: 'Multi-Chain Active JEWEL',
           jewel: coverage.multiChain.total,
           percentage: 0,
           icon: Globe,
@@ -400,18 +400,19 @@ export default function CoverageDetailsPage() {
       }
 
       // Multi-Chain Bridges (Harmony, Kaia, Metis)
+      // NOTE: Use totalJewel (bridge contracts) instead of chainTotalSupply (includes permanently locked)
       if (data.multiChainBalances && data.multiChainBalances.length > 0) {
         let multiChainJewel = 0;
         const multiChainContracts: { name: string; address: string; jewel: number }[] = [];
         
         for (const chain of data.multiChainBalances) {
           if (chain.status === 'success') {
-            // Use chainTotalSupply for comprehensive tracking
-            const chainTotal = chain.chainTotalSupply || chain.totalJewel;
+            // Use totalJewel (bridge contracts) - NOT chainTotalSupply (includes permanently locked)
+            const chainTotal = chain.totalJewel;
             if (chainTotal > 0) {
               multiChainJewel += chainTotal;
               multiChainContracts.push({
-                name: `${chain.chain} (All Holders)`,
+                name: `${chain.chain} (Bridge)`,
                 address: chain.tokenAddress,
                 jewel: chainTotal,
               });
@@ -421,7 +422,7 @@ export default function CoverageDetailsPage() {
         
         if (multiChainJewel > 0) {
           sourceBreakdown.push({
-            name: 'Multi-Chain JEWEL',
+            name: 'Multi-Chain Active JEWEL',
             jewel: multiChainJewel,
             percentage: 0,
             icon: Globe,
