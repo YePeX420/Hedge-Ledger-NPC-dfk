@@ -1,0 +1,238 @@
+# BACKEND PROMPT 6 — Admin UI Pages (Sync Status + Plans & Access) in Backend Project
+
+## Objective
+
+Implement TWO admin frontend pages inside the backend project (where your admin UI already lives):
+
+1. **Combat Sync Status** page
+2. **Plans & Access** page (tiers + entitlement rules editor + preview)
+
+Both pages must use the admin APIs from Prompts 3–5 and must live in the backend project’s admin frontend.
+
+Do not change the public frontend project yet.
+
+---
+
+## Assumptions (adapt if your admin UI stack differs)
+
+* The backend project already has an Admin frontend (React/Vite or similar) and routing.
+* You already have a standard admin layout and a way to add new pages.
+* You can make authenticated API calls from the admin UI using `HEDGE_ADMIN_API_KEY`.
+
+  * If your admin UI is browser-based, store the admin key on the server side and proxy calls (preferred).
+  * If your admin UI currently calls APIs directly from the browser, continue that pattern but do NOT expose admin key publicly; it must remain server-side.
+
+If your admin UI is server-rendered or uses a server proxy, implement an internal `adminApiFetch()` that automatically attaches admin auth without exposing the key client-side.
+
+---
+
+## Part 1 — Combat Sync Status Page
+
+### Route
+
+Add an admin route/page:
+
+* **Path:** `/admin/combat-sync`
+* **Nav label:** “Combat Sync Status”
+
+### Data sources (admin APIs)
+
+* `GET /api/admin/combat/sync/summary`
+* `GET /api/admin/combat/sync/runs?limit=25`
+* `GET /api/admin/combat/sync/runs/:id`
+* `GET /api/admin/combat/sources`
+* `PATCH /api/admin/combat/sources`
+* `POST /api/admin/combat/refresh`
+
+### UI requirements
+
+#### A) Header summary card
+
+Show:
+
+* Last successful sync (timestamp + discovered_urls + classes_ingested + skills_upserted)
+* Current running sync (if any)
+* Total counts: keywords / classes / skills
+
+Use `/sync/summary`.
+
+#### B) Actions
+
+* Button: “Run Sync Now”
+
+  * Calls `POST /api/admin/combat/refresh` with `{ discover: true, concurrency: 3 }`
+  * After success, refresh summary + runs list
+
+#### C) Recent Runs table
+
+From `/sync/runs?limit=25` display columns:
+
+* Run ID
+* Started At
+* Duration (finished - started; show “running” if not finished)
+* Status (running/success/failed)
+* Discovered URLs
+* Classes Attempted / Ingested
+* Skills Upserted
+* Error (if failed, truncated)
+
+Each row clickable to open **Run Detail**.
+
+#### D) Run Detail drawer/modal/page
+
+When a run is selected, call `/sync/runs/:id` and display:
+
+* Run header stats + error/log (if present)
+* Items list (from `sync_run_items`) with filters:
+
+  * All / Success / Skipped / Failed
+* For each item:
+
+  * item_key (URL)
+  * status
+  * detail
+  * skills_count
+
+This is the core debugging tool.
+
+#### E) Sources Management section
+
+Display `combat_sources` in a table:
+
+* URL
+* kind
+* enabled (toggle switch)
+* last_seen_at
+
+Toggle calls `PATCH /api/admin/combat/sources` body `{ url, enabled }`.
+After toggle, refresh sources list.
+
+---
+
+## Part 2 — Plans & Access Page (Tiers + Rules + Preview)
+
+### Route
+
+Add an admin route/page:
+
+* **Path:** `/admin/plans-access`
+* **Nav label:** “Plans & Access”
+
+### Data sources (admin APIs)
+
+* `GET /api/admin/entitlements/tiers`
+* `PATCH /api/admin/entitlements/tiers/:tierId`
+* `GET /api/admin/entitlements/rules?domain=combat&resource=skills.search`
+* `PUT /api/admin/entitlements/rules`
+* `POST /api/admin/entitlements/preview`
+* `GET /api/admin/schema/combat/skills`
+
+### UI requirements
+
+#### A) Tiers editor (top section)
+
+Table listing tiers in `sort_order` with editable fields:
+
+* tier_id (read-only)
+* display_name (editable)
+* description (editable)
+* price_monthly (editable display)
+* enabled (toggle)
+* sort_order controls (up/down buttons OK)
+
+Save behavior:
+
+* On change, call `PATCH /api/admin/entitlements/tiers/:tierId`
+* For sort order updates, adjust affected tiers accordingly (simple approach: after reorder, patch all tiers with new sort_order)
+
+#### B) Combat entitlements editor (bottom section)
+
+Scope: combat domain only (for now)
+
+Controls:
+
+* Dropdown: Resource
+
+  * Start with `skills.search`
+  * (Later you can add `keywords` and `classes`, but implement at least `skills.search` now)
+
+For selected resource:
+
+* Load rules: `GET /api/admin/entitlements/rules?domain=combat&resource=skills.search`
+* Load schema fields list: `GET /api/admin/schema/combat/skills`
+
+Display a 3-column matrix: Free / Premium / Premium+
+For each tier:
+
+1. **Fields allowlist editor**
+
+* Multi-select list populated from schema endpoint
+* Save button calls:
+
+  * `PUT /api/admin/entitlements/rules`
+  * Body `{ domain:'combat', resource:'skills.search', tier_id, mode:'fields_allowlist', rule:{ fields:[...] } }`
+
+2. **Feature flags editor**
+   For this resource, show at least:
+
+* `combat.skills.searchByTags`
+* `combat.codexScore.enabled`
+
+Render as toggles. Save calls `PUT` with mode `feature_flags` and:
+`rule:{ flags:{ ... } }`
+
+#### C) Preview panel
+
+* Textarea to paste sample JSON object
+* Dropdown to select tier_id
+* Button: “Preview”
+
+  * Calls `POST /api/admin/entitlements/preview`
+  * Body `{ domain:'combat', resource:'skills.search', tier_id, sample }`
+* Show shaped output JSON in a formatted viewer
+
+Also add “Use Live Sample” button:
+
+* Calls `GET /api/public/combat/skills/search?limit=1` is not available. Instead:
+
+  * Implement an admin-only helper call: reuse existing DB query inside the UI by calling a new endpoint is not desired here.
+  * So do this simple approach:
+
+    * Call `GET /api/admin/combat/status` and take first class name, then call `GET /api/public/combat/skills/search?class=<name>` using a DEV override tier header only in non-production is messy.
+  * Better: for now, allow manual paste only OR add a small admin endpoint later if needed.
+    Implement manual paste preview now; we can add live sample later if you want.
+
+---
+
+## Implementation Notes (important)
+
+1. Do NOT expose `HEDGE_ADMIN_API_KEY` in client-side code.
+
+   * If your admin UI is browser SPA, create server endpoints that proxy admin API calls internally.
+   * If your admin UI already authenticates another way (session/cookie), reuse that and keep admin key on server only.
+2. All admin UI API calls must hit the admin endpoints created in Prompts 3–5.
+3. Admin UI must show loading states and friendly error messages.
+
+---
+
+## Deliverables / Acceptance Criteria
+
+1. `/admin/combat-sync` shows:
+
+   * sync summary
+   * recent runs table
+   * run detail viewer
+   * sources table with enable toggles
+   * “Run Sync Now” button works
+2. `/admin/plans-access` shows:
+
+   * editable tiers
+   * editable combat skills.search entitlements:
+
+     * fields allowlist per tier
+     * feature flags per tier
+   * preview panel shapes sample JSON correctly via preview endpoint
+
+---
+
+If any of the admin UI stack assumptions differ, implement the same UX using your existing admin framework and routing conventions, but keep the API contracts identical.
