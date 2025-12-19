@@ -3,6 +3,8 @@ import { db } from '../db';
 import { combatSources, entitlementTiers, entitlementRules, combatKeywords, combatClassMeta, combatSkills, syncRuns, syncRunItems } from '@shared/schema';
 import { eq, desc, sql, and } from 'drizzle-orm';
 import { ingestCombatCodex } from '../../src/dfk/combatCodexIngestor';
+import { CombatSkillFields } from '../../src/schema/combatSchemas';
+import { getEntitlements, shapeObjectByAllowlist, UserTier } from '../../src/entitlements/entitlements';
 
 export function registerHedgeAdminRoutes(router: Router) {
   
@@ -228,11 +230,67 @@ export function registerHedgeAdminRoutes(router: Router) {
 
   router.get('/entitlements/tiers', async (_req: Request, res: Response) => {
     try {
-      const tiers = await db.select().from(entitlementTiers).orderBy(entitlementTiers.sortOrder);
-      res.json({ tiers, count: tiers.length });
+      const tiers = await db.select({
+        tier_id: entitlementTiers.tierId,
+        display_name: entitlementTiers.displayName,
+        description: entitlementTiers.description,
+        price_monthly: entitlementTiers.priceMonthly,
+        enabled: entitlementTiers.enabled,
+        sort_order: entitlementTiers.sortOrder,
+        updated_at: entitlementTiers.updatedAt,
+      }).from(entitlementTiers).orderBy(entitlementTiers.sortOrder);
+      res.json({ ok: true, count: tiers.length, results: tiers });
     } catch (error: any) {
       console.error('[HedgeAdmin] Error fetching tiers:', error);
-      res.status(500).json({ error: 'Failed to fetch tiers' });
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  router.patch('/entitlements/tiers/:tierId', async (req: Request, res: Response) => {
+    try {
+      const tierId = req.params.tierId;
+      const allowed = ['display_name', 'description', 'price_monthly', 'enabled', 'sort_order'] as const;
+      const fieldMap: Record<string, string> = {
+        display_name: 'displayName',
+        description: 'description',
+        price_monthly: 'priceMonthly',
+        enabled: 'enabled',
+        sort_order: 'sortOrder',
+      };
+
+      const patch: Record<string, any> = {};
+      for (const k of allowed) {
+        if (req.body?.[k] !== undefined) {
+          const dbField = fieldMap[k];
+          patch[dbField] = k === 'price_monthly' ? req.body[k]?.toString() : req.body[k];
+        }
+      }
+      if (Object.keys(patch).length === 0) {
+        return res.status(400).json({ ok: false, error: 'No patch fields provided' });
+      }
+
+      patch.updatedAt = new Date();
+
+      const [updated] = await db.update(entitlementTiers)
+        .set(patch)
+        .where(eq(entitlementTiers.tierId, tierId))
+        .returning({
+          tier_id: entitlementTiers.tierId,
+          display_name: entitlementTiers.displayName,
+          description: entitlementTiers.description,
+          price_monthly: entitlementTiers.priceMonthly,
+          enabled: entitlementTiers.enabled,
+          sort_order: entitlementTiers.sortOrder,
+          updated_at: entitlementTiers.updatedAt,
+        });
+
+      if (!updated) {
+        return res.status(404).json({ ok: false, error: 'Tier not found' });
+      }
+      res.json({ ok: true, result: updated });
+    } catch (error: any) {
+      console.error('[HedgeAdmin] Error patching tier:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
 
@@ -261,13 +319,77 @@ export function registerHedgeAdminRoutes(router: Router) {
     }
   });
 
-  router.get('/entitlements/rules', async (_req: Request, res: Response) => {
+  router.get('/entitlements/rules', async (req: Request, res: Response) => {
     try {
-      const rules = await db.select().from(entitlementRules);
-      res.json({ rules, count: rules.length });
+      const domain = String(req.query.domain || '').trim();
+      const resource = String(req.query.resource || '').trim();
+
+      let rows;
+      if (domain && resource) {
+        rows = await db.select({
+          id: entitlementRules.id,
+          domain: entitlementRules.domain,
+          resource: entitlementRules.resource,
+          tier_id: entitlementRules.tierId,
+          mode: entitlementRules.mode,
+          rule: entitlementRules.rule,
+          updated_at: entitlementRules.updatedAt,
+        }).from(entitlementRules)
+          .where(and(
+            eq(entitlementRules.domain, domain),
+            eq(entitlementRules.resource, resource)
+          ))
+          .orderBy(entitlementRules.tierId, entitlementRules.mode);
+      } else {
+        rows = await db.select({
+          id: entitlementRules.id,
+          domain: entitlementRules.domain,
+          resource: entitlementRules.resource,
+          tier_id: entitlementRules.tierId,
+          mode: entitlementRules.mode,
+          rule: entitlementRules.rule,
+          updated_at: entitlementRules.updatedAt,
+        }).from(entitlementRules)
+          .orderBy(entitlementRules.domain, entitlementRules.resource, entitlementRules.tierId, entitlementRules.mode);
+      }
+      res.json({ ok: true, count: rows.length, results: rows });
     } catch (error: any) {
       console.error('[HedgeAdmin] Error fetching rules:', error);
-      res.status(500).json({ error: 'Failed to fetch rules' });
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  router.put('/entitlements/rules', async (req: Request, res: Response) => {
+    try {
+      const { domain, resource, tier_id, mode, rule } = req.body || {};
+      if (!domain || !resource || !tier_id || !mode || !rule) {
+        return res.status(400).json({ ok: false, error: 'domain, resource, tier_id, mode, rule are required' });
+      }
+
+      const [updated] = await db.insert(entitlementRules).values({
+        domain,
+        resource,
+        tierId: tier_id,
+        mode,
+        rule,
+        updatedAt: new Date(),
+      }).onConflictDoUpdate({
+        target: [entitlementRules.domain, entitlementRules.resource, entitlementRules.tierId, entitlementRules.mode],
+        set: { rule, updatedAt: new Date() }
+      }).returning({
+        id: entitlementRules.id,
+        domain: entitlementRules.domain,
+        resource: entitlementRules.resource,
+        tier_id: entitlementRules.tierId,
+        mode: entitlementRules.mode,
+        rule: entitlementRules.rule,
+        updated_at: entitlementRules.updatedAt,
+      });
+
+      res.json({ ok: true, result: updated });
+    } catch (error: any) {
+      console.error('[HedgeAdmin] Error upserting rule:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
 
@@ -289,6 +411,92 @@ export function registerHedgeAdminRoutes(router: Router) {
     } catch (error: any) {
       console.error('[HedgeAdmin] Error creating rule:', error);
       res.status(500).json({ error: 'Failed to create rule' });
+    }
+  });
+
+  router.post('/entitlements/preview', async (req: Request, res: Response) => {
+    try {
+      const { domain, resource, tier_id, sample } = req.body || {};
+      if (!domain || !resource || !tier_id || !sample) {
+        return res.status(400).json({ ok: false, error: 'domain, resource, tier_id, sample required' });
+      }
+
+      const ent = await getEntitlements(domain, resource, tier_id as UserTier);
+      const shaped = shapeObjectByAllowlist(sample, ent.allowFields);
+
+      res.json({ ok: true, tier: tier_id, features: ent.flags, result: shaped });
+    } catch (error: any) {
+      console.error('[HedgeAdmin] Error previewing entitlements:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // ============================================================================
+  // SCHEMA REGISTRY ENDPOINTS
+  // ============================================================================
+
+  router.get('/schema/combat/skills', async (_req: Request, res: Response) => {
+    res.json({ ok: true, fields: CombatSkillFields });
+  });
+
+  // ============================================================================
+  // COMBAT SYNC SUMMARY (for admin dashboard header)
+  // ============================================================================
+
+  router.get('/combat/sync/summary', async (_req: Request, res: Response) => {
+    try {
+      const [keywordCount] = await db.select({ count: sql<number>`count(*)::int` }).from(combatKeywords);
+      const [classCount] = await db.select({ count: sql<number>`count(*)::int` }).from(combatClassMeta);
+      const [skillCount] = await db.select({ count: sql<number>`count(*)::int` }).from(combatSkills);
+
+      const lastSuccessResults = await db.select({
+        id: syncRuns.id,
+        started_at: syncRuns.startedAt,
+        finished_at: syncRuns.finishedAt,
+        discovered_urls: syncRuns.discoveredUrls,
+        classes_ingested: syncRuns.classesIngested,
+        skills_upserted: syncRuns.skillsUpserted,
+      })
+        .from(syncRuns)
+        .where(and(eq(syncRuns.domain, 'combat_codex'), eq(syncRuns.status, 'success')))
+        .orderBy(desc(syncRuns.startedAt))
+        .limit(1);
+
+      const lastRunResults = await db.select({
+        id: syncRuns.id,
+        started_at: syncRuns.startedAt,
+        finished_at: syncRuns.finishedAt,
+        status: syncRuns.status,
+        error: syncRuns.error,
+      })
+        .from(syncRuns)
+        .where(eq(syncRuns.domain, 'combat_codex'))
+        .orderBy(desc(syncRuns.startedAt))
+        .limit(1);
+
+      const runningRunResults = await db.select({
+        id: syncRuns.id,
+        started_at: syncRuns.startedAt,
+      })
+        .from(syncRuns)
+        .where(and(eq(syncRuns.domain, 'combat_codex'), eq(syncRuns.status, 'running')))
+        .orderBy(desc(syncRuns.startedAt))
+        .limit(1);
+
+      res.json({
+        ok: true,
+        counts: {
+          keywords: keywordCount?.count ?? 0,
+          classes: classCount?.count ?? 0,
+          skills: skillCount?.count ?? 0,
+        },
+        lastSuccess: lastSuccessResults[0] ?? null,
+        lastRun: lastRunResults[0] ?? null,
+        runningRun: runningRunResults[0] ?? null,
+      });
+    } catch (error: any) {
+      console.error('[HedgeAdmin] Error fetching sync summary:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
 }
