@@ -30,6 +30,14 @@ const MULTI_CHAIN_BRIDGES = {
   },
 };
 
+// Harmony LP pools containing JEWEL (Serendale legacy)
+const HARMONY_LP_POOLS = {
+  'JEWEL-ONE': '0xeb579ddcd49a7beb3f205c9ff6006bb6390f138f',
+};
+
+// Wrapped ONE token on Harmony for identifying ONE side of LP
+const WONE_ADDRESS = '0xcF664087a5bB0237a0BAd6742852ec6c8d69A27a';
+
 // Known CEX hot wallets for JEWEL (on DFK Chain)
 // These are identified exchange deposit/withdrawal wallets
 const CEX_WALLETS: Record<string, string> = {
@@ -628,6 +636,82 @@ async function getChainJewelBalances(
   return result;
 }
 
+// Fetch JEWEL reserves from Harmony LP pools (Serendale legacy)
+interface HarmonyLPReserves {
+  poolName: string;
+  lpAddress: string;
+  jewelReserves: number;
+  oneReserves: number;
+  status: 'success' | 'error';
+  error?: string;
+}
+
+async function getHarmonyLPReserves(): Promise<HarmonyLPReserves[]> {
+  const results: HarmonyLPReserves[] = [];
+  
+  try {
+    const provider = new ethers.JsonRpcProvider(HARMONY_RPC, undefined, {
+      staticNetwork: true,
+    });
+    
+    const timeout = 10000;
+    const jewelTokenLower = JEWEL_TOKENS.HARMONY.toLowerCase();
+    
+    for (const [poolName, lpAddress] of Object.entries(HARMONY_LP_POOLS)) {
+      try {
+        const lpContract = new ethers.Contract(lpAddress, LP_ABI, provider);
+        
+        const [reserves, token0, token1] = await Promise.all([
+          Promise.race([
+            lpContract.getReserves(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+          ]),
+          lpContract.token0().catch(() => ''),
+          lpContract.token1().catch(() => ''),
+        ]);
+        
+        const token0Lower = token0.toString().toLowerCase();
+        const token1Lower = token1.toString().toLowerCase();
+        
+        let jewelReserves = 0;
+        let oneReserves = 0;
+        
+        if (token0Lower === jewelTokenLower) {
+          jewelReserves = parseFloat(ethers.formatEther(reserves[0]));
+          oneReserves = parseFloat(ethers.formatEther(reserves[1]));
+        } else if (token1Lower === jewelTokenLower) {
+          jewelReserves = parseFloat(ethers.formatEther(reserves[1]));
+          oneReserves = parseFloat(ethers.formatEther(reserves[0]));
+        }
+        
+        results.push({
+          poolName,
+          lpAddress,
+          jewelReserves,
+          oneReserves,
+          status: 'success',
+        });
+        
+        console.log(`[HarmonyLP] ${poolName}: ${jewelReserves.toLocaleString()} JEWEL, ${oneReserves.toLocaleString()} ONE`);
+      } catch (err) {
+        console.warn(`[HarmonyLP] Failed to get reserves for ${poolName}: ${(err as Error).message}`);
+        results.push({
+          poolName,
+          lpAddress,
+          jewelReserves: 0,
+          oneReserves: 0,
+          status: 'error',
+          error: (err as Error).message,
+        });
+      }
+    }
+  } catch (err) {
+    console.error(`[HarmonyLP] Failed to connect to Harmony: ${(err as Error).message}`);
+  }
+  
+  return results;
+}
+
 // Fetch JEWEL balances across all chains
 async function getMultiChainJewelBalances(): Promise<ChainBalance[]> {
   const results: ChainBalance[] = [];
@@ -1115,11 +1199,12 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     { symbol: 'KLAY', price: allPrices['KLAY'] || 0, source: 'defillama' },
   ];
 
-  // Fetch JEWEL supply, burn data, and multi-chain balances in parallel
-  const [jewelSupply, burnData, multiChainBalances] = await Promise.all([
+  // Fetch JEWEL supply, burn data, multi-chain balances, and Harmony LPs in parallel
+  const [jewelSupply, burnData, multiChainBalances, harmonyLpReserves] = await Promise.all([
     fetchJewelSupply(),
     fetchBurnedJewel(provider),
     getMultiChainJewelBalances(),
+    getHarmonyLPReserves(),
   ]);
   
   // ========== COMPREHENSIVE COVERAGE CALCULATION ==========
@@ -1154,8 +1239,8 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const kaiaBridgeJewel = kaiaChain?.totalJewel || 0;
   const metisBridgeJewel = metisChain?.totalJewel || 0;
   
-  // TODO: Add Harmony LP reserves tracking (JEWEL-ONE pool) for complete coverage
-  const harmonyLpJewel = 0; // Placeholder - will be populated in task 2
+  // Harmony LP reserves (JEWEL-ONE pool) for active JEWEL on Harmony
+  const harmonyLpJewel = harmonyLpReserves.reduce((sum, lp) => sum + lp.jewelReserves, 0);
   
   // Multi-chain total = bridge contracts + LPs (not totalSupply)
   const harmonyTotal = harmonyBridgeJewel + harmonyLpJewel;
@@ -1176,12 +1261,12 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   console.log(`  - DFK Locked (System): ${lockedJewelSystem.toLocaleString()}`);
   console.log(`  - DFK Bridge Contracts (excluded): ${lockedJewelBridge.toLocaleString()}`);
   console.log(`  - DFK Pooled (LP Full): ${lpPooledTotal.toLocaleString()}`);
-  console.log(`  - Multi-chain Bridge (Harmony): ${harmonyBridgeJewel.toLocaleString()}`);
-  console.log(`  - Multi-chain Bridge (Kaia): ${kaiaBridgeJewel.toLocaleString()}`);
-  console.log(`  - Multi-chain Bridge (Metis): ${metisBridgeJewel.toLocaleString()}`);
-  console.log(`  - Harmony LP (TODO): ${harmonyLpJewel.toLocaleString()}`);
+  console.log(`  - Harmony Bridge: ${harmonyBridgeJewel.toLocaleString()}`);
+  console.log(`  - Harmony LPs (JEWEL-ONE): ${harmonyLpJewel.toLocaleString()}`);
+  console.log(`  - Kaia Bridge: ${kaiaBridgeJewel.toLocaleString()}`);
+  console.log(`  - Metis Bridge: ${metisBridgeJewel.toLocaleString()}`);
   console.log(`  - Burned: ${burnedTotal.toLocaleString()}`);
-  console.log(`  - Note: Harmony totalSupply (${harmonyTotalSupply.toLocaleString()}) includes ~283M permanently locked - excluded`);
+  console.log(`  - Note: Harmony totalSupply (${harmonyTotalSupply.toLocaleString()}) includes permanently locked - excluded from coverage`);
   
   // Total tracked = DFK Chain (Locked + Pooled) + MultiChain + Burned
   // Note: Bridge contracts excluded because their value is already counted on other chains
