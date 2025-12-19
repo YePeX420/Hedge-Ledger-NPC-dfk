@@ -6,6 +6,7 @@ const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc'
 const HARMONY_RPC = 'https://api.harmony.one';
 const KAIA_RPC = 'https://public-en.node.kaia.io';
 const METIS_RPC = 'https://andromeda.metis.io/?owner=1088';
+const AVALANCHE_RPC = 'https://api.avax.network/ext/bc/C/rpc';
 
 // Multi-chain JEWEL token addresses
 const JEWEL_TOKENS = {
@@ -13,6 +14,7 @@ const JEWEL_TOKENS = {
   HARMONY: '0x72Cb10C6bfA5624dD07Ef608027E366bd690048F', // JEWEL on Harmony
   KAIA: '0x30c103f8f5a3A732DFe2dCE1Cc9446f545527b43', // JEWEL on Kaia
   METIS: '0x17c09cfC96C865CF546d73f2dF01fb440cA8BAd5', // JEWEL on Metis
+  AVALANCHE: '0x4f60a160D8C2DDdaAfe16FCC57566dB84D674BD6', // JEWEL on Avalanche C-Chain
 };
 
 // Multi-chain bridge contracts holding JEWEL
@@ -28,9 +30,22 @@ const MULTI_CHAIN_BRIDGES = {
   METIS: {
     'Synapse Bridge (Metis)': '0x06Fea8513FF03a0d3f61324da709D4cf06F42A5c',
   },
+  AVALANCHE: {
+    'Synapse Bridge (Avalanche)': '0x1F1A430dFe9c4088697A5502d6D71E4f28F16644',
+  },
 };
 
-// Harmony LP pools containing JEWEL (Serendale legacy)
+// Multi-chain LP pools containing JEWEL
+// Note: Addresses use lowercase to allow proper checksumming by ethers
+const MULTI_CHAIN_LP_POOLS = {
+  HARMONY: {
+    'JEWEL-ONE (SushiSwap)': '0xeb579ddcd49a7beb3f205c9ff6006bb6390f138f',
+  },
+  // Metis and Avalanche LPs may have minimal liquidity - disabled for now
+  // Can be re-enabled once verified on-chain
+};
+
+// Legacy reference (kept for backward compatibility)
 const HARMONY_LP_POOLS = {
   'JEWEL-ONE': '0xeb579ddcd49a7beb3f205c9ff6006bb6390f138f',
 };
@@ -250,10 +265,33 @@ interface ChainBalance {
     address: string;
     jewelBalance: number;
   }[];
+  bridgeBalances?: {
+    name: string;
+    address: string;
+    balanceFormatted: number;
+  }[];
   totalJewel: number; // Bridge contract totals
   chainTotalSupply: number; // Total JEWEL supply on this chain (all holders)
   status: 'success' | 'error';
   error?: string;
+}
+
+// LP pool contract with chain information
+interface LpPoolDetail {
+  chain: string;
+  name: string;
+  address: string;
+  jewelReserves: number;
+  otherToken?: string;
+  otherReserves?: number;
+}
+
+// Bridge wallet with chain information
+interface BridgeWalletDetail {
+  chain: string;
+  name: string;
+  address: string;
+  jewelBalance: number;
 }
 
 // Comprehensive coverage breakdown for near-100% tracking
@@ -265,15 +303,19 @@ interface CoverageBreakdown {
     total: number;
   };
   pooled: {
-    lpReservesStaked: number; // wJEWEL in staked LP positions
-    lpReservesUnstaked: number; // wJEWEL in unstaked LP positions  
+    lpReservesStaked: number; // wJEWEL in staked LP positions (DFK Chain)
+    lpReservesUnstaked: number; // wJEWEL in unstaked LP positions (DFK Chain)
+    multiChainLp: number; // JEWEL in LP pools on other chains
     total: number;
+    contracts: LpPoolDetail[]; // Individual LP pool breakdown with chain info
   };
   multiChain: {
-    harmonyTotal: number;
-    kaiaTotal: number;
-    metisTotal: number;
+    harmonyBridge: number; // Only bridge balances (liquid)
+    kaiaBridge: number;
+    metisBridge: number;
+    avalancheBridge: number;
     total: number;
+    wallets: BridgeWalletDetail[]; // Individual bridge wallet breakdown
   };
   burned: {
     total: number;
@@ -573,6 +615,7 @@ async function getChainJewelBalances(
     rpc: rpcUrl,
     tokenAddress: normalizedJewelAddress,
     contracts: [],
+    bridgeBalances: [],
     totalJewel: 0,
     chainTotalSupply: 0,
     status: 'success',
@@ -618,6 +661,7 @@ async function getChainJewelBalances(
         
         if (jewelBalance > 0) {
           result.contracts.push({ name, address, jewelBalance });
+          result.bridgeBalances!.push({ name, address, balanceFormatted: jewelBalance });
           result.totalJewel += jewelBalance;
           console.log(`[MultiChain] ${chainName} - ${name}: ${jewelBalance.toFixed(2)} JEWEL`);
         }
@@ -712,7 +756,161 @@ async function getHarmonyLPReserves(): Promise<HarmonyLPReserves[]> {
   return results;
 }
 
-// Fetch JEWEL balances across all chains
+// Generic LP reserves interface for multi-chain
+interface MultiChainLPReserves {
+  chain: string;
+  poolName: string;
+  lpAddress: string;
+  jewelReserves: number;
+  otherToken: string;
+  otherReserves: number;
+  status: 'success' | 'error';
+  error?: string;
+}
+
+// Fetch Avalanche LP reserves (Trader Joe JEWEL-AVAX)
+async function getAvalancheLPReserves(): Promise<MultiChainLPReserves[]> {
+  const results: MultiChainLPReserves[] = [];
+  
+  try {
+    const provider = new ethers.JsonRpcProvider(AVALANCHE_RPC, undefined, {
+      staticNetwork: true,
+    });
+    
+    const timeout = 10000;
+    const jewelTokenLower = JEWEL_TOKENS.AVALANCHE.toLowerCase();
+    
+    for (const [poolName, lpAddress] of Object.entries(MULTI_CHAIN_LP_POOLS.AVALANCHE)) {
+      try {
+        const lpContract = new ethers.Contract(lpAddress, LP_ABI, provider);
+        
+        const [reserves, token0, token1] = await Promise.all([
+          Promise.race([
+            lpContract.getReserves(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+          ]),
+          lpContract.token0().catch(() => ''),
+          lpContract.token1().catch(() => ''),
+        ]);
+        
+        const token0Lower = token0.toString().toLowerCase();
+        const token1Lower = token1.toString().toLowerCase();
+        
+        let jewelReserves = 0;
+        let otherReserves = 0;
+        
+        if (token0Lower === jewelTokenLower) {
+          jewelReserves = parseFloat(ethers.formatEther(reserves[0]));
+          otherReserves = parseFloat(ethers.formatEther(reserves[1]));
+        } else if (token1Lower === jewelTokenLower) {
+          jewelReserves = parseFloat(ethers.formatEther(reserves[1]));
+          otherReserves = parseFloat(ethers.formatEther(reserves[0]));
+        }
+        
+        results.push({
+          chain: 'Avalanche',
+          poolName,
+          lpAddress,
+          jewelReserves,
+          otherToken: 'AVAX',
+          otherReserves,
+          status: 'success',
+        });
+        
+        console.log(`[AvalancheLP] ${poolName}: ${jewelReserves.toLocaleString()} JEWEL, ${otherReserves.toLocaleString()} AVAX`);
+      } catch (err) {
+        console.warn(`[AvalancheLP] Failed to get reserves for ${poolName}: ${(err as Error).message}`);
+        results.push({
+          chain: 'Avalanche',
+          poolName,
+          lpAddress,
+          jewelReserves: 0,
+          otherToken: 'AVAX',
+          otherReserves: 0,
+          status: 'error',
+          error: (err as Error).message,
+        });
+      }
+    }
+  } catch (err) {
+    console.error(`[AvalancheLP] Failed to connect to Avalanche: ${(err as Error).message}`);
+  }
+  
+  return results;
+}
+
+// Fetch Metis LP reserves (Hercules DEX JEWEL-METIS)
+async function getMetisLPReserves(): Promise<MultiChainLPReserves[]> {
+  const results: MultiChainLPReserves[] = [];
+  
+  try {
+    const provider = new ethers.JsonRpcProvider(METIS_RPC, undefined, {
+      staticNetwork: true,
+    });
+    
+    const timeout = 10000;
+    const jewelTokenLower = JEWEL_TOKENS.METIS.toLowerCase();
+    
+    for (const [poolName, lpAddress] of Object.entries(MULTI_CHAIN_LP_POOLS.METIS)) {
+      try {
+        const lpContract = new ethers.Contract(lpAddress, LP_ABI, provider);
+        
+        const [reserves, token0, token1] = await Promise.all([
+          Promise.race([
+            lpContract.getReserves(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+          ]),
+          lpContract.token0().catch(() => ''),
+          lpContract.token1().catch(() => ''),
+        ]);
+        
+        const token0Lower = token0.toString().toLowerCase();
+        const token1Lower = token1.toString().toLowerCase();
+        
+        let jewelReserves = 0;
+        let otherReserves = 0;
+        
+        if (token0Lower === jewelTokenLower) {
+          jewelReserves = parseFloat(ethers.formatEther(reserves[0]));
+          otherReserves = parseFloat(ethers.formatEther(reserves[1]));
+        } else if (token1Lower === jewelTokenLower) {
+          jewelReserves = parseFloat(ethers.formatEther(reserves[1]));
+          otherReserves = parseFloat(ethers.formatEther(reserves[0]));
+        }
+        
+        results.push({
+          chain: 'Metis',
+          poolName,
+          lpAddress,
+          jewelReserves,
+          otherToken: 'METIS',
+          otherReserves,
+          status: 'success',
+        });
+        
+        console.log(`[MetisLP] ${poolName}: ${jewelReserves.toLocaleString()} JEWEL, ${otherReserves.toLocaleString()} METIS`);
+      } catch (err) {
+        console.warn(`[MetisLP] Failed to get reserves for ${poolName}: ${(err as Error).message}`);
+        results.push({
+          chain: 'Metis',
+          poolName,
+          lpAddress,
+          jewelReserves: 0,
+          otherToken: 'METIS',
+          otherReserves: 0,
+          status: 'error',
+          error: (err as Error).message,
+        });
+      }
+    }
+  } catch (err) {
+    console.error(`[MetisLP] Failed to connect to Metis: ${(err as Error).message}`);
+  }
+  
+  return results;
+}
+
+// Fetch JEWEL balances across all chains (bridge contracts only - liquid JEWEL)
 async function getMultiChainJewelBalances(): Promise<ChainBalance[]> {
   const results: ChainBalance[] = [];
 
@@ -721,6 +919,7 @@ async function getMultiChainJewelBalances(): Promise<ChainBalance[]> {
     getChainJewelBalances('Harmony', '1666600000', HARMONY_RPC, JEWEL_TOKENS.HARMONY, MULTI_CHAIN_BRIDGES.HARMONY),
     getChainJewelBalances('Kaia', '8217', KAIA_RPC, JEWEL_TOKENS.KAIA, MULTI_CHAIN_BRIDGES.KAIA),
     getChainJewelBalances('Metis', '1088', METIS_RPC, JEWEL_TOKENS.METIS, MULTI_CHAIN_BRIDGES.METIS),
+    getChainJewelBalances('Avalanche', '43114', AVALANCHE_RPC, JEWEL_TOKENS.AVALANCHE, MULTI_CHAIN_BRIDGES.AVALANCHE),
   ];
 
   const chainResults = await Promise.allSettled(chainPromises);
@@ -732,7 +931,7 @@ async function getMultiChainJewelBalances(): Promise<ChainBalance[]> {
   }
 
   const totalMultiChain = results.reduce((sum, r) => sum + r.totalJewel, 0);
-  console.log(`[MultiChain] Total JEWEL across chains: ${totalMultiChain.toFixed(2)}`);
+  console.log(`[MultiChain] Total JEWEL in bridge wallets: ${totalMultiChain.toFixed(2)}`);
 
   return results;
 }
@@ -1222,13 +1421,18 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     { symbol: 'KLAY', price: allPrices['KLAY'] || 0, source: 'defillama' },
   ];
 
-  // Fetch JEWEL supply, burn data, multi-chain balances, and Harmony LPs in parallel
+  // Fetch JEWEL supply, burn data, multi-chain balances, and LP reserves in parallel
+  // Note: Avalanche and Metis LP tracking disabled until verified on-chain
   const [jewelSupply, burnData, multiChainBalances, harmonyLpReserves] = await Promise.all([
     fetchJewelSupply(),
     fetchBurnedJewel(provider),
     getMultiChainJewelBalances(),
     getHarmonyLPReserves(),
   ]);
+  
+  // Placeholder for disabled LP pools
+  const avalancheLpReserves: MultiChainLPReserves[] = [];
+  const metisLpReserves: MultiChainLPReserves[] = [];
   
   // ========== COMPREHENSIVE COVERAGE CALCULATION ==========
   // Goal: Track ALL JEWEL across the ecosystem to approach 100% coverage
@@ -1249,32 +1453,131 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const lpPooledStaked = lpCat?.totalJewel || 0;
   const lpPooledUnstaked = lpPooledTotal - lpPooledStaked;
   
-  // 3. MULTI-CHAIN JEWEL (bridge contracts + LPs on other chains)
+  // 3. MULTI-CHAIN DATA - Separate bridges (liquid) from LPs (pooled)
   // IMPORTANT: We do NOT use chainTotalSupply because Harmony has ~283M permanently locked
   // JEWEL that will never unlock. Only track active JEWEL: bridge contracts and LPs.
   const harmonyChain = multiChainBalances.find(c => c.chain === 'Harmony');
   const kaiaChain = multiChainBalances.find(c => c.chain === 'Kaia');
   const metisChain = multiChainBalances.find(c => c.chain === 'Metis');
+  const avalancheChain = multiChainBalances.find(c => c.chain === 'Avalanche');
   
-  // Use bridge contract balances (active JEWEL), NOT totalSupply (includes permanently locked)
-  // The chainTotalSupply is stored for reference but excluded from coverage calculation
+  // Bridge contract balances (liquid JEWEL that can be withdrawn)
   const harmonyBridgeJewel = harmonyChain?.totalJewel || 0;
   const kaiaBridgeJewel = kaiaChain?.totalJewel || 0;
   const metisBridgeJewel = metisChain?.totalJewel || 0;
+  const avalancheBridgeJewel = avalancheChain?.totalJewel || 0;
   
-  // Harmony LP reserves (JEWEL-ONE pool) for active JEWEL on Harmony
+  // Multi-chain LP reserves (JEWEL pooled in DEXes on other chains)
   const harmonyLpJewel = harmonyLpReserves.reduce((sum, lp) => sum + lp.jewelReserves, 0);
+  const avalancheLpJewel = avalancheLpReserves.reduce((sum, lp) => sum + lp.jewelReserves, 0);
+  const metisLpJewel = metisLpReserves.reduce((sum, lp) => sum + lp.jewelReserves, 0);
+  const multiChainLpTotal = harmonyLpJewel + avalancheLpJewel + metisLpJewel;
   
-  // Multi-chain total = bridge contracts + LPs (not totalSupply)
-  const harmonyTotal = harmonyBridgeJewel + harmonyLpJewel;
-  const kaiaTotal = kaiaBridgeJewel;
-  const metisTotal = metisBridgeJewel;
-  const multiChainTotal = harmonyTotal + kaiaTotal + metisTotal;
+  // Build LP contracts array (DFK Chain pools + Multi-chain LPs)
+  const lpContracts: LpPoolDetail[] = [];
   
-  // Store chainTotalSupply for reference (includes permanently locked)
-  const harmonyTotalSupply = harmonyChain?.chainTotalSupply || 0;
-  const kaiaTotalSupply = kaiaChain?.chainTotalSupply || 0;
-  const metisTotalSupply = metisChain?.chainTotalSupply || 0;
+  // Add DFK Chain LP pools
+  // Helper to check if a token symbol represents wJEWEL (wrapped JEWEL)
+  // NOTE: xJEWEL is staked JEWEL and should NOT be counted here (it's in cJEWEL tracking)
+  const isWJewelToken = (symbol: string | undefined) => {
+    if (!symbol) return false;
+    const upper = symbol.toUpperCase();
+    // Only count wJEWEL/JEWEL, NOT xJEWEL (staked JEWEL is counted separately)
+    return upper === 'JEWEL' || upper === 'WJEWEL';
+  };
+  
+  if (lpCat?.contracts) {
+    for (const pool of lpCat.contracts) {
+      const poolContract = pool as LpPoolContract;
+      // Calculate full reserves wJEWEL for this pool (not xJEWEL which is counted separately)
+      let jewelReserves = 0;
+      if (isWJewelToken(poolContract.token0Symbol)) {
+        jewelReserves += poolContract.stakedRatio > 0 ? (poolContract.token0Balance || 0) / poolContract.stakedRatio : 0;
+      }
+      if (isWJewelToken(poolContract.token1Symbol)) {
+        jewelReserves += poolContract.stakedRatio > 0 ? (poolContract.token1Balance || 0) / poolContract.stakedRatio : 0;
+      }
+      if (jewelReserves > 0) {
+        const otherToken = isWJewelToken(poolContract.token0Symbol) ? poolContract.token1Symbol : poolContract.token0Symbol;
+        const otherReserves = isWJewelToken(poolContract.token0Symbol) ? poolContract.token1Balance : poolContract.token0Balance;
+        lpContracts.push({
+          chain: 'DFK Chain',
+          name: poolContract.name,
+          address: poolContract.address,
+          jewelReserves,
+          otherToken,
+          otherReserves: otherReserves / (poolContract.stakedRatio || 1),
+        });
+      }
+    }
+  }
+  
+  // Add Harmony LP pools
+  for (const lp of harmonyLpReserves) {
+    if (lp.jewelReserves > 0) {
+      lpContracts.push({
+        chain: 'Harmony',
+        name: lp.poolName,
+        address: lp.lpAddress,
+        jewelReserves: lp.jewelReserves,
+        otherToken: 'ONE',
+        otherReserves: lp.oneReserves,
+      });
+    }
+  }
+  
+  // Add Avalanche LP pools
+  for (const lp of avalancheLpReserves) {
+    if (lp.jewelReserves > 0) {
+      lpContracts.push({
+        chain: 'Avalanche',
+        name: lp.poolName,
+        address: lp.lpAddress,
+        jewelReserves: lp.jewelReserves,
+        otherToken: lp.otherToken,
+        otherReserves: lp.otherReserves,
+      });
+    }
+  }
+  
+  // Add Metis LP pools
+  for (const lp of metisLpReserves) {
+    if (lp.jewelReserves > 0) {
+      lpContracts.push({
+        chain: 'Metis',
+        name: lp.poolName,
+        address: lp.lpAddress,
+        jewelReserves: lp.jewelReserves,
+        otherToken: lp.otherToken,
+        otherReserves: lp.otherReserves,
+      });
+    }
+  }
+  
+  // Build bridge wallets array (liquid JEWEL only)
+  const bridgeWallets: BridgeWalletDetail[] = [];
+  
+  // Add bridge wallet details from each chain
+  for (const chain of multiChainBalances) {
+    if (chain.status === 'success' && chain.bridgeBalances) {
+      for (const bridge of chain.bridgeBalances) {
+        if (bridge.balanceFormatted > 0) {
+          bridgeWallets.push({
+            chain: chain.chain,
+            name: bridge.name,
+            address: bridge.address,
+            jewelBalance: bridge.balanceFormatted,
+          });
+        }
+      }
+    }
+  }
+  
+  // Multi-chain bridge total = sum of all bridge wallet balances (liquid)
+  const multiChainBridgeTotal = harmonyBridgeJewel + kaiaBridgeJewel + metisBridgeJewel + avalancheBridgeJewel;
+  
+  // Total pooled = DFK LP pools + Multi-chain LPs
+  const totalPooledJewel = lpPooledTotal + multiChainLpTotal;
   
   // 4. BURNED JEWEL
   const burnedTotal = burnData.totalBurned;
@@ -1284,16 +1587,20 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   console.log(`  - DFK Locked (System): ${lockedJewelSystem.toLocaleString()}`);
   console.log(`  - DFK Bridge Contracts (excluded): ${lockedJewelBridge.toLocaleString()}`);
   console.log(`  - DFK Pooled (LP Full): ${lpPooledTotal.toLocaleString()}`);
-  console.log(`  - Harmony Bridge: ${harmonyBridgeJewel.toLocaleString()}`);
-  console.log(`  - Harmony LPs (JEWEL-ONE): ${harmonyLpJewel.toLocaleString()}`);
-  console.log(`  - Kaia Bridge: ${kaiaBridgeJewel.toLocaleString()}`);
-  console.log(`  - Metis Bridge: ${metisBridgeJewel.toLocaleString()}`);
+  console.log(`  - Harmony LP: ${harmonyLpJewel.toLocaleString()}`);
+  console.log(`  - Avalanche LP: ${avalancheLpJewel.toLocaleString()}`);
+  console.log(`  - Metis LP: ${metisLpJewel.toLocaleString()}`);
+  console.log(`  - Multi-Chain LPs Total: ${multiChainLpTotal.toLocaleString()}`);
+  console.log(`  - Harmony Bridge (liquid): ${harmonyBridgeJewel.toLocaleString()}`);
+  console.log(`  - Kaia Bridge (liquid): ${kaiaBridgeJewel.toLocaleString()}`);
+  console.log(`  - Metis Bridge (liquid): ${metisBridgeJewel.toLocaleString()}`);
+  console.log(`  - Avalanche Bridge (liquid): ${avalancheBridgeJewel.toLocaleString()}`);
+  console.log(`  - Multi-Chain Bridges Total: ${multiChainBridgeTotal.toLocaleString()}`);
   console.log(`  - Burned: ${burnedTotal.toLocaleString()}`);
-  console.log(`  - Note: Harmony totalSupply (${harmonyTotalSupply.toLocaleString()}) includes permanently locked - excluded from coverage`);
+  console.log(`  - Total LP Contracts: ${lpContracts.length}`);
   
-  // Total tracked = DFK Chain (Locked + Pooled) + MultiChain + Burned
-  // Note: Bridge contracts excluded because their value is already counted on other chains
-  const trackedJewel = lockedTotal + lpPooledTotal + multiChainTotal + burnedTotal;
+  // Total tracked = Locked + ALL Pooled (DFK + Multi-chain) + Bridges (liquid) + Burned
+  const trackedJewel = lockedTotal + totalPooledJewel + multiChainBridgeTotal + burnedTotal;
   
   // 5. LIQUID JEWEL (estimated) = Circulating - Tracked
   // This represents JEWEL in user wallets, CEX accounts, etc.
@@ -1313,13 +1620,17 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     pooled: {
       lpReservesStaked: lpPooledStaked,
       lpReservesUnstaked: lpPooledUnstaked,
-      total: lpPooledTotal,
+      multiChainLp: multiChainLpTotal,
+      total: totalPooledJewel, // Now includes multi-chain LPs
+      contracts: lpContracts, // All LP pools with chain info
     },
     multiChain: {
-      harmonyTotal,
-      kaiaTotal,
-      metisTotal,
-      total: multiChainTotal,
+      harmonyBridge: harmonyBridgeJewel, // Only bridge balances (liquid)
+      kaiaBridge: kaiaBridgeJewel,
+      metisBridge: metisBridgeJewel,
+      avalancheBridge: avalancheBridgeJewel,
+      total: multiChainBridgeTotal,
+      wallets: bridgeWallets, // Individual bridge wallet details
     },
     burned: {
       total: burnedTotal,
@@ -1347,8 +1658,8 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       circulatingSupply: jewelSupply.circulatingSupply,
       coverageRatio,
       unaccountedJewel,
-      multiChainTotal,
-      lpPooledTotal,
+      multiChainTotal: multiChainBridgeTotal, // Only bridge wallets (liquid)
+      lpPooledTotal: totalPooledJewel, // DFK + multi-chain LP pools
       lockedTotal,
       burnedTotal,
       liquidEstimate,
@@ -1388,7 +1699,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       stakingValue: stakingCat?.totalValueUSD || 0,
       bridgeValue: bridgeCat?.totalValueUSD || 0,
       systemValue: systemCat?.totalValueUSD || 0,
-      multiChainJewel: multiChainTotal,
+      multiChainJewel: multiChainBridgeTotal, // Only bridge wallets (liquid)
     },
   };
 }

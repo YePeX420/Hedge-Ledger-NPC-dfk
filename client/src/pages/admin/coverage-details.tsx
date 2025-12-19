@@ -59,6 +59,22 @@ interface ChainBalance {
   error?: string;
 }
 
+interface LpPoolDetail {
+  chain: string;
+  name: string;
+  address: string;
+  jewelReserves: number;
+  otherToken?: string;
+  otherReserves?: number;
+}
+
+interface BridgeWalletDetail {
+  chain: string;
+  name: string;
+  address: string;
+  jewelBalance: number;
+}
+
 interface CoverageBreakdown {
   locked: {
     cJewel: number;
@@ -69,13 +85,17 @@ interface CoverageBreakdown {
   pooled: {
     lpReservesStaked: number;
     lpReservesUnstaked: number;
+    multiChainLp: number;
     total: number;
+    contracts: LpPoolDetail[];
   };
   multiChain: {
-    harmonyTotal: number;
-    kaiaTotal: number;
-    metisTotal: number;
+    harmonyBridge: number;
+    kaiaBridge: number;
+    metisBridge: number;
+    avalancheBridge: number;
     total: number;
+    wallets: BridgeWalletDetail[];
   };
   burned: {
     total: number;
@@ -185,25 +205,18 @@ export default function CoverageDetailsPage() {
     
     // Use new coverageBreakdown if available, fallback to legacy calculation
     if (coverage) {
-      // 1. LP Pools (Full Reserves - includes both staked and unstaked wJEWEL)
+      // 1. LP Pools (Full Reserves - includes DFK Chain + multi-chain LPs)
       if (coverage.pooled.total > 0) {
-        const lpCategory = data.categories.find(c => c.category === 'LP Pools');
+        // Use the contracts array from the backend (includes all chains)
         const lpContracts: { name: string; address: string; jewel: number }[] = [];
         
-        if (lpCategory) {
-          for (const pool of lpCategory.contracts) {
-            let poolJewel = 0;
-            const stakedRatio = (pool as any).stakedRatio || 1;
-            // Calculate full reserves (not just staked)
-            if (pool.token0Symbol === 'wJEWEL') {
-              poolJewel += stakedRatio > 0 ? (pool.token0Balance || 0) / stakedRatio : 0;
-            }
-            if (pool.token1Symbol === 'wJEWEL') {
-              poolJewel += stakedRatio > 0 ? (pool.token1Balance || 0) / stakedRatio : 0;
-            }
-            if (poolJewel > 0) {
-              lpContracts.push({ name: pool.name, address: pool.address, jewel: poolJewel });
-            }
+        if (coverage.pooled.contracts && coverage.pooled.contracts.length > 0) {
+          for (const pool of coverage.pooled.contracts) {
+            lpContracts.push({
+              name: `[${pool.chain}] ${pool.name}`,
+              address: pool.address,
+              jewel: pool.jewelReserves,
+            });
           }
         }
         
@@ -255,27 +268,42 @@ export default function CoverageDetailsPage() {
         // NOTE: Not adding to totalTracked - bridge contracts are excluded to avoid double-counting
       }
 
-      // 3. Multi-Chain (Bridge contracts + LPs - NOT totalSupply which includes locked tokens)
+      // 3. Multi-Chain Bridge Wallets (liquid JEWEL only - NOT LPs which are now in pooled)
       if (coverage.multiChain.total > 0) {
-        const multiChainContracts: { name: string; address: string; jewel: number }[] = [];
+        const bridgeWalletContracts: { name: string; address: string; jewel: number }[] = [];
         
-        if (coverage.multiChain.harmonyTotal > 0) {
-          multiChainContracts.push({ name: 'Harmony (Bridge + LPs)', address: 'Harmony Chain', jewel: coverage.multiChain.harmonyTotal });
-        }
-        if (coverage.multiChain.kaiaTotal > 0) {
-          multiChainContracts.push({ name: 'Kaia (Bridge)', address: 'Kaia Chain', jewel: coverage.multiChain.kaiaTotal });
-        }
-        if (coverage.multiChain.metisTotal > 0) {
-          multiChainContracts.push({ name: 'Metis (Bridge)', address: 'Metis Chain', jewel: coverage.multiChain.metisTotal });
+        // Use the wallets array from the backend for individual bridge details
+        if (coverage.multiChain.wallets && coverage.multiChain.wallets.length > 0) {
+          for (const wallet of coverage.multiChain.wallets) {
+            bridgeWalletContracts.push({
+              name: `[${wallet.chain}] ${wallet.name}`,
+              address: wallet.address,
+              jewel: wallet.jewelBalance,
+            });
+          }
+        } else {
+          // Fallback to summary if wallets array is empty
+          if (coverage.multiChain.harmonyBridge > 0) {
+            bridgeWalletContracts.push({ name: 'Harmony Bridge', address: 'Harmony Chain', jewel: coverage.multiChain.harmonyBridge });
+          }
+          if (coverage.multiChain.kaiaBridge > 0) {
+            bridgeWalletContracts.push({ name: 'Kaia Bridge', address: 'Kaia Chain', jewel: coverage.multiChain.kaiaBridge });
+          }
+          if (coverage.multiChain.metisBridge > 0) {
+            bridgeWalletContracts.push({ name: 'Metis Bridge', address: 'Metis Chain', jewel: coverage.multiChain.metisBridge });
+          }
+          if (coverage.multiChain.avalancheBridge > 0) {
+            bridgeWalletContracts.push({ name: 'Avalanche Bridge', address: 'Avalanche C-Chain', jewel: coverage.multiChain.avalancheBridge });
+          }
         }
         
         sourceBreakdown.push({
-          name: 'Multi-Chain Active JEWEL',
+          name: 'Multi-Chain Bridges (Liquid)',
           jewel: coverage.multiChain.total,
           percentage: 0,
           icon: Globe,
           color: COLORS['Multi-Chain'],
-          contracts: multiChainContracts.sort((a, b) => b.jewel - a.jewel),
+          contracts: bridgeWalletContracts.sort((a, b) => b.jewel - a.jewel),
         });
         totalTracked += coverage.multiChain.total;
       }
@@ -422,7 +450,7 @@ export default function CoverageDetailsPage() {
         
         if (multiChainJewel > 0) {
           sourceBreakdown.push({
-            name: 'Multi-Chain Active JEWEL',
+            name: 'Multi-Chain Bridges (Liquid)',
             jewel: multiChainJewel,
             percentage: 0,
             icon: Globe,
