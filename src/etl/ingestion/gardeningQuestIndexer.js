@@ -27,7 +27,11 @@ const TOKEN_SYMBOLS = {
 const QUEST_CORE_ABI = [
   'event RewardMinted(uint256 indexed questId, address indexed player, uint256 heroId, address indexed reward, uint256 amount, uint256 data)',
   'event QuestCompleted(uint256 indexed questId, address indexed player, uint256 indexed heroId, tuple(uint256 id, uint256 questInstanceId, uint8 level, uint256[] heroes, address player, uint256 startBlock, uint256 startAtTime, uint256 completeAtTime, uint8 attempts, uint8 status, uint8 questType) quest)',
+  'event ExpeditionIterationProcessed(uint256 indexed expeditionId, uint256 indexed questId, address indexed player, uint256[] heroIds, uint256 iterationsProcessed, uint256 totalFee, uint40 lastClaimedAt, uint16 staminaPotions, uint16 petTreats)',
+  'function getQuest(uint256 _questId) view returns (tuple(uint256 id, uint256 questInstanceId, uint8 level, uint256[] heroes, address player, uint256 startBlock, uint256 startAtTime, uint256 completeAtTime, uint8 attempts, uint8 status, uint8 questType))',
 ];
+
+const questTypeCache = new Map();
 
 const liveProgress = new Map();
 const workerLiveProgress = new Map();
@@ -175,6 +179,8 @@ async function ensureTablesExist() {
         reward_token TEXT NOT NULL,
         reward_symbol TEXT,
         reward_amount NUMERIC(38, 18) NOT NULL,
+        source TEXT DEFAULT 'manual_quest',
+        expedition_id BIGINT,
         block_number BIGINT NOT NULL,
         tx_hash TEXT NOT NULL,
         log_index INTEGER NOT NULL,
@@ -183,10 +189,15 @@ async function ensureTablesExist() {
       )
     `);
     
+    // Add new columns if they don't exist (for existing tables)
+    await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual_quest'`);
+    await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS expedition_id BIGINT`);
+    
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_hero_idx ON gardening_quest_rewards(hero_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_player_idx ON gardening_quest_rewards(player)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_pool_idx ON gardening_quest_rewards(pool_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_token_idx ON gardening_quest_rewards(reward_token)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_source_idx ON gardening_quest_rewards(source)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_timestamp_idx ON gardening_quest_rewards(timestamp)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_block_idx ON gardening_quest_rewards(block_number)`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS gardening_quest_rewards_unique_idx ON gardening_quest_rewards(tx_hash, log_index)`);
@@ -259,15 +270,37 @@ export async function updateIndexerProgress(indexerName, updates) {
     .where(eq(gardeningQuestIndexerProgress.indexerName, indexerName));
 }
 
-async function getQuestTypeFromTx(txHash) {
+// Fetch quest type from on-chain if not available in logs
+async function getQuestTypeFromChain(questId) {
+  if (questTypeCache.has(questId)) {
+    return questTypeCache.get(questId);
+  }
+  
+  try {
+    const questContract = getQuestContract();
+    const quest = await questContract.getQuest(questId);
+    const questType = Number(quest.questType);
+    questTypeCache.set(questId, questType);
+    return questType;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Returns Map<questId, { questType, source, expeditionId }> for all quests in a transaction
+async function getQuestInfoMapFromTx(txHash) {
+  const questInfoMap = new Map();
+  
   try {
     const provider = getProvider();
     const tx = await provider.getTransactionReceipt(txHash);
-    if (!tx) return null;
+    if (!tx) return questInfoMap;
     
     const questContract = getQuestContract();
     const questCompletedTopic = questContract.interface.getEvent('QuestCompleted').topicHash;
+    const expeditionIterationTopic = questContract.interface.getEvent('ExpeditionIterationProcessed').topicHash;
     
+    // Parse all QuestCompleted events - these are manual quests
     for (const log of tx.logs) {
       if (log.topics[0] === questCompletedTopic) {
         try {
@@ -275,15 +308,83 @@ async function getQuestTypeFromTx(txHash) {
             topics: log.topics,
             data: log.data,
           });
-          return parsed.args.quest.questType;
+          const questId = Number(parsed.args.questId);
+          const questType = Number(parsed.args.quest.questType);
+          questTypeCache.set(questId, questType);
+          questInfoMap.set(questId, {
+            questType,
+            source: 'manual_quest',
+            expeditionId: null,
+          });
         } catch (e) {
           continue;
         }
       }
     }
-    return null;
+    
+    // Parse all ExpeditionIterationProcessed events - these are expedition rewards
+    for (const log of tx.logs) {
+      if (log.topics[0] === expeditionIterationTopic) {
+        try {
+          const parsed = questContract.interface.parseLog({
+            topics: log.topics,
+            data: log.data,
+          });
+          const questId = Number(parsed.args.questId);
+          const expeditionId = Number(parsed.args.expeditionId);
+          
+          // Check if we already have questType from a QuestCompleted event in this tx
+          if (questInfoMap.has(questId)) {
+            const existing = questInfoMap.get(questId);
+            questInfoMap.set(questId, {
+              questType: existing.questType,
+              source: 'expedition',
+              expeditionId,
+            });
+            continue;
+          }
+          
+          // Try to find questType from quest events in same tx first
+          let questType = null;
+          for (const qLog of tx.logs) {
+            if (qLog.address.toLowerCase() === QUEST_CORE_V3.toLowerCase()) {
+              try {
+                const qParsed = questContract.interface.parseLog({
+                  topics: qLog.topics,
+                  data: qLog.data,
+                });
+                if (qParsed.args.quest && qParsed.args.quest.questType !== undefined) {
+                  const foundQuestId = qParsed.args.questId ? Number(qParsed.args.questId) : null;
+                  if (foundQuestId === questId || foundQuestId === null) {
+                    questType = Number(qParsed.args.quest.questType);
+                    break;
+                  }
+                }
+              } catch (e) {
+                continue;
+              }
+            }
+          }
+          
+          // If still no questType, fetch from chain
+          if (questType === null) {
+            questType = await getQuestTypeFromChain(questId);
+          }
+          
+          questInfoMap.set(questId, {
+            questType,
+            source: 'expedition',
+            expeditionId,
+          });
+        } catch (e) {
+          continue;
+        }
+      }
+    }
+    
+    return questInfoMap;
   } catch (e) {
-    return null;
+    return questInfoMap;
   }
 }
 
@@ -306,31 +407,37 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
       let eventsInBatch = 0;
       if (logs.length > 0) {
         const events = [];
-        const txQuestTypes = new Map();
+        const txQuestInfoMaps = new Map(); // txHash -> Map<questId, questInfo>
         
         for (const log of logs) {
           const txHash = log.transactionHash;
+          const questId = Number(log.args.questId);
           
-          if (!txQuestTypes.has(txHash)) {
-            const questType = await getQuestTypeFromTx(txHash);
-            txQuestTypes.set(txHash, questType);
+          // Get quest info map for this transaction (cached)
+          if (!txQuestInfoMaps.has(txHash)) {
+            const questInfoMap = await getQuestInfoMapFromTx(txHash);
+            txQuestInfoMaps.set(txHash, questInfoMap);
           }
           
-          const questType = txQuestTypes.get(txHash);
+          const questInfoMap = txQuestInfoMaps.get(txHash);
+          const questInfo = questInfoMap.get(questId);
           
-          if (questType !== null && questType >= 0 && questType <= 14) {
+          // Include gardening quests (types 0-14) from both manual quests and expeditions
+          if (questInfo && questInfo.questType !== null && questInfo.questType >= 0 && questInfo.questType <= 14) {
             const block = await provider.getBlock(log.blockNumber);
             const rewardAddress = log.args.reward.toLowerCase();
             const rewardSymbol = TOKEN_SYMBOLS[rewardAddress] || 'ITEM';
             
             events.push({
-              questId: Number(log.args.questId),
+              questId,
               heroId: Number(log.args.heroId),
               player: log.args.player.toLowerCase(),
-              poolId: questType,
+              poolId: questInfo.questType,
               rewardToken: rewardAddress,
               rewardSymbol,
               rewardAmount: ethers.formatEther(log.args.amount),
+              source: questInfo.source,
+              expeditionId: questInfo.expeditionId,
               blockNumber: log.blockNumber,
               txHash: log.transactionHash,
               logIndex: log.index,
@@ -948,6 +1055,8 @@ export async function getHeroStats(heroId) {
     totalQuests: sql`COUNT(DISTINCT ${gardeningQuestRewards.questId})`,
     totalCrystal: sql`COALESCE(SUM(CASE WHEN ${gardeningQuestRewards.rewardSymbol} = 'CRYSTAL' THEN ${gardeningQuestRewards.rewardAmount}::numeric ELSE 0 END), 0)`,
     totalJewel: sql`COALESCE(SUM(CASE WHEN ${gardeningQuestRewards.rewardSymbol} = 'JEWEL' THEN ${gardeningQuestRewards.rewardAmount}::numeric ELSE 0 END), 0)`,
+    manualQuestCount: sql`COUNT(DISTINCT ${gardeningQuestRewards.questId}) FILTER (WHERE COALESCE(${gardeningQuestRewards.source}, 'manual_quest') = 'manual_quest')`,
+    expeditionCount: sql`COUNT(DISTINCT ${gardeningQuestRewards.questId}) FILTER (WHERE ${gardeningQuestRewards.source} = 'expedition')`,
     firstQuest: sql`MIN(${gardeningQuestRewards.timestamp})`,
     lastQuest: sql`MAX(${gardeningQuestRewards.timestamp})`,
   })
@@ -959,6 +1068,8 @@ export async function getHeroStats(heroId) {
     totalQuests: Number(stats.totalQuests),
     totalCrystal: parseFloat(stats.totalCrystal),
     totalJewel: parseFloat(stats.totalJewel),
+    manualQuestCount: Number(stats.manualQuestCount),
+    expeditionCount: Number(stats.expeditionCount),
     firstQuest: stats.firstQuest,
     lastQuest: stats.lastQuest,
   };

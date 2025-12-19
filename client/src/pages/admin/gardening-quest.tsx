@@ -74,6 +74,8 @@ interface QuestReward {
   rewardToken: string;
   rewardSymbol: string;
   rewardAmount: string;
+  source: string | null; // 'manual_quest' or 'expedition'
+  expeditionId: number | null;
   blockNumber: number;
   txHash: string;
   timestamp: string;
@@ -84,6 +86,8 @@ interface HeroStats {
   totalQuests: number;
   totalCrystal: number;
   totalJewel: number;
+  manualQuestCount: number;
+  expeditionCount: number;
   firstQuest: string | null;
   lastQuest: string | null;
 }
@@ -434,7 +438,7 @@ export default function AdminGardeningQuest() {
 
               {heroData && searchedHeroId && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-muted/50 rounded-lg">
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-4 p-4 bg-muted/50 rounded-lg">
                     <div>
                       <div className="text-sm text-muted-foreground">Hero ID</div>
                       <div className="font-bold" data-testid="text-hero-id">{heroData.stats.heroId}</div>
@@ -442,6 +446,9 @@ export default function AdminGardeningQuest() {
                     <div>
                       <div className="text-sm text-muted-foreground">Total Quests</div>
                       <div className="font-bold">{heroData.stats.totalQuests}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {heroData.stats.manualQuestCount || 0} manual / {heroData.stats.expeditionCount || 0} expedition
+                      </div>
                     </div>
                     <div>
                       <div className="text-sm text-muted-foreground">Total CRYSTAL</div>
@@ -464,6 +471,7 @@ export default function AdminGardeningQuest() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Time</TableHead>
+                          <TableHead>Source</TableHead>
                           <TableHead>Pool</TableHead>
                           <TableHead>Token</TableHead>
                           <TableHead className="text-right">Amount</TableHead>
@@ -475,6 +483,11 @@ export default function AdminGardeningQuest() {
                           <TableRow key={reward.id} data-testid={`row-reward-${reward.id}`}>
                             <TableCell className="text-xs">
                               {new Date(reward.timestamp).toLocaleString()}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={reward.source === 'expedition' ? 'border-blue-500/30 text-blue-500' : 'border-gray-500/30'}>
+                                {reward.source === 'expedition' ? 'Expedition' : 'Manual'}
+                              </Badge>
                             </TableCell>
                             <TableCell>
                               <Badge variant="outline">Pool {reward.poolId}</Badge>

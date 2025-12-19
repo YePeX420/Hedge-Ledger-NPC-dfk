@@ -2316,6 +2316,8 @@ export const gardeningQuestRewards = pgTable("gardening_quest_rewards", {
   rewardToken: text("reward_token").notNull(), // Token address (CRYSTAL, JEWEL, or item)
   rewardSymbol: text("reward_symbol"), // Human-readable: CRYSTAL, JEWEL, etc.
   rewardAmount: numeric("reward_amount", { precision: 38, scale: 18 }).notNull(),
+  source: text("source").default("manual_quest"), // 'manual_quest' or 'expedition'
+  expeditionId: bigint("expedition_id", { mode: "number" }), // Only set for expeditions
   blockNumber: bigint("block_number", { mode: "number" }).notNull(),
   txHash: text("tx_hash").notNull(),
   logIndex: integer("log_index").notNull(),
@@ -2326,6 +2328,7 @@ export const gardeningQuestRewards = pgTable("gardening_quest_rewards", {
   playerIdx: index("gardening_quest_rewards_player_idx").on(table.player),
   poolIdIdx: index("gardening_quest_rewards_pool_idx").on(table.poolId),
   rewardTokenIdx: index("gardening_quest_rewards_token_idx").on(table.rewardToken),
+  sourceIdx: index("gardening_quest_rewards_source_idx").on(table.source),
   timestampIdx: index("gardening_quest_rewards_timestamp_idx").on(table.timestamp),
   blockNumberIdx: index("gardening_quest_rewards_block_idx").on(table.blockNumber),
   uniqueEventIdx: uniqueIndex("gardening_quest_rewards_unique_idx").on(table.txHash, table.logIndex),
