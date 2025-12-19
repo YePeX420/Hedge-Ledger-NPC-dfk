@@ -156,6 +156,28 @@ interface TokenPrice {
   source: 'defillama' | 'coingecko' | 'fallback';
 }
 
+interface CexExchangeLiquidity {
+  exchange: string;
+  pair: string;
+  midPrice: number;
+  bidDepthUSD: number;
+  askDepthUSD: number;
+  totalDepthUSD: number;
+  spread: number;
+  spreadPercent: number;
+  depthBand: string;
+  timestamp: string;
+  error?: string;
+}
+
+interface CexLiquidityData {
+  exchanges: CexExchangeLiquidity[];
+  totalLiquidityUSD: number;
+  averageSpread: number;
+  depthBand: string;
+  updatedAt: string;
+}
+
 interface ValueBreakdownResult {
   timestamp: string;
   prices: {
@@ -166,6 +188,7 @@ interface ValueBreakdownResult {
   };
   tokenPrices: TokenPrice[];
   categories: CategoryBreakdown[];
+  cexLiquidity?: CexLiquidityData;
   summary: {
     totalJewelLocked: number;
     totalCrystalLocked: number;
@@ -174,6 +197,7 @@ interface ValueBreakdownResult {
     stakingValue: number;
     bridgeValue: number;
     systemValue: number;
+    cexLiquidityValue?: number;
   };
 }
 

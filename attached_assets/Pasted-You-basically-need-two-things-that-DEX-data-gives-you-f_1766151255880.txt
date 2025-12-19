@@ -1,0 +1,189 @@
+You basically need two things that DEX data gives you “for free,” but CEXs don’t:
+
+1. **Where JEWEL is listed (markets + pairs)**
+2. **How much value is sitting there (order books, balances, or at least tradable liquidity)**
+
+Because CEXs are custodial, you can’t see per‑user balances on‑chain, so you have to approximate using public market data.
+
+Below is a concrete approach you can implement.
+
+---
+
+## 1. Discover all CEX markets programmatically
+
+Use an aggregator API instead of hard‑coding exchanges.
+
+**Option A – CoinGecko API**
+
+1. Get the JEWEL ID:
+   ```bash
+   curl "https://api.coingecko.com/api/v3/search?query=jewel"
+   ```
+2. Then query markets:
+   ```bash
+   curl "https://api.coingecko.com/api/v3/coins/defi-kingdoms?tickers=true&market_data=true"
+   ```
+   In the JSON, `tickers` will include all CEX and DEX markets, with:
+   - `market.name` (e.g. "KuCoin")
+   - `target` (e.g. "USDT")
+   - `volume` in base and quote
+   - `last` price
+
+Filter for `market.identifier` or `market.name` in your “CEX allowlist” (KuCoin, Gate, MEXC, etc.) and ignore the DEXs you already track.
+
+**Option B – CMC / other sources**
+
+CoinMarketCap’s `/cryptocurrency/market-pairs/latest` works similarly if you have an API key.
+
+---
+
+## 2. Decide what “value on CEX” means for your dashboard
+
+Because you can’t see the actual JEWEL held in internal CEX wallets, you have three pragmatic options:
+
+### A. Use **reserve transparency** (if available) – best but rare  
+Some exchanges publish proof‑of‑reserves with per‑asset balances.
+
+- Example pattern (not real endpoint):
+  ```bash
+  GET https://api.exchange.com/proof-of-reserves?asset=JEWEL
+  ```
+- If any CEX listing JEWEL offers this, you can add their reported **JEWEL balance × price** directly to your TVL breakdown as “CEX holdings.”
+
+Most JEWEL‑listing CEXs do not publish this, so you’ll probably need B or C.
+
+---
+
+### B. Use **order‑book liquidity depth** as a proxy
+
+Treat “value on CEX” as **immediately tradable liquidity within a given price band**, e.g. ±2% around mid.
+
+For each CEX / pair:
+
+1. Fetch the order book:
+   ```bash
+   # KuCoin example
+   GET https://api.kucoin.com/api/v1/market/orderbook/level2_100?symbol=JEWEL-USDT
+   ```
+2. Compute mid‑price:
+   - Best bid = highest bid price  
+   - Best ask = lowest ask price  
+   - Mid = (bid + ask) / 2
+3. Sum value within your band, e.g. ±2%:
+   - For bids: include orders with `price >= mid * 0.98`
+   - For asks: include orders with `price <= mid * 1.02`
+   - Convert to USD using the order price (`size * price`)
+
+This gives you, per CEX:
+
+- `cex_liquidity_usd[exchange] = depth_buy_usd + depth_sell_usd`
+
+You can then add a **“CEX Liquidity”** slice next to Bridges / LP / Staking.
+
+Pros:  
+- Relatively easy to compute, doesn’t require trust in reserve reports.  
+Cons:  
+- It measures tradable liquidity, not total holdings, but for dashboards that’s usually what people care about.
+
+---
+
+### C. Use **normalized volume × liquidity multiple** as a rough estimate
+
+If you just need a ballpark number and don’t want to run order‑books:
+
+From aggregator API (CoinGecko `tickers` or CMC pairs) you already have:
+
+- `daily_volume_usd` per CEX market.
+
+You can approximate “capital deployed” with a heuristic like:
+
+$$\text{CEX Value} \approx k \times \text{24h volume}$$
+
+with some `k` in `[0.2, 0.5]` depending on how aggressive you want to be (market‑making capital vs turnover).
+
+This is **crude** but easy; label it clearly as an estimate.
+
+---
+
+## 3. Architecture / integration into your dashboard
+
+**Data pipeline idea:**
+
+1. **Discovery job (daily)**
+   - Call CoinGecko/CMC to get all JEWEL tickers.
+   - Filter to CEXs in your support list.
+   - Store market metadata: `exchange`, `symbol`, `pair`, `is_cex`.
+
+2. **Liquidity job (every N minutes)**
+   - For each CEX market:
+     - Pull order book (B) or just store 24h volume (C).
+     - Compute:
+       - `cex_liquidity_usd`
+       - Optionally `cex_price`, `spread`.
+
+3. **Normalization layer**
+   - Sum across CEXs:
+     ```text
+     total_cex_liquidity_usd = Σ cex_liquidity_usd[exchange]
+     ```
+   - Combine with your existing on‑chain values:
+     ```text
+     total_value = tvl_dex + bridges + staking + system + total_cex_liquidity_usd
+     ```
+   - Compute percentages for your donut chart.
+
+4. **Visualization**
+   - Add a new segment: **“CEX Liquidity”** (or “CEX Depth (±2%)”).
+   - Optional drilldown: table per CEX with:
+     - Exchange
+     - Pair
+     - Depth (USD)
+     - 24h volume
+     - Spread
+
+---
+
+## 4. Practical API notes for common JEWEL CEXs
+
+You’ll need to confirm current listings, but historically:
+
+- **KuCoin**  
+  - Order book:  
+    `GET https://api.kucoin.com/api/v1/market/orderbook/level2_100?symbol=JEWEL-USDT`
+
+- **Gate.io**  
+  - Order book:  
+    `GET https://api.gateio.ws/api/v4/spot/order_book?currency_pair=JEWEL_USDT&limit=100`
+
+- **MEXC**  
+  - Order book:  
+    `GET https://api.mexc.com/api/v3/depth?symbol=JEWELUSDT&limit=100`
+
+Standardize these responses into a common schema:
+```json
+{
+  "exchange": "kucoin",
+  "pair": "JEWEL-USDT",
+  "bids": [[price, size], ...],
+  "asks": [[price, size], ...],
+  "ts": 1734600000
+}
+```
+
+---
+
+## 5. Labeling and transparency
+
+Since CEX data is inherently less precise than on‑chain:
+
+- Clearly annotate in your UI:
+  - “On‑chain TVL” (bridges, LP, staking, system)
+  - “Off‑chain CEX liquidity (order‑book depth ±X%)”
+- Provide a tooltip explaining methodology and any limitations.
+
+---
+
+If you tell me what stack you’re using (e.g., Node / Python backend, or all client‑side), I can sketch exact code snippets to:
+- Pull JEWEL markets from CoinGecko.
+- Fetch order books from a couple of CEXs.
+- Compute the depth metric you can plug directly into your existing donut chart.

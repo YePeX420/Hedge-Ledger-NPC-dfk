@@ -77,6 +77,7 @@ import {
 } from './bridge-tracker/price-enrichment.js';
 import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-history.js';
 import { getValueBreakdown } from './src/analytics/valueBreakdown.ts';
+import { getCexLiquidity } from './src/analytics/cexLiquidity.ts';
 import { syncTokenRegistry, getAllTokens, getTokenAddressMap } from './src/services/tokenRegistryService.ts';
 import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeProgressWindowed, challengeValidation, challengeAuditLog, challengeMetricStats, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
@@ -5153,6 +5154,24 @@ async function startAdminWebServer() {
     } catch (error) {
       console.error('[API] Error fetching value breakdown:', error);
       res.status(500).json({ error: 'Failed to fetch value breakdown' });
+    }
+  });
+
+  // GET /api/admin/bridge/cex-liquidity - Get CEX order book liquidity for JEWEL
+  app.get('/api/admin/bridge/cex-liquidity', isAdmin, async (req, res) => {
+    try {
+      let bandPercent = parseInt(req.query.band) || 2;
+      // Validate band is reasonable (1-10%)
+      if (isNaN(bandPercent) || bandPercent < 1 || bandPercent > 10) {
+        bandPercent = 2;
+      }
+      console.log(`[API] Fetching CEX liquidity (±${bandPercent}% depth band)...`);
+      const liquidity = await getCexLiquidity(bandPercent);
+      console.log(`[API] CEX liquidity complete, total: $${liquidity.totalLiquidityUSD.toFixed(2)}`);
+      res.json(liquidity);
+    } catch (error) {
+      console.error('[API] Error fetching CEX liquidity:', error);
+      res.status(500).json({ error: 'Failed to fetch CEX liquidity' });
     }
   });
 

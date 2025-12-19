@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RefreshCw, PieChart, Coins, Landmark, ArrowLeftRight, Wrench, ExternalLink } from "lucide-react";
-import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { RefreshCw, PieChart, Coins, Landmark, ArrowLeftRight, Wrench, ExternalLink, TrendingUp, AlertCircle, Info } from "lucide-react";
+import { Tooltip as ShadcnTooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip as RechartsTooltip } from "recharts";
 import { queryClient } from "@/lib/queryClient";
 
 interface Contract {
@@ -46,6 +47,30 @@ interface TokenPrice {
   symbol: string;
   price: number;
   source: string;
+}
+
+interface CexExchange {
+  exchange: string;
+  pair: string;
+  midPrice: number;
+  bidDepthUSD: number;
+  askDepthUSD: number;
+  totalDepthUSD: number;
+  spread: number;
+  spreadPercent: number;
+  depthBand: string;
+  timestamp: string;
+  error?: string;
+}
+
+interface CexLiquidityData {
+  exchanges: CexExchange[];
+  totalLiquidityUSD: number;
+  averageSpread: number;
+  depthBand: string;
+  updatedAt: string;
+  failedCount: number;
+  totalCount: number;
 }
 
 interface ValueBreakdownData {
@@ -107,9 +132,16 @@ export default function ValueAllocationPage() {
     refetchInterval: 300000,
   });
 
+  const { data: cexData, isLoading: cexLoading, refetch: refetchCex } = useQuery<CexLiquidityData>({
+    queryKey: ['/api/admin/bridge/cex-liquidity'],
+    refetchInterval: 60000,
+  });
+
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/value-breakdown'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/cex-liquidity'] });
     refetch();
+    refetchCex();
   };
 
   const pieData = data ? [
@@ -204,7 +236,7 @@ export default function ValueAllocationPage() {
                           <Cell key={`cell-${index}`} fill={entry.color} stroke={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip
+                      <RechartsTooltip
                         formatter={(value: number) => formatUSD(value)}
                         contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                       />
@@ -304,6 +336,123 @@ export default function ValueAllocationPage() {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-cex-liquidity">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-cyan-500" />
+                CEX Liquidity (Off-Chain)
+                <ShadcnTooltip>
+                  <TooltipTrigger>
+                    <Info className="w-4 h-4 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>Order book depth within {cexData?.depthBand || '±2%'} of mid-price. This measures immediately tradable liquidity, not total CEX holdings.</p>
+                  </TooltipContent>
+                </ShadcnTooltip>
+              </CardTitle>
+              <CardDescription>
+                JEWEL order book depth on centralized exchanges
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {cexLoading ? (
+                <Skeleton className="h-32" />
+              ) : cexData ? (
+                <div className="space-y-4">
+                  {cexData.failedCount === cexData.totalCount ? (
+                    <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3">
+                      <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-red-700 dark:text-red-400">All CEX APIs Failed</p>
+                        <p className="text-xs text-muted-foreground">
+                          Unable to fetch order books from any exchange. Check API connectivity.
+                        </p>
+                      </div>
+                    </div>
+                  ) : cexData.totalLiquidityUSD === 0 ? (
+                    <div className="p-4 rounded-lg bg-muted/50 border border-border flex items-center gap-3">
+                      <Info className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium">No Active CEX Markets</p>
+                        <p className="text-xs text-muted-foreground">
+                          JEWEL is primarily traded on decentralized exchanges (DFK DEX, Trader Joe). CEX order books show no active liquidity.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {cexData.failedCount > 0 && (
+                        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                          <p className="text-sm text-amber-700 dark:text-amber-400">
+                            {cexData.failedCount}/{cexData.totalCount} exchanges failed. Totals may be incomplete.
+                          </p>
+                        </div>
+                      )}
+                      <div className="p-4 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                        <p className="text-sm text-muted-foreground">Total CEX Liquidity ({cexData.depthBand})</p>
+                        <p className="text-2xl font-bold text-cyan-500" data-testid="text-cex-liquidity-total">
+                          {formatUSD(cexData.totalLiquidityUSD)}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Avg spread: {cexData.averageSpread.toFixed(2)}%
+                        </p>
+                      </div>
+                    </>
+                  )}
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Exchange</TableHead>
+                        <TableHead>Pair</TableHead>
+                        <TableHead className="text-right">Mid Price</TableHead>
+                        <TableHead className="text-right">Bid Depth</TableHead>
+                        <TableHead className="text-right">Ask Depth</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right">Spread</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {cexData.exchanges.map((ex) => (
+                        <TableRow key={ex.exchange} data-testid={`row-cex-${ex.exchange}`}>
+                          <TableCell className="font-medium">{ex.exchange}</TableCell>
+                          <TableCell>{ex.pair}</TableCell>
+                          <TableCell className="text-right font-mono">
+                            {ex.error ? (
+                              <Badge variant="outline" className="text-red-500">Error</Badge>
+                            ) : (
+                              `$${ex.midPrice.toFixed(4)}`
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-green-500">
+                            {ex.error ? '-' : formatUSD(ex.bidDepthUSD)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-red-500">
+                            {ex.error ? '-' : formatUSD(ex.askDepthUSD)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono font-bold">
+                            {ex.error ? '-' : formatUSD(ex.totalDepthUSD)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {ex.error ? '-' : `${ex.spreadPercent.toFixed(2)}%`}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Updated: {new Date(cexData.updatedAt).toLocaleString()}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center p-8 text-muted-foreground">
+                  <AlertCircle className="w-5 h-5 mr-2" />
+                  Failed to load CEX data
+                </div>
+              )}
             </CardContent>
           </Card>
 
