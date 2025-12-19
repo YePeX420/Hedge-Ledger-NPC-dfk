@@ -1,0 +1,306 @@
+BACKEND PROMPT 3 — Admin Combat API (Refresh, Status, Sources, Sync History)
+
+Objective
+
+Replace the temporary ingest-test endpoint with a proper admin combat API that:
+
+Triggers ingestion (refresh)
+
+Returns ingestion + DB counts (status)
+
+Manages discovered sources (sources + enable/disable)
+
+Exposes sync run history + detailed run drilldowns (sync/runs, sync/runs/:id)
+
+
+All endpoints must be admin-key protected under /api/admin/combat/*.
+
+Do not build admin UI yet (that comes later). This prompt is backend API only.
+
+
+---
+
+A) Remove temporary route
+
+If you created POST /api/admin/combat/ingest-test, remove it and its router file. We will replace it with /api/admin/combat/refresh.
+
+
+---
+
+B) Create Admin Combat Router
+
+Create: src/routes/admin/combat.ts
+
+import { Router } from "express";
+import { ingestCombatCodex } from "../../dfk/combatCodexIngestor";
+import { withClient } from "../../db";
+
+export const adminCombatRouter = Router();
+
+/**
+ * POST /api/admin/combat/refresh
+ * Body: { discover?: boolean, concurrency?: number }
+ * Returns: { ok, runId, ...summary }
+ */
+adminCombatRouter.post("/refresh", async (req, res) => {
+  try {
+    const discover = req.body?.discover ?? true;
+    const concurrency = req.body?.concurrency ?? 3;
+
+    const r = await ingestCombatCodex({ discover, concurrency });
+    res.json(r);
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * GET /api/admin/combat/status
+ * Returns DB counts + last success + current running + class meta list with skills_count.
+ */
+adminCombatRouter.get("/status", async (_req, res) => {
+  try {
+    const data = await withClient(async (client) => {
+      const kw = await client.query(`select count(*)::int as count from combat_keywords`);
+      const cl = await client.query(`select count(*)::int as count from combat_class_meta`);
+      const sk = await client.query(`select count(*)::int as count from combat_skills`);
+
+      const lastSuccess = await client.query(
+        `
+        select id, started_at, finished_at
+        from sync_runs
+        where domain='combat_codex' and status='success'
+        order by started_at desc
+        limit 1
+        `
+      );
+
+      const currentRunning = await client.query(
+        `
+        select id, started_at
+        from sync_runs
+        where domain='combat_codex' and status='running'
+        order by started_at desc
+        limit 1
+        `
+      );
+
+      const classes = await client.query(
+        `
+        select m.class, m.source_url, m.maturity, m.last_update_note, m.last_seen_at,
+               (select count(*)::int from combat_skills s where s.class = m.class) as skills_count
+        from combat_class_meta m
+        order by m.class asc
+        `
+      );
+
+      return {
+        counts: {
+          keywords: kw.rows[0]?.count ?? 0,
+          classes: cl.rows[0]?.count ?? 0,
+          skills: sk.rows[0]?.count ?? 0,
+        },
+        lastSuccess: lastSuccess.rows[0] ?? null,
+        currentRunning: currentRunning.rows[0] ?? null,
+        classes: classes.rows,
+      };
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * GET /api/admin/combat/sources
+ * Returns all combat_sources rows.
+ */
+adminCombatRouter.get("/sources", async (_req, res) => {
+  try {
+    const rows = await withClient(async (client) => {
+      const q = await client.query(
+        `
+        select url, kind, enabled, discovered_from, last_seen_at, created_at
+        from combat_sources
+        order by kind asc, url asc
+        `
+      );
+      return q.rows;
+    });
+
+    res.json({ ok: true, count: rows.length, results: rows });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * PATCH /api/admin/combat/sources
+ * Body: { url: string, enabled: boolean }
+ */
+adminCombatRouter.patch("/sources", async (req, res) => {
+  try {
+    const url = req.body?.url;
+    const enabled = req.body?.enabled;
+
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ ok: false, error: "Missing url" });
+    }
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({ ok: false, error: "Missing enabled boolean" });
+    }
+
+    const updated = await withClient(async (client) => {
+      const q = await client.query(
+        `
+        update combat_sources
+        set enabled = $2
+        where url = $1
+        returning url, kind, enabled, discovered_from, last_seen_at, created_at
+        `,
+        [url, enabled]
+      );
+      return q.rows[0] ?? null;
+    });
+
+    if (!updated) return res.status(404).json({ ok: false, error: "Source not found" });
+    res.json({ ok: true, result: updated });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * GET /api/admin/combat/sync/runs?limit=20
+ * Returns recent sync_runs for combat_codex.
+ */
+adminCombatRouter.get("/sync/runs", async (req, res) => {
+  try {
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 20)));
+
+    const rows = await withClient(async (client) => {
+      const q = await client.query(
+        `
+        select id, domain, started_at, finished_at, status,
+               discovered_urls, keywords_upserted, classes_attempted, classes_ingested,
+               skills_upserted, rag_docs_upserted, error
+        from sync_runs
+        where domain='combat_codex'
+        order by started_at desc
+        limit $1
+        `,
+        [limit]
+      );
+      return q.rows;
+    });
+
+    res.json({ ok: true, count: rows.length, results: rows });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * GET /api/admin/combat/sync/runs/:id
+ * Returns a single run + its items.
+ */
+adminCombatRouter.get("/sync/runs/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "Invalid id" });
+
+    const data = await withClient(async (client) => {
+      const run = await client.query(
+        `
+        select id, domain, started_at, finished_at, status,
+               discovered_urls, keywords_upserted, classes_attempted, classes_ingested,
+               skills_upserted, rag_docs_upserted, error, log
+        from sync_runs
+        where id=$1 and domain='combat_codex'
+        `,
+        [id]
+      );
+
+      if (!run.rows[0]) return null;
+
+      const items = await client.query(
+        `
+        select id, item_type, item_key, status, detail, skills_count, updated_at
+        from sync_run_items
+        where sync_run_id=$1
+        order by id asc
+        `,
+        [id]
+      );
+
+      return { run: run.rows[0], items: items.rows };
+    });
+
+    if (!data) return res.status(404).json({ ok: false, error: "Run not found" });
+    res.json({ ok: true, ...data });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+
+---
+
+C) Mount the router in the server
+
+In your server entrypoint (src/server.ts), import and mount:
+
+import { adminCombatRouter } from "./routes/admin/combat";
+
+app.use("/api/admin/combat", adminCombatRouter);
+
+Make sure this mount happens after your /api/admin admin-key middleware is applied (from Prompt 1).
+
+
+---
+
+D) Ensure route protection is correct
+
+/api/admin/combat/* must require HEDGE_ADMIN_API_KEY
+
+If you currently apply requireAdminKey to /api/admin globally, you are done.
+
+
+
+---
+
+Acceptance Criteria
+
+1. POST /api/admin/combat/refresh triggers ingestion and returns { ok: true, runId, ... }
+
+
+2. GET /api/admin/combat/status returns:
+
+counts (keywords/classes/skills)
+
+last success run
+
+current running run (if any)
+
+class meta list with skills_count
+
+
+
+3. GET /api/admin/combat/sources lists discovered sources
+
+
+4. PATCH /api/admin/combat/sources toggles enabled
+
+
+5. GET /api/admin/combat/sync/runs returns recent runs
+
+
+6. GET /api/admin/combat/sync/runs/:id returns run + items
+
+
+
+
+---
+
+When you’re done, reply “Next” and I will provide Backend Prompt 4 (Public Combat API + entitlements-based tier shaping enforcement) as a single pasteable prompt.
