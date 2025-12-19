@@ -17,6 +17,13 @@ const JEWEL_TOKENS = {
   AVALANCHE: '0x4f60a160D8C2DDdaAfe16FCC57566dB84D674BD6', // JEWEL on Avalanche C-Chain
 };
 
+// Staking contracts on other chains
+const MULTI_CHAIN_STAKING = {
+  KAIA: {
+    sJEWEL: '0xaA8548665bCC12C202d5d0C700093123F2463EA6', // sJEWEL (staked JEWEL on Serendale/Kaia)
+  },
+};
+
 // Multi-chain bridge contracts holding JEWEL
 const MULTI_CHAIN_BRIDGES = {
   HARMONY: {
@@ -40,6 +47,11 @@ const MULTI_CHAIN_BRIDGES = {
 const MULTI_CHAIN_LP_POOLS = {
   HARMONY: {
     'JEWEL-ONE (SushiSwap)': '0xeb579ddcd49a7beb3f205c9ff6006bb6390f138f',
+  },
+  KAIA: {
+    // Serendale LP pools on Kaia (UniswapV2 style)
+    'JADE-JEWEL': '0x85db3cc4bcdb8bffa073a3307d48ed97c78af0ae',
+    // Note: JEWEL-KLAY on Kaia pool address needs verification - the 0x561091... is DFK Chain version
   },
   METIS: {
     // Hercules DEX Algebra V3 JEWEL-WMETIS pool (concentrated liquidity)
@@ -303,6 +315,7 @@ interface BridgeWalletDetail {
 interface CoverageBreakdown {
   locked: {
     cJewel: number;
+    sJewel: number; // sJEWEL on Kaia (Serendale)
     systemContracts: number;
     bridgeContracts: number;
     total: number;
@@ -850,6 +863,109 @@ async function getMetisLPReserves(): Promise<MultiChainLPReserves[]> {
   return results;
 }
 
+// Fetch sJEWEL supply from Kaia (staked JEWEL on Serendale)
+async function getSJewelSupply(): Promise<number> {
+  try {
+    const provider = new ethers.JsonRpcProvider(KAIA_RPC, undefined, {
+      staticNetwork: true,
+    });
+    
+    const timeout = 10000;
+    const sJewelContract = new ethers.Contract(
+      MULTI_CHAIN_STAKING.KAIA.sJEWEL,
+      ['function totalSupply() view returns (uint256)'],
+      provider
+    );
+    
+    const supply = await Promise.race([
+      sJewelContract.totalSupply(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+    ]);
+    
+    const supplyFormatted = parseFloat(ethers.formatEther(supply));
+    console.log(`[KaiaStaking] sJEWEL totalSupply: ${supplyFormatted.toLocaleString()}`);
+    return supplyFormatted;
+  } catch (err) {
+    console.warn(`[KaiaStaking] Failed to get sJEWEL supply: ${(err as Error).message}`);
+    return 0;
+  }
+}
+
+// Fetch Kaia LP reserves (Serendale DEX - UniswapV2 style)
+async function getKaiaLPReserves(): Promise<MultiChainLPReserves[]> {
+  const results: MultiChainLPReserves[] = [];
+  
+  try {
+    const provider = new ethers.JsonRpcProvider(KAIA_RPC, undefined, {
+      staticNetwork: true,
+    });
+    
+    const timeout = 10000;
+    const jewelTokenLower = JEWEL_TOKENS.KAIA.toLowerCase();
+    
+    for (const [poolName, lpAddress] of Object.entries(MULTI_CHAIN_LP_POOLS.KAIA || {})) {
+      try {
+        const lpContract = new ethers.Contract(lpAddress, LP_ABI, provider);
+        
+        const [reserves, token0, token1] = await Promise.all([
+          Promise.race([
+            lpContract.getReserves(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+          ]),
+          lpContract.token0().catch(() => ''),
+          lpContract.token1().catch(() => ''),
+        ]);
+        
+        const token0Lower = token0.toString().toLowerCase();
+        const token1Lower = token1.toString().toLowerCase();
+        
+        let jewelReserves = 0;
+        let otherReserves = 0;
+        let otherToken = 'Unknown';
+        
+        if (token0Lower === jewelTokenLower) {
+          jewelReserves = parseFloat(ethers.formatEther(reserves[0]));
+          otherReserves = parseFloat(ethers.formatEther(reserves[1]));
+          // Determine other token name from pool name
+          otherToken = poolName.replace('JEWEL-', '').replace('-JEWEL', '');
+        } else if (token1Lower === jewelTokenLower) {
+          jewelReserves = parseFloat(ethers.formatEther(reserves[1]));
+          otherReserves = parseFloat(ethers.formatEther(reserves[0]));
+          otherToken = poolName.replace('JEWEL-', '').replace('-JEWEL', '');
+        }
+        
+        results.push({
+          chain: 'Kaia',
+          poolName,
+          lpAddress,
+          jewelReserves,
+          otherToken,
+          otherReserves,
+          status: 'success',
+        });
+        
+        console.log(`[KaiaLP] ${poolName}: ${jewelReserves.toLocaleString()} JEWEL, ${otherReserves.toLocaleString()} ${otherToken}`);
+      } catch (err) {
+        console.warn(`[KaiaLP] Failed to get reserves for ${poolName}: ${(err as Error).message}`);
+        results.push({
+          chain: 'Kaia',
+          poolName,
+          lpAddress,
+          jewelReserves: 0,
+          otherToken: 'Unknown',
+          otherReserves: 0,
+          status: 'error',
+          error: (err as Error).message,
+        });
+      }
+    }
+  } catch (err) {
+    console.error(`[KaiaLP] Failed to connect to Kaia: ${(err as Error).message}`);
+  }
+  
+  return results;
+}
+
 // Fetch JEWEL balances across all chains (bridge contracts only - liquid JEWEL)
 async function getMultiChainJewelBalances(): Promise<ChainBalance[]> {
   const results: ChainBalance[] = [];
@@ -1361,14 +1477,16 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     { symbol: 'KLAY', price: allPrices['KLAY'] || 0, source: 'defillama' },
   ];
 
-  // Fetch JEWEL supply, burn data, multi-chain balances, and LP reserves in parallel
+  // Fetch JEWEL supply, burn data, multi-chain balances, LP reserves, and sJEWEL in parallel
   // Note: Avalanche LP tracking still disabled until verified on-chain
-  const [jewelSupply, burnData, multiChainBalances, harmonyLpReserves, metisLpReserves] = await Promise.all([
+  const [jewelSupply, burnData, multiChainBalances, harmonyLpReserves, metisLpReserves, kaiaLpReserves, sJewelSupply] = await Promise.all([
     fetchJewelSupply(),
     fetchBurnedJewel(provider),
     getMultiChainJewelBalances(),
     getHarmonyLPReserves(),
     getMetisLPReserves(), // Hercules DEX JEWEL-WMETIS (Algebra V3)
+    getKaiaLPReserves(), // Serendale LPs on Kaia (JADE-JEWEL, JEWEL-KLAY)
+    getSJewelSupply(), // sJEWEL staking on Kaia
   ]);
   
   // Placeholder for disabled LP pools (Avalanche still pending verification)
@@ -1379,13 +1497,14 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   // IMPORTANT: Avoid double-counting! Bridge contracts on DFK Chain hold JEWEL that's 
   // already counted in multi-chain totals (it was bridged TO those chains).
   
-  // 1. DFK CHAIN LOCKED JEWEL (cJEWEL staking + system contracts, NOT bridge contracts)
+  // 1. DFK CHAIN LOCKED JEWEL (cJEWEL staking + sJEWEL on Kaia + system contracts, NOT bridge contracts)
   // Bridge contracts are excluded because their JEWEL appears on other chains
   const lockedJewelCJewel = stakingCat?.contracts.find(c => c.name.includes('cJEWEL'))?.jewelBalance || 0;
+  const lockedJewelSJewel = sJewelSupply; // sJEWEL on Kaia (Serendale)
   const lockedJewelBridge = bridgeCat?.totalJewel || 0; // Track for reference only
   const lockedJewelSystem = systemCat?.totalJewel || 0;
-  // Only count cJEWEL + system (not bridge) to avoid double-counting
-  const lockedTotal = lockedJewelCJewel + lockedJewelSystem;
+  // Count cJEWEL + sJEWEL + system (not bridge) to avoid double-counting
+  const lockedTotal = lockedJewelCJewel + lockedJewelSJewel + lockedJewelSystem;
   
   // 2. DFK CHAIN POOLED JEWEL (wJEWEL in LP reserves - FULL reserves, not just staked)
   // Use totalJewelFullReserves from LP category for complete coverage
@@ -1411,7 +1530,8 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const harmonyLpJewel = harmonyLpReserves.reduce((sum, lp) => sum + lp.jewelReserves, 0);
   const avalancheLpJewel = avalancheLpReserves.reduce((sum, lp) => sum + lp.jewelReserves, 0);
   const metisLpJewel = metisLpReserves.reduce((sum, lp) => sum + lp.jewelReserves, 0);
-  const multiChainLpTotal = harmonyLpJewel + avalancheLpJewel + metisLpJewel;
+  const kaiaLpJewel = kaiaLpReserves.reduce((sum, lp) => sum + lp.jewelReserves, 0);
+  const multiChainLpTotal = harmonyLpJewel + avalancheLpJewel + metisLpJewel + kaiaLpJewel;
   
   // Build LP contracts array (DFK Chain pools + Multi-chain LPs)
   const lpContracts: LpPoolDetail[] = [];
@@ -1494,6 +1614,20 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     }
   }
   
+  // Add Kaia LP pools (Serendale)
+  for (const lp of kaiaLpReserves) {
+    if (lp.jewelReserves > 0) {
+      lpContracts.push({
+        chain: 'Kaia',
+        name: lp.poolName,
+        address: lp.lpAddress,
+        jewelReserves: lp.jewelReserves,
+        otherToken: lp.otherToken,
+        otherReserves: lp.otherReserves,
+      });
+    }
+  }
+  
   // Build bridge wallets array (liquid JEWEL only)
   const bridgeWallets: BridgeWalletDetail[] = [];
   
@@ -1524,10 +1658,12 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   
   console.log(`[ValueBreakdown] Coverage Breakdown (Active JEWEL only):`);
   console.log(`  - DFK Locked (cJEWEL): ${lockedJewelCJewel.toLocaleString()}`);
+  console.log(`  - Kaia Locked (sJEWEL): ${lockedJewelSJewel.toLocaleString()}`);
   console.log(`  - DFK Locked (System): ${lockedJewelSystem.toLocaleString()}`);
   console.log(`  - DFK Bridge Contracts (excluded): ${lockedJewelBridge.toLocaleString()}`);
   console.log(`  - DFK Pooled (LP Full): ${lpPooledTotal.toLocaleString()}`);
   console.log(`  - Harmony LP: ${harmonyLpJewel.toLocaleString()}`);
+  console.log(`  - Kaia LP: ${kaiaLpJewel.toLocaleString()}`);
   console.log(`  - Avalanche LP: ${avalancheLpJewel.toLocaleString()}`);
   console.log(`  - Metis LP: ${metisLpJewel.toLocaleString()}`);
   console.log(`  - Multi-Chain LPs Total: ${multiChainLpTotal.toLocaleString()}`);
@@ -1553,9 +1689,10 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const coverageBreakdown: CoverageBreakdown = {
     locked: {
       cJewel: lockedJewelCJewel,
+      sJewel: lockedJewelSJewel, // sJEWEL on Kaia (Serendale)
       systemContracts: lockedJewelSystem,
       bridgeContracts: lockedJewelBridge, // Tracked for reference but excluded from totals
-      total: lockedTotal, // Does NOT include bridge contracts (to avoid double-counting)
+      total: lockedTotal, // cJEWEL + sJEWEL + system (not bridge to avoid double-counting)
     },
     pooled: {
       lpReservesStaked: lpPooledStaked,
