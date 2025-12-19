@@ -74,6 +74,37 @@ async function createHedgeTables() {
 
       CREATE INDEX IF NOT EXISTS entitlement_rules_tier_idx ON entitlement_rules(tier_id);
       CREATE INDEX IF NOT EXISTS entitlement_rules_domain_resource_idx ON entitlement_rules(domain, resource);
+
+      CREATE TABLE IF NOT EXISTS sync_runs (
+        id SERIAL PRIMARY KEY,
+        domain TEXT NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        finished_at TIMESTAMPTZ,
+        status TEXT NOT NULL,
+        discovered_urls INTEGER NOT NULL DEFAULT 0,
+        keywords_upserted INTEGER NOT NULL DEFAULT 0,
+        classes_attempted INTEGER NOT NULL DEFAULT 0,
+        classes_ingested INTEGER NOT NULL DEFAULT 0,
+        skills_upserted INTEGER NOT NULL DEFAULT 0,
+        rag_docs_upserted INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        log JSONB
+      );
+
+      CREATE INDEX IF NOT EXISTS ix_sync_runs_domain_started ON sync_runs(domain, started_at DESC);
+
+      CREATE TABLE IF NOT EXISTS sync_run_items (
+        id SERIAL PRIMARY KEY,
+        sync_run_id INTEGER NOT NULL REFERENCES sync_runs(id) ON DELETE CASCADE,
+        item_type TEXT NOT NULL,
+        item_key TEXT NOT NULL,
+        status TEXT NOT NULL,
+        detail TEXT,
+        skills_count INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS ix_sync_run_items_run ON sync_run_items(sync_run_id);
     `);
     
     console.log('Tables created successfully!');

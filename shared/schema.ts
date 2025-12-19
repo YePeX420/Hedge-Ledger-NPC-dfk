@@ -2476,3 +2476,53 @@ export const entitlementRules = pgTable("entitlement_rules", {
 export const insertEntitlementRuleSchema = createInsertSchema(entitlementRules).omit({ id: true });
 export type InsertEntitlementRule = z.infer<typeof insertEntitlementRuleSchema>;
 export type EntitlementRule = typeof entitlementRules.$inferSelect;
+
+// ============================================================================
+// SYNC STATUS TRACKING
+// Tracks ingestion runs and per-item results
+// ============================================================================
+
+/**
+ * Sync runs - tracks each ingest run summary
+ */
+export const syncRuns = pgTable("sync_runs", {
+  id: serial("id").primaryKey(),
+  domain: text("domain").notNull(), // e.g. 'combat_codex'
+  startedAt: timestamp("started_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  status: text("status").notNull(), // 'running', 'success', 'failed'
+  discoveredUrls: integer("discovered_urls").notNull().default(0),
+  keywordsUpserted: integer("keywords_upserted").notNull().default(0),
+  classesAttempted: integer("classes_attempted").notNull().default(0),
+  classesIngested: integer("classes_ingested").notNull().default(0),
+  skillsUpserted: integer("skills_upserted").notNull().default(0),
+  ragDocsUpserted: integer("rag_docs_upserted").notNull().default(0),
+  error: text("error"),
+  log: json("log"),
+}, (table) => ({
+  domainStartedIdx: index("ix_sync_runs_domain_started").on(table.domain, table.startedAt),
+}));
+
+export const insertSyncRunSchema = createInsertSchema(syncRuns).omit({ id: true });
+export type InsertSyncRun = z.infer<typeof insertSyncRunSchema>;
+export type SyncRun = typeof syncRuns.$inferSelect;
+
+/**
+ * Sync run items - tracks per-class results (success/skipped/failed)
+ */
+export const syncRunItems = pgTable("sync_run_items", {
+  id: serial("id").primaryKey(),
+  syncRunId: integer("sync_run_id").notNull().references(() => syncRuns.id, { onDelete: 'cascade' }),
+  itemType: text("item_type").notNull(), // 'class_url' | 'keywords'
+  itemKey: text("item_key").notNull(), // url or identifier
+  status: text("status").notNull(), // 'success', 'skipped', 'failed'
+  detail: text("detail"),
+  skillsCount: integer("skills_count"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  syncRunIdIdx: index("ix_sync_run_items_run").on(table.syncRunId),
+}));
+
+export const insertSyncRunItemSchema = createInsertSchema(syncRunItems).omit({ id: true });
+export type InsertSyncRunItem = z.infer<typeof insertSyncRunItemSchema>;
+export type SyncRunItem = typeof syncRunItems.$inferSelect;
