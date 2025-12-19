@@ -2058,6 +2058,352 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerHedgeAdminRoutes(hedgeAdminRouter);
   app.use('/api/hedge/admin', hedgeCors, requireAdminApiKey, hedgeAdminRouter);
 
+  // ============================================================================
+  // HEDGE ADMIN PROXY ROUTES (session-based auth for admin UI)
+  // These proxy routes allow the admin UI to access Hedge admin APIs using
+  // session-based authentication instead of API key authentication
+  // ============================================================================
+
+  // Combat Sync endpoints
+  app.get("/api/admin/hedge/combat/sync/summary", isAdmin, async (req: any, res: any) => {
+    try {
+      const [keywordCount] = await db.select({ count: sql<number>`count(*)::int` }).from(require("@shared/schema").combatKeywords);
+      const [classCount] = await db.select({ count: sql<number>`count(*)::int` }).from(require("@shared/schema").combatClassMeta);
+      const [skillCount] = await db.select({ count: sql<number>`count(*)::int` }).from(require("@shared/schema").combatSkills);
+      const { syncRuns } = require("@shared/schema");
+      const { and, eq, desc: descOrder } = require("drizzle-orm");
+
+      const lastSuccessResults = await db.select({
+        id: syncRuns.id,
+        started_at: syncRuns.startedAt,
+        finished_at: syncRuns.finishedAt,
+        discovered_urls: syncRuns.discoveredUrls,
+        classes_ingested: syncRuns.classesIngested,
+        skills_upserted: syncRuns.skillsUpserted,
+      })
+        .from(syncRuns)
+        .where(and(eq(syncRuns.domain, 'combat_codex'), eq(syncRuns.status, 'success')))
+        .orderBy(descOrder(syncRuns.startedAt))
+        .limit(1);
+
+      const lastRunResults = await db.select({
+        id: syncRuns.id,
+        started_at: syncRuns.startedAt,
+        finished_at: syncRuns.finishedAt,
+        status: syncRuns.status,
+        error: syncRuns.error,
+      })
+        .from(syncRuns)
+        .where(eq(syncRuns.domain, 'combat_codex'))
+        .orderBy(descOrder(syncRuns.startedAt))
+        .limit(1);
+
+      const runningRunResults = await db.select({
+        id: syncRuns.id,
+        started_at: syncRuns.startedAt,
+      })
+        .from(syncRuns)
+        .where(and(eq(syncRuns.domain, 'combat_codex'), eq(syncRuns.status, 'running')))
+        .orderBy(descOrder(syncRuns.startedAt))
+        .limit(1);
+
+      res.json({
+        ok: true,
+        counts: {
+          keywords: keywordCount?.count ?? 0,
+          classes: classCount?.count ?? 0,
+          skills: skillCount?.count ?? 0,
+        },
+        lastSuccess: lastSuccessResults[0] ?? null,
+        lastRun: lastRunResults[0] ?? null,
+        runningRun: runningRunResults[0] ?? null,
+      });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error fetching sync summary:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.get("/api/admin/hedge/combat/sync/runs", isAdmin, async (req: any, res: any) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 25)));
+      const { syncRuns } = require("@shared/schema");
+      const { eq, desc: descOrder } = require("drizzle-orm");
+
+      const runs = await db.select({
+        id: syncRuns.id,
+        domain: syncRuns.domain,
+        startedAt: syncRuns.startedAt,
+        finishedAt: syncRuns.finishedAt,
+        status: syncRuns.status,
+        discoveredUrls: syncRuns.discoveredUrls,
+        keywordsUpserted: syncRuns.keywordsUpserted,
+        classesAttempted: syncRuns.classesAttempted,
+        classesIngested: syncRuns.classesIngested,
+        skillsUpserted: syncRuns.skillsUpserted,
+        ragDocsUpserted: syncRuns.ragDocsUpserted,
+        error: syncRuns.error,
+      })
+        .from(syncRuns)
+        .where(eq(syncRuns.domain, 'combat_codex'))
+        .orderBy(descOrder(syncRuns.startedAt))
+        .limit(limit);
+
+      res.json({ ok: true, count: runs.length, results: runs });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error fetching sync runs:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.get("/api/admin/hedge/combat/sync/runs/:id", isAdmin, async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        return res.status(400).json({ ok: false, error: 'Invalid id' });
+      }
+      const { syncRuns, syncRunItems } = require("@shared/schema");
+      const { and, eq } = require("drizzle-orm");
+
+      const [run] = await db.select()
+        .from(syncRuns)
+        .where(and(eq(syncRuns.id, id), eq(syncRuns.domain, 'combat_codex')));
+
+      if (!run) {
+        return res.status(404).json({ ok: false, error: 'Run not found' });
+      }
+
+      const items = await db.select()
+        .from(syncRunItems)
+        .where(eq(syncRunItems.syncRunId, id))
+        .orderBy(syncRunItems.id);
+
+      res.json({ ok: true, run, items });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error fetching sync run:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.get("/api/admin/hedge/combat/sources", isAdmin, async (req: any, res: any) => {
+    try {
+      const { combatSources } = require("@shared/schema");
+      const sources = await db.select().from(combatSources).orderBy(combatSources.kind, combatSources.url);
+      res.json({ ok: true, count: sources.length, results: sources });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error fetching sources:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.patch("/api/admin/hedge/combat/sources", isAdmin, async (req: any, res: any) => {
+    try {
+      const { url, enabled } = req.body || {};
+      if (!url || typeof enabled !== 'boolean') {
+        return res.status(400).json({ ok: false, error: 'url and enabled boolean required' });
+      }
+      const { combatSources } = require("@shared/schema");
+      const { eq } = require("drizzle-orm");
+
+      const [updated] = await db.update(combatSources)
+        .set({ enabled })
+        .where(eq(combatSources.url, url))
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ ok: false, error: 'Source not found' });
+      }
+      res.json({ ok: true, result: updated });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error updating source:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.post("/api/admin/hedge/combat/refresh", isAdmin, async (req: any, res: any) => {
+    try {
+      const discover = req.body?.discover ?? true;
+      const concurrency = req.body?.concurrency ?? 3;
+      const { ingestCombatCodex } = await import('../src/dfk/combatCodexIngestor.js');
+      const result = await ingestCombatCodex({ discover, concurrency });
+      res.json(result);
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error refreshing combat codex:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // Entitlements endpoints
+  app.get("/api/admin/hedge/entitlements/tiers", isAdmin, async (req: any, res: any) => {
+    try {
+      const { entitlementTiers } = require("@shared/schema");
+      const tiers = await db.select({
+        tier_id: entitlementTiers.tierId,
+        display_name: entitlementTiers.displayName,
+        description: entitlementTiers.description,
+        price_monthly: entitlementTiers.priceMonthly,
+        enabled: entitlementTiers.enabled,
+        sort_order: entitlementTiers.sortOrder,
+        updated_at: entitlementTiers.updatedAt,
+      }).from(entitlementTiers).orderBy(entitlementTiers.sortOrder);
+      res.json({ ok: true, count: tiers.length, results: tiers });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error fetching tiers:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.patch("/api/admin/hedge/entitlements/tiers/:tierId", isAdmin, async (req: any, res: any) => {
+    try {
+      const tierId = req.params.tierId;
+      const allowed = ['display_name', 'description', 'price_monthly', 'enabled', 'sort_order'] as const;
+      const fieldMap: Record<string, string> = {
+        display_name: 'displayName',
+        description: 'description',
+        price_monthly: 'priceMonthly',
+        enabled: 'enabled',
+        sort_order: 'sortOrder',
+      };
+
+      const patch: Record<string, any> = {};
+      for (const k of allowed) {
+        if (req.body?.[k] !== undefined) {
+          const dbField = fieldMap[k];
+          patch[dbField] = k === 'price_monthly' ? req.body[k]?.toString() : req.body[k];
+        }
+      }
+      if (Object.keys(patch).length === 0) {
+        return res.status(400).json({ ok: false, error: 'No patch fields provided' });
+      }
+
+      patch.updatedAt = new Date();
+      const { entitlementTiers } = require("@shared/schema");
+      const { eq } = require("drizzle-orm");
+
+      const [updated] = await db.update(entitlementTiers)
+        .set(patch)
+        .where(eq(entitlementTiers.tierId, tierId))
+        .returning({
+          tier_id: entitlementTiers.tierId,
+          display_name: entitlementTiers.displayName,
+          description: entitlementTiers.description,
+          price_monthly: entitlementTiers.priceMonthly,
+          enabled: entitlementTiers.enabled,
+          sort_order: entitlementTiers.sortOrder,
+          updated_at: entitlementTiers.updatedAt,
+        });
+
+      if (!updated) {
+        return res.status(404).json({ ok: false, error: 'Tier not found' });
+      }
+      res.json({ ok: true, result: updated });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error patching tier:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.get("/api/admin/hedge/entitlements/rules", isAdmin, async (req: any, res: any) => {
+    try {
+      const domain = String(req.query.domain || '').trim();
+      const resource = String(req.query.resource || '').trim();
+      const { entitlementRules } = require("@shared/schema");
+      const { and, eq } = require("drizzle-orm");
+
+      let rows;
+      if (domain && resource) {
+        rows = await db.select({
+          id: entitlementRules.id,
+          domain: entitlementRules.domain,
+          resource: entitlementRules.resource,
+          tier_id: entitlementRules.tierId,
+          mode: entitlementRules.mode,
+          rule: entitlementRules.rule,
+          updated_at: entitlementRules.updatedAt,
+        }).from(entitlementRules)
+          .where(and(
+            eq(entitlementRules.domain, domain),
+            eq(entitlementRules.resource, resource)
+          ))
+          .orderBy(entitlementRules.tierId, entitlementRules.mode);
+      } else {
+        rows = await db.select({
+          id: entitlementRules.id,
+          domain: entitlementRules.domain,
+          resource: entitlementRules.resource,
+          tier_id: entitlementRules.tierId,
+          mode: entitlementRules.mode,
+          rule: entitlementRules.rule,
+          updated_at: entitlementRules.updatedAt,
+        }).from(entitlementRules)
+          .orderBy(entitlementRules.domain, entitlementRules.resource, entitlementRules.tierId, entitlementRules.mode);
+      }
+      res.json({ ok: true, count: rows.length, results: rows });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error fetching rules:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.put("/api/admin/hedge/entitlements/rules", isAdmin, async (req: any, res: any) => {
+    try {
+      const { domain, resource, tier_id, mode, rule } = req.body || {};
+      if (!domain || !resource || !tier_id || !mode || !rule) {
+        return res.status(400).json({ ok: false, error: 'domain, resource, tier_id, mode, rule are required' });
+      }
+      const { entitlementRules } = require("@shared/schema");
+
+      const [updated] = await db.insert(entitlementRules).values({
+        domain,
+        resource,
+        tierId: tier_id,
+        mode,
+        rule,
+        updatedAt: new Date(),
+      }).onConflictDoUpdate({
+        target: [entitlementRules.domain, entitlementRules.resource, entitlementRules.tierId, entitlementRules.mode],
+        set: { rule, updatedAt: new Date() }
+      }).returning({
+        id: entitlementRules.id,
+        domain: entitlementRules.domain,
+        resource: entitlementRules.resource,
+        tier_id: entitlementRules.tierId,
+        mode: entitlementRules.mode,
+        rule: entitlementRules.rule,
+        updated_at: entitlementRules.updatedAt,
+      });
+
+      res.json({ ok: true, result: updated });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error upserting rule:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.post("/api/admin/hedge/entitlements/preview", isAdmin, async (req: any, res: any) => {
+    try {
+      const { domain, resource, tier_id, sample } = req.body || {};
+      if (!domain || !resource || !tier_id || !sample) {
+        return res.status(400).json({ ok: false, error: 'domain, resource, tier_id, sample required' });
+      }
+      const { getEntitlements, shapeObjectByAllowlist } = await import('../src/entitlements/entitlements.js');
+
+      const ent = await getEntitlements(domain, resource, tier_id);
+      const shaped = shapeObjectByAllowlist(sample, ent.allowFields);
+
+      res.json({ ok: true, tier: tier_id, features: ent.flags, result: shaped });
+    } catch (error: any) {
+      console.error('[HedgeProxy] Error previewing entitlements:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // Schema registry endpoints
+  app.get("/api/admin/hedge/schema/combat/skills", isAdmin, async (_req: any, res: any) => {
+    const { CombatSkillFields } = await import('../src/schema/combatSchemas.js');
+    res.json({ ok: true, fields: CombatSkillFields });
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
