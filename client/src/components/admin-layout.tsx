@@ -21,7 +21,9 @@ import {
   Droplets,
   Database,
   Gem,
-  Sprout
+  Sprout,
+  RefreshCw,
+  Crown
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -47,6 +49,8 @@ const navItems = [
   { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
+  { href: '/admin/hedge/combat-sync', label: 'Hedge: Combat Sync', icon: RefreshCw },
+  { href: '/admin/hedge/plans', label: 'Hedge: Plans & Access', icon: Crown },
   { href: '/admin/expenses', label: 'Expenses', icon: Receipt },
   { href: '/admin/bridge', label: 'Bridge', icon: ArrowLeftRight },
   { href: '/admin/extractors', label: 'Extractors', icon: TrendingDown },

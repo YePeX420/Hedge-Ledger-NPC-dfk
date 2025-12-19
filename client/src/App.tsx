@@ -28,6 +28,8 @@ import AdminPoolIndexerV1 from "@/pages/admin/pool-indexer-v1";
 import AdminPoolIndexerHarmony from "@/pages/admin/pool-indexer-harmony";
 import AdminJeweler from "@/pages/admin/jeweler";
 import AdminGardeningQuest from "@/pages/admin/gardening-quest";
+import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
+import HedgePlansAccess from "@/pages/admin/hedge-plans-access";
 import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
 import ChallengesPage from "@/pages/challenges";
@@ -221,6 +223,22 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminLevelRacer />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/hedge/combat-sync">
+        {() => (
+          <ProtectedAdminPage>
+            <HedgeCombatSync />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/hedge/plans">
+        {() => (
+          <ProtectedAdminPage>
+            <HedgePlansAccess />
           </ProtectedAdminPage>
         )}
       </Route>
