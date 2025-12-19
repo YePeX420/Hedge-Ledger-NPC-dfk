@@ -24,7 +24,12 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors."
 *   **Extractor Analysis Dashboard**: Identifies wallets with net negative value flow.
 *   **Bridge Pricing Reconciliation System**: Ensures accurate USD valuation for all bridge events.
-*   **Value Allocation/TVL Dashboard**: Calculates accurate Total Value Locked (TVL) using staked LP amounts and DefiLlama prices. Includes CEX liquidity monitoring with order-book depth analysis from KuCoin, Gate.io, and MEXC (±2% band). Features JEWEL tokenomics tracking with supply metrics from official DFK API (supply.defikingdoms.com), Coverage KPI showing percentage of circulating JEWEL tracked across LP pools/staking/bridges, multi-chain JEWEL tracking (Harmony, Kaia, Metis bridges), and Burn Ledger detecting JEWEL sent to known burn addresses (0x0, 0xdead, EIP-1559).
+*   **Value Allocation/TVL Dashboard**: Calculates accurate Total Value Locked (TVL) using staked LP amounts and DefiLlama prices. Includes CEX liquidity monitoring with order-book depth analysis from KuCoin, Gate.io, and MEXC (±2% band). Features JEWEL tokenomics tracking with supply metrics from official DFK API (supply.defikingdoms.com). **Coverage KPI** tracks JEWEL across categories:
+    - **Locked**: cJEWEL staking + system contracts (bridge contracts tracked separately to avoid double-counting)
+    - **Pooled**: Full LP reserves (staked + unstaked wJEWEL in all pools)
+    - **Multi-Chain**: Total JEWEL supply on Harmony, Kaia, Metis via chain totalSupply() RPC calls
+    - **Burned**: JEWEL at known burn addresses (0x0, 0xdead)
+    - **Note**: Bridge contracts on DFK Chain are tracked for reference but excluded from totals to avoid double-counting with multi-chain balances.
 *   **Token Registry System**: Manages token metadata, syncing known DFK tokens and supporting RouteScan scraping.
 *   **Unified Pool Indexer System**: Tracks LP staking positions across Master Gardener V1 and V2 contracts with dynamic parallel workers and work-stealing for efficiency.
 *   **Jeweler Indexer System**: Tracks cJEWEL staking positions, calculates APR, and provides leaderboards.
