@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, RefreshCw, Target, Coins, Landmark, ArrowLeftRight, Wrench, Droplets, ExternalLink } from "lucide-react";
+import { ArrowLeft, RefreshCw, Target, Coins, Landmark, ArrowLeftRight, Wrench, Droplets, ExternalLink, Globe } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { queryClient } from "@/lib/queryClient";
 
@@ -37,6 +37,21 @@ interface CoverageKPI {
   circulatingSupply: number;
   coverageRatio: number;
   unaccountedJewel: number;
+  multiChainTotal?: number;
+}
+
+interface ChainBalance {
+  chain: string;
+  chainId: string;
+  tokenAddress: string;
+  contracts: {
+    name: string;
+    address: string;
+    jewelBalance: number;
+  }[];
+  totalJewel: number;
+  status: 'success' | 'error';
+  error?: string;
 }
 
 interface JewelSupplyData {
@@ -59,6 +74,7 @@ interface ValueBreakdownData {
   categories: Category[];
   coverageKPI?: CoverageKPI;
   jewelSupply?: JewelSupplyData;
+  multiChainBalances?: ChainBalance[];
   summary: {
     totalJewelLocked: number;
     totalCrystalLocked: number;
@@ -67,6 +83,7 @@ interface ValueBreakdownData {
     stakingValue: number;
     bridgeValue: number;
     systemValue: number;
+    multiChainJewel?: number;
   };
 }
 
@@ -79,19 +96,21 @@ interface SourceBreakdown {
   contracts: { name: string; address: string; jewel: number }[];
 }
 
-const COLORS = {
+const COLORS: Record<string, string> = {
   'LP Pools': '#22c55e',
   'Staking/Governance': '#3b82f6',
   'Bridge Contracts': '#f59e0b',
   'System Contracts': '#8b5cf6',
+  'Multi-Chain': '#ec4899',
   'Unaccounted': '#6b7280',
 };
 
-const CATEGORY_ICONS = {
+const CATEGORY_ICONS: Record<string, typeof Coins> = {
   'LP Pools': Droplets,
   'Staking/Governance': Landmark,
   'Bridge Contracts': ArrowLeftRight,
   'System Contracts': Wrench,
+  'Multi-Chain': Globe,
 };
 
 function formatNumber(num: number): string {
@@ -202,6 +221,37 @@ export default function CoverageDetailsPage() {
           .sort((a, b) => b.jewel - a.jewel),
       });
       totalTracked += systemCategory.totalJewel;
+    }
+
+    // Multi-Chain Bridges (Harmony, Kaia, Metis)
+    if (data.multiChainBalances && data.multiChainBalances.length > 0) {
+      let multiChainJewel = 0;
+      const multiChainContracts: { name: string; address: string; jewel: number }[] = [];
+      
+      for (const chain of data.multiChainBalances) {
+        if (chain.status === 'success' && chain.totalJewel > 0) {
+          multiChainJewel += chain.totalJewel;
+          for (const contract of chain.contracts) {
+            multiChainContracts.push({
+              name: `${contract.name} (${chain.chain})`,
+              address: contract.address,
+              jewel: contract.jewelBalance,
+            });
+          }
+        }
+      }
+      
+      if (multiChainJewel > 0) {
+        sourceBreakdown.push({
+          name: 'Multi-Chain Bridges',
+          jewel: multiChainJewel,
+          percentage: 0,
+          icon: Globe,
+          color: COLORS['Multi-Chain'],
+          contracts: multiChainContracts.sort((a, b) => b.jewel - a.jewel),
+        });
+        totalTracked += multiChainJewel;
+      }
     }
 
     // Calculate percentages

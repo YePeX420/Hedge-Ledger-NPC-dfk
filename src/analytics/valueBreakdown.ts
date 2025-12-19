@@ -3,6 +3,32 @@ import { getTokenMetadataMap } from '../services/tokenRegistryService.js';
 import { getCachedPool } from '../../pool-cache.js';
 
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
+const HARMONY_RPC = 'https://api.harmony.one';
+const KAIA_RPC = 'https://public-en.node.kaia.io';
+const METIS_RPC = 'https://andromeda.metis.io/?owner=1088';
+
+// Multi-chain JEWEL token addresses
+const JEWEL_TOKENS = {
+  DFK_CHAIN: '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260', // wJEWEL on DFK Chain
+  HARMONY: '0x72Cb10C6bfA5624dD07Ef608027E366bd690048F', // JEWEL on Harmony
+  KAIA: '0x30c103f8f5a3A732DFe2dCE1Cc9446f545527b43', // JEWEL on Kaia
+  METIS: '0x17c09cfC96C865CF546d73f2dF01fb440cA8BAd5', // JEWEL on Metis
+};
+
+// Multi-chain bridge contracts holding JEWEL
+const MULTI_CHAIN_BRIDGES = {
+  HARMONY: {
+    'Horizon Bridge (Harmony)': '0x7D12F97e7d7BDA05f6E90b9d27De1E28E33eDa4C',
+    'Synapse Bridge (Harmony)': '0xAf41a65F786339e7911F4acDAD6BD49426F2Dc6b',
+  },
+  KAIA: {
+    'DFK Bridge (Kaia)': '0x588F1f7A8d62F988eBC4F8d2e4c8e07a8B9F0468',
+    'Synapse Bridge (Kaia)': '0xAf41a65F786339e7911F4acDAD6BD49426F2Dc6b',
+  },
+  METIS: {
+    'Synapse Bridge (Metis)': '0x06Fea8513FF03a0d3f61324da709D4cf06F42A5c',
+  },
+};
 
 const TOKENS = {
   JEWEL: '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260',
@@ -138,6 +164,7 @@ interface LpPoolsCategory {
   category: 'LP Pools';
   contracts: LpPoolContract[];
   totalValueUSD: number;
+  totalJewel: number; // Total wJEWEL in LP pools (1:1 with JEWEL)
 }
 
 interface StandardCategory {
@@ -195,6 +222,22 @@ interface BurnData {
   sources: string[];
 }
 
+// Multi-chain JEWEL balance tracking
+interface ChainBalance {
+  chain: string;
+  chainId: string;
+  rpc: string;
+  tokenAddress: string;
+  contracts: {
+    name: string;
+    address: string;
+    jewelBalance: number;
+  }[];
+  totalJewel: number;
+  status: 'success' | 'error';
+  error?: string;
+}
+
 interface ValueBreakdownResult {
   timestamp: string;
   prices: {
@@ -208,11 +251,13 @@ interface ValueBreakdownResult {
   cexLiquidity?: CexLiquidityData;
   jewelSupply?: JewelSupplyData;
   burnData?: BurnData;
+  multiChainBalances?: ChainBalance[];
   coverageKPI?: {
     trackedJewel: number;
     circulatingSupply: number;
     coverageRatio: number;
     unaccountedJewel: number;
+    multiChainTotal?: number;
   };
   summary: {
     totalJewelLocked: number;
@@ -224,6 +269,7 @@ interface ValueBreakdownResult {
     systemValue: number;
     cexLiquidityValue?: number;
     liquidTreasuryValue?: number;
+    multiChainJewel?: number;
   };
 }
 
@@ -454,6 +500,89 @@ async function getStakedTokenSupply(
   } catch {
     return 0;
   }
+}
+
+// Fetch JEWEL balances from contracts on a specific chain
+async function getChainJewelBalances(
+  chainName: string,
+  chainId: string,
+  rpcUrl: string,
+  jewelTokenAddress: string,
+  bridgeContracts: Record<string, string>
+): Promise<ChainBalance> {
+  const result: ChainBalance = {
+    chain: chainName,
+    chainId,
+    rpc: rpcUrl,
+    tokenAddress: jewelTokenAddress,
+    contracts: [],
+    totalJewel: 0,
+    status: 'success',
+  };
+
+  try {
+    const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {
+      staticNetwork: true,
+    });
+    
+    // Set a timeout for the provider
+    const timeout = 10000; // 10 seconds
+    
+    for (const [name, address] of Object.entries(bridgeContracts)) {
+      try {
+        const contract = new ethers.Contract(jewelTokenAddress, ERC20_ABI, provider);
+        const balancePromise = contract.balanceOf(address);
+        const balance = await Promise.race([
+          balancePromise,
+          new Promise<bigint>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), timeout)
+          )
+        ]);
+        const jewelBalance = parseFloat(ethers.formatEther(balance));
+        
+        if (jewelBalance > 0) {
+          result.contracts.push({ name, address, jewelBalance });
+          result.totalJewel += jewelBalance;
+          console.log(`[MultiChain] ${chainName} - ${name}: ${jewelBalance.toFixed(2)} JEWEL`);
+        }
+      } catch (err) {
+        console.warn(`[MultiChain] Failed to get balance for ${name} on ${chainName}: ${(err as Error).message}`);
+      }
+      
+      await delay(100); // Rate limiting
+    }
+  } catch (err) {
+    result.status = 'error';
+    result.error = (err as Error).message;
+    console.error(`[MultiChain] Failed to connect to ${chainName}: ${(err as Error).message}`);
+  }
+
+  return result;
+}
+
+// Fetch JEWEL balances across all chains
+async function getMultiChainJewelBalances(): Promise<ChainBalance[]> {
+  const results: ChainBalance[] = [];
+
+  // Fetch from each chain in parallel (with error handling per chain)
+  const chainPromises = [
+    getChainJewelBalances('Harmony', '1666600000', HARMONY_RPC, JEWEL_TOKENS.HARMONY, MULTI_CHAIN_BRIDGES.HARMONY),
+    getChainJewelBalances('Kaia', '8217', KAIA_RPC, JEWEL_TOKENS.KAIA, MULTI_CHAIN_BRIDGES.KAIA),
+    getChainJewelBalances('Metis', '1088', METIS_RPC, JEWEL_TOKENS.METIS, MULTI_CHAIN_BRIDGES.METIS),
+  ];
+
+  const chainResults = await Promise.allSettled(chainPromises);
+  
+  for (const result of chainResults) {
+    if (result.status === 'fulfilled') {
+      results.push(result.value);
+    }
+  }
+
+  const totalMultiChain = results.reduce((sum, r) => sum + r.totalJewel, 0);
+  console.log(`[MultiChain] Total JEWEL across chains: ${totalMultiChain.toFixed(2)}`);
+
+  return results;
 }
 
 interface StakedLPInfo {
@@ -730,10 +859,19 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       });
   }
 
+  // Calculate total wJEWEL in LP pools (wJEWEL is 1:1 with JEWEL)
+  const lpTotalJewel = lpPoolContracts.reduce((sum, c) => {
+    let jewelInPool = 0;
+    if (c.token0Symbol === 'wJEWEL') jewelInPool += c.token0Balance;
+    if (c.token1Symbol === 'wJEWEL') jewelInPool += c.token1Balance;
+    return sum + jewelInPool;
+  }, 0);
+
   categories.push({
     category: 'LP Pools',
     contracts: lpPoolContracts,
     totalValueUSD: lpPoolContracts.reduce((sum, c) => sum + c.totalValueUSD, 0),
+    totalJewel: lpTotalJewel,
   } as LpPoolsCategory);
 
   const [cJewelSupply, xCrystalSupply] = await Promise.all([
@@ -845,10 +983,11 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     { symbol: 'KLAY', price: allPrices['KLAY'] || 0, source: 'defillama' },
   ];
 
-  // Fetch JEWEL supply and burn data in parallel
-  const [jewelSupply, burnData] = await Promise.all([
+  // Fetch JEWEL supply, burn data, and multi-chain balances in parallel
+  const [jewelSupply, burnData, multiChainBalances] = await Promise.all([
     fetchJewelSupply(),
     fetchBurnedJewel(provider),
+    getMultiChainJewelBalances(),
   ]);
   
   // Calculate total tracked JEWEL across all categories
@@ -874,6 +1013,11 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     }
   }
   
+  // Add JEWEL from multi-chain bridges (Harmony, Kaia, Metis)
+  const multiChainTotal = multiChainBalances.reduce((sum, chain) => sum + chain.totalJewel, 0);
+  trackedJewel += multiChainTotal;
+  console.log(`[ValueBreakdown] Multi-chain JEWEL added to coverage: ${multiChainTotal.toLocaleString()}`);
+  
   // Note: cJEWEL is already counted in totalJewelLocked via stakingCat
   // The staking category tracks cJEWEL totalSupply which equals locked JEWEL
   
@@ -890,6 +1034,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       circulatingSupply: jewelSupply.circulatingSupply,
       coverageRatio,
       unaccountedJewel,
+      multiChainTotal,
     };
     console.log(`[ValueBreakdown] Coverage KPI: ${(coverageRatio * 100).toFixed(2)}% (${trackedJewel.toLocaleString()} / ${jewelSupply.circulatingSupply.toLocaleString()})`);
     
@@ -915,6 +1060,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     categories,
     jewelSupply: jewelSupply || undefined,
     burnData: burnData.totalBurned > 0 ? burnData : undefined,
+    multiChainBalances: multiChainBalances.length > 0 ? multiChainBalances : undefined,
     coverageKPI,
     summary: {
       totalJewelLocked,
@@ -924,6 +1070,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       stakingValue: stakingCat?.totalValueUSD || 0,
       bridgeValue: bridgeCat?.totalValueUSD || 0,
       systemValue: systemCat?.totalValueUSD || 0,
+      multiChainJewel: multiChainTotal,
     },
   };
 }
