@@ -991,6 +991,18 @@ client.once(Events.ClientReady, async (c) => {
   } catch (err) {
     console.error('❌ Failed to start ETL scheduler:', err);
   }
+
+  // Initialize Combat Codex nightly sync cron (production only)
+  if (isProduction()) {
+    try {
+      console.log('⚔️ Starting Combat Codex sync cron...');
+      const { startCombatCodexCron } = await import('./src/jobs/combatCodexCron.ts');
+      startCombatCodexCron();
+      console.log('✅ Combat Codex cron started');
+    } catch (err) {
+      console.error('❌ Failed to start Combat Codex cron:', err);
+    }
+  }
 });
 
 // Generic helper to talk to Hedge
