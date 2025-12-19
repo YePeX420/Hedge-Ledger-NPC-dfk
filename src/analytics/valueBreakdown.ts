@@ -1141,34 +1141,47 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const lpPooledStaked = lpCat?.totalJewel || 0;
   const lpPooledUnstaked = lpPooledTotal - lpPooledStaked;
   
-  // 3. MULTI-CHAIN JEWEL (total supply on each chain)
-  // Use chain totalSupply (all JEWEL on that chain), not just bridge contracts
-  // This includes ALL holders on each chain - wallets, pools, etc.
+  // 3. MULTI-CHAIN JEWEL (bridge contracts + LPs on other chains)
+  // IMPORTANT: We do NOT use chainTotalSupply because Harmony has ~283M permanently locked
+  // JEWEL that will never unlock. Only track active JEWEL: bridge contracts and LPs.
   const harmonyChain = multiChainBalances.find(c => c.chain === 'Harmony');
   const kaiaChain = multiChainBalances.find(c => c.chain === 'Kaia');
   const metisChain = multiChainBalances.find(c => c.chain === 'Metis');
   
-  // For coverage, use chain totalSupply which includes ALL holders
-  const harmonyTotal = harmonyChain?.chainTotalSupply || 0;
-  const kaiaTotal = kaiaChain?.chainTotalSupply || 0;
-  const metisTotal = metisChain?.chainTotalSupply || 0;
+  // Use bridge contract balances (active JEWEL), NOT totalSupply (includes permanently locked)
+  // The chainTotalSupply is stored for reference but excluded from coverage calculation
+  const harmonyBridgeJewel = harmonyChain?.totalJewel || 0;
+  const kaiaBridgeJewel = kaiaChain?.totalJewel || 0;
+  const metisBridgeJewel = metisChain?.totalJewel || 0;
+  
+  // TODO: Add Harmony LP reserves tracking (JEWEL-ONE pool) for complete coverage
+  const harmonyLpJewel = 0; // Placeholder - will be populated in task 2
+  
+  // Multi-chain total = bridge contracts + LPs (not totalSupply)
+  const harmonyTotal = harmonyBridgeJewel + harmonyLpJewel;
+  const kaiaTotal = kaiaBridgeJewel;
+  const metisTotal = metisBridgeJewel;
   const multiChainTotal = harmonyTotal + kaiaTotal + metisTotal;
   
-  // Track bridge contract balances for reference (not included in trackedJewel to avoid double-counting)
-  const multiChainBridgeContracts = multiChainBalances.reduce((sum, chain) => sum + chain.totalJewel, 0);
+  // Store chainTotalSupply for reference (includes permanently locked)
+  const harmonyTotalSupply = harmonyChain?.chainTotalSupply || 0;
+  const kaiaTotalSupply = kaiaChain?.chainTotalSupply || 0;
+  const metisTotalSupply = metisChain?.chainTotalSupply || 0;
   
   // 4. BURNED JEWEL
   const burnedTotal = burnData.totalBurned;
   
-  console.log(`[ValueBreakdown] Coverage Breakdown:`);
+  console.log(`[ValueBreakdown] Coverage Breakdown (Active JEWEL only):`);
   console.log(`  - DFK Locked (cJEWEL): ${lockedJewelCJewel.toLocaleString()}`);
   console.log(`  - DFK Locked (System): ${lockedJewelSystem.toLocaleString()}`);
   console.log(`  - DFK Bridge Contracts (excluded): ${lockedJewelBridge.toLocaleString()}`);
   console.log(`  - DFK Pooled (LP Full): ${lpPooledTotal.toLocaleString()}`);
-  console.log(`  - Multi-chain (Harmony): ${harmonyTotal.toLocaleString()}`);
-  console.log(`  - Multi-chain (Kaia): ${kaiaTotal.toLocaleString()}`);
-  console.log(`  - Multi-chain (Metis): ${metisTotal.toLocaleString()}`);
+  console.log(`  - Multi-chain Bridge (Harmony): ${harmonyBridgeJewel.toLocaleString()}`);
+  console.log(`  - Multi-chain Bridge (Kaia): ${kaiaBridgeJewel.toLocaleString()}`);
+  console.log(`  - Multi-chain Bridge (Metis): ${metisBridgeJewel.toLocaleString()}`);
+  console.log(`  - Harmony LP (TODO): ${harmonyLpJewel.toLocaleString()}`);
   console.log(`  - Burned: ${burnedTotal.toLocaleString()}`);
+  console.log(`  - Note: Harmony totalSupply (${harmonyTotalSupply.toLocaleString()}) includes ~283M permanently locked - excluded`);
   
   // Total tracked = DFK Chain (Locked + Pooled) + MultiChain + Burned
   // Note: Bridge contracts excluded because their value is already counted on other chains
