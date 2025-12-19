@@ -6,13 +6,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle, Play, Loader2, Square, DollarSign, Database, Zap, PieChart, Wallet, ExternalLink } from 'lucide-react';
+import { Tooltip as UITooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ArrowDownRight, ArrowUpRight, RefreshCw, Search, TrendingDown, Users, Activity, AlertTriangle, Play, Loader2, Square, DollarSign, Database, Zap, PieChart, Wallet, ExternalLink, Scale } from 'lucide-react';
 import { useState } from 'react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Legend, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts';
+import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Legend, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ReferenceLine } from 'recharts';
 
 interface BridgeOverview {
   events: {
@@ -897,35 +898,43 @@ export default function BridgeAnalytics() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="md:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium">Total Bridged In</CardTitle>
-            <ArrowDownRight className="h-4 w-4 text-green-500" />
+            <CardTitle className="text-sm font-medium">Net Bridge Flow</CardTitle>
+            <Scale className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             {overviewLoading ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <div className="text-2xl font-bold text-green-600" data-testid="stat-bridged-in">
-                {formatUsd(safeOverview?.events?.totalUsdIn ?? 0)}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium">Total Bridged Out</CardTitle>
-            <ArrowUpRight className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            {overviewLoading ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <div className="text-2xl font-bold text-red-600" data-testid="stat-bridged-out">
-                {formatUsd(safeOverview?.events?.totalUsdOut ?? 0)}
-              </div>
-            )}
+              <Skeleton className="h-8 w-32" />
+            ) : (() => {
+              const totalIn = safeOverview?.events?.totalUsdIn ?? 0;
+              const totalOut = safeOverview?.events?.totalUsdOut ?? 0;
+              const netFlow = totalIn - totalOut;
+              const isPositive = netFlow >= 0;
+              return (
+                <>
+                  <span className="sr-only" data-testid="stat-bridged-in">Total bridged in: {formatUsd(totalIn)}</span>
+                  <span className="sr-only" data-testid="stat-bridged-out">Total bridged out: {formatUsd(totalOut)}</span>
+                  <UITooltip>
+                    <TooltipTrigger asChild>
+                      <button 
+                        type="button"
+                        className={`text-2xl font-bold cursor-help bg-transparent border-0 p-0 text-left ${isPositive ? 'text-green-600' : 'text-red-600'}`}
+                        data-testid="stat-net-bridge-flow"
+                      >
+                        {formatUsdAccounting(netFlow)}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-green-500">In: {formatUsd(totalIn)}</span>
+                        <span className="text-red-500">Out: {formatUsd(totalOut)}</span>
+                      </div>
+                    </TooltipContent>
+                  </UITooltip>
+                </>
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -1064,8 +1073,8 @@ export default function BridgeAnalytics() {
                     }}
                     className="text-xs fill-muted-foreground"
                   />
-                  <Tooltip 
-                    content={({ active, payload, label }) => {
+                  <RechartsTooltip 
+                    content={({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) => {
                       if (active && payload && payload.length && label) {
                         const d = new Date(String(label));
                         return (
