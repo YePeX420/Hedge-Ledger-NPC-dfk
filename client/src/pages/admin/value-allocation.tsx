@@ -420,20 +420,25 @@ export default function ValueAllocationPage() {
               </CardContent>
             </Card>
 
-            {/* Coverage KPI Card */}
-            <Card data-testid="card-coverage-kpi">
+            {/* Coverage KPI Card - Clickable for details */}
+            <Card 
+              data-testid="card-coverage-kpi" 
+              className="cursor-pointer hover-elevate transition-all"
+              onClick={() => setLocation('/admin/coverage-details')}
+            >
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Target className="w-5 h-5 text-cyan-500" />
                   Coverage KPI
                   <ShadcnTooltip>
-                    <TooltipTrigger>
+                    <TooltipTrigger onClick={(e) => e.stopPropagation()}>
                       <Info className="w-4 h-4 text-muted-foreground" />
                     </TooltipTrigger>
                     <TooltipContent className="max-w-xs">
-                      <p>Percentage of circulating JEWEL tracked across LP pools, staking, bridges, and system contracts. Higher is better.</p>
+                      <p>Percentage of circulating JEWEL tracked across LP pools, staking, bridges, and system contracts. Click for detailed breakdown.</p>
                     </TooltipContent>
                   </ShadcnTooltip>
+                  <ExternalLink className="w-4 h-4 text-muted-foreground ml-auto" />
                 </CardTitle>
                 <CardDescription>
                   Tracked JEWEL vs circulating supply
@@ -465,6 +470,9 @@ export default function ValueAllocationPage() {
                       <span className="font-medium font-mono" data-testid="text-unaccounted-jewel">
                         {formatNumber(data.coverageKPI.unaccountedJewel)}
                       </span>
+                    </div>
+                    <div className="text-xs text-center text-muted-foreground mt-2">
+                      Click for detailed breakdown
                     </div>
                   </>
                 ) : (

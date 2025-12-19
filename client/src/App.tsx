@@ -16,6 +16,7 @@ import AdminExpenses from "@/pages/admin/expenses";
 import AdminSettings from "@/pages/admin/settings";
 import AdminBridgeAnalytics from "@/pages/admin/bridge-analytics";
 import AdminValueAllocation from "@/pages/admin/value-allocation";
+import AdminCoverageDetails from "@/pages/admin/coverage-details";
 import AdminChallenges from "@/pages/admin/challenges";
 import ChallengeEditor from "@/pages/admin/challenge-editor";
 import AdminLevelRacer from "@/pages/admin/level-racer";
@@ -143,6 +144,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminValueAllocation />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/coverage-details">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminCoverageDetails />
           </ProtectedAdminPage>
         )}
       </Route>
