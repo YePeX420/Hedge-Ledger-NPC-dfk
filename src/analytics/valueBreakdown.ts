@@ -498,21 +498,65 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       const token0Price = getTokenPriceFromMap(allPrices, reserves.token0);
       const token1Price = getTokenPriceFromMap(allPrices, reserves.token1);
       
+      // Sanity check reserves - if they're unreasonably large, there's an issue
+      const MAX_REASONABLE_RESERVE = 1e15; // 1 quadrillion tokens max
+      if (reserves.reserve0 > MAX_REASONABLE_RESERVE || reserves.reserve1 > MAX_REASONABLE_RESERVE) {
+        console.warn(`[ValueBreakdown] SUSPICIOUS reserves for ${name}:`, {
+          reserve0: reserves.reserve0,
+          reserve1: reserves.reserve1,
+          token0: token0Symbol,
+          token1: token1Symbol,
+        });
+        // Skip this pool if reserves are suspicious
+        continue;
+      }
+      
+      // Sanity checks for staking info
+      const MAX_REASONABLE_LP_SUPPLY = 1e15; // 1 quadrillion LP tokens max
+      const safeV2Staked = (stakingInfo.v2Staked > 0 && stakingInfo.v2Staked < MAX_REASONABLE_LP_SUPPLY) 
+        ? stakingInfo.v2Staked : 0;
+      const safeV1Staked = (stakingInfo.v1Staked > 0 && stakingInfo.v1Staked < MAX_REASONABLE_LP_SUPPLY) 
+        ? stakingInfo.v1Staked : 0;
+      const safeTotalSupply = (stakingInfo.totalSupply > 0 && stakingInfo.totalSupply < MAX_REASONABLE_LP_SUPPLY) 
+        ? stakingInfo.totalSupply : 0;
+      
+      // Log warnings for suspicious values
+      if (stakingInfo.v2Staked >= MAX_REASONABLE_LP_SUPPLY || stakingInfo.v1Staked >= MAX_REASONABLE_LP_SUPPLY) {
+        console.warn(`[ValueBreakdown] SUSPICIOUS LP values for ${name}:`, {
+          v2Staked: stakingInfo.v2Staked,
+          v1Staked: stakingInfo.v1Staked,
+          totalSupply: stakingInfo.totalSupply,
+        });
+      }
+      
       const totalPoolReserveValue = reserves.reserve0 * token0Price + reserves.reserve1 * token1Price;
       
-      const totalStakedLP = stakingInfo.v2Staked + stakingInfo.v1Staked;
-      const stakedRatio = stakingInfo.totalSupply > 0 ? totalStakedLP / stakingInfo.totalSupply : 0;
+      const totalStakedLP = safeV2Staked + safeV1Staked;
+      const stakedRatio = safeTotalSupply > 0 ? Math.min(1.0, totalStakedLP / safeTotalSupply) : 0; // Cap ratio at 100%
       
       const stakedToken0 = reserves.reserve0 * stakedRatio;
       const stakedToken1 = reserves.reserve1 * stakedRatio;
       const token0ValueUSD = stakedToken0 * token0Price;
       const token1ValueUSD = stakedToken1 * token1Price;
-      const totalValueUSD = token0ValueUSD + token1ValueUSD;
+      let totalValueUSD = token0ValueUSD + token1ValueUSD;
       
-      const v2Ratio = stakingInfo.totalSupply > 0 ? stakingInfo.v2Staked / stakingInfo.totalSupply : 0;
-      const v1Ratio = stakingInfo.totalSupply > 0 ? stakingInfo.v1Staked / stakingInfo.totalSupply : 0;
-      const v2ValueUSD = totalPoolReserveValue * v2Ratio;
-      const v1ValueUSD = totalPoolReserveValue * v1Ratio;
+      // Final sanity check - cap individual pool value at $10B (way more than all of DFK is worth)
+      const MAX_POOL_VALUE_USD = 10_000_000_000;
+      if (totalValueUSD > MAX_POOL_VALUE_USD) {
+        console.warn(`[ValueBreakdown] CAPPING pool ${name} value from $${totalValueUSD.toLocaleString()} to $${MAX_POOL_VALUE_USD.toLocaleString()}`);
+        totalValueUSD = 0; // Set to 0 if suspicious - something is wrong
+      }
+      
+      console.log(`[ValueBreakdown] Pool ${name}: staked=${totalStakedLP.toFixed(2)}, ratio=${(stakedRatio * 100).toFixed(2)}%, value=$${totalValueUSD.toFixed(2)}`);
+      
+      const v2Ratio = safeTotalSupply > 0 ? Math.min(1.0, safeV2Staked / safeTotalSupply) : 0;
+      const v1Ratio = safeTotalSupply > 0 ? Math.min(1.0, safeV1Staked / safeTotalSupply) : 0;
+      let v2ValueUSD = totalPoolReserveValue * v2Ratio;
+      let v1ValueUSD = totalPoolReserveValue * v1Ratio;
+      
+      // Apply same sanity cap to v1/v2 values
+      if (v2ValueUSD > MAX_POOL_VALUE_USD) v2ValueUSD = 0;
+      if (v1ValueUSD > MAX_POOL_VALUE_USD) v1ValueUSD = 0;
 
       let passive24hAPR: number | undefined;
       try {
