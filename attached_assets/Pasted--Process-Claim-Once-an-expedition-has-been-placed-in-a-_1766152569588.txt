@@ -1,0 +1,57 @@
+### Process Claim
+Once an expedition has been placed in a claim state with `startExpeditionClaim`, any collectable iterations can be processed. There are multiple functions for doing this, but `processExpeditionClaimWithCustomIterationCap` is the usually the best option. Expeditions gain their gas efficiency by processing as many claims as possible from a single expedition per transaction. The exact number that can fit into a block will depend on the realm (Klaytn's computation limits are still severely limiting), `instanceId`, `level`, and `attempts`. The game interface is currently targeting 15-20m gas txs on DFK Chain and maximum computation limits on Klaytn, using the following inputs:
+
+**DFK Chain**
+- Fishing/Foraging: 24 iterations
+- Mining: 30 iterations
+- Gardening/TQs: 40 iterations
+
+**Klaytn**
+- Fishing/Foraging: 3 iterations
+- Mining: 6 iterations
+- Gardening/TQs: 12 iterations
+
+The function versions without the custom iteration numbers use the minimum values as a default. The `multiProcessClaim` functions may only be useful when trying to combine transactions at the expense of gas efficiency.
+## Expedition Getters
+A variety of getter methods are available for expeditions, many of which have standard quest analogues. The full list is available in the dev docs, but I want to highlight a few here.
+### `getAccountExpeditionsWithAssociatedQuests`
+This will likely be the standard account getter, along with `getAccountExpeditionsWithAssociatedQuestsWithOffset` for accounts with too many active expeditions to return at once. This includes the relevant Expedition struct, Quest struct, escrowed fee, and food type.
+
+The `globalSettings` data can be parsed as follows:
+```js
+{
+  petFeedingEnabled: value & 1,
+  stamPottingEnabled: value & 2,
+  autoLevelingEnabled: value & 4,
+  hasPremiumProvisions: value & 8
+}
+```
+### `getExpeditionHeroData`
+This getter returns relevant expedition data for the given Hero. As noted by Pine Cone in <#978827980874874940>, one of the major expedition efficiencies comes from not writing data back to HeroCore and PetCore while an expedition is in progress. This means that Hero XP, Profession Skill, and Pet `hungryAt` data is stored in QuestCore until the expedition is completed/canceled, at which time it is written back to HeroCore and PetCore.
+
+This getter returns (among other things) the current data for those values, which is also stored in the API. If you are only using Hero contract calls, you will need to use this getter to know (for example) if a Hero has reached max XP while on an expedition.
+
+The `HeroSettings` data can be parsed as follows:
+```js
+{
+  hasProfessionGene: value & 1,
+  hasQuickStudy: value & 2,
+  hasRapidRenewal: value & 4,
+  hasPetBonus: value & 8,
+  hasLevelUpPrepared: value & 16, // Not used yet
+  hasStatBonusGene: value & 64,
+  hasStatGrowthGene: value & 128,
+}
+```
+## Events
+Most expedition events are self-explanatory, but notes on a couple:
+### `ExpeditionInProgressHeroUpdate`
+This event is emitted whenever an expedition iteration is processed, and includes the amount of XP and Profession Skill gained by the Hero, as stored on QuestCore (until the Expedition is completed/canceled) and described above.
+### `PetFed`
+This event is emitted whenever an expedition iteration is processed, and includes the new `hungryAt` time for the Pet, as stored on QuestCore (until the Expedition is completed/canceled) and described above.
+
+## Additional Notes
+- Expeditions are *not* included in `accountActiveQuests` -- they use a separate value (`4`) on the `QuestStatus` enum
+
+Alright, that should be the bulk of it anyway. Let me know what I missed and how I can help. Godspeed and good questing!
+<a:PenguHype:865762045035020308>
