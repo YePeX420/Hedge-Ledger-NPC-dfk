@@ -178,6 +178,23 @@ interface CexLiquidityData {
   updatedAt: string;
 }
 
+// JEWEL supply metrics from DFK official API
+interface JewelSupplyData {
+  totalSupply: number;
+  circulatingSupply: number;
+  lockedSupply: number;
+  burnedSupply: number;
+  source: string;
+  updatedAt: string;
+}
+
+// Burn tracking data
+interface BurnData {
+  totalBurned: number;
+  burnAddresses: { address: string; balance: number }[];
+  sources: string[];
+}
+
 interface ValueBreakdownResult {
   timestamp: string;
   prices: {
@@ -189,6 +206,14 @@ interface ValueBreakdownResult {
   tokenPrices: TokenPrice[];
   categories: CategoryBreakdown[];
   cexLiquidity?: CexLiquidityData;
+  jewelSupply?: JewelSupplyData;
+  burnData?: BurnData;
+  coverageKPI?: {
+    trackedJewel: number;
+    circulatingSupply: number;
+    coverageRatio: number;
+    unaccountedJewel: number;
+  };
   summary: {
     totalJewelLocked: number;
     totalCrystalLocked: number;
@@ -198,6 +223,7 @@ interface ValueBreakdownResult {
     bridgeValue: number;
     systemValue: number;
     cexLiquidityValue?: number;
+    liquidTreasuryValue?: number;
   };
 }
 
@@ -482,6 +508,84 @@ async function getStakedLPAmounts(
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Common burn addresses where JEWEL is permanently destroyed
+const BURN_ADDRESSES = [
+  '0x0000000000000000000000000000000000000000', // Zero address
+  '0x000000000000000000000000000000000000dEaD', // Common dead address
+  '0x0000000000000000000000000000000000000001', // EIP-1559 burn
+];
+
+// Fetch JEWEL supply data from DFK official API
+async function fetchJewelSupply(): Promise<JewelSupplyData | null> {
+  try {
+    const [totalRes, circRes] = await Promise.all([
+      fetch('https://supply.defikingdoms.com/jewel/totalsupply', { 
+        signal: AbortSignal.timeout(10000) 
+      }),
+      fetch('https://supply.defikingdoms.com/jewel/circulatingsupply', { 
+        signal: AbortSignal.timeout(10000) 
+      }),
+    ]);
+    
+    if (!totalRes.ok || !circRes.ok) {
+      console.warn('[ValueBreakdown] DFK supply API returned error');
+      return null;
+    }
+    
+    const totalText = await totalRes.text();
+    const circText = await circRes.text();
+    
+    const totalSupply = parseFloat(totalText);
+    const circulatingSupply = parseFloat(circText);
+    
+    if (isNaN(totalSupply) || isNaN(circulatingSupply)) {
+      console.warn('[ValueBreakdown] Invalid supply values from DFK API');
+      return null;
+    }
+    
+    const lockedSupply = totalSupply - circulatingSupply;
+    
+    console.log(`[ValueBreakdown] JEWEL Supply: Total=${totalSupply.toLocaleString()}, Circulating=${circulatingSupply.toLocaleString()}, Locked=${lockedSupply.toLocaleString()}`);
+    
+    return {
+      totalSupply,
+      circulatingSupply,
+      lockedSupply,
+      burnedSupply: 0, // Will be calculated separately from burn addresses
+      source: 'supply.defikingdoms.com',
+      updatedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    console.error('[ValueBreakdown] Failed to fetch JEWEL supply:', err);
+    return null;
+  }
+}
+
+// Fetch burned JEWEL from known burn addresses
+async function fetchBurnedJewel(provider: ethers.JsonRpcProvider): Promise<BurnData> {
+  const burnAddresses: { address: string; balance: number }[] = [];
+  let totalBurned = 0;
+  
+  for (const address of BURN_ADDRESSES) {
+    try {
+      const balance = await getTokenBalance(provider, TOKENS.JEWEL, address, 'JEWEL');
+      if (balance > 0) {
+        burnAddresses.push({ address, balance });
+        totalBurned += balance;
+        console.log(`[ValueBreakdown] Burn address ${address.slice(0, 10)}...: ${balance.toLocaleString()} JEWEL`);
+      }
+    } catch (err) {
+      console.warn(`[ValueBreakdown] Could not check burn address ${address}:`, err);
+    }
+  }
+  
+  return {
+    totalBurned,
+    burnAddresses,
+    sources: ['Zero address', 'Dead address', 'EIP-1559 burns'],
+  };
+}
+
 export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
   
@@ -741,6 +845,64 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     { symbol: 'KLAY', price: allPrices['KLAY'] || 0, source: 'defillama' },
   ];
 
+  // Fetch JEWEL supply and burn data in parallel
+  const [jewelSupply, burnData] = await Promise.all([
+    fetchJewelSupply(),
+    fetchBurnedJewel(provider),
+  ]);
+  
+  // Calculate total tracked JEWEL across all categories
+  // Note: totalJewelLocked already includes:
+  //   - cJEWEL supply (from Staking/Governance category)
+  //   - Bridge contract JEWEL balances
+  //   - System contract JEWEL balances
+  // We just need to add wJEWEL from LP reserves (wJEWEL = 1:1 with JEWEL)
+  // Note: xJEWEL is NOT JEWEL - it's a share token, so we don't count it here
+  // The value of xJEWEL is already accounted for in the staking category
+  let trackedJewel = totalJewelLocked;
+  
+  // Add wJEWEL from LP pool reserves (wJEWEL = wrapped JEWEL, 1:1 ratio)
+  // We do NOT count xJEWEL here as it's already counted via cJEWEL supply
+  if (lpCat) {
+    for (const pool of lpCat.contracts) {
+      if (pool.token0Symbol === 'wJEWEL') {
+        trackedJewel += pool.token0Balance;
+      }
+      if (pool.token1Symbol === 'wJEWEL') {
+        trackedJewel += pool.token1Balance;
+      }
+    }
+  }
+  
+  // Note: cJEWEL is already counted in totalJewelLocked via stakingCat
+  // The staking category tracks cJEWEL totalSupply which equals locked JEWEL
+  
+  // Calculate coverage KPI
+  let coverageKPI: ValueBreakdownResult['coverageKPI'];
+  if (jewelSupply && jewelSupply.circulatingSupply > 0) {
+    // Clamp coverage ratio to [0, 1] in case of calculation anomalies
+    const rawCoverageRatio = trackedJewel / jewelSupply.circulatingSupply;
+    const coverageRatio = Math.min(1, Math.max(0, rawCoverageRatio));
+    const unaccountedJewel = Math.max(0, jewelSupply.circulatingSupply - trackedJewel);
+    
+    coverageKPI = {
+      trackedJewel,
+      circulatingSupply: jewelSupply.circulatingSupply,
+      coverageRatio,
+      unaccountedJewel,
+    };
+    console.log(`[ValueBreakdown] Coverage KPI: ${(coverageRatio * 100).toFixed(2)}% (${trackedJewel.toLocaleString()} / ${jewelSupply.circulatingSupply.toLocaleString()})`);
+    
+    if (rawCoverageRatio > 1) {
+      console.warn(`[ValueBreakdown] WARNING: Coverage ratio ${(rawCoverageRatio * 100).toFixed(2)}% exceeds 100% - possible double-counting`);
+    }
+  }
+  
+  // Update burned supply in jewelSupply if we have burn data
+  if (jewelSupply && burnData.totalBurned > 0) {
+    jewelSupply.burnedSupply = burnData.totalBurned;
+  }
+
   return {
     timestamp: new Date().toISOString(),
     prices: {
@@ -751,6 +913,9 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     },
     tokenPrices: tokenPricesList,
     categories,
+    jewelSupply: jewelSupply || undefined,
+    burnData: burnData.totalBurned > 0 ? burnData : undefined,
+    coverageKPI,
     summary: {
       totalJewelLocked,
       totalCrystalLocked,

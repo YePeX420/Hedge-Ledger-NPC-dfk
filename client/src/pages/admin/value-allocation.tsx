@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RefreshCw, PieChart, Coins, Landmark, ArrowLeftRight, Wrench, ExternalLink, TrendingUp, AlertCircle, Info } from "lucide-react";
+import { RefreshCw, PieChart, Coins, Landmark, ArrowLeftRight, Wrench, ExternalLink, TrendingUp, AlertCircle, Info, Flame, Target, CircleDollarSign, Percent } from "lucide-react";
 import { Tooltip as ShadcnTooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip as RechartsTooltip } from "recharts";
 import { queryClient } from "@/lib/queryClient";
@@ -73,6 +73,28 @@ interface CexLiquidityData {
   totalCount: number;
 }
 
+interface JewelSupplyData {
+  totalSupply: number;
+  circulatingSupply: number;
+  lockedSupply: number;
+  burnedSupply: number;
+  source: string;
+  updatedAt: string;
+}
+
+interface BurnData {
+  totalBurned: number;
+  burnAddresses: { address: string; balance: number }[];
+  sources: string[];
+}
+
+interface CoverageKPI {
+  trackedJewel: number;
+  circulatingSupply: number;
+  coverageRatio: number;
+  unaccountedJewel: number;
+}
+
 interface ValueBreakdownData {
   timestamp: string;
   prices: {
@@ -83,6 +105,9 @@ interface ValueBreakdownData {
   };
   tokenPrices: TokenPrice[];
   categories: Category[];
+  jewelSupply?: JewelSupplyData;
+  burnData?: BurnData;
+  coverageKPI?: CoverageKPI;
   summary: {
     totalJewelLocked: number;
     totalCrystalLocked: number;
@@ -91,6 +116,7 @@ interface ValueBreakdownData {
     stakingValue: number;
     bridgeValue: number;
     systemValue: number;
+    liquidTreasuryValue?: number;
   };
 }
 
@@ -338,6 +364,170 @@ export default function ValueAllocationPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* JEWEL Supply & Coverage KPI */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* JEWEL Supply Card */}
+            <Card data-testid="card-jewel-supply">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <CircleDollarSign className="w-5 h-5 text-purple-500" />
+                  JEWEL Supply
+                </CardTitle>
+                <CardDescription>
+                  Official supply from DFK API
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {data.jewelSupply ? (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Total Supply</span>
+                      <span className="font-medium font-mono" data-testid="text-total-supply">
+                        {formatNumber(data.jewelSupply.totalSupply)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Circulating</span>
+                      <span className="font-medium font-mono text-green-500" data-testid="text-circulating-supply">
+                        {formatNumber(data.jewelSupply.circulatingSupply)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Locked (vesting)</span>
+                      <span className="font-medium font-mono text-blue-500" data-testid="text-locked-supply">
+                        {formatNumber(data.jewelSupply.lockedSupply)}
+                      </span>
+                    </div>
+                    {data.jewelSupply.burnedSupply > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground flex items-center gap-1">
+                          <Flame className="w-3 h-3 text-orange-500" />
+                          Burned
+                        </span>
+                        <span className="font-medium font-mono text-orange-500" data-testid="text-burned-supply">
+                          {formatNumber(data.jewelSupply.burnedSupply)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="text-xs text-muted-foreground pt-2 border-t">
+                      Source: {data.jewelSupply.source}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Unable to fetch supply data</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Coverage KPI Card */}
+            <Card data-testid="card-coverage-kpi">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Target className="w-5 h-5 text-cyan-500" />
+                  Coverage KPI
+                  <ShadcnTooltip>
+                    <TooltipTrigger>
+                      <Info className="w-4 h-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p>Percentage of circulating JEWEL tracked across LP pools, staking, bridges, and system contracts. Higher is better.</p>
+                    </TooltipContent>
+                  </ShadcnTooltip>
+                </CardTitle>
+                <CardDescription>
+                  Tracked JEWEL vs circulating supply
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {data.coverageKPI ? (
+                  <>
+                    <div className="p-4 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-center">
+                      <p className="text-3xl font-bold text-cyan-500" data-testid="text-coverage-ratio">
+                        {(data.coverageKPI.coverageRatio * 100).toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-muted-foreground">Coverage Ratio</p>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Tracked JEWEL</span>
+                      <span className="font-medium font-mono" data-testid="text-tracked-jewel">
+                        {formatNumber(data.coverageKPI.trackedJewel)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Circulating</span>
+                      <span className="font-medium font-mono">
+                        {formatNumber(data.coverageKPI.circulatingSupply)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm text-amber-600">
+                      <span>Unaccounted</span>
+                      <span className="font-medium font-mono" data-testid="text-unaccounted-jewel">
+                        {formatNumber(data.coverageKPI.unaccountedJewel)}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Unable to calculate coverage</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Burn Ledger Card */}
+            <Card data-testid="card-burn-ledger">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Flame className="w-5 h-5 text-orange-500" />
+                  Burn Ledger
+                  <ShadcnTooltip>
+                    <TooltipTrigger>
+                      <Info className="w-4 h-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p>JEWEL permanently removed from circulation via burn addresses. Does NOT count toward value allocation.</p>
+                    </TooltipContent>
+                  </ShadcnTooltip>
+                </CardTitle>
+                <CardDescription>
+                  Deflationary token burns
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {data.burnData && data.burnData.totalBurned > 0 ? (
+                  <>
+                    <div className="p-4 rounded-lg bg-orange-500/10 border border-orange-500/20 text-center">
+                      <p className="text-2xl font-bold text-orange-500" data-testid="text-total-burned">
+                        {formatNumber(data.burnData.totalBurned)} JEWEL
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        ${formatUSD(data.burnData.totalBurned * data.prices.jewel).replace('$', '')} USD
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      {data.burnData.burnAddresses.map((burn, i) => (
+                        <div key={burn.address} className="flex justify-between text-sm">
+                          <span className="text-muted-foreground font-mono text-xs">
+                            {burn.address.slice(0, 10)}...
+                          </span>
+                          <span className="font-medium font-mono">
+                            {formatNumber(burn.balance)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-xs text-muted-foreground pt-2 border-t">
+                      Sources: {data.burnData.sources.join(', ')}
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-4 rounded-lg bg-muted/50 text-center">
+                    <p className="text-sm text-muted-foreground">No burned JEWEL detected in standard burn addresses</p>
+                    <p className="text-xs text-muted-foreground mt-1">Burns may occur through other mechanisms</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
           <Card data-testid="card-cex-liquidity">
             <CardHeader>
