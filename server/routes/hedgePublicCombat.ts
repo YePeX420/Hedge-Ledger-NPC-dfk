@@ -131,8 +131,11 @@ publicCombatRouter.get('/skills/search', async (req: Request, res: Response) => 
       );
     }
     if (tags.length) {
-      const lowerTags = tags.map((t) => t.toLowerCase());
-      const tagsArray = `{${lowerTags.map(t => `"${t}"`).join(',')}}`;
+      const lowerTags = tags.map((t) => t.toLowerCase().replace(/[^a-z0-9_-]/gi, ''));
+      if (lowerTags.some(t => !t)) {
+        return res.status(400).json({ ok: false, error: 'Invalid tag format.' });
+      }
+      const tagsArray = `{${lowerTags.join(',')}}`;
       conditions.push(sql`${combatSkills.tags} && ${tagsArray}::text[]`);
     }
 
@@ -149,27 +152,32 @@ publicCombatRouter.get('/skills/search', async (req: Request, res: Response) => 
       rows = await baseQuery;
     }
 
-    const enriched = rows.map((r: any) => ({
-      class: r.class,
-      tier: r.tier,
-      skill_points: r.skillPoints,
-      discipline: r.discipline,
-      ability: r.ability,
-      description_raw: r.descriptionRaw,
-      range: r.range,
-      mana_cost: r.manaCost,
-      mana_growth: r.manaGrowth,
-      dod: r.dod,
-      tags: r.tags,
-      source_url: r.sourceUrl,
-      last_seen_at: r.lastSeenAt,
-      summary: r.descriptionRaw ? String(r.descriptionRaw).slice(0, 120) : null,
-      codex_score: null,
-      synergy_notes: null,
-      recommended_roles: null,
-    }));
-
-    const shaped = enriched.map((obj: Record<string, unknown>) => shapeObjectByAllowlist(obj, ent.allowFields));
+    const shaped = rows.map((r: any) => {
+      const base: Record<string, unknown> = {
+        class: r.class,
+        tier: r.tier,
+        skill_points: r.skillPoints,
+        discipline: r.discipline,
+        ability: r.ability,
+        description_raw: r.descriptionRaw,
+        range: r.range,
+        mana_cost: r.manaCost,
+        mana_growth: r.manaGrowth,
+        dod: r.dod,
+        tags: r.tags,
+        source_url: r.sourceUrl,
+        last_seen_at: r.lastSeenAt,
+        summary: r.descriptionRaw ? String(r.descriptionRaw).slice(0, 120) : null,
+      };
+      
+      if (ent.flags['combat.codexScore.enabled']) {
+        base.codex_score = null;
+        base.synergy_notes = null;
+        base.recommended_roles = null;
+      }
+      
+      return shapeObjectByAllowlist(base, ent.allowFields);
+    });
 
     res.json({
       ok: true,
