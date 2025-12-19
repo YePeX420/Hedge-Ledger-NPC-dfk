@@ -1111,6 +1111,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/admin/bridge/daily-averages - Bridge daily averages by time period
+  app.get("/api/admin/bridge/daily-averages", isAdmin, async (req: any, res: any) => {
+    try {
+      const periods = [
+        { key: '7d', label: '7 Days', days: 7 },
+        { key: '30d', label: '30 Days', days: 30 },
+        { key: '6m', label: '6 Months', days: 180 },
+        { key: '1y', label: '1 Year', days: 365 },
+      ];
+
+      const now = Date.now();
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      
+      const results = await Promise.all(
+        periods.map(async (period) => {
+          const cutoffDate = new Date(now - period.days * DAY_MS);
+          
+          const stats = await db.select({
+            totalIn: sql`COALESCE(SUM(CASE WHEN direction = 'in' THEN CAST(usd_value AS DECIMAL) ELSE 0 END), 0)`,
+            totalOut: sql`COALESCE(SUM(CASE WHEN direction = 'out' THEN CAST(usd_value AS DECIMAL) ELSE 0 END), 0)`,
+          })
+          .from(bridgeEvents)
+          .where(sql`block_timestamp >= ${cutoffDate.toISOString()}`);
+
+          const totalIn = parseFloat(stats[0]?.totalIn?.toString() || '0');
+          const totalOut = parseFloat(stats[0]?.totalOut?.toString() || '0');
+          const dailyAvgIn = totalIn / period.days;
+          const dailyAvgOut = totalOut / period.days;
+          const netDailyAvg = dailyAvgIn - dailyAvgOut;
+
+          return {
+            period: period.key,
+            label: period.label,
+            days: period.days,
+            totalIn,
+            totalOut,
+            dailyAvgIn,
+            dailyAvgOut,
+            netDailyAvg,
+          };
+        })
+      );
+
+      res.json(results);
+    } catch (error) {
+      console.error('[API] Error fetching bridge daily averages:', error);
+      res.status(500).json({ error: 'Failed to fetch bridge daily averages' });
+    }
+  });
+
   // GET /api/admin/bridge/extractors - Top extractors list
   app.get("/api/admin/bridge/extractors", isAdmin, async (req: any, res: any) => {
     try {

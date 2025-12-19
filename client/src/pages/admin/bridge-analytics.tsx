@@ -229,6 +229,17 @@ interface TvlReconciliation {
   };
 }
 
+interface DailyAverage {
+  period: string;
+  label: string;
+  days: number;
+  totalIn: number;
+  totalOut: number;
+  dailyAvgIn: number;
+  dailyAvgOut: number;
+  netDailyAvg: number;
+}
+
 export default function BridgeAnalytics() {
   const { toast } = useToast();
   const [walletSearch, setWalletSearch] = useState('');
@@ -257,6 +268,10 @@ export default function BridgeAnalytics() {
 
   const { data: tvlReconciliation, isLoading: tvlLoading } = useQuery<TvlReconciliation>({
     queryKey: ['/api/admin/bridge/tvl-reconciliation'],
+  });
+
+  const { data: dailyAverages, isLoading: dailyAveragesLoading } = useQuery<DailyAverage[]>({
+    queryKey: ['/api/admin/bridge/daily-averages'],
   });
 
   const { data: walletDetails, isLoading: walletLoading } = useQuery<WalletDetails>({
@@ -480,6 +495,22 @@ export default function BridgeAnalytics() {
       return `$${(num / 1_000).toFixed(2)}K`;
     }
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num);
+  };
+
+  const formatUsdAccounting = (value: number | string) => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    const absNum = Math.abs(num);
+    let formatted: string;
+    if (absNum >= 1_000_000_000) {
+      formatted = `$${(absNum / 1_000_000_000).toFixed(2)}B`;
+    } else if (absNum >= 1_000_000) {
+      formatted = `$${(absNum / 1_000_000).toFixed(2)}M`;
+    } else if (absNum >= 1_000) {
+      formatted = `$${(absNum / 1_000).toFixed(2)}K`;
+    } else {
+      formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(absNum);
+    }
+    return num < 0 ? `(${formatted})` : formatted;
   };
 
   const formatDate = (dateStr: string) => {
@@ -893,6 +924,57 @@ export default function BridgeAnalytics() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Daily Averages by Time Period */}
+      <Card data-testid="card-daily-averages">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <TrendingDown className="h-5 w-5" />
+              Bridge Flow Daily Averages
+            </CardTitle>
+            <CardDescription>
+              Net daily average bridged in vs out by time period. Negative values (more out than in) shown in parentheses.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {dailyAveragesLoading ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-24" />
+              ))}
+            </div>
+          ) : dailyAverages && dailyAverages.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {dailyAverages.map((avg) => (
+                <div key={avg.period} className="border rounded-lg p-4" data-testid={`daily-avg-${avg.period}`}>
+                  <div className="text-sm font-medium text-muted-foreground mb-2">{avg.label}</div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">In/day:</span>
+                      <span className="text-green-600 font-medium">{formatUsdCompact(avg.dailyAvgIn)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Out/day:</span>
+                      <span className="text-red-600 font-medium">{formatUsdCompact(avg.dailyAvgOut)}</span>
+                    </div>
+                    <Separator className="my-2" />
+                    <div className="flex justify-between text-sm">
+                      <span className="font-medium">Net/day:</span>
+                      <span className={`font-bold ${avg.netDailyAvg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {formatUsdAccounting(avg.netDailyAvg)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-center py-8">No bridge data available</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Value Distribution Pie Chart */}
       <Card data-testid="card-value-distribution">
