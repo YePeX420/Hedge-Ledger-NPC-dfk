@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, RefreshCw, Target, Coins, Landmark, ArrowLeftRight, Wrench, Droplets, ExternalLink, Globe } from "lucide-react";
+import { ArrowLeft, RefreshCw, Target, Coins, Landmark, ArrowLeftRight, Wrench, Droplets, ExternalLink, Globe, Flame, Wallet } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { queryClient } from "@/lib/queryClient";
 
@@ -38,6 +38,10 @@ interface CoverageKPI {
   coverageRatio: number;
   unaccountedJewel: number;
   multiChainTotal?: number;
+  lpPooledTotal?: number;
+  lockedTotal?: number;
+  burnedTotal?: number;
+  liquidEstimate?: number;
 }
 
 interface ChainBalance {
@@ -50,8 +54,39 @@ interface ChainBalance {
     jewelBalance: number;
   }[];
   totalJewel: number;
+  chainTotalSupply: number;
   status: 'success' | 'error';
   error?: string;
+}
+
+interface CoverageBreakdown {
+  locked: {
+    cJewel: number;
+    systemContracts: number;
+    bridgeContracts: number;
+    total: number;
+  };
+  pooled: {
+    lpReservesStaked: number;
+    lpReservesUnstaked: number;
+    total: number;
+  };
+  multiChain: {
+    harmonyTotal: number;
+    kaiaTotal: number;
+    metisTotal: number;
+    total: number;
+  };
+  burned: {
+    total: number;
+    addresses: { address: string; balance: number }[];
+  };
+  liquid: {
+    estimated: number;
+  };
+  totalTracked: number;
+  circulatingSupply: number;
+  coverageRatio: number;
 }
 
 interface JewelSupplyData {
@@ -73,6 +108,7 @@ interface ValueBreakdownData {
   };
   categories: Category[];
   coverageKPI?: CoverageKPI;
+  coverageBreakdown?: CoverageBreakdown;
   jewelSupply?: JewelSupplyData;
   multiChainBalances?: ChainBalance[];
   summary: {
@@ -102,6 +138,8 @@ const COLORS: Record<string, string> = {
   'Bridge Contracts': '#f59e0b',
   'System Contracts': '#8b5cf6',
   'Multi-Chain': '#ec4899',
+  'Burned': '#ef4444',
+  'Liquid': '#06b6d4',
   'Unaccounted': '#6b7280',
 };
 
@@ -111,6 +149,8 @@ const CATEGORY_ICONS: Record<string, typeof Coins> = {
   'Bridge Contracts': ArrowLeftRight,
   'System Contracts': Wrench,
   'Multi-Chain': Globe,
+  'Burned': Flame,
+  'Liquid': Wallet,
 };
 
 function formatNumber(num: number): string {
@@ -134,147 +174,265 @@ export default function CoverageDetailsPage() {
     refetchOnWindowFocus: false,
   });
 
-  // Calculate breakdown by source
+  // Calculate breakdown by source using comprehensive coverage data
   const sourceBreakdown: SourceBreakdown[] = [];
   let totalTracked = 0;
 
   if (data) {
-    // LP Pools - only wJEWEL (not xJEWEL which is a share token)
-    const lpCategory = data.categories.find(c => c.category === 'LP Pools');
-    if (lpCategory) {
-      let lpJewel = 0;
-      const lpContracts: { name: string; address: string; jewel: number }[] = [];
-      
-      for (const pool of lpCategory.contracts) {
-        let poolJewel = 0;
-        if (pool.token0Symbol === 'wJEWEL') {
-          poolJewel += pool.token0Balance || 0;
+    const coverage = data.coverageBreakdown;
+    const kpi = data.coverageKPI;
+    
+    // Use new coverageBreakdown if available, fallback to legacy calculation
+    if (coverage) {
+      // 1. LP Pools (Full Reserves - includes both staked and unstaked wJEWEL)
+      if (coverage.pooled.total > 0) {
+        const lpCategory = data.categories.find(c => c.category === 'LP Pools');
+        const lpContracts: { name: string; address: string; jewel: number }[] = [];
+        
+        if (lpCategory) {
+          for (const pool of lpCategory.contracts) {
+            let poolJewel = 0;
+            const stakedRatio = (pool as any).stakedRatio || 1;
+            // Calculate full reserves (not just staked)
+            if (pool.token0Symbol === 'wJEWEL') {
+              poolJewel += stakedRatio > 0 ? (pool.token0Balance || 0) / stakedRatio : 0;
+            }
+            if (pool.token1Symbol === 'wJEWEL') {
+              poolJewel += stakedRatio > 0 ? (pool.token1Balance || 0) / stakedRatio : 0;
+            }
+            if (poolJewel > 0) {
+              lpContracts.push({ name: pool.name, address: pool.address, jewel: poolJewel });
+            }
+          }
         }
-        if (pool.token1Symbol === 'wJEWEL') {
-          poolJewel += pool.token1Balance || 0;
-        }
-        if (poolJewel > 0) {
-          lpJewel += poolJewel;
-          lpContracts.push({ name: pool.name, address: pool.address, jewel: poolJewel });
-        }
-      }
-      
-      if (lpJewel > 0) {
+        
         sourceBreakdown.push({
-          name: 'LP Pools (wJEWEL)',
-          jewel: lpJewel,
+          name: 'LP Pools (Full Reserves)',
+          jewel: coverage.pooled.total,
           percentage: 0,
           icon: Droplets,
           color: COLORS['LP Pools'],
           contracts: lpContracts.sort((a, b) => b.jewel - a.jewel),
         });
-        totalTracked += lpJewel;
+        totalTracked += coverage.pooled.total;
       }
-    }
 
-    // Staking/Governance
-    const stakingCategory = data.categories.find(c => c.category === 'Staking/Governance');
-    if (stakingCategory && stakingCategory.totalJewel > 0) {
-      sourceBreakdown.push({
-        name: 'Staking (cJEWEL)',
-        jewel: stakingCategory.totalJewel,
-        percentage: 0,
-        icon: Landmark,
-        color: COLORS['Staking/Governance'],
-        contracts: stakingCategory.contracts
-          .filter(c => c.jewelBalance > 0)
-          .map(c => ({ name: c.name, address: c.address, jewel: c.jewelBalance }))
-          .sort((a, b) => b.jewel - a.jewel),
-      });
-      totalTracked += stakingCategory.totalJewel;
-    }
-
-    // Bridge Contracts
-    const bridgeCategory = data.categories.find(c => c.category === 'Bridge Contracts');
-    if (bridgeCategory && bridgeCategory.totalJewel > 0) {
-      sourceBreakdown.push({
-        name: 'Bridge Contracts',
-        jewel: bridgeCategory.totalJewel,
-        percentage: 0,
-        icon: ArrowLeftRight,
-        color: COLORS['Bridge Contracts'],
-        contracts: bridgeCategory.contracts
-          .filter(c => c.jewelBalance > 0)
-          .map(c => ({ name: c.name, address: c.address, jewel: c.jewelBalance }))
-          .sort((a, b) => b.jewel - a.jewel),
-      });
-      totalTracked += bridgeCategory.totalJewel;
-    }
-
-    // System Contracts
-    const systemCategory = data.categories.find(c => c.category === 'System Contracts');
-    if (systemCategory && systemCategory.totalJewel > 0) {
-      sourceBreakdown.push({
-        name: 'System Contracts',
-        jewel: systemCategory.totalJewel,
-        percentage: 0,
-        icon: Wrench,
-        color: COLORS['System Contracts'],
-        contracts: systemCategory.contracts
-          .filter(c => c.jewelBalance > 0)
-          .map(c => ({ name: c.name, address: c.address, jewel: c.jewelBalance }))
-          .sort((a, b) => b.jewel - a.jewel),
-      });
-      totalTracked += systemCategory.totalJewel;
-    }
-
-    // Multi-Chain Bridges (Harmony, Kaia, Metis)
-    if (data.multiChainBalances && data.multiChainBalances.length > 0) {
-      let multiChainJewel = 0;
-      const multiChainContracts: { name: string; address: string; jewel: number }[] = [];
-      
-      for (const chain of data.multiChainBalances) {
-        if (chain.status === 'success' && chain.totalJewel > 0) {
-          multiChainJewel += chain.totalJewel;
-          for (const contract of chain.contracts) {
-            multiChainContracts.push({
-              name: `${contract.name} (${chain.chain})`,
-              address: contract.address,
-              jewel: contract.jewelBalance,
-            });
-          }
+      // 2. Locked JEWEL (cJEWEL + Bridge + System)
+      if (coverage.locked.total > 0) {
+        const lockedContracts: { name: string; address: string; jewel: number }[] = [];
+        
+        if (coverage.locked.cJewel > 0) {
+          lockedContracts.push({ name: 'cJEWEL (Staking)', address: '0x9ed2c155632C042CB8bC20634571fF1CA26f5742', jewel: coverage.locked.cJewel });
         }
-      }
-      
-      if (multiChainJewel > 0) {
+        if (coverage.locked.bridgeContracts > 0) {
+          lockedContracts.push({ name: 'Bridge Contracts', address: 'Various', jewel: coverage.locked.bridgeContracts });
+        }
+        if (coverage.locked.systemContracts > 0) {
+          lockedContracts.push({ name: 'System Contracts', address: 'Various', jewel: coverage.locked.systemContracts });
+        }
+        
         sourceBreakdown.push({
-          name: 'Multi-Chain Bridges',
-          jewel: multiChainJewel,
+          name: 'Locked JEWEL',
+          jewel: coverage.locked.total,
+          percentage: 0,
+          icon: Landmark,
+          color: COLORS['Staking/Governance'],
+          contracts: lockedContracts.sort((a, b) => b.jewel - a.jewel),
+        });
+        totalTracked += coverage.locked.total;
+      }
+
+      // 3. Multi-Chain (Total Supply on each chain - all JEWEL holders)
+      if (coverage.multiChain.total > 0) {
+        const multiChainContracts: { name: string; address: string; jewel: number }[] = [];
+        
+        if (coverage.multiChain.harmonyTotal > 0) {
+          multiChainContracts.push({ name: 'Harmony (All Holders)', address: 'Harmony Chain', jewel: coverage.multiChain.harmonyTotal });
+        }
+        if (coverage.multiChain.kaiaTotal > 0) {
+          multiChainContracts.push({ name: 'Kaia (All Holders)', address: 'Kaia Chain', jewel: coverage.multiChain.kaiaTotal });
+        }
+        if (coverage.multiChain.metisTotal > 0) {
+          multiChainContracts.push({ name: 'Metis (All Holders)', address: 'Metis Chain', jewel: coverage.multiChain.metisTotal });
+        }
+        
+        sourceBreakdown.push({
+          name: 'Multi-Chain JEWEL',
+          jewel: coverage.multiChain.total,
           percentage: 0,
           icon: Globe,
           color: COLORS['Multi-Chain'],
           contracts: multiChainContracts.sort((a, b) => b.jewel - a.jewel),
         });
-        totalTracked += multiChainJewel;
+        totalTracked += coverage.multiChain.total;
+      }
+
+      // 4. Burned JEWEL
+      if (coverage.burned.total > 0) {
+        const burnContracts = coverage.burned.addresses.map(a => ({
+          name: a.address === '0x0000000000000000000000000000000000000000' ? 'Zero Address' :
+                a.address.toLowerCase().includes('dead') ? 'Dead Address' : 'Burn Address',
+          address: a.address,
+          jewel: a.balance,
+        }));
+        
+        sourceBreakdown.push({
+          name: 'Burned JEWEL',
+          jewel: coverage.burned.total,
+          percentage: 0,
+          icon: Flame,
+          color: COLORS['Burned'],
+          contracts: burnContracts.sort((a, b) => b.jewel - a.jewel),
+        });
+        totalTracked += coverage.burned.total;
+      }
+
+      // 5. Liquid JEWEL (estimated - in user wallets, CEX, etc.)
+      if (coverage.liquid.estimated > 0) {
+        sourceBreakdown.push({
+          name: 'Liquid JEWEL (Est.)',
+          jewel: coverage.liquid.estimated,
+          percentage: 0,
+          icon: Wallet,
+          color: COLORS['Liquid'],
+          contracts: [{ name: 'User Wallets & CEX', address: 'Various', jewel: coverage.liquid.estimated }],
+        });
+        totalTracked += coverage.liquid.estimated;
+      }
+
+    } else {
+      // Legacy calculation if coverageBreakdown not available
+      // LP Pools - only wJEWEL (not xJEWEL which is a share token)
+      const lpCategory = data.categories.find(c => c.category === 'LP Pools');
+      if (lpCategory) {
+        let lpJewel = 0;
+        const lpContracts: { name: string; address: string; jewel: number }[] = [];
+        
+        for (const pool of lpCategory.contracts) {
+          let poolJewel = 0;
+          if (pool.token0Symbol === 'wJEWEL') {
+            poolJewel += pool.token0Balance || 0;
+          }
+          if (pool.token1Symbol === 'wJEWEL') {
+            poolJewel += pool.token1Balance || 0;
+          }
+          if (poolJewel > 0) {
+            lpJewel += poolJewel;
+            lpContracts.push({ name: pool.name, address: pool.address, jewel: poolJewel });
+          }
+        }
+        
+        if (lpJewel > 0) {
+          sourceBreakdown.push({
+            name: 'LP Pools (wJEWEL)',
+            jewel: lpJewel,
+            percentage: 0,
+            icon: Droplets,
+            color: COLORS['LP Pools'],
+            contracts: lpContracts.sort((a, b) => b.jewel - a.jewel),
+          });
+          totalTracked += lpJewel;
+        }
+      }
+
+      // Staking/Governance
+      const stakingCategory = data.categories.find(c => c.category === 'Staking/Governance');
+      if (stakingCategory && stakingCategory.totalJewel > 0) {
+        sourceBreakdown.push({
+          name: 'Staking (cJEWEL)',
+          jewel: stakingCategory.totalJewel,
+          percentage: 0,
+          icon: Landmark,
+          color: COLORS['Staking/Governance'],
+          contracts: stakingCategory.contracts
+            .filter(c => c.jewelBalance > 0)
+            .map(c => ({ name: c.name, address: c.address, jewel: c.jewelBalance }))
+            .sort((a, b) => b.jewel - a.jewel),
+        });
+        totalTracked += stakingCategory.totalJewel;
+      }
+
+      // Bridge Contracts
+      const bridgeCategory = data.categories.find(c => c.category === 'Bridge Contracts');
+      if (bridgeCategory && bridgeCategory.totalJewel > 0) {
+        sourceBreakdown.push({
+          name: 'Bridge Contracts',
+          jewel: bridgeCategory.totalJewel,
+          percentage: 0,
+          icon: ArrowLeftRight,
+          color: COLORS['Bridge Contracts'],
+          contracts: bridgeCategory.contracts
+            .filter(c => c.jewelBalance > 0)
+            .map(c => ({ name: c.name, address: c.address, jewel: c.jewelBalance }))
+            .sort((a, b) => b.jewel - a.jewel),
+        });
+        totalTracked += bridgeCategory.totalJewel;
+      }
+
+      // System Contracts
+      const systemCategory = data.categories.find(c => c.category === 'System Contracts');
+      if (systemCategory && systemCategory.totalJewel > 0) {
+        sourceBreakdown.push({
+          name: 'System Contracts',
+          jewel: systemCategory.totalJewel,
+          percentage: 0,
+          icon: Wrench,
+          color: COLORS['System Contracts'],
+          contracts: systemCategory.contracts
+            .filter(c => c.jewelBalance > 0)
+            .map(c => ({ name: c.name, address: c.address, jewel: c.jewelBalance }))
+            .sort((a, b) => b.jewel - a.jewel),
+        });
+        totalTracked += systemCategory.totalJewel;
+      }
+
+      // Multi-Chain Bridges (Harmony, Kaia, Metis)
+      if (data.multiChainBalances && data.multiChainBalances.length > 0) {
+        let multiChainJewel = 0;
+        const multiChainContracts: { name: string; address: string; jewel: number }[] = [];
+        
+        for (const chain of data.multiChainBalances) {
+          if (chain.status === 'success') {
+            // Use chainTotalSupply for comprehensive tracking
+            const chainTotal = chain.chainTotalSupply || chain.totalJewel;
+            if (chainTotal > 0) {
+              multiChainJewel += chainTotal;
+              multiChainContracts.push({
+                name: `${chain.chain} (All Holders)`,
+                address: chain.tokenAddress,
+                jewel: chainTotal,
+              });
+            }
+          }
+        }
+        
+        if (multiChainJewel > 0) {
+          sourceBreakdown.push({
+            name: 'Multi-Chain JEWEL',
+            jewel: multiChainJewel,
+            percentage: 0,
+            icon: Globe,
+            color: COLORS['Multi-Chain'],
+            contracts: multiChainContracts.sort((a, b) => b.jewel - a.jewel),
+          });
+          totalTracked += multiChainJewel;
+        }
       }
     }
 
-    // Calculate percentages
+    // Calculate percentages based on circulating supply for true coverage %
+    const circulatingSupply = data.jewelSupply?.circulatingSupply || totalTracked;
     for (const source of sourceBreakdown) {
-      source.percentage = totalTracked > 0 ? (source.jewel / totalTracked) * 100 : 0;
+      source.percentage = circulatingSupply > 0 ? (source.jewel / circulatingSupply) * 100 : 0;
     }
   }
 
-  // Prepare chart data
+  // Prepare chart data - Liquid JEWEL is now included in sourceBreakdown
   const chartData = sourceBreakdown.map(s => ({
     name: s.name,
     value: s.jewel,
     color: s.color,
   }));
-
-  // Add unaccounted to chart if applicable
-  if (data?.coverageKPI && data.coverageKPI.unaccountedJewel > 0) {
-    chartData.push({
-      name: 'Unaccounted',
-      value: data.coverageKPI.unaccountedJewel,
-      color: COLORS['Unaccounted'],
-    });
-  }
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/value-breakdown'] });

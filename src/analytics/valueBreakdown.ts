@@ -30,6 +30,14 @@ const MULTI_CHAIN_BRIDGES = {
   },
 };
 
+// Known CEX hot wallets for JEWEL (on DFK Chain)
+// These are identified exchange deposit/withdrawal wallets
+const CEX_WALLETS: Record<string, string> = {
+  'KuCoin Hot Wallet': '0x4C6D0E4f8F5e3C8D98A7C5F5C3fA2A6b0C0D3E4F', // Placeholder - needs verification
+  // Note: Actual CEX wallet addresses need to be verified from on-chain analysis
+  // Gate.io, MEXC, etc. wallet addresses can be added once confirmed
+};
+
 const TOKENS = {
   JEWEL: '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260',
   CRYSTAL: '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb',
@@ -164,7 +172,8 @@ interface LpPoolsCategory {
   category: 'LP Pools';
   contracts: LpPoolContract[];
   totalValueUSD: number;
-  totalJewel: number; // Total wJEWEL in LP pools (1:1 with JEWEL)
+  totalJewel: number; // Total wJEWEL in LP pools (1:1 with JEWEL) - STAKED portion
+  totalJewelFullReserves: number; // Full wJEWEL reserves in all LP pools (staked + unstaked)
 }
 
 interface StandardCategory {
@@ -233,9 +242,41 @@ interface ChainBalance {
     address: string;
     jewelBalance: number;
   }[];
-  totalJewel: number;
+  totalJewel: number; // Bridge contract totals
+  chainTotalSupply: number; // Total JEWEL supply on this chain (all holders)
   status: 'success' | 'error';
   error?: string;
+}
+
+// Comprehensive coverage breakdown for near-100% tracking
+interface CoverageBreakdown {
+  locked: {
+    cJewel: number;
+    systemContracts: number;
+    bridgeContracts: number;
+    total: number;
+  };
+  pooled: {
+    lpReservesStaked: number; // wJEWEL in staked LP positions
+    lpReservesUnstaked: number; // wJEWEL in unstaked LP positions  
+    total: number;
+  };
+  multiChain: {
+    harmonyTotal: number;
+    kaiaTotal: number;
+    metisTotal: number;
+    total: number;
+  };
+  burned: {
+    total: number;
+    addresses: { address: string; balance: number }[];
+  };
+  liquid: {
+    estimated: number; // Circulating - (locked + pooled + multiChain + burned)
+  };
+  totalTracked: number;
+  circulatingSupply: number;
+  coverageRatio: number;
 }
 
 interface ValueBreakdownResult {
@@ -252,12 +293,17 @@ interface ValueBreakdownResult {
   jewelSupply?: JewelSupplyData;
   burnData?: BurnData;
   multiChainBalances?: ChainBalance[];
+  coverageBreakdown?: CoverageBreakdown;
   coverageKPI?: {
     trackedJewel: number;
     circulatingSupply: number;
     coverageRatio: number;
     unaccountedJewel: number;
     multiChainTotal?: number;
+    lpPooledTotal?: number;
+    lockedTotal?: number;
+    burnedTotal?: number;
+    liquidEstimate?: number;
   };
   summary: {
     totalJewelLocked: number;
@@ -502,7 +548,7 @@ async function getStakedTokenSupply(
   }
 }
 
-// Fetch JEWEL balances from contracts on a specific chain
+// Fetch JEWEL balances from contracts on a specific chain AND total supply
 async function getChainJewelBalances(
   chainName: string,
   chainId: string,
@@ -510,13 +556,17 @@ async function getChainJewelBalances(
   jewelTokenAddress: string,
   bridgeContracts: Record<string, string>
 ): Promise<ChainBalance> {
+  // Normalize the JEWEL token address to proper checksum format
+  const normalizedJewelAddress = ethers.getAddress(jewelTokenAddress.toLowerCase());
+  
   const result: ChainBalance = {
     chain: chainName,
     chainId,
     rpc: rpcUrl,
-    tokenAddress: jewelTokenAddress,
+    tokenAddress: normalizedJewelAddress,
     contracts: [],
     totalJewel: 0,
+    chainTotalSupply: 0,
     status: 'success',
   };
 
@@ -525,12 +575,30 @@ async function getChainJewelBalances(
       staticNetwork: true,
     });
     
-    // Set a timeout for the provider
     const timeout = 10000; // 10 seconds
     
-    for (const [name, address] of Object.entries(bridgeContracts)) {
+    // First, get the total supply of JEWEL on this chain
+    try {
+      const contract = new ethers.Contract(normalizedJewelAddress, ERC20_ABI, provider);
+      const supplyPromise = contract.totalSupply();
+      const totalSupply = await Promise.race([
+        supplyPromise,
+        new Promise<bigint>((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout')), timeout)
+        )
+      ]);
+      result.chainTotalSupply = parseFloat(ethers.formatEther(totalSupply));
+      console.log(`[MultiChain] ${chainName} total JEWEL supply: ${result.chainTotalSupply.toLocaleString()}`);
+    } catch (err) {
+      console.warn(`[MultiChain] Failed to get total supply on ${chainName}: ${(err as Error).message}`);
+    }
+    
+    // Then get individual bridge contract balances
+    for (const [name, rawAddress] of Object.entries(bridgeContracts)) {
       try {
-        const contract = new ethers.Contract(jewelTokenAddress, ERC20_ABI, provider);
+        // Normalize bridge address to proper checksum format
+        const address = ethers.getAddress(rawAddress.toLowerCase());
+        const contract = new ethers.Contract(normalizedJewelAddress, ERC20_ABI, provider);
         const balancePromise = contract.balanceOf(address);
         const balance = await Promise.race([
           balancePromise,
@@ -691,21 +759,31 @@ async function fetchJewelSupply(): Promise<JewelSupplyData | null> {
 }
 
 // Fetch burned JEWEL from known burn addresses
+// Checks both JEWEL and wJEWEL (wrapped JEWEL) balances at burn addresses
 async function fetchBurnedJewel(provider: ethers.JsonRpcProvider): Promise<BurnData> {
   const burnAddresses: { address: string; balance: number }[] = [];
   let totalBurned = 0;
   
   for (const address of BURN_ADDRESSES) {
     try {
-      const balance = await getTokenBalance(provider, TOKENS.JEWEL, address, 'JEWEL');
-      if (balance > 0) {
-        burnAddresses.push({ address, balance });
-        totalBurned += balance;
-        console.log(`[ValueBreakdown] Burn address ${address.slice(0, 10)}...: ${balance.toLocaleString()} JEWEL`);
+      // Check native JEWEL balance
+      const jewelBalance = await getTokenBalance(provider, TOKENS.JEWEL, address, 'JEWEL');
+      // Check wJEWEL (wrapped) balance too - it's 1:1 with JEWEL
+      const wJewelBalance = await getTokenBalance(provider, TOKENS.wJEWEL, address, 'wJEWEL');
+      const combinedBalance = jewelBalance + wJewelBalance;
+      
+      if (combinedBalance > 0) {
+        burnAddresses.push({ address, balance: combinedBalance });
+        totalBurned += combinedBalance;
+        console.log(`[ValueBreakdown] Burn address ${address.slice(0, 10)}...: ${combinedBalance.toLocaleString()} JEWEL (native: ${jewelBalance.toFixed(2)}, wrapped: ${wJewelBalance.toFixed(2)})`);
       }
     } catch (err) {
       console.warn(`[ValueBreakdown] Could not check burn address ${address}:`, err);
     }
+  }
+  
+  if (totalBurned === 0) {
+    console.log(`[ValueBreakdown] No JEWEL found at known burn addresses`);
   }
   
   return {
@@ -860,18 +938,72 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   }
 
   // Calculate total wJEWEL in LP pools (wJEWEL is 1:1 with JEWEL)
-  const lpTotalJewel = lpPoolContracts.reduce((sum, c) => {
-    let jewelInPool = 0;
-    if (c.token0Symbol === 'wJEWEL') jewelInPool += c.token0Balance;
-    if (c.token1Symbol === 'wJEWEL') jewelInPool += c.token1Balance;
-    return sum + jewelInPool;
-  }, 0);
+  // We track both staked wJEWEL and FULL reserves for comprehensive coverage
+  // Note: LP pools may use either 'wJEWEL' or 'JEWEL' symbol depending on the token address
+  let lpTotalJewelStaked = 0;
+  let lpTotalJewelFullReserves = 0;
+  
+  // Helper to check if a symbol represents JEWEL (wJEWEL and JEWEL are 1:1 wrappers)
+  const isJewelSymbol = (symbol: string) => symbol === 'wJEWEL' || symbol === 'JEWEL';
+  
+  // We need to track raw reserves separately since lpPoolContracts only has staked portion
+  // Query raw reserves for full coverage calculation
+  for (const pool of lpPoolContracts) {
+    // Debug log to see what symbols we're getting
+    console.log(`[ValueBreakdown] Pool ${pool.name}: token0=${pool.token0Symbol} (${pool.token0Balance.toFixed(2)}), token1=${pool.token1Symbol} (${pool.token1Balance.toFixed(2)}), ratio=${(pool.stakedRatio * 100).toFixed(2)}%`);
+    
+    // Staked portion (already calculated in token0Balance/token1Balance)
+    if (isJewelSymbol(pool.token0Symbol)) lpTotalJewelStaked += pool.token0Balance;
+    if (isJewelSymbol(pool.token1Symbol)) lpTotalJewelStaked += pool.token1Balance;
+    
+    // Full reserves = staked / stakedRatio (if staked ratio > 0)
+    // This gives us ALL wJEWEL in LP, not just staked portion
+    if (pool.stakedRatio > 0) {
+      if (isJewelSymbol(pool.token0Symbol)) {
+        lpTotalJewelFullReserves += pool.token0Balance / pool.stakedRatio;
+      }
+      if (isJewelSymbol(pool.token1Symbol)) {
+        lpTotalJewelFullReserves += pool.token1Balance / pool.stakedRatio;
+      }
+    }
+    // Note: Pools with 0 staked ratio will be handled via direct reserve query below
+  }
+  
+  // For pools with 0 staked ratio, query reserves directly
+  // We need to match LP addresses back to their pools to get raw reserves
+  for (const [name, config] of Object.entries(LP_POOLS)) {
+    const pool = lpPoolContracts.find(p => p.address.toLowerCase() === config.address.toLowerCase());
+    if (pool && pool.stakedRatio === 0) {
+      // Query raw reserves for this pool directly
+      try {
+        const reserves = await getLPReserves(provider, config.address);
+        if (reserves) {
+          const token0Symbol = tokenNames[reserves.token0] || 'Unknown';
+          const token1Symbol = tokenNames[reserves.token1] || 'Unknown';
+          
+          if (isJewelSymbol(token0Symbol)) {
+            lpTotalJewelFullReserves += reserves.reserve0;
+            console.log(`[ValueBreakdown] Pool ${name} (0% staked) - added ${reserves.reserve0.toFixed(2)} JEWEL from raw reserves`);
+          }
+          if (isJewelSymbol(token1Symbol)) {
+            lpTotalJewelFullReserves += reserves.reserve1;
+            console.log(`[ValueBreakdown] Pool ${name} (0% staked) - added ${reserves.reserve1.toFixed(2)} JEWEL from raw reserves`);
+          }
+        }
+      } catch (err) {
+        console.warn(`[ValueBreakdown] Could not get reserves for ${name}:`, err);
+      }
+    }
+  }
+  
+  console.log(`[ValueBreakdown] LP wJEWEL - Staked: ${lpTotalJewelStaked.toLocaleString()}, Full Reserves: ${lpTotalJewelFullReserves.toLocaleString()}`);
 
   categories.push({
     category: 'LP Pools',
     contracts: lpPoolContracts,
     totalValueUSD: lpPoolContracts.reduce((sum, c) => sum + c.totalValueUSD, 0),
-    totalJewel: lpTotalJewel,
+    totalJewel: lpTotalJewelStaked,
+    totalJewelFullReserves: lpTotalJewelFullReserves,
   } as LpPoolsCategory);
 
   const [cJewelSupply, xCrystalSupply] = await Promise.all([
@@ -990,44 +1122,104 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     getMultiChainJewelBalances(),
   ]);
   
-  // Calculate total tracked JEWEL across all categories
-  // Note: totalJewelLocked already includes:
-  //   - cJEWEL supply (from Staking/Governance category)
-  //   - Bridge contract JEWEL balances
-  //   - System contract JEWEL balances
-  // We just need to add wJEWEL from LP reserves (wJEWEL = 1:1 with JEWEL)
-  // Note: xJEWEL is NOT JEWEL - it's a share token, so we don't count it here
-  // The value of xJEWEL is already accounted for in the staking category
-  let trackedJewel = totalJewelLocked;
+  // ========== COMPREHENSIVE COVERAGE CALCULATION ==========
+  // Goal: Track ALL JEWEL across the ecosystem to approach 100% coverage
+  // IMPORTANT: Avoid double-counting! Bridge contracts on DFK Chain hold JEWEL that's 
+  // already counted in multi-chain totals (it was bridged TO those chains).
   
-  // Add wJEWEL from LP pool reserves (wJEWEL = wrapped JEWEL, 1:1 ratio)
-  // We do NOT count xJEWEL here as it's already counted via cJEWEL supply
-  if (lpCat) {
-    for (const pool of lpCat.contracts) {
-      if (pool.token0Symbol === 'wJEWEL') {
-        trackedJewel += pool.token0Balance;
-      }
-      if (pool.token1Symbol === 'wJEWEL') {
-        trackedJewel += pool.token1Balance;
-      }
-    }
-  }
+  // 1. DFK CHAIN LOCKED JEWEL (cJEWEL staking + system contracts, NOT bridge contracts)
+  // Bridge contracts are excluded because their JEWEL appears on other chains
+  const lockedJewelCJewel = stakingCat?.contracts.find(c => c.name.includes('cJEWEL'))?.jewelBalance || 0;
+  const lockedJewelBridge = bridgeCat?.totalJewel || 0; // Track for reference only
+  const lockedJewelSystem = systemCat?.totalJewel || 0;
+  // Only count cJEWEL + system (not bridge) to avoid double-counting
+  const lockedTotal = lockedJewelCJewel + lockedJewelSystem;
   
-  // Add JEWEL from multi-chain bridges (Harmony, Kaia, Metis)
-  const multiChainTotal = multiChainBalances.reduce((sum, chain) => sum + chain.totalJewel, 0);
-  trackedJewel += multiChainTotal;
-  console.log(`[ValueBreakdown] Multi-chain JEWEL added to coverage: ${multiChainTotal.toLocaleString()}`);
+  // 2. DFK CHAIN POOLED JEWEL (wJEWEL in LP reserves - FULL reserves, not just staked)
+  // Use totalJewelFullReserves from LP category for complete coverage
+  const lpPooledTotal = lpCat?.totalJewelFullReserves || 0;
+  const lpPooledStaked = lpCat?.totalJewel || 0;
+  const lpPooledUnstaked = lpPooledTotal - lpPooledStaked;
   
-  // Note: cJEWEL is already counted in totalJewelLocked via stakingCat
-  // The staking category tracks cJEWEL totalSupply which equals locked JEWEL
+  // 3. MULTI-CHAIN JEWEL (total supply on each chain)
+  // Use chain totalSupply (all JEWEL on that chain), not just bridge contracts
+  // This includes ALL holders on each chain - wallets, pools, etc.
+  const harmonyChain = multiChainBalances.find(c => c.chain === 'Harmony');
+  const kaiaChain = multiChainBalances.find(c => c.chain === 'Kaia');
+  const metisChain = multiChainBalances.find(c => c.chain === 'Metis');
   
-  // Calculate coverage KPI
+  // For coverage, use chain totalSupply which includes ALL holders
+  const harmonyTotal = harmonyChain?.chainTotalSupply || 0;
+  const kaiaTotal = kaiaChain?.chainTotalSupply || 0;
+  const metisTotal = metisChain?.chainTotalSupply || 0;
+  const multiChainTotal = harmonyTotal + kaiaTotal + metisTotal;
+  
+  // Track bridge contract balances for reference (not included in trackedJewel to avoid double-counting)
+  const multiChainBridgeContracts = multiChainBalances.reduce((sum, chain) => sum + chain.totalJewel, 0);
+  
+  // 4. BURNED JEWEL
+  const burnedTotal = burnData.totalBurned;
+  
+  console.log(`[ValueBreakdown] Coverage Breakdown:`);
+  console.log(`  - DFK Locked (cJEWEL): ${lockedJewelCJewel.toLocaleString()}`);
+  console.log(`  - DFK Locked (System): ${lockedJewelSystem.toLocaleString()}`);
+  console.log(`  - DFK Bridge Contracts (excluded): ${lockedJewelBridge.toLocaleString()}`);
+  console.log(`  - DFK Pooled (LP Full): ${lpPooledTotal.toLocaleString()}`);
+  console.log(`  - Multi-chain (Harmony): ${harmonyTotal.toLocaleString()}`);
+  console.log(`  - Multi-chain (Kaia): ${kaiaTotal.toLocaleString()}`);
+  console.log(`  - Multi-chain (Metis): ${metisTotal.toLocaleString()}`);
+  console.log(`  - Burned: ${burnedTotal.toLocaleString()}`);
+  
+  // Total tracked = DFK Chain (Locked + Pooled) + MultiChain + Burned
+  // Note: Bridge contracts excluded because their value is already counted on other chains
+  const trackedJewel = lockedTotal + lpPooledTotal + multiChainTotal + burnedTotal;
+  
+  // 5. LIQUID JEWEL (estimated) = Circulating - Tracked
+  // This represents JEWEL in user wallets, CEX accounts, etc.
+  const liquidEstimate = jewelSupply ? Math.max(0, jewelSupply.circulatingSupply - trackedJewel) : 0;
+  
+  console.log(`[ValueBreakdown] Total Tracked: ${trackedJewel.toLocaleString()}`);
+  console.log(`[ValueBreakdown] Liquid (estimated): ${liquidEstimate.toLocaleString()}`);
+  
+  // Build comprehensive coverage breakdown
+  const coverageBreakdown: CoverageBreakdown = {
+    locked: {
+      cJewel: lockedJewelCJewel,
+      systemContracts: lockedJewelSystem,
+      bridgeContracts: lockedJewelBridge, // Tracked for reference but excluded from totals
+      total: lockedTotal, // Does NOT include bridge contracts (to avoid double-counting)
+    },
+    pooled: {
+      lpReservesStaked: lpPooledStaked,
+      lpReservesUnstaked: lpPooledUnstaked,
+      total: lpPooledTotal,
+    },
+    multiChain: {
+      harmonyTotal,
+      kaiaTotal,
+      metisTotal,
+      total: multiChainTotal,
+    },
+    burned: {
+      total: burnedTotal,
+      addresses: burnData.burnAddresses,
+    },
+    liquid: {
+      estimated: liquidEstimate,
+    },
+    totalTracked: trackedJewel,
+    circulatingSupply: jewelSupply?.circulatingSupply || 0,
+    coverageRatio: jewelSupply ? Math.min(1, trackedJewel / jewelSupply.circulatingSupply) : 0,
+  };
+  
+  // Calculate coverage KPI (legacy format for backward compatibility)
   let coverageKPI: ValueBreakdownResult['coverageKPI'];
   if (jewelSupply && jewelSupply.circulatingSupply > 0) {
-    // Clamp coverage ratio to [0, 1] in case of calculation anomalies
+    // Use trackedJewel + liquidEstimate to show near-100% when including liquid
+    const totalAccountedFor = trackedJewel + liquidEstimate;
     const rawCoverageRatio = trackedJewel / jewelSupply.circulatingSupply;
     const coverageRatio = Math.min(1, Math.max(0, rawCoverageRatio));
-    const unaccountedJewel = Math.max(0, jewelSupply.circulatingSupply - trackedJewel);
+    const unaccountedJewel = liquidEstimate; // Liquid is the "unaccounted" portion
     
     coverageKPI = {
       trackedJewel,
@@ -1035,6 +1227,10 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       coverageRatio,
       unaccountedJewel,
       multiChainTotal,
+      lpPooledTotal,
+      lockedTotal,
+      burnedTotal,
+      liquidEstimate,
     };
     console.log(`[ValueBreakdown] Coverage KPI: ${(coverageRatio * 100).toFixed(2)}% (${trackedJewel.toLocaleString()} / ${jewelSupply.circulatingSupply.toLocaleString()})`);
     
@@ -1061,6 +1257,7 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
     jewelSupply: jewelSupply || undefined,
     burnData: burnData.totalBurned > 0 ? burnData : undefined,
     multiChainBalances: multiChainBalances.length > 0 ? multiChainBalances : undefined,
+    coverageBreakdown,
     coverageKPI,
     summary: {
       totalJewelLocked,
