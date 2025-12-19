@@ -13,7 +13,7 @@ const JEWEL_TOKENS = {
   DFK_CHAIN: '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260', // wJEWEL on DFK Chain
   HARMONY: '0x72Cb10C6bfA5624dD07Ef608027E366bd690048F', // JEWEL on Harmony
   KAIA: '0x30c103f8f5a3A732DFe2dCE1Cc9446f545527b43', // JEWEL on Kaia
-  METIS: '0x17c09cfC96C865CF546d73f2dF01fb440cA8BAd5', // JEWEL on Metis
+  METIS: '0x17C09cfC96C865CF546d73365Cedb6dC66986963', // JEWEL on Metis (verified on-chain)
   AVALANCHE: '0x4f60a160D8C2DDdaAfe16FCC57566dB84D674BD6', // JEWEL on Avalanche C-Chain
 };
 
@@ -41,7 +41,12 @@ const MULTI_CHAIN_LP_POOLS = {
   HARMONY: {
     'JEWEL-ONE (SushiSwap)': '0xeb579ddcd49a7beb3f205c9ff6006bb6390f138f',
   },
-  // Metis and Avalanche LPs may have minimal liquidity - disabled for now
+  METIS: {
+    // Hercules DEX Algebra V3 JEWEL-WMETIS pool (concentrated liquidity)
+    // Discovered via factory 0xC5BfA92f27dF36d268422EE314a1387bB5ffB06A
+    'JEWEL-WMETIS (Hercules V3)': '0x9BeE61e52cB90e04BaE9503132b435B363F4Fc86',
+  },
+  // Avalanche LPs may have minimal liquidity - disabled for now
   // Can be re-enabled once verified on-chain
 };
 
@@ -769,77 +774,15 @@ interface MultiChainLPReserves {
 }
 
 // Fetch Avalanche LP reserves (Trader Joe JEWEL-AVAX)
+// Currently disabled - no verified JEWEL LP pools on Avalanche
 async function getAvalancheLPReserves(): Promise<MultiChainLPReserves[]> {
-  const results: MultiChainLPReserves[] = [];
-  
-  try {
-    const provider = new ethers.JsonRpcProvider(AVALANCHE_RPC, undefined, {
-      staticNetwork: true,
-    });
-    
-    const timeout = 10000;
-    const jewelTokenLower = JEWEL_TOKENS.AVALANCHE.toLowerCase();
-    
-    for (const [poolName, lpAddress] of Object.entries(MULTI_CHAIN_LP_POOLS.AVALANCHE)) {
-      try {
-        const lpContract = new ethers.Contract(lpAddress, LP_ABI, provider);
-        
-        const [reserves, token0, token1] = await Promise.all([
-          Promise.race([
-            lpContract.getReserves(),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
-          ]),
-          lpContract.token0().catch(() => ''),
-          lpContract.token1().catch(() => ''),
-        ]);
-        
-        const token0Lower = token0.toString().toLowerCase();
-        const token1Lower = token1.toString().toLowerCase();
-        
-        let jewelReserves = 0;
-        let otherReserves = 0;
-        
-        if (token0Lower === jewelTokenLower) {
-          jewelReserves = parseFloat(ethers.formatEther(reserves[0]));
-          otherReserves = parseFloat(ethers.formatEther(reserves[1]));
-        } else if (token1Lower === jewelTokenLower) {
-          jewelReserves = parseFloat(ethers.formatEther(reserves[1]));
-          otherReserves = parseFloat(ethers.formatEther(reserves[0]));
-        }
-        
-        results.push({
-          chain: 'Avalanche',
-          poolName,
-          lpAddress,
-          jewelReserves,
-          otherToken: 'AVAX',
-          otherReserves,
-          status: 'success',
-        });
-        
-        console.log(`[AvalancheLP] ${poolName}: ${jewelReserves.toLocaleString()} JEWEL, ${otherReserves.toLocaleString()} AVAX`);
-      } catch (err) {
-        console.warn(`[AvalancheLP] Failed to get reserves for ${poolName}: ${(err as Error).message}`);
-        results.push({
-          chain: 'Avalanche',
-          poolName,
-          lpAddress,
-          jewelReserves: 0,
-          otherToken: 'AVAX',
-          otherReserves: 0,
-          status: 'error',
-          error: (err as Error).message,
-        });
-      }
-    }
-  } catch (err) {
-    console.error(`[AvalancheLP] Failed to connect to Avalanche: ${(err as Error).message}`);
-  }
-  
-  return results;
+  // Avalanche JEWEL LP tracking is disabled pending verification of pool addresses
+  // Once a verified JEWEL-AVAX pool is found, add it to MULTI_CHAIN_LP_POOLS.AVALANCHE
+  return [];
 }
 
-// Fetch Metis LP reserves (Hercules DEX JEWEL-METIS)
+// Fetch Metis LP reserves (Hercules DEX JEWEL-WMETIS - Algebra V3 concentrated liquidity)
+// V3/Algebra pools don't have getReserves() - we query token balances directly
 async function getMetisLPReserves(): Promise<MultiChainLPReserves[]> {
   const results: MultiChainLPReserves[] = [];
   
@@ -849,46 +792,43 @@ async function getMetisLPReserves(): Promise<MultiChainLPReserves[]> {
     });
     
     const timeout = 10000;
-    const jewelTokenLower = JEWEL_TOKENS.METIS.toLowerCase();
+    const jewelAddress = JEWEL_TOKENS.METIS;
+    const wmetisAddress = '0x75cb093E4D61d2A2e65D8e0BBb01DE8d89b53481'; // WMETIS on Metis
+    
+    // ERC20 ABI for balance queries
+    const erc20ABI = ['function balanceOf(address account) view returns (uint256)'];
     
     for (const [poolName, lpAddress] of Object.entries(MULTI_CHAIN_LP_POOLS.METIS)) {
       try {
-        const lpContract = new ethers.Contract(lpAddress, LP_ABI, provider);
+        const jewelContract = new ethers.Contract(jewelAddress, erc20ABI, provider);
+        const wmetisContract = new ethers.Contract(wmetisAddress, erc20ABI, provider);
         
-        const [reserves, token0, token1] = await Promise.all([
+        // Query token balances directly from the pool (V3/Algebra style)
+        const [jewelBalance, wmetisBalance] = await Promise.all([
           Promise.race([
-            lpContract.getReserves(),
+            jewelContract.balanceOf(lpAddress),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
           ]),
-          lpContract.token0().catch(() => ''),
-          lpContract.token1().catch(() => ''),
+          Promise.race([
+            wmetisContract.balanceOf(lpAddress),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+          ]),
         ]);
         
-        const token0Lower = token0.toString().toLowerCase();
-        const token1Lower = token1.toString().toLowerCase();
-        
-        let jewelReserves = 0;
-        let otherReserves = 0;
-        
-        if (token0Lower === jewelTokenLower) {
-          jewelReserves = parseFloat(ethers.formatEther(reserves[0]));
-          otherReserves = parseFloat(ethers.formatEther(reserves[1]));
-        } else if (token1Lower === jewelTokenLower) {
-          jewelReserves = parseFloat(ethers.formatEther(reserves[1]));
-          otherReserves = parseFloat(ethers.formatEther(reserves[0]));
-        }
+        const jewelReserves = parseFloat(ethers.formatEther(jewelBalance));
+        const otherReserves = parseFloat(ethers.formatEther(wmetisBalance));
         
         results.push({
           chain: 'Metis',
           poolName,
           lpAddress,
           jewelReserves,
-          otherToken: 'METIS',
+          otherToken: 'WMETIS',
           otherReserves,
           status: 'success',
         });
         
-        console.log(`[MetisLP] ${poolName}: ${jewelReserves.toLocaleString()} JEWEL, ${otherReserves.toLocaleString()} METIS`);
+        console.log(`[MetisLP] ${poolName}: ${jewelReserves.toLocaleString()} JEWEL, ${otherReserves.toLocaleString()} WMETIS`);
       } catch (err) {
         console.warn(`[MetisLP] Failed to get reserves for ${poolName}: ${(err as Error).message}`);
         results.push({
@@ -896,7 +836,7 @@ async function getMetisLPReserves(): Promise<MultiChainLPReserves[]> {
           poolName,
           lpAddress,
           jewelReserves: 0,
-          otherToken: 'METIS',
+          otherToken: 'WMETIS',
           otherReserves: 0,
           status: 'error',
           error: (err as Error).message,
@@ -1422,17 +1362,17 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   ];
 
   // Fetch JEWEL supply, burn data, multi-chain balances, and LP reserves in parallel
-  // Note: Avalanche and Metis LP tracking disabled until verified on-chain
-  const [jewelSupply, burnData, multiChainBalances, harmonyLpReserves] = await Promise.all([
+  // Note: Avalanche LP tracking still disabled until verified on-chain
+  const [jewelSupply, burnData, multiChainBalances, harmonyLpReserves, metisLpReserves] = await Promise.all([
     fetchJewelSupply(),
     fetchBurnedJewel(provider),
     getMultiChainJewelBalances(),
     getHarmonyLPReserves(),
+    getMetisLPReserves(), // Hercules DEX JEWEL-WMETIS (Algebra V3)
   ]);
   
-  // Placeholder for disabled LP pools
+  // Placeholder for disabled LP pools (Avalanche still pending verification)
   const avalancheLpReserves: MultiChainLPReserves[] = [];
-  const metisLpReserves: MultiChainLPReserves[] = [];
   
   // ========== COMPREHENSIVE COVERAGE CALCULATION ==========
   // Goal: Track ALL JEWEL across the ecosystem to approach 100% coverage
