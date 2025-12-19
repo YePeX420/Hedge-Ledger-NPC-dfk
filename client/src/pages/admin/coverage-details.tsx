@@ -130,6 +130,7 @@ interface SourceBreakdown {
   icon: typeof Coins;
   color: string;
   contracts: { name: string; address: string; jewel: number }[];
+  excludedFromTotal?: boolean;
 }
 
 const COLORS: Record<string, string> = {
@@ -217,22 +218,20 @@ export default function CoverageDetailsPage() {
         totalTracked += coverage.pooled.total;
       }
 
-      // 2. Locked JEWEL (cJEWEL + Bridge + System)
+      // 2. Locked JEWEL (cJEWEL + System, NOT bridge contracts)
+      // Bridge contracts are excluded from coverage to avoid double-counting with multi-chain totals
       if (coverage.locked.total > 0) {
         const lockedContracts: { name: string; address: string; jewel: number }[] = [];
         
         if (coverage.locked.cJewel > 0) {
           lockedContracts.push({ name: 'cJEWEL (Staking)', address: '0x9ed2c155632C042CB8bC20634571fF1CA26f5742', jewel: coverage.locked.cJewel });
         }
-        if (coverage.locked.bridgeContracts > 0) {
-          lockedContracts.push({ name: 'Bridge Contracts', address: 'Various', jewel: coverage.locked.bridgeContracts });
-        }
         if (coverage.locked.systemContracts > 0) {
           lockedContracts.push({ name: 'System Contracts', address: 'Various', jewel: coverage.locked.systemContracts });
         }
         
         sourceBreakdown.push({
-          name: 'Locked JEWEL',
+          name: 'Locked JEWEL (DFK Chain)',
           jewel: coverage.locked.total,
           percentage: 0,
           icon: Landmark,
@@ -240,6 +239,20 @@ export default function CoverageDetailsPage() {
           contracts: lockedContracts.sort((a, b) => b.jewel - a.jewel),
         });
         totalTracked += coverage.locked.total;
+      }
+      
+      // Bridge Contracts (shown separately - excluded from coverage to avoid double-counting)
+      if (coverage.locked.bridgeContracts > 0) {
+        sourceBreakdown.push({
+          name: 'Bridge Contracts (Ref Only)',
+          jewel: coverage.locked.bridgeContracts,
+          percentage: 0,
+          icon: ArrowLeftRight,
+          color: COLORS['Bridge Contracts'],
+          contracts: [{ name: 'Synapse Bridge (DFK)', address: '0x52285D426120aB91F378B3dF4A15a036A62200aE', jewel: coverage.locked.bridgeContracts }],
+          excludedFromTotal: true,
+        });
+        // NOTE: Not adding to totalTracked - bridge contracts are excluded to avoid double-counting
       }
 
       // 3. Multi-Chain (Total Supply on each chain - all JEWEL holders)
@@ -427,12 +440,14 @@ export default function CoverageDetailsPage() {
     }
   }
 
-  // Prepare chart data - Liquid JEWEL is now included in sourceBreakdown
-  const chartData = sourceBreakdown.map(s => ({
-    name: s.name,
-    value: s.jewel,
-    color: s.color,
-  }));
+  // Prepare chart data - exclude items marked as excludedFromTotal (bridge contracts)
+  const chartData = sourceBreakdown
+    .filter(s => !s.excludedFromTotal)
+    .map(s => ({
+      name: s.name,
+      value: s.jewel,
+      color: s.color,
+    }));
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['/api/admin/bridge/value-breakdown'] });
@@ -587,7 +602,7 @@ export default function CoverageDetailsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {sourceBreakdown.map((source) => {
+            {sourceBreakdown.filter(s => !s.excludedFromTotal).map((source) => {
               const Icon = source.icon;
               return (
                 <div key={source.name} className="space-y-2">
@@ -612,6 +627,32 @@ export default function CoverageDetailsPage() {
                     className="h-2"
                     style={{ '--progress-color': source.color } as React.CSSProperties}
                   />
+                </div>
+              );
+            })}
+
+            {/* Bridge Contracts - Shown separately as reference only */}
+            {sourceBreakdown.filter(s => s.excludedFromTotal).map((source) => {
+              const Icon = source.icon;
+              return (
+                <div key={source.name} className="space-y-2 pt-2 border-t border-dashed opacity-70">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-3 h-3 rounded-full border-2 border-dashed" 
+                        style={{ borderColor: source.color }}
+                      />
+                      <Icon className="w-4 h-4" style={{ color: source.color }} />
+                      <span className="font-medium">{source.name}</span>
+                      <Badge variant="outline" className="text-xs">Excluded</Badge>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono font-medium text-muted-foreground">{formatNumber(source.jewel)}</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Already counted in multi-chain totals (bridged to other chains)
+                  </p>
                 </div>
               );
             })}
