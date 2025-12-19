@@ -540,23 +540,33 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
       const token1ValueUSD = stakedToken1 * token1Price;
       let totalValueUSD = token0ValueUSD + token1ValueUSD;
       
-      // Final sanity check - cap individual pool value at $10B (way more than all of DFK is worth)
+      // Final sanity check - skip pool entirely if value exceeds $10B (way more than all of DFK is worth)
       const MAX_POOL_VALUE_USD = 10_000_000_000;
-      if (totalValueUSD > MAX_POOL_VALUE_USD) {
-        console.warn(`[ValueBreakdown] CAPPING pool ${name} value from $${totalValueUSD.toLocaleString()} to $${MAX_POOL_VALUE_USD.toLocaleString()}`);
-        totalValueUSD = 0; // Set to 0 if suspicious - something is wrong
+      if (totalValueUSD > MAX_POOL_VALUE_USD || token0ValueUSD > MAX_POOL_VALUE_USD || token1ValueUSD > MAX_POOL_VALUE_USD) {
+        console.warn(`[ValueBreakdown] SKIPPING pool ${name} - suspicious values:`, {
+          totalValueUSD: totalValueUSD.toLocaleString(),
+          token0ValueUSD: token0ValueUSD.toLocaleString(),
+          token1ValueUSD: token1ValueUSD.toLocaleString(),
+          stakedRatio,
+        });
+        continue; // Skip this pool entirely
       }
       
       console.log(`[ValueBreakdown] Pool ${name}: staked=${totalStakedLP.toFixed(2)}, ratio=${(stakedRatio * 100).toFixed(2)}%, value=$${totalValueUSD.toFixed(2)}`);
       
       const v2Ratio = safeTotalSupply > 0 ? Math.min(1.0, safeV2Staked / safeTotalSupply) : 0;
       const v1Ratio = safeTotalSupply > 0 ? Math.min(1.0, safeV1Staked / safeTotalSupply) : 0;
-      let v2ValueUSD = totalPoolReserveValue * v2Ratio;
-      let v1ValueUSD = totalPoolReserveValue * v1Ratio;
+      const v2ValueUSD = totalPoolReserveValue * v2Ratio;
+      const v1ValueUSD = totalPoolReserveValue * v1Ratio;
       
-      // Apply same sanity cap to v1/v2 values
-      if (v2ValueUSD > MAX_POOL_VALUE_USD) v2ValueUSD = 0;
-      if (v1ValueUSD > MAX_POOL_VALUE_USD) v1ValueUSD = 0;
+      // Skip pool if v1/v2 values are suspicious too
+      if (v2ValueUSD > MAX_POOL_VALUE_USD || v1ValueUSD > MAX_POOL_VALUE_USD) {
+        console.warn(`[ValueBreakdown] SKIPPING pool ${name} - suspicious v1/v2 values:`, {
+          v2ValueUSD: v2ValueUSD.toLocaleString(),
+          v1ValueUSD: v1ValueUSD.toLocaleString(),
+        });
+        continue;
+      }
 
       let passive24hAPR: number | undefined;
       try {
