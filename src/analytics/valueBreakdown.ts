@@ -69,7 +69,7 @@ const LP_POOLS: Record<string, LpPoolConfig> = {
 const SYSTEM_CONTRACTS = {
   'LP Staking (Master Gardener)': '0xB04e8D6aED037904B77A9F0b08002592925833b7',
   'Validator Fees': '0xED6dC9FD092190C08e4afF8611496774Ded19D54',
-  'Quest Reward Fund': '0x5F46f22F3de3e5aB6D8B8D2c1893b9dF3F63D0A2',
+  'Quest Reward Fund': '0x1137643FE14b032966a59Acd68EBf3c1271Df316',
 };
 
 const BRIDGE_CONTRACTS = {

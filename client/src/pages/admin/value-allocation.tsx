@@ -229,22 +229,28 @@ export default function ValueAllocationPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="p-4 rounded-lg bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30" data-testid="card-total-usd">
+                  <p className="text-sm text-muted-foreground">Total Value Locked</p>
+                  <p className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent" data-testid="text-total-usd">
+                    {formatUSD(data.summary.totalValueUSD)}
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
                     <p className="text-sm text-muted-foreground">LP Pools</p>
-                    <p className="text-xl font-bold text-green-500">{formatUSD(data.summary.lpPoolsValue)}</p>
+                    <p className="text-xl font-bold text-green-500" data-testid="text-lp-pools-value">{formatUSD(data.summary.lpPoolsValue)}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
                     <p className="text-sm text-muted-foreground">Staking</p>
-                    <p className="text-xl font-bold text-blue-500">{formatUSD(data.summary.stakingValue)}</p>
+                    <p className="text-xl font-bold text-blue-500" data-testid="text-staking-value">{formatUSD(data.summary.stakingValue)}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <p className="text-sm text-muted-foreground">Bridges</p>
-                    <p className="text-xl font-bold text-amber-500">{formatUSD(data.summary.bridgeValue)}</p>
+                    <p className="text-xl font-bold text-amber-500" data-testid="text-bridges-value">{formatUSD(data.summary.bridgeValue)}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-violet-500/10 border border-violet-500/20">
                     <p className="text-sm text-muted-foreground">System</p>
-                    <p className="text-xl font-bold text-violet-500">{formatUSD(data.summary.systemValue)}</p>
+                    <p className="text-xl font-bold text-violet-500" data-testid="text-system-value">{formatUSD(data.summary.systemValue)}</p>
                   </div>
                 </div>
 
