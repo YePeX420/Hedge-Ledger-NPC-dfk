@@ -1161,6 +1161,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/admin/bridge/daily-timeseries - Daily bridge flow time-series for charting
+  app.get("/api/admin/bridge/daily-timeseries", isAdmin, async (req: any, res: any) => {
+    try {
+      const range = (req.query.range as string) || '30d';
+      
+      const rangeMap: Record<string, number> = {
+        '7d': 7,
+        '30d': 30,
+        '6m': 180,
+        '1y': 365,
+      };
+      
+      const days = rangeMap[range] || 30;
+      const now = Date.now();
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const cutoffDate = new Date(now - days * DAY_MS);
+      
+      // Group by date and sum in/out USD values
+      const timeSeries = await db.select({
+        date: sql<string>`DATE(block_timestamp)`,
+        totalIn: sql<number>`COALESCE(SUM(CASE WHEN direction = 'in' THEN CAST(usd_value AS DECIMAL) ELSE 0 END), 0)`,
+        totalOut: sql<number>`COALESCE(SUM(CASE WHEN direction = 'out' THEN CAST(usd_value AS DECIMAL) ELSE 0 END), 0)`,
+      })
+      .from(bridgeEvents)
+      .where(sql`block_timestamp >= ${cutoffDate.toISOString()}`)
+      .groupBy(sql`DATE(block_timestamp)`)
+      .orderBy(sql`DATE(block_timestamp)`);
+      
+      // Transform to chart-friendly format with net calculation
+      const chartData = timeSeries.map((row) => ({
+        date: row.date,
+        in: parseFloat(row.totalIn?.toString() || '0'),
+        out: parseFloat(row.totalOut?.toString() || '0'),
+        net: parseFloat(row.totalIn?.toString() || '0') - parseFloat(row.totalOut?.toString() || '0'),
+      }));
+
+      res.json(chartData);
+    } catch (error) {
+      console.error('[API] Error fetching bridge daily time-series:', error);
+      res.status(500).json({ error: 'Failed to fetch bridge daily time-series' });
+    }
+  });
+
   // GET /api/admin/bridge/extractors - Top extractors list
   app.get("/api/admin/bridge/extractors", isAdmin, async (req: any, res: any) => {
     try {

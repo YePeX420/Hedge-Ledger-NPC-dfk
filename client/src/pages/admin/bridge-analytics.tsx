@@ -12,7 +12,7 @@ import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Legend } from 'recharts';
+import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Legend, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts';
 
 interface BridgeOverview {
   events: {
@@ -240,11 +240,28 @@ interface DailyAverage {
   netDailyAvg: number;
 }
 
+interface DailyTimeSeriesPoint {
+  date: string;
+  in: number;
+  out: number;
+  net: number;
+}
+
+type ChartRange = '7d' | '30d' | '6m' | '1y';
+
+const CHART_RANGE_OPTIONS: { value: ChartRange; label: string }[] = [
+  { value: '7d', label: '7D' },
+  { value: '30d', label: '30D' },
+  { value: '6m', label: '6M' },
+  { value: '1y', label: '1Y' },
+];
+
 export default function BridgeAnalytics() {
   const { toast } = useToast();
   const [walletSearch, setWalletSearch] = useState('');
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
+  const [chartRange, setChartRange] = useState<ChartRange>('30d');
 
   const { data: overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useQuery<BridgeOverview>({
     queryKey: ['/api/admin/bridge/overview'],
@@ -272,6 +289,15 @@ export default function BridgeAnalytics() {
 
   const { data: dailyAverages, isLoading: dailyAveragesLoading } = useQuery<DailyAverage[]>({
     queryKey: ['/api/admin/bridge/daily-averages'],
+  });
+
+  const { data: dailyTimeSeries, isLoading: timeSeriesLoading } = useQuery<DailyTimeSeriesPoint[]>({
+    queryKey: ['/api/admin/bridge/daily-timeseries', chartRange],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/bridge/daily-timeseries?range=${chartRange}`);
+      if (!res.ok) throw new Error('Failed to fetch time series');
+      return res.json();
+    },
   });
 
   const { data: walletDetails, isLoading: walletLoading } = useQuery<WalletDetails>({
@@ -973,6 +999,139 @@ export default function BridgeAnalytics() {
           ) : (
             <p className="text-muted-foreground text-center py-8">No bridge data available</p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Daily Bridge Flow Chart */}
+      <Card data-testid="card-daily-chart">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2 flex-wrap">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Daily Bridge Flow
+            </CardTitle>
+            <CardDescription>
+              Daily in/out/net bridged amounts over time
+            </CardDescription>
+          </div>
+          <div className="flex gap-1">
+            {CHART_RANGE_OPTIONS.map((opt) => (
+              <Button
+                key={opt.value}
+                variant={chartRange === opt.value ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setChartRange(opt.value)}
+                data-testid={`button-chart-range-${opt.value}`}
+              >
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {timeSeriesLoading ? (
+            <div className="flex items-center justify-center h-64" data-testid="loading-chart">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : dailyTimeSeries && dailyTimeSeries.length > 0 ? (
+            <div className="h-[350px]" data-testid="chart-area-container">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dailyTimeSeries} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorIn" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorOut" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(val) => {
+                      const d = new Date(val);
+                      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }}
+                    className="text-xs fill-muted-foreground"
+                  />
+                  <YAxis 
+                    tickFormatter={(val) => {
+                      if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
+                      if (val >= 1_000) return `$${(val / 1_000).toFixed(0)}K`;
+                      return `$${val}`;
+                    }}
+                    className="text-xs fill-muted-foreground"
+                  />
+                  <Tooltip 
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length && label) {
+                        const d = new Date(String(label));
+                        return (
+                          <div className="bg-popover border rounded-lg shadow-lg p-3 text-sm">
+                            <p className="font-medium mb-2">
+                              {d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                            </p>
+                            <div className="space-y-1">
+                              <p className="text-green-600">In: {formatUsdCompact(payload[0]?.value as number || 0)}</p>
+                              <p className="text-red-600">Out: {formatUsdCompact(payload[1]?.value as number || 0)}</p>
+                              <p className={`font-medium ${(payload[2]?.value as number || 0) >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                                Net: {formatUsdAccounting(payload[2]?.value as number || 0)}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" />
+                  <Area 
+                    type="monotone" 
+                    dataKey="in" 
+                    stroke="hsl(142, 76%, 36%)" 
+                    fillOpacity={1}
+                    fill="url(#colorIn)"
+                    name="Bridged In"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="out" 
+                    stroke="hsl(0, 84%, 60%)" 
+                    fillOpacity={1}
+                    fill="url(#colorOut)"
+                    name="Bridged Out"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="net" 
+                    stroke="hsl(217, 91%, 60%)" 
+                    fill="none"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    name="Net Flow"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-center py-8">No bridge data available for chart</p>
+          )}
+          <div className="flex justify-center gap-6 mt-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-green-500" />
+              <span className="text-muted-foreground">Bridged In</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-red-500" />
+              <span className="text-muted-foreground">Bridged Out</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-0.5 bg-blue-500 border-dashed border-t-2 border-blue-500" />
+              <span className="text-muted-foreground">Net Flow</span>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
