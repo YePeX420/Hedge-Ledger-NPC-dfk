@@ -1,0 +1,384 @@
+# BACKEND PROMPT 4 — Public Combat API + Entitlements-Based Tier Shaping (Enforced)
+
+## Objective
+
+Implement the **public read-only combat API** used by the frontend Hedge app:
+
+* `/api/public/combat/status`
+* `/api/public/combat/classes`
+* `/api/public/combat/keywords`
+* `/api/public/combat/skills/search`
+
+And enforce tier gating via **entitlements stored in Neon**:
+
+* Field-level allowlists (`fields_allowlist`)
+* Feature flags (`feature_flags`), e.g. whether tag searching is allowed
+
+No Admin UI yet. This prompt is backend API only.
+
+---
+
+## A) Add default entitlement rules (migration or seed script)
+
+If you have not seeded default rules yet, add them now (idempotent).
+Domain: `combat`
+
+### Resource: `skills.search` — Fields allowlist by tier
+
+```sql
+-- Free: basics only
+insert into entitlement_rules(domain, resource, tier_id, mode, rule)
+values (
+  'combat','skills.search','free','fields_allowlist',
+  '{"fields":["class","tier","discipline","ability","tags","summary","source_url","last_seen_at"]}'::jsonb
+)
+on conflict do nothing;
+
+-- Premium: include mechanics fields
+insert into entitlement_rules(domain, resource, tier_id, mode, rule)
+values (
+  'combat','skills.search','premium','fields_allowlist',
+  '{"fields":["class","tier","skill_points","discipline","ability","tags","summary","description_raw","range","mana_cost","mana_growth","dod","source_url","last_seen_at"]}'::jsonb
+)
+on conflict do nothing;
+
+-- Premium+: premium + advanced (even if null for now)
+insert into entitlement_rules(domain, resource, tier_id, mode, rule)
+values (
+  'combat','skills.search','premium_plus','fields_allowlist',
+  '{"fields":["class","tier","skill_points","discipline","ability","tags","summary","description_raw","range","mana_cost","mana_growth","dod","codex_score","synergy_notes","recommended_roles","source_url","last_seen_at"]}'::jsonb
+)
+on conflict do nothing;
+```
+
+### Feature flags per tier (optional but recommended)
+
+```sql
+insert into entitlement_rules(domain, resource, tier_id, mode, rule)
+values (
+  'combat','skills.search','free','feature_flags',
+  '{"flags":{"combat.skills.searchByTags":false,"combat.codexScore.enabled":false}}'::jsonb
+)
+on conflict do nothing;
+
+insert into entitlement_rules(domain, resource, tier_id, mode, rule)
+values (
+  'combat','skills.search','premium','feature_flags',
+  '{"flags":{"combat.skills.searchByTags":true,"combat.codexScore.enabled":false}}'::jsonb
+)
+on conflict do nothing;
+
+insert into entitlement_rules(domain, resource, tier_id, mode, rule)
+values (
+  'combat','skills.search','premium_plus','feature_flags',
+  '{"flags":{"combat.skills.searchByTags":true,"combat.codexScore.enabled":true}}'::jsonb
+)
+on conflict do nothing;
+```
+
+Note: If your `entitlement_rules` table doesn’t have a uniqueness constraint, add one now:
+
+```sql
+create unique index if not exists ux_entitlement_rules_unique
+on entitlement_rules(domain, resource, tier_id, mode);
+```
+
+---
+
+## B) Create entitlement resolver + response shaper
+
+Create: `src/entitlements/entitlements.ts`
+
+```ts
+import { withClient } from "../db";
+
+export type UserTier = "free" | "premium" | "premium_plus";
+
+export type EntitlementResult = {
+  tier: UserTier;
+  allowFields: Set<string>;
+  flags: Record<string, boolean>;
+};
+
+export async function getEntitlements(domain: string, resource: string, tier: UserTier): Promise<EntitlementResult> {
+  const rows = await withClient(async (client) => {
+    const q = await client.query(
+      `
+      select mode, rule
+      from entitlement_rules
+      where domain=$1 and resource=$2 and tier_id=$3
+      `,
+      [domain, resource, tier]
+    );
+    return q.rows;
+  });
+
+  const allowFields = new Set<string>();
+  const flags: Record<string, boolean> = {};
+
+  for (const r of rows) {
+    if (r.mode === "fields_allowlist") {
+      const fields = r.rule?.fields;
+      if (Array.isArray(fields)) fields.forEach((f: string) => allowFields.add(f));
+    }
+    if (r.mode === "feature_flags") {
+      const f = r.rule?.flags;
+      if (f && typeof f === "object") {
+        for (const [k, v] of Object.entries(f)) flags[k] = !!v;
+      }
+    }
+  }
+
+  return { tier, allowFields, flags };
+}
+
+export function shapeObjectByAllowlist(obj: any, allowFields: Set<string>) {
+  const out: any = {};
+  for (const k of allowFields) {
+    if (obj[k] !== undefined) out[k] = obj[k];
+  }
+  return out;
+}
+```
+
+---
+
+## C) Add tier resolution (server-side authoritative)
+
+Create: `src/entitlements/tierResolver.ts`
+
+```ts
+import type { Request } from "express";
+import { UserTier } from "./entitlements";
+
+export function resolveTier(req: Request): UserTier {
+  // Default
+  let tier: UserTier = "free";
+
+  // Dev-only override (do NOT allow in production)
+  const headerTier = (req.headers["x-hedge-tier"] as string | undefined)?.toLowerCase();
+  const env = (process.env.NODE_ENV || "development").toLowerCase();
+
+  if (env !== "production" && headerTier) {
+    if (headerTier === "free" || headerTier === "premium" || headerTier === "premium_plus") {
+      tier = headerTier;
+    }
+  }
+
+  // Later: bind to user account/subscription
+  return tier;
+}
+```
+
+---
+
+## D) Public Combat Router
+
+Create: `src/routes/public/combat.ts`
+
+```ts
+import { Router } from "express";
+import { withClient } from "../../db";
+import { getEntitlements, shapeObjectByAllowlist } from "../../entitlements/entitlements";
+import { resolveTier } from "../../entitlements/tierResolver";
+
+export const publicCombatRouter = Router();
+
+/**
+ * GET /api/public/combat/status
+ * Return minimal counts + last successful sync.
+ */
+publicCombatRouter.get("/status", async (_req, res) => {
+  try {
+    const data = await withClient(async (client) => {
+      const kw = await client.query(`select count(*)::int as count from combat_keywords`);
+      const cl = await client.query(`select count(*)::int as count from combat_class_meta`);
+      const sk = await client.query(`select count(*)::int as count from combat_skills`);
+      const last = await client.query(
+        `
+        select id, started_at, finished_at
+        from sync_runs
+        where domain='combat_codex' and status='success'
+        order by started_at desc
+        limit 1
+        `
+      );
+      return {
+        keywords: kw.rows[0]?.count ?? 0,
+        classes: cl.rows[0]?.count ?? 0,
+        skills: sk.rows[0]?.count ?? 0,
+        lastSuccess: last.rows[0] ?? null,
+      };
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * GET /api/public/combat/classes
+ */
+publicCombatRouter.get("/classes", async (_req, res) => {
+  try {
+    const rows = await withClient(async (client) => {
+      const q = await client.query(
+        `
+        select class, source_url, maturity, last_update_note, disciplines, summary, last_seen_at,
+               (select count(*)::int from combat_skills s where s.class=m.class) as skills_count
+        from combat_class_meta m
+        order by class asc
+        `
+      );
+      return q.rows;
+    });
+    res.json({ ok: true, count: rows.length, results: rows });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * GET /api/public/combat/keywords
+ */
+publicCombatRouter.get("/keywords", async (_req, res) => {
+  try {
+    const rows = await withClient(async (client) => {
+      const q = await client.query(
+        `
+        select keyword, definition, source_url, last_seen_at
+        from combat_keywords
+        order by keyword asc
+        `
+      );
+      return q.rows;
+    });
+    res.json({ ok: true, count: rows.length, results: rows });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * GET /api/public/combat/skills/search
+ * Query: class, tier, discipline, q, tag (repeatable)
+ * Enforces entitlements-based shaping.
+ */
+publicCombatRouter.get("/skills/search", async (req, res) => {
+  try {
+    const tier = resolveTier(req);
+    const ent = await getEntitlements("combat", "skills.search", tier);
+
+    const className = typeof req.query.class === "string" ? req.query.class : undefined;
+    const tierNum = typeof req.query.tier === "string" ? Number(req.query.tier) : undefined;
+    const discipline = typeof req.query.discipline === "string" ? req.query.discipline : undefined;
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : undefined;
+
+    const tagParam = req.query.tag;
+    const tags: string[] =
+      typeof tagParam === "string"
+        ? [tagParam]
+        : Array.isArray(tagParam)
+          ? (tagParam.filter((t) => typeof t === "string") as string[])
+          : [];
+
+    // Feature flag enforcement
+    const tagSearchEnabled = ent.flags["combat.skills.searchByTags"] ?? true;
+    if (tags.length && !tagSearchEnabled) {
+      return res.status(403).json({ ok: false, error: "Tag search is not available for this tier." });
+    }
+
+    const rows = await withClient(async (client) => {
+      const where: string[] = [];
+      const params: any[] = [];
+      let i = 1;
+
+      if (className) {
+        where.push(`class = $${i++}`);
+        params.push(className);
+      }
+      if (Number.isFinite(tierNum as any)) {
+        where.push(`tier = $${i++}`);
+        params.push(tierNum);
+      }
+      if (discipline) {
+        where.push(`discipline = $${i++}`);
+        params.push(discipline);
+      }
+      if (q) {
+        where.push(`(ability ilike $${i} or coalesce(description_raw,'') ilike $${i})`);
+        params.push(`%${q}%`);
+        i++;
+      }
+      if (tags.length) {
+        where.push(`tags && $${i++}::text[]`);
+        params.push(tags.map((t) => t.toLowerCase()));
+      }
+
+      const sql = `
+        select class, tier, skill_points, discipline, ability, description_raw,
+               range, mana_cost, mana_growth, dod, tags, source_url, last_seen_at
+        from combat_skills
+        ${where.length ? `where ${where.join(" and ")}` : ""}
+        order by class asc, tier asc, skill_points asc nulls last, ability asc
+        limit 200
+      `;
+      const q2 = await client.query(sql, params);
+      return q2.rows;
+    });
+
+    // Derive a summary field for free tier (or always include; allowlist controls visibility)
+    const enriched = rows.map((r: any) => ({
+      ...r,
+      summary: r.description_raw ? String(r.description_raw).slice(0, 120) : null,
+      // placeholders for future premium_plus fields:
+      codex_score: null,
+      synergy_notes: null,
+      recommended_roles: null,
+    }));
+
+    const shaped = enriched.map((obj: any) => shapeObjectByAllowlist(obj, ent.allowFields));
+
+    res.json({
+      ok: true,
+      tier,
+      features: ent.flags,
+      count: shaped.length,
+      results: shaped,
+    });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+```
+
+---
+
+## E) Mount the public router
+
+In `src/server.ts`, mount:
+
+```ts
+import { publicCombatRouter } from "./routes/public/combat";
+
+app.use("/api/public/combat", publicCombatRouter);
+```
+
+Ensure your existing middleware from Prompt 1 applies:
+
+* `requirePublicKey` for `/api/public/*`
+
+---
+
+## F) Acceptance Criteria
+
+1. Calls to `/api/public/combat/*` require `HEDGE_PUBLIC_API_KEY`
+2. `/api/public/combat/skills/search` returns **different fields** for free vs premium when using `x-hedge-tier` in non-production
+3. Tag search returns 403 for free tier if flag disabled
+4. Response always includes `tier` and `features` so frontend can adjust UI
+5. No premium fields leak to free tier even if present in DB
+
+---
+
+When complete, reply “Next” and I will provide **Backend Prompt 5 (Entitlements Admin API + Schema Registry + Sync Status Admin endpoints enhancements for UI)** as a single pasteable prompt.
