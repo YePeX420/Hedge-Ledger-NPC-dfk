@@ -88,6 +88,12 @@ import seasonRoutes from './src/modules/seasons/season.routes.ts';
 import { seedHeroClasses, ensurePoolsForAllClasses } from './src/modules/levelRacer/levelRacer.service.ts';
 import * as poolStakerIndexer from './src/etl/ingestion/poolStakerIndexer.js';
 
+import { requirePublicApiKey, requireAdminApiKey } from './server/middleware/hedgeAuth.ts';
+import { hedgeCors } from './server/middleware/hedgeCors.ts';
+import { rateLimiter } from './server/middleware/rateLimit.ts';
+import { registerHedgePublicRoutes } from './server/routes/hedgePublic.ts';
+import { registerHedgeAdminRoutes } from './server/routes/hedgeAdmin.ts';
+
 const execAsync = promisify(exec);
 
 // Environment detection - production vs development
@@ -4149,6 +4155,21 @@ async function startAdminWebServer() {
 
   // Season routes (admin only - auth handled in middleware below)
   app.use('/api/admin/seasons', isAdmin, seasonRoutes);
+
+  // ============================================================================
+  // HEDGE API ROUTES
+  // Public and Admin APIs for combat codex and entitlements
+  // ============================================================================
+  
+  // Public API routes (rate-limited, requires public API key)
+  const hedgePublicRouter = express.Router();
+  registerHedgePublicRoutes(hedgePublicRouter);
+  app.use('/api/public', hedgeCors, rateLimiter, requirePublicApiKey, hedgePublicRouter);
+  
+  // Admin API routes (requires admin API key)
+  const hedgeAdminRouter = express.Router();
+  registerHedgeAdminRoutes(hedgeAdminRouter);
+  app.use('/api/hedge/admin', hedgeCors, requireAdminApiKey, hedgeAdminRouter);
 
   // Seed routes - admin only
   app.post('/api/admin/seeds/season-1', isAdmin, async (req, res) => {

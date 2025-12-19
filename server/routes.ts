@@ -1,10 +1,17 @@
 import type { Express } from "express";
+import { Router } from "express";
 import { createServer, type Server } from "http";
 import { db } from "./db";
 import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions, bridgeEvents, walletBridgeMetrics, historicalPrices, walletClusters, walletLinks, poolSwapEvents, poolRewardEvents } from "@shared/schema";
 import { desc, sql, eq, inArray, gte, lte } from "drizzle-orm";
 import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
 import { detectWalletLPPositions } from "../wallet-lp-detector.js";
+
+import { requirePublicApiKey, requireAdminApiKey } from "./middleware/hedgeAuth";
+import { hedgeCors } from "./middleware/hedgeCors";
+import { rateLimiter } from "./middleware/rateLimit";
+import { registerHedgePublicRoutes } from "./routes/hedgePublic";
+import { registerHedgeAdminRoutes } from "./routes/hedgeAdmin";
 // buildPlayerSnapshot is imported dynamically in the route handler to avoid import issues
 import { indexWallet, runFullIndex, getLatestBlock, getIndexerProgress, initIndexerProgress, runWorkerBatch, getAllWorkerProgress, getWorkerIndexerName, MAIN_INDEXER_NAME } from "../bridge-tracker/bridge-indexer.js";
 import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics, bulkComputeAllMetrics, updateSummonerNamesForExtractors, fetchSummonerNames } from "../bridge-tracker/bridge-metrics.js";
@@ -2035,6 +2042,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to fetch jeweler APR', details: error.message });
     }
   });
+
+  // ============================================================================
+  // HEDGE API ROUTES
+  // Public and Admin APIs for combat codex and entitlements
+  // ============================================================================
+  
+  // Public API routes (rate-limited, requires public API key)
+  const hedgePublicRouter = Router();
+  registerHedgePublicRoutes(hedgePublicRouter);
+  app.use('/api/public', hedgeCors, rateLimiter, requirePublicApiKey, hedgePublicRouter);
+  
+  // Admin API routes (requires admin API key)
+  const hedgeAdminRouter = Router();
+  registerHedgeAdminRoutes(hedgeAdminRouter);
+  app.use('/api/hedge/admin', hedgeCors, requireAdminApiKey, hedgeAdminRouter);
 
   const httpServer = createServer(app);
 
