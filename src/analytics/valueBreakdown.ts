@@ -1053,27 +1053,29 @@ const BURN_ADDRESSES = [
 ];
 
 // Fetch JEWEL supply data from DFK official API
+// Uses the full API endpoint which includes burnedSupply
 async function fetchJewelSupply(): Promise<JewelSupplyData | null> {
   try {
-    const [totalRes, circRes] = await Promise.all([
-      fetch('https://supply.defikingdoms.com/jewel/totalsupply', { 
-        signal: AbortSignal.timeout(10000) 
-      }),
-      fetch('https://supply.defikingdoms.com/jewel/circulatingsupply', { 
-        signal: AbortSignal.timeout(10000) 
-      }),
-    ]);
+    const res = await fetch('https://supply.defikingdoms.com', { 
+      signal: AbortSignal.timeout(10000) 
+    });
     
-    if (!totalRes.ok || !circRes.ok) {
+    if (!res.ok) {
       console.warn('[ValueBreakdown] DFK supply API returned error');
       return null;
     }
     
-    const totalText = await totalRes.text();
-    const circText = await circRes.text();
+    const data = await res.json();
+    const jewelData = data.find((token: any) => token.symbol === 'JEWEL');
     
-    const totalSupply = parseFloat(totalText);
-    const circulatingSupply = parseFloat(circText);
+    if (!jewelData) {
+      console.warn('[ValueBreakdown] JEWEL data not found in supply API response');
+      return null;
+    }
+    
+    const totalSupply = parseFloat(jewelData.totalSupply);
+    const circulatingSupply = parseFloat(jewelData.circulatingSupply);
+    const burnedSupply = parseFloat(jewelData.burnedSupply || '0');
     
     if (isNaN(totalSupply) || isNaN(circulatingSupply)) {
       console.warn('[ValueBreakdown] Invalid supply values from DFK API');
@@ -1082,13 +1084,13 @@ async function fetchJewelSupply(): Promise<JewelSupplyData | null> {
     
     const lockedSupply = totalSupply - circulatingSupply;
     
-    console.log(`[ValueBreakdown] JEWEL Supply: Total=${totalSupply.toLocaleString()}, Circulating=${circulatingSupply.toLocaleString()}, Locked=${lockedSupply.toLocaleString()}`);
+    console.log(`[ValueBreakdown] JEWEL Supply: Total=${totalSupply.toLocaleString()}, Circulating=${circulatingSupply.toLocaleString()}, Locked=${lockedSupply.toLocaleString()}, Burned=${burnedSupply.toLocaleString()}`);
     
     return {
       totalSupply,
       circulatingSupply,
       lockedSupply,
-      burnedSupply: 0, // Will be calculated separately from burn addresses
+      burnedSupply, // Official burned supply from DFK API
       source: 'supply.defikingdoms.com',
       updatedAt: new Date().toISOString(),
     };
@@ -1654,8 +1656,8 @@ export async function getValueBreakdown(): Promise<ValueBreakdownResult> {
   // Total pooled = DFK LP pools + Multi-chain LPs
   const totalPooledJewel = lpPooledTotal + multiChainLpTotal;
   
-  // 4. BURNED JEWEL
-  const burnedTotal = burnData.totalBurned;
+  // 4. BURNED JEWEL - prefer official DFK API value if available
+  const burnedTotal = jewelSupply?.burnedSupply || burnData.totalBurned;
   
   console.log(`[ValueBreakdown] Coverage Breakdown (Active JEWEL only):`);
   console.log(`  - DFK Locked (cJEWEL): ${lockedJewelCJewel.toLocaleString()}`);
