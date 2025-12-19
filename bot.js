@@ -93,6 +93,7 @@ import { hedgeCors } from './server/middleware/hedgeCors.ts';
 import { rateLimiter } from './server/middleware/rateLimit.ts';
 import { registerHedgePublicRoutes } from './server/routes/hedgePublic.ts';
 import { registerHedgeAdminRoutes } from './server/routes/hedgeAdmin.ts';
+import { publicCombatRouter } from './server/routes/hedgePublicCombat.ts';
 
 const execAsync = promisify(exec);
 
@@ -4160,6 +4161,9 @@ async function startAdminWebServer() {
   // HEDGE API ROUTES
   // Public and Admin APIs for combat codex and entitlements
   // ============================================================================
+  
+  // Public Combat API (rate-limited, requires public API key) - MUST be before generic /api/public
+  app.use('/api/public/combat', hedgeCors, rateLimiter, requirePublicApiKey, publicCombatRouter);
   
   // Public API routes (rate-limited, requires public API key)
   const hedgePublicRouter = express.Router();

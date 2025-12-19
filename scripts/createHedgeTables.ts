@@ -74,6 +74,8 @@ async function createHedgeTables() {
 
       CREATE INDEX IF NOT EXISTS entitlement_rules_tier_idx ON entitlement_rules(tier_id);
       CREATE INDEX IF NOT EXISTS entitlement_rules_domain_resource_idx ON entitlement_rules(domain, resource);
+      
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_entitlement_rules_unique ON entitlement_rules(domain, resource, tier_id, mode);
 
       CREATE TABLE IF NOT EXISTS sync_runs (
         id SERIAL PRIMARY KEY,
@@ -126,6 +128,97 @@ async function createHedgeTables() {
     `);
     
     console.log('Default tiers seeded successfully!');
+    
+    // Seed premium_plus tier (required for Prompt 4)
+    await db.execute(sql`
+      INSERT INTO entitlement_tiers (tier_id, display_name, description, price_monthly, enabled, sort_order) VALUES
+      ('premium_plus', 'Premium+', 'Ultimate access with advanced analytics and AI features', 29.99, true, 3)
+      ON CONFLICT (tier_id) DO UPDATE SET 
+        display_name = EXCLUDED.display_name,
+        description = EXCLUDED.description,
+        price_monthly = EXCLUDED.price_monthly,
+        enabled = EXCLUDED.enabled,
+        sort_order = EXCLUDED.sort_order,
+        updated_at = CURRENT_TIMESTAMP;
+    `);
+    console.log('Premium+ tier seeded successfully!');
+    
+    // Seed entitlement rules for combat domain
+    console.log('Seeding entitlement rules for combat domain...');
+    
+    // Free tier: fields_allowlist
+    await db.execute(sql`
+      INSERT INTO entitlement_rules(domain, resource, tier_id, mode, rule)
+      VALUES (
+        'combat','skills.search','free','fields_allowlist',
+        '{"fields":["class","tier","discipline","ability","tags","summary","source_url","last_seen_at"]}'::jsonb
+      )
+      ON CONFLICT (domain, resource, tier_id, mode) DO UPDATE SET 
+        rule = EXCLUDED.rule,
+        updated_at = CURRENT_TIMESTAMP;
+    `);
+    
+    // Premium tier: fields_allowlist
+    await db.execute(sql`
+      INSERT INTO entitlement_rules(domain, resource, tier_id, mode, rule)
+      VALUES (
+        'combat','skills.search','premium','fields_allowlist',
+        '{"fields":["class","tier","skill_points","discipline","ability","tags","summary","description_raw","range","mana_cost","mana_growth","dod","source_url","last_seen_at"]}'::jsonb
+      )
+      ON CONFLICT (domain, resource, tier_id, mode) DO UPDATE SET 
+        rule = EXCLUDED.rule,
+        updated_at = CURRENT_TIMESTAMP;
+    `);
+    
+    // Premium+ tier: fields_allowlist
+    await db.execute(sql`
+      INSERT INTO entitlement_rules(domain, resource, tier_id, mode, rule)
+      VALUES (
+        'combat','skills.search','premium_plus','fields_allowlist',
+        '{"fields":["class","tier","skill_points","discipline","ability","tags","summary","description_raw","range","mana_cost","mana_growth","dod","codex_score","synergy_notes","recommended_roles","source_url","last_seen_at"]}'::jsonb
+      )
+      ON CONFLICT (domain, resource, tier_id, mode) DO UPDATE SET 
+        rule = EXCLUDED.rule,
+        updated_at = CURRENT_TIMESTAMP;
+    `);
+    
+    // Free tier: feature_flags
+    await db.execute(sql`
+      INSERT INTO entitlement_rules(domain, resource, tier_id, mode, rule)
+      VALUES (
+        'combat','skills.search','free','feature_flags',
+        '{"flags":{"combat.skills.searchByTags":false,"combat.codexScore.enabled":false}}'::jsonb
+      )
+      ON CONFLICT (domain, resource, tier_id, mode) DO UPDATE SET 
+        rule = EXCLUDED.rule,
+        updated_at = CURRENT_TIMESTAMP;
+    `);
+    
+    // Premium tier: feature_flags
+    await db.execute(sql`
+      INSERT INTO entitlement_rules(domain, resource, tier_id, mode, rule)
+      VALUES (
+        'combat','skills.search','premium','feature_flags',
+        '{"flags":{"combat.skills.searchByTags":true,"combat.codexScore.enabled":false}}'::jsonb
+      )
+      ON CONFLICT (domain, resource, tier_id, mode) DO UPDATE SET 
+        rule = EXCLUDED.rule,
+        updated_at = CURRENT_TIMESTAMP;
+    `);
+    
+    // Premium+ tier: feature_flags
+    await db.execute(sql`
+      INSERT INTO entitlement_rules(domain, resource, tier_id, mode, rule)
+      VALUES (
+        'combat','skills.search','premium_plus','feature_flags',
+        '{"flags":{"combat.skills.searchByTags":true,"combat.codexScore.enabled":true}}'::jsonb
+      )
+      ON CONFLICT (domain, resource, tier_id, mode) DO UPDATE SET 
+        rule = EXCLUDED.rule,
+        updated_at = CURRENT_TIMESTAMP;
+    `);
+    
+    console.log('Entitlement rules seeded successfully!');
     
   } catch (error) {
     console.error('Error creating tables:', error);
