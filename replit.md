@@ -24,12 +24,14 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors."
 *   **Extractor Analysis Dashboard**: Identifies wallets with net negative value flow.
 *   **Bridge Pricing Reconciliation System**: Ensures accurate USD valuation for all bridge events.
-*   **Value Allocation/TVL Dashboard**: Calculates accurate Total Value Locked (TVL) using staked LP amounts and DefiLlama prices. Includes CEX liquidity monitoring with order-book depth analysis from KuCoin, Gate.io, and MEXC (±2% band). Features JEWEL tokenomics tracking with supply metrics from official DFK API (supply.defikingdoms.com). **Coverage KPI** tracks JEWEL across categories:
-    - **Locked**: cJEWEL staking + system contracts (bridge contracts tracked separately to avoid double-counting)
-    - **Pooled**: Full LP reserves (staked + unstaked wJEWEL in all pools)
-    - **Multi-Chain**: Total JEWEL supply on Harmony, Kaia, Metis via chain totalSupply() RPC calls
-    - **Burned**: JEWEL at known burn addresses (0x0, 0xdead)
-    - **Note**: Bridge contracts on DFK Chain are tracked for reference but excluded from totals to avoid double-counting with multi-chain balances.
+*   **Value Allocation/TVL Dashboard**: Calculates accurate Total Value Locked (TVL) using staked LP amounts and DefiLlama prices. Includes CEX liquidity monitoring with order-book depth analysis from KuCoin, Gate.io, and MEXC (±2% band). Features JEWEL tokenomics tracking with supply metrics from official DFK API (supply.defikingdoms.com). **Coverage KPI** (currently 41.68%) tracks JEWEL across categories:
+    - **Locked**: cJEWEL staking + sJEWEL (Kaia) + system contracts (~18M JEWEL)
+    - **Pooled**: Full LP reserves across DFK, Harmony, Kaia, Metis chains (~23M JEWEL in 14 pools)
+    - **Burned**: Official DFK API burned supply (~5.4M JEWEL)
+    - **Team Wallets**: Verified DFK team multisigs and known wallets (Fund Multisigs, Gas Station, Multi-Sigs, Private Wallets)
+    - **Multi-Chain Bridges**: Liquid JEWEL in Synapse bridge wallets on Harmony, Kaia, Metis
+    - **Note**: Bridge contracts on DFK Chain (~19M in Synapse) tracked for reference but excluded from coverage to avoid double-counting with multi-chain balances.
+    - **Liquid**: Remaining ~52% is in player wallets, CEX accounts - expected for circulating supply.
 *   **Token Registry System**: Manages token metadata, syncing known DFK tokens and supporting RouteScan scraping.
 *   **Unified Pool Indexer System**: Tracks LP staking positions across Master Gardener V1 and V2 contracts with dynamic parallel workers and work-stealing for efficiency.
 *   **Jeweler Indexer System**: Tracks cJEWEL staking positions, calculates APR, and provides leaderboards.

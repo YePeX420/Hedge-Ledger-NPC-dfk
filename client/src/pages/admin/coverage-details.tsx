@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, RefreshCw, Target, Coins, Landmark, ArrowLeftRight, Wrench, Droplets, ExternalLink, Globe, Flame, Wallet } from "lucide-react";
+import { ArrowLeft, RefreshCw, Target, Coins, Landmark, ArrowLeftRight, Wrench, Droplets, ExternalLink, Globe, Flame, Wallet, Users } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { queryClient } from "@/lib/queryClient";
 
@@ -75,6 +75,12 @@ interface BridgeWalletDetail {
   jewelBalance: number;
 }
 
+interface TeamWalletCategory {
+  name: string;
+  wallets: { name: string; address: string; balance: number }[];
+  total: number;
+}
+
 interface CoverageBreakdown {
   locked: {
     cJewel: number;
@@ -100,6 +106,10 @@ interface CoverageBreakdown {
   burned: {
     total: number;
     addresses: { address: string; balance: number }[];
+  };
+  teamWallets?: {
+    total: number;
+    categories: TeamWalletCategory[];
   };
   liquid: {
     estimated: number;
@@ -160,6 +170,7 @@ const COLORS: Record<string, string> = {
   'System Contracts': '#8b5cf6',
   'Multi-Chain': '#ec4899',
   'Burned': '#ef4444',
+  'Team Wallets': '#a855f7',
   'Liquid': '#06b6d4',
   'Unaccounted': '#6b7280',
 };
@@ -171,6 +182,7 @@ const CATEGORY_ICONS: Record<string, typeof Coins> = {
   'System Contracts': Wrench,
   'Multi-Chain': Globe,
   'Burned': Flame,
+  'Team Wallets': Users,
   'Liquid': Wallet,
 };
 
@@ -328,7 +340,34 @@ export default function CoverageDetailsPage() {
         totalTracked += coverage.burned.total;
       }
 
-      // 5. Liquid JEWEL (estimated - in user wallets, CEX, etc.)
+      // 5. Team Wallets (DFK team multisigs and known wallets)
+      if (coverage.teamWallets && coverage.teamWallets.total > 0) {
+        const teamContracts: { name: string; address: string; jewel: number }[] = [];
+        
+        for (const category of coverage.teamWallets.categories) {
+          for (const wallet of category.wallets) {
+            if (wallet.balance > 0) {
+              teamContracts.push({
+                name: `[${category.name}] ${wallet.name}`,
+                address: wallet.address,
+                jewel: wallet.balance,
+              });
+            }
+          }
+        }
+        
+        sourceBreakdown.push({
+          name: 'Team Wallets',
+          jewel: coverage.teamWallets.total,
+          percentage: 0,
+          icon: Users,
+          color: COLORS['Team Wallets'],
+          contracts: teamContracts.sort((a, b) => b.jewel - a.jewel),
+        });
+        totalTracked += coverage.teamWallets.total;
+      }
+
+      // 6. Liquid JEWEL (estimated - in user wallets, CEX, etc.)
       if (coverage.liquid.estimated > 0) {
         sourceBreakdown.push({
           name: 'Liquid JEWEL (Est.)',
