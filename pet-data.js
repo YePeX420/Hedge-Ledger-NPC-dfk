@@ -210,8 +210,59 @@ const COMBAT_SKILL_BASE_NAMES = {
   56: 'Rescuer',
   57: 'Amplify',
   58: 'Intercept',
-  59: 'Conservative'
+  59: 'Conservative',
+  // Mythic tier exclusive skills (base IDs 60-78, appear at offset 160)
+  60: 'Scavenger',          // LOOT BONUS: Increases loot drop chance by combatBonusScalar% (10-25%)
+  61: 'Ultra Conservative',
+  62: 'Reflector',
+  63: 'Null Field',
+  64: 'Brick Wall',
+  65: 'Purifying Aura',
+  66: 'Swift Cast',
+  67: 'Total Recall',
+  68: 'Zoomy',
+  69: 'Skin of Teeth',
+  70: 'Rebalance',
+  71: 'Guardian Shell',
+  72: 'Healing Bond',
+  73: 'Foil',
+  74: 'Quicksand',
+  75: 'Beastly Roar',
+  76: 'Maul',
+  77: 'Thwack',
+  78: 'Protective Coat'
 };
+
+// Scavenger combat bonus IDs (base 60 with tier offsets)
+// Scavenger provides 10-25% additional loot chance based on combatBonusScalar
+export const SCAVENGER_COMBAT_BONUS_IDS = {
+  COMMON: 60,    // Base ID (if it exists at common tier)
+  RARE: 139,     // 60 + 79 = 139
+  MYTHIC: 219    // 60 + 159 = 219
+};
+
+/**
+ * Check if a combat bonus ID is a Scavenger bonus
+ * @param {number} combatBonusId - The combatBonus value from pet data
+ * @returns {boolean} True if this is a Scavenger bonus
+ */
+export function isScavengerBonus(combatBonusId) {
+  return combatBonusId === 60 || combatBonusId === 139 || combatBonusId === 219;
+}
+
+/**
+ * Get the loot bonus percentage from a Scavenger pet
+ * @param {number} combatBonusId - The combatBonus value from pet data
+ * @param {number} combatBonusScalar - The combatBonusScalar value (10-25)
+ * @returns {number} Loot bonus as a decimal (e.g., 0.15 for 15%)
+ */
+export function getScavengerLootBonus(combatBonusId, combatBonusScalar) {
+  if (!isScavengerBonus(combatBonusId)) {
+    return 0;
+  }
+  // combatBonusScalar is already the percentage (10-25), convert to decimal
+  return (combatBonusScalar || 0) / 100;
+}
 
 // Get combat skill name handling rarity tier offsets
 // Common: 0-79, Rare: 80-159 (base+79), Mythic: 160+ (base+159)
@@ -293,7 +344,27 @@ const COMBAT_SKILL_DESCRIPTIONS = {
   'Amplify': 'Increase buff effectiveness by {bonus}%',
   'Intercept': '{bonus}% chance to intercept attacks on allies',
   'Conservative': 'Reduce ability costs by {bonus}%',
-  'None': 'No combat skill'
+  'None': 'No combat skill',
+  // Mythic tier exclusive skills (60-78)
+  'Scavenger': 'Increase loot drop chance by {bonus}%',  // LOOT BONUS for PVE
+  'Ultra Conservative': 'Reduce all ability costs by {bonus}%',
+  'Reflector': 'Reflect {bonus}% of damage taken',
+  'Null Field': 'Reduce enemy buff effectiveness by {bonus}%',
+  'Brick Wall': 'Reduce knockback taken by {bonus}%',
+  'Purifying Aura': 'Remove {bonus}% of debuffs from allies each turn',
+  'Swift Cast': 'Reduce cast time by {bonus}%',
+  'Total Recall': 'Reduce ability cooldowns by {bonus}%',
+  'Zoomy': 'Increase movement speed by {bonus}%',
+  'Skin of Teeth': '{bonus}% chance to survive with 1 HP',
+  'Rebalance': 'Equalize party HP by {bonus}%',
+  'Guardian Shell': 'Shield allies for {bonus}% of max HP',
+  'Healing Bond': 'Share {bonus}% of healing received with allies',
+  'Foil': '{bonus}% chance to counter attack',
+  'Quicksand': 'Slow enemies by {bonus}%',
+  'Beastly Roar': 'Increase party attack by {bonus}%',
+  'Maul': '{bonus}% chance to deal double damage',
+  'Thwack': '{bonus}% chance to knockback on hit',
+  'Protective Coat': 'Reduce all damage taken by {bonus}%'
 };
 
 // Crafting bonus ID to name mapping

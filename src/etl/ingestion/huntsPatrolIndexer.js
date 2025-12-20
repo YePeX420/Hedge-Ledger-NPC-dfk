@@ -7,6 +7,7 @@
 import { ethers } from 'ethers';
 import { sql } from 'drizzle-orm';
 import { db } from '../../../server/db.js';
+import { isScavengerBonus, getScavengerLootBonus } from '../../../pet-data.js';
 
 // Configuration
 const BLOCKS_PER_QUERY = 2000;
@@ -220,6 +221,7 @@ async function initializePVETables() {
         party_luck INTEGER,
         pet_ids INTEGER[],
         pet_bonus_tier INTEGER,
+        scavenger_bonus_pct INTEGER,
         completed_at TIMESTAMP NOT NULL
       )
     `);
@@ -240,6 +242,7 @@ async function initializePVETables() {
         pet_ids INTEGER[],
         pet_bonus_active BOOLEAN DEFAULT FALSE,
         pet_bonus_tier INTEGER,
+        scavenger_bonus_pct INTEGER,
         UNIQUE(tx_hash, log_index)
       )
     `);
@@ -255,6 +258,23 @@ async function initializePVETables() {
         last_error TEXT
       )
     `);
+    
+    // Add scavenger_bonus_pct column to existing tables (migration for existing schemas)
+    try {
+      await db.execute(sql`
+        ALTER TABLE pve_completions ADD COLUMN IF NOT EXISTS scavenger_bonus_pct INTEGER
+      `);
+    } catch (e) {
+      // Column may already exist, ignore error
+    }
+    
+    try {
+      await db.execute(sql`
+        ALTER TABLE pve_reward_events ADD COLUMN IF NOT EXISTS scavenger_bonus_pct INTEGER
+      `);
+    } catch (e) {
+      // Column may already exist, ignore error
+    }
     
     // Seed initial data
     await db.execute(sql`
@@ -355,14 +375,24 @@ async function calculatePartyLuck(chain, heroIds, blockNumber) {
   return totalLuck;
 }
 
-// Get pet combat bonus tier (0 = no pet bonus, 1-4 based on rarity)
-async function getPetBonusTier(chain, petId, blockNumber) {
+// Get pet Scavenger loot bonus percentage (0 if no Scavenger bonus, 10-25 if Scavenger)
+// Scavenger is a combat bonus that increases loot drop chance
+// IDs: 60 (common), 139 (rare), 219 (mythic)
+async function getScavengerBonusPct(chain, petId, blockNumber) {
   if (petId <= 0n) return 0;
   
   try {
     const petContract = getPetContract(chain);
     const pet = await petContract.getPetV2(petId, { blockTag: blockNumber });
-    return Number(pet.combatBonusScalar) || 0;
+    const combatBonus = Number(pet.combatBonus);
+    
+    // Check if this pet has Scavenger bonus
+    if (isScavengerBonus(combatBonus)) {
+      // Return the actual combatBonusScalar which is the loot bonus percentage (10-25)
+      return Number(pet.combatBonusScalar) || 0;
+    }
+    
+    return 0;
   } catch (error) {
     console.error(`[PVE ${chain}] Error fetching pet ${petId}:`, error.message);
     return 0;
@@ -487,12 +517,12 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
             return parsed ? BigInt(parsed.args.petId || parsed.args[3]) : 0n;
           }).filter(p => p > 0n);
           
-          let petBonusTier = null;
+          let scavengerBonusPct = null;
           if (petIds.length > 0) {
             for (const petId of petIds) {
-              const tier = await getPetBonusTier(chain, petId, completionLog.blockNumber);
-              if (tier > (petBonusTier || 0)) {
-                petBonusTier = tier;
+              const bonusPct = await getScavengerBonusPct(chain, petId, completionLog.blockNumber);
+              if (bonusPct > (scavengerBonusPct || 0)) {
+                scavengerBonusPct = bonusPct;
               }
             }
           }
@@ -508,11 +538,11 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
           await db.execute(sql`
             INSERT INTO pve_completions (
               tx_hash, block_number, chain_id, activity_id, player_address, 
-              hero_ids, party_luck, pet_ids, pet_bonus_tier, completed_at
+              hero_ids, party_luck, pet_ids, scavenger_bonus_pct, completed_at
             ) VALUES (
               ${txHash}, ${completionLog.blockNumber}, ${config.chainId}, ${activityIdInDb},
               ${playerAddress}, ${heroIdNums}, ${partyLuck}, 
-              ${petIdNums}, ${petBonusTier}, ${completedAt}
+              ${petIdNums}, ${scavengerBonusPct}, ${completedAt}
             )
             ON CONFLICT (tx_hash) DO NOTHING
           `);
@@ -536,12 +566,12 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
               INSERT INTO pve_reward_events (
                 tx_hash, log_index, block_number, chain_id, activity_id, item_id,
                 amount, player_address, hero_ids, party_luck, pet_ids, 
-                pet_bonus_active, pet_bonus_tier
+                pet_bonus_active, scavenger_bonus_pct
               ) VALUES (
                 ${txHash}, ${rewardLog.index}, ${rewardLog.blockNumber}, ${config.chainId},
                 ${activityIdInDb}, ${itemId}, ${amount}, ${playerAddress},
                 ${heroIdNums}, ${partyLuck}, ${petIdNums},
-                ${petIds.length > 0}, ${petBonusTier}
+                ${petIds.length > 0}, ${scavengerBonusPct}
               )
               ON CONFLICT (tx_hash, log_index) DO NOTHING
             `);
@@ -564,12 +594,12 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
               INSERT INTO pve_reward_events (
                 tx_hash, log_index, block_number, chain_id, activity_id, item_id,
                 amount, player_address, hero_ids, party_luck, pet_ids,
-                pet_bonus_active, pet_bonus_tier
+                pet_bonus_active, scavenger_bonus_pct
               ) VALUES (
                 ${txHash}, ${eqLog.index}, ${eqLog.blockNumber}, ${config.chainId},
                 ${activityIdInDb}, ${itemId}, 1, ${playerAddress},
                 ${heroIdNums}, ${partyLuck}, ${petIdNums},
-                ${petIds.length > 0}, ${petBonusTier}
+                ${petIds.length > 0}, ${scavengerBonusPct}
               )
               ON CONFLICT (tx_hash, log_index) DO NOTHING
             `);
@@ -797,18 +827,19 @@ export async function resetPVEIndexer(chain, toBlock) {
 }
 
 // Calculate drop stats for a specific activity/item combination
-export async function calculateDropStats(activityId, itemId, petBonusTier = null) {
-  // Get total drops
+// scavengerBonusPct: optional filter for specific Scavenger bonus percentage (10-25)
+export async function calculateDropStats(activityId, itemId, scavengerBonusPct = null) {
+  // Get total drops with average luck and average Scavenger bonus
   let dropsQuery;
-  if (petBonusTier !== null) {
+  if (scavengerBonusPct !== null) {
     dropsQuery = sql`
-      SELECT COUNT(*) as count, AVG(party_luck) as avg_luck
+      SELECT COUNT(*) as count, AVG(party_luck) as avg_luck, AVG(scavenger_bonus_pct) as avg_scavenger_bonus
       FROM pve_reward_events 
-      WHERE activity_id = ${activityId} AND item_id = ${itemId} AND pet_bonus_tier = ${petBonusTier}
+      WHERE activity_id = ${activityId} AND item_id = ${itemId} AND scavenger_bonus_pct = ${scavengerBonusPct}
     `;
   } else {
     dropsQuery = sql`
-      SELECT COUNT(*) as count, AVG(party_luck) as avg_luck
+      SELECT COUNT(*) as count, AVG(party_luck) as avg_luck, AVG(COALESCE(scavenger_bonus_pct, 0)) as avg_scavenger_bonus
       FROM pve_reward_events 
       WHERE activity_id = ${activityId} AND item_id = ${itemId}
     `;
@@ -817,11 +848,11 @@ export async function calculateDropStats(activityId, itemId, petBonusTier = null
   
   // Get total completions
   let completionsQuery;
-  if (petBonusTier !== null) {
+  if (scavengerBonusPct !== null) {
     completionsQuery = sql`
       SELECT COUNT(*) as count
       FROM pve_completions 
-      WHERE activity_id = ${activityId} AND pet_bonus_tier = ${petBonusTier}
+      WHERE activity_id = ${activityId} AND scavenger_bonus_pct = ${scavengerBonusPct}
     `;
   } else {
     completionsQuery = sql`
@@ -835,6 +866,7 @@ export async function calculateDropStats(activityId, itemId, petBonusTier = null
   const totalDrops = parseInt(dropsResult[0]?.count || '0');
   const totalCompletions = parseInt(completionsResult[0]?.count || '0');
   const avgLuck = parseFloat(dropsResult[0]?.avg_luck || '0');
+  const avgScavengerBonus = parseFloat(dropsResult[0]?.avg_scavenger_bonus || '0');
   
   if (totalCompletions === 0) {
     return null;
@@ -843,11 +875,11 @@ export async function calculateDropStats(activityId, itemId, petBonusTier = null
   // Calculate observed rate
   const observedRate = totalDrops / totalCompletions;
   
-  // Calculate base rate: baseRate = observedRate - (0.0002 × avgPartyLCK) - petBonus
-  // Pet bonus tiers: 0 = 0%, 1 = 5%, 2 = 10%, 3 = 15%, 4 = 20%
-  const petBonusValue = petBonusTier ? (petBonusTier * 0.05) : 0;
+  // Calculate base rate: baseRate = observedRate - (0.0002 × avgPartyLCK) - scavengerBonus
+  // Scavenger bonus is stored as percentage (10-25), convert to decimal
+  const scavengerBonusValue = avgScavengerBonus / 100;
   const luckContribution = 0.0002 * avgLuck;
-  const calculatedBaseRate = Math.max(0, observedRate - luckContribution - petBonusValue);
+  const calculatedBaseRate = Math.max(0, observedRate - luckContribution - scavengerBonusValue);
   
   // Wilson score confidence interval
   const z = 1.96; // 95% confidence
@@ -861,9 +893,10 @@ export async function calculateDropStats(activityId, itemId, petBonusTier = null
     totalDrops,
     totalCompletions,
     avgPartyLuck: avgLuck,
+    avgScavengerBonusPct: avgScavengerBonus,
     observedRate,
     luckContribution,
-    petBonusValue,
+    scavengerBonusValue,
     calculatedBaseRate,
     confidenceLower: Math.max(0, center - margin),
     confidenceUpper: Math.min(1, center + margin),

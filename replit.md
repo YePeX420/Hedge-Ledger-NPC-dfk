@@ -21,9 +21,10 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Smurf Detection & League Signup System**: Manages competitive leagues with multi-account and power snapshot features.
 *   **Challenge/Achievement System**: A gamified progression system with an ETL subsystem for metric extraction and progress computation across various categories (e.g., Hero Progression, Economy, Professions). This includes a Tier Calibration Panel for data-driven threshold tuning and ETL schedulers for automatic updates.
 *   **Combat Ingestion**: Direct RPC log scanning for hunting encounters and PvP matches from DFK Chain and METIS chains.
-*   **PVE Drop Rate Indexer**: Multi-chain indexer for Hunts (DFK Chain, chainId 53935) and Patrols (Metis, chainId 1088) that calculates base drop rates using the formula: `baseRate = observedRate - (0.0002 × partyLCK) - petBonus`. Features:
+*   **PVE Drop Rate Indexer**: Multi-chain indexer for Hunts (DFK Chain, chainId 53935) and Patrols (Metis, chainId 1088) that calculates base drop rates using the formula: `baseRate = observedRate - (0.0002 × partyLCK) - scavengerBonus`. Features:
     - Auto-initializing database tables (pve_activities, pve_loot_items, pve_completions, pve_reward_events, pve_indexer_checkpoints)
-    - Pet bonus tiers: 0=0%, 1=5%, 2=10%, 3=15%, 4=20% based on combatBonusScalar
+    - Scavenger pet detection: Combat bonus IDs 60 (common), 139 (rare), 219 (mythic) provide 10-25% loot bonus based on combatBonusScalar
+    - Only Scavenger combat bonus affects loot drop rates (other combat bonuses are for PvP combat stats)
     - Wilson score confidence intervals for drop rate estimates
     - Public API: GET /api/pve/status, /hunts, /patrols, /loot/:activityId, /estimate
     - Admin API: POST /api/admin/pve/start/:chain, /stop/:chain, /reset/:chain
