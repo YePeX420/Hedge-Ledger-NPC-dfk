@@ -5,6 +5,8 @@ import { eq, sql, desc } from 'drizzle-orm';
 
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 const QUEST_CORE_V3 = '0x530fff22987E137e7C8D2aDcC4c15eb45b4FA752';
+// RewardMinted events are emitted from the QuestReward contract, NOT Quest Core V3
+const QUEST_REWARD_CONTRACT = '0x39a06d3e1b6b1b24c477d90770f317abb4b8f928';
 
 const DFK_GENESIS_BLOCK = 0;
 const BLOCKS_PER_QUERY = 2000;
@@ -123,6 +125,12 @@ export function getGardeningWorkersLiveProgress() {
 
 let providerInstance = null;
 let questContractInstance = null;
+let rewardContractInstance = null;
+
+// ABI for the QuestReward contract that emits RewardMinted events
+const QUEST_REWARD_ABI = [
+  'event RewardMinted(uint256 indexed questId, address indexed player, uint256 heroId, address indexed reward, uint256 amount, uint256 data)',
+];
 
 export function getProvider() {
   if (!providerInstance) {
@@ -136,6 +144,14 @@ export function getQuestContract() {
     questContractInstance = new ethers.Contract(QUEST_CORE_V3, QUEST_CORE_ABI, getProvider());
   }
   return questContractInstance;
+}
+
+// Get the reward contract for querying RewardMinted events
+export function getRewardContract() {
+  if (!rewardContractInstance) {
+    rewardContractInstance = new ethers.Contract(QUEST_REWARD_CONTRACT, QUEST_REWARD_ABI, getProvider());
+  }
+  return rewardContractInstance;
 }
 
 export async function getLatestBlock() {
@@ -389,20 +405,21 @@ async function getQuestInfoMapFromTx(txHash) {
 }
 
 async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null) {
-  const contract = getQuestContract();
+  // Use the reward contract for querying RewardMinted events (they're emitted from QuestReward, not QuestCore)
+  const rewardContract = getRewardContract();
   const provider = getProvider();
   
   let currentBlock = fromBlock;
   let totalEventsFound = 0;
   let batchCount = 0;
   
-  const rewardMintedFilter = contract.filters.RewardMinted();
+  const rewardMintedFilter = rewardContract.filters.RewardMinted();
   
   while (currentBlock <= toBlock) {
     const endBlock = Math.min(currentBlock + BLOCKS_PER_QUERY - 1, toBlock);
     
     try {
-      const logs = await contract.queryFilter(rewardMintedFilter, currentBlock, endBlock);
+      const logs = await rewardContract.queryFilter(rewardMintedFilter, currentBlock, endBlock);
       
       let eventsInBatch = 0;
       if (logs.length > 0) {
@@ -841,6 +858,8 @@ export function stopGardeningWorkersAutoRun() {
       clearWorkerLiveProgress(w);
       stopped++;
     }
+    const indexerName = getWorkerIndexerName(w);
+    runningWorkers.delete(indexerName);
   }
   activeWorkerCount = 0;
   donorReservations.clear();
@@ -1073,4 +1092,29 @@ export async function getHeroStats(heroId) {
     firstQuest: stats.firstQuest,
     lastQuest: stats.lastQuest,
   };
+}
+
+export async function resetGardeningQuestIndexer(clearRewards = true) {
+  console.log('[GardeningQuest] Resetting indexer...');
+  
+  stopGardeningWorkersAutoRun();
+  
+  const hasActiveWorkers = Array.from(runningWorkers.values()).some(v => v === true);
+  if (hasActiveWorkers) {
+    console.log('[GardeningQuest] Waiting for active batches to complete...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
+  
+  await db.delete(gardeningQuestIndexerProgress);
+  console.log('[GardeningQuest] ✓ Cleared indexer progress');
+  
+  if (clearRewards) {
+    await db.delete(gardeningQuestRewards);
+    console.log('[GardeningQuest] ✓ Cleared rewards data');
+  }
+  
+  clearLiveProgress();
+  
+  console.log('[GardeningQuest] ✓ Reset complete - ready for fresh scan');
+  return { success: true, clearedRewards: clearRewards };
 }

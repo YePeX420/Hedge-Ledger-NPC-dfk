@@ -6852,6 +6852,19 @@ async function startAdminWebServer() {
       res.status(500).json({ error: 'Failed to fetch pool rewards', details: error.message });
     }
   });
+
+  // POST /api/admin/gardening-quest/reset - Reset indexer progress to rescan from scratch
+  app.post('/api/admin/gardening-quest/reset', isAdmin, async (req, res) => {
+    try {
+      const { clearRewards = true } = req.body;
+      const { resetGardeningQuestIndexer } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      const result = await resetGardeningQuestIndexer(clearRewards);
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error resetting gardening quest indexer:', error);
+      res.status(500).json({ error: 'Failed to reset indexer', details: error.message });
+    }
+  });
   
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
