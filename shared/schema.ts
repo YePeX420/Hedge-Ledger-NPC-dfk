@@ -2529,3 +2529,131 @@ export const syncRunItems = pgTable("sync_run_items", {
 export const insertSyncRunItemSchema = createInsertSchema(syncRunItems).omit({ id: true });
 export type InsertSyncRunItem = z.infer<typeof insertSyncRunItemSchema>;
 export type SyncRunItem = typeof syncRunItems.$inferSelect;
+
+// ============================================================================
+// PVE DROP RATE TRACKING
+// Tracks Hunts (DFK Chain) and Patrols (Metis) drop events for rate analysis
+// ============================================================================
+
+/**
+ * PVE drop events - raw reward/equipment minted events from Hunts & Patrols
+ * Used to calculate base drop rates adjusted for party luck
+ */
+export const pveDropEvents = pgTable("pve_drop_events", {
+  id: serial("id").primaryKey(),
+  
+  // Event identification
+  chain: text("chain").notNull(), // 'dfk' (Hunts) or 'metis' (Patrols)
+  eventType: text("event_type").notNull(), // 'hunt_reward', 'hunt_equipment', 'patrol_reward', 'patrol_equipment'
+  encounterIdOrPatrolId: bigint("encounter_id", { mode: "number" }).notNull(),
+  blockNumber: bigint("block_number", { mode: "number" }).notNull(),
+  transactionHash: text("transaction_hash").notNull(),
+  logIndex: integer("log_index").notNull(),
+  
+  // Player and hero info
+  player: text("player").notNull(), // wallet address
+  heroIds: json("hero_ids").$type<number[]>().notNull(), // heroes in party (for luck calculation)
+  partyLuck: integer("party_luck"), // sum of party luck stats at event block (nullable if lookup fails)
+  partySize: integer("party_size"), // number of heroes in party
+  
+  // Drop details
+  itemAddress: text("item_address").notNull(), // token contract address
+  itemSymbol: text("item_symbol"), // resolved symbol if known
+  amount: numeric("amount", { precision: 30, scale: 0 }), // amount for fungible rewards
+  
+  // Equipment-specific fields
+  equipmentType: integer("equipment_type"), // for equipment drops
+  displayId: integer("display_id"),
+  rarity: integer("rarity"), // 0=common, 1=uncommon, 2=rare, 3=legendary, 4=mythic
+  nftId: bigint("nft_id", { mode: "number" }),
+  
+  // Encounter context
+  enemyId: integer("enemy_id"), // hunt enemy type (1=Mad Boar, etc.)
+  fightLevel: integer("fight_level"), // patrol level tier (1-3, 4-6, 7-9)
+  won: boolean("won"), // whether the encounter was won
+  
+  // Timestamps
+  blockTimestamp: timestamp("block_timestamp", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  chainEventIdx: index("pve_drop_events_chain_event_idx").on(table.chain, table.eventType),
+  playerIdx: index("pve_drop_events_player_idx").on(table.player),
+  itemIdx: index("pve_drop_events_item_idx").on(table.itemAddress),
+  blockIdx: index("pve_drop_events_block_idx").on(table.chain, table.blockNumber),
+  uniqueEvent: uniqueIndex("pve_drop_events_unique").on(table.transactionHash, table.logIndex),
+}));
+
+export const insertPveDropEventSchema = createInsertSchema(pveDropEvents).omit({ id: true, createdAt: true });
+export type InsertPveDropEvent = z.infer<typeof insertPveDropEventSchema>;
+export type PveDropEvent = typeof pveDropEvents.$inferSelect;
+
+/**
+ * PVE drop statistics - aggregated drop rates with luck adjustment
+ * Computed periodically to derive base drop rates
+ */
+export const pveDropStats = pgTable("pve_drop_stats", {
+  id: serial("id").primaryKey(),
+  
+  // Grouping dimensions
+  chain: text("chain").notNull(), // 'dfk' or 'metis'
+  eventType: text("event_type").notNull(), // 'hunt_reward', 'hunt_equipment', etc.
+  itemAddress: text("item_address").notNull(),
+  itemSymbol: text("item_symbol"),
+  rarity: integer("rarity"), // for equipment - nullable for fungible rewards
+  enemyIdOrLevel: integer("enemy_id_or_level"), // enemy ID for hunts, level tier for patrols
+  
+  // Aggregated statistics
+  sampleCount: integer("sample_count").notNull(), // total drops observed
+  encounterCount: integer("encounter_count").notNull(), // total encounters analyzed
+  observedDropRate: numeric("observed_drop_rate", { precision: 15, scale: 8 }).notNull(), // drops / encounters
+  avgPartyLuck: numeric("avg_party_luck", { precision: 10, scale: 2 }), // average party luck in sample
+  
+  // Luck-adjusted base rate: baseRate = observedRate - (0.0002 × avgPartyLuck)
+  baseDropRate: numeric("base_drop_rate", { precision: 15, scale: 8 }), // computed base rate
+  luckCoefficient: numeric("luck_coefficient", { precision: 15, scale: 8 }).default('0.0002'), // luck multiplier
+  
+  // Confidence metrics
+  stdDevLuck: numeric("std_dev_luck", { precision: 10, scale: 2 }), // std dev of party luck
+  confidenceIntervalLow: numeric("ci_low", { precision: 15, scale: 8 }), // 95% CI lower bound
+  confidenceIntervalHigh: numeric("ci_high", { precision: 15, scale: 8 }), // 95% CI upper bound
+  
+  // Time range covered
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  
+  // Metadata
+  computedAt: timestamp("computed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  chainEventIdx: index("pve_drop_stats_chain_event_idx").on(table.chain, table.eventType),
+  itemIdx: index("pve_drop_stats_item_idx").on(table.itemAddress),
+  uniqueStats: uniqueIndex("pve_drop_stats_unique").on(
+    table.chain, table.eventType, table.itemAddress, table.rarity, table.enemyIdOrLevel
+  ),
+}));
+
+export const insertPveDropStatSchema = createInsertSchema(pveDropStats).omit({ id: true, createdAt: true, computedAt: true });
+export type InsertPveDropStat = z.infer<typeof insertPveDropStatSchema>;
+export type PveDropStat = typeof pveDropStats.$inferSelect;
+
+/**
+ * PVE indexer progress - multi-chain checkpoint tracking for Hunts/Patrols
+ */
+export const pveIndexerProgress = pgTable("pve_indexer_progress", {
+  id: serial("id").primaryKey(),
+  chain: text("chain").notNull().unique(), // 'dfk' or 'metis'
+  lastProcessedBlock: bigint("last_processed_block", { mode: "number" }).notNull(),
+  eventsProcessed: bigint("events_processed", { mode: "number" }).notNull().default(0),
+  encountersProcessed: bigint("encounters_processed", { mode: "number" }).notNull().default(0),
+  lastEventTimestamp: timestamp("last_event_timestamp", { withTimezone: true }),
+  status: text("status").notNull().default('idle'), // 'idle', 'running', 'error'
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  chainIdx: uniqueIndex("pve_indexer_progress_chain_idx").on(table.chain),
+}));
+
+export const insertPveIndexerProgressSchema = createInsertSchema(pveIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPveIndexerProgress = z.infer<typeof insertPveIndexerProgressSchema>;
+export type PveIndexerProgress = typeof pveIndexerProgress.$inferSelect;
