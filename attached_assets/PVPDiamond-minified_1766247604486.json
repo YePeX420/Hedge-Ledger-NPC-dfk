@@ -1,0 +1,7904 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "bytes[]",
+        "name": "calls",
+        "type": "bytes[]"
+      }
+    ],
+    "name": "multiCall",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "target",
+            "type": "address"
+          },
+          {
+            "internalType": "bytes",
+            "name": "callData",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct MultiCallDiamond.Call[]",
+        "name": "calls",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "multiCall2",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "approved",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "Approval",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "approved",
+        "type": "bool"
+      }
+    ],
+    "name": "ApprovalForAll",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "isGasToken",
+            "type": "bool"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct SpectatorRewardToken[]",
+        "name": "rewardTokens",
+        "type": "tuple[]"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256[]",
+        "name": "totalAmounts",
+        "type": "uint256[]"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256[]",
+        "name": "rewardCounts",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "BattleRewardsCollected",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "tokenAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isGasToken",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "accTokensPerShare",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "globalInfluence",
+        "type": "uint256"
+      }
+    ],
+    "name": "DailyInfluenceRewardCollected",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "rewardAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "consecutiveDays",
+        "type": "uint256"
+      }
+    ],
+    "name": "DailyShellQuestComplete",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "rewardAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "FrequentShellQuesterComplete",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "arrivalChainId",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroArrived",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt2",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt3",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt5",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct HeroV4Packed",
+        "name": "hero",
+        "type": "tuple"
+      }
+    ],
+    "name": "HeroCreatedV4",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "lockExpirationDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "daysLocked",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "influence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastXpClaimDay",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct HeroInfluenceData",
+        "name": "heroInfluenceData",
+        "type": "tuple"
+      }
+    ],
+    "name": "HeroInfluenceDataSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint32",
+        "name": "srcEid",
+        "type": "uint32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "sender",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroLZBridgeReceived",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint32",
+        "name": "dstEid",
+        "type": "uint32"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroLZBridgeSent",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "fee",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroPledgeRemoved",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "arrivalChainId",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroSent",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt2",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt3",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt5",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct HeroV4Packed",
+        "name": "hero",
+        "type": "tuple"
+      }
+    ],
+    "name": "HeroUpdatedV4",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "heroPt1",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroUpdatedV4Pt1",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "heroPt2",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroUpdatedV4Pt2",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "heroPt3",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroUpdatedV4Pt3",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "heroPt4",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroUpdatedV4Pt4",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "heroPt5",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroUpdatedV4Pt5",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "xpClaimed",
+        "type": "uint256"
+      }
+    ],
+    "name": "HeroXpClaimed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "tokenAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isGasToken",
+        "type": "bool"
+      }
+    ],
+    "name": "InfluenceRewardCollected",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "totalInfluence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "availableInfluence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "resetWeekNumber",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatingBattleId",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct PlayerInfluenceData",
+        "name": "playerInfluenceData",
+        "type": "tuple"
+      }
+    ],
+    "name": "PlayerInfluenceDataUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "totalInfluence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "availableInfluence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "resetWeekNumber",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatingBattleCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "convertedToV2",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "activeInfluence",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct PlayerInfluenceDataV2",
+        "name": "playerInfluenceData",
+        "type": "tuple"
+      }
+    ],
+    "name": "PlayerInfluenceDataUpdatedV2",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "claimedAmount",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "availableShells",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dailyQuestRemainder",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "currentClaimDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastRewardDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "consecutiveRewardDays",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalDaysRewarded",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct ShellClaimData",
+        "name": "claimData",
+        "type": "tuple"
+      }
+    ],
+    "name": "ShellsClaimed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "earnedAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "ShellsEarned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "Transfer",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "rewardAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "WeeklyShellQuestComplete",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_approved",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "approve",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_owner",
+        "type": "address"
+      }
+    ],
+    "name": "balanceOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_id",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_to",
+        "type": "address"
+      }
+    ],
+    "name": "bridgeMint",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getApproved",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_owner",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      }
+    ],
+    "name": "isApprovedForAll",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt2",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt3",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt5",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct HeroV4Packed",
+        "name": "_hero",
+        "type": "tuple"
+      }
+    ],
+    "name": "mint",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_newOwner",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "heroIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "multiTransferHeroAndEquipmentFrom",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "name",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ownerOf",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "safeTransferFrom",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
+      }
+    ],
+    "name": "safeTransferFrom",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "_approved",
+        "type": "bool"
+      }
+    ],
+    "name": "setApprovalForAll",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "symbol",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "tokenURI",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "transferFrom",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_newOwner",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "transferHeroAndEquipmentFrom",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "equippedSlots",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "petId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint128",
+            "name": "weapon1Id",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "weapon1VisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "weapon2Id",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "weapon2VisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "offhand1Id",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "offhand1VisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "offhand2Id",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "offhand2VisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "armorId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "armorVisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "accessoryId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "accessoryVisageId",
+            "type": "uint128"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct HeroEquipmentV2",
+        "name": "equipment",
+        "type": "tuple"
+      }
+    ],
+    "name": "HeroEquipmentSetV2",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "petId",
+        "type": "uint256"
+      }
+    ],
+    "name": "PetEquipped",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "petId",
+        "type": "uint256"
+      }
+    ],
+    "name": "PetUnequipped",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "heroId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "equipmentId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum HeroEquipmentSlot",
+            "name": "slot",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct HeroChangeEquipmentInput",
+        "name": "_input",
+        "type": "tuple"
+      }
+    ],
+    "name": "changeEquipment",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHeroEquipmentV2",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "equippedSlots",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "petId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint128",
+            "name": "weapon1Id",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "weapon1VisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "weapon2Id",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "weapon2VisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "offhand1Id",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "offhand1VisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "offhand2Id",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "offhand2VisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "armorId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "armorVisageId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "accessoryId",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "accessoryVisageId",
+            "type": "uint128"
+          }
+        ],
+        "internalType": "struct HeroEquipmentV2",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "heroId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "equipmentId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum HeroEquipmentSlot",
+            "name": "slot",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct HeroChangeEquipmentInput[]",
+        "name": "_inputs",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "multiChangeEquipment",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHero",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "realmId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "xp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "level",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "class",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "subclass",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "summonsRemaining",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpSmallGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpMediumGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpLargeGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "equippedSlots",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "petId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum State",
+            "name": "state",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "strength",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dexterity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "agility",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "vitality",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endurance",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "intelligence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wisdom",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "luck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseSTR",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseDEX",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseAGI",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseVIT",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseEND",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseINT",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseWIS",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseLCK",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseHP",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseMP",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lesserCrystals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "regularCrystals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "greaterCrystals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stoneTier",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "levelResets",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "resetFrom",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rerollCost",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "levelCarryover",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "perilousJourneySurvivor",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "strengthPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "strengthSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dexterityPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dexteritySGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "agilityPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "agilitySGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "vitalityPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "vitalitySGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endurancePGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "enduranceSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "intelligencePGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "intelligenceSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wisdomPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wisdomSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "luckPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "luckSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpSmallGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpMediumGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpLargeGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon1Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon1VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon2Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon2VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand1Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand1VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand2Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand2VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "armorId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "armorVisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "accessoryId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "accessoryVisageId",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct HeroV4",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHeroState",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "staminaFullAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpFullAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpFullAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint16",
+            "name": "level",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint64",
+            "name": "xp",
+            "type": "uint64"
+          },
+          {
+            "internalType": "address",
+            "name": "currentQuest",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "sp",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum HeroStatus",
+            "name": "status",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct HeroState",
+        "name": "heroState",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHeroV4Packed",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt2",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt3",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt5",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct HeroV4Packed",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_heroIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "getHeroes",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "realmId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "xp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "level",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "class",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "subclass",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "summonsRemaining",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpSmallGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpMediumGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpLargeGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "equippedSlots",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "petId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum State",
+            "name": "state",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "strength",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dexterity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "agility",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "vitality",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endurance",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "intelligence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wisdom",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "luck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseSTR",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseDEX",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseAGI",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseVIT",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseEND",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseINT",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseWIS",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseLCK",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseHP",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseMP",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lesserCrystals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "regularCrystals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "greaterCrystals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stoneTier",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "levelResets",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "resetFrom",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rerollCost",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "levelCarryover",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "perilousJourneySurvivor",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "strengthPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "strengthSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dexterityPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dexteritySGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "agilityPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "agilitySGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "vitalityPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "vitalitySGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endurancePGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "enduranceSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "intelligencePGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "intelligenceSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wisdomPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wisdomSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "luckPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "luckSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpSmallGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpMediumGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpLargeGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon1Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon1VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon2Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon2VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand1Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand1VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand2Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand2VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "armorId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "armorVisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "accessoryId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "accessoryVisageId",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct HeroV4[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_heroIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "getHeroesPt1",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "realmId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "xp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "level",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "class",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "subclass",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "summonsRemaining",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpSmallGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpMediumGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpLargeGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "equippedSlots",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "petId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum State",
+            "name": "state",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct HeroV4Pt1[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getPetCoreAddress",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "heroExists",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "realmId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "xp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "level",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "class",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "subclass",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "summonsRemaining",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpSmallGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpMediumGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hpLargeGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "equippedSlots",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "petId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum State",
+            "name": "state",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "strength",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dexterity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "agility",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "vitality",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endurance",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "intelligence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wisdom",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "luck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseSTR",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseDEX",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseAGI",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseVIT",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseEND",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseINT",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseWIS",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseLCK",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseHP",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseMP",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lesserCrystals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "regularCrystals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "greaterCrystals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stoneTier",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "levelResets",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "resetFrom",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rerollCost",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "levelCarryover",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "perilousJourneySurvivor",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "strengthPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "strengthSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dexterityPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dexteritySGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "agilityPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "agilitySGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "vitalityPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "vitalitySGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endurancePGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "enduranceSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "intelligencePGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "intelligenceSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wisdomPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wisdomSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "luckPGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "luckSGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpSmallGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpMediumGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mpLargeGrowth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon1Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon1VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon2Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weapon2VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand1Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand1VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand2Id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "offhand2VisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "armorId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "armorVisageId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "accessoryId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "accessoryVisageId",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct HeroV4",
+        "name": "_hero",
+        "type": "tuple"
+      }
+    ],
+    "name": "packHeroV4",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt2",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt3",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "heroV4Pt5",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct HeroV4Packed",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "blockNumber",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "blockHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "BlockHashSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "host",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "opponent",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleSettingsPt1",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleSettingsPt2",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleAccepted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      }
+    ],
+    "name": "BattleAdminCanceled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "host",
+        "type": "address"
+      }
+    ],
+    "name": "BattleCanceled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleCompleteInvalid",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "battleWinner",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum BoutWinningSide",
+        "name": "winner",
+        "type": "uint8"
+      }
+    ],
+    "name": "BattleCompleted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "host",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleSettingsPt1",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleSettingsPt2",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleEarlyStartInvalid",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum BoutWinningSide",
+        "name": "side",
+        "type": "uint8"
+      }
+    ],
+    "name": "BattleHeroAssigned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum BoutWinningSide",
+        "name": "side",
+        "type": "uint8"
+      }
+    ],
+    "name": "BattleHeroUnassigned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "influenceSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "influenceSideB",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideB",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct BattleInfluenceData",
+        "name": "influenceData",
+        "type": "tuple"
+      }
+    ],
+    "name": "BattleInfluenceDataUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "opponent",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleSettingsPt1",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleSettingsPt2",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleOpponentWithdrew",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "item",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "amount",
+        "type": "uint8"
+      }
+    ],
+    "name": "BattlePotionBurned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "item",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "amount",
+        "type": "uint8"
+      }
+    ],
+    "name": "BattlePotionReturned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "battleWinner",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8[]",
+        "name": "_hostUsedAmounts",
+        "type": "uint8[]"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8[]",
+        "name": "_opponentUsedAmounts",
+        "type": "uint8[]"
+      }
+    ],
+    "name": "BattleResultSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum BoutWinningSide",
+        "name": "winner",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "influenceAdded",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "influenceSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "influenceSideB",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideB",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct BattleInfluenceData",
+        "name": "influenceData",
+        "type": "tuple"
+      }
+    ],
+    "name": "BattleSpectatorAdded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      }
+    ],
+    "name": "BattleSpectatorRemoved",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "rewardToken",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isGasToken",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleSpectatorRewarded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum BoutWinningSide",
+        "name": "newWinner",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newInfluence",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "influenceSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "influenceSideB",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideB",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct BattleInfluenceData",
+        "name": "influenceData",
+        "type": "tuple"
+      }
+    ],
+    "name": "BattleSpectatorVoteChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum BoutWinningSide",
+        "name": "winner",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "influenceRemoved",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "influenceSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "influenceSideB",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideB",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct BattleInfluenceData",
+        "name": "influenceData",
+        "type": "tuple"
+      }
+    ],
+    "name": "BattleSpectatorWithdrew",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sponsor",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "sponsorToken",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isGasToken",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleSponsorRefunded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sponsor",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "sponsorToken",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isGasToken",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "sponsorCount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newTotal",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleSponsored",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleStartTime",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleStartedEarly",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "battleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "rewardToken",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isGasToken",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "BattleWinnerRewarded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "feeAddress",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "feePercent",
+        "type": "uint256"
+      }
+    ],
+    "name": "FeeAddressAdded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "source",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "timestamp",
+        "type": "uint64"
+      }
+    ],
+    "name": "FeeDeferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "source",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "timestamp",
+        "type": "uint64"
+      }
+    ],
+    "name": "FeeDisbursed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "source",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "timestamp",
+        "type": "uint64"
+      }
+    ],
+    "name": "FeeLockedBurned",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_DAYS_LOCKED",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MIN_DAYS_LOCKED",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "breakPledge",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "claimBattleRewards",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "claimHeroXp",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "claimInfluenceRewards",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "earlyBreakPledge",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getAllPlayerRewards",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dayAdded",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "isGasToken",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct RewardToken[]",
+        "name": "",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      },
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "tokenAddress",
+                "type": "address"
+              },
+              {
+                "internalType": "bool",
+                "name": "isGasToken",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct SpectatorRewardToken",
+            "name": "token",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "rewardAmount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "timeReceived",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "battleId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "enum RewardReason",
+                "name": "reason",
+                "type": "uint8"
+              }
+            ],
+            "internalType": "struct SpectatorRewardInfo[]",
+            "name": "rewardInfo",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct SpectatorRewardFullInfo[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getCurrentRewards",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dayAdded",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "isGasToken",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct RewardToken[]",
+        "name": "",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getCurrentSpectatorRewards",
+    "outputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "tokenAddress",
+                "type": "address"
+              },
+              {
+                "internalType": "bool",
+                "name": "isGasToken",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct SpectatorRewardToken",
+            "name": "token",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "rewardAmount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "timeReceived",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "battleId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "enum RewardReason",
+                "name": "reason",
+                "type": "uint8"
+              }
+            ],
+            "internalType": "struct SpectatorRewardInfo[]",
+            "name": "rewardInfo",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct SpectatorRewardFullInfo[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getGlobalInfluence",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_lockDuration",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHeroInfluence",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHeroInfluenceData",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "lockExpirationDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "daysLocked",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "influence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastXpClaimDay",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct HeroInfluenceData",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHeroScore",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getPlayerInfluenceData",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "totalInfluence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "availableInfluence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "resetWeekNumber",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatingBattleId",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct PlayerInfluenceData",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getPlayerInfluenceDataV2",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "totalInfluence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "availableInfluence",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "resetWeekNumber",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatingBattleCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "convertedToV2",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "activeInfluence",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct PlayerInfluenceDataV2",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getPlayerPledgedHeroes",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_index",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_count",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPlayerPledgedHeroesWithIndex",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getWithdrawalFee",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_heroIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "multiBreakPledge",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_heroIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "multiClaimHeroXp",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_heroIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "multiEarlyBreakPledge",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_heroIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_lockDurations",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "multiPledgeHero",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_lockDuration",
+        "type": "uint256"
+      }
+    ],
+    "name": "pledgeHero",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "updateRewards",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getCombinedVotingPower",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_votingType",
+        "type": "uint256"
+      }
+    ],
+    "name": "getVotingPower",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "claimShells",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getShellClaimData",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "availableShells",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dailyQuestRemainder",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "currentClaimDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastRewardDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "consecutiveRewardDays",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalDaysRewarded",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct ShellClaimData",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256[]",
+        "name": "allowedTrialIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "PatrolAvailibleStageLinks",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "battleBudget",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolBattleBudget",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      }
+    ],
+    "name": "PatrolCanceled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "fightsCompleted",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "patrolWon",
+        "type": "bool"
+      }
+    ],
+    "name": "PatrolCompleted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "huntId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "item",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "equipmentType",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "displayId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "rarity",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "nftId",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolEquipmentMinted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "attempts",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolHeroAssigned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "hp",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "mp",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "position",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolHeroStatsUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "attempts",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolHeroUnassigned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolInvalidResultSubmission",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "trialId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "playerIsContinuing",
+        "type": "bool"
+      }
+    ],
+    "name": "PatrolPlayerInputReceived",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "item",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "amount",
+        "type": "uint8"
+      }
+    ],
+    "name": "PatrolPotionBurned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "item",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "amount",
+        "type": "uint8"
+      }
+    ],
+    "name": "PatrolPotionReturned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "patrolWon",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256[]",
+        "name": "enemyIndexes",
+        "type": "uint256[]"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "usedPotions",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolResultSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "item",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "data",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolRewardMinted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "enemyPoolId",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolStarted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "patrolId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "heroId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "xpEarned",
+        "type": "uint256"
+      }
+    ],
+    "name": "PatrolXpEarned",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_patrolId",
+        "type": "uint256"
+      }
+    ],
+    "name": "completePatrol",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getAllPlayerEnemyPoolIdCounters",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_enemyPoolId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getAllPlayerKillCountersForEnemyPoolId",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_enemyPoolId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_enemyIndex",
+        "type": "uint256"
+      }
+    ],
+    "name": "getEnemyKillCounter",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_patrolId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getNextAvailableStageLinks",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "trialId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "poolId",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct StageLink[]",
+        "name": "",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "player",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "trialId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stage",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "blockNumber",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum PatrolStatus",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "patrolWon",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fightsCompleted",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct Patrol",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_patrolId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPatrol",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "patrolId",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "player",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "trialId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "stage",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "blockNumber",
+                "type": "uint256"
+              },
+              {
+                "internalType": "enum PatrolStatus",
+                "name": "status",
+                "type": "uint8"
+              },
+              {
+                "internalType": "bool",
+                "name": "patrolWon",
+                "type": "bool"
+              },
+              {
+                "internalType": "uint256",
+                "name": "fightsCompleted",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct Patrol",
+            "name": "patrol",
+            "type": "tuple"
+          },
+          {
+            "internalType": "uint256[3]",
+            "name": "heroIds",
+            "type": "uint256[3]"
+          },
+          {
+            "internalType": "uint256",
+            "name": "potions",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct ExpandedPatrol",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_patrolId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPatrolEnemyCounters",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "enemyPoolId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "enemyIndex",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "count",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct EnemyCounter[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_enemyPoolId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPlayerEnemyPoolIdCounter",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getPlayerPatrolStatsTracker",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "battlesWon",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsCompleted",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "patrolsLost",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "currentDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesToday",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesYesterday",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesThisWeek",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesLastWeek",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesThisMonth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesLastMonth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsToday",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsYesterday",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsThisWeek",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsLastWeek",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsThisMonth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsLastMonth",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct PatrolStatsTracker",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_trialId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getTrial",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "canInitiate",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dailyAttemptLimitGroup",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dailyAttemptLimit",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "enemyPoolId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stages",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256[8]",
+            "name": "stageLinks",
+            "type": "uint256[8]"
+          },
+          {
+            "internalType": "uint256[8]",
+            "name": "stageLinkChances",
+            "type": "uint256[8]"
+          },
+          {
+            "internalType": "bool",
+            "name": "hasSpecialRules",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleInventory",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleBudget",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct Trial",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getUpToDatePlayerPatrolStatsTracker",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "battlesWon",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsCompleted",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "patrolsLost",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "currentDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesToday",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesYesterday",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesThisWeek",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesLastWeek",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesThisMonth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battlesLastMonth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsToday",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsYesterday",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsThisWeek",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsLastWeek",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsThisMonth",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullPatrolsLastMonth",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct PatrolStatsTracker",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getUserPatrolIds",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getUserPatrols",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "patrolId",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "player",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "trialId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "stage",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "blockNumber",
+                "type": "uint256"
+              },
+              {
+                "internalType": "enum PatrolStatus",
+                "name": "status",
+                "type": "uint8"
+              },
+              {
+                "internalType": "bool",
+                "name": "patrolWon",
+                "type": "bool"
+              },
+              {
+                "internalType": "uint256",
+                "name": "fightsCompleted",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct Patrol",
+            "name": "patrol",
+            "type": "tuple"
+          },
+          {
+            "internalType": "uint256[3]",
+            "name": "heroIds",
+            "type": "uint256[3]"
+          },
+          {
+            "internalType": "uint256",
+            "name": "potions",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct ExpandedPatrol[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_patrolId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_trialId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "_playerIsContinuing",
+        "type": "bool"
+      }
+    ],
+    "name": "submitPlayerDecision",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_trialId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_heroIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "uint8[]",
+        "name": "_potionAmounts",
+        "type": "uint8[]"
+      }
+    ],
+    "name": "startPatrol",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "submitEarlyStart",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_heroIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "uint8[]",
+        "name": "_potionAmounts",
+        "type": "uint8[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_glories",
+        "type": "uint256"
+      }
+    ],
+    "name": "acceptBattle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "cancelBattle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_heroIds",
+        "type": "uint256[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "host",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleStartTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "votingEnabledWithWindow",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "setupTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minRank",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxRank",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minRarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxRarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleInventory",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleBudget",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minHeroStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxHeroStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minTeamStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxTeamStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minLevel",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxLevel",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedClasses",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedConsumables",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedOrigin",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockDuration",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "bankedShotClockTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockPenaltyMode",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockForfeitCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "opponent",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "partyCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mapId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hostGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "opponentGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "sponsorCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum BattleState",
+            "name": "battleState",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "privateBattle",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "allUniqueClasses",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "noTripleClasses",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "allowEarlyBattleStart",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "onlyPJ",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "autoRandom",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "gloryBout",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "mustIncludeClass1",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "includedClass1",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct BattleSettings",
+        "name": "_battleSettings",
+        "type": "tuple"
+      },
+      {
+        "internalType": "uint8[]",
+        "name": "_potionAmounts",
+        "type": "uint8[]"
+      },
+      {
+        "internalType": "address",
+        "name": "_opponentAddress",
+        "type": "address"
+      }
+    ],
+    "name": "createBattle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "withdrawFromBattle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBattle",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "host",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "battleStartTime",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "votingEnabledWithWindow",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "setupTime",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minRank",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxRank",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minRarity",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxRarity",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "battleInventory",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "battleBudget",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minHeroStatScore",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxHeroStatScore",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minTeamStatScore",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxTeamStatScore",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minLevel",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxLevel",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "excludedClasses",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "excludedConsumables",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "excludedOrigin",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "shotClockDuration",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "bankedShotClockTime",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "shotClockPenaltyMode",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "shotClockForfeitCount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "opponent",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "partyCount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "mapId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minGlories",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "hostGlories",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "opponentGlories",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "sponsorCount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "enum BattleState",
+                "name": "battleState",
+                "type": "uint8"
+              },
+              {
+                "internalType": "bool",
+                "name": "privateBattle",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "allUniqueClasses",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "noTripleClasses",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "allowEarlyBattleStart",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "onlyPJ",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "autoRandom",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "gloryBout",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "mustIncludeClass1",
+                "type": "bool"
+              },
+              {
+                "internalType": "uint256",
+                "name": "includedClass1",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct BattleSettings",
+            "name": "settings",
+            "type": "tuple"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "hostHeroIds",
+            "type": "uint256[]"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "opponentHeroIds",
+            "type": "uint256[]"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hostPotions",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "opponentPotions",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct Battle",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBattleAndSpectatorInfo",
+    "outputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "id",
+                "type": "uint256"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "address",
+                    "name": "host",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "battleStartTime",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "votingEnabledWithWindow",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "setupTime",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minRank",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "maxRank",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minRarity",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "maxRarity",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "battleInventory",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "battleBudget",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minHeroStatScore",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "maxHeroStatScore",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minTeamStatScore",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "maxTeamStatScore",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minLevel",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "maxLevel",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "excludedClasses",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "excludedConsumables",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "excludedOrigin",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "shotClockDuration",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "bankedShotClockTime",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "shotClockPenaltyMode",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "shotClockForfeitCount",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "address",
+                    "name": "opponent",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "partyCount",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "mapId",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minGlories",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "hostGlories",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "opponentGlories",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "sponsorCount",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "enum BattleState",
+                    "name": "battleState",
+                    "type": "uint8"
+                  },
+                  {
+                    "internalType": "bool",
+                    "name": "privateBattle",
+                    "type": "bool"
+                  },
+                  {
+                    "internalType": "bool",
+                    "name": "allUniqueClasses",
+                    "type": "bool"
+                  },
+                  {
+                    "internalType": "bool",
+                    "name": "noTripleClasses",
+                    "type": "bool"
+                  },
+                  {
+                    "internalType": "bool",
+                    "name": "allowEarlyBattleStart",
+                    "type": "bool"
+                  },
+                  {
+                    "internalType": "bool",
+                    "name": "onlyPJ",
+                    "type": "bool"
+                  },
+                  {
+                    "internalType": "bool",
+                    "name": "autoRandom",
+                    "type": "bool"
+                  },
+                  {
+                    "internalType": "bool",
+                    "name": "gloryBout",
+                    "type": "bool"
+                  },
+                  {
+                    "internalType": "bool",
+                    "name": "mustIncludeClass1",
+                    "type": "bool"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "includedClass1",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct BattleSettings",
+                "name": "settings",
+                "type": "tuple"
+              },
+              {
+                "internalType": "uint256[]",
+                "name": "hostHeroIds",
+                "type": "uint256[]"
+              },
+              {
+                "internalType": "uint256[]",
+                "name": "opponentHeroIds",
+                "type": "uint256[]"
+              },
+              {
+                "internalType": "uint256",
+                "name": "hostPotions",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "opponentPotions",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct Battle",
+            "name": "battle",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "influenceSideA",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "influenceSideB",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "spectatorCountSideA",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "spectatorCountSideB",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct BattleInfluenceData",
+                "name": "influenceData",
+                "type": "tuple"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "address",
+                    "name": "player",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "usedInfluence",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "enum BoutWinningSide",
+                    "name": "side",
+                    "type": "uint8"
+                  }
+                ],
+                "internalType": "struct BattleSpectatorData[]",
+                "name": "spectators",
+                "type": "tuple[]"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "address",
+                    "name": "tokenAddress",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "amountAdded",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "bool",
+                    "name": "isGasToken",
+                    "type": "bool"
+                  }
+                ],
+                "internalType": "struct SponsorToken[]",
+                "name": "sponsorTokens",
+                "type": "tuple[]"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "address",
+                    "name": "sponsor",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "amountAdded",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct Sponsor[][]",
+                "name": "sponsors",
+                "type": "tuple[][]"
+              }
+            ],
+            "internalType": "struct BattleSpectatorInfo",
+            "name": "spectatorInfo",
+            "type": "tuple"
+          }
+        ],
+        "internalType": "struct BattleAndSpectatorInfo",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getBattleCounter",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_id",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getBattleIndex",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBattleInfluenceData",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "influenceSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "influenceSideB",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideA",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "spectatorCountSideB",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct BattleInfluenceData",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBattleSettings",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "host",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleStartTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "votingEnabledWithWindow",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "setupTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minRank",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxRank",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minRarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxRarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleInventory",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleBudget",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minHeroStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxHeroStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minTeamStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxTeamStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minLevel",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxLevel",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedClasses",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedConsumables",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedOrigin",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockDuration",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "bankedShotClockTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockPenaltyMode",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockForfeitCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "opponent",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "partyCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mapId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hostGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "opponentGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "sponsorCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum BattleState",
+            "name": "battleState",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "privateBattle",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "allUniqueClasses",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "noTripleClasses",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "allowEarlyBattleStart",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "onlyPJ",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "autoRandom",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "gloryBout",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "mustIncludeClass1",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "includedClass1",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct BattleSettings",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBattleSettingsPt1",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBattleSettingsPt2",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBattleSpectatorInfo",
+    "outputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "influenceSideA",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "influenceSideB",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "spectatorCountSideA",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "spectatorCountSideB",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct BattleInfluenceData",
+            "name": "influenceData",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "player",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "usedInfluence",
+                "type": "uint256"
+              },
+              {
+                "internalType": "enum BoutWinningSide",
+                "name": "side",
+                "type": "uint8"
+              }
+            ],
+            "internalType": "struct BattleSpectatorData[]",
+            "name": "spectators",
+            "type": "tuple[]"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "tokenAddress",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "amountAdded",
+                "type": "uint256"
+              },
+              {
+                "internalType": "bool",
+                "name": "isGasToken",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct SponsorToken[]",
+            "name": "sponsorTokens",
+            "type": "tuple[]"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "sponsor",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "amountAdded",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct Sponsor[][]",
+            "name": "sponsors",
+            "type": "tuple[][]"
+          }
+        ],
+        "internalType": "struct BattleSpectatorInfo",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_heroId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHeroBattle",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "host",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleStartTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "votingEnabledWithWindow",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "setupTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minRank",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxRank",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minRarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxRarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleInventory",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleBudget",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minHeroStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxHeroStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minTeamStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxTeamStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minLevel",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxLevel",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedClasses",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedConsumables",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedOrigin",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockDuration",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "bankedShotClockTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockPenaltyMode",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockForfeitCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "opponent",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "partyCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mapId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hostGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "opponentGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "sponsorCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum BattleState",
+            "name": "battleState",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "privateBattle",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "allUniqueClasses",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "noTripleClasses",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "allowEarlyBattleStart",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "onlyPJ",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "autoRandom",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "gloryBout",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "mustIncludeClass1",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "includedClass1",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct BattleSettings",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHosts",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getPlayerSpectatingBattleIds",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getPlayerSpectatingBattles",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getUnpackedBattleSettingsPt1",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "battleStartTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "votingEnabledWithWindow",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "setupTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minRank",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxRank",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minRarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxRarity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleInventory",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "battleBudget",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minHeroStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxHeroStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minTeamStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxTeamStatScore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minLevel",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxLevel",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedClasses",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedConsumables",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "excludedOrigin",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockDuration",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "bankedShotClockTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockPenaltyMode",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "shotClockForfeitCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "mustIncludeClass1",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct BattleSettingsPt1",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getUnpackedBattleSettingsPt2",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "opponent",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "partyCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mapId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hostGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "opponentGlories",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "sponsorCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum BattleState",
+            "name": "battleState",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "privateBattle",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "allUniqueClasses",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "noTripleClasses",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "allowEarlyBattleStart",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "onlyPJ",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "autoRandom",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "gloryBout",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "includedClass1",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct BattleSettingsPt2",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_address",
+        "type": "address"
+      }
+    ],
+    "name": "getUserBattleIds",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_address",
+        "type": "address"
+      }
+    ],
+    "name": "getUserBattles",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "host",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "battleStartTime",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "votingEnabledWithWindow",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "setupTime",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minRank",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxRank",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minRarity",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxRarity",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "battleInventory",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "battleBudget",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minHeroStatScore",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxHeroStatScore",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minTeamStatScore",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxTeamStatScore",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minLevel",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxLevel",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "excludedClasses",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "excludedConsumables",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "excludedOrigin",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "shotClockDuration",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "bankedShotClockTime",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "shotClockPenaltyMode",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "shotClockForfeitCount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "opponent",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "partyCount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "mapId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minGlories",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "hostGlories",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "opponentGlories",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "sponsorCount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "enum BattleState",
+                "name": "battleState",
+                "type": "uint8"
+              },
+              {
+                "internalType": "bool",
+                "name": "privateBattle",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "allUniqueClasses",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "noTripleClasses",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "allowEarlyBattleStart",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "onlyPJ",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "autoRandom",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "gloryBout",
+                "type": "bool"
+              },
+              {
+                "internalType": "bool",
+                "name": "mustIncludeClass1",
+                "type": "bool"
+              },
+              {
+                "internalType": "uint256",
+                "name": "includedClass1",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct BattleSettings",
+            "name": "settings",
+            "type": "tuple"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "hostHeroIds",
+            "type": "uint256[]"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "opponentHeroIds",
+            "type": "uint256[]"
+          },
+          {
+            "internalType": "uint256",
+            "name": "hostPotions",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "opponentPotions",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct Battle[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_influence",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum BoutWinningSide",
+        "name": "_winner",
+        "type": "uint8"
+      }
+    ],
+    "name": "modifyVote",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_sponsorToken",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "_isGasToken",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "sponsorBattle",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_influence",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum BoutWinningSide",
+        "name": "_winner",
+        "type": "uint8"
+      }
+    ],
+    "name": "voteOnWinner",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_battleId",
+        "type": "uint256"
+      }
+    ],
+    "name": "withdrawVote",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
