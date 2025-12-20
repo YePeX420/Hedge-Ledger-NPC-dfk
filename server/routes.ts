@@ -18,6 +18,15 @@ import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMet
 import { backfillAllTokens, fetchCurrentPrices } from "../bridge-tracker/price-history.js";
 import { getCachedPool, getCachedPoolAnalytics } from "../pool-cache.js";
 import { getAllPoolStakers } from "../garden-analytics.js";
+import { 
+  getPVEIndexerStatus, 
+  getPVEIndexerLiveProgress,
+  runPVEIndexerBatch, 
+  startPVEIndexerAutoRun, 
+  stopPVEIndexerAutoRun, 
+  resetPVEIndexer,
+  calculateDropStats 
+} from "../src/etl/ingestion/huntsPatrolIndexer.js";
 
 // Debug: Verify bridge indexer imports
 console.log('[BridgeIndexer] Import check - runFullIndex type:', typeof runFullIndex);
@@ -2495,6 +2504,189 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/hedge/schema/combat/skills", isAdmin, async (_req: any, res: any) => {
     const { CombatSkillFields } = await import('../src/schema/combatSchemas.js');
     res.json({ ok: true, fields: CombatSkillFields });
+  });
+
+  // =====================================================
+  // PUBLIC PVE DROP RATE API (no auth required)
+  // =====================================================
+  
+  // GET /api/pve/status - Get PVE indexer status for both chains
+  app.get("/api/pve/status", async (_req: any, res: any) => {
+    try {
+      const status = await getPVEIndexerStatus();
+      res.json({ ok: true, ...status });
+    } catch (error: any) {
+      console.error('[PVE API] Error fetching status:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/pve/hunts - Get all hunt activities with drop stats
+  app.get("/api/pve/hunts", async (_req: any, res: any) => {
+    try {
+      const activities = await db.execute(sql`
+        SELECT a.*, 
+          (SELECT COUNT(*) FROM pve_completions c WHERE c.activity_id = a.id) as total_completions,
+          (SELECT COUNT(*) FROM pve_reward_events r WHERE r.activity_id = a.id) as total_rewards
+        FROM pve_activities a
+        WHERE a.activity_type = 'hunt'
+        ORDER BY a.activity_id
+      `);
+      res.json({ ok: true, hunts: activities.rows });
+    } catch (error: any) {
+      console.error('[PVE API] Error fetching hunts:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/pve/patrols - Get all patrol activities with drop stats
+  app.get("/api/pve/patrols", async (_req: any, res: any) => {
+    try {
+      const activities = await db.execute(sql`
+        SELECT a.*, 
+          (SELECT COUNT(*) FROM pve_completions c WHERE c.activity_id = a.id) as total_completions,
+          (SELECT COUNT(*) FROM pve_reward_events r WHERE r.activity_id = a.id) as total_rewards
+        FROM pve_activities a
+        WHERE a.activity_type = 'patrol'
+        ORDER BY a.activity_id
+      `);
+      res.json({ ok: true, patrols: activities.rows });
+    } catch (error: any) {
+      console.error('[PVE API] Error fetching patrols:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/pve/loot/:activityId - Get loot drops for a specific activity
+  app.get("/api/pve/loot/:activityId", async (req: any, res: any) => {
+    try {
+      const { activityId } = req.params;
+      const loot = await db.execute(sql`
+        SELECT 
+          l.id as item_id,
+          l.item_address,
+          l.name as item_name,
+          l.item_type,
+          l.rarity,
+          COUNT(r.id) as drop_count,
+          AVG(r.party_luck) as avg_party_luck,
+          (SELECT COUNT(*) FROM pve_completions c WHERE c.activity_id = ${parseInt(activityId)}) as total_completions
+        FROM pve_reward_events r
+        JOIN pve_loot_items l ON r.item_id = l.id
+        WHERE r.activity_id = ${parseInt(activityId)}
+        GROUP BY l.id, l.item_address, l.name, l.item_type, l.rarity
+        ORDER BY drop_count DESC
+      `);
+      res.json({ ok: true, activityId: parseInt(activityId), loot: loot.rows });
+    } catch (error: any) {
+      console.error('[PVE API] Error fetching loot:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/pve/estimate - Estimate drop rate for an item
+  app.get("/api/pve/estimate", async (req: any, res: any) => {
+    try {
+      const { activityId, itemId, petBonusTier } = req.query;
+      if (!activityId || !itemId) {
+        return res.status(400).json({ ok: false, error: 'activityId and itemId required' });
+      }
+      
+      const stats = await calculateDropStats(
+        parseInt(activityId), 
+        parseInt(itemId), 
+        petBonusTier !== undefined ? parseInt(petBonusTier) : null
+      );
+      
+      if (!stats) {
+        return res.status(404).json({ ok: false, error: 'Not enough data for estimation' });
+      }
+      
+      res.json({ ok: true, ...stats });
+    } catch (error: any) {
+      console.error('[PVE API] Error estimating drop rate:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // =====================================================
+  // ADMIN PVE INDEXER CONTROL
+  // =====================================================
+
+  // GET /api/admin/pve/status - Get detailed PVE indexer status (admin)
+  app.get("/api/admin/pve/status", isAdmin, async (_req: any, res: any) => {
+    try {
+      const status = await getPVEIndexerStatus();
+      const liveProgress = getPVEIndexerLiveProgress();
+      res.json({ ok: true, ...status, liveProgress });
+    } catch (error: any) {
+      console.error('[PVE Admin] Error fetching status:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/pve/run/:chain - Trigger a single indexer batch
+  app.post("/api/admin/pve/run/:chain", isAdmin, async (req: any, res: any) => {
+    try {
+      const { chain } = req.params;
+      if (chain !== 'dfk' && chain !== 'metis') {
+        return res.status(400).json({ ok: false, error: 'chain must be dfk or metis' });
+      }
+      const result = await runPVEIndexerBatch(chain);
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[PVE Admin] Error running batch:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/pve/start/:chain - Start auto-run for a chain
+  app.post("/api/admin/pve/start/:chain", isAdmin, async (req: any, res: any) => {
+    try {
+      const { chain } = req.params;
+      if (chain !== 'dfk' && chain !== 'metis') {
+        return res.status(400).json({ ok: false, error: 'chain must be dfk or metis' });
+      }
+      const result = startPVEIndexerAutoRun(chain);
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[PVE Admin] Error starting auto-run:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/pve/stop/:chain - Stop auto-run for a chain
+  app.post("/api/admin/pve/stop/:chain", isAdmin, async (req: any, res: any) => {
+    try {
+      const { chain } = req.params;
+      if (chain !== 'dfk' && chain !== 'metis') {
+        return res.status(400).json({ ok: false, error: 'chain must be dfk or metis' });
+      }
+      const result = stopPVEIndexerAutoRun(chain);
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[PVE Admin] Error stopping auto-run:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/pve/reset/:chain - Reset indexer to a specific block
+  app.post("/api/admin/pve/reset/:chain", isAdmin, async (req: any, res: any) => {
+    try {
+      const { chain } = req.params;
+      const { toBlock } = req.body;
+      if (chain !== 'dfk' && chain !== 'metis') {
+        return res.status(400).json({ ok: false, error: 'chain must be dfk or metis' });
+      }
+      if (typeof toBlock !== 'number') {
+        return res.status(400).json({ ok: false, error: 'toBlock must be a number' });
+      }
+      const result = await resetPVEIndexer(chain, toBlock);
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[PVE Admin] Error resetting indexer:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
   });
 
   const httpServer = createServer(app);
