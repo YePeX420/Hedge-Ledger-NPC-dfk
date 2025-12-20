@@ -1,0 +1,352 @@
+Build a blockchain indexer and API that tracks DeFi Kingdoms patrol/hunt reward events, reverse-engineers base loot drop rates by accounting for hero luck, pet bonuses, and equipment at the time of each event, and exposes public API endpoints for the Hedge's Ledge frontend.
+
+Required ABI Files
+Download and include these ABIs in the project:
+
+Contract	ABI Source
+PVPDiamond (Patrols)	https://devs.defikingdoms.com/contracts/patrols → PVPDiamond.json
+HuntsDiamond (Void Hunts)	https://devs.defikingdoms.com/contracts/void-hunts → HuntsDiamond.json
+HeroCore	https://devs.defikingdoms.com/nfts/heroes → For querying hero stats
+Pets	https://devs.defikingdoms.com/nfts/pets → For pet data
+Equipment	https://devs.defikingdoms.com/nfts/equipment → For equipment data
+Blockchain Event Indexing
+Contracts to Monitor:
+
+Chain	Name	Contract Address	Events
+Metis (1088)	PVPDiamond	0xc7681698B14a2381d9f1eD69FC3D27F33965b53B	PatrolRewardMinted, PatrolEquipmentMinted, PatrolCompleted
+DFK Chain (53935)	HuntsDiamond	0xEaC69796Cff468ED1694A6FfAc4cbC23bbe33aFa	HuntRewardMinted, HuntEquipmentMinted, HuntCompleted, HuntPetBonusReceived
+Activity Types:
+
+Patrols (Metis): Trial 1=Night Raid, Trial 2=Dark Water, Trial 3=Blood Moon Rising
+Void Hunts (DFK Chain): Hunt 1=Mad Boar, Hunt 2=Bad Motherclucker
+For each reward event, capture:
+
+Transaction hash, block number, log index
+Activity type (patrol trial ID or hunt ID)
+Hero IDs in the party (3 heroes)
+Item rewarded (address, amount, rarity if equipment)
+Player address
+Pet IDs bonded to heroes (if any)
+Pet bonus data (type, tier)
+Equipment equipped on each hero
+Equipment durability values
+Hero Luck Resolution (CRITICAL)
+Must use historical stats at event block, NOT current stats. Hero stats change over time via leveling and meditation.
+
+For each reward event at blockNumber:
+
+// Archive RPC call to get hero state at historical block
+const hero1 = await heroContract.getHero(heroId1, { blockTag: blockNumber });
+const hero2 = await heroContract.getHero(heroId2, { blockTag: blockNumber });
+const hero3 = await heroContract.getHero(heroId3, { blockTag: blockNumber });
+partyLCK = hero1.luck + hero2.luck + hero3.luck;
+Store party_luck with each event record so it never needs to be re-queried.
+
+Requires archive RPC access - Standard RPCs may not support historical state queries. Use archive nodes or an existing hero stat indexer.
+
+Pet Bonus Resolution
+For each hunt/patrol event:
+
+Check if HuntPetBonusReceived / PatrolPetBonusReceived was emitted in same transaction
+Extract pet IDs from the event
+Query pet data at that block to get:
+Pet rarity (Common, Rare, Legendary, Mythic)
+Active bonuses and their tiers (1-star, 2-star, 3-star)
+Bonus type (e.g., "Combat Loot Boost", etc.)
+Store pet composition with the event
+Equipment Resolution
+For each hero in the party at event block:
+
+Query equipped items (weapon, armor, shield, accessory)
+Query durability values for each piece
+Store equipment snapshot with the event
+This enables future analysis of whether equipment affects drop rates.
+
+Base Drop Rate Calculation
+Extended Formula:
+
+observedDropRate = baseRate + (0.0002 × partyLCK) + petBonus
+baseRate = observedDropRate - (0.0002 × partyLCK) - petBonus
+Hero Luck Formula: 1% + (0.02% × partyLCK)
+
+Pet Bonus Values (determine from indexed data):
+
+No pet: 0%
+1-star combat bonus: +X%
+2-star combat bonus: +Y%
+3-star combat bonus: +Z%
+Aggregation Process:
+
+Group events by activity type, item, pet bonus tier
+For each group:
+dropCount = number of times item dropped
+totalCompletions = total completions of that activity
+avgPartyLCK = average party luck across all completions
+observedRate = dropCount / totalCompletions
+baseRate = observedRate - (0.0002 × avgPartyLCK) - petBonus
+Store with sample counts and confidence intervals
+Schedule periodic recomputation (e.g., hourly)
+Database Schema (PostgreSQL)
+-- Activity definitions
+CREATE TABLE pve_activities (
+  id SERIAL PRIMARY KEY,
+  activity_type VARCHAR(20) NOT NULL, -- 'patrol' or 'hunt'
+  activity_id INTEGER NOT NULL,       -- trial_id or hunt_id from contract
+  chain_id INTEGER NOT NULL,
+  name VARCHAR(100) NOT NULL,         -- 'Night Raid', 'Mad Boar', etc.
+  contract_address VARCHAR(42) NOT NULL,
+  UNIQUE(chain_id, activity_type, activity_id)
+);
+-- Loot items
+CREATE TABLE pve_loot_items (
+  id SERIAL PRIMARY KEY,
+  item_address VARCHAR(42) NOT NULL,
+  chain_id INTEGER NOT NULL,
+  name VARCHAR(100),
+  item_type VARCHAR(20), -- 'equipment', 'consumable', 'currency', 'material'
+  rarity VARCHAR(20),    -- for equipment
+  UNIQUE(chain_id, item_address)
+);
+-- Pet data
+CREATE TABLE pve_pets (
+  id SERIAL PRIMARY KEY,
+  pet_id BIGINT NOT NULL,
+  chain_id INTEGER NOT NULL,
+  rarity VARCHAR(20),           -- 'common', 'rare', 'legendary', 'mythic'
+  element VARCHAR(20),
+  UNIQUE(chain_id, pet_id)
+);
+-- Pet bonuses reference
+CREATE TABLE pve_pet_bonus_types (
+  id SERIAL PRIMARY KEY,
+  bonus_name VARCHAR(100) NOT NULL,
+  bonus_category VARCHAR(50),   -- 'combat', 'profession', 'crafting'
+  effect_description TEXT,
+  UNIQUE(bonus_name)
+);
+-- Equipment reference
+CREATE TABLE pve_equipment (
+  id SERIAL PRIMARY KEY,
+  equipment_id BIGINT NOT NULL,
+  chain_id INTEGER NOT NULL,
+  equipment_type VARCHAR(20),   -- 'weapon', 'armor', 'shield', 'accessory'
+  name VARCHAR(100),
+  rarity VARCHAR(20),
+  display_id INTEGER,
+  UNIQUE(chain_id, equipment_id)
+);
+-- Raw indexed events (stores historical data at event time)
+CREATE TABLE pve_reward_events (
+  id SERIAL PRIMARY KEY,
+  tx_hash VARCHAR(66) NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  chain_id INTEGER NOT NULL,
+  activity_id INTEGER REFERENCES pve_activities(id),
+  item_id INTEGER REFERENCES pve_loot_items(id),
+  amount INTEGER DEFAULT 1,
+  player_address VARCHAR(42) NOT NULL,
+  hero_ids BIGINT[] NOT NULL,         -- [heroId1, heroId2, heroId3]
+  party_luck INTEGER NOT NULL,        -- sum of 3 heroes' LCK AT EVENT TIME
+  pet_ids BIGINT[],                   -- pets bonded to heroes
+  pet_bonus_active BOOLEAN DEFAULT FALSE,
+  pet_bonus_tier INTEGER,             -- 1, 2, or 3
+  indexed_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+-- Track activity completions (for denominator in drop rate calc)
+CREATE TABLE pve_completions (
+  id SERIAL PRIMARY KEY,
+  tx_hash VARCHAR(66) NOT NULL,
+  block_number BIGINT NOT NULL,
+  chain_id INTEGER NOT NULL,
+  activity_id INTEGER REFERENCES pve_activities(id),
+  player_address VARCHAR(42) NOT NULL,
+  hero_ids BIGINT[] NOT NULL,
+  party_luck INTEGER NOT NULL,
+  pet_ids BIGINT[],
+  pet_bonus_tier INTEGER,
+  completed_at TIMESTAMP,
+  UNIQUE(tx_hash)
+);
+-- Hero equipment snapshot at event time
+CREATE TABLE pve_hero_equipment_snapshots (
+  id SERIAL PRIMARY KEY,
+  completion_id INTEGER REFERENCES pve_completions(id),
+  hero_id BIGINT NOT NULL,
+  weapon_id BIGINT,
+  weapon_durability INTEGER,
+  armor_id BIGINT,
+  armor_durability INTEGER,
+  shield_id BIGINT,
+  shield_durability INTEGER,
+  accessory_id BIGINT,
+  accessory_durability INTEGER
+);
+-- Aggregated drop statistics
+CREATE TABLE pve_drop_stats (
+  id SERIAL PRIMARY KEY,
+  activity_id INTEGER REFERENCES pve_activities(id),
+  item_id INTEGER REFERENCES pve_loot_items(id),
+  pet_bonus_tier INTEGER,             -- NULL = no pet, 1/2/3 = pet tier
+  total_drops INTEGER DEFAULT 0,
+  total_completions INTEGER DEFAULT 0,
+  avg_party_luck DECIMAL(10,2),
+  calculated_base_rate DECIMAL(10,6),  -- as decimal (0.03 = 3%)
+  confidence_lower DECIMAL(10,6),
+  confidence_upper DECIMAL(10,6),
+  sample_start_block BIGINT,
+  sample_end_block BIGINT,
+  last_updated TIMESTAMP DEFAULT NOW(),
+  UNIQUE(activity_id, item_id, pet_bonus_tier)
+);
+-- Indexer checkpoints (if not using existing checkpoint pattern)
+CREATE TABLE pve_indexer_checkpoints (
+  chain_id INTEGER PRIMARY KEY,
+  last_indexed_block BIGINT NOT NULL,
+  last_indexed_at TIMESTAMP DEFAULT NOW()
+);
+API Endpoints
+Authentication: Require x-hedge-api-key header (same key as combat codex)
+
+GET /api/public/pve/status
+Response: { 
+  ok: true, 
+  chains: [{chainId, name, lastBlock, totalEvents, lastIndexedAt}], 
+  totalCompletions: number,
+  lastUpdated: string 
+}
+GET /api/public/pve/patrols
+Response: { 
+  ok: true, 
+  results: [{
+    id: number,
+    name: string,           // "Night Raid", "Dark Water", etc.
+    chainId: 1088,
+    trialId: number,
+    totalCompletions: number,
+    loot: [{
+      itemId: number,
+      itemName: string,
+      itemType: string,
+      rarity: string | null,
+      baseRate: number,     // e.g., 0.031 = 3.1%
+      observations: number,
+      lastUpdated: string
+    }]
+  }]
+}
+GET /api/public/pve/hunts  
+Response: { 
+  ok: true, 
+  results: [{
+    id: number,
+    name: string,           // "Mad Boar", "Bad Motherclucker"
+    chainId: 53935,
+    huntId: number,
+    totalCompletions: number,
+    loot: [{
+      itemId: number,
+      itemName: string,
+      itemType: string,
+      rarity: string | null,
+      baseRate: number,
+      observations: number,
+      lastUpdated: string
+    }]
+  }]
+}
+GET /api/public/pve/loot/:activityId
+Response: { 
+  ok: true, 
+  activity: { id, name, type, chainId },
+  totalCompletions: number,
+  loot: [{
+    itemId: number,
+    itemName: string,
+    itemType: string,
+    rarity: string | null,
+    baseRate: number,
+    sampleSize: number,
+    confidence: { lower: number, upper: number }
+  }]
+}
+GET /api/public/pve/estimate?activityId=1&partyLuck=150&petBonusTier=2
+Response: { 
+  ok: true, 
+  activity: { id, name, type },
+  partyLuck: 150,
+  petBonusTier: 2,
+  formula: "adjustedRate = baseRate + (0.0002 × partyLuck) + petBonus",
+  adjustedRates: [{
+    itemId: number,
+    itemName: string,
+    baseRate: number,
+    luckBonus: number,      // 0.0002 × 150 = 0.03
+    petBonus: number,       // bonus from pet tier
+    adjustedRate: number,   // baseRate + luckBonus + petBonus
+    displayRate: string     // "6.1%"
+  }]
+}
+Worker / Indexer Architecture
+IMPORTANT: Use the same indexer structure and patterns as other indexers in this project. Match the existing approach for:
+
+Event polling/subscription strategy
+Checkpoint management and resumption
+Error handling and retry logic
+Database transaction patterns
+Logging and monitoring
+Configuration and environment handling
+Data to Index:
+
+Chain	Contract	Events
+Metis (1088)	PVPDiamond	PatrolRewardMinted, PatrolEquipmentMinted, PatrolCompleted
+DFK Chain (53935)	HuntsDiamond	HuntRewardMinted, HuntEquipmentMinted, HuntCompleted, HuntPetBonusReceived
+Per Event Processing:
+
+Decode event using ABI
+Extract hero IDs from patrol/hunt data
+For each hero at that block number (archive RPC required):
+Query hero stats (LCK, etc.)
+Query bonded pet and bonus data
+Query equipped items (weapon, armor, shield, accessory)
+Query equipment durability values
+Calculate partyLCK = sum of 3 heroes' luck
+Persist full party snapshot with the event (heroes, pets, equipment)
+Aggregation Job (scheduled, e.g., hourly):
+
+Query all reward events and completions
+Group by activity, item, and pet bonus tier
+Calculate base rates: baseRate = observedRate - (0.0002 × avgPartyLCK) - petBonus
+Update pve_drop_stats table with confidence intervals
+RPC Endpoints
+METIS_RPC_URL=https://andromeda.metis.io/?owner=1088
+METIS_ARCHIVE_RPC_URL=<archive node for historical queries>
+DFK_CHAIN_RPC_URL=https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc
+DFK_ARCHIVE_RPC_URL=<archive node for historical queries>
+Note: You will need paid archive RPC access for historical state queries.
+
+Environment Variables
+DATABASE_URL=postgresql://...
+METIS_RPC_URL=https://...
+METIS_ARCHIVE_RPC_URL=https://...
+DFK_CHAIN_RPC_URL=https://...
+DFK_ARCHIVE_RPC_URL=https://...
+HEDGE_API_KEY=your-api-key-here
+Seed Data
+Pre-populate pve_activities with known activities:
+
+INSERT INTO pve_activities (activity_type, activity_id, chain_id, name, contract_address) VALUES
+('patrol', 1, 1088, 'Night Raid', '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B'),
+('patrol', 2, 1088, 'Dark Water', '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B'),
+('patrol', 3, 1088, 'Blood Moon Rising', '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B'),
+('hunt', 1, 53935, 'Mad Boar', '0xEaC69796Cff468ED1694A6FfAc4cbC23bbe33aFa'),
+('hunt', 2, 53935, 'Bad Motherclucker', '0xEaC69796Cff468ED1694A6FfAc4cbC23bbe33aFa');
+That's the complete prompt! It covers:
+
+✅ Hero luck (historical at event time)
+✅ Pet bonuses and tiers
+✅ Equipment and durability
+✅ Base rate reverse-engineering formula
+✅ API endpoints matching combat codex pattern
+✅ Uses existing indexer patterns from your project
