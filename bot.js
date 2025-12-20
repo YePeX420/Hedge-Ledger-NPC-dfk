@@ -7058,6 +7058,23 @@ async function startAdminWebServer() {
     }
   });
   
+  // POST /api/admin/gardening-quest/reset-to-block - Reset indexer to start from a specific block
+  app.post('/api/admin/gardening-quest/reset-to-block', isAdmin, async (req, res) => {
+    try {
+      const { startBlock, clearRewards = true } = req.body;
+      // Validate startBlock is a finite positive number
+      if (typeof startBlock !== 'number' || !Number.isFinite(startBlock) || startBlock < 0) {
+        return res.status(400).json({ error: 'startBlock is required and must be a non-negative finite number' });
+      }
+      const { resetGardeningQuestToBlock } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      const result = await resetGardeningQuestToBlock(Math.floor(startBlock), clearRewards);
+      res.json(result);
+    } catch (error) {
+      console.error('[API] Error resetting gardening quest indexer to block:', error);
+      res.status(500).json({ error: 'Failed to reset indexer to block', details: error.message });
+    }
+  });
+  
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
     try {

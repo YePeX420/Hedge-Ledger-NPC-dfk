@@ -216,6 +216,31 @@ export default function AdminGardeningQuest() {
     },
   });
   
+  const resetToBlockMutation = useMutation({
+    mutationFn: async ({ startBlock, clearRewards }: { startBlock: number; clearRewards: boolean }) => {
+      return await apiRequest("POST", "/api/admin/gardening-quest/reset-to-block", { startBlock, clearRewards });
+    },
+    onSuccess: (data: any) => {
+      toast({ 
+        title: "Indexer reset to recent blocks", 
+        description: `Starting from block ${data.startBlock?.toLocaleString()}, ${data.blocksToIndex?.toLocaleString()} blocks to scan` 
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/gardening-quest/status'] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to reset indexer", description: error.message, variant: "destructive" });
+    },
+  });
+  
+  const handleResetToRecentBlocks = async () => {
+    // DFK Chain produces ~1 block per 2 seconds = ~43200 blocks/day
+    // Current block ~56.8M as of Dec 2024, use a conservative estimate
+    // The backend will validate and return the actual latest block
+    const estimatedCurrentBlock = 57000000;
+    const startBlock = Math.max(0, estimatedCurrentBlock - 1000000);
+    resetToBlockMutation.mutate({ startBlock, clearRewards: true });
+  };
+  
   const handleSearchHero = () => {
     const heroId = parseInt(heroIdSearch);
     if (!isNaN(heroId) && heroId > 0) {
@@ -372,6 +397,21 @@ export default function AdminGardeningQuest() {
                     Start 5 Workers
                   </Button>
                 )}
+                
+                <Button
+                  onClick={handleResetToRecentBlocks}
+                  disabled={resetToBlockMutation.isPending || status?.isAutoRunning || hasActiveWorkers}
+                  variant="outline"
+                  size="sm"
+                  data-testid="button-reset-recent"
+                >
+                  {resetToBlockMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                  )}
+                  Reset to Last 1M Blocks
+                </Button>
               </div>
               
               {workers && workers.workers.length > 0 && (

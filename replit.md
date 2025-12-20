@@ -42,7 +42,12 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Token Registry System**: Manages token metadata, syncing known DFK tokens and supporting RouteScan scraping.
 *   **Unified Pool Indexer System**: Tracks LP staking positions across Master Gardener V1 and V2 contracts with dynamic parallel workers and work-stealing for efficiency.
 *   **Jeweler Indexer System**: Tracks cJEWEL staking positions, calculates APR, and provides leaderboards.
-*   **Gardening Quest Rewards Indexer**: Tracks CRYSTAL/JEWEL earned per hero from gardening quests.
+*   **Gardening Quest Rewards Indexer**: Tracks CRYSTAL/JEWEL earned per hero from gardening quests with pool value snapshots for yield validation. Features:
+    - Pool value snapshot fields (heroLpStake, poolTotalLp, lpTokenPrice) captured at reward time
+    - 5 parallel workers with work-stealing for fast historical scanning
+    - Reset-to-block functionality for scanning last N blocks (e.g., last 1M blocks)
+    - Admin API: GET /api/admin/gardening-quest/status, /hero/:heroId, /player/:player, /pool/:poolId
+    - Admin API: POST /api/admin/gardening-quest/trigger, /auto-run, /reset, /reset-to-block
 *   **Harmony Pool Indexer**: Tracks legacy Serendale JEWEL-ONE LP staking on the Harmony chain.
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules.
 *   **Leaderboard System**: Provides snapshot-based and historical rankings.

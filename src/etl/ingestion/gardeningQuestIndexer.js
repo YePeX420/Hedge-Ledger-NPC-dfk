@@ -208,6 +208,10 @@ async function ensureTablesExist() {
     // Add new columns if they don't exist (for existing tables)
     await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual_quest'`);
     await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS expedition_id BIGINT`);
+    // Pool value snapshot columns for yield validation
+    await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS hero_lp_stake NUMERIC(38, 18)`);
+    await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS pool_total_lp NUMERIC(38, 18)`);
+    await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS lp_token_price NUMERIC(20, 8)`);
     
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_hero_idx ON gardening_quest_rewards(hero_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_player_idx ON gardening_quest_rewards(player)`);
@@ -1117,4 +1121,77 @@ export async function resetGardeningQuestIndexer(clearRewards = true) {
   
   console.log('[GardeningQuest] ✓ Reset complete - ready for fresh scan');
   return { success: true, clearedRewards: clearRewards };
+}
+
+// Reset indexer to start from a specific block (e.g., for last N blocks)
+export async function resetGardeningQuestToBlock(startBlock, clearRewards = true) {
+  // Validate startBlock
+  if (!Number.isFinite(startBlock) || startBlock < 0) {
+    throw new Error(`Invalid startBlock: ${startBlock}. Must be a non-negative finite number.`);
+  }
+  
+  const latestBlock = await getLatestBlock();
+  
+  // Ensure startBlock is before latestBlock
+  if (startBlock >= latestBlock) {
+    throw new Error(`startBlock (${startBlock}) must be less than latestBlock (${latestBlock})`);
+  }
+  
+  console.log(`[GardeningQuest] Resetting indexer to start from block ${startBlock}...`);
+  
+  stopGardeningWorkersAutoRun();
+  
+  const hasActiveWorkers = Array.from(runningWorkers.values()).some(v => v === true);
+  if (hasActiveWorkers) {
+    console.log('[GardeningQuest] Waiting for active batches to complete...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
+  
+  await db.delete(gardeningQuestIndexerProgress);
+  console.log('[GardeningQuest] ✓ Cleared indexer progress');
+  
+  if (clearRewards) {
+    await db.delete(gardeningQuestRewards);
+    console.log('[GardeningQuest] ✓ Cleared rewards data');
+  }
+  
+  // Initialize workers starting from the specified block
+  const blocksToIndex = latestBlock - startBlock;
+  const blocksPerWorker = Math.ceil(blocksToIndex / GARDENING_WORKERS);
+  let workersCreated = 0;
+  
+  for (let w = 0; w < GARDENING_WORKERS; w++) {
+    const workerStart = startBlock + (w * blocksPerWorker);
+    // Skip workers whose range would be entirely past latestBlock
+    if (workerStart >= latestBlock) {
+      console.log(`[GardeningQuest] Worker ${w}: skipped (start ${workerStart} >= latest ${latestBlock})`);
+      continue;
+    }
+    const workerEnd = Math.min(workerStart + blocksPerWorker - 1, latestBlock);
+    
+    await initWorkerProgress(w, workerStart, workerEnd);
+    console.log(`[GardeningQuest] Worker ${w}: blocks ${workerStart} - ${workerEnd}`);
+    workersCreated++;
+  }
+  
+  // Also init the main indexer progress
+  await db.insert(gardeningQuestIndexerProgress).values({
+    indexerName: 'gardening_quest',
+    lastIndexedBlock: startBlock,
+    genesisBlock: startBlock,
+    status: 'idle',
+    totalEventsIndexed: 0,
+  }).onConflictDoNothing();
+  
+  clearLiveProgress();
+  
+  console.log(`[GardeningQuest] ✓ Reset complete - ${workersCreated} workers ready to index from block ${startBlock}`);
+  return { 
+    success: true, 
+    startBlock, 
+    latestBlock, 
+    blocksToIndex,
+    workersCreated,
+    clearedRewards: clearRewards 
+  };
 }

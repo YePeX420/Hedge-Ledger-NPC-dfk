@@ -2318,6 +2318,10 @@ export const gardeningQuestRewards = pgTable("gardening_quest_rewards", {
   rewardAmount: numeric("reward_amount", { precision: 38, scale: 18 }).notNull(),
   source: text("source").default("manual_quest"), // 'manual_quest' or 'expedition'
   expeditionId: bigint("expedition_id", { mode: "number" }), // Only set for expeditions
+  // Pool value snapshot at reward block (for yield validation)
+  heroLpStake: numeric("hero_lp_stake", { precision: 38, scale: 18 }), // Hero's LP amount staked
+  poolTotalLp: numeric("pool_total_lp", { precision: 38, scale: 18 }), // Pool's total staked LP
+  lpTokenPrice: numeric("lp_token_price", { precision: 20, scale: 8 }), // USD value per LP token
   blockNumber: bigint("block_number", { mode: "number" }).notNull(),
   txHash: text("tx_hash").notNull(),
   logIndex: integer("log_index").notNull(),
