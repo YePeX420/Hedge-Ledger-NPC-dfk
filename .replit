@@ -4,7 +4,7 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["jq", "pandoc"]
+packages = ["jq", "pandoc", "glib", "nss", "nspr", "at-spi2-atk", "cups", "libdrm", "libxkbcommon", "mesa", "alsa-lib", "pango", "cairo", "expat", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb", "chromium"]
 
 [deployment]
 deploymentTarget = "gce"
