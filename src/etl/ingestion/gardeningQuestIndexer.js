@@ -599,6 +599,14 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
   const prefix = workerId !== null ? `[GardeningQuest W${workerId}]` : '[GardeningQuest]';
   console.log(`${prefix} Starting block range ${fromBlock.toLocaleString()}-${toBlock.toLocaleString()}`);
   
+  // Update latestKnownBlock for pool snapshot cutoff logic
+  try {
+    latestKnownBlock = await getLatestBlock();
+  } catch (e) {
+    // Use toBlock as fallback if we can't get latest
+    latestKnownBlock = toBlock;
+  }
+  
   while (currentBlock <= toBlock) {
     const endBlock = Math.min(currentBlock + BLOCKS_PER_QUERY - 1, toBlock);
     
