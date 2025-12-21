@@ -3,23 +3,85 @@ import { db } from '../../../server/db.js';
 import { gardeningQuestRewards, gardeningQuestIndexerProgress } from '../../../shared/schema.js';
 import { eq, sql, desc } from 'drizzle-orm';
 
+// Primary and fallback DFK Chain RPC endpoints
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
+const DFK_CHAIN_RPC_FALLBACK = 'https://lb.nodies.app/v1/105f8099e80f4123976b59df1ebfb433/ext/bc/q2aTwKuyzgs8pynF7UXBZCU7DejbZbZ6EUyHr3JQzYgwNPUPi/rpc';
 const QUEST_CORE_V3 = '0x530fff22987E137e7C8D2aDcC4c15eb45b4FA752';
 // RewardMinted events are emitted from the QuestReward contract, NOT Quest Core V3
 const QUEST_REWARD_CONTRACT = '0x39a06d3e1b6b1b24c477d90770f317abb4b8f928';
 
 const DFK_GENESIS_BLOCK = 0;
-const BLOCKS_PER_QUERY = 2000;
+const BLOCKS_PER_QUERY = 500; // Reduced from 2000 - DFK nodes throttle historical getLogs >1k blocks
 const INCREMENTAL_BATCH_SIZE = 200000;
 const AUTO_RUN_INTERVAL_MS = 60 * 1000;
+const RPC_TIMEOUT_MS = 15000; // 15 second timeout for RPC calls
+const MAX_RETRIES = 3;
+const BASE_RETRY_DELAY_MS = 1000;
 
-export const GARDENING_WORKERS = 5;
-export const MIN_GARDENING_WORKERS = 3;
+export const GARDENING_WORKERS = 2;
+export const MIN_GARDENING_WORKERS = 1;
 
 const GARDENING_QUEST_ADDRESS = '0x6FF019415Ee105aCF2Ac52483A33F5B43eaDB8d0';
+const MASTER_GARDENER_V2 = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
 
 const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11972dE7f66e4F7'.toLowerCase();
 const JEWEL_ADDRESS = '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260'.toLowerCase();
+
+const MASTER_GARDENER_ABI = [
+  'function userInfo(uint256 pid, address user) view returns (uint256 amount, int256 rewardDebt, uint256 lastDepositTimestamp)',
+  'function poolInfo(uint256 pid) view returns (address lpToken, uint256 allocPoint, uint256 lastRewardTime, uint256 accRewardPerShare)',
+  'function lpToken(uint256 pid) view returns (address)',
+];
+
+let gardenerContract = null;
+
+function getGardenerContract() {
+  if (!gardenerContract) {
+    const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
+    gardenerContract = new ethers.Contract(MASTER_GARDENER_V2, MASTER_GARDENER_ABI, provider);
+  }
+  return gardenerContract;
+}
+
+const ERC20_ABI = ['function balanceOf(address owner) view returns (uint256)'];
+
+const POOL_SNAPSHOT_MAX_HISTORICAL_BLOCKS = 50000;
+let latestKnownBlock = 0;
+
+async function getPoolValueSnapshot(poolId, playerAddress, blockNumber = 'latest') {
+  if (blockNumber !== 'latest' && latestKnownBlock > 0) {
+    const blocksBehind = latestKnownBlock - blockNumber;
+    if (blocksBehind > POOL_SNAPSHOT_MAX_HISTORICAL_BLOCKS) {
+      return { heroLpStake: null, poolTotalLp: null, lpTokenPrice: null };
+    }
+  }
+  
+  try {
+    const contract = getGardenerContract();
+    const provider = contract.runner?.provider || new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
+    const options = blockNumber === 'latest' ? {} : { blockTag: blockNumber };
+    
+    const [userInfoResult, poolInfoResult] = await Promise.all([
+      contract.userInfo(poolId, playerAddress, options),
+      contract.poolInfo(poolId, options),
+    ]);
+    
+    const heroLpStake = ethers.formatEther(userInfoResult.amount);
+    
+    const lpTokenAddress = poolInfoResult.lpToken;
+    const lpTokenContract = new ethers.Contract(lpTokenAddress, ERC20_ABI, provider);
+    const poolTotalLpRaw = await lpTokenContract.balanceOf(MASTER_GARDENER_V2, options);
+    const poolTotalLp = ethers.formatEther(poolTotalLpRaw);
+    
+    return {
+      heroLpStake,
+      poolTotalLp,
+      lpTokenPrice: null,
+    };
+  } catch (error) {
+    return { heroLpStake: null, poolTotalLp: null, lpTokenPrice: null };
+  }
+}
 
 const TOKEN_SYMBOLS = {
   [CRYSTAL_ADDRESS]: 'CRYSTAL',
@@ -132,11 +194,120 @@ const QUEST_REWARD_ABI = [
   'event RewardMinted(uint256 indexed questId, address indexed player, uint256 heroId, address indexed reward, uint256 amount, uint256 data)',
 ];
 
+// Provider pool for fallback
+const RPC_ENDPOINTS = [DFK_CHAIN_RPC, DFK_CHAIN_RPC_FALLBACK];
+let currentRpcIndex = 0;
+
 export function getProvider() {
   if (!providerInstance) {
-    providerInstance = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
+    // Use primary RPC with static network to avoid chain detection delays
+    providerInstance = new ethers.JsonRpcProvider(DFK_CHAIN_RPC, undefined, {
+      staticNetwork: true,
+      batchMaxCount: 1,
+    });
   }
   return providerInstance;
+}
+
+// Create a fresh provider for retry attempts using different endpoints
+function createFreshProvider(rpcIndex = 0) {
+  const endpoint = RPC_ENDPOINTS[rpcIndex % RPC_ENDPOINTS.length];
+  return new ethers.JsonRpcProvider(endpoint, undefined, {
+    staticNetwork: true,
+    batchMaxCount: 1,
+  });
+}
+
+// Helper function for RPC calls with timeout and retry logic
+async function rpcWithRetry(fn, label = 'RPC call') {
+  let lastError;
+  
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+    
+    try {
+      // Create a fresh provider for each retry to avoid stale connections
+      const provider = attempt === 0 ? getProvider() : createFreshProvider(currentRpcIndex + attempt);
+      const result = await fn(provider);
+      clearTimeout(timeoutId);
+      return result;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      lastError = error;
+      
+      // Log timeout/error
+      const isTimeout = error.name === 'AbortError' || error.message?.includes('timeout');
+      console.log(`[GardeningQuest] ${label} attempt ${attempt + 1}/${MAX_RETRIES} failed: ${isTimeout ? 'timeout' : error.message}`);
+      
+      if (attempt < MAX_RETRIES - 1) {
+        // Exponential backoff with jitter
+        const delay = BASE_RETRY_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        // Rotate to next RPC endpoint
+        currentRpcIndex = (currentRpcIndex + 1) % RPC_ENDPOINTS.length;
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
+// Get logs using direct fetch with timeout
+async function getLogsWithRetry(fromBlock, toBlock, topics, label = 'getLogs') {
+  let lastError;
+  
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const rpcUrl = RPC_ENDPOINTS[(currentRpcIndex + attempt) % RPC_ENDPOINTS.length];
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+    
+    try {
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'eth_getLogs',
+          params: [{
+            address: QUEST_REWARD_CONTRACT,
+            topics,
+            fromBlock: '0x' + fromBlock.toString(16),
+            toBlock: '0x' + toBlock.toString(16),
+          }],
+          id: 1,
+        }),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error.message || 'RPC error');
+      }
+      
+      return data.result || [];
+    } catch (error) {
+      clearTimeout(timeoutId);
+      lastError = error;
+      
+      const isTimeout = error.name === 'AbortError';
+      console.log(`[GardeningQuest] ${label} attempt ${attempt + 1}/${MAX_RETRIES} failed: ${isTimeout ? 'timeout' : error.message}`);
+      
+      if (attempt < MAX_RETRIES - 1) {
+        const delay = BASE_RETRY_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        currentRpcIndex = (currentRpcIndex + 1) % RPC_ENDPOINTS.length;
+      }
+    }
+  }
+  
+  throw lastError;
 }
 
 export function getQuestContract() {
@@ -409,7 +580,7 @@ async function getQuestInfoMapFromTx(txHash) {
 }
 
 async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null) {
-  // Use the reward contract for querying RewardMinted events (they're emitted from QuestReward, not QuestCore)
+  // Use the reward contract interface for decoding (not for querying - we use getLogs directly)
   const rewardContract = getRewardContract();
   const provider = getProvider();
   
@@ -417,13 +588,68 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
   let totalEventsFound = 0;
   let batchCount = 0;
   
-  const rewardMintedFilter = rewardContract.filters.RewardMinted();
+  // Build topic filter for RewardMinted(uint256 indexed questId, address indexed player, uint256 heroId, address indexed reward, uint256 amount, uint256 data)
+  // Filter by reward address (topics[3]) to only get CRYSTAL or JEWEL rewards (gardening rewards)
+  const rewardMintedTopic = ethers.id('RewardMinted(uint256,address,uint256,address,uint256,uint256)');
+  
+  // Pad addresses to 32 bytes for topic filter
+  const crystalTopic = '0x' + CRYSTAL_ADDRESS.slice(2).padStart(64, '0');
+  const jewelTopic = '0x' + JEWEL_ADDRESS.slice(2).padStart(64, '0');
+  
+  const prefix = workerId !== null ? `[GardeningQuest W${workerId}]` : '[GardeningQuest]';
+  console.log(`${prefix} Starting block range ${fromBlock.toLocaleString()}-${toBlock.toLocaleString()}`);
   
   while (currentBlock <= toBlock) {
     const endBlock = Math.min(currentBlock + BLOCKS_PER_QUERY - 1, toBlock);
     
     try {
-      const logs = await rewardContract.queryFilter(rewardMintedFilter, currentBlock, endBlock);
+      if (batchCount === 0 || batchCount % 10 === 0) {
+        console.log(`${prefix} Querying blocks ${currentBlock.toLocaleString()}-${endBlock.toLocaleString()}...`);
+      }
+      
+      // Query CRYSTAL and JEWEL rewards separately and merge
+      const [crystalLogs, jewelLogs] = await Promise.all([
+        getLogsWithRetry(currentBlock, endBlock, [rewardMintedTopic, null, null, crystalTopic], `W${workerId} CRYSTAL ${currentBlock}-${endBlock}`),
+        getLogsWithRetry(currentBlock, endBlock, [rewardMintedTopic, null, null, jewelTopic], `W${workerId} JEWEL ${currentBlock}-${endBlock}`),
+      ]);
+      
+      const rawLogs = [...crystalLogs, ...jewelLogs];
+      console.log(`${prefix} Got ${rawLogs.length} CRYSTAL/JEWEL logs (${crystalLogs.length} CRYSTAL, ${jewelLogs.length} JEWEL)`);
+      
+      // Parse raw RPC logs manually (avoid ethers parseLog stack overflow)
+      // RewardMinted(uint256 indexed questId, address indexed player, uint256 heroId, address indexed reward, uint256 amount, uint256 data)
+      // topics[0] = event signature
+      // topics[1] = questId (indexed)
+      // topics[2] = player (indexed)  
+      // topics[3] = reward (indexed)
+      // data = abi.encode(heroId, amount, data)
+      const logs = rawLogs.map(rawLog => {
+        try {
+          const blockNumber = parseInt(rawLog.blockNumber, 16);
+          const logIndex = parseInt(rawLog.logIndex, 16);
+          
+          // Decode indexed params from topics
+          const questId = BigInt(rawLog.topics[1]);
+          const player = '0x' + rawLog.topics[2].slice(26); // Remove padding
+          const reward = '0x' + rawLog.topics[3].slice(26);
+          
+          // Decode non-indexed params from data (heroId, amount, data)
+          const data = rawLog.data;
+          const heroId = BigInt('0x' + data.slice(2, 66));
+          const amount = BigInt('0x' + data.slice(66, 130));
+          // const eventData = BigInt('0x' + data.slice(130, 194)); // Unused
+          
+          return {
+            blockNumber,
+            transactionHash: rawLog.transactionHash,
+            index: logIndex,
+            args: { questId, player, heroId, reward, amount },
+          };
+        } catch (e) {
+          console.log(`${prefix} Failed to parse log: ${e.message}`);
+          return null;
+        }
+      }).filter(Boolean);
       
       let eventsInBatch = 0;
       if (logs.length > 0) {
@@ -448,17 +674,24 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
             const block = await provider.getBlock(log.blockNumber);
             const rewardAddress = log.args.reward.toLowerCase();
             const rewardSymbol = TOKEN_SYMBOLS[rewardAddress] || 'ITEM';
+            const playerAddress = log.args.player.toLowerCase();
+            
+            // Fetch pool value snapshot at reward block for yield validation
+            const poolSnapshot = await getPoolValueSnapshot(questInfo.questType, playerAddress, log.blockNumber);
             
             events.push({
               questId,
               heroId: Number(log.args.heroId),
-              player: log.args.player.toLowerCase(),
+              player: playerAddress,
               poolId: questInfo.questType,
               rewardToken: rewardAddress,
               rewardSymbol,
               rewardAmount: ethers.formatEther(log.args.amount),
               source: questInfo.source,
               expeditionId: questInfo.expeditionId,
+              heroLpStake: poolSnapshot.heroLpStake,
+              poolTotalLp: poolSnapshot.poolTotalLp,
+              lpTokenPrice: poolSnapshot.lpTokenPrice,
               blockNumber: log.blockNumber,
               txHash: log.transactionHash,
               logIndex: log.index,
@@ -796,28 +1029,46 @@ export async function startGardeningWorkersAutoRun(intervalMs = AUTO_RUN_INTERVA
   
   try {
     latestBlock = await getLatestBlock();
+    latestKnownBlock = latestBlock;
   } catch (err) {
     console.error('[GardeningQuest] Failed to get latest block:', err.message);
     await new Promise(r => setTimeout(r, 2000));
     try {
       latestBlock = await getLatestBlock();
+      latestKnownBlock = latestBlock;
     } catch (err2) {
       console.error('[GardeningQuest] RPC unavailable, cannot start workers');
       return { status: 'rpc_failed', error: err2.message };
     }
   }
   
-  const blocksPerWorker = Math.ceil(latestBlock / workerCount);
+  // Load worker ranges from database if they exist (from reset-to-block)
+  const existingWorkerRanges = new Map();
+  for (let w = 0; w < workerCount; w++) {
+    const indexerName = getWorkerIndexerName(w);
+    const workerProgress = await db.select().from(gardeningQuestIndexerProgress).where(eq(gardeningQuestIndexerProgress.indexerName, indexerName)).limit(1);
+    if (workerProgress.length > 0 && workerProgress[0].rangeStart !== null) {
+      existingWorkerRanges.set(w, {
+        rangeStart: workerProgress[0].rangeStart,
+        rangeEnd: workerProgress[0].rangeEnd,
+      });
+    }
+  }
   
-  console.log(`[GardeningQuest] Starting ${workerCount} workers (${blocksPerWorker.toLocaleString()} blocks each, latest: ${latestBlock.toLocaleString()})`);
+  const hasDbRanges = existingWorkerRanges.size > 0;
+  const blocksPerWorker = hasDbRanges ? 0 : Math.ceil(latestBlock / workerCount);
+  
+  console.log(`[GardeningQuest] Starting ${workerCount} workers (${hasDbRanges ? 'using DB ranges' : blocksPerWorker.toLocaleString() + ' blocks each'}, latest: ${latestBlock.toLocaleString()})`);
   
   const results = [];
   let consecutiveFailures = 0;
   const MAX_CONSECUTIVE_FAILURES = 2;
   
   for (let w = 0; w < workerCount; w++) {
-    const rangeStart = w * blocksPerWorker;
-    const rangeEnd = (w === workerCount - 1) ? null : (w + 1) * blocksPerWorker;
+    // Use database ranges if available, otherwise calculate from block 0
+    const dbRange = existingWorkerRanges.get(w);
+    const rangeStart = dbRange ? dbRange.rangeStart : w * blocksPerWorker;
+    const rangeEnd = dbRange ? dbRange.rangeEnd : ((w === workerCount - 1) ? null : (w + 1) * blocksPerWorker);
     
     await new Promise(r => setTimeout(r, 500));
     
