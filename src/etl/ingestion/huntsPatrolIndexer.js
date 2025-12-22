@@ -14,6 +14,11 @@ const BLOCKS_PER_QUERY = 2000;
 const BATCH_SIZE = 100000;
 const AUTO_RUN_INTERVAL_MS = 60 * 1000;
 
+// Worker configuration (5 workers with work-stealing)
+export const PVE_WORKERS = 5;
+export const MIN_PVE_WORKERS = 1;
+const MIN_BLOCKS_TO_STEAL = 500000;
+
 // Contract addresses and RPC URLs
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 const DFK_ARCHIVE_RPC = 'https://avax-dfk.gateway.pokt.network/v1/lb/6244818c00b9f0003ad1b619/ext/bc/q2aTwKuyzgs8pynF7UXBZCU7DejbZbZ6EUyHr3JQzYgwNPUPi/rpc';
@@ -94,6 +99,46 @@ const liveProgress = new Map();
 const runningIndexers = new Map();
 const autoRunIntervals = new Map();
 const autoRunTiming = new Map(); // Tracks { startedAt, lastRunAt, intervalMs }
+
+// Worker tracking
+const workerLiveProgress = new Map(); // Per-worker progress
+const runningWorkers = new Map(); // Which workers are currently running
+const donorReservations = new Map(); // Work-stealing reservations
+let activeWorkerCount = {}; // { dfk: 5, metis: 5 }
+
+// Worker helpers
+function getWorkerKey(chain, workerId) {
+  return `pve_${chain}_w${workerId}`;
+}
+
+function getWorkerIndexerName(chain, workerId) {
+  return `pve_${chain}_worker_${workerId}`;
+}
+
+function updateWorkerLiveProgress(chain, workerId, updates) {
+  const key = getWorkerKey(chain, workerId);
+  const current = workerLiveProgress.get(key) || {};
+  workerLiveProgress.set(key, { ...current, ...updates });
+}
+
+function clearWorkerLiveProgress(chain, workerId) {
+  workerLiveProgress.delete(getWorkerKey(chain, workerId));
+}
+
+// Get all worker progress for a chain
+export function getAllWorkerProgress(chain) {
+  const workers = [];
+  const count = activeWorkerCount[chain] || PVE_WORKERS;
+  for (let w = 0; w < count; w++) {
+    const key = getWorkerKey(chain, w);
+    workers.push({
+      workerId: w,
+      progress: workerLiveProgress.get(key) || null,
+      isRunning: runningWorkers.get(getWorkerIndexerName(chain, w)) || false,
+    });
+  }
+  return workers;
+}
 
 // Provider instances (cached)
 const providers = new Map();
@@ -653,7 +698,533 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
   return { totalRewardsFound, totalCompletionsFound, batchCount };
 }
 
-// Run a single batch for a chain
+// Worker-based batch indexing (processes a range assigned to a worker)
+async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
+  const config = CHAIN_CONFIGS[chain];
+  const provider = getArchiveProvider(chain);
+  
+  let totalRewardsFound = 0;
+  let totalCompletionsFound = 0;
+  let batchCount = 0;
+  let currentBlock = fromBlock;
+  
+  while (currentBlock <= toBlock) {
+    const endBlock = Math.min(currentBlock + BLOCKS_PER_QUERY - 1, toBlock);
+    
+    try {
+      // Same indexing logic as indexBlockRange
+      const logs = await provider.getLogs({
+        address: config.contractAddress,
+        fromBlock: currentBlock,
+        toBlock: endBlock,
+      });
+      
+      // Group by tx
+      const byTx = new Map();
+      for (const log of logs) {
+        const key = log.transactionHash;
+        if (!byTx.has(key)) byTx.set(key, []);
+        byTx.get(key).push(log);
+      }
+      
+      const completedTopic = config.activityType === 'hunt' 
+        ? HUNT_REWARD_EVENTS.HuntCompleted 
+        : PATROL_REWARD_EVENTS.PatrolCompleted;
+      const rewardTopic = config.activityType === 'hunt'
+        ? HUNT_REWARD_EVENTS.HuntRewardMinted
+        : PATROL_REWARD_EVENTS.PatrolRewardMinted;
+      const equipmentTopic = config.activityType === 'hunt'
+        ? HUNT_REWARD_EVENTS.HuntEquipmentMinted
+        : PATROL_REWARD_EVENTS.PatrolEquipmentMinted;
+      
+      const iface = new ethers.Interface(config.abi);
+      
+      for (const [txHash, logsInTx] of byTx) {
+        const completionLog = logsInTx.find(l => l.topics[0] === completedTopic);
+        if (!completionLog) continue;
+        
+        try {
+          const parsed = iface.parseLog({
+            topics: completionLog.topics,
+            data: completionLog.data,
+          });
+          if (!parsed) continue;
+          
+          let activityIdOnChain, playerAddress, heroIds, petIds, partyLuck, victory;
+          
+          if (config.activityType === 'hunt') {
+            const huntTuple = parsed.args[1] || parsed.args.hunt;
+            activityIdOnChain = (huntTuple[1] || huntTuple.huntId).toString();
+            playerAddress = (huntTuple[4] || huntTuple.player).toLowerCase();
+            heroIds = Array.from(huntTuple[3] || huntTuple.heroIds || []).map(h => h.toString());
+            victory = parsed.args[2] || parsed.args.huntWon;
+            petIds = [];
+            partyLuck = 0;
+          } else {
+            activityIdOnChain = (parsed.args[0] || parsed.args.patrolId).toString();
+            playerAddress = (parsed.args[1] || parsed.args.player).toLowerCase();
+            victory = parsed.args[3] || parsed.args.patrolWon;
+            heroIds = [];
+            petIds = [];
+            partyLuck = 0;
+          }
+          
+          const heroIdNums = heroIds.map(h => parseInt(h));
+          const petIdNums = petIds.map(p => parseInt(p));
+          
+          let scavengerBonusPct = 0;
+          
+          const activityId = await getOrCreateActivity(config.chainId, activityIdOnChain, config.activityType);
+          const activityIdInDb = activityId;
+          
+          await db.execute(sql`
+            INSERT INTO pve_completions (
+              tx_hash, block_number, chain_id, activity_id, player_address,
+              hero_ids, pet_ids, party_luck, victory, pet_bonus_active, scavenger_bonus_pct
+            ) VALUES (
+              ${txHash}, ${completionLog.blockNumber}, ${config.chainId},
+              ${activityIdInDb}, ${playerAddress}, ${heroIdNums}, ${petIdNums},
+              ${partyLuck}, ${victory}, ${petIds.length > 0}, ${scavengerBonusPct}
+            )
+            ON CONFLICT (tx_hash) DO NOTHING
+          `);
+          totalCompletionsFound++;
+          
+          // Process reward events
+          const rewardLogs = logsInTx.filter(log => log.topics[0] === rewardTopic);
+          for (const rLog of rewardLogs) {
+            const rParsed = iface.parseLog({ topics: rLog.topics, data: rLog.data });
+            if (!rParsed) continue;
+            
+            const itemAddress = (rParsed.args.item || rParsed.args[2]).toLowerCase();
+            const amount = parseInt((rParsed.args.amount || rParsed.args[3]).toString());
+            const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
+            
+            await db.execute(sql`
+              INSERT INTO pve_reward_events (
+                tx_hash, log_index, block_number, chain_id, activity_id, item_id,
+                amount, player_address, hero_ids, party_luck, pet_ids,
+                pet_bonus_active, scavenger_bonus_pct
+              ) VALUES (
+                ${txHash}, ${rLog.index}, ${rLog.blockNumber}, ${config.chainId},
+                ${activityIdInDb}, ${itemId}, ${amount}, ${playerAddress},
+                ${heroIdNums}, ${partyLuck}, ${petIdNums},
+                ${petIds.length > 0}, ${scavengerBonusPct}
+              )
+              ON CONFLICT (tx_hash, log_index) DO NOTHING
+            `);
+            totalRewardsFound++;
+          }
+          
+          // Process equipment events
+          const equipLogs = logsInTx.filter(log => log.topics[0] === equipmentTopic);
+          for (const eLog of equipLogs) {
+            const eParsed = iface.parseLog({ topics: eLog.topics, data: eLog.data });
+            if (!eParsed) continue;
+            
+            const itemAddress = (eParsed.args.item || eParsed.args[1]).toLowerCase();
+            const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
+            
+            await db.execute(sql`
+              INSERT INTO pve_reward_events (
+                tx_hash, log_index, block_number, chain_id, activity_id, item_id,
+                amount, player_address, hero_ids, party_luck, pet_ids,
+                pet_bonus_active, scavenger_bonus_pct
+              ) VALUES (
+                ${txHash}, ${eLog.index}, ${eLog.blockNumber}, ${config.chainId},
+                ${activityIdInDb}, ${itemId}, 1, ${playerAddress},
+                ${heroIdNums}, ${partyLuck}, ${petIdNums},
+                ${petIds.length > 0}, ${scavengerBonusPct}
+              )
+              ON CONFLICT (tx_hash, log_index) DO NOTHING
+            `);
+            totalRewardsFound++;
+          }
+        } catch (parseError) {
+          continue;
+        }
+      }
+      
+      batchCount++;
+      currentBlock = endBlock + 1;
+      
+      // Update worker progress
+      updateWorkerLiveProgress(chain, workerId, {
+        currentBlock: endBlock,
+        eventsFound: totalRewardsFound,
+        completionsFound: totalCompletionsFound,
+        batchesCompleted: batchCount,
+        lastBatchAt: new Date().toISOString(),
+      });
+      
+      // Update checkpoint in DB
+      await db.execute(sql`
+        UPDATE pve_indexer_checkpoints 
+        SET last_indexed_block = ${endBlock},
+            total_completions = total_completions + ${totalCompletionsFound},
+            total_rewards = total_rewards + ${totalRewardsFound},
+            last_indexed_at = NOW()
+        WHERE chain_id = ${config.chainId}
+      `);
+      
+      if (batchCount % 25 === 0) {
+        console.log(`[PVE ${chain} W${workerId}] Block ${endBlock}/${toBlock} - ${totalCompletionsFound} completions, ${totalRewardsFound} rewards`);
+      }
+      
+    } catch (error) {
+      console.error(`[PVE ${chain} W${workerId}] Error at block ${currentBlock}:`, error.message);
+      throw error;
+    }
+  }
+  
+  return { totalRewardsFound, totalCompletionsFound, batchCount };
+}
+
+// Run a single batch for a worker
+async function runPVEWorkerBatch(chain, workerId) {
+  const config = CHAIN_CONFIGS[chain];
+  const indexerName = getWorkerIndexerName(chain, workerId);
+  
+  if (runningWorkers.get(indexerName)) {
+    return { status: 'already_running' };
+  }
+  
+  runningWorkers.set(indexerName, true);
+  
+  try {
+    const workerInfo = autoRunIntervals.get(getWorkerKey(chain, workerId));
+    if (!workerInfo) {
+      runningWorkers.set(indexerName, false);
+      return { status: 'no_worker_info' };
+    }
+    
+    const provider = getProvider(chain);
+    const latestBlock = await provider.getBlockNumber();
+    const workerTargetBlock = workerInfo.rangeEnd || latestBlock;
+    
+    const startBlock = workerInfo.currentBlock + 1;
+    const endBlock = Math.min(startBlock + BATCH_SIZE - 1, workerTargetBlock);
+    
+    if (startBlock > workerTargetBlock) {
+      runningWorkers.set(indexerName, false);
+      updateWorkerLiveProgress(chain, workerId, { completedAt: new Date().toISOString(), percentComplete: 100 });
+      return { status: 'completed' };
+    }
+    
+    updateWorkerLiveProgress(chain, workerId, {
+      isRunning: true,
+      currentBlock: startBlock,
+      targetBlock: workerTargetBlock,
+      startedAt: new Date().toISOString(),
+    });
+    
+    const result = await indexWorkerBlockRange(chain, workerId, startBlock, endBlock);
+    
+    // Update worker's current block
+    workerInfo.currentBlock = endBlock;
+    
+    const isComplete = endBlock >= workerTargetBlock;
+    
+    updateWorkerLiveProgress(chain, workerId, {
+      isRunning: false,
+      currentBlock: endBlock,
+      completedAt: isComplete ? new Date().toISOString() : null,
+      percentComplete: isComplete ? 100 : ((endBlock - workerInfo.rangeStart) / (workerTargetBlock - workerInfo.rangeStart) * 100),
+    });
+    
+    runningWorkers.set(indexerName, false);
+    
+    console.log(`[PVE ${chain} W${workerId}] Batch done: ${result.totalCompletionsFound} completions, ${result.totalRewardsFound} rewards`);
+    
+    return {
+      status: isComplete ? 'completed' : 'batch_done',
+      completionsFound: result.totalCompletionsFound,
+      rewardsFound: result.totalRewardsFound,
+      blocksIndexed: endBlock - startBlock + 1,
+      currentBlock: endBlock,
+      targetBlock: workerTargetBlock,
+    };
+    
+  } catch (error) {
+    console.error(`[PVE ${chain} W${workerId}] Batch error:`, error.message);
+    runningWorkers.set(indexerName, false);
+    updateWorkerLiveProgress(chain, workerId, { isRunning: false, lastError: error.message });
+    return { status: 'error', error: error.message };
+  }
+}
+
+// Work-stealing: Find work from another worker
+function findWorkToSteal(chain, thiefWorkerId) {
+  const RESERVATION_TIMEOUT_MS = 60000;
+  
+  let bestDonor = null;
+  let maxRemainingBlocks = 0;
+  const now = Date.now();
+  const count = activeWorkerCount[chain] || PVE_WORKERS;
+  
+  for (let w = 0; w < count; w++) {
+    if (w === thiefWorkerId) continue;
+    
+    const key = getWorkerKey(chain, w);
+    const workerInfo = autoRunIntervals.get(key);
+    if (!workerInfo) continue;
+    
+    const reservationKey = `pve_${chain}_${w}`;
+    const reservedAt = donorReservations.get(reservationKey);
+    if (reservedAt && (now - reservedAt) < RESERVATION_TIMEOUT_MS) {
+      continue;
+    }
+    
+    const progress = workerLiveProgress.get(key);
+    if (!progress || progress.completedAt) continue;
+    
+    const currentBlock = workerInfo.currentBlock || workerInfo.rangeStart || 0;
+    const targetBlock = workerInfo.rangeEnd;
+    
+    if (!targetBlock) continue;
+    
+    const remainingBlocks = targetBlock - currentBlock;
+    
+    if (remainingBlocks > maxRemainingBlocks && remainingBlocks > MIN_BLOCKS_TO_STEAL * 2) {
+      maxRemainingBlocks = remainingBlocks;
+      bestDonor = {
+        workerId: w,
+        currentBlock,
+        targetBlock,
+        remainingBlocks,
+      };
+    }
+  }
+  
+  if (!bestDonor) return null;
+  
+  const reservationKey = `pve_${chain}_${bestDonor.workerId}`;
+  donorReservations.set(reservationKey, now);
+  
+  const blocksToSteal = Math.floor(bestDonor.remainingBlocks / 2);
+  if (blocksToSteal < MIN_BLOCKS_TO_STEAL) {
+    donorReservations.delete(reservationKey);
+    return null;
+  }
+  
+  const newRangeStart = bestDonor.targetBlock - blocksToSteal;
+  const newRangeEnd = bestDonor.targetBlock;
+  
+  return {
+    donorWorkerId: bestDonor.workerId,
+    donorCurrentBlock: bestDonor.currentBlock,
+    newDonorRangeEnd: newRangeStart,
+    newRangeStart,
+    newRangeEnd,
+    blocksStolen: blocksToSteal,
+    reservationKey,
+  };
+}
+
+// Apply work-stealing
+async function applyWorkSteal(chain, thiefWorkerId, stealInfo) {
+  // Update donor's range
+  const donorKey = getWorkerKey(chain, stealInfo.donorWorkerId);
+  const donorWorkerInfo = autoRunIntervals.get(donorKey);
+  if (donorWorkerInfo) {
+    donorWorkerInfo.rangeEnd = stealInfo.newDonorRangeEnd;
+  }
+  
+  // Update thief's range
+  const thiefKey = getWorkerKey(chain, thiefWorkerId);
+  const thiefWorkerInfo = autoRunIntervals.get(thiefKey);
+  if (thiefWorkerInfo) {
+    thiefWorkerInfo.rangeStart = stealInfo.newRangeStart;
+    thiefWorkerInfo.rangeEnd = stealInfo.newRangeEnd;
+    thiefWorkerInfo.currentBlock = stealInfo.newRangeStart;
+  }
+  
+  updateWorkerLiveProgress(chain, thiefWorkerId, {
+    rangeStart: stealInfo.newRangeStart,
+    rangeEnd: stealInfo.newRangeEnd,
+    currentBlock: stealInfo.newRangeStart,
+    targetBlock: stealInfo.newRangeEnd,
+    completedAt: null,
+    percentComplete: 0,
+  });
+  
+  donorReservations.delete(stealInfo.reservationKey);
+  
+  console.log(`[PVE ${chain}] Worker ${thiefWorkerId} stole ${stealInfo.blocksStolen.toLocaleString()} blocks from worker ${stealInfo.donorWorkerId}`);
+}
+
+// Start a single worker's auto-run
+async function startPVEWorkerAutoRun(chain, workerId, rangeStart, rangeEnd, intervalMs = AUTO_RUN_INTERVAL_MS) {
+  const key = getWorkerKey(chain, workerId);
+  if (autoRunIntervals.has(key)) {
+    console.log(`[PVE ${chain}] Worker ${workerId} already running`);
+    return { status: 'already_running', workerId };
+  }
+  
+  console.log(`[PVE ${chain}] Starting worker ${workerId} (blocks ${rangeStart.toLocaleString()}-${rangeEnd ? rangeEnd.toLocaleString() : 'latest'}, interval: ${intervalMs / 1000}s)`);
+  
+  clearWorkerLiveProgress(chain, workerId);
+  
+  updateWorkerLiveProgress(chain, workerId, {
+    isRunning: false,
+    currentBlock: rangeStart,
+    targetBlock: rangeEnd || rangeStart,
+    rangeStart,
+    rangeEnd,
+    eventsFound: 0,
+    batchesCompleted: 0,
+    percentComplete: 0,
+    completedAt: null,
+  });
+  
+  const info = {
+    intervalMs,
+    workerId,
+    rangeStart,
+    rangeEnd,
+    currentBlock: rangeStart,
+    startedAt: new Date().toISOString(),
+    lastRunAt: null,
+    runsCompleted: 0,
+    interval: null,
+  };
+  
+  autoRunIntervals.set(key, info);
+  
+  // Stagger worker starts
+  const offsetMs = Math.floor((workerId / PVE_WORKERS) * intervalMs);
+  
+  (async () => {
+    try {
+      if (offsetMs > 0) {
+        await new Promise(r => setTimeout(r, offsetMs));
+      }
+      console.log(`[PVE ${chain}] Initial batch for worker ${workerId} (offset ${(offsetMs / 1000).toFixed(1)}s)`);
+      await runPVEWorkerBatch(chain, workerId);
+      info.lastRunAt = new Date().toISOString();
+      info.runsCompleted++;
+    } catch (err) {
+      console.error(`[PVE ${chain}] Initial error for worker ${workerId}:`, err.message);
+    }
+  })();
+  
+  info.interval = setInterval(async () => {
+    if (!autoRunIntervals.has(key)) return;
+    
+    try {
+      const result = await runPVEWorkerBatch(chain, workerId);
+      info.lastRunAt = new Date().toISOString();
+      info.runsCompleted++;
+      
+      // Work-stealing when completed
+      if (result.status === 'completed') {
+        const stealInfo = findWorkToSteal(chain, workerId);
+        if (stealInfo) {
+          await applyWorkSteal(chain, workerId, stealInfo);
+          console.log(`[PVE ${chain}] Worker ${workerId} continuing with stolen work`);
+        } else {
+          console.log(`[PVE ${chain}] Worker ${workerId} completed, no work to steal`);
+        }
+      }
+    } catch (err) {
+      console.error(`[PVE ${chain}] Worker ${workerId} error:`, err.message);
+    }
+  }, intervalMs);
+  
+  return { status: 'started', workerId, rangeStart, rangeEnd };
+}
+
+// Start all workers for a chain (new parallel auto-run)
+export async function startPVEWorkersAutoRun(chain, intervalMs = AUTO_RUN_INTERVAL_MS, targetWorkers = PVE_WORKERS) {
+  const config = CHAIN_CONFIGS[chain];
+  let workerCount = Math.min(targetWorkers, PVE_WORKERS);
+  let latestBlock;
+  
+  try {
+    const provider = getProvider(chain);
+    latestBlock = await provider.getBlockNumber();
+  } catch (err) {
+    console.error(`[PVE ${chain}] Failed to get latest block:`, err.message);
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const provider = getProvider(chain);
+      latestBlock = await provider.getBlockNumber();
+    } catch (err2) {
+      console.error(`[PVE ${chain}] RPC unavailable, cannot start workers`);
+      return { status: 'rpc_failed', error: err2.message };
+    }
+  }
+  
+  // Get checkpoint to know where to start from
+  const checkpoint = await getCheckpoint(config.chainId);
+  const startFromBlock = checkpoint?.last_indexed_block || 0;
+  const totalBlocks = latestBlock - startFromBlock;
+  const blocksPerWorker = Math.ceil(totalBlocks / workerCount);
+  
+  console.log(`[PVE ${chain}] Starting ${workerCount} workers (${blocksPerWorker.toLocaleString()} blocks each, from ${startFromBlock.toLocaleString()} to ${latestBlock.toLocaleString()})`);
+  
+  activeWorkerCount[chain] = workerCount;
+  
+  // Set timing for countdown
+  const now = Date.now();
+  autoRunTiming.set(`pve_${chain}`, {
+    startedAt: now,
+    lastRunAt: now,
+    intervalMs,
+    workerCount,
+  });
+  
+  const results = [];
+  
+  for (let w = 0; w < workerCount; w++) {
+    const rangeStart = startFromBlock + (w * blocksPerWorker);
+    const rangeEnd = (w === workerCount - 1) ? latestBlock : (startFromBlock + ((w + 1) * blocksPerWorker) - 1);
+    
+    await new Promise(r => setTimeout(r, 500));
+    
+    try {
+      const result = await startPVEWorkerAutoRun(chain, w, rangeStart, rangeEnd, intervalMs);
+      results.push(result);
+    } catch (err) {
+      console.error(`[PVE ${chain}] Worker ${w} failed to start:`, err.message);
+    }
+  }
+  
+  return {
+    status: 'started',
+    chain,
+    workerCount,
+    blocksPerWorker,
+    totalBlocks,
+    workers: results,
+  };
+}
+
+// Stop all workers for a chain
+export function stopPVEWorkersAutoRun(chain) {
+  const count = activeWorkerCount[chain] || PVE_WORKERS;
+  let stoppedCount = 0;
+  
+  for (let w = 0; w < count; w++) {
+    const key = getWorkerKey(chain, w);
+    const workerInfo = autoRunIntervals.get(key);
+    if (workerInfo && workerInfo.interval) {
+      clearInterval(workerInfo.interval);
+      autoRunIntervals.delete(key);
+      clearWorkerLiveProgress(chain, w);
+      stoppedCount++;
+    }
+  }
+  
+  autoRunTiming.delete(`pve_${chain}`);
+  activeWorkerCount[chain] = 0;
+  
+  console.log(`[PVE ${chain}] Stopped ${stoppedCount} workers`);
+  
+  return { status: 'stopped', stoppedCount };
+}
+
+// Run a single batch for a chain (legacy single-threaded, kept for compatibility)
 export async function runPVEIndexerBatch(chain) {
   const config = CHAIN_CONFIGS[chain];
   
@@ -803,25 +1374,43 @@ function getTimingInfo(chain) {
   };
 }
 
+// Check if workers are running for a chain
+function isWorkersRunning(chain) {
+  const count = activeWorkerCount[chain] || 0;
+  if (count === 0) return false;
+  for (let w = 0; w < count; w++) {
+    if (autoRunIntervals.has(getWorkerKey(chain, w))) return true;
+  }
+  return false;
+}
+
 // Get indexer status for all chains
 export async function getPVEIndexerStatus() {
   const dfkCheckpoint = await getCheckpoint(CHAIN_CONFIGS.dfk.chainId);
   const metisCheckpoint = await getCheckpoint(CHAIN_CONFIGS.metis.chainId);
+  
+  // Check for worker-based auto-run OR legacy single-threaded
+  const dfkAutoRunning = isWorkersRunning('dfk') || autoRunIntervals.has('pve_dfk');
+  const metisAutoRunning = isWorkersRunning('metis') || autoRunIntervals.has('pve_metis');
   
   return {
     dfk: {
       chainId: CHAIN_CONFIGS.dfk.chainId,
       checkpoint: dfkCheckpoint,
       liveProgress: liveProgress.get('dfk'),
-      isAutoRunning: autoRunIntervals.has('pve_dfk'),
+      isAutoRunning: dfkAutoRunning,
       timing: getTimingInfo('dfk'),
+      workerCount: activeWorkerCount['dfk'] || 0,
+      workers: getAllWorkerProgress('dfk'),
     },
     metis: {
       chainId: CHAIN_CONFIGS.metis.chainId,
       checkpoint: metisCheckpoint,
       liveProgress: liveProgress.get('metis'),
-      isAutoRunning: autoRunIntervals.has('pve_metis'),
+      isAutoRunning: metisAutoRunning,
       timing: getTimingInfo('metis'),
+      workerCount: activeWorkerCount['metis'] || 0,
+      workers: getAllWorkerProgress('metis'),
     },
   };
 }

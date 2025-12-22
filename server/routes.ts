@@ -23,7 +23,11 @@ import {
   getPVEIndexerLiveProgress,
   runPVEIndexerBatch, 
   startPVEIndexerAutoRun, 
-  stopPVEIndexerAutoRun, 
+  stopPVEIndexerAutoRun,
+  startPVEWorkersAutoRun,
+  stopPVEWorkersAutoRun,
+  getAllWorkerProgress as getPVEWorkerProgress,
+  PVE_WORKERS,
   resetPVEIndexer,
   calculateDropStats 
 } from "../src/etl/ingestion/huntsPatrolIndexer.js";
@@ -2640,14 +2644,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // POST /api/admin/pve/start/:chain - Start auto-run for a chain
+  // POST /api/admin/pve/start/:chain - Start auto-run with parallel workers
   app.post("/api/admin/pve/start/:chain", isAdmin, async (req: any, res: any) => {
     try {
       const { chain } = req.params;
+      const { workers = PVE_WORKERS } = req.body || {};
       if (chain !== 'dfk' && chain !== 'metis') {
         return res.status(400).json({ ok: false, error: 'chain must be dfk or metis' });
       }
-      const result = startPVEIndexerAutoRun(chain);
+      // Use new worker-based auto-run (5 parallel workers with work-stealing)
+      const result = await startPVEWorkersAutoRun(chain, 60000, workers);
       res.json({ ok: true, ...result });
     } catch (error: any) {
       console.error('[PVE Admin] Error starting auto-run:', error);
@@ -2662,7 +2668,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (chain !== 'dfk' && chain !== 'metis') {
         return res.status(400).json({ ok: false, error: 'chain must be dfk or metis' });
       }
-      const result = stopPVEIndexerAutoRun(chain);
+      // Stop worker-based auto-run
+      const result = stopPVEWorkersAutoRun(chain);
       res.json({ ok: true, ...result });
     } catch (error: any) {
       console.error('[PVE Admin] Error stopping auto-run:', error);

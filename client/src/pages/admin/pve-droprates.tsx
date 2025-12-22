@@ -16,6 +16,21 @@ interface TimingInfo {
   intervalMs: number;
 }
 
+interface WorkerProgress {
+  workerId: number;
+  progress: {
+    isRunning: boolean;
+    currentBlock: number;
+    targetBlock: number;
+    rangeStart: number;
+    rangeEnd: number;
+    eventsFound: number;
+    completionsFound: number;
+    percentComplete: number;
+  } | null;
+  isRunning: boolean;
+}
+
 interface ChainStatus {
   chainId: number;
   checkpoint: {
@@ -29,6 +44,8 @@ interface ChainStatus {
   };
   isAutoRunning: boolean;
   timing: TimingInfo | null;
+  workerCount: number;
+  workers: WorkerProgress[];
 }
 
 interface PVEStatus {
@@ -182,6 +199,9 @@ function ChainCard({
         </CardTitle>
         <CardDescription>
           Chain ID: {chainStatus.chainId} | {activityType} encounter tracking
+          {chainStatus.workerCount > 0 && (
+            <span className="ml-2 text-emerald-500">• {chainStatus.workerCount} workers active</span>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
