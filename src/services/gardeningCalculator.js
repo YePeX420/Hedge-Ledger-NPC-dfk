@@ -12,8 +12,11 @@
  */
 
 import { ethers } from 'ethers';
+import { GraphQLClient, gql } from 'graphql-request';
 
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
+const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
+const graphqlClient = new GraphQLClient(DFK_GRAPHQL_ENDPOINT);
 const QUEST_REWARD_FUND = '0x1137643FE14b032966a59Acd68EBf3c1271Df316';
 const CRYSTAL_TOKEN = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
 const JEWEL_TOKEN = '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260';
@@ -289,3 +292,160 @@ export async function calculateGardeningRewards(params) {
 }
 
 export { POOL_NAMES, MIN_REWARD_PER_STAMINA };
+
+// ==========================================
+// Hero and Pet Lookup Functions
+// ==========================================
+
+const PETCORE_ADDRESS = '0x1990F87d6BC9D9385917E3EDa0A7674411C3Cd7F';
+const PET_CORE_ABI = [
+  'function getPetV2(uint256 petId) view returns (tuple(uint256 id, uint8 originId, string name, uint8 season, uint8 eggType, uint8 rarity, uint8 element, uint8 bonusCount, uint8 profBonus, uint8 profBonusScalar, uint8 craftBonus, uint8 craftBonusScalar, uint8 combatBonus, uint8 combatBonusScalar, uint16 appearance, uint8 background, uint8 shiny, uint64 hungryAt, uint64 equippableAt, uint256 equippedTo, address fedBy, uint8 foodType))',
+];
+
+const POWER_SURGE_IDS = [90, 170];
+const SKILLED_GREENSKEEPER_IDS = [7, 86, 166];
+
+/**
+ * Fetch hero stats by ID from DFK GraphQL API
+ */
+export async function getHeroStatsById(heroId) {
+  try {
+    const query = gql`
+      query GetHero($heroId: ID!) {
+        hero(id: $heroId) {
+          id
+          normalizedId
+          mainClassStr
+          subClassStr
+          professionStr
+          level
+          wisdom
+          vitality
+          gardening
+          statGenes
+        }
+      }
+    `;
+    
+    const data = await graphqlClient.request(query, { heroId: String(heroId) });
+    if (!data?.hero) {
+      return { ok: false, error: 'Hero not found' };
+    }
+    
+    const hero = data.hero;
+    const hasGardeningGene = hero.professionStr?.toLowerCase() === 'gardening';
+    
+    return {
+      ok: true,
+      heroId: hero.normalizedId || hero.id,
+      class: hero.mainClassStr,
+      subClass: hero.subClassStr,
+      profession: hero.professionStr,
+      level: hero.level,
+      wisdom: hero.wisdom || 0,
+      vitality: hero.vitality || 0,
+      gardeningSkill: hero.gardening || 0,
+      hasGardeningGene,
+      stamina: 25 + Math.floor((hero.level || 1) / 5),
+    };
+  } catch (err) {
+    console.error('[GardeningCalc] Error fetching hero:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Fetch pet data by ID and extract gardening bonuses
+ */
+export async function getPetBonusesById(petId) {
+  try {
+    const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
+    const petContract = new ethers.Contract(PETCORE_ADDRESS, PET_CORE_ABI, provider);
+    
+    const pet = await petContract.getPetV2(petId);
+    
+    const eggType = Number(pet.eggType);
+    const profBonus = Number(pet.profBonus);
+    const profBonusScalar = Number(pet.profBonusScalar);
+    const hungryAt = Number(pet.hungryAt);
+    
+    const result = {
+      ok: true,
+      petId: pet.id.toString(),
+      name: pet.name,
+      eggType,
+      rarity: Number(pet.rarity),
+      isGardeningPet: eggType === 2,
+      profBonus,
+      profBonusScalar,
+      hungryAt,
+      isFed: Date.now() / 1000 < hungryAt,
+      powerSurgeBonus: 0,
+      skilledGreenskeeperBonus: 0,
+      bonusType: null,
+    };
+    
+    if (eggType === 2) {
+      if (POWER_SURGE_IDS.includes(profBonus)) {
+        result.powerSurgeBonus = profBonusScalar;
+        result.bonusType = 'Power Surge';
+      } else if (SKILLED_GREENSKEEPER_IDS.includes(profBonus)) {
+        result.skilledGreenskeeperBonus = profBonusScalar;
+        result.bonusType = 'Skilled Greenskeeper';
+      }
+    }
+    
+    return result;
+  } catch (err) {
+    console.error('[GardeningCalc] Error fetching pet:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Get all user LP positions across pools
+ */
+export async function getUserPoolPositions(userAddress) {
+  try {
+    const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
+    const gardener = new ethers.Contract(MASTER_GARDENER_V2, MASTER_GARDENER_ABI, provider);
+    
+    const positions = [];
+    
+    for (let poolId = 0; poolId <= 13; poolId++) {
+      try {
+        const [poolInfo, userInfo, totalAlloc] = await Promise.all([
+          gardener.poolInfo(poolId),
+          gardener.userInfo(poolId, userAddress),
+          gardener.totalAllocPoint(),
+        ]);
+        
+        const userAmount = parseFloat(ethers.formatEther(userInfo.amount || userInfo[0]));
+        if (userAmount > 0) {
+          const lpTokenAddress = poolInfo.lpToken || poolInfo[0];
+          const lpContract = new ethers.Contract(lpTokenAddress, ERC20_ABI, provider);
+          const poolTotal = await lpContract.balanceOf(MASTER_GARDENER_V2);
+          const poolTotalAmount = parseFloat(ethers.formatEther(poolTotal));
+          
+          positions.push({
+            poolId,
+            poolName: POOL_NAMES[poolId],
+            userLp: userAmount,
+            poolTotalLp: poolTotalAmount,
+            lpShare: poolTotalAmount > 0 ? userAmount / poolTotalAmount : 0,
+            lpSharePct: poolTotalAmount > 0 ? (userAmount / poolTotalAmount * 100).toFixed(4) : '0',
+            allocPoint: Number(poolInfo.allocPoint || poolInfo[1]),
+            totalAllocPoint: Number(totalAlloc),
+          });
+        }
+      } catch (err) {
+        console.warn(`[GardeningCalc] Error checking pool ${poolId}:`, err.message);
+      }
+    }
+    
+    return { ok: true, positions };
+  } catch (err) {
+    console.error('[GardeningCalc] Error fetching user positions:', err.message);
+    return { ok: false, error: err.message, positions: [] };
+  }
+}

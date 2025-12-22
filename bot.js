@@ -7252,6 +7252,42 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/gardening-calc/hero/:heroId - Fetch hero stats by ID
+  app.get('/api/admin/gardening-calc/hero/:heroId', isAdmin, async (req, res) => {
+    try {
+      const { getHeroStatsById } = await import('./src/services/gardeningCalculator.js');
+      const result = await getHeroStatsById(req.params.heroId);
+      res.json(result);
+    } catch (error) {
+      console.error('[GardeningCalc] Hero lookup error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-calc/pet/:petId - Fetch pet bonuses by ID
+  app.get('/api/admin/gardening-calc/pet/:petId', isAdmin, async (req, res) => {
+    try {
+      const { getPetBonusesById } = await import('./src/services/gardeningCalculator.js');
+      const result = await getPetBonusesById(req.params.petId);
+      res.json(result);
+    } catch (error) {
+      console.error('[GardeningCalc] Pet lookup error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-calc/wallet/:address/positions - Get all LP positions for a wallet
+  app.get('/api/admin/gardening-calc/wallet/:address/positions', isAdmin, async (req, res) => {
+    try {
+      const { getUserPoolPositions } = await import('./src/services/gardeningCalculator.js');
+      const result = await getUserPoolPositions(req.params.address);
+      res.json(result);
+    } catch (error) {
+      console.error('[GardeningCalc] Wallet positions error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   // ===========================================
   // TOURNAMENT/BATTLE-READY HEROES ADMIN ROUTES
   // ===========================================
