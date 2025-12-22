@@ -794,40 +794,47 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
               }
               
               if (expeditionData && expeditionData.heroIds.length > 0) {
-                // Distribute reward equally among all heroes in the expedition
+                // Expedition rewards work like manual quests:
+                // - CRYSTAL reward goes to first hero (index 0)
+                // - JEWEL reward goes to second hero (index 1) if exists, otherwise first hero
                 const totalAmount = BigInt(log.args.amount);
-                const heroCount = expeditionData.heroIds.length;
-                const perHeroAmount = totalAmount / BigInt(heroCount);
-                const remainder = totalAmount % BigInt(heroCount);
+                const isCrystal = rewardAddress === CRYSTAL_ADDRESS;
+                const isJewel = rewardAddress === JEWEL_ADDRESS;
                 
-                for (let i = 0; i < heroCount; i++) {
-                  const heroId = expeditionData.heroIds[i];
-                  // First hero gets any remainder from integer division
-                  const heroAmount = i === 0 ? perHeroAmount + remainder : perHeroAmount;
-                  
-                  events.push({
-                    questId: questIdNum,
-                    heroId,
-                    player: playerAddress,
-                    poolId: questInfo.questType,
-                    rewardToken: rewardAddress,
-                    rewardSymbol,
-                    rewardAmount: ethers.formatEther(heroAmount),
-                    source: 'expedition',
-                    expeditionId: expeditionData.expeditionId,
-                    heroLpStake: poolSnapshot.heroLpStake,
-                    poolTotalLp: poolSnapshot.poolTotalLp,
-                    lpTokenPrice: poolSnapshot.lpTokenPrice,
-                    blockNumber: log.blockNumber,
-                    txHash: log.transactionHash,
-                    logIndex: log.index, // Same log index - unique constraint now includes hero_id
-                    timestamp: new Date(block.timestamp * 1000),
-                  });
+                let recipientHeroId;
+                if (isCrystal) {
+                  // CRYSTAL always goes to first hero
+                  recipientHeroId = expeditionData.heroIds[0];
+                } else if (isJewel) {
+                  // JEWEL goes to second hero if exists, otherwise first hero
+                  recipientHeroId = expeditionData.heroIds.length > 1 
+                    ? expeditionData.heroIds[1] 
+                    : expeditionData.heroIds[0];
+                } else {
+                  // Unknown token type - default to first hero
+                  recipientHeroId = expeditionData.heroIds[0];
                 }
                 
-                if (expeditionData.heroIds.length > 1) {
-                  console.log(`${prefix} Distributed expedition reward to ${heroCount} heroes: ${expeditionData.heroIds.join(', ')}`);
-                }
+                events.push({
+                  questId: questIdNum,
+                  heroId: recipientHeroId,
+                  player: playerAddress,
+                  poolId: questInfo.questType,
+                  rewardToken: rewardAddress,
+                  rewardSymbol,
+                  rewardAmount: ethers.formatEther(totalAmount),
+                  source: 'expedition',
+                  expeditionId: expeditionData.expeditionId,
+                  heroLpStake: poolSnapshot.heroLpStake,
+                  poolTotalLp: poolSnapshot.poolTotalLp,
+                  lpTokenPrice: poolSnapshot.lpTokenPrice,
+                  blockNumber: log.blockNumber,
+                  txHash: log.transactionHash,
+                  logIndex: log.index,
+                  timestamp: new Date(block.timestamp * 1000),
+                });
+                
+                console.log(`${prefix} Expedition ${isCrystal ? 'CRYSTAL' : 'JEWEL'} reward assigned to hero ${recipientHeroId} (from heroes: ${expeditionData.heroIds.join(', ')})`);
               } else {
                 // Expedition data not found - store with heroId=0 as fallback
                 events.push({
