@@ -434,12 +434,12 @@ export default function GardeningCalcAdmin() {
     },
   });
 
-  const calculateMutation = useMutation({
+  const calculateMutation = useMutation<DualHeroResult>({
     mutationFn: async () => {
       const jewelPetFed = jewelPetData?.isFed ?? true;
       const crystalPetFed = crystalPetData?.isFed ?? true;
       
-      return apiRequest("POST", "/api/admin/gardening-calc/calculate-dual", {
+      const response = await apiRequest("POST", "/api/admin/gardening-calc/calculate-dual", {
         poolId: parseInt(poolId),
         playerAddress: walletAddress || "0x0000000000000000000000000000000000000000",
         lpShareOverride: walletAddress ? null : parseFloat(lpSharePct) / 100,
@@ -466,13 +466,18 @@ export default function GardeningCalcAdmin() {
           petFed: crystalPetFed,
         },
       });
+      const data = await response.json();
+      if (!data.ok) {
+        throw new Error(data.error || "Calculation failed");
+      }
+      return data;
     },
     onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "Calculation Error", description: error.message, variant: "destructive" });
     },
   });
 
-  const calcResult = calculateMutation.data as DualHeroResult | undefined;
+  const calcResult = calculateMutation.data;
 
   const handlePoolSelect = (value: string) => {
     setPoolId(value);
@@ -681,7 +686,7 @@ export default function GardeningCalcAdmin() {
                 </CardContent>
               </Card>
 
-              {calcResult?.ok && (
+              {calcResult?.ok && calcResult.jewelHero && calcResult.crystalHero && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -697,21 +702,21 @@ export default function GardeningCalcAdmin() {
                       <div className="text-center p-4 bg-purple-500/10 rounded-lg border border-purple-500/20">
                         <div className="text-xs text-muted-foreground mb-1">JEWEL Hero #{calcResult.jewelHero.heroId || "N/A"}</div>
                         <div className="text-2xl font-bold text-purple-500" data-testid="text-jewel-reward">
-                          {calcResult.totalRewards.jewel.toFixed(4)}
+                          {calcResult.totalRewards?.jewel?.toFixed(4) ?? "0.0000"}
                         </div>
                         <div className="text-sm text-muted-foreground">JEWEL</div>
                         <div className="text-xs text-muted-foreground">
-                          {calcResult.jewelHero.perStamina.toFixed(6)}/stam
+                          {calcResult.jewelHero.perStamina?.toFixed(6) ?? "0.000000"}/stam
                         </div>
                       </div>
                       <div className="text-center p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
                         <div className="text-xs text-muted-foreground mb-1">CRYSTAL Hero #{calcResult.crystalHero.heroId || "N/A"}</div>
                         <div className="text-2xl font-bold text-blue-500" data-testid="text-crystal-reward">
-                          {calcResult.totalRewards.crystal.toFixed(4)}
+                          {calcResult.totalRewards?.crystal?.toFixed(4) ?? "0.0000"}
                         </div>
                         <div className="text-sm text-muted-foreground">CRYSTAL</div>
                         <div className="text-xs text-muted-foreground">
-                          {calcResult.crystalHero.perStamina.toFixed(6)}/stam
+                          {calcResult.crystalHero.perStamina?.toFixed(6) ?? "0.000000"}/stam
                         </div>
                       </div>
                     </div>
@@ -723,22 +728,22 @@ export default function GardeningCalcAdmin() {
                           <div className="text-xs text-purple-500 font-medium mb-1">JEWEL Hero</div>
                           <div className="flex justify-between">
                             <span>Hero Factor:</span>
-                            <span className="font-mono">{calcResult.jewelHero.heroFactor.toFixed(4)}</span>
+                            <span className="font-mono">{calcResult.jewelHero.heroFactor?.toFixed(4) ?? "0.0000"}</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Pet Mult:</span>
-                            <span className="font-mono">{calcResult.jewelHero.petMultiplier.toFixed(2)}x</span>
+                            <span className="font-mono">{calcResult.jewelHero.petMultiplier?.toFixed(2) ?? "1.00"}x</span>
                           </div>
                         </div>
                         <div className="p-2 bg-blue-500/5 rounded">
                           <div className="text-xs text-blue-500 font-medium mb-1">CRYSTAL Hero</div>
                           <div className="flex justify-between">
                             <span>Hero Factor:</span>
-                            <span className="font-mono">{calcResult.crystalHero.heroFactor.toFixed(4)}</span>
+                            <span className="font-mono">{calcResult.crystalHero.heroFactor?.toFixed(4) ?? "0.0000"}</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Pet Mult:</span>
-                            <span className="font-mono">{calcResult.crystalHero.petMultiplier.toFixed(2)}x</span>
+                            <span className="font-mono">{calcResult.crystalHero.petMultiplier?.toFixed(2) ?? "1.00"}x</span>
                           </div>
                         </div>
                       </div>
@@ -746,9 +751,9 @@ export default function GardeningCalcAdmin() {
                       <h4 className="font-medium pt-2">Shared Pool Stats</h4>
                       <div className="grid grid-cols-2 gap-2">
                         <div>Pool Allocation:</div>
-                        <div className="font-mono">{(calcResult.shared.poolAllocation * 100).toFixed(1)}%</div>
+                        <div className="font-mono">{((calcResult.shared?.poolAllocation ?? 0) * 100).toFixed(1)}%</div>
                         <div>LP Share:</div>
-                        <div className="font-mono">{(calcResult.shared.lpShare * 100).toFixed(4)}%</div>
+                        <div className="font-mono">{((calcResult.shared?.lpShare ?? 0) * 100).toFixed(4)}%</div>
                       </div>
                     </div>
                   </CardContent>
