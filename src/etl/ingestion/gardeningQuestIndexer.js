@@ -254,7 +254,7 @@ async function rpcWithRetry(fn, label = 'RPC call') {
 }
 
 // Get logs using direct fetch with timeout
-async function getLogsWithRetry(fromBlock, toBlock, topics, label = 'getLogs') {
+async function getLogsWithRetry(fromBlock, toBlock, topics, label = 'getLogs', contractAddress = QUEST_REWARD_CONTRACT) {
   let lastError;
   
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -270,7 +270,7 @@ async function getLogsWithRetry(fromBlock, toBlock, topics, label = 'getLogs') {
           jsonrpc: '2.0',
           method: 'eth_getLogs',
           params: [{
-            address: QUEST_REWARD_CONTRACT,
+            address: contractAddress,
             topics,
             fromBlock: '0x' + fromBlock.toString(16),
             toBlock: '0x' + toBlock.toString(16),
@@ -391,7 +391,10 @@ async function ensureTablesExist() {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_source_idx ON gardening_quest_rewards(source)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_timestamp_idx ON gardening_quest_rewards(timestamp)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_block_idx ON gardening_quest_rewards(block_number)`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS gardening_quest_rewards_unique_idx ON gardening_quest_rewards(tx_hash, log_index)`);
+    // Drop the old unique index if it exists and create new one that includes hero_id
+    // This allows multiple hero records for the same log (expedition reward distribution)
+    await db.execute(sql`DROP INDEX IF EXISTS gardening_quest_rewards_unique_idx`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS gardening_quest_rewards_unique_idx ON gardening_quest_rewards(tx_hash, log_index, hero_id)`);
     
     tablesInitialized = true;
     console.log('[GardeningQuest] ✓ Tables initialized');
@@ -462,7 +465,10 @@ export async function updateIndexerProgress(indexerName, updates) {
 }
 
 // Fetch quest type from on-chain if not available in logs
-async function getQuestTypeFromChain(questId) {
+// POOL_ID_UNLIMITED is the "Unlimited Gardening Pool" used exclusively for expeditions
+const POOL_ID_UNLIMITED = 255;
+
+async function getQuestTypeFromChain(questId, isExpedition = false) {
   if (questTypeCache.has(questId)) {
     return questTypeCache.get(questId);
   }
@@ -474,6 +480,14 @@ async function getQuestTypeFromChain(questId) {
     questTypeCache.set(questId, questType);
     return questType;
   } catch (e) {
+    // For expeditions, getQuest() fails because expedition quest IDs use a different system
+    // Return POOL_ID_UNLIMITED (255) which is the "Unlimited Gardening Pool" for expeditions
+    if (isExpedition) {
+      questTypeCache.set(questId, POOL_ID_UNLIMITED);
+      return POOL_ID_UNLIMITED;
+    }
+    // Debug: Log when questType lookup fails for non-expedition quests
+    console.log(`[GardeningQuest] Failed to get questType for questId=${questId}: ${e.message}`);
     return null;
   }
 }
@@ -557,9 +571,9 @@ async function getQuestInfoMapFromTx(txHash) {
             }
           }
           
-          // If still no questType, fetch from chain
+          // If still no questType, fetch from chain (passing isExpedition=true for proper fallback)
           if (questType === null) {
-            questType = await getQuestTypeFromChain(questId);
+            questType = await getQuestTypeFromChain(questId, true /* isExpedition */);
           }
           
           questInfoMap.set(questId, {
@@ -592,6 +606,10 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
   // Filter by reward address (topics[3]) to only get CRYSTAL or JEWEL rewards (gardening rewards)
   const rewardMintedTopic = ethers.id('RewardMinted(uint256,address,uint256,address,uint256,uint256)');
   
+  // ExpeditionIterationProcessed event topic for fetching heroIds for expedition rewards
+  // event ExpeditionIterationProcessed(uint256 indexed expeditionId, uint256 indexed questId, address indexed player, uint256[] heroIds, ...)
+  const expeditionIterationTopic = ethers.id('ExpeditionIterationProcessed(uint256,uint256,address,uint256[],uint256,uint256,uint40,uint16,uint16)');
+  
   // Pad addresses to 32 bytes for topic filter
   const crystalTopic = '0x' + CRYSTAL_ADDRESS.slice(2).padStart(64, '0');
   const jewelTopic = '0x' + JEWEL_ADDRESS.slice(2).padStart(64, '0');
@@ -615,14 +633,54 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
         console.log(`${prefix} Querying blocks ${currentBlock.toLocaleString()}-${endBlock.toLocaleString()}...`);
       }
       
-      // Query CRYSTAL and JEWEL rewards separately and merge
-      const [crystalLogs, jewelLogs] = await Promise.all([
+      // Query CRYSTAL and JEWEL rewards separately, plus ExpeditionIterationProcessed events for heroIds
+      const [crystalLogs, jewelLogs, expeditionLogs] = await Promise.all([
         getLogsWithRetry(currentBlock, endBlock, [rewardMintedTopic, null, null, crystalTopic], `W${workerId} CRYSTAL ${currentBlock}-${endBlock}`),
         getLogsWithRetry(currentBlock, endBlock, [rewardMintedTopic, null, null, jewelTopic], `W${workerId} JEWEL ${currentBlock}-${endBlock}`),
+        getLogsWithRetry(currentBlock, endBlock, [expeditionIterationTopic], `W${workerId} ExpeditionIteration ${currentBlock}-${endBlock}`, QUEST_CORE_V3),
       ]);
       
+      // Build a map of txHash+questId -> heroIds from ExpeditionIterationProcessed events
+      // event ExpeditionIterationProcessed(uint256 indexed expeditionId, uint256 indexed questId, address indexed player, uint256[] heroIds, uint256 iterationsProcessed, uint256 totalFee, uint40 lastClaimedAt, uint16 staminaPotions, uint16 petTreats)
+      const expeditionHeroMap = new Map(); // key: txHash:questId, value: { heroIds, expeditionId }
+      for (const expLog of expeditionLogs) {
+        try {
+          const txHash = expLog.transactionHash;
+          const questId = BigInt(expLog.topics[2]); // topics[2] = questId (indexed)
+          const expeditionId = BigInt(expLog.topics[1]); // topics[1] = expeditionId (indexed)
+          
+          // Use ethers AbiCoder to properly decode the non-indexed params
+          // Data layout: uint256[] heroIds, uint256 iterationsProcessed, uint256 totalFee, uint40 lastClaimedAt, uint16 staminaPotions, uint16 petTreats
+          const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+          const decoded = abiCoder.decode(
+            ['uint256[]', 'uint256', 'uint256', 'uint40', 'uint16', 'uint16'],
+            expLog.data
+          );
+          
+          const heroIds = decoded[0].map(h => Number(h));
+          
+          if (heroIds.length > 0) {
+            const key = `${txHash}:${questId}`;
+            expeditionHeroMap.set(key, { heroIds, expeditionId: Number(expeditionId) });
+          }
+        } catch (e) {
+          // Log decoding errors for debugging
+          console.log(`${prefix} Failed to decode ExpeditionIterationProcessed: ${e.message}`);
+        }
+      }
+      
       const rawLogs = [...crystalLogs, ...jewelLogs];
-      console.log(`${prefix} Got ${rawLogs.length} CRYSTAL/JEWEL logs (${crystalLogs.length} CRYSTAL, ${jewelLogs.length} JEWEL)`);
+      if (expeditionLogs.length > 0) {
+        console.log(`${prefix} Got ${rawLogs.length} CRYSTAL/JEWEL logs (${crystalLogs.length} CRYSTAL, ${jewelLogs.length} JEWEL), ${expeditionLogs.length} expedition events, ${expeditionHeroMap.size} decoded entries`);
+        // Debug: show first expedition entry
+        if (expeditionHeroMap.size > 0) {
+          const firstKey = expeditionHeroMap.keys().next().value;
+          const firstVal = expeditionHeroMap.get(firstKey);
+          console.log(`${prefix} Sample expedition key: ${firstKey} -> heroIds: [${firstVal.heroIds.join(',')}]`);
+        }
+      } else {
+        console.log(`${prefix} Got ${rawLogs.length} CRYSTAL/JEWEL logs (${crystalLogs.length} CRYSTAL, ${jewelLogs.length} JEWEL)`);
+      }
       
       // Parse raw RPC logs manually (avoid ethers parseLog stack overflow)
       // RewardMinted(uint256 indexed questId, address indexed player, uint256 heroId, address indexed reward, uint256 amount, uint256 data)
@@ -663,10 +721,13 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
       if (logs.length > 0) {
         const events = [];
         const txQuestInfoMaps = new Map(); // txHash -> Map<questId, questInfo>
+        const blockCache = new Map(); // blockNumber -> block for timestamp lookups
         
         for (const log of logs) {
           const txHash = log.transactionHash;
-          const questId = Number(log.args.questId);
+          const questIdBigInt = log.args.questId; // Keep as BigInt to preserve full precision
+          const questIdNum = Number(questIdBigInt); // Number for questInfoMap lookup
+          const heroIdFromEvent = Number(log.args.heroId);
           
           // Get quest info map for this transaction (cached)
           if (!txQuestInfoMaps.has(txHash)) {
@@ -675,11 +736,22 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
           }
           
           const questInfoMap = txQuestInfoMaps.get(txHash);
-          const questInfo = questInfoMap.get(questId);
+          const questInfo = questInfoMap.get(questIdNum);
           
-          // Include gardening quests (types 0-14) from both manual quests and expeditions
-          if (questInfo && questInfo.questType !== null && questInfo.questType >= 0 && questInfo.questType <= 14) {
-            const block = await provider.getBlock(log.blockNumber);
+          // Include gardening quests (types 0-14 for regular pools, 255 for unlimited expedition pool)
+          const isGardeningQuest = questInfo && questInfo.questType !== null && 
+            ((questInfo.questType >= 0 && questInfo.questType <= 14) || questInfo.questType === POOL_ID_UNLIMITED);
+          
+          if (questInfo && questInfo.source === 'expedition' && heroIdFromEvent === 0) {
+            console.log(`${prefix} Found expedition reward: questId=${questIdNum}, heroIdFromEvent=${heroIdFromEvent}, questType=${questInfo.questType}`);
+          }
+          if (isGardeningQuest) {
+            // Cache block lookup for timestamp
+            if (!blockCache.has(log.blockNumber)) {
+              const block = await provider.getBlock(log.blockNumber);
+              blockCache.set(log.blockNumber, block);
+            }
+            const block = blockCache.get(log.blockNumber);
             const rewardAddress = log.args.reward.toLowerCase();
             const rewardSymbol = TOKEN_SYMBOLS[rewardAddress] || 'ITEM';
             const playerAddress = log.args.player.toLowerCase();
@@ -687,24 +759,95 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
             // Fetch pool value snapshot at reward block for yield validation
             const poolSnapshot = await getPoolValueSnapshot(questInfo.questType, playerAddress, log.blockNumber);
             
-            events.push({
-              questId,
-              heroId: Number(log.args.heroId),
-              player: playerAddress,
-              poolId: questInfo.questType,
-              rewardToken: rewardAddress,
-              rewardSymbol,
-              rewardAmount: ethers.formatEther(log.args.amount),
-              source: questInfo.source,
-              expeditionId: questInfo.expeditionId,
-              heroLpStake: poolSnapshot.heroLpStake,
-              poolTotalLp: poolSnapshot.poolTotalLp,
-              lpTokenPrice: poolSnapshot.lpTokenPrice,
-              blockNumber: log.blockNumber,
-              txHash: log.transactionHash,
-              logIndex: log.index,
-              timestamp: new Date(block.timestamp * 1000),
-            });
+            // Check if this is an expedition reward (heroId=0) - need to distribute across heroes
+            if (questInfo.source === 'expedition' && heroIdFromEvent === 0) {
+              // Look up heroIds from ExpeditionIterationProcessed event
+              // Use original BigInt questId for consistent key format (preserves full precision)
+              const expeditionKey = `${txHash}:${questIdBigInt}`;
+              const expeditionData = expeditionHeroMap.get(expeditionKey);
+              
+              // Debug: Log expedition matching attempts
+              if (expeditionHeroMap.size > 0) {
+                console.log(`${prefix} Checking expedition key: ${expeditionKey}, found: ${!!expeditionData}`);
+              }
+              
+              if (expeditionData && expeditionData.heroIds.length > 0) {
+                // Distribute reward equally among all heroes in the expedition
+                const totalAmount = BigInt(log.args.amount);
+                const heroCount = expeditionData.heroIds.length;
+                const perHeroAmount = totalAmount / BigInt(heroCount);
+                const remainder = totalAmount % BigInt(heroCount);
+                
+                for (let i = 0; i < heroCount; i++) {
+                  const heroId = expeditionData.heroIds[i];
+                  // First hero gets any remainder from integer division
+                  const heroAmount = i === 0 ? perHeroAmount + remainder : perHeroAmount;
+                  
+                  events.push({
+                    questId: questIdNum,
+                    heroId,
+                    player: playerAddress,
+                    poolId: questInfo.questType,
+                    rewardToken: rewardAddress,
+                    rewardSymbol,
+                    rewardAmount: ethers.formatEther(heroAmount),
+                    source: 'expedition',
+                    expeditionId: expeditionData.expeditionId,
+                    heroLpStake: poolSnapshot.heroLpStake,
+                    poolTotalLp: poolSnapshot.poolTotalLp,
+                    lpTokenPrice: poolSnapshot.lpTokenPrice,
+                    blockNumber: log.blockNumber,
+                    txHash: log.transactionHash,
+                    logIndex: log.index, // Same log index - unique constraint now includes hero_id
+                    timestamp: new Date(block.timestamp * 1000),
+                  });
+                }
+                
+                if (expeditionData.heroIds.length > 1) {
+                  console.log(`${prefix} Distributed expedition reward to ${heroCount} heroes: ${expeditionData.heroIds.join(', ')}`);
+                }
+              } else {
+                // Expedition data not found - store with heroId=0 as fallback
+                events.push({
+                  questId: questIdNum,
+                  heroId: 0,
+                  player: playerAddress,
+                  poolId: questInfo.questType,
+                  rewardToken: rewardAddress,
+                  rewardSymbol,
+                  rewardAmount: ethers.formatEther(log.args.amount),
+                  source: 'expedition',
+                  expeditionId: questInfo.expeditionId,
+                  heroLpStake: poolSnapshot.heroLpStake,
+                  poolTotalLp: poolSnapshot.poolTotalLp,
+                  lpTokenPrice: poolSnapshot.lpTokenPrice,
+                  blockNumber: log.blockNumber,
+                  txHash: log.transactionHash,
+                  logIndex: log.index,
+                  timestamp: new Date(block.timestamp * 1000),
+                });
+              }
+            } else {
+              // Manual quest or expedition with non-zero heroId - store as-is
+              events.push({
+                questId: questIdNum,
+                heroId: heroIdFromEvent,
+                player: playerAddress,
+                poolId: questInfo.questType,
+                rewardToken: rewardAddress,
+                rewardSymbol,
+                rewardAmount: ethers.formatEther(log.args.amount),
+                source: questInfo.source,
+                expeditionId: questInfo.expeditionId,
+                heroLpStake: poolSnapshot.heroLpStake,
+                poolTotalLp: poolSnapshot.poolTotalLp,
+                lpTokenPrice: poolSnapshot.lpTokenPrice,
+                blockNumber: log.blockNumber,
+                txHash: log.transactionHash,
+                logIndex: log.index,
+                timestamp: new Date(block.timestamp * 1000),
+              });
+            }
           }
         }
         
@@ -1355,6 +1498,39 @@ export async function getHeroStats(heroId) {
     firstQuest: stats.firstQuest,
     lastQuest: stats.lastQuest,
   };
+}
+
+// Get expedition records with hero_id=0 that need to be reprocessed
+export async function getExpeditionZeroHeroRecords() {
+  const records = await db.select({
+    blockNumber: gardeningQuestRewards.blockNumber,
+    txHash: gardeningQuestRewards.txHash,
+    count: sql`COUNT(*)`,
+  })
+    .from(gardeningQuestRewards)
+    .where(sql`${gardeningQuestRewards.source} = 'expedition' AND ${gardeningQuestRewards.heroId} = 0`)
+    .groupBy(gardeningQuestRewards.blockNumber, gardeningQuestRewards.txHash);
+  
+  return records;
+}
+
+// Delete expedition records with hero_id=0 so they can be reindexed properly
+export async function deleteExpeditionZeroHeroRecords() {
+  const result = await db.delete(gardeningQuestRewards)
+    .where(sql`${gardeningQuestRewards.source} = 'expedition' AND ${gardeningQuestRewards.heroId} = 0`);
+  
+  return result;
+}
+
+// Find the earliest block with hero_id=0 expedition records to know where to reset
+export async function getEarliestExpeditionZeroHeroBlock() {
+  const [record] = await db.select({
+    minBlock: sql`MIN(${gardeningQuestRewards.blockNumber})`,
+  })
+    .from(gardeningQuestRewards)
+    .where(sql`${gardeningQuestRewards.source} = 'expedition' AND ${gardeningQuestRewards.heroId} = 0`);
+  
+  return record?.minBlock ? Number(record.minBlock) : null;
 }
 
 export async function resetGardeningQuestIndexer(clearRewards = true) {

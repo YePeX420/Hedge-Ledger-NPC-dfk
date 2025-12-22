@@ -7075,6 +7075,69 @@ async function startAdminWebServer() {
     }
   });
   
+  // GET /api/admin/gardening-quest/expedition-zero-hero-stats - Check for expedition records with hero_id=0 that need reprocessing
+  app.get('/api/admin/gardening-quest/expedition-zero-hero-stats', isAdmin, async (req, res) => {
+    try {
+      const { getExpeditionZeroHeroRecords, getEarliestExpeditionZeroHeroBlock } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      const records = await getExpeditionZeroHeroRecords();
+      const earliestBlock = await getEarliestExpeditionZeroHeroBlock();
+      res.json({ 
+        zeroHeroRecordsCount: records.length, 
+        earliestBlock,
+        sampleRecords: records.slice(0, 10),
+        message: records.length > 0 
+          ? `Found ${records.length} expedition records with hero_id=0 that need reprocessing. Earliest block: ${earliestBlock}`
+          : 'No expedition records with hero_id=0 found - all rewards properly attributed.'
+      });
+    } catch (error) {
+      console.error('[API] Error checking expedition zero-hero records:', error);
+      res.status(500).json({ error: 'Failed to check expedition records', details: error.message });
+    }
+  });
+  
+  // POST /api/admin/gardening-quest/backfill-expeditions - Delete hero_id=0 expedition records and reindex from earliest block
+  app.post('/api/admin/gardening-quest/backfill-expeditions', isAdmin, async (req, res) => {
+    try {
+      const { 
+        deleteExpeditionZeroHeroRecords, 
+        getEarliestExpeditionZeroHeroBlock,
+        resetGardeningQuestToBlock,
+        startGardeningWorkersAutoRun
+      } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
+      
+      const earliestBlock = await getEarliestExpeditionZeroHeroBlock();
+      if (!earliestBlock) {
+        return res.json({ 
+          success: true, 
+          message: 'No expedition records with hero_id=0 found - no backfill needed',
+          deletedRecords: 0
+        });
+      }
+      
+      // Delete the bad records first
+      await deleteExpeditionZeroHeroRecords();
+      console.log(`[GardeningQuest] Deleted expedition records with hero_id=0`);
+      
+      // Reset indexer to earliest block without clearing all rewards
+      const result = await resetGardeningQuestToBlock(earliestBlock, false);
+      console.log(`[GardeningQuest] Reset to block ${earliestBlock} for backfill`);
+      
+      // Start auto-run to reindex
+      await startGardeningWorkersAutoRun();
+      console.log(`[GardeningQuest] Started workers for backfill`);
+      
+      res.json({ 
+        success: true, 
+        message: `Deleted hero_id=0 expedition records and started reindexing from block ${earliestBlock}`,
+        earliestBlock,
+        ...result
+      });
+    } catch (error) {
+      console.error('[API] Error backfilling expeditions:', error);
+      res.status(500).json({ error: 'Failed to backfill expeditions', details: error.message });
+    }
+  });
+  
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
     try {
