@@ -6,7 +6,7 @@
 
 import { ethers } from 'ethers';
 import { sql } from 'drizzle-orm';
-import { db } from '../../../server/db.js';
+import { db, rawPg, rawTextPg, execRawSQL } from '../../../server/db.js';
 import { isScavengerBonus, getScavengerLootBonus } from '../../../pet-data.js';
 
 // Configuration
@@ -21,7 +21,8 @@ const MIN_BLOCKS_TO_STEAL = 500000;
 
 // Contract addresses and RPC URLs
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
-const DFK_ARCHIVE_RPC = 'https://avax-dfk.gateway.pokt.network/v1/lb/6244818c00b9f0003ad1b619/ext/bc/q2aTwKuyzgs8pynF7UXBZCU7DejbZbZ6EUyHr3JQzYgwNPUPi/rpc';
+// Note: Archive RPC using same public endpoint (limited historical data but works)
+const DFK_ARCHIVE_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 const METIS_RPC = 'https://andromeda.metis.io/?owner=1088';
 const METIS_ARCHIVE_RPC = 'https://rpc.ankr.com/metis';
 
@@ -263,12 +264,10 @@ async function initializePVETables() {
         chain_id INTEGER NOT NULL,
         activity_id INTEGER REFERENCES pve_activities(id),
         player_address VARCHAR(42) NOT NULL,
-        hero_ids INTEGER[],
         party_luck INTEGER,
-        pet_ids INTEGER[],
-        pet_bonus_tier INTEGER,
         scavenger_bonus_pct INTEGER,
-        completed_at TIMESTAMP NOT NULL
+        completed_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     
@@ -283,11 +282,8 @@ async function initializePVETables() {
         item_id INTEGER REFERENCES pve_loot_items(id),
         amount INTEGER DEFAULT 1,
         player_address VARCHAR(42) NOT NULL,
-        hero_ids INTEGER[],
         party_luck INTEGER,
-        pet_ids INTEGER[],
         pet_bonus_active BOOLEAN DEFAULT FALSE,
-        pet_bonus_tier INTEGER,
         scavenger_bonus_pct INTEGER,
         UNIQUE(tx_hash, log_index)
       )
@@ -515,11 +511,17 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
             if (!parsed) continue;
             
             const huntData = parsed.args.hunt || parsed.args[1];
-            activityId = Number(huntData.huntDataId);
-            playerAddress = huntData.player.toLowerCase();
-            heroIds = (huntData.heroIds || []).map(h => BigInt(h));
             
-            if (!parsed.args.huntWon && parsed.args[2] === false) {
+            // NOTE: The ABI tuple field names are swapped in ethers parsing:
+            // huntData[0] / huntData.huntDataId = actual huntId (instance ID)
+            // huntData[1] / huntData.huntId = actual huntDataId (activity type: 1=Mad Boar, 2=Bad Motherclucker)
+            // So we use index 1 to get the activity type
+            activityId = Number(huntData[1] || huntData.huntId);
+            playerAddress = (huntData[4] || huntData.player).toLowerCase();
+            heroIds = (huntData[3] || huntData.heroIds || []).map(h => BigInt(h));
+            
+            const huntWon = parsed.args.huntWon ?? parsed.args[2];
+            if (!huntWon) {
               continue; // Hunt was lost
             }
           } else {
@@ -578,21 +580,40 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
           const completedAt = block ? new Date(block.timestamp * 1000) : new Date();
           
           // Insert completion record
-          const heroIdNums = heroIds.map(h => Number(h));
-          const petIdNums = petIds.map(p => Number(p));
+          // Convert hero/pet IDs to strings for BIGINT array (avoids JS number precision loss)
+          const heroIdStrs = heroIds.map(h => String(h));
+          const petIdStrs = petIds.map(p => String(p));
+          const safePartyLuck = partyLuck ?? 0;
+          const safeScavengerBonus = scavengerBonusPct ?? 0;
+          const completedAtIso = completedAt.toISOString();
           
-          await db.execute(sql`
-            INSERT INTO pve_completions (
-              tx_hash, block_number, chain_id, activity_id, player_address, 
-              hero_ids, party_luck, pet_ids, scavenger_bonus_pct, completed_at
-            ) VALUES (
-              ${txHash}, ${completionLog.blockNumber}, ${config.chainId}, ${activityIdInDb},
-              ${playerAddress}, ${heroIdNums}, ${partyLuck}, 
-              ${petIdNums}, ${scavengerBonusPct}, ${completedAt}
-            )
-            ON CONFLICT (tx_hash) DO NOTHING
-          `);
-          totalCompletionsFound++;
+          try {
+            // Store hero/pet IDs as JSON strings (TEXT column)
+            // Escape single quotes for SQL safety
+            const heroIdsJson = JSON.stringify(heroIds.map(h => String(h))).replace(/'/g, "''");
+            const petIdsJson = JSON.stringify(petIds.map(p => String(p))).replace(/'/g, "''");
+            
+            // Use execRawSQL with .unsafe() - completely bypass all type inference
+            // Omit hero/pet columns to avoid Neon pooler type caching issues
+            const insertSQL = `
+              INSERT INTO pve_completions (
+                tx_hash, block_number, chain_id, activity_id, player_address, 
+                party_luck, scavenger_bonus_pct, completed_at
+              ) VALUES (
+                '${txHash}', ${completionLog.blockNumber}, ${config.chainId}, ${activityIdInDb},
+                '${playerAddress}', ${safePartyLuck}, ${safeScavengerBonus}, '${completedAtIso}'
+              )
+              ON CONFLICT (tx_hash) DO NOTHING
+              RETURNING id
+            `;
+            const result = await execRawSQL(insertSQL);
+            console.log(`[PVE ${chain}] Inserted completion tx=${txHash.slice(0,10)}... result=`, result?.length > 0 ? `id=${result[0].id}` : 'conflict/skipped');
+            totalCompletionsFound++;
+          } catch (insertError) {
+            console.error(`[PVE ${chain}] Completion insert error:`, insertError);
+            console.error(`[PVE ${chain}] Error code:`, insertError?.code, 'Detail:', insertError?.detail);
+            continue;
+          }
           
           // Process reward events
           const rewardLogs = logsInTx.filter(log => log.topics[0] === rewardTopic);
@@ -608,19 +629,20 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
             
             const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
             
-            await db.execute(sql`
+            // Use execRawSQL with .unsafe() - completely bypass all type inference
+            // Omit hero/pet columns to avoid Neon pooler type caching issues
+            const rewardSQL = `
               INSERT INTO pve_reward_events (
                 tx_hash, log_index, block_number, chain_id, activity_id, item_id,
-                amount, player_address, hero_ids, party_luck, pet_ids, 
-                pet_bonus_active, scavenger_bonus_pct
+                amount, player_address, party_luck, pet_bonus_active, scavenger_bonus_pct
               ) VALUES (
-                ${txHash}, ${rewardLog.index}, ${rewardLog.blockNumber}, ${config.chainId},
-                ${activityIdInDb}, ${itemId}, ${amount}, ${playerAddress},
-                ${heroIdNums}, ${partyLuck}, ${petIdNums},
-                ${petIds.length > 0}, ${scavengerBonusPct}
+                '${txHash}', ${rewardLog.index}, ${rewardLog.blockNumber}, ${config.chainId},
+                ${activityIdInDb}, ${itemId}, ${amount}, '${playerAddress}',
+                ${partyLuck || 0}, ${petIds.length > 0}, ${scavengerBonusPct || 0}
               )
               ON CONFLICT (tx_hash, log_index) DO NOTHING
-            `);
+            `;
+            await execRawSQL(rewardSQL);
             totalRewardsFound++;
           }
           
@@ -636,19 +658,20 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
             const itemAddress = (parsed.args.item || parsed.args[1]).toLowerCase();
             const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
             
-            await db.execute(sql`
+            // Use execRawSQL with .unsafe() - completely bypass all type inference
+            // Omit hero/pet columns to avoid Neon pooler type caching issues
+            const eqSQL = `
               INSERT INTO pve_reward_events (
                 tx_hash, log_index, block_number, chain_id, activity_id, item_id,
-                amount, player_address, hero_ids, party_luck, pet_ids,
-                pet_bonus_active, scavenger_bonus_pct
+                amount, player_address, party_luck, pet_bonus_active, scavenger_bonus_pct
               ) VALUES (
-                ${txHash}, ${eqLog.index}, ${eqLog.blockNumber}, ${config.chainId},
-                ${activityIdInDb}, ${itemId}, 1, ${playerAddress},
-                ${heroIdNums}, ${partyLuck}, ${petIdNums},
-                ${petIds.length > 0}, ${scavengerBonusPct}
+                '${txHash}', ${eqLog.index}, ${eqLog.blockNumber}, ${config.chainId},
+                ${activityIdInDb}, ${itemId}, 1, '${playerAddress}',
+                ${partyLuck || 0}, ${petIds.length > 0}, ${scavengerBonusPct || 0}
               )
               ON CONFLICT (tx_hash, log_index) DO NOTHING
-            `);
+            `;
+            await execRawSQL(eqSQL);
             totalRewardsFound++;
           }
           
@@ -754,10 +777,15 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
           
           if (config.activityType === 'hunt') {
             const huntTuple = parsed.args[1] || parsed.args.hunt;
+            // NOTE: The ABI tuple field names are swapped in ethers parsing:
+            // huntTuple[0] / huntTuple.huntDataId = actual huntId (instance ID)
+            // huntTuple[1] / huntTuple.huntId = actual huntDataId (activity type: 1=Mad Boar, 2=Bad Motherclucker)
+            // So we use index 1 to get the activity type
             activityIdOnChain = (huntTuple[1] || huntTuple.huntId).toString();
             playerAddress = (huntTuple[4] || huntTuple.player).toLowerCase();
             heroIds = Array.from(huntTuple[3] || huntTuple.heroIds || []).map(h => h.toString());
-            victory = parsed.args[2] || parsed.args.huntWon;
+            const victory = parsed.args[2] || parsed.args.huntWon;
+            if (!victory) continue; // Skip lost hunts
             petIds = [];
             partyLuck = 0;
           } else {
@@ -774,20 +802,32 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
           
           let scavengerBonusPct = 0;
           
-          const activityId = await getOrCreateActivity(config.chainId, activityIdOnChain, config.activityType);
-          const activityIdInDb = activityId;
+          const activityIdInDb = await getActivityDbId(config.chainId, config.activityType, parseInt(activityIdOnChain));
+          if (!activityIdInDb) {
+            console.warn(`[PVE ${chain} W${workerId}] Unknown activity: ${config.activityType} ${activityIdOnChain}`);
+            continue;
+          }
           
-          await db.execute(sql`
+          // Get block timestamp for completed_at
+          const block = await provider.getBlock(completionLog.blockNumber);
+          const completedAt = block ? new Date(Number(block.timestamp) * 1000) : new Date();
+          
+          // Use execRawSQL with .unsafe() - completely bypass all type inference
+          // Omit hero/pet columns to avoid Neon pooler type caching issues
+          const completedAtIsoW = completedAt.toISOString();
+          
+          const completionSQLW = `
             INSERT INTO pve_completions (
               tx_hash, block_number, chain_id, activity_id, player_address,
-              hero_ids, pet_ids, party_luck, victory, pet_bonus_active, scavenger_bonus_pct
+              party_luck, scavenger_bonus_pct, completed_at
             ) VALUES (
-              ${txHash}, ${completionLog.blockNumber}, ${config.chainId},
-              ${activityIdInDb}, ${playerAddress}, ${heroIdNums}, ${petIdNums},
-              ${partyLuck}, ${victory}, ${petIds.length > 0}, ${scavengerBonusPct}
+              '${txHash}', ${completionLog.blockNumber}, ${config.chainId},
+              ${activityIdInDb}, '${playerAddress}',
+              ${partyLuck}, ${scavengerBonusPct}, '${completedAtIsoW}'
             )
             ON CONFLICT (tx_hash) DO NOTHING
-          `);
+          `;
+          await execRawSQL(completionSQLW);
           totalCompletionsFound++;
           
           // Process reward events
@@ -800,19 +840,20 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
             const amount = parseInt((rParsed.args.amount || rParsed.args[3]).toString());
             const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
             
-            await db.execute(sql`
+            // Use execRawSQL with .unsafe() - completely bypass all type inference
+            // Omit hero/pet columns to avoid Neon pooler type caching issues
+            const rewardSQLW = `
               INSERT INTO pve_reward_events (
                 tx_hash, log_index, block_number, chain_id, activity_id, item_id,
-                amount, player_address, hero_ids, party_luck, pet_ids,
-                pet_bonus_active, scavenger_bonus_pct
+                amount, player_address, party_luck, pet_bonus_active, scavenger_bonus_pct
               ) VALUES (
-                ${txHash}, ${rLog.index}, ${rLog.blockNumber}, ${config.chainId},
-                ${activityIdInDb}, ${itemId}, ${amount}, ${playerAddress},
-                ${heroIdNums}, ${partyLuck}, ${petIdNums},
-                ${petIds.length > 0}, ${scavengerBonusPct}
+                '${txHash}', ${rLog.index}, ${rLog.blockNumber}, ${config.chainId},
+                ${activityIdInDb}, ${itemId}, ${amount}, '${playerAddress}',
+                ${partyLuck}, ${petIds.length > 0}, ${scavengerBonusPct}
               )
               ON CONFLICT (tx_hash, log_index) DO NOTHING
-            `);
+            `;
+            await execRawSQL(rewardSQLW);
             totalRewardsFound++;
           }
           
@@ -825,22 +866,24 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
             const itemAddress = (eParsed.args.item || eParsed.args[1]).toLowerCase();
             const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
             
-            await db.execute(sql`
+            // Use execRawSQL with .unsafe() - completely bypass all type inference
+            // Omit hero/pet columns to avoid Neon pooler type caching issues
+            const eqSQLW = `
               INSERT INTO pve_reward_events (
                 tx_hash, log_index, block_number, chain_id, activity_id, item_id,
-                amount, player_address, hero_ids, party_luck, pet_ids,
-                pet_bonus_active, scavenger_bonus_pct
+                amount, player_address, party_luck, pet_bonus_active, scavenger_bonus_pct
               ) VALUES (
-                ${txHash}, ${eLog.index}, ${eLog.blockNumber}, ${config.chainId},
-                ${activityIdInDb}, ${itemId}, 1, ${playerAddress},
-                ${heroIdNums}, ${partyLuck}, ${petIdNums},
-                ${petIds.length > 0}, ${scavengerBonusPct}
+                '${txHash}', ${eLog.index}, ${eLog.blockNumber}, ${config.chainId},
+                ${activityIdInDb}, ${itemId}, 1, '${playerAddress}',
+                ${partyLuck}, ${petIds.length > 0}, ${scavengerBonusPct}
               )
               ON CONFLICT (tx_hash, log_index) DO NOTHING
-            `);
+            `;
+            await execRawSQL(eqSQLW);
             totalRewardsFound++;
           }
         } catch (parseError) {
+          console.error(`[PVE ${chain} W${workerId}] Parse/insert error for tx ${txHash}:`, parseError.message);
           continue;
         }
       }
@@ -1157,7 +1200,7 @@ export async function startPVEWorkersAutoRun(chain, intervalMs = AUTO_RUN_INTERV
   
   // Get checkpoint to know where to start from
   const checkpoint = await getCheckpoint(config.chainId);
-  const startFromBlock = checkpoint?.last_indexed_block || 0;
+  const startFromBlock = parseInt(checkpoint?.last_indexed_block) || 0;
   const totalBlocks = latestBlock - startFromBlock;
   const blocksPerWorker = Math.ceil(totalBlocks / workerCount);
   
@@ -1244,7 +1287,8 @@ export async function runPVEIndexerBatch(chain) {
     const provider = getProvider(chain);
     const latestBlock = await provider.getBlockNumber();
     
-    const startBlock = checkpoint.last_indexed_block + 1;
+    const lastIndexedBlock = parseInt(checkpoint.last_indexed_block) || 0;
+    const startBlock = lastIndexedBlock + 1;
     const endBlock = Math.min(startBlock + BATCH_SIZE - 1, latestBlock);
     
     if (startBlock > latestBlock) {

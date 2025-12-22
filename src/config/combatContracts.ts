@@ -10,8 +10,8 @@ import { ethers } from 'ethers';
 export const COMBAT_CONTRACTS = {
   dfk: {
     rpcUrl: 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc',
-    // POKT archive RPC for historical state queries (hero stats at past blocks)
-    archiveRpcUrl: 'https://avax-dfk.gateway.pokt.network/v1/lb/6244818c00b9f0003ad1b619/ext/bc/q2aTwKuyzgs8pynF7UXBZCU7DejbZbZ6EUyHr3JQzYgwNPUPi/rpc',
+    // Archive RPC using public endpoint (limited historical state but works)
+    archiveRpcUrl: 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc',
     chainId: 53935,
     // HuntsDiamond - Void Hunts contract on DFK Chain
     huntingContract: '0xEaC69796Cff468ED1694A6FfAc4cbC23bbe33aFa',
