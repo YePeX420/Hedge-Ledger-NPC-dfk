@@ -29,6 +29,7 @@ import AdminPoolIndexerV1 from "@/pages/admin/pool-indexer-v1";
 import AdminPoolIndexerHarmony from "@/pages/admin/pool-indexer-harmony";
 import AdminJeweler from "@/pages/admin/jeweler";
 import AdminGardeningQuest from "@/pages/admin/gardening-quest";
+import AdminGardeningCalc from "@/pages/admin/gardening-calc";
 import AdminBattleReady from "@/pages/admin/battle-ready";
 import AdminPVEDropRates from "@/pages/admin/pve-droprates";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
@@ -226,6 +227,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminGardeningQuest />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/gardening-calc">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminGardeningCalc />
           </ProtectedAdminPage>
         )}
       </Route>

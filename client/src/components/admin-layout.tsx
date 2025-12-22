@@ -23,7 +23,8 @@ import {
   Gem,
   Sprout,
   RefreshCw,
-  Crown
+  Crown,
+  Calculator
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -47,6 +48,7 @@ const navItems = [
   { href: '/admin/pool-indexer-harmony', label: 'Pool Indexer Harmony', icon: Database },
   { href: '/admin/jeweler', label: 'Jeweler', icon: Gem },
   { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
+  { href: '/admin/gardening-calc', label: 'Gardening Calculator', icon: Calculator },
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Swords },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },

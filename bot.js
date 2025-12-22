@@ -7139,6 +7139,120 @@ async function startAdminWebServer() {
   });
   
   // ===========================================
+  // GARDENING YIELD CALCULATOR & VALIDATOR ROUTES
+  // ===========================================
+
+  // POST /api/admin/gardening-calc/calculate - Calculate expected gardening rewards
+  app.post('/api/admin/gardening-calc/calculate', isAdmin, async (req, res) => {
+    try {
+      const { calculateGardeningRewards } = await import('./src/services/gardeningCalculator.js');
+      const result = await calculateGardeningRewards(req.body);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[GardeningCalc] Calculate error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-calc/reward-fund - Get current Quest Reward Fund balances
+  app.get('/api/admin/gardening-calc/reward-fund', isAdmin, async (req, res) => {
+    try {
+      const { getQuestRewardFundBalances } = await import('./src/services/gardeningCalculator.js');
+      const balances = await getQuestRewardFundBalances(true);
+      res.json({ ok: true, ...balances });
+    } catch (error) {
+      console.error('[GardeningCalc] Reward fund error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-calc/pool-allocation/:poolId - Get pool allocation percentage
+  app.get('/api/admin/gardening-calc/pool-allocation/:poolId', isAdmin, async (req, res) => {
+    try {
+      const { getPoolAllocation, POOL_NAMES } = await import('./src/services/gardeningCalculator.js');
+      const poolId = parseInt(req.params.poolId);
+      const allocation = await getPoolAllocation(poolId);
+      res.json({ 
+        ok: true, 
+        poolId, 
+        poolName: POOL_NAMES[poolId] || `Pool ${poolId}`,
+        allocation,
+        allocationPct: (allocation * 100).toFixed(2) + '%'
+      });
+    } catch (error) {
+      console.error('[GardeningCalc] Pool allocation error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-validate/summary - Get validation data summary
+  app.get('/api/admin/gardening-validate/summary', isAdmin, async (req, res) => {
+    try {
+      const { getValidationSummary } = await import('./src/services/gardeningValidator.js');
+      const summary = await getValidationSummary();
+      res.json({ ok: true, ...summary });
+    } catch (error) {
+      console.error('[GardeningValidator] Summary error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // POST /api/admin/gardening-validate/accuracy - Validate formula accuracy against indexed data
+  app.post('/api/admin/gardening-validate/accuracy', isAdmin, async (req, res) => {
+    try {
+      const { validateFormulaAccuracy } = await import('./src/services/gardeningValidator.js');
+      const result = await validateFormulaAccuracy(req.body);
+      res.json(result);
+    } catch (error) {
+      console.error('[GardeningValidator] Accuracy error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-validate/hero/:heroId - Get reward history for a hero
+  app.get('/api/admin/gardening-validate/hero/:heroId', isAdmin, async (req, res) => {
+    try {
+      const { getHeroRewardHistory } = await import('./src/services/gardeningValidator.js');
+      const heroId = parseInt(req.params.heroId);
+      const history = await getHeroRewardHistory(heroId);
+      res.json({ ok: true, heroId, rewards: history });
+    } catch (error) {
+      console.error('[GardeningValidator] Hero history error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-validate/pool/:poolId - Get pool statistics from indexed data
+  app.get('/api/admin/gardening-validate/pool/:poolId', isAdmin, async (req, res) => {
+    try {
+      const { getPoolStatistics } = await import('./src/services/gardeningValidator.js');
+      const poolId = parseInt(req.params.poolId);
+      const stats = await getPoolStatistics(poolId);
+      res.json({ ok: true, ...stats });
+    } catch (error) {
+      console.error('[GardeningValidator] Pool stats error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-validate/indexed-rewards - Get indexed rewards with snapshots
+  app.get('/api/admin/gardening-validate/indexed-rewards', isAdmin, async (req, res) => {
+    try {
+      const { getIndexedRewardsWithSnapshots } = await import('./src/services/gardeningValidator.js');
+      const { limit = 50, poolId, heroId } = req.query;
+      const rewards = await getIndexedRewardsWithSnapshots({
+        limit: parseInt(limit),
+        poolId: poolId ? parseInt(poolId) : null,
+        heroId: heroId ? parseInt(heroId) : null,
+      });
+      res.json({ ok: true, count: rewards.length, rewards });
+    } catch (error) {
+      console.error('[GardeningValidator] Indexed rewards error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // ===========================================
   // TOURNAMENT/BATTLE-READY HEROES ADMIN ROUTES
   // ===========================================
 
