@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -9,6 +9,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, Play, Square, RefreshCw, Target, Sword, Shield, Percent, Activity, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+interface TimingInfo {
+  lastRunAt: number;
+  nextRunAt: number;
+  intervalMs: number;
+}
 
 interface ChainStatus {
   chainId: number;
@@ -22,6 +28,7 @@ interface ChainStatus {
     last_error: string | null;
   };
   isAutoRunning: boolean;
+  timing: TimingInfo | null;
 }
 
 interface PVEStatus {
@@ -76,6 +83,38 @@ function formatBlocks(n: number | string): string {
   if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`;
   if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
   return num.toLocaleString();
+}
+
+function CountdownTimer({ nextRunAt }: { nextRunAt: number }) {
+  const [remainingMs, setRemainingMs] = useState(nextRunAt - Date.now());
+  
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const remaining = nextRunAt - Date.now();
+      setRemainingMs(remaining);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [nextRunAt]);
+  
+  if (remainingMs <= 0) {
+    return <span className="text-blue-400 font-mono text-sm">Running now...</span>;
+  }
+  
+  const seconds = Math.floor(remainingMs / 1000) % 60;
+  const minutes = Math.floor(remainingMs / 60000) % 60;
+  const hours = Math.floor(remainingMs / 3600000);
+  
+  const parts = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0 || hours > 0) parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+  
+  return (
+    <span className="font-mono text-sm text-emerald-400" data-testid="countdown-timer">
+      {parts.join(' ')}
+    </span>
+  );
 }
 
 function StatusBadge({ status, isRunning }: { status: string; isRunning: boolean }) {
@@ -174,6 +213,14 @@ function ChainCard({
             </div>
           </div>
         </div>
+        
+        {chainStatus.isAutoRunning && chainStatus.timing && (
+          <div className="flex items-center gap-2 p-2 bg-emerald-500/10 rounded-lg" data-testid={`eta-${chain}`}>
+            <RefreshCw className="w-4 h-4 text-emerald-500" />
+            <span className="text-sm text-muted-foreground">Next batch in:</span>
+            <CountdownTimer nextRunAt={chainStatus.timing.nextRunAt} />
+          </div>
+        )}
 
         {liveProgress && liveProgress.isRunning && (
           <div className="space-y-2 p-3 bg-muted/50 rounded-lg">

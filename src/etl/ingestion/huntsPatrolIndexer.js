@@ -93,6 +93,7 @@ const CHAIN_CONFIGS = {
 const liveProgress = new Map();
 const runningIndexers = new Map();
 const autoRunIntervals = new Map();
+const autoRunTiming = new Map(); // Tracks { startedAt, lastRunAt, intervalMs }
 
 // Provider instances (cached)
 const providers = new Map();
@@ -743,8 +744,21 @@ export function startPVEIndexerAutoRun(chain) {
   
   console.log(`[PVE ${chain}] Starting auto-run with ${AUTO_RUN_INTERVAL_MS / 1000}s interval`);
   
+  const now = Date.now();
+  autoRunTiming.set(key, {
+    startedAt: now,
+    lastRunAt: now,
+    intervalMs: AUTO_RUN_INTERVAL_MS,
+  });
+  
   const interval = setInterval(async () => {
     try {
+      // Update lastRunAt when batch starts
+      const timing = autoRunTiming.get(key);
+      if (timing) {
+        timing.lastRunAt = Date.now();
+        autoRunTiming.set(key, timing);
+      }
       await runPVEIndexerBatch(chain);
     } catch (error) {
       console.error(`[PVE ${chain}] Auto-run error:`, error.message);
@@ -767,11 +781,26 @@ export function stopPVEIndexerAutoRun(chain) {
   if (interval) {
     clearInterval(interval);
     autoRunIntervals.delete(key);
+    autoRunTiming.delete(key);
     console.log(`[PVE ${chain}] Auto-run stopped`);
     return { status: 'stopped' };
   }
   
   return { status: 'not_running' };
+}
+
+// Helper to calculate next run time
+function getTimingInfo(chain) {
+  const key = `pve_${chain}`;
+  const timing = autoRunTiming.get(key);
+  if (!timing) return null;
+  
+  const nextRunAt = timing.lastRunAt + timing.intervalMs;
+  return {
+    lastRunAt: timing.lastRunAt,
+    nextRunAt,
+    intervalMs: timing.intervalMs,
+  };
 }
 
 // Get indexer status for all chains
@@ -785,12 +814,14 @@ export async function getPVEIndexerStatus() {
       checkpoint: dfkCheckpoint,
       liveProgress: liveProgress.get('dfk'),
       isAutoRunning: autoRunIntervals.has('pve_dfk'),
+      timing: getTimingInfo('dfk'),
     },
     metis: {
       chainId: CHAIN_CONFIGS.metis.chainId,
       checkpoint: metisCheckpoint,
       liveProgress: liveProgress.get('metis'),
       isAutoRunning: autoRunIntervals.has('pve_metis'),
+      timing: getTimingInfo('metis'),
     },
   };
 }
