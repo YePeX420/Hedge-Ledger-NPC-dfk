@@ -2661,3 +2661,265 @@ export const pveIndexerProgress = pgTable("pve_indexer_progress", {
 export const insertPveIndexerProgressSchema = createInsertSchema(pveIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPveIndexerProgress = z.infer<typeof insertPveIndexerProgressSchema>;
 export type PveIndexerProgress = typeof pveIndexerProgress.$inferSelect;
+
+// ============================================================================
+// PVP TOURNAMENT WINNER TRACKING SYSTEM
+// ============================================================================
+
+/**
+ * PVP Tournaments - Core tournament metadata
+ */
+export const pvpTournaments = pgTable("pvp_tournaments", {
+  id: serial("id").primaryKey(),
+  tournamentId: bigint("tournament_id", { mode: "number" }).notNull().unique(),
+  realm: text("realm").notNull().default('cv'), // 'cv', 'sd', 'metis'
+  
+  // Tournament info
+  name: text("name"),
+  format: text("format").notNull(), // '1v1', '3v3', '6v6'
+  status: text("status").notNull(), // 'upcoming', 'in_progress', 'completed', 'cancelled'
+  
+  // Timing
+  startTime: timestamp("start_time", { withTimezone: true }),
+  endTime: timestamp("end_time", { withTimezone: true }),
+  
+  // Requirements (denormalized for quick access)
+  levelMin: integer("level_min"),
+  levelMax: integer("level_max"),
+  rarityMin: integer("rarity_min"), // 0=common, 4=mythic
+  rarityMax: integer("rarity_max"),
+  partySize: integer("party_size").notNull(), // 1, 3, or 6
+  
+  // Additional requirements as JSON
+  additionalRequirements: json("additional_requirements").$type<{
+    allowedClasses?: string[];
+    bannedClasses?: string[];
+    allowedAbilities?: string[];
+    bannedAbilities?: string[];
+    maxSummons?: number;
+    minSummons?: number;
+  }>(),
+  
+  // Stats
+  totalEntrants: integer("total_entrants").default(0),
+  totalRounds: integer("total_rounds").default(0),
+  
+  // Indexing metadata
+  lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  tournamentIdIdx: uniqueIndex("pvp_tournaments_tournament_id_idx").on(table.tournamentId),
+  statusIdx: index("pvp_tournaments_status_idx").on(table.status),
+  realmIdx: index("pvp_tournaments_realm_idx").on(table.realm),
+  formatIdx: index("pvp_tournaments_format_idx").on(table.format),
+}));
+
+export const insertPvpTournamentSchema = createInsertSchema(pvpTournaments).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPvpTournament = z.infer<typeof insertPvpTournamentSchema>;
+export type PvpTournament = typeof pvpTournaments.$inferSelect;
+
+/**
+ * Tournament Placements - Track which heroes placed in tournaments
+ */
+export const tournamentPlacements = pgTable("tournament_placements", {
+  id: serial("id").primaryKey(),
+  tournamentId: bigint("tournament_id", { mode: "number" }).notNull(),
+  heroId: bigint("hero_id", { mode: "number" }).notNull(),
+  playerAddress: text("player_address").notNull(),
+  
+  // Placement info
+  placement: text("placement").notNull(), // 'winner', 'finalist', 'semifinalist', 'quarterfinalist'
+  placementRank: integer("placement_rank"), // 1, 2, 3-4, 5-8, etc.
+  
+  // Team context (for team tournaments)
+  teamIndex: integer("team_index"), // which team slot (0-5)
+  teamId: text("team_id"), // group heroes from same team
+  
+  // Match stats (aggregated from tournament)
+  matchesWon: integer("matches_won").default(0),
+  matchesLost: integer("matches_lost").default(0),
+  totalDamageDealt: bigint("total_damage_dealt", { mode: "number" }).default(0),
+  totalDamageTaken: bigint("total_damage_taken", { mode: "number" }).default(0),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  tournamentHeroIdx: uniqueIndex("tournament_placements_tournament_hero_idx").on(table.tournamentId, table.heroId),
+  heroIdx: index("tournament_placements_hero_idx").on(table.heroId),
+  playerIdx: index("tournament_placements_player_idx").on(table.playerAddress),
+  placementIdx: index("tournament_placements_placement_idx").on(table.placement),
+}));
+
+export const insertTournamentPlacementSchema = createInsertSchema(tournamentPlacements).omit({ id: true, createdAt: true });
+export type InsertTournamentPlacement = z.infer<typeof insertTournamentPlacementSchema>;
+export type TournamentPlacement = typeof tournamentPlacements.$inferSelect;
+
+/**
+ * Hero Tournament Snapshots - Full hero data at time of tournament participation
+ */
+export const heroTournamentSnapshots = pgTable("hero_tournament_snapshots", {
+  id: serial("id").primaryKey(),
+  placementId: integer("placement_id").notNull().references(() => tournamentPlacements.id),
+  heroId: bigint("hero_id", { mode: "number" }).notNull(),
+  tournamentId: bigint("tournament_id", { mode: "number" }).notNull(),
+  
+  // Core hero info
+  rarity: integer("rarity").notNull(), // 0=common, 1=uncommon, 2=rare, 3=legendary, 4=mythic
+  mainClass: text("main_class").notNull(),
+  subClass: text("sub_class").notNull(),
+  level: integer("level").notNull(),
+  generation: integer("generation"),
+  
+  // All 8 primary stats at tournament time
+  strength: integer("strength").notNull(),
+  agility: integer("agility").notNull(),
+  dexterity: integer("dexterity").notNull(),
+  vitality: integer("vitality").notNull(),
+  endurance: integer("endurance").notNull(),
+  intelligence: integer("intelligence").notNull(),
+  wisdom: integer("wisdom").notNull(),
+  luck: integer("luck").notNull(),
+  
+  // Secondary/derived stats
+  hp: integer("hp"),
+  mp: integer("mp"),
+  stamina: integer("stamina"),
+  
+  // Abilities at tournament time
+  active1: text("active1"), // ability name/id
+  active2: text("active2"),
+  passive1: text("passive1"),
+  passive2: text("passive2"),
+  
+  // Full genetics JSON for detailed comparison
+  statGenes: json("stat_genes").$type<{
+    class: string;
+    subClass: string;
+    profession: string;
+    passive1: string;
+    passive2: string;
+    active1: string;
+    active2: string;
+    statBoost1: string;
+    statBoost2: string;
+    element: string;
+    background: string;
+  }>(),
+  
+  // Gene quality counts
+  basicGeneCount: integer("basic_gene_count").default(0),
+  advancedGeneCount: integer("advanced_gene_count").default(0),
+  eliteGeneCount: integer("elite_gene_count").default(0),
+  exaltedGeneCount: integer("exalted_gene_count").default(0),
+  
+  // Equipment at tournament time (JSON array)
+  equipment: json("equipment").$type<Array<{
+    slot: string;
+    itemId: number;
+    name: string;
+    rarity: number;
+    stats: Record<string, number>;
+  }>>(),
+  
+  // Summoning info
+  summonsRemaining: integer("summons_remaining"),
+  maxSummons: integer("max_summons"),
+  
+  // Computed combat power score for quick filtering
+  combatPowerScore: integer("combat_power_score"),
+  
+  // Raw hero data for future use
+  rawHeroData: json("raw_hero_data"),
+  
+  snapshotAt: timestamp("snapshot_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  placementIdx: index("hero_tournament_snapshots_placement_idx").on(table.placementId),
+  heroIdx: index("hero_tournament_snapshots_hero_idx").on(table.heroId),
+  tournamentIdx: index("hero_tournament_snapshots_tournament_idx").on(table.tournamentId),
+  classIdx: index("hero_tournament_snapshots_class_idx").on(table.mainClass),
+  levelRarityIdx: index("hero_tournament_snapshots_level_rarity_idx").on(table.level, table.rarity),
+}));
+
+export const insertHeroTournamentSnapshotSchema = createInsertSchema(heroTournamentSnapshots).omit({ id: true, createdAt: true, snapshotAt: true });
+export type InsertHeroTournamentSnapshot = z.infer<typeof insertHeroTournamentSnapshotSchema>;
+export type HeroTournamentSnapshot = typeof heroTournamentSnapshots.$inferSelect;
+
+/**
+ * PVP Similarity Config - Configurable weights for hero matching
+ */
+export const pvpSimilarityConfig = pgTable("pvp_similarity_config", {
+  id: serial("id").primaryKey(),
+  configName: text("config_name").notNull().unique().default('default'),
+  
+  // Weight categories (should sum to 1.0 or 100%)
+  statsWeight: numeric("stats_weight", { precision: 5, scale: 4 }).notNull().default('0.40'), // 40%
+  activeAbilitiesWeight: numeric("active_abilities_weight", { precision: 5, scale: 4 }).notNull().default('0.25'), // 25%
+  passiveAbilitiesWeight: numeric("passive_abilities_weight", { precision: 5, scale: 4 }).notNull().default('0.15'), // 15%
+  classMatchWeight: numeric("class_match_weight", { precision: 5, scale: 4 }).notNull().default('0.10'), // 10%
+  rarityMatchWeight: numeric("rarity_match_weight", { precision: 5, scale: 4 }).notNull().default('0.05'), // 5%
+  geneQualityWeight: numeric("gene_quality_weight", { precision: 5, scale: 4 }).notNull().default('0.05'), // 5%
+  
+  // Individual stat weights within statsWeight (JSON for flexibility)
+  statWeights: json("stat_weights").$type<{
+    strength: number;
+    agility: number;
+    dexterity: number;
+    vitality: number;
+    endurance: number;
+    intelligence: number;
+    wisdom: number;
+    luck: number;
+  }>().default({
+    strength: 0.15,
+    agility: 0.15,
+    dexterity: 0.10,
+    vitality: 0.15,
+    endurance: 0.10,
+    intelligence: 0.15,
+    wisdom: 0.10,
+    luck: 0.10,
+  }),
+  
+  // Minimum thresholds
+  minSimilarityScore: numeric("min_similarity_score", { precision: 5, scale: 4 }).default('0.60'), // 60% minimum to recommend
+  maxPriceDifferencePercent: numeric("max_price_difference_percent", { precision: 5, scale: 2 }).default('50.00'), // max 50% over average winner price
+  
+  // Filter settings
+  includeSemifinalists: boolean("include_semifinalists").default(true),
+  includeFinalists: boolean("include_finalists").default(true),
+  includeWinners: boolean("include_winners").default(true),
+  lookbackTournaments: integer("lookback_tournaments").default(20), // how many past tournaments to consider
+  
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  configNameIdx: uniqueIndex("pvp_similarity_config_name_idx").on(table.configName),
+  activeIdx: index("pvp_similarity_config_active_idx").on(table.isActive),
+}));
+
+export const insertPvpSimilarityConfigSchema = createInsertSchema(pvpSimilarityConfig).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPvpSimilarityConfig = z.infer<typeof insertPvpSimilarityConfigSchema>;
+export type PvpSimilarityConfig = typeof pvpSimilarityConfig.$inferSelect;
+
+/**
+ * Tournament Indexer Progress - Track indexing state
+ */
+export const tournamentIndexerProgress = pgTable("tournament_indexer_progress", {
+  id: serial("id").primaryKey(),
+  realm: text("realm").notNull().unique().default('cv'),
+  lastTournamentId: bigint("last_tournament_id", { mode: "number" }).default(0),
+  tournamentsIndexed: integer("tournaments_indexed").default(0),
+  placementsIndexed: integer("placements_indexed").default(0),
+  snapshotsIndexed: integer("snapshots_indexed").default(0),
+  status: text("status").notNull().default('idle'), // 'idle', 'running', 'error'
+  lastError: text("last_error"),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertTournamentIndexerProgressSchema = createInsertSchema(tournamentIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertTournamentIndexerProgress = z.infer<typeof insertTournamentIndexerProgressSchema>;
+export type TournamentIndexerProgress = typeof tournamentIndexerProgress.$inferSelect;
