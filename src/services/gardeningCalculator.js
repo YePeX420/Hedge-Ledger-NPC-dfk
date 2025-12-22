@@ -291,6 +291,110 @@ export async function calculateGardeningRewards(params) {
   };
 }
 
+/**
+ * Calculate rewards for two heroes (dual-hero gardening quest)
+ * One hero earns JEWEL, the other earns CRYSTAL
+ * 
+ * @param {Object} params - Dual hero parameters
+ * @param {number} params.poolId - Garden pool ID
+ * @param {string} params.playerAddress - Player wallet address  
+ * @param {number} params.lpShareOverride - Manual LP share override (0-1)
+ * @param {Object} params.jewelHero - JEWEL hero parameters
+ * @param {Object} params.crystalHero - CRYSTAL hero parameters
+ */
+export async function calculateDualHeroRewards(params) {
+  const {
+    poolId,
+    playerAddress,
+    lpShareOverride = null,
+    jewelHero,
+    crystalHero,
+  } = params;
+
+  const [rewardFund, poolAllocation, lpInfo] = await Promise.all([
+    getQuestRewardFundBalances(),
+    getPoolAllocation(poolId),
+    lpShareOverride !== null
+      ? Promise.resolve({ lpShare: lpShareOverride, userLp: 0, poolTotalLp: 0 })
+      : getUserLpShare(poolId, playerAddress),
+  ]);
+
+  // Calculate JEWEL hero rewards
+  const jewelEffectiveGrdSkill = jewelHero.skilledGreenskeeperBonus > 0 && jewelHero.petFed
+    ? jewelHero.gardeningSkill + jewelHero.skilledGreenskeeperBonus
+    : jewelHero.gardeningSkill;
+  
+  const jewelHeroFactor = calculateHeroFactor(jewelHero.wisdom, jewelHero.vitality, jewelEffectiveGrdSkill);
+  
+  const jewelPetMultiplier = jewelHero.petFed && jewelHero.petBonusPct > 0
+    ? 1 + jewelHero.petBonusPct / 100
+    : 1.0;
+
+  const jewelPerStamina = calculateYieldPerStamina({
+    rewardPool: rewardFund.jewelPool,
+    poolAllocation,
+    lpOwned: lpInfo.lpShare,
+    heroFactor: jewelHeroFactor,
+    hasGardeningGene: jewelHero.hasGardeningGene,
+    gardeningSkill: jewelEffectiveGrdSkill,
+    petMultiplier: jewelPetMultiplier,
+  });
+
+  // Calculate CRYSTAL hero rewards
+  const crystalEffectiveGrdSkill = crystalHero.skilledGreenskeeperBonus > 0 && crystalHero.petFed
+    ? crystalHero.gardeningSkill + crystalHero.skilledGreenskeeperBonus
+    : crystalHero.gardeningSkill;
+
+  const crystalHeroFactor = calculateHeroFactor(crystalHero.wisdom, crystalHero.vitality, crystalEffectiveGrdSkill);
+
+  const crystalPetMultiplier = crystalHero.petFed && crystalHero.petBonusPct > 0
+    ? 1 + crystalHero.petBonusPct / 100
+    : 1.0;
+
+  const crystalPerStamina = calculateYieldPerStamina({
+    rewardPool: rewardFund.crystalPool,
+    poolAllocation,
+    lpOwned: lpInfo.lpShare,
+    heroFactor: crystalHeroFactor,
+    hasGardeningGene: crystalHero.hasGardeningGene,
+    gardeningSkill: crystalEffectiveGrdSkill,
+    petMultiplier: crystalPetMultiplier,
+  });
+
+  return {
+    poolId,
+    poolName: POOL_NAMES[poolId] || `Pool ${poolId}`,
+    jewelHero: {
+      heroId: jewelHero.heroId || '',
+      heroFactor: jewelHeroFactor,
+      petMultiplier: jewelPetMultiplier,
+      reward: jewelPerStamina * jewelHero.stamina,
+      perStamina: jewelPerStamina,
+    },
+    crystalHero: {
+      heroId: crystalHero.heroId || '',
+      heroFactor: crystalHeroFactor,
+      petMultiplier: crystalPetMultiplier,
+      reward: crystalPerStamina * crystalHero.stamina,
+      perStamina: crystalPerStamina,
+    },
+    shared: {
+      poolAllocation,
+      lpShare: lpInfo.lpShare,
+      userLp: lpInfo.userLp,
+      poolTotalLp: lpInfo.poolTotalLp,
+    },
+    rewardFund: {
+      crystalPool: rewardFund.crystalPool,
+      jewelPool: rewardFund.jewelPool,
+    },
+    totalRewards: {
+      jewel: jewelPerStamina * jewelHero.stamina,
+      crystal: crystalPerStamina * crystalHero.stamina,
+    },
+  };
+}
+
 export { POOL_NAMES, MIN_REWARD_PER_STAMINA };
 
 // ==========================================

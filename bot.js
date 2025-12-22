@@ -7142,7 +7142,7 @@ async function startAdminWebServer() {
   // GARDENING YIELD CALCULATOR & VALIDATOR ROUTES
   // ===========================================
 
-  // POST /api/admin/gardening-calc/calculate - Calculate expected gardening rewards
+  // POST /api/admin/gardening-calc/calculate - Calculate expected gardening rewards (single hero)
   app.post('/api/admin/gardening-calc/calculate', isAdmin, async (req, res) => {
     try {
       const { calculateGardeningRewards } = await import('./src/services/gardeningCalculator.js');
@@ -7150,6 +7150,18 @@ async function startAdminWebServer() {
       res.json({ ok: true, ...result });
     } catch (error) {
       console.error('[GardeningCalc] Calculate error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // POST /api/admin/gardening-calc/calculate-dual - Calculate rewards for two heroes (JEWEL + CRYSTAL)
+  app.post('/api/admin/gardening-calc/calculate-dual', isAdmin, async (req, res) => {
+    try {
+      const { calculateDualHeroRewards } = await import('./src/services/gardeningCalculator.js');
+      const result = await calculateDualHeroRewards(req.body);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[GardeningCalc] Dual calculate error:', error);
       res.status(500).json({ ok: false, error: error.message });
     }
   });

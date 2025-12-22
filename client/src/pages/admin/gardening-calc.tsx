@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Calculator, CheckCircle, AlertTriangle, Sprout, Wallet, Target, Search, User, Cat } from "lucide-react";
+import { Loader2, Calculator, CheckCircle, AlertTriangle, Sprout, Wallet, Target, Search, User, Cat, Gem, Diamond } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const POOL_OPTIONS = [
@@ -75,38 +75,33 @@ interface WalletPositions {
   error?: string;
 }
 
-interface CalculatorResult {
+interface DualHeroResult {
   ok: boolean;
   poolId: number;
   poolName: string;
-  inputs: {
-    wisdom: number;
-    vitality: number;
-    gardeningSkill: number;
-    effectiveGrdSkill: number;
-    hasGardeningGene: boolean;
-    stamina: number;
-    petBonusPct: number;
-    skilledGreenskeeperBonus: number;
-    petFed: boolean;
-  };
-  formula: {
+  jewelHero: {
+    heroId: string;
     heroFactor: number;
     petMultiplier: number;
+    reward: number;
+    perStamina: number;
+  };
+  crystalHero: {
+    heroId: string;
+    heroFactor: number;
+    petMultiplier: number;
+    reward: number;
+    perStamina: number;
+  };
+  shared: {
     poolAllocation: number;
     lpShare: number;
     userLp: number;
     poolTotalLp: number;
-    rewardModBase: number;
-    geneBonus: number;
   };
   rewardFund: {
     crystalPool: number;
     jewelPool: number;
-  };
-  perStamina: {
-    crystal: number;
-    jewel: number;
   };
   totalRewards: {
     crystal: number;
@@ -133,18 +128,193 @@ interface ValidationSummary {
   }>;
 }
 
+interface HeroInputProps {
+  label: string;
+  tokenType: "jewel" | "crystal";
+  heroId: string;
+  setHeroId: (v: string) => void;
+  petId: string;
+  setPetId: (v: string) => void;
+  heroData: HeroData | null;
+  petData: PetData | null;
+  onFetchHero: () => void;
+  onFetchPet: () => void;
+  heroLoading: boolean;
+  petLoading: boolean;
+  stamina: number[];
+  setStamina: (v: number[]) => void;
+}
+
+function HeroInputSection({
+  label,
+  tokenType,
+  heroId,
+  setHeroId,
+  petId,
+  setPetId,
+  heroData,
+  petData,
+  onFetchHero,
+  onFetchPet,
+  heroLoading,
+  petLoading,
+  stamina,
+  setStamina,
+}: HeroInputProps) {
+  const colorClass = tokenType === "jewel" ? "text-purple-500" : "text-blue-500";
+  const bgClass = tokenType === "jewel" ? "bg-purple-500/10" : "bg-blue-500/10";
+  const Icon = tokenType === "jewel" ? Gem : Diamond;
+
+  return (
+    <div className={`p-4 rounded-lg border ${bgClass}`}>
+      <div className="flex items-center gap-2 mb-4">
+        <Icon className={`h-5 w-5 ${colorClass}`} />
+        <h3 className={`font-semibold ${colorClass}`}>{label}</h3>
+        <Badge variant="outline" className={colorClass}>
+          Earns {tokenType.toUpperCase()}
+        </Badge>
+      </div>
+
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label className="flex items-center gap-2">
+            <User className="h-4 w-4" />
+            Hero ID
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              value={heroId}
+              onChange={(e) => setHeroId(e.target.value)}
+              placeholder="e.g. 123456"
+              data-testid={`input-${tokenType}-hero-id`}
+            />
+            <Button 
+              onClick={onFetchHero} 
+              disabled={heroLoading || !heroId}
+              size="icon"
+              data-testid={`button-fetch-${tokenType}-hero`}
+            >
+              {heroLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </div>
+          {heroData?.ok && (
+            <div className="text-sm p-2 bg-background/50 rounded-md space-y-1">
+              <div className="flex justify-between">
+                <span>Class:</span>
+                <Badge variant="outline">{heroData.class}/{heroData.subClass}</Badge>
+              </div>
+              <div className="flex justify-between">
+                <span>Level:</span>
+                <span className="font-mono">{heroData.level}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>WIS/VIT:</span>
+                <span className="font-mono">{heroData.wisdom}/{heroData.vitality}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Gardening:</span>
+                <span className="font-mono">{heroData.gardeningSkill}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Profession:</span>
+                <Badge variant={heroData.hasGardeningGene ? "default" : "secondary"}>
+                  {heroData.profession}
+                </Badge>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label className="flex items-center gap-2">
+            <Cat className="h-4 w-4" />
+            Pet ID (optional)
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              value={petId}
+              onChange={(e) => setPetId(e.target.value)}
+              placeholder="e.g. 789"
+              data-testid={`input-${tokenType}-pet-id`}
+            />
+            <Button 
+              onClick={onFetchPet} 
+              disabled={petLoading || !petId}
+              size="icon"
+              data-testid={`button-fetch-${tokenType}-pet`}
+            >
+              {petLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </div>
+          {petData?.ok && (
+            <div className="text-sm p-2 bg-background/50 rounded-md space-y-1">
+              <div className="flex justify-between">
+                <span>Name:</span>
+                <span>{petData.name || `Pet #${petData.petId}`}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Type:</span>
+                <Badge variant={petData.isGardeningPet ? "default" : "secondary"}>
+                  {petData.isGardeningPet ? "Gardening" : `Egg Type ${petData.eggType}`}
+                </Badge>
+              </div>
+              {petData.bonusType && (
+                <div className="flex justify-between">
+                  <span>{petData.bonusType}:</span>
+                  <span className="font-mono text-green-500">
+                    +{petData.powerSurgeBonus || petData.skilledGreenskeeperBonus}%
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span>Fed:</span>
+                <Badge variant={petData.isFed ? "default" : "destructive"}>
+                  {petData.isFed ? "Yes" : "Hungry"}
+                </Badge>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <Label>Stamina: {stamina[0]}</Label>
+          </div>
+          <Slider
+            value={stamina}
+            onValueChange={setStamina}
+            max={250}
+            min={1}
+            step={1}
+            data-testid={`slider-${tokenType}-stamina`}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GardeningCalcAdmin() {
   const { toast } = useToast();
   
-  const [heroId, setHeroId] = useState("");
-  const [petId, setPetId] = useState("");
+  // JEWEL Hero State
+  const [jewelHeroId, setJewelHeroId] = useState("");
+  const [jewelPetId, setJewelPetId] = useState("");
+  const [jewelHeroData, setJewelHeroData] = useState<HeroData | null>(null);
+  const [jewelPetData, setJewelPetData] = useState<PetData | null>(null);
+  const [jewelStamina, setJewelStamina] = useState([25]);
+
+  // CRYSTAL Hero State
+  const [crystalHeroId, setCrystalHeroId] = useState("");
+  const [crystalPetId, setCrystalPetId] = useState("");
+  const [crystalHeroData, setCrystalHeroData] = useState<HeroData | null>(null);
+  const [crystalPetData, setCrystalPetData] = useState<PetData | null>(null);
+  const [crystalStamina, setCrystalStamina] = useState([25]);
+
+  // Shared State
   const [walletAddress, setWalletAddress] = useState("");
   const [poolId, setPoolId] = useState("2");
   const [lpSharePct, setLpSharePct] = useState("0.1");
-  const [stamina, setStamina] = useState([25]);
-  
-  const [heroData, setHeroData] = useState<HeroData | null>(null);
-  const [petData, setPetData] = useState<PetData | null>(null);
   const [walletPositions, setWalletPositions] = useState<WalletPositions | null>(null);
 
   const { data: rewardFund, isLoading: rewardFundLoading } = useQuery<{ ok: boolean; crystalPool: number; jewelPool: number }>({
@@ -156,16 +326,17 @@ export default function GardeningCalcAdmin() {
     queryKey: ["/api/admin/gardening-validate/summary"],
   });
 
-  const fetchHeroMutation = useMutation({
+  // JEWEL Hero fetch mutations
+  const fetchJewelHeroMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch(`/api/admin/gardening-calc/hero/${heroId}`);
+      const response = await fetch(`/api/admin/gardening-calc/hero/${jewelHeroId}`);
       return response.json();
     },
     onSuccess: (data: HeroData) => {
       if (data.ok) {
-        setHeroData(data);
-        setStamina([data.stamina]);
-        toast({ title: "Hero loaded", description: `${data.class} Lv${data.level} - ${data.profession} profession` });
+        setJewelHeroData(data);
+        setJewelStamina([data.stamina]);
+        toast({ title: "JEWEL Hero loaded", description: `${data.class} Lv${data.level} - ${data.profession}` });
       } else {
         toast({ title: "Error", description: data.error || "Hero not found", variant: "destructive" });
       }
@@ -175,20 +346,60 @@ export default function GardeningCalcAdmin() {
     },
   });
 
-  const fetchPetMutation = useMutation({
+  const fetchJewelPetMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch(`/api/admin/gardening-calc/pet/${petId}`);
+      const response = await fetch(`/api/admin/gardening-calc/pet/${jewelPetId}`);
       return response.json();
     },
     onSuccess: (data: PetData) => {
       if (data.ok) {
-        setPetData(data);
+        setJewelPetData(data);
         if (data.isGardeningPet && data.bonusType) {
-          toast({ title: "Pet loaded", description: `${data.name} - ${data.bonusType} ${data.powerSurgeBonus || data.skilledGreenskeeperBonus}%` });
+          toast({ title: "JEWEL Pet loaded", description: `${data.bonusType} +${data.powerSurgeBonus || data.skilledGreenskeeperBonus}%` });
         } else if (!data.isGardeningPet) {
-          toast({ title: "Warning", description: `${data.name} is not a gardening pet (egg type ${data.eggType})`, variant: "destructive" });
-        } else {
-          toast({ title: "Pet loaded", description: `${data.name} - No gardening bonus skill` });
+          toast({ title: "Warning", description: `Not a gardening pet (egg type ${data.eggType})`, variant: "destructive" });
+        }
+      } else {
+        toast({ title: "Error", description: data.error || "Pet not found", variant: "destructive" });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // CRYSTAL Hero fetch mutations
+  const fetchCrystalHeroMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/admin/gardening-calc/hero/${crystalHeroId}`);
+      return response.json();
+    },
+    onSuccess: (data: HeroData) => {
+      if (data.ok) {
+        setCrystalHeroData(data);
+        setCrystalStamina([data.stamina]);
+        toast({ title: "CRYSTAL Hero loaded", description: `${data.class} Lv${data.level} - ${data.profession}` });
+      } else {
+        toast({ title: "Error", description: data.error || "Hero not found", variant: "destructive" });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const fetchCrystalPetMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/admin/gardening-calc/pet/${crystalPetId}`);
+      return response.json();
+    },
+    onSuccess: (data: PetData) => {
+      if (data.ok) {
+        setCrystalPetData(data);
+        if (data.isGardeningPet && data.bonusType) {
+          toast({ title: "CRYSTAL Pet loaded", description: `${data.bonusType} +${data.powerSurgeBonus || data.skilledGreenskeeperBonus}%` });
+        } else if (!data.isGardeningPet) {
+          toast({ title: "Warning", description: `Not a gardening pet (egg type ${data.eggType})`, variant: "destructive" });
         }
       } else {
         toast({ title: "Error", description: data.error || "Pet not found", variant: "destructive" });
@@ -225,22 +436,35 @@ export default function GardeningCalcAdmin() {
 
   const calculateMutation = useMutation({
     mutationFn: async () => {
-      const petFed = petData?.isFed ?? true;
-      const powerSurgeBonus = petData?.powerSurgeBonus ?? 0;
-      const greenskeeperBonus = petData?.skilledGreenskeeperBonus ?? 0;
+      const jewelPetFed = jewelPetData?.isFed ?? true;
+      const crystalPetFed = crystalPetData?.isFed ?? true;
       
-      return apiRequest("POST", "/api/admin/gardening-calc/calculate", {
+      return apiRequest("POST", "/api/admin/gardening-calc/calculate-dual", {
         poolId: parseInt(poolId),
         playerAddress: walletAddress || "0x0000000000000000000000000000000000000000",
-        wisdom: heroData?.wisdom ?? 50,
-        vitality: heroData?.vitality ?? 50,
-        gardeningSkill: heroData?.gardeningSkill ?? 0,
-        hasGardeningGene: heroData?.hasGardeningGene ?? false,
-        stamina: stamina[0],
-        petBonusPct: petFed ? powerSurgeBonus : 0,
-        skilledGreenskeeperBonus: petFed ? greenskeeperBonus : 0,
-        petFed,
         lpShareOverride: walletAddress ? null : parseFloat(lpSharePct) / 100,
+        jewelHero: {
+          heroId: jewelHeroId,
+          wisdom: jewelHeroData?.wisdom ?? 50,
+          vitality: jewelHeroData?.vitality ?? 50,
+          gardeningSkill: jewelHeroData?.gardeningSkill ?? 0,
+          hasGardeningGene: jewelHeroData?.hasGardeningGene ?? false,
+          stamina: jewelStamina[0],
+          petBonusPct: jewelPetFed ? (jewelPetData?.powerSurgeBonus ?? 0) : 0,
+          skilledGreenskeeperBonus: jewelPetFed ? (jewelPetData?.skilledGreenskeeperBonus ?? 0) : 0,
+          petFed: jewelPetFed,
+        },
+        crystalHero: {
+          heroId: crystalHeroId,
+          wisdom: crystalHeroData?.wisdom ?? 50,
+          vitality: crystalHeroData?.vitality ?? 50,
+          gardeningSkill: crystalHeroData?.gardeningSkill ?? 0,
+          hasGardeningGene: crystalHeroData?.hasGardeningGene ?? false,
+          stamina: crystalStamina[0],
+          petBonusPct: crystalPetFed ? (crystalPetData?.powerSurgeBonus ?? 0) : 0,
+          skilledGreenskeeperBonus: crystalPetFed ? (crystalPetData?.skilledGreenskeeperBonus ?? 0) : 0,
+          petFed: crystalPetFed,
+        },
       });
     },
     onError: (error: Error) => {
@@ -248,7 +472,7 @@ export default function GardeningCalcAdmin() {
     },
   });
 
-  const calcResult = calculateMutation.data as CalculatorResult | undefined;
+  const calcResult = calculateMutation.data as DualHeroResult | undefined;
 
   const handlePoolSelect = (value: string) => {
     setPoolId(value);
@@ -267,7 +491,7 @@ export default function GardeningCalcAdmin() {
             Gardening Yield Calculator
           </h1>
           <p className="text-muted-foreground">
-            Calculate expected rewards using hero and pet IDs
+            Calculate expected rewards for two heroes per quest iteration
           </p>
         </div>
       </div>
@@ -285,214 +509,150 @@ export default function GardeningCalcAdmin() {
         </TabsList>
 
         <TabsContent value="calculator" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Inputs</CardTitle>
-                <CardDescription>
-                  Enter hero #, pet #, and wallet to calculate expected rewards
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    <User className="h-4 w-4" />
-                    Hero ID
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="heroId"
-                      value={heroId}
-                      onChange={(e) => setHeroId(e.target.value)}
-                      placeholder="e.g. 123456"
-                      data-testid="input-hero-id"
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            {/* Hero Inputs Column */}
+            <div className="xl:col-span-2 space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Quest Heroes</CardTitle>
+                  <CardDescription>
+                    Enter hero and pet IDs for both JEWEL and CRYSTAL earners
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <HeroInputSection
+                      label="JEWEL Hero"
+                      tokenType="jewel"
+                      heroId={jewelHeroId}
+                      setHeroId={setJewelHeroId}
+                      petId={jewelPetId}
+                      setPetId={setJewelPetId}
+                      heroData={jewelHeroData}
+                      petData={jewelPetData}
+                      onFetchHero={() => fetchJewelHeroMutation.mutate()}
+                      onFetchPet={() => fetchJewelPetMutation.mutate()}
+                      heroLoading={fetchJewelHeroMutation.isPending}
+                      petLoading={fetchJewelPetMutation.isPending}
+                      stamina={jewelStamina}
+                      setStamina={setJewelStamina}
                     />
-                    <Button 
-                      onClick={() => fetchHeroMutation.mutate()} 
-                      disabled={fetchHeroMutation.isPending || !heroId}
-                      data-testid="button-fetch-hero"
-                    >
-                      {fetchHeroMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                  {heroData?.ok && (
-                    <div className="text-sm p-2 bg-muted rounded-md space-y-1">
-                      <div className="flex justify-between">
-                        <span>Class:</span>
-                        <Badge variant="outline">{heroData.class}/{heroData.subClass}</Badge>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Level:</span>
-                        <span className="font-mono">{heroData.level}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>WIS/VIT:</span>
-                        <span className="font-mono">{heroData.wisdom}/{heroData.vitality}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Gardening:</span>
-                        <span className="font-mono">{heroData.gardeningSkill}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Profession:</span>
-                        <Badge variant={heroData.hasGardeningGene ? "default" : "secondary"}>
-                          {heroData.profession}
-                        </Badge>
-                      </div>
-                    </div>
-                  )}
-                </div>
 
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    <Cat className="h-4 w-4" />
-                    Pet ID (optional)
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="petId"
-                      value={petId}
-                      onChange={(e) => setPetId(e.target.value)}
-                      placeholder="e.g. 789"
-                      data-testid="input-pet-id"
+                    <HeroInputSection
+                      label="CRYSTAL Hero"
+                      tokenType="crystal"
+                      heroId={crystalHeroId}
+                      setHeroId={setCrystalHeroId}
+                      petId={crystalPetId}
+                      setPetId={setCrystalPetId}
+                      heroData={crystalHeroData}
+                      petData={crystalPetData}
+                      onFetchHero={() => fetchCrystalHeroMutation.mutate()}
+                      onFetchPet={() => fetchCrystalPetMutation.mutate()}
+                      heroLoading={fetchCrystalHeroMutation.isPending}
+                      petLoading={fetchCrystalPetMutation.isPending}
+                      stamina={crystalStamina}
+                      setStamina={setCrystalStamina}
                     />
-                    <Button 
-                      onClick={() => fetchPetMutation.mutate()} 
-                      disabled={fetchPetMutation.isPending || !petId}
-                      data-testid="button-fetch-pet"
-                    >
-                      {fetchPetMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                    </Button>
                   </div>
-                  {petData?.ok && (
-                    <div className="text-sm p-2 bg-muted rounded-md space-y-1">
-                      <div className="flex justify-between">
-                        <span>Name:</span>
-                        <span>{petData.name}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Type:</span>
-                        <Badge variant={petData.isGardeningPet ? "default" : "secondary"}>
-                          {petData.isGardeningPet ? "Gardening" : `Egg Type ${petData.eggType}`}
-                        </Badge>
-                      </div>
-                      {petData.bonusType && (
-                        <div className="flex justify-between">
-                          <span>{petData.bonusType}:</span>
-                          <span className="font-mono text-green-500">
-                            +{petData.powerSurgeBonus || petData.skilledGreenskeeperBonus}%
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex justify-between">
-                        <span>Fed:</span>
-                        <Badge variant={petData.isFed ? "default" : "destructive"}>
-                          {petData.isFed ? "Yes" : "Hungry"}
-                        </Badge>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                </CardContent>
+              </Card>
 
-                <div className="border-t pt-4 space-y-2">
-                  <Label className="flex items-center gap-2">
-                    <Wallet className="h-4 w-4" />
-                    Wallet Address (optional)
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="walletAddress"
-                      value={walletAddress}
-                      onChange={(e) => setWalletAddress(e.target.value)}
-                      placeholder="0x... to auto-detect LP positions"
-                      data-testid="input-wallet-address"
-                    />
-                    <Button 
-                      onClick={() => fetchWalletMutation.mutate()} 
-                      disabled={fetchWalletMutation.isPending || !walletAddress}
-                      data-testid="button-fetch-wallet"
-                    >
-                      {fetchWalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                  {walletPositions?.ok && walletPositions.positions.length > 0 && (
-                    <div className="text-sm p-2 bg-muted rounded-md">
-                      <div className="font-medium mb-2">Staked LP Positions:</div>
-                      {walletPositions.positions.map((pos) => (
-                        <div 
-                          key={pos.poolId} 
-                          className={`flex justify-between p-1 rounded cursor-pointer hover:bg-accent ${poolId === String(pos.poolId) ? 'bg-accent' : ''}`}
-                          onClick={() => handlePoolSelect(String(pos.poolId))}
-                        >
-                          <span>{pos.poolName}</span>
-                          <span className="font-mono">{pos.lpSharePct}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Garden Pool</CardTitle>
+                  <CardDescription>
+                    Select pool and LP position (shared by both heroes)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="poolId">Garden Pool</Label>
-                    <Select value={poolId} onValueChange={handlePoolSelect}>
-                      <SelectTrigger data-testid="select-pool">
-                        <SelectValue placeholder="Select pool" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {POOL_OPTIONS.map((pool) => (
-                          <SelectItem key={pool.id} value={String(pool.id)}>
-                            {pool.name}
-                          </SelectItem>
+                    <Label className="flex items-center gap-2">
+                      <Wallet className="h-4 w-4" />
+                      Wallet Address (optional)
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="walletAddress"
+                        value={walletAddress}
+                        onChange={(e) => setWalletAddress(e.target.value)}
+                        placeholder="0x... to auto-detect LP positions"
+                        data-testid="input-wallet-address"
+                      />
+                      <Button 
+                        onClick={() => fetchWalletMutation.mutate()} 
+                        disabled={fetchWalletMutation.isPending || !walletAddress}
+                        data-testid="button-fetch-wallet"
+                      >
+                        {fetchWalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                    {walletPositions?.ok && walletPositions.positions.length > 0 && (
+                      <div className="text-sm p-2 bg-muted rounded-md">
+                        <div className="font-medium mb-2">Staked LP Positions:</div>
+                        {walletPositions.positions.map((pos) => (
+                          <div 
+                            key={pos.poolId} 
+                            className={`flex justify-between p-1 rounded cursor-pointer hover-elevate ${poolId === String(pos.poolId) ? 'bg-accent' : ''}`}
+                            onClick={() => handlePoolSelect(String(pos.poolId))}
+                          >
+                            <span>{pos.poolName}</span>
+                            <span className="font-mono">{pos.lpSharePct}%</span>
+                          </div>
                         ))}
-                      </SelectContent>
-                    </Select>
+                      </div>
+                    )}
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lpShare">LP Share %</Label>
-                    <Input
-                      id="lpShare"
-                      type="number"
-                      step="0.0001"
-                      value={lpSharePct}
-                      onChange={(e) => setLpSharePct(e.target.value)}
-                      placeholder="0.1"
-                      disabled={!!walletAddress}
-                      data-testid="input-lp-share"
-                    />
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="poolId">Garden Pool</Label>
+                      <Select value={poolId} onValueChange={handlePoolSelect}>
+                        <SelectTrigger data-testid="select-pool">
+                          <SelectValue placeholder="Select pool" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {POOL_OPTIONS.map((pool) => (
+                            <SelectItem key={pool.id} value={String(pool.id)}>
+                              {pool.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="lpShare">LP Share %</Label>
+                      <Input
+                        id="lpShare"
+                        type="number"
+                        step="0.0001"
+                        value={lpSharePct}
+                        onChange={(e) => setLpSharePct(e.target.value)}
+                        placeholder="0.1"
+                        disabled={!!walletAddress}
+                        data-testid="input-lp-share"
+                      />
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label>Stamina: {stamina[0]}</Label>
-                  </div>
-                  <Slider
-                    value={stamina}
-                    onValueChange={setStamina}
-                    max={250}
-                    min={1}
-                    step={1}
-                    data-testid="slider-stamina"
-                  />
-                </div>
+                  <Button 
+                    onClick={() => calculateMutation.mutate()} 
+                    disabled={calculateMutation.isPending}
+                    className="w-full"
+                    data-testid="button-calculate"
+                  >
+                    {calculateMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Calculator className="h-4 w-4 mr-2" />
+                    )}
+                    Calculate Rewards
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
 
-                <Button 
-                  onClick={() => calculateMutation.mutate()} 
-                  disabled={calculateMutation.isPending}
-                  className="w-full"
-                  data-testid="button-calculate"
-                >
-                  {calculateMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Calculator className="h-4 w-4 mr-2" />
-                  )}
-                  Calculate Rewards
-                </Button>
-              </CardContent>
-            </Card>
-
+            {/* Results Column */}
             <div className="space-y-4">
               <Card>
                 <CardHeader>
@@ -529,46 +689,66 @@ export default function GardeningCalcAdmin() {
                       Calculated Rewards
                     </CardTitle>
                     <CardDescription>
-                      {calcResult.poolName} with {calcResult.inputs.stamina} stamina
+                      {calcResult.poolName}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="text-center p-4 bg-blue-500/10 rounded-lg">
-                        <div className="text-2xl font-bold text-blue-500" data-testid="text-crystal-reward">
-                          {calcResult.totalRewards.crystal.toFixed(4)}
-                        </div>
-                        <div className="text-sm text-muted-foreground">CRYSTAL</div>
-                        <div className="text-xs text-muted-foreground">
-                          {calcResult.perStamina.crystal.toFixed(6)}/stam
-                        </div>
-                      </div>
-                      <div className="text-center p-4 bg-purple-500/10 rounded-lg">
+                      <div className="text-center p-4 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                        <div className="text-xs text-muted-foreground mb-1">JEWEL Hero #{calcResult.jewelHero.heroId || "N/A"}</div>
                         <div className="text-2xl font-bold text-purple-500" data-testid="text-jewel-reward">
                           {calcResult.totalRewards.jewel.toFixed(4)}
                         </div>
                         <div className="text-sm text-muted-foreground">JEWEL</div>
                         <div className="text-xs text-muted-foreground">
-                          {calcResult.perStamina.jewel.toFixed(6)}/stam
+                          {calcResult.jewelHero.perStamina.toFixed(6)}/stam
+                        </div>
+                      </div>
+                      <div className="text-center p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                        <div className="text-xs text-muted-foreground mb-1">CRYSTAL Hero #{calcResult.crystalHero.heroId || "N/A"}</div>
+                        <div className="text-2xl font-bold text-blue-500" data-testid="text-crystal-reward">
+                          {calcResult.totalRewards.crystal.toFixed(4)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">CRYSTAL</div>
+                        <div className="text-xs text-muted-foreground">
+                          {calcResult.crystalHero.perStamina.toFixed(6)}/stam
                         </div>
                       </div>
                     </div>
 
-                    <div className="border-t pt-4 space-y-2 text-sm">
-                      <h4 className="font-medium">Formula Details</h4>
+                    <div className="border-t pt-4 space-y-3 text-sm">
+                      <h4 className="font-medium">Hero Details</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-2 bg-purple-500/5 rounded">
+                          <div className="text-xs text-purple-500 font-medium mb-1">JEWEL Hero</div>
+                          <div className="flex justify-between">
+                            <span>Hero Factor:</span>
+                            <span className="font-mono">{calcResult.jewelHero.heroFactor.toFixed(4)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Pet Mult:</span>
+                            <span className="font-mono">{calcResult.jewelHero.petMultiplier.toFixed(2)}x</span>
+                          </div>
+                        </div>
+                        <div className="p-2 bg-blue-500/5 rounded">
+                          <div className="text-xs text-blue-500 font-medium mb-1">CRYSTAL Hero</div>
+                          <div className="flex justify-between">
+                            <span>Hero Factor:</span>
+                            <span className="font-mono">{calcResult.crystalHero.heroFactor.toFixed(4)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Pet Mult:</span>
+                            <span className="font-mono">{calcResult.crystalHero.petMultiplier.toFixed(2)}x</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <h4 className="font-medium pt-2">Shared Pool Stats</h4>
                       <div className="grid grid-cols-2 gap-2">
-                        <div>Hero Factor:</div>
-                        <div className="font-mono">{calcResult.formula.heroFactor.toFixed(4)}</div>
-                        <div>Pet Multiplier:</div>
-                        <div className="font-mono">{calcResult.formula.petMultiplier.toFixed(2)}x</div>
                         <div>Pool Allocation:</div>
-                        <div className="font-mono">{(calcResult.formula.poolAllocation * 100).toFixed(1)}%</div>
+                        <div className="font-mono">{(calcResult.shared.poolAllocation * 100).toFixed(1)}%</div>
                         <div>LP Share:</div>
-                        <div className="font-mono">{(calcResult.formula.lpShare * 100).toFixed(4)}%</div>
-                        <div>Reward Mod Base:</div>
-                        <div className="font-mono">{calcResult.formula.rewardModBase}</div>
-                        <div>Gene Bonus:</div>
-                        <div className="font-mono">{calcResult.formula.geneBonus ? "Yes (+20%)" : "No"}</div>
+                        <div className="font-mono">{(calcResult.shared.lpShare * 100).toFixed(4)}%</div>
                       </div>
                     </div>
                   </CardContent>
