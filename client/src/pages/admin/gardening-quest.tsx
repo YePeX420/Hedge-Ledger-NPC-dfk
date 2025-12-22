@@ -33,6 +33,15 @@ interface WorkersStatus {
   workers: WorkerProgress[];
 }
 
+interface PoolBreakdown {
+  poolId: number;
+  poolName: string;
+  rewardCount: number;
+  crystalAmount: number;
+  jewelAmount: number;
+  uniqueHeroes: number;
+}
+
 interface GardeningQuestStats {
   indexerProgress: {
     indexerName: string;
@@ -63,6 +72,7 @@ interface GardeningQuestStats {
     totalCrystal: number;
     totalJewel: number;
   };
+  poolBreakdown?: PoolBreakdown[];
 }
 
 interface QuestReward {
@@ -454,6 +464,55 @@ export default function AdminGardeningQuest() {
               )}
             </CardContent>
           </Card>
+
+          {status?.poolBreakdown && status.poolBreakdown.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sprout className="w-5 h-5 text-green-500" />
+                  Rewards by Pool
+                </CardTitle>
+                <CardDescription>Breakdown of rewards earned across all gardening pools</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Pool</TableHead>
+                      <TableHead className="text-right">CRYSTAL</TableHead>
+                      <TableHead className="text-right">JEWEL</TableHead>
+                      <TableHead className="text-right">Rewards</TableHead>
+                      <TableHead className="text-right">Heroes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {status.poolBreakdown.map((pool) => (
+                      <TableRow key={pool.poolId} data-testid={`row-pool-${pool.poolId}`}>
+                        <TableCell className="font-medium">
+                          {pool.poolName}
+                          {pool.poolId === 255 && (
+                            <Badge variant="outline" className="ml-2 text-xs">Unlimited</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-purple-500 font-medium">
+                          {formatNumber(pool.crystalAmount)}
+                        </TableCell>
+                        <TableCell className="text-right text-amber-500 font-medium">
+                          {formatNumber(pool.jewelAmount)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {pool.rewardCount.toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {pool.uniqueHeroes.toLocaleString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

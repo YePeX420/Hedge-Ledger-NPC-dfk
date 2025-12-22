@@ -27,6 +27,28 @@ const MASTER_GARDENER_V2 = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
 const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb'.toLowerCase();
 const JEWEL_ADDRESS = '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260'.toLowerCase();
 
+const POOL_NAMES = {
+  0: 'wJEWEL-xJEWEL',
+  1: 'CRYSTAL-AVAX',
+  2: 'CRYSTAL-wJEWEL',
+  3: 'CRYSTAL-USDC',
+  4: 'ETH-USDC',
+  5: 'wJEWEL-USDC',
+  6: 'CRYSTAL-ETH',
+  7: 'CRYSTAL-BTC.b',
+  8: 'CRYSTAL-KLAY',
+  9: 'wJEWEL-KLAY',
+  10: 'wJEWEL-AVAX',
+  11: 'wJEWEL-BTC.b',
+  12: 'wJEWEL-ETH',
+  13: 'BTC.b-USDC',
+  255: 'Expeditions',
+};
+
+export function getPoolName(poolId) {
+  return POOL_NAMES[poolId] || `Pool ${poolId}`;
+}
+
 const MASTER_GARDENER_ABI = [
   'function userInfo(uint256 pid, address user) view returns (uint256 amount, int256 rewardDebt, uint256 lastDepositTimestamp)',
   'function poolInfo(uint256 pid) view returns (address lpToken, uint256 allocPoint, uint256 lastRewardTime, uint256 accRewardPerShare)',
@@ -1428,6 +1450,26 @@ export async function getGardeningQuestStatus() {
     totalJewel: sql`COALESCE(SUM(CASE WHEN ${gardeningQuestRewards.rewardSymbol} = 'JEWEL' THEN ${gardeningQuestRewards.rewardAmount}::numeric ELSE 0 END), 0)`,
   }).from(gardeningQuestRewards);
   
+  const poolBreakdown = await db.select({
+    poolId: gardeningQuestRewards.poolId,
+    rewardCount: sql`COUNT(*)`,
+    crystalAmount: sql`COALESCE(SUM(CASE WHEN ${gardeningQuestRewards.rewardSymbol} = 'CRYSTAL' THEN ${gardeningQuestRewards.rewardAmount}::numeric ELSE 0 END), 0)`,
+    jewelAmount: sql`COALESCE(SUM(CASE WHEN ${gardeningQuestRewards.rewardSymbol} = 'JEWEL' THEN ${gardeningQuestRewards.rewardAmount}::numeric ELSE 0 END), 0)`,
+    uniqueHeroes: sql`COUNT(DISTINCT ${gardeningQuestRewards.heroId})`,
+  })
+    .from(gardeningQuestRewards)
+    .groupBy(gardeningQuestRewards.poolId)
+    .orderBy(sql`SUM(CASE WHEN ${gardeningQuestRewards.rewardSymbol} = 'CRYSTAL' THEN ${gardeningQuestRewards.rewardAmount}::numeric ELSE 0 END) + SUM(CASE WHEN ${gardeningQuestRewards.rewardSymbol} = 'JEWEL' THEN ${gardeningQuestRewards.rewardAmount}::numeric ELSE 0 END) DESC`);
+  
+  const poolsWithNames = poolBreakdown.map(p => ({
+    poolId: p.poolId,
+    poolName: getPoolName(p.poolId),
+    rewardCount: Number(p.rewardCount),
+    crystalAmount: parseFloat(p.crystalAmount),
+    jewelAmount: parseFloat(p.jewelAmount),
+    uniqueHeroes: Number(p.uniqueHeroes),
+  }));
+  
   return {
     indexerProgress: progress,
     liveProgress: liveProgressData,
@@ -1442,6 +1484,7 @@ export async function getGardeningQuestStatus() {
       totalCrystal: parseFloat(stats.totalCrystal),
       totalJewel: parseFloat(stats.totalJewel),
     },
+    poolBreakdown: poolsWithNames,
   };
 }
 
