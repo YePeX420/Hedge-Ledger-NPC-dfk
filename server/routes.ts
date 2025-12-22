@@ -2696,6 +2696,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===========================================
+  // TOURNAMENT/BATTLE-READY HEROES ADMIN ROUTES
+  // ===========================================
+
+  // GET /api/admin/tournament/status - Get tournament indexer status
+  app.get("/api/admin/tournament/status", isAdmin, async (_req: any, res: any) => {
+    try {
+      const { getTournamentIndexerStatus } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const status = await getTournamentIndexerStatus();
+      res.json({ ok: true, ...status });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error getting status:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tournament/trigger - Trigger battle indexing
+  app.post("/api/admin/tournament/trigger", isAdmin, async (req: any, res: any) => {
+    try {
+      const { maxBattles = 100 } = req.body;
+      const { runTournamentIndexer } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const result = await runTournamentIndexer(maxBattles);
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error triggering indexer:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tournament/recent - Get recent indexed battles/tournaments
+  app.get("/api/admin/tournament/recent", isAdmin, async (req: any, res: any) => {
+    try {
+      const limit = parseInt(req.query.limit) || 20;
+      const { getRecentTournaments } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const tournaments = await getRecentTournaments(limit);
+      res.json({ ok: true, tournaments });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error getting recent tournaments:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/similarity/config - Get similarity scoring config
+  app.get("/api/admin/similarity/config", isAdmin, async (_req: any, res: any) => {
+    try {
+      const { getSimilarityConfig } = await import("../src/services/similarityScoring.js");
+      const config = await getSimilarityConfig('default');
+      res.json({ ok: true, config });
+    } catch (error: any) {
+      console.error('[Similarity Admin] Error getting config:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // PUT /api/admin/similarity/config - Update similarity scoring config
+  app.put("/api/admin/similarity/config", isAdmin, async (req: any, res: any) => {
+    try {
+      const updates = req.body;
+      const { updateSimilarityConfig } = await import("../src/services/similarityScoring.js");
+      const config = await updateSimilarityConfig('default', updates);
+      res.json({ ok: true, config });
+    } catch (error: any) {
+      console.error('[Similarity Admin] Error updating config:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/battle-ready/recommendations - Get battle-ready hero recommendations
+  app.get("/api/admin/battle-ready/recommendations", isAdmin, async (req: any, res: any) => {
+    try {
+      const mainClass = req.query.mainClass as string | undefined;
+      const levelMin = req.query.levelMin ? parseInt(req.query.levelMin) : undefined;
+      const levelMax = req.query.levelMax ? parseInt(req.query.levelMax) : undefined;
+      const rarityMin = req.query.rarityMin ? parseInt(req.query.rarityMin) : undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+      
+      const { getBattleReadyRecommendations } = await import("../src/services/similarityScoring.js");
+      const result = await getBattleReadyRecommendations({ mainClass, levelMin, levelMax, rarityMin, limit });
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[Battle-Ready Admin] Error getting recommendations:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/battle-ready/score - Score a hero against battle winners
+  app.post("/api/admin/battle-ready/score", isAdmin, async (req: any, res: any) => {
+    try {
+      const hero = req.body;
+      if (!hero || !hero.mainClass) {
+        return res.status(400).json({ ok: false, error: 'Hero data with mainClass is required' });
+      }
+      const { calculateHeroSimilarity } = await import("../src/services/similarityScoring.js");
+      const score = await calculateHeroSimilarity(hero);
+      res.json({ ok: true, score });
+    } catch (error: any) {
+      console.error('[Battle-Ready Admin] Error scoring hero:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
