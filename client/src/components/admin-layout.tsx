@@ -47,6 +47,7 @@ const navItems = [
   { href: '/admin/pool-indexer-harmony', label: 'Pool Indexer Harmony', icon: Database },
   { href: '/admin/jeweler', label: 'Jeweler', icon: Gem },
   { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
+  { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
   { href: '/admin/hedge/combat-sync', label: 'Hedge: Combat Sync', icon: RefreshCw },
