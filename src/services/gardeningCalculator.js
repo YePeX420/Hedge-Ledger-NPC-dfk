@@ -19,7 +19,7 @@ const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
 const graphqlClient = new GraphQLClient(DFK_GRAPHQL_ENDPOINT);
 const QUEST_REWARD_FUND = '0x1137643FE14b032966a59Acd68EBf3c1271Df316';
 const CRYSTAL_TOKEN = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb';
-const JEWEL_TOKEN = '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260';
+const WJEWEL_TOKEN_DFK = '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260'; // wJEWEL on DFK Chain (native gas token wrapper)
 const MASTER_GARDENER_V2 = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
 
 const ERC20_ABI = ['function balanceOf(address owner) view returns (uint256)'];
@@ -73,17 +73,23 @@ export async function getQuestRewardFundBalances(forceRefresh = false) {
   try {
     const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
     const crystalContract = new ethers.Contract(CRYSTAL_TOKEN, ERC20_ABI, provider);
-    const jewelContract = new ethers.Contract(JEWEL_TOKEN, ERC20_ABI, provider);
+    const jewelContract = new ethers.Contract(WJEWEL_TOKEN_DFK, ERC20_ABI, provider);
     
-    const [crystalBal, jewelBal] = await Promise.all([
+    const [crystalBal, wJewelBal, nativeJewelBal] = await Promise.all([
       crystalContract.balanceOf(QUEST_REWARD_FUND),
       jewelContract.balanceOf(QUEST_REWARD_FUND),
+      provider.getBalance(QUEST_REWARD_FUND), // Native JEWEL (gas token)
     ]);
     
-    cachedRewardPools = {
-      crystalPool: parseFloat(ethers.formatEther(crystalBal)),
-      jewelPool: parseFloat(ethers.formatEther(jewelBal)),
-    };
+    const crystalPool = parseFloat(ethers.formatEther(crystalBal));
+    // Use native JEWEL balance if wJEWEL is 0, otherwise use wJEWEL
+    const wJewelPool = parseFloat(ethers.formatEther(wJewelBal));
+    const nativeJewelPool = parseFloat(ethers.formatEther(nativeJewelBal));
+    const jewelPool = wJewelPool > 0 ? wJewelPool : nativeJewelPool;
+    
+    console.log(`[GardeningCalc] Quest Reward Fund balances - CRYSTAL: ${crystalPool.toLocaleString()}, wJEWEL: ${wJewelPool.toLocaleString()}, Native JEWEL: ${nativeJewelPool.toLocaleString()}`);
+    
+    cachedRewardPools = { crystalPool, jewelPool };
     cacheTimestamp = now;
     
     return cachedRewardPools;
