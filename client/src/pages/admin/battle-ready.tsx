@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star } from "lucide-react";
+import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface SimilarityConfig {
@@ -53,10 +53,33 @@ interface TournamentStats {
   placementBreakdown: Record<string, number>;
 }
 
+interface WorkerState {
+  id: number;
+  status: 'idle' | 'working' | 'stealing' | 'done';
+  battlesProcessed: number;
+  lastBattleId: number | null;
+  errors: number;
+}
+
+interface LiveIndexerState {
+  isRunning: boolean;
+  isAutoRunning: boolean;
+  startedAt: string | null;
+  totalBattlesToProcess: number;
+  battlesProcessed: number;
+  placementsIndexed: number;
+  snapshotsIndexed: number;
+  throughputPerMinute: number;
+  estimatedSecondsRemaining: number | null;
+  workers: WorkerState[];
+  workQueueSize: number;
+}
+
 interface TournamentStatus {
   ok: boolean;
   progress: IndexerProgress;
   stats: TournamentStats;
+  live: LiveIndexerState;
 }
 
 interface Tournament {
@@ -172,9 +195,64 @@ export default function BattleReadyAdmin() {
     },
   });
 
+  const stopMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/admin/tournament/stop');
+    },
+    onSuccess: () => {
+      toast({ title: "Indexer stopped", description: "Battle indexing stopped" });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/status'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const startAutoRunMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/admin/tournament/autorun/start', { maxBattlesPerRun: 200 });
+    },
+    onSuccess: () => {
+      toast({ title: "Auto-run started", description: "Indexer will run periodically" });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/status'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const stopAutoRunMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/admin/tournament/autorun/stop');
+    },
+    onSuccess: () => {
+      toast({ title: "Auto-run stopped", description: "Periodic indexing stopped" });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/status'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const config = editingConfig || configData?.config;
   const progress = statusData?.progress;
   const stats = statusData?.stats;
+  const live = statusData?.live;
+
+  // Format ETA as readable string
+  const formatEta = (seconds: number | null): string => {
+    if (!seconds) return 'N/A';
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    return `${hours}h ${mins}m`;
+  };
+
+  // Calculate progress percentage
+  const progressPercent = live?.totalBattlesToProcess 
+    ? Math.round((live.battlesProcessed / live.totalBattlesToProcess) * 100)
+    : 0;
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -241,6 +319,84 @@ export default function BattleReadyAdmin() {
         </Card>
       </div>
 
+      {/* Live Progress Section */}
+      {live?.isRunning && (
+        <Card className="border-green-500/50 bg-green-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin text-green-500" />
+              Indexer Running - {live.workers.length} Workers
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Progress Bar */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>Progress: {live.battlesProcessed} / {live.totalBattlesToProcess} battles</span>
+                <span className="font-mono">{progressPercent}%</span>
+              </div>
+              <Progress value={progressPercent} className="h-3" data-testid="progress-indexer" />
+            </div>
+            
+            {/* Stats Row */}
+            <div className="grid grid-cols-4 gap-4 text-center">
+              <div>
+                <div className="text-lg font-bold text-green-500">{live.throughputPerMinute}</div>
+                <div className="text-xs text-muted-foreground">battles/min</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold">{formatEta(live.estimatedSecondsRemaining)}</div>
+                <div className="text-xs text-muted-foreground">ETA</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold">{live.placementsIndexed}</div>
+                <div className="text-xs text-muted-foreground">placements</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold">{live.workQueueSize}</div>
+                <div className="text-xs text-muted-foreground">queue size</div>
+              </div>
+            </div>
+            
+            {/* Worker Cards */}
+            <div className="grid grid-cols-5 gap-2">
+              {live.workers.map((worker) => (
+                <div 
+                  key={worker.id}
+                  className={`p-2 rounded border text-center text-xs ${
+                    worker.status === 'working' ? 'bg-green-500/20 border-green-500/50' :
+                    worker.status === 'stealing' ? 'bg-yellow-500/20 border-yellow-500/50' :
+                    worker.status === 'done' ? 'bg-muted border-muted-foreground/20' :
+                    'bg-background border-border'
+                  }`}
+                  data-testid={`worker-card-${worker.id}`}
+                >
+                  <div className="font-bold">W{worker.id + 1}</div>
+                  <div className="capitalize">{worker.status}</div>
+                  <div className="text-muted-foreground">{worker.battlesProcessed}</div>
+                </div>
+              ))}
+            </div>
+            
+            {/* Stop Button */}
+            <Button
+              variant="destructive"
+              onClick={() => stopMutation.mutate()}
+              disabled={stopMutation.isPending}
+              className="w-full"
+              data-testid="button-stop-indexer"
+            >
+              {stopMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Square className="h-4 w-4 mr-2" />
+              )}
+              Stop Indexer
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
@@ -248,9 +404,10 @@ export default function BattleReadyAdmin() {
               <Play className="h-5 w-5" />
               Indexer Control
             </CardTitle>
-            <CardDescription>Trigger battle data indexing from the DFK GraphQL API</CardDescription>
+            <CardDescription>Trigger battle data indexing with 5 parallel workers</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Manual Trigger */}
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <Label htmlFor="maxBattles">Max Battles:</Label>
@@ -265,7 +422,7 @@ export default function BattleReadyAdmin() {
               </div>
               <Button
                 onClick={() => triggerMutation.mutate()}
-                disabled={triggerMutation.isPending || progress?.status === 'running'}
+                disabled={triggerMutation.isPending || live?.isRunning}
                 data-testid="button-trigger-indexer"
               >
                 {triggerMutation.isPending ? (
@@ -276,7 +433,43 @@ export default function BattleReadyAdmin() {
                 Index Battles
               </Button>
             </div>
-            <div className="space-y-2">
+            
+            {/* Auto-Run Controls */}
+            <div className="border-t pt-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Auto-Run (Production):</span>
+                {live?.isAutoRunning ? (
+                  <Badge variant="default" className="bg-green-500">Active</Badge>
+                ) : (
+                  <Badge variant="secondary">Inactive</Badge>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => startAutoRunMutation.mutate()}
+                  disabled={startAutoRunMutation.isPending || live?.isAutoRunning}
+                  data-testid="button-start-autorun"
+                >
+                  <Play className="h-3 w-3 mr-1" />
+                  Start Auto-Run
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => stopAutoRunMutation.mutate()}
+                  disabled={stopAutoRunMutation.isPending || !live?.isAutoRunning}
+                  data-testid="button-stop-autorun"
+                >
+                  <Square className="h-3 w-3 mr-1" />
+                  Stop Auto-Run
+                </Button>
+              </div>
+            </div>
+            
+            {/* Status */}
+            <div className="space-y-2 border-t pt-4">
               <div className="flex items-center justify-between text-sm">
                 <span>Status:</span>
                 <StatusBadge status={progress?.status || 'idle'} />

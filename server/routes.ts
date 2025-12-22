@@ -2700,27 +2700,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // TOURNAMENT/BATTLE-READY HEROES ADMIN ROUTES
   // ===========================================
 
-  // GET /api/admin/tournament/status - Get tournament indexer status
+  // GET /api/admin/tournament/status - Get tournament indexer status with live worker data
   app.get("/api/admin/tournament/status", isAdmin, async (_req: any, res: any) => {
     try {
-      const { getTournamentIndexerStatus } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const { getTournamentIndexerStatus, getLiveIndexerState } = await import("../src/etl/ingestion/tournamentIndexer.js");
       const status = await getTournamentIndexerStatus();
-      res.json({ ok: true, ...status });
+      const liveState = getLiveIndexerState();
+      res.json({ ok: true, ...status, live: liveState });
     } catch (error: any) {
       console.error('[Tournament Admin] Error getting status:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
 
-  // POST /api/admin/tournament/trigger - Trigger battle indexing
+  // POST /api/admin/tournament/trigger - Trigger battle indexing (non-blocking)
   app.post("/api/admin/tournament/trigger", isAdmin, async (req: any, res: any) => {
     try {
       const { maxBattles = 100 } = req.body;
-      const { runTournamentIndexer } = await import("../src/etl/ingestion/tournamentIndexer.js");
-      const result = await runTournamentIndexer(maxBattles);
-      res.json({ ok: true, ...result });
+      const { runTournamentIndexer, getLiveIndexerState } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      
+      // Start indexer in background (don't await)
+      runTournamentIndexer(maxBattles).catch((err: any) => 
+        console.error('[Tournament Admin] Background indexer error:', err)
+      );
+      
+      // Return immediate response with initial state
+      const liveState = getLiveIndexerState();
+      res.json({ ok: true, message: 'Indexer started', live: liveState });
     } catch (error: any) {
       console.error('[Tournament Admin] Error triggering indexer:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tournament/stop - Stop the indexer
+  app.post("/api/admin/tournament/stop", isAdmin, async (_req: any, res: any) => {
+    try {
+      const { stopTournamentIndexer } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const result = stopTournamentIndexer();
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error stopping indexer:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tournament/autorun/start - Start auto-run
+  app.post("/api/admin/tournament/autorun/start", isAdmin, async (req: any, res: any) => {
+    try {
+      const { maxBattlesPerRun = 200 } = req.body;
+      const { startAutoRun } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const result = startAutoRun({ maxBattlesPerRun });
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error starting auto-run:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tournament/autorun/stop - Stop auto-run
+  app.post("/api/admin/tournament/autorun/stop", isAdmin, async (_req: any, res: any) => {
+    try {
+      const { stopAutoRun } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const result = stopAutoRun();
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error stopping auto-run:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });

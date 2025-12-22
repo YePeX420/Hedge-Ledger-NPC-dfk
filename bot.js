@@ -7138,6 +7138,143 @@ async function startAdminWebServer() {
     }
   });
   
+  // ===========================================
+  // TOURNAMENT/BATTLE-READY HEROES ADMIN ROUTES
+  // ===========================================
+
+  // GET /api/admin/tournament/status - Get tournament indexer status with live worker data
+  app.get("/api/admin/tournament/status", isAdmin, async (req, res) => {
+    try {
+      const { getTournamentIndexerStatus, getLiveIndexerState } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const status = await getTournamentIndexerStatus();
+      const liveState = getLiveIndexerState();
+      res.json({ ok: true, ...status, live: liveState });
+    } catch (error) {
+      console.error('[Tournament Admin] Error getting status:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tournament/trigger - Trigger battle indexing (non-blocking)
+  app.post("/api/admin/tournament/trigger", isAdmin, async (req, res) => {
+    try {
+      const { maxBattles = 100 } = req.body;
+      const { runTournamentIndexer, getLiveIndexerState } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      
+      // Start indexer in background (don't await)
+      runTournamentIndexer(maxBattles).catch((err) => 
+        console.error('[Tournament Admin] Background indexer error:', err)
+      );
+      
+      // Return immediate response with initial state
+      const liveState = getLiveIndexerState();
+      res.json({ ok: true, message: 'Indexer started', live: liveState });
+    } catch (error) {
+      console.error('[Tournament Admin] Error triggering indexer:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tournament/stop - Stop the indexer
+  app.post("/api/admin/tournament/stop", isAdmin, async (req, res) => {
+    try {
+      const { stopTournamentIndexer } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const result = stopTournamentIndexer();
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[Tournament Admin] Error stopping indexer:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tournament/autorun/start - Start auto-run
+  app.post("/api/admin/tournament/autorun/start", isAdmin, async (req, res) => {
+    try {
+      const { maxBattlesPerRun = 200 } = req.body;
+      const { startAutoRun } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const result = startAutoRun({ maxBattlesPerRun });
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[Tournament Admin] Error starting auto-run:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tournament/autorun/stop - Stop auto-run
+  app.post("/api/admin/tournament/autorun/stop", isAdmin, async (req, res) => {
+    try {
+      const { stopAutoRun } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const result = stopAutoRun();
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[Tournament Admin] Error stopping auto-run:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tournament/recent - Get recent indexed battles/tournaments
+  app.get("/api/admin/tournament/recent", isAdmin, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 20;
+      const { getRecentTournaments } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const tournaments = await getRecentTournaments(limit);
+      res.json({ ok: true, tournaments });
+    } catch (error) {
+      console.error('[Tournament Admin] Error getting recent tournaments:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/similarity/config - Get similarity scoring config
+  app.get("/api/admin/similarity/config", isAdmin, async (req, res) => {
+    try {
+      const { getSimilarityConfig } = await import("./src/services/similarityScoring.js");
+      const config = await getSimilarityConfig('default');
+      res.json({ ok: true, config });
+    } catch (error) {
+      console.error('[Similarity Admin] Error getting config:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // PUT /api/admin/similarity/config - Update similarity scoring config
+  app.put("/api/admin/similarity/config", isAdmin, async (req, res) => {
+    try {
+      const updates = req.body;
+      const { updateSimilarityConfig } = await import("./src/services/similarityScoring.js");
+      const config = await updateSimilarityConfig('default', updates);
+      res.json({ ok: true, config });
+    } catch (error) {
+      console.error('[Similarity Admin] Error updating config:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/battle-ready/recommendations - Get battle-ready hero recommendations
+  app.get("/api/admin/battle-ready/recommendations", isAdmin, async (req, res) => {
+    try {
+      const mainClass = req.query.mainClass;
+      const levelMin = req.query.levelMin ? parseInt(req.query.levelMin) : undefined;
+      const levelMax = req.query.levelMax ? parseInt(req.query.levelMax) : undefined;
+      const rarityMin = req.query.rarityMin ? parseInt(req.query.rarityMin) : undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+      
+      const { getWinnerSnapshots } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const recommendations = await getWinnerSnapshots({
+        mainClass,
+        levelMin,
+        levelMax,
+        rarityMin,
+        limit,
+      });
+      
+      res.json({ ok: true, recommendations, totalWinners: recommendations.length });
+    } catch (error) {
+      console.error('[Battle-Ready Admin] Error getting recommendations:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+  
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
     try {
@@ -9661,6 +9798,9 @@ async function startAdminWebServer() {
       
       // Auto-start Gardening Quest indexer
       await autoStartGardeningQuestIndexer();
+      
+      // Auto-start Tournament/Battle indexer
+      await autoStartTournamentIndexer();
     } else {
       console.log('[AutoStart] Development environment - indexers will only run when manually triggered from admin panel');
     }
@@ -9753,6 +9893,27 @@ async function startAdminWebServer() {
       console.log(`[GardeningQuestIndexer] Auto-start complete: ${result.workersStarted || 1} workers started`);
     } catch (err) {
       console.error('[GardeningQuestIndexer] Auto-start error:', err.message);
+    }
+  }
+  
+  // Auto-start Tournament/Battle indexer on server startup (production only)
+  async function autoStartTournamentIndexer() {
+    try {
+      // Wait a bit after Gardening Quest indexer to stagger load
+      await new Promise(r => setTimeout(r, 20000));
+      
+      console.log('[TournamentIndexer] Auto-starting Tournament/Battle indexer...');
+      const { startAutoRun, isAutoRunActive } = await import('./src/etl/ingestion/tournamentIndexer.ts');
+      
+      if (isAutoRunActive()) {
+        console.log('[TournamentIndexer] Already running, skipping auto-start');
+        return;
+      }
+      
+      const result = startAutoRun({ maxBattlesPerRun: 200 });
+      console.log(`[TournamentIndexer] Auto-start complete: ${result.status}`);
+    } catch (err) {
+      console.error('[TournamentIndexer] Auto-start error:', err.message);
     }
   }
   
