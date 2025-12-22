@@ -407,6 +407,24 @@ export default function BattleReadyAdmin() {
                     </div>
                   </div>
                 </div>
+                <div className="pt-4 border-t">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Total Weight Sum:</span>
+                    <span className="font-mono">
+                      {(
+                        parseFloat(config.statsWeight) +
+                        parseFloat(config.activeAbilitiesWeight) +
+                        parseFloat(config.passiveAbilitiesWeight) +
+                        parseFloat(config.classMatchWeight) +
+                        parseFloat(config.rarityMatchWeight) +
+                        parseFloat(config.geneQualityWeight)
+                      ).toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Weights are auto-normalized when calculating scores (final score always 0-1)
+                  </p>
+                </div>
                 {editingConfig && (
                   <div className="flex gap-2 pt-4">
                     <Button

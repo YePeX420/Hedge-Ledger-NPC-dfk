@@ -318,14 +318,33 @@ export async function calculateHeroSimilarity(
   const avgRarityScore = totalRarityScore / count;
   const geneScore = calculateGeneQualityScore(hero);
   
-  // Calculate final overall score
+  // Calculate final overall score (normalize weights to ensure score is 0-1)
+  const totalWeight = 
+    weights.statsWeight + 
+    weights.activeAbilitiesWeight + 
+    weights.passiveAbilitiesWeight + 
+    weights.classMatchWeight + 
+    weights.rarityMatchWeight + 
+    weights.geneQualityWeight;
+  
+  const normalizedWeights = totalWeight > 0 ? {
+    stats: weights.statsWeight / totalWeight,
+    active: weights.activeAbilitiesWeight / totalWeight,
+    passive: weights.passiveAbilitiesWeight / totalWeight,
+    classMatch: weights.classMatchWeight / totalWeight,
+    rarity: weights.rarityMatchWeight / totalWeight,
+    gene: weights.geneQualityWeight / totalWeight,
+  } : {
+    stats: 0.4, active: 0.25, passive: 0.15, classMatch: 0.1, rarity: 0.05, gene: 0.05,
+  };
+  
   const overallScore = (
-    avgStatScore * weights.statsWeight +
-    avgActiveScore * weights.activeAbilitiesWeight +
-    avgPassiveScore * weights.passiveAbilitiesWeight +
-    avgClassScore * weights.classMatchWeight +
-    avgRarityScore * weights.rarityMatchWeight +
-    geneScore * weights.geneQualityWeight
+    avgStatScore * normalizedWeights.stats +
+    avgActiveScore * normalizedWeights.active +
+    avgPassiveScore * normalizedWeights.passive +
+    avgClassScore * normalizedWeights.classMatch +
+    avgRarityScore * normalizedWeights.rarity +
+    geneScore * normalizedWeights.gene
   );
   
   return {
