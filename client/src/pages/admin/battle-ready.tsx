@@ -8,9 +8,16 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap } from "lucide-react";
+import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+// Realm display names for marketplace locations
+const REALM_DISPLAY_NAMES: Record<string, string> = {
+  cv: 'Crystalvale Tavern',
+  sd: 'Sundered Isles Barkeep',
+};
 
 interface SimilarityConfig {
   id: number;
@@ -148,6 +155,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function BattleReadyAdmin() {
   const { toast } = useToast();
   const [maxBattles, setMaxBattles] = useState("100");
+  const [selectedRealm, setSelectedRealm] = useState<string>("cv");
   const [editingConfig, setEditingConfig] = useState<SimilarityConfig | null>(null);
 
   const { data: statusData, isLoading: statusLoading, refetch: refetchStatus } = useQuery<TournamentStatus>({
@@ -170,10 +178,14 @@ export default function BattleReadyAdmin() {
 
   const triggerMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('POST', '/api/admin/tournament/trigger', { maxBattles: parseInt(maxBattles) || 100 });
+      return apiRequest('POST', '/api/admin/tournament/trigger', { 
+        maxBattles: parseInt(maxBattles) || 100,
+        realm: selectedRealm 
+      });
     },
     onSuccess: () => {
-      toast({ title: "Indexer triggered", description: "Battle indexing started" });
+      const realmName = REALM_DISPLAY_NAMES[selectedRealm] || selectedRealm;
+      toast({ title: "Indexer triggered", description: `Battle indexing started for ${realmName}` });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/status'] });
     },
     onError: (error: Error) => {
@@ -408,7 +420,7 @@ export default function BattleReadyAdmin() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Manual Trigger */}
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-2">
                 <Label htmlFor="maxBattles">Max Battles:</Label>
                 <Input
@@ -419,6 +431,21 @@ export default function BattleReadyAdmin() {
                   className="w-24"
                   data-testid="input-max-battles"
                 />
+              </div>
+              <div className="flex items-center gap-2">
+                <Label>
+                  <MapPin className="h-4 w-4 inline mr-1" />
+                  Realm:
+                </Label>
+                <Select value={selectedRealm} onValueChange={setSelectedRealm}>
+                  <SelectTrigger className="w-48" data-testid="select-realm">
+                    <SelectValue placeholder="Select realm" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cv">Crystalvale Tavern</SelectItem>
+                    <SelectItem value="sd">Sundered Isles Barkeep</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <Button
                 onClick={() => triggerMutation.mutate()}

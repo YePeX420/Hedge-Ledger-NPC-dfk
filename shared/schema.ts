@@ -2762,6 +2762,7 @@ export const heroTournamentSnapshots = pgTable("hero_tournament_snapshots", {
   placementId: integer("placement_id").notNull().references(() => tournamentPlacements.id),
   heroId: bigint("hero_id", { mode: "number" }).notNull(),
   tournamentId: bigint("tournament_id", { mode: "number" }).notNull(),
+  realm: text("realm").notNull().default('cv'), // 'cv' = Crystalvale Tavern, 'sd' = Serendale/Sundered Isles Barkeep
   
   // Core hero info
   rarity: integer("rarity").notNull(), // 0=common, 1=uncommon, 2=rare, 3=legendary, 4=mythic

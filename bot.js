@@ -7156,19 +7156,23 @@ async function startAdminWebServer() {
   });
 
   // POST /api/admin/tournament/trigger - Trigger battle indexing (non-blocking)
+  // realm: 'cv' = Crystalvale Tavern, 'sd' = Serendale/Sundered Isles Barkeep
   app.post("/api/admin/tournament/trigger", isAdmin, async (req, res) => {
     try {
-      const { maxBattles = 100 } = req.body;
-      const { runTournamentIndexer, getLiveIndexerState } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const { maxBattles = 100, realm = 'cv' } = req.body;
+      const { runTournamentIndexer, getLiveIndexerState, REALM_DISPLAY_NAMES } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      
+      const realmName = REALM_DISPLAY_NAMES?.[realm] || realm;
+      console.log(`[Tournament Admin] Starting indexer for ${realmName} with ${maxBattles} battles`);
       
       // Start indexer in background (don't await)
-      runTournamentIndexer(maxBattles).catch((err) => 
-        console.error('[Tournament Admin] Background indexer error:', err)
+      runTournamentIndexer(maxBattles, realm).catch((err) => 
+        console.error(`[Tournament Admin] Background indexer error (${realm}):`, err)
       );
       
       // Return immediate response with initial state
       const liveState = getLiveIndexerState();
-      res.json({ ok: true, message: 'Indexer started', live: liveState });
+      res.json({ ok: true, message: `Indexer started for ${realmName}`, realm, live: liveState });
     } catch (error) {
       console.error('[Tournament Admin] Error triggering indexer:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
@@ -7188,12 +7192,14 @@ async function startAdminWebServer() {
   });
 
   // POST /api/admin/tournament/autorun/start - Start auto-run
+  // realm: 'cv', 'sd', or undefined (alternates both realms)
   app.post("/api/admin/tournament/autorun/start", isAdmin, async (req, res) => {
     try {
-      const { maxBattlesPerRun = 200 } = req.body;
-      const { startAutoRun } = await import("./src/etl/ingestion/tournamentIndexer.js");
-      const result = startAutoRun({ maxBattlesPerRun });
-      res.json({ ok: true, ...result });
+      const { maxBattlesPerRun = 200, realm } = req.body;
+      const { startAutoRun, REALM_DISPLAY_NAMES } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const result = startAutoRun({ maxBattlesPerRun, realm });
+      const realmInfo = realm ? REALM_DISPLAY_NAMES?.[realm] : 'both realms (alternating)';
+      res.json({ ok: true, ...result, message: `Auto-run started for ${realmInfo}` });
     } catch (error) {
       console.error('[Tournament Admin] Error starting auto-run:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });

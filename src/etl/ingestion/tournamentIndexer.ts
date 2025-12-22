@@ -13,11 +13,23 @@ import {
 } from '../../../shared/schema.js';
 import { eq, sql, desc } from 'drizzle-orm';
 
-const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
-const client = new GraphQLClient(DFK_GRAPHQL_ENDPOINT);
+// GraphQL endpoints for each realm
+const REALM_ENDPOINTS = {
+  cv: 'https://api.defikingdoms.com/graphql', // Crystalvale (DFK Chain)
+  sd: 'https://api.defikingdoms.com/graphql', // Serendale (Klaytn/Kaia) - same API, different realm filter
+};
+
+// Realm display names for user-facing messages
+export const REALM_DISPLAY_NAMES: Record<string, string> = {
+  cv: 'Crystalvale Tavern',
+  sd: 'Sundered Isles Barkeep',
+};
+
+const client = new GraphQLClient(REALM_ENDPOINTS.cv);
 
 const BATCH_SIZE = 50;
-const INDEXER_REALM = 'cv';
+const SUPPORTED_REALMS = ['cv', 'sd'] as const;
+type RealmType = typeof SUPPORTED_REALMS[number];
 const NUM_WORKERS = 5;
 const AUTO_RUN_INTERVAL_MS = 60000; // 1 minute between auto-runs
 const WORKER_DELAY_MS = 100; // Delay between worker batches
@@ -196,6 +208,8 @@ async function ensureTablesExist() {
         id SERIAL PRIMARY KEY,
         placement_id INTEGER NOT NULL,
         hero_id BIGINT NOT NULL,
+        tournament_id BIGINT NOT NULL,
+        realm VARCHAR(50) NOT NULL DEFAULT 'cv',
         main_class VARCHAR(50),
         sub_class VARCHAR(50),
         rarity INTEGER,
@@ -247,29 +261,29 @@ async function ensureTablesExist() {
   }
 }
 
-// Get indexer progress
-async function getProgress() {
+// Get indexer progress for a realm
+async function getProgress(realm: RealmType = 'cv') {
   await ensureTablesExist();
   
   const result = await db
     .select()
     .from(tournamentIndexerProgress)
-    .where(eq(tournamentIndexerProgress.realm, INDEXER_REALM))
+    .where(eq(tournamentIndexerProgress.realm, realm))
     .limit(1);
   
   if (result.length === 0) {
-    await db.insert(tournamentIndexerProgress).values({ realm: INDEXER_REALM });
-    return { lastTournamentId: 0, tournamentsIndexed: 0, placementsIndexed: 0, snapshotsIndexed: 0 };
+    await db.insert(tournamentIndexerProgress).values({ realm });
+    return { lastTournamentId: 0, tournamentsIndexed: 0, placementsIndexed: 0, snapshotsIndexed: 0, realm };
   }
   return result[0];
 }
 
-// Update indexer progress
-async function updateProgress(updates: Partial<typeof tournamentIndexerProgress.$inferInsert>) {
+// Update indexer progress for a realm
+async function updateProgress(realm: RealmType, updates: Partial<typeof tournamentIndexerProgress.$inferInsert>) {
   await db
     .update(tournamentIndexerProgress)
     .set({ ...updates, updatedAt: new Date() })
-    .where(eq(tournamentIndexerProgress.realm, INDEXER_REALM));
+    .where(eq(tournamentIndexerProgress.realm, realm));
 }
 
 // GraphQL query for battles with hero data
@@ -430,7 +444,7 @@ function getAbilityName(abilityId: number | undefined): string | null {
 }
 
 // Process a single battle and store tournament/placement/snapshot data
-async function processBattle(battle: Battle): Promise<{ placements: number; snapshots: number }> {
+async function processBattle(battle: Battle, realm: RealmType = 'cv'): Promise<{ placements: number; snapshots: number }> {
   let placementsAdded = 0;
   let snapshotsAdded = 0;
   
@@ -454,7 +468,7 @@ async function processBattle(battle: Battle): Promise<{ placements: number; snap
     // Insert or update tournament record
     await db.insert(pvpTournaments).values({
       tournamentId: battleId,
-      realm: INDEXER_REALM,
+      realm: realm,
       name: `Battle #${battleId}`,
       format,
       status: 'completed',
@@ -491,11 +505,12 @@ async function processBattle(battle: Battle): Promise<{ placements: number; snap
       if (placement) {
         placementsAdded++;
         
-        // Insert hero snapshot
+        // Insert hero snapshot with realm for marketplace location
         await db.insert(heroTournamentSnapshots).values({
           placementId: placement.id,
           heroId,
           tournamentId: battleId,
+          realm: realm,
           rarity: hero.rarity,
           mainClass: hero.mainClassStr,
           subClass: hero.subClassStr,
@@ -546,11 +561,12 @@ async function processBattle(battle: Battle): Promise<{ placements: number; snap
       if (placement) {
         placementsAdded++;
         
-        // Insert hero snapshot
+        // Insert hero snapshot with realm for marketplace location
         await db.insert(heroTournamentSnapshots).values({
           placementId: placement.id,
           heroId,
           tournamentId: battleId,
+          realm: realm,
           rarity: hero.rarity,
           mainClass: hero.mainClassStr,
           subClass: hero.subClassStr,
@@ -640,7 +656,7 @@ function stealWork(thiefId: number): WorkItem | null {
 }
 
 // Worker function - processes battles from queue
-async function runWorker(workerId: number, dbProgress: typeof tournamentIndexerProgress.$inferSelect): Promise<void> {
+async function runWorker(workerId: number, dbProgress: typeof tournamentIndexerProgress.$inferSelect, realm: RealmType): Promise<void> {
   const worker = indexerState.workers[workerId];
   if (!worker) return;
   
@@ -680,7 +696,8 @@ async function runWorker(workerId: number, dbProgress: typeof tournamentIndexerP
       for (const battle of data.battles) {
         if (!indexerState.isRunning) break;
         
-        const result = await processBattle(battle);
+        // Pass realm to processBattle for proper marketplace tracking
+        const result = await processBattle(battle, realm);
         
         // Update worker state
         worker.battlesProcessed++;
@@ -695,8 +712,8 @@ async function runWorker(workerId: number, dbProgress: typeof tournamentIndexerP
         if (indexerState.battlesProcessed % 10 === 0) {
           updateThroughput();
           
-          // Persist progress
-          await updateProgress({
+          // Persist progress for this realm
+          await updateProgress(realm, {
             lastTournamentId: worker.lastBattleId,
             tournamentsIndexed: (dbProgress.tournamentsIndexed || 0) + indexerState.battlesProcessed,
             placementsIndexed: (dbProgress.placementsIndexed || 0) + indexerState.placementsIndexed,
@@ -724,10 +741,12 @@ async function runWorker(workerId: number, dbProgress: typeof tournamentIndexerP
 }
 
 // Main indexer function with parallel workers
-export async function runTournamentIndexer(maxBattles: number = 500): Promise<{
+// realm: 'cv' = Crystalvale Tavern, 'sd' = Serendale/Sundered Isles Barkeep
+export async function runTournamentIndexer(maxBattles: number = 500, realm: RealmType = 'cv'): Promise<{
   battlesProcessed: number;
   placementsIndexed: number;
   snapshotsIndexed: number;
+  realm: RealmType;
 }> {
   if (indexerState.isRunning) {
     console.log('[TournamentIndexer] Already running, skipping');
@@ -735,13 +754,15 @@ export async function runTournamentIndexer(maxBattles: number = 500): Promise<{
       battlesProcessed: 0,
       placementsIndexed: 0,
       snapshotsIndexed: 0,
+      realm,
     };
   }
   
-  console.log(`[TournamentIndexer] Starting with ${NUM_WORKERS} workers for ${maxBattles} battles...`);
+  const realmName = REALM_DISPLAY_NAMES[realm] || realm;
+  console.log(`[TournamentIndexer] Starting ${realmName} with ${NUM_WORKERS} workers for ${maxBattles} battles...`);
   
-  const dbProgress = await getProgress();
-  await updateProgress({ status: 'running', lastError: null });
+  const dbProgress = await getProgress(realm);
+  await updateProgress(realm, { status: 'running', lastError: null });
   
   // Reset state
   indexerState.isRunning = true;
@@ -768,15 +789,15 @@ export async function runTournamentIndexer(maxBattles: number = 500): Promise<{
   console.log(`[TournamentIndexer] Created ${workQueue.length} work items for ${NUM_WORKERS} workers`);
   
   try {
-    // Start all workers in parallel
+    // Start all workers in parallel with realm context
     const workerPromises = Array.from({ length: NUM_WORKERS }, (_, i) => 
-      runWorker(i, dbProgress)
+      runWorker(i, dbProgress, realm)
     );
     
     await Promise.all(workerPromises);
     
     // Final progress update
-    await updateProgress({
+    await updateProgress(realm, {
       status: 'idle',
       tournamentsIndexed: (dbProgress.tournamentsIndexed || 0) + indexerState.battlesProcessed,
       placementsIndexed: (dbProgress.placementsIndexed || 0) + indexerState.placementsIndexed,
@@ -784,12 +805,12 @@ export async function runTournamentIndexer(maxBattles: number = 500): Promise<{
       lastRunAt: new Date(),
     });
     
-    console.log(`[TournamentIndexer] Complete. Processed ${indexerState.battlesProcessed} battles, ${indexerState.placementsIndexed} placements, ${indexerState.snapshotsIndexed} snapshots`);
+    console.log(`[TournamentIndexer] Complete (${realmName}). Processed ${indexerState.battlesProcessed} battles, ${indexerState.placementsIndexed} placements, ${indexerState.snapshotsIndexed} snapshots`);
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[TournamentIndexer] Error:', errorMessage);
-    await updateProgress({ status: 'error', lastError: errorMessage });
+    await updateProgress(realm, { status: 'error', lastError: errorMessage });
   } finally {
     indexerState.isRunning = false;
   }
@@ -798,6 +819,7 @@ export async function runTournamentIndexer(maxBattles: number = 500): Promise<{
     battlesProcessed: indexerState.battlesProcessed,
     placementsIndexed: indexerState.placementsIndexed,
     snapshotsIndexed: indexerState.snapshotsIndexed,
+    realm,
   };
 }
 
@@ -816,25 +838,38 @@ export function stopTournamentIndexer(): { stopped: boolean } {
 // AUTO-RUN FUNCTIONALITY
 // ============================================================
 
-export function startAutoRun(options: { maxBattlesPerRun?: number } = {}): { status: string } {
+// Auto-run for both realms - alternates between Crystalvale and Serendale
+export function startAutoRun(options: { maxBattlesPerRun?: number; realm?: RealmType } = {}): { status: string } {
   if (autoRunInterval) {
     return { status: 'already_running' };
   }
   
   const maxBattles = options.maxBattlesPerRun || 200;
+  const targetRealm = options.realm; // undefined means alternate both realms
+  let currentRealmIndex = 0;
   
-  console.log(`[TournamentIndexer] Starting auto-run (${maxBattles} battles every ${AUTO_RUN_INTERVAL_MS / 1000}s)`);
+  const getNextRealm = (): RealmType => {
+    if (targetRealm) return targetRealm;
+    const realm = SUPPORTED_REALMS[currentRealmIndex];
+    currentRealmIndex = (currentRealmIndex + 1) % SUPPORTED_REALMS.length;
+    return realm;
+  };
+  
+  const realmInfo = targetRealm ? REALM_DISPLAY_NAMES[targetRealm] : 'both realms (alternating)';
+  console.log(`[TournamentIndexer] Starting auto-run for ${realmInfo} (${maxBattles} battles every ${AUTO_RUN_INTERVAL_MS / 1000}s)`);
   
   // Run immediately
-  runTournamentIndexer(maxBattles).catch(err => 
-    console.error('[TournamentIndexer] Auto-run error:', err)
+  const firstRealm = getNextRealm();
+  runTournamentIndexer(maxBattles, firstRealm).catch(err => 
+    console.error(`[TournamentIndexer] Auto-run error (${firstRealm}):`, err)
   );
   
-  // Schedule periodic runs
+  // Schedule periodic runs - alternates realms
   autoRunInterval = setInterval(() => {
     if (!indexerState.isRunning) {
-      runTournamentIndexer(maxBattles).catch(err => 
-        console.error('[TournamentIndexer] Auto-run error:', err)
+      const realm = getNextRealm();
+      runTournamentIndexer(maxBattles, realm).catch(err => 
+        console.error(`[TournamentIndexer] Auto-run error (${realm}):`, err)
       );
     }
   }, AUTO_RUN_INTERVAL_MS);
