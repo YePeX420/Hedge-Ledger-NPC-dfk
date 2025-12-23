@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   Card,
   CardContent,
@@ -25,6 +27,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Swords,
   Shield,
@@ -32,6 +36,7 @@ import {
   Search,
   ExternalLink,
   ChevronDown,
+  CheckCircle,
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -53,6 +58,7 @@ interface CombatClass {
   maturity: string;
   disciplines: string[];
   summary: string | null;
+  validated: boolean;
   lastSeenAt: string;
   skillCount: number;
   skills: CombatSkill[];
@@ -179,10 +185,28 @@ function SkillsTable({ skills, className }: { skills: CombatSkill[]; className: 
 }
 
 export default function CombatClassesPage() {
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
 
   const { data, isLoading, error } = useQuery<ClassesSummaryResponse>({
     queryKey: ["/api/admin/hedge/combat/classes-summary"],
+  });
+
+  const validateMutation = useMutation({
+    mutationFn: async ({ className, validated }: { className: string; validated: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/admin/hedge/combat/classes/${encodeURIComponent(className)}/validate`, { validated });
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/hedge/combat/classes-summary"] });
+      toast({ 
+        title: variables.validated ? "Class validated" : "Validation removed",
+        description: `${variables.className} is now ${variables.validated ? "available" : "hidden"} to Hedge NPC`
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update validation", description: error.message, variant: "destructive" });
+    },
   });
 
   const classes = data?.classes || [];
@@ -195,6 +219,7 @@ export default function CombatClassesPage() {
     : classes;
 
   const totalSkills = classes.reduce((sum, c) => sum + c.skillCount, 0);
+  const validatedCount = classes.filter(c => c.validated).length;
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -215,7 +240,7 @@ export default function CombatClassesPage() {
         </Link>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card data-testid="card-total-classes">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium">Total Classes</CardTitle>
@@ -244,6 +269,20 @@ export default function CombatClassesPage() {
           <CardContent>
             <div className="text-2xl font-bold">
               {isLoading ? <Skeleton className="h-8 w-16" /> : classes.filter(c => c.maturity === "revised_through_tier_5").length}
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card data-testid="card-validated-classes">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium">Validated for Hedge</CardTitle>
+            <CheckCircle className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {isLoading ? <Skeleton className="h-8 w-16" /> : (
+                <span className={validatedCount > 0 ? "text-green-600" : ""}>{validatedCount}</span>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -297,6 +336,12 @@ export default function CombatClassesPage() {
                 <div className="flex flex-wrap items-center gap-3 text-left">
                   <span className="font-bold text-lg">{combatClass.class}</span>
                   <MaturityBadge maturity={combatClass.maturity} />
+                  {combatClass.validated && (
+                    <Badge variant="default" className="bg-green-600" data-testid={`badge-validated-${combatClass.class}`}>
+                      <CheckCircle className="w-3 h-3 mr-1" />
+                      Validated
+                    </Badge>
+                  )}
                   <Badge variant="outline" data-testid={`badge-skill-count-${combatClass.class}`}>
                     {combatClass.skillCount} skills
                   </Badge>
@@ -309,17 +354,34 @@ export default function CombatClassesPage() {
               </AccordionTrigger>
               <AccordionContent className="pb-4">
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <a 
-                      href={combatClass.sourceUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline flex items-center gap-1"
-                      data-testid={`link-source-${combatClass.class}`}
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      View Official Documentation
-                    </a>
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-2">
+                      <a 
+                        href={combatClass.sourceUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-500 hover:underline flex items-center gap-1"
+                        data-testid={`link-source-${combatClass.class}`}
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        View Official Documentation
+                      </a>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`validate-${combatClass.class}`}
+                        checked={combatClass.validated}
+                        onCheckedChange={(checked) => 
+                          validateMutation.mutate({ className: combatClass.class, validated: checked })
+                        }
+                        disabled={validateMutation.isPending}
+                        data-testid={`switch-validate-${combatClass.class}`}
+                      />
+                      <Label htmlFor={`validate-${combatClass.class}`} className="text-sm">
+                        {combatClass.validated ? "Validated for Hedge NPC" : "Mark as validated"}
+                      </Label>
+                    </div>
                   </div>
                   
                   {combatClass.lastUpdateNote && (

@@ -4513,6 +4513,32 @@ async function startAdminWebServer() {
     }
   });
 
+  // PATCH /api/admin/hedge/combat/classes/:className/validate - Toggle class validation status
+  app.patch('/api/admin/hedge/combat/classes/:className/validate', isAdmin, async (req, res) => {
+    try {
+      const { className } = req.params;
+      const { validated } = req.body;
+      
+      if (typeof validated !== 'boolean') {
+        return res.status(400).json({ ok: false, error: 'validated must be a boolean' });
+      }
+      
+      const [updated] = await db.update(combatClassMeta)
+        .set({ validated })
+        .where(eq(combatClassMeta.class, className))
+        .returning();
+      
+      if (!updated) {
+        return res.status(404).json({ ok: false, error: 'Class not found' });
+      }
+      
+      res.json({ ok: true, class: updated });
+    } catch (error) {
+      console.error('[HedgeProxy] Error updating class validation:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // /api/admin/users – lightweight list for admin Users table (no live on-chain calls)
   // /api/admin/users/:userId/profile – detailed admin view for a single player
   // /api/user/summary/:discordId – user-facing summary used by UserDashboard (admin impersonation for now)

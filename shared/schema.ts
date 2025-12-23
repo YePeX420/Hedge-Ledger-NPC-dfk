@@ -2395,6 +2395,7 @@ export const combatClassMeta = pgTable("combat_class_meta", {
   maturity: text("maturity").notNull(), // e.g., 'stable', 'beta', 'alpha'
   disciplines: text("disciplines").array().notNull().default(sql`'{}'::text[]`),
   summary: text("summary"),
+  validated: boolean("validated").notNull().default(false), // true = admin verified, Hedge can discuss this class
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
