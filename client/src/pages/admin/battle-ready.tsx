@@ -183,10 +183,22 @@ interface TournamentPattern {
   tournament_name: string;
   level_min: number;
   level_max: number;
+  rarity_min: number | null;
+  rarity_max: number | null;
   party_size: number;
   all_unique_classes: boolean;
   no_triple_classes: boolean;
+  must_include_class: boolean;
+  included_class_id: number | null;
+  excluded_classes: number | null;
+  excluded_consumables: number | null;
+  battle_inventory: number | null;
   battle_budget: number | null;
+  min_hero_stat_score: number | null;
+  max_hero_stat_score: number | null;
+  min_team_stat_score: number | null;
+  max_team_stat_score: number | null;
+  shot_clock_duration: number | null;
   occurrence_count: number | string;
   last_seen_at: string | null;
   label: string | null;
@@ -221,6 +233,25 @@ interface PatternHero {
 
 const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
 const RARITY_COLORS = ['text-gray-500', 'text-green-500', 'text-blue-500', 'text-orange-500', 'text-purple-500'];
+
+// DFK class ID to name mapping
+const CLASS_NAMES: Record<number, string> = {
+  0: 'Warrior', 1: 'Knight', 2: 'Thief', 3: 'Archer', 4: 'Priest', 5: 'Wizard',
+  6: 'Monk', 7: 'Pirate', 8: 'Paladin', 9: 'DarkKnight', 10: 'Summoner', 11: 'Ninja',
+  16: 'Dragoon', 17: 'Sage', 18: 'DreadKnight', 19: 'Shapeshifter', 24: 'Bard'
+};
+
+// Decode bitmask to class names
+function decodeClassBitmask(bitmask: number | null): string[] {
+  if (!bitmask || bitmask === 0) return [];
+  const classes: string[] = [];
+  for (let i = 0; i < 32; i++) {
+    if (bitmask & (1 << i)) {
+      classes.push(CLASS_NAMES[i] || `Class${i}`);
+    }
+  }
+  return classes;
+}
 
 function formatWeight(w: string | number): string {
   const num = typeof w === 'string' ? parseFloat(w) : w;
@@ -1068,14 +1099,45 @@ export default function BattleReadyAdmin() {
                               <Badge variant="outline" className="text-xs">
                                 {pattern.party_size}v{pattern.party_size}
                               </Badge>
+                              {pattern.rarity_min !== null && pattern.rarity_max !== null && (pattern.rarity_min !== 0 || pattern.rarity_max !== 4) && (
+                                <Badge variant="outline" className="text-xs">
+                                  {RARITY_NAMES[pattern.rarity_min] || 'Common'}-{RARITY_NAMES[pattern.rarity_max] || 'Mythic'}
+                                </Badge>
+                              )}
                               {pattern.all_unique_classes && (
-                                <Badge variant="secondary" className="text-xs">Unique Classes</Badge>
+                                <Badge variant="secondary" className="text-xs">All Unique</Badge>
                               )}
                               {pattern.no_triple_classes && (
                                 <Badge variant="secondary" className="text-xs">No Triples</Badge>
                               )}
+                              {pattern.excluded_classes && pattern.excluded_classes > 0 && (
+                                <Badge variant="destructive" className="text-xs">
+                                  Excl: {decodeClassBitmask(pattern.excluded_classes).join(', ')}
+                                </Badge>
+                              )}
+                              {pattern.must_include_class && pattern.included_class_id !== null && (
+                                <Badge className="text-xs bg-green-600">
+                                  Req: {CLASS_NAMES[pattern.included_class_id] || `Class${pattern.included_class_id}`}
+                                </Badge>
+                              )}
+                              {pattern.max_team_stat_score !== null && pattern.max_team_stat_score < 9000 && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Team≤{pattern.max_team_stat_score}
+                                </Badge>
+                              )}
+                              {pattern.max_hero_stat_score !== null && pattern.max_hero_stat_score < 3000 && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Hero≤{pattern.max_hero_stat_score}
+                                </Badge>
+                              )}
                               {pattern.battle_budget && (
                                 <Badge variant="secondary" className="text-xs">Budget: {pattern.battle_budget}</Badge>
+                              )}
+                              {pattern.battle_inventory && pattern.battle_inventory > 0 && (
+                                <Badge variant="secondary" className="text-xs">Inv: {pattern.battle_inventory}</Badge>
+                              )}
+                              {pattern.shot_clock_duration && pattern.shot_clock_duration !== 45 && (
+                                <Badge variant="outline" className="text-xs">{pattern.shot_clock_duration}s</Badge>
                               )}
                             </div>
                           </TableCell>

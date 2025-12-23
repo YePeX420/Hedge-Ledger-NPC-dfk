@@ -8011,21 +8011,39 @@ async function startAdminWebServer() {
     try {
       await ensureTournamentTypesTableEarly();
       
+      // Get all restriction columns from actual tournament data
       const patterns = await db.execute(sql`
         SELECT 
           COALESCE(tournament_type_signature, 'no_signature') as signature,
           name as tournament_name,
           level_min,
           level_max,
+          rarity_min,
+          rarity_max,
           party_size,
           all_unique_classes,
           no_triple_classes,
+          must_include_class,
+          included_class_id,
+          excluded_classes,
+          excluded_consumables,
+          battle_inventory,
           battle_budget,
+          min_hero_stat_score,
+          max_hero_stat_score,
+          min_team_stat_score,
+          max_team_stat_score,
+          shot_clock_duration,
           COUNT(*) as occurrence_count,
           MAX(end_time) as last_seen_at
         FROM pvp_tournaments
         WHERE status = 'completed'
-        GROUP BY tournament_type_signature, name, level_min, level_max, party_size, all_unique_classes, no_triple_classes, battle_budget
+        GROUP BY 
+          tournament_type_signature, name, level_min, level_max, rarity_min, rarity_max,
+          party_size, all_unique_classes, no_triple_classes, must_include_class, included_class_id,
+          excluded_classes, excluded_consumables, battle_inventory, battle_budget,
+          min_hero_stat_score, max_hero_stat_score, min_team_stat_score, max_team_stat_score,
+          shot_clock_duration
         ORDER BY occurrence_count DESC
         LIMIT 100
       `);
