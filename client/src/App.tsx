@@ -33,6 +33,7 @@ import AdminGardeningCalc from "@/pages/admin/gardening-calc";
 import AdminBattleReady from "@/pages/admin/battle-ready";
 import AdminPVEDropRates from "@/pages/admin/pve-droprates";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
+import CombatClasses from "@/pages/admin/combat-classes";
 import HedgePlansAccess from "@/pages/admin/hedge-plans-access";
 import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
@@ -267,6 +268,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <HedgeCombatSync />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/combat-classes">
+        {() => (
+          <ProtectedAdminPage>
+            <CombatClasses />
           </ProtectedAdminPage>
         )}
       </Route>

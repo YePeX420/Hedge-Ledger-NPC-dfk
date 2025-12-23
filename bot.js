@@ -4468,6 +4468,51 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/hedge/combat/classes-summary - Get all classes with skills for class summary page
+  app.get('/api/admin/hedge/combat/classes-summary', isAdmin, async (req, res) => {
+    try {
+      const classes = await db.select().from(combatClassMeta).orderBy(combatClassMeta.class);
+      
+      const skills = await db.select({
+        class: combatSkills.class,
+        tier: combatSkills.tier,
+        ability: combatSkills.ability,
+        discipline: combatSkills.discipline,
+        descriptionRaw: combatSkills.descriptionRaw,
+        range: combatSkills.range,
+        manaCost: combatSkills.manaCost,
+        tags: combatSkills.tags,
+      }).from(combatSkills).orderBy(combatSkills.class, combatSkills.tier, combatSkills.ability);
+      
+      const skillCounts = await db.select({
+        class: combatSkills.class,
+        count: sql`count(*)::int`.as('count'),
+      }).from(combatSkills).groupBy(combatSkills.class);
+      
+      const countMap = {};
+      for (const sc of skillCounts) {
+        countMap[sc.class] = sc.count;
+      }
+      
+      const skillsByClass = {};
+      for (const skill of skills) {
+        if (!skillsByClass[skill.class]) skillsByClass[skill.class] = [];
+        skillsByClass[skill.class].push(skill);
+      }
+      
+      const enrichedClasses = classes.map(c => ({
+        ...c,
+        skillCount: countMap[c.class] || 0,
+        skills: skillsByClass[c.class] || [],
+      }));
+      
+      res.json({ ok: true, classes: enrichedClasses });
+    } catch (error) {
+      console.error('[HedgeProxy] Error fetching classes summary:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // /api/admin/users – lightweight list for admin Users table (no live on-chain calls)
   // /api/admin/users/:userId/profile – detailed admin view for a single player
   // /api/user/summary/:discordId – user-facing summary used by UserDashboard (admin impersonation for now)
