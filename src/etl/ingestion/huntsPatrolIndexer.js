@@ -174,6 +174,29 @@ export function getAllWorkerProgress(chain) {
   return workers;
 }
 
+// Known DFK item addresses to names (for drop rate display)
+const KNOWN_ITEMS = {
+  // DFK Chain Hunt Items
+  '0x8e32ddd6b75314aa78fd99952299f21ff4441839': { name: 'Gaia\'s Tears', type: 'consumable', rarity: 'common' },
+  '0x41a73e10b92d6e81d758d74b0c8eb7a8dd3df9a8': { name: 'Gold', type: 'currency', rarity: 'common' },
+  '0x04b43d632f34ba4d4d72b0dc2dc4b30402e5cf88': { name: 'Rawhide', type: 'material', rarity: 'common' },
+  '0x4ff5c7c8ce6e6ae3f35c1cb47e3bae8da4f5f230': { name: 'Tusk', type: 'material', rarity: 'common' },
+  '0xe4cfee5bf05cef3418da74cfb89727d8e4fee9fa': { name: 'Shvas Rune', type: 'rune', rarity: 'common' },
+  '0x4f60a160d8c2dddaafe16fcc57566db84d674bd6': { name: 'Petals', type: 'material', rarity: 'common' },
+  '0x6d605303e9ac53c59a3da1ece36c9660c7a71da5': { name: 'Ambertaffy', type: 'material', rarity: 'common' },
+  '0x0776b936344de7bd58a4738306a6c76835ce5d3f': { name: 'Lesser Stamina Potion', type: 'consumable', rarity: 'common' },
+  '0xb5fd382ecb76e917fa6e27e5ab4e01c9c7c3f7a4': { name: 'Sailfish', type: 'material', rarity: 'uncommon' },
+  '0x66f5bfd910cd83d3766c4b39d13730c911b2d286': { name: 'Boar Hide', type: 'material', rarity: 'common' },
+  '0xcdffe898e687e941b124dfb7d24983266492ef1d': { name: 'Feather', type: 'material', rarity: 'common' },
+  '0x5f753dccda6f5b1b71e5b5c396d030e22b1bd2af': { name: 'Stamina Potion', type: 'consumable', rarity: 'uncommon' },
+  '0xc6030afa09edc1cb0b9c1d81f3f2e406a74d14d0': { name: 'Greater Stamina Potion', type: 'consumable', rarity: 'rare' },
+  
+  // Metis Patrol Items
+  '0xb16838fc6eae51faea13fbeb655bde8bf702d5c2': { name: 'JEWEL', type: 'currency', rarity: 'common' },
+  '0xa4f8d1b4f8f1363f0fc8d6189089ff068c800ab4': { name: 'Dark Crystal', type: 'material', rarity: 'uncommon' },
+  '0x4bc4bbdf294eeb3017fb4bd7806b6d61d74e85bb': { name: 'Void Essence', type: 'material', rarity: 'rare' },
+};
+
 // Provider instances (cached)
 const providers = new Map();
 const archiveProviders = new Map();
@@ -404,18 +427,34 @@ async function getActivityDbId(chainId, activityType, activityId) {
 async function getOrCreateLootItem(chainId, itemAddress) {
   const normalizedAddress = itemAddress.toLowerCase();
   
+  // Look up known item metadata
+  const knownItem = KNOWN_ITEMS[normalizedAddress];
+  const itemName = knownItem?.name || null;
+  const itemType = knownItem?.type || null;
+  const itemRarity = knownItem?.rarity || null;
+  
   const existing = await db.execute(sql`
-    SELECT id FROM pve_loot_items WHERE chain_id = ${chainId} AND item_address = ${normalizedAddress}
+    SELECT id, name FROM pve_loot_items WHERE chain_id = ${chainId} AND item_address = ${normalizedAddress}
   `);
   
   if (existing[0]) {
+    // Update name if it was null but we now know it
+    if (!existing[0].name && itemName) {
+      await db.execute(sql`
+        UPDATE pve_loot_items SET name = ${itemName}, item_type = ${itemType}, rarity = ${itemRarity}
+        WHERE id = ${existing[0].id}
+      `);
+    }
     return existing[0].id;
   }
   
   const inserted = await db.execute(sql`
-    INSERT INTO pve_loot_items (item_address, chain_id) 
-    VALUES (${normalizedAddress}, ${chainId})
-    ON CONFLICT (chain_id, item_address) DO UPDATE SET item_address = EXCLUDED.item_address
+    INSERT INTO pve_loot_items (item_address, chain_id, name, item_type, rarity) 
+    VALUES (${normalizedAddress}, ${chainId}, ${itemName}, ${itemType}, ${itemRarity})
+    ON CONFLICT (chain_id, item_address) DO UPDATE SET 
+      name = COALESCE(pve_loot_items.name, EXCLUDED.name),
+      item_type = COALESCE(pve_loot_items.item_type, EXCLUDED.item_type),
+      rarity = COALESCE(pve_loot_items.rarity, EXCLUDED.rarity)
     RETURNING id
   `);
   
@@ -1591,4 +1630,25 @@ export async function calculateDropStats(activityId, itemId, scavengerBonusPct =
     confidenceLower: Math.max(0, center - margin),
     confidenceUpper: Math.min(1, center + margin),
   };
+}
+
+// Backfill known item names for existing items in the database
+export async function backfillItemNames() {
+  await initializePVETables();
+  
+  let updated = 0;
+  for (const [address, metadata] of Object.entries(KNOWN_ITEMS)) {
+    // Update all items matching this address, not just null ones
+    const result = await db.execute(sql`
+      UPDATE pve_loot_items 
+      SET name = ${metadata.name}, item_type = ${metadata.type}, rarity = ${metadata.rarity}
+      WHERE item_address = ${address}
+    `);
+    if (result.rowCount > 0) {
+      updated += result.rowCount;
+    }
+  }
+  
+  console.log(`[PVE] Backfilled ${updated} item names`);
+  return { updated, knownItems: Object.keys(KNOWN_ITEMS).length };
 }

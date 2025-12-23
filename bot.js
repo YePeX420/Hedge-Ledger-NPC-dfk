@@ -95,7 +95,8 @@ import {
   startPVEIndexerAutoRun, 
   stopPVEIndexerAutoRun, 
   resetPVEIndexer,
-  calculateDropStats 
+  calculateDropStats,
+  backfillItemNames
 } from './src/etl/ingestion/huntsPatrolIndexer.js';
 
 import { requirePublicApiKey, requireAdminApiKey } from './server/middleware/hedgeAuth.ts';
@@ -5658,6 +5659,17 @@ async function startAdminWebServer() {
       res.json({ ok: true, ...result });
     } catch (error) {
       console.error('[PVE Admin] Error resetting indexer:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/pve/backfill-names - Backfill known item names
+  app.post("/api/admin/pve/backfill-names", isAdmin, async (req, res) => {
+    try {
+      const result = await backfillItemNames();
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[PVE Admin] Error backfilling names:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
