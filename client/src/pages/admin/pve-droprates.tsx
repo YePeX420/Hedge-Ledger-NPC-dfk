@@ -87,6 +87,49 @@ interface LootDrop {
   observed_rate: string;
 }
 
+interface EquipmentVariant {
+  displayId: number;
+  rarityTier: number;
+  rarityName: string;
+  equipmentType: number;
+  equipmentTypeName: string;
+  dropCount: number;
+  observedRate: number;
+  avgPartyLuck: number;
+}
+
+interface EquipmentParent {
+  item_id: number;
+  item_address: string;
+  item_name: string | null;
+  item_type: string;
+  dropCount: number;
+  variantCount: number;
+  observedRate: number;
+  variants: EquipmentVariant[];
+  rarityDistribution: Record<string, number>;
+}
+
+interface RegularLoot {
+  item_id: number;
+  item_address: string;
+  item_name: string | null;
+  item_type: string;
+  rarity: string;
+  dropCount: number;
+  totalCompletions: number;
+  observedRate: number;
+  avgPartyLuck: number;
+}
+
+interface HierarchicalLoot {
+  ok: boolean;
+  activityId: number;
+  totalCompletions: number;
+  regularLoot: RegularLoot[];
+  equipment: EquipmentParent[];
+}
+
 function formatNumber(n: number | string): string {
   const num = typeof n === 'string' ? parseFloat(n) : n;
   if (isNaN(num)) return '0';
@@ -317,12 +360,34 @@ function ChainCard({
 
 function ActivityTable({ activities, type }: { activities: ActivityStats[]; type: 'hunt' | 'patrol' }) {
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
+  const [expandedEquipment, setExpandedEquipment] = useState<string[]>([]);
   
-  const { data: lootResponse, isLoading: lootLoading } = useQuery<{ ok: boolean; loot: LootDrop[] }>({
-    queryKey: [`/api/pve/loot/${selectedActivityId}`],
+  const { data: lootResponse, isLoading: lootLoading } = useQuery<HierarchicalLoot>({
+    queryKey: [`/api/pve/loot-hierarchical/${selectedActivityId}`],
     enabled: selectedActivityId !== null,
   });
-  const lootData = lootResponse?.loot || [];
+  
+  const regularLoot = lootResponse?.regularLoot || [];
+  const equipment = lootResponse?.equipment || [];
+  const totalCompletions = lootResponse?.totalCompletions || 0;
+  
+  const toggleEquipment = (address: string) => {
+    setExpandedEquipment(prev => 
+      prev.includes(address) 
+        ? prev.filter(a => a !== address)
+        : [...prev, address]
+    );
+  };
+  
+  const getRarityColor = (rarity: string) => {
+    switch (rarity) {
+      case 'Mythic': return 'text-purple-400';
+      case 'Legendary': return 'text-yellow-400';
+      case 'Rare': return 'text-blue-400';
+      case 'Uncommon': return 'text-green-400';
+      default: return 'text-gray-400';
+    }
+  };
 
   if (activities.length === 0) {
     return (
@@ -379,37 +444,150 @@ function ActivityTable({ activities, type }: { activities: ActivityStats[]; type
               <Percent className="w-4 h-4" />
               Drop Rates for {activities.find(a => a.id === selectedActivityId)?.name}
             </CardTitle>
+            <CardDescription>
+              {totalCompletions > 0 && `Based on ${formatNumber(totalCompletions)} completions`}
+            </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
             {lootLoading ? (
               <div className="flex items-center justify-center p-4">
                 <Loader2 className="w-6 h-6 animate-spin" />
               </div>
-            ) : lootData && lootData.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead className="text-right">Drops</TableHead>
-                    <TableHead className="text-right">Sample Size</TableHead>
-                    <TableHead className="text-right">Observed Rate</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {lootData.map((loot, idx) => (
-                    <TableRow key={idx} data-testid={`row-loot-${idx}`}>
-                      <TableCell className="font-mono text-xs">
-                        {loot.item_name || loot.item_address.slice(0, 10) + '...'}
-                      </TableCell>
-                      <TableCell className="text-right">{formatNumber(loot.drop_count)}</TableCell>
-                      <TableCell className="text-right">{formatNumber(loot.total_completions)}</TableCell>
-                      <TableCell className="text-right font-bold">
-                        {(parseFloat(loot.observed_rate) * 100).toFixed(2)}%
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            ) : (regularLoot.length > 0 || equipment.length > 0) ? (
+              <>
+                {/* Regular Loot Section */}
+                {regularLoot.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Consumables & Materials</h3>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item</TableHead>
+                          <TableHead className="text-right">Drops</TableHead>
+                          <TableHead className="text-right">Sample Size</TableHead>
+                          <TableHead className="text-right">Drop Rate</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {regularLoot.map((loot, idx) => (
+                          <TableRow key={idx} data-testid={`row-loot-${idx}`}>
+                            <TableCell className="font-medium">
+                              {loot.item_name || loot.item_address.slice(0, 10) + '...'}
+                              {loot.item_type && (
+                                <Badge variant="outline" className="ml-2 text-xs">
+                                  {loot.item_type}
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">{formatNumber(loot.dropCount)}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">{formatNumber(loot.totalCompletions || totalCompletions)}</TableCell>
+                            <TableCell className="text-right font-bold">
+                              {(loot.observedRate * 100).toFixed(2)}%
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                
+                {/* Equipment Section */}
+                {equipment.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2 text-muted-foreground flex items-center gap-2">
+                      <Shield className="w-4 h-4" />
+                      Equipment Drops
+                    </h3>
+                    <div className="space-y-2">
+                      {equipment.map((eq) => (
+                        <div key={eq.item_address} className="border rounded-lg">
+                          {/* Equipment Parent Row */}
+                          <div 
+                            className="p-3 flex items-center justify-between cursor-pointer hover-elevate"
+                            onClick={() => toggleEquipment(eq.item_address)}
+                            data-testid={`equipment-parent-${eq.item_id}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <Sword className="w-4 h-4 text-orange-400" />
+                              <span className="font-medium">
+                                {eq.item_name || 'Equipment'}
+                              </span>
+                              <Badge variant="secondary" className="text-xs">
+                                {eq.variantCount} variants
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <span className="text-sm text-muted-foreground">
+                                {formatNumber(eq.dropCount)} drops
+                              </span>
+                              <span className="font-bold text-green-400">
+                                {(eq.observedRate * 100).toFixed(2)}%
+                              </span>
+                              <span className="text-muted-foreground">
+                                {expandedEquipment.includes(eq.item_address) ? '▼' : '▶'}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Rarity Distribution Summary */}
+                          {Object.keys(eq.rarityDistribution).length > 0 && (
+                            <div className="px-3 pb-2 flex gap-2 flex-wrap">
+                              {Object.entries(eq.rarityDistribution).map(([rarity, count]) => (
+                                <Badge 
+                                  key={rarity} 
+                                  variant="outline" 
+                                  className={`text-xs ${getRarityColor(rarity)}`}
+                                >
+                                  {rarity}: {count}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {/* Equipment Variants (expandable) */}
+                          {expandedEquipment.includes(eq.item_address) && eq.variants.length > 0 && (
+                            <div className="border-t bg-muted/30">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Variant</TableHead>
+                                    <TableHead>Rarity</TableHead>
+                                    <TableHead className="text-right">Drops</TableHead>
+                                    <TableHead className="text-right">Drop Rate</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {eq.variants.map((variant, vIdx) => (
+                                    <TableRow key={vIdx} data-testid={`variant-${eq.item_id}-${vIdx}`}>
+                                      <TableCell className="font-mono text-xs">
+                                        {variant.equipmentTypeName} #{variant.displayId}
+                                      </TableCell>
+                                      <TableCell>
+                                        <Badge 
+                                          variant="outline" 
+                                          className={getRarityColor(variant.rarityName)}
+                                        >
+                                          {variant.rarityName}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        {formatNumber(variant.dropCount)}
+                                      </TableCell>
+                                      <TableCell className="text-right font-bold">
+                                        {(variant.observedRate * 100).toFixed(3)}%
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="text-center p-4 text-muted-foreground">
                 No loot data available for this activity yet.

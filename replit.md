@@ -22,11 +22,14 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Challenge/Achievement System**: A gamified progression system with an ETL subsystem for metric extraction and progress computation across various categories (e.g., Hero Progression, Economy, Professions). This includes a Tier Calibration Panel for data-driven threshold tuning and ETL schedulers for automatic updates.
 *   **Combat Ingestion**: Direct RPC log scanning for hunting encounters and PvP matches from DFK Chain and METIS chains.
 *   **PVE Drop Rate Indexer**: Multi-chain indexer for Hunts (DFK Chain, chainId 53935) and Patrols (Metis, chainId 1088) that calculates base drop rates using the formula: `baseRate = observedRate - (0.0002 × partyLCK) - scavengerBonus`. Features:
-    - Auto-initializing database tables (pve_activities, pve_loot_items, pve_completions, pve_reward_events, pve_indexer_checkpoints)
+    - Auto-initializing database tables (pve_activities, pve_loot_items, pve_completions, pve_reward_events, pve_indexer_checkpoints, pve_equipment_stats)
     - Scavenger pet detection: Combat bonus IDs 60 (common), 139 (rare), 219 (mythic) provide 10-25% loot bonus based on combatBonusScalar
     - Only Scavenger combat bonus affects loot drop rates (other combat bonuses are for PvP combat stats)
     - Wilson score confidence intervals for drop rate estimates
-    - Public API: GET /api/pve/status, /hunts, /patrols, /loot/:activityId, /estimate
+    - **Hierarchical Equipment Tracking**: Equipment drops tracked with parent items (e.g., "Armor", "Weapon") showing aggregate drop rates, with expandable child variants showing specific stat rolls by displayId and rarity tier
+      - Equipment columns: is_equipment, nft_id, display_id, equipment_type (0=Weapon, 1=Armor, 2=Shield, 3=Accessory), rarity_tier (0=Common to 4=Mythic)
+      - UI: Collapsible equipment sections with rarity distribution badges and variant breakdown tables
+    - Public API: GET /api/pve/status, /hunts, /patrols, /loot/:activityId, /loot-hierarchical/:activityId, /estimate
     - Admin API: POST /api/admin/pve/start/:chain, /stop/:chain, /reset/:chain
 *   **Bridge Flow Tracker (Admin-only)**: Analyzes cross-chain bridge activity to identify "extractors."
 *   **Extractor Analysis Dashboard**: Identifies wallets with net negative value flow.

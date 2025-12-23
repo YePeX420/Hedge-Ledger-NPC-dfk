@@ -177,7 +177,7 @@ export function getAllWorkerProgress(chain) {
 
 // Known DFK item addresses to names (for drop rate display)
 const KNOWN_ITEMS = {
-  // DFK Chain Hunt Items
+  // DFK Chain Hunt Items - Consumables & Materials
   '0x8e32ddd6b75314aa78fd99952299f21ff4441839': { name: 'Gaia\'s Tears', type: 'consumable', rarity: 'common' },
   '0x41a73e10b92d6e81d758d74b0c8eb7a8dd3df9a8': { name: 'Gold', type: 'currency', rarity: 'common' },
   '0x04b43d632f34ba4d4d72b0dc2dc4b30402e5cf88': { name: 'Rawhide', type: 'material', rarity: 'common' },
@@ -191,11 +191,28 @@ const KNOWN_ITEMS = {
   '0xcdffe898e687e941b124dfb7d24983266492ef1d': { name: 'Feather', type: 'material', rarity: 'common' },
   '0x5f753dccda6f5b1b71e5b5c396d030e22b1bd2af': { name: 'Stamina Potion', type: 'consumable', rarity: 'uncommon' },
   '0xc6030afa09edc1cb0b9c1d81f3f2e406a74d14d0': { name: 'Greater Stamina Potion', type: 'consumable', rarity: 'rare' },
+  '0x1f9de5bb7ff3f87a1c2a96c9bf44d4f8f6fb0a12': { name: 'Shimmering Essence', type: 'material', rarity: 'uncommon' },
+  
+  // DFK Chain Equipment Contracts (parent categories - individual items have displayId/rarity)
+  '0xe60480b4083ca9f4d07034eb30bc7894114adac1': { name: 'Armor', type: 'equipment', rarity: 'varies', isEquipmentContract: true },
+  '0x872c9e72e9e15e6c6bb1a3b3e840b3b8b1c2f3d4': { name: 'Weapon', type: 'equipment', rarity: 'varies', isEquipmentContract: true },
+  '0x630706b99c053c727094c952ca685637dfe89c0a': { name: 'Armor (Alt)', type: 'equipment', rarity: 'varies', isEquipmentContract: true },
   
   // Metis Patrol Items
   '0xb16838fc6eae51faea13fbeb655bde8bf702d5c2': { name: 'JEWEL', type: 'currency', rarity: 'common' },
   '0xa4f8d1b4f8f1363f0fc8d6189089ff068c800ab4': { name: 'Dark Crystal', type: 'material', rarity: 'uncommon' },
   '0x4bc4bbdf294eeb3017fb4bd7806b6d61d74e85bb': { name: 'Void Essence', type: 'material', rarity: 'rare' },
+};
+
+// Rarity tier names (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Mythic)
+const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+
+// Equipment type names (from DFK contracts)
+const EQUIPMENT_TYPE_NAMES = {
+  0: 'Weapon',
+  1: 'Armor',
+  2: 'Shield',
+  3: 'Accessory',
 };
 
 // Provider instances (cached)
@@ -373,6 +390,54 @@ async function initializePVETables() {
       `);
     } catch (e) {
       // Column may already exist, ignore error
+    }
+    
+    // Add equipment metadata columns to pve_reward_events
+    try {
+      await db.execute(sql`
+        ALTER TABLE pve_reward_events ADD COLUMN IF NOT EXISTS is_equipment BOOLEAN DEFAULT FALSE
+      `);
+      await db.execute(sql`
+        ALTER TABLE pve_reward_events ADD COLUMN IF NOT EXISTS nft_id BIGINT
+      `);
+      await db.execute(sql`
+        ALTER TABLE pve_reward_events ADD COLUMN IF NOT EXISTS equipment_type INTEGER
+      `);
+      await db.execute(sql`
+        ALTER TABLE pve_reward_events ADD COLUMN IF NOT EXISTS display_id INTEGER
+      `);
+      await db.execute(sql`
+        ALTER TABLE pve_reward_events ADD COLUMN IF NOT EXISTS rarity_tier INTEGER
+      `);
+    } catch (e) {
+      // Columns may already exist, ignore error
+    }
+    
+    // Create equipment stats table for enriched data (fetched from NFT contracts)
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS pve_equipment_stats (
+        id SERIAL PRIMARY KEY,
+        chain_id INTEGER NOT NULL,
+        nft_id BIGINT NOT NULL,
+        item_address VARCHAR(42) NOT NULL,
+        equipment_type INTEGER NOT NULL,
+        display_id INTEGER NOT NULL,
+        rarity_tier INTEGER NOT NULL,
+        item_name VARCHAR(100),
+        stat_signature VARCHAR(200),
+        stats JSONB,
+        enriched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(chain_id, item_address, nft_id)
+      )
+    `);
+    
+    // Create index for equipment drops grouping
+    try {
+      await db.execute(sql`
+        CREATE INDEX IF NOT EXISTS idx_pve_reward_equipment ON pve_reward_events (is_equipment, item_id, display_id, rarity_tier) WHERE is_equipment = TRUE
+      `);
+    } catch (e) {
+      // Index may already exist
     }
     
     // Seed initial data
@@ -731,16 +796,26 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
             const itemAddress = (parsed.args.item || parsed.args[1]).toLowerCase();
             const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
             
+            // Extract equipment metadata from event
+            // HuntEquipmentMinted(huntId, item, player, equipmentType, displayId, rarity, nftId)
+            // PatrolEquipmentMinted(huntId, item, player, equipmentType, displayId, rarity, nftId)
+            const equipmentType = Number(parsed.args.equipmentType ?? parsed.args[3] ?? 0);
+            const displayId = Number(parsed.args.displayId ?? parsed.args[4] ?? 0);
+            const rarityTier = Number(parsed.args.rarity ?? parsed.args[5] ?? 0);
+            const nftId = BigInt(parsed.args.nftId ?? parsed.args[6] ?? 0);
+            
             // Use execRawSQL with .unsafe() - completely bypass all type inference
-            // Omit hero/pet columns to avoid Neon pooler type caching issues
+            // Include equipment metadata columns
             const eqSQL = `
               INSERT INTO pve_reward_events (
                 tx_hash, log_index, block_number, chain_id, activity_id, item_id,
-                amount, player_address, party_luck, pet_bonus_active, scavenger_bonus_pct
+                amount, player_address, party_luck, pet_bonus_active, scavenger_bonus_pct,
+                is_equipment, nft_id, equipment_type, display_id, rarity_tier
               ) VALUES (
                 '${txHash}', ${eqLog.index}, ${eqLog.blockNumber}, ${config.chainId},
                 ${activityIdInDb}, ${itemId}, 1, '${playerAddress}',
-                ${partyLuck || 0}, ${petIds.length > 0}, ${scavengerBonusPct || 0}
+                ${partyLuck || 0}, ${petIds.length > 0}, ${scavengerBonusPct || 0},
+                TRUE, ${nftId.toString()}, ${equipmentType}, ${displayId}, ${rarityTier}
               )
               ON CONFLICT (tx_hash, log_index) DO NOTHING
             `;
@@ -939,16 +1014,26 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
             const itemAddress = (eParsed.args.item || eParsed.args[1]).toLowerCase();
             const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
             
+            // Extract equipment metadata from event
+            // HuntEquipmentMinted(huntId, item, player, equipmentType, displayId, rarity, nftId)
+            // PatrolEquipmentMinted(huntId, item, player, equipmentType, displayId, rarity, nftId)
+            const eqType = Number(eParsed.args.equipmentType ?? eParsed.args[3] ?? 0);
+            const dispId = Number(eParsed.args.displayId ?? eParsed.args[4] ?? 0);
+            const rarTier = Number(eParsed.args.rarity ?? eParsed.args[5] ?? 0);
+            const eqNftId = BigInt(eParsed.args.nftId ?? eParsed.args[6] ?? 0);
+            
             // Use execRawSQL with .unsafe() - completely bypass all type inference
-            // Omit hero/pet columns to avoid Neon pooler type caching issues
+            // Include equipment metadata columns
             const eqSQLW = `
               INSERT INTO pve_reward_events (
                 tx_hash, log_index, block_number, chain_id, activity_id, item_id,
-                amount, player_address, party_luck, pet_bonus_active, scavenger_bonus_pct
+                amount, player_address, party_luck, pet_bonus_active, scavenger_bonus_pct,
+                is_equipment, nft_id, equipment_type, display_id, rarity_tier
               ) VALUES (
                 '${txHash}', ${eLog.index}, ${eLog.blockNumber}, ${config.chainId},
                 ${activityIdInDb}, ${itemId}, 1, '${playerAddress}',
-                ${partyLuck}, ${petIds.length > 0}, ${scavengerBonusPct}
+                ${partyLuck}, ${petIds.length > 0}, ${scavengerBonusPct},
+                TRUE, ${eqNftId.toString()}, ${eqType}, ${dispId}, ${rarTier}
               )
               ON CONFLICT (tx_hash, log_index) DO NOTHING
             `;
