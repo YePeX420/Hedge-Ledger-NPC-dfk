@@ -5538,7 +5538,12 @@ async function startAdminWebServer() {
           l.rarity,
           COUNT(r.id) as drop_count,
           AVG(r.party_luck) as avg_party_luck,
-          (SELECT COUNT(*) FROM pve_completions c WHERE c.activity_id = ${parseInt(activityId)}) as total_completions
+          (SELECT COUNT(*) FROM pve_completions c WHERE c.activity_id = ${parseInt(activityId)}) as total_completions,
+          CASE 
+            WHEN (SELECT COUNT(*) FROM pve_completions c WHERE c.activity_id = ${parseInt(activityId)}) > 0 
+            THEN COUNT(r.id)::decimal / (SELECT COUNT(*) FROM pve_completions c WHERE c.activity_id = ${parseInt(activityId)})
+            ELSE 0 
+          END as observed_rate
         FROM pve_reward_events r
         JOIN pve_loot_items l ON r.item_id = l.id
         WHERE r.activity_id = ${parseInt(activityId)}
