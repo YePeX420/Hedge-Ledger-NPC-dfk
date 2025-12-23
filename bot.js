@@ -7981,6 +7981,259 @@ async function startAdminWebServer() {
     }
   });
 
+  // =====================================================
+  // TOURNAMENT TYPES - Pattern Detection & Labeling
+  // (Must be defined BEFORE the :id route to prevent matching)
+  // =====================================================
+  
+  // Ensure pvp_tournament_types table exists
+  async function ensureTournamentTypesTableEarly() {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS pvp_tournament_types (
+        id SERIAL PRIMARY KEY,
+        signature TEXT UNIQUE,
+        name_pattern TEXT,
+        label TEXT NOT NULL,
+        description TEXT,
+        category TEXT DEFAULT 'general',
+        color TEXT DEFAULT '#6366f1',
+        occurrence_count INTEGER DEFAULT 0,
+        last_seen_at TIMESTAMP WITH TIME ZONE,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      )
+    `);
+  }
+  
+  // GET /api/admin/tournament/patterns - Get discovered tournament patterns
+  app.get("/api/admin/tournament/patterns", isAdmin, async (req, res) => {
+    try {
+      await ensureTournamentTypesTableEarly();
+      
+      const patterns = await db.execute(sql`
+        SELECT 
+          COALESCE(tournament_type_signature, 'no_signature') as signature,
+          name as tournament_name,
+          level_min,
+          level_max,
+          party_size,
+          all_unique_classes,
+          no_triple_classes,
+          battle_budget,
+          COUNT(*) as occurrence_count,
+          MAX(end_time) as last_seen_at
+        FROM pvp_tournaments
+        WHERE status = 'completed'
+        GROUP BY tournament_type_signature, name, level_min, level_max, party_size, all_unique_classes, no_triple_classes, battle_budget
+        ORDER BY occurrence_count DESC
+        LIMIT 100
+      `);
+      
+      const labels = await db.execute(sql`
+        SELECT * FROM pvp_tournament_types WHERE is_active = true
+      `);
+      
+      const labelMap = new Map(labels.map(l => [l.signature || l.name_pattern, l]));
+      const enrichedPatterns = patterns.map(p => ({
+        ...p,
+        label: labelMap.get(p.signature)?.label || labelMap.get(p.tournament_name)?.label || null,
+        labelInfo: labelMap.get(p.signature) || labelMap.get(p.tournament_name) || null,
+      }));
+      
+      res.json({ ok: true, patterns: enrichedPatterns, totalLabels: labels.length });
+    } catch (error) {
+      console.error('[Tournament Types] Error getting patterns:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+  
+  // GET /api/admin/tournament/types - Get all tournament type labels
+  app.get("/api/admin/tournament/types", isAdmin, async (req, res) => {
+    try {
+      await ensureTournamentTypesTableEarly();
+      
+      const types = await db.execute(sql`
+        SELECT * FROM pvp_tournament_types 
+        WHERE is_active = true 
+        ORDER BY occurrence_count DESC
+      `);
+      
+      res.json({ ok: true, types });
+    } catch (error) {
+      console.error('[Tournament Types] Error getting types:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+  
+  // POST /api/admin/tournament/types - Create or update a tournament type label
+  app.post("/api/admin/tournament/types", isAdmin, async (req, res) => {
+    try {
+      await ensureTournamentTypesTableEarly();
+      
+      const { signature, namePattern, label, description, category, color } = req.body;
+      
+      if (!label) {
+        return res.status(400).json({ ok: false, error: 'Label is required' });
+      }
+      if (!signature && !namePattern) {
+        return res.status(400).json({ ok: false, error: 'Either signature or namePattern is required' });
+      }
+      
+      let occurrenceCount = 0;
+      let lastSeenAt = null;
+      
+      if (signature) {
+        const countResult = await db.execute(sql`
+          SELECT COUNT(*) as count, MAX(end_time) as last_seen 
+          FROM pvp_tournaments 
+          WHERE tournament_type_signature = ${signature}
+        `);
+        occurrenceCount = parseInt(countResult[0]?.count || 0);
+        lastSeenAt = countResult[0]?.last_seen;
+      } else if (namePattern) {
+        const countResult = await db.execute(sql`
+          SELECT COUNT(*) as count, MAX(end_time) as last_seen 
+          FROM pvp_tournaments 
+          WHERE name ILIKE ${'%' + namePattern + '%'}
+        `);
+        occurrenceCount = parseInt(countResult[0]?.count || 0);
+        lastSeenAt = countResult[0]?.last_seen;
+      }
+      
+      let result;
+      
+      if (signature) {
+        // Upsert by signature (unique constraint handles conflict)
+        result = await db.execute(sql`
+          INSERT INTO pvp_tournament_types (signature, name_pattern, label, description, category, color, occurrence_count, last_seen_at, updated_at)
+          VALUES (${signature}, ${namePattern || null}, ${label}, ${description || null}, ${category || 'general'}, ${color || '#6366f1'}, ${occurrenceCount}, ${lastSeenAt}, NOW())
+          ON CONFLICT (signature) 
+          DO UPDATE SET 
+            label = EXCLUDED.label,
+            description = EXCLUDED.description,
+            category = EXCLUDED.category,
+            color = EXCLUDED.color,
+            occurrence_count = EXCLUDED.occurrence_count,
+            last_seen_at = EXCLUDED.last_seen_at,
+            updated_at = NOW()
+          RETURNING *
+        `);
+      } else {
+        // For name-pattern-only labels, check if one already exists and update it, or insert new
+        const existing = await db.execute(sql`
+          SELECT id FROM pvp_tournament_types 
+          WHERE name_pattern = ${namePattern} AND signature IS NULL AND is_active = true
+          LIMIT 1
+        `);
+        
+        if (existing[0]?.id) {
+          // Update existing name-pattern label
+          result = await db.execute(sql`
+            UPDATE pvp_tournament_types 
+            SET label = ${label}, 
+                description = ${description || null}, 
+                category = ${category || 'general'}, 
+                color = ${color || '#6366f1'}, 
+                occurrence_count = ${occurrenceCount}, 
+                last_seen_at = ${lastSeenAt},
+                updated_at = NOW()
+            WHERE id = ${existing[0].id}
+            RETURNING *
+          `);
+        } else {
+          // Insert new name-pattern label
+          result = await db.execute(sql`
+            INSERT INTO pvp_tournament_types (signature, name_pattern, label, description, category, color, occurrence_count, last_seen_at, updated_at)
+            VALUES (NULL, ${namePattern}, ${label}, ${description || null}, ${category || 'general'}, ${color || '#6366f1'}, ${occurrenceCount}, ${lastSeenAt}, NOW())
+            RETURNING *
+          `);
+        }
+      }
+      
+      res.json({ ok: true, type: result[0] });
+    } catch (error) {
+      console.error('[Tournament Types] Error creating/updating type:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+  
+  // DELETE /api/admin/tournament/types/:id - Soft delete a tournament type
+  app.delete("/api/admin/tournament/types/:id", isAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      
+      await db.execute(sql`
+        UPDATE pvp_tournament_types SET is_active = false, updated_at = NOW() WHERE id = ${id}
+      `);
+      
+      res.json({ ok: true, deleted: id });
+    } catch (error) {
+      console.error('[Tournament Types] Error deleting type:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+  
+  // GET /api/admin/tournament/types/:id/heroes - Get winning heroes for a tournament type
+  app.get("/api/admin/tournament/types/:id/heroes", isAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+      
+      const typeResult = await db.execute(sql`
+        SELECT * FROM pvp_tournament_types WHERE id = ${id}
+      `);
+      
+      if (!typeResult[0]) {
+        return res.status(404).json({ ok: false, error: 'Tournament type not found' });
+      }
+      
+      const type = typeResult[0];
+      
+      let heroes;
+      if (type.signature) {
+        heroes = await db.execute(sql`
+          SELECT 
+            s.*,
+            p.placement,
+            p.placement_rank,
+            t.name as tournament_name,
+            t.tournament_id
+          FROM hero_tournament_snapshots s
+          JOIN tournament_placements p ON s.placement_id = p.id
+          JOIN pvp_tournaments t ON s.tournament_id = t.tournament_id
+          WHERE t.tournament_type_signature = ${type.signature}
+            AND p.placement = 'winner'
+          ORDER BY s.created_at DESC
+          LIMIT ${limit}
+        `);
+      } else if (type.name_pattern) {
+        heroes = await db.execute(sql`
+          SELECT 
+            s.*,
+            p.placement,
+            p.placement_rank,
+            t.name as tournament_name,
+            t.tournament_id
+          FROM hero_tournament_snapshots s
+          JOIN tournament_placements p ON s.placement_id = p.id
+          JOIN pvp_tournaments t ON s.tournament_id = t.tournament_id
+          WHERE t.name ILIKE ${'%' + type.name_pattern + '%'}
+            AND p.placement = 'winner'
+          ORDER BY s.created_at DESC
+          LIMIT ${limit}
+        `);
+      } else {
+        heroes = [];
+      }
+      
+      res.json({ ok: true, type, heroes });
+    } catch (error) {
+      console.error('[Tournament Types] Error getting heroes for type:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/tournament/:id - Get full tournament details with restrictions
   app.get("/api/admin/tournament/:id", isAdmin, async (req, res) => {
     try {

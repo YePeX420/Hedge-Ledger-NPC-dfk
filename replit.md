@@ -67,6 +67,12 @@ The project is built with a Node.js backend using Discord.js for bot functionali
       - `battleInventory` / `battleBudget` - equipment/budget rules
       - `privateBattle` / `gloryBout` / `mapId` - battle type flags
     - **Tournament Type Signature**: Auto-generated signature (e.g., `lv1-100_r0-4_p3_stat0-3000_team0-9000`) for grouping similar tournament types
+    - **Tournament Type Labeling System**: Human-readable labels for recurring tournament patterns
+      - Supports signature-based matching (technical) or name pattern matching (regex/exact)
+      - Auto-computes occurrence count and last seen timestamp when creating labels
+      - Categories: 'open', 'beginner', 'veteran', 'specialty', 'general'
+      - Color coding for UI badges
+      - Soft deletes with is_active flag
     - **Raw Battle Data**: Full battle JSON stored for future analysis
     - Admin API: 
       - POST /api/admin/tournament/trigger - Start indexing
@@ -74,10 +80,15 @@ The project is built with a Node.js backend using Discord.js for bot functionali
       - GET /api/admin/tournament/recent - Recent indexed tournaments
       - GET /api/admin/tournament/restrictions - Restriction usage statistics
       - GET /api/admin/tournament/signatures - Tournament type groupings
+      - GET /api/admin/tournament/patterns - Discovered patterns with occurrence counts and labels
+      - GET /api/admin/tournament/types - All tournament type labels
+      - POST /api/admin/tournament/types - Create/update tournament type label
+      - DELETE /api/admin/tournament/types/:id - Soft delete a label
+      - GET /api/admin/tournament/types/:id/heroes - Winning heroes for a labeled type
       - GET /api/admin/tournament/:id - Full tournament details with heroes
       - GET /api/admin/tournament/by-signature/:sig - Tournaments by type
       - GET /api/admin/battle-ready/recommendations - Winning hero builds
-    - Tables: pvp_tournaments, tournament_placements, hero_tournament_snapshots, pvp_similarity_config
+    - Tables: pvp_tournaments, tournament_placements, hero_tournament_snapshots, pvp_similarity_config, pvp_tournament_types
     - Note: GraphQL API doesn't support `winner_not: null` filter - use `battleState === 5` filter in code
     - **Tavern Listings Integration**: Marketplace hero browser with team cost calculator
       - Uses official DFK API: POST https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions

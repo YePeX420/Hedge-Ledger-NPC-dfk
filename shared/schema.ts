@@ -2950,3 +2950,42 @@ export const tournamentIndexerProgress = pgTable("tournament_indexer_progress", 
 export const insertTournamentIndexerProgressSchema = createInsertSchema(tournamentIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertTournamentIndexerProgress = z.infer<typeof insertTournamentIndexerProgressSchema>;
 export type TournamentIndexerProgress = typeof tournamentIndexerProgress.$inferSelect;
+
+/**
+ * Tournament Types - Label and group recurring tournament restriction patterns
+ * Maps tournament signatures or names to human-readable labels
+ */
+export const pvpTournamentTypes = pgTable("pvp_tournament_types", {
+  id: serial("id").primaryKey(),
+  
+  // Pattern identification (one of these should be set)
+  signature: text("signature").unique(), // technical signature like "lv6-9_r0-4_p3_unique"
+  namePattern: text("name_pattern"), // regex or exact match on tournament name
+  
+  // Human-readable label
+  label: text("label").notNull(), // e.g., "Low Level Unique Budget"
+  description: text("description"), // longer explanation of the restrictions
+  
+  // Category for grouping (e.g., "beginner", "veteran", "specialty")
+  category: text("category").default('general'),
+  
+  // Color for UI display
+  color: text("color").default('#6366f1'), // hex color for badges
+  
+  // Statistics (auto-updated)
+  occurrenceCount: integer("occurrence_count").default(0), // how many tournaments match
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  
+  // Meta
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  signatureIdx: index("pvp_tournament_types_signature_idx").on(table.signature),
+  labelIdx: index("pvp_tournament_types_label_idx").on(table.label),
+  categoryIdx: index("pvp_tournament_types_category_idx").on(table.category),
+}));
+
+export const insertPvpTournamentTypeSchema = createInsertSchema(pvpTournamentTypes).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPvpTournamentType = z.infer<typeof insertPvpTournamentTypeSchema>;
+export type PvpTournamentType = typeof pvpTournamentTypes.$inferSelect;
