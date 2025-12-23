@@ -6397,6 +6397,49 @@ async function startAdminWebServer() {
         source = 'onchain';
       }
       
+      // Lookup missing summoner names in background
+      const stakersWithMissingNames = stakers.filter(s => !s.summonerName);
+      if (stakersWithMissingNames.length > 0) {
+        // Import the profile lookup service
+        const { getSummonerName } = await import('./src/services/profileLookupService.js');
+        const pLimit = (await import('p-limit')).default;
+        const limit = pLimit(10); // Limit concurrent lookups
+        
+        // Create a map for quick updates
+        const nameMap = new Map();
+        
+        // Lookup names in parallel with limit
+        await Promise.all(
+          stakersWithMissingNames.slice(0, 50).map(staker => 
+            limit(async () => {
+              try {
+                const name = await getSummonerName(staker.wallet);
+                if (name) {
+                  nameMap.set(staker.wallet.toLowerCase(), name);
+                  // Update DB in background (don't await)
+                  db.update(poolStakers)
+                    .set({ summonerName: name })
+                    .where(and(
+                      eq(poolStakers.wallet, staker.wallet.toLowerCase()),
+                      eq(poolStakers.pid, pid)
+                    ))
+                    .catch(err => console.error('[AllStakers] DB update error:', err.message));
+                }
+              } catch (err) {
+                // Ignore lookup errors
+              }
+            })
+          )
+        );
+        
+        // Apply names to stakers
+        for (const staker of stakers) {
+          if (!staker.summonerName) {
+            staker.summonerName = nameMap.get(staker.wallet.toLowerCase()) || null;
+          }
+        }
+      }
+      
       // Use ACTUAL pool total from cache (not just discovered stakers)
       // pool.totalStaked is the real on-chain total from getPoolInfo()
       const actualPoolTotalLP = parseFloat(pool.totalStaked || '0');
