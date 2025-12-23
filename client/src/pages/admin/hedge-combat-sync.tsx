@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { Link } from "wouter";
 import {
   Card,
   CardContent,
@@ -221,23 +222,31 @@ export default function HedgeCombatSync() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Combat Sync Status</h1>
           <p className="text-muted-foreground">Manage combat codex data ingestion from DFK Wiki</p>
         </div>
-        <Button
-          onClick={() => refreshMutation.mutate()}
-          disabled={isRefreshing}
-          data-testid="button-refresh-sync"
-        >
-          {isRefreshing ? (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-          ) : (
-            <Play className="w-4 h-4 mr-2" />
-          )}
-          {isRefreshing ? "Syncing..." : "Run Sync"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/combat-classes">
+            <Button variant="outline" data-testid="button-view-classes">
+              <Swords className="w-4 h-4 mr-2" />
+              View Class Skills
+            </Button>
+          </Link>
+          <Button
+            onClick={() => refreshMutation.mutate()}
+            disabled={isRefreshing}
+            data-testid="button-refresh-sync"
+          >
+            {isRefreshing ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Play className="w-4 h-4 mr-2" />
+            )}
+            {isRefreshing ? "Syncing..." : "Run Sync"}
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
