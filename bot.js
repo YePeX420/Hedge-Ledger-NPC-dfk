@@ -94,6 +94,8 @@ import {
   runPVEIndexerBatch, 
   startPVEIndexerAutoRun, 
   stopPVEIndexerAutoRun, 
+  startPVEWorkersAutoRun,
+  stopPVEWorkersAutoRun,
   resetPVEIndexer,
   calculateDropStats,
   backfillItemNames
@@ -5670,6 +5672,36 @@ async function startAdminWebServer() {
       res.json({ ok: true, ...result });
     } catch (error) {
       console.error('[PVE Admin] Error backfilling names:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/pve/start-workers/:chain - Start parallel workers for fast historical indexing
+  app.post("/api/admin/pve/start-workers/:chain", isAdmin, async (req, res) => {
+    try {
+      const { chain } = req.params;
+      if (chain !== 'dfk' && chain !== 'metis') {
+        return res.status(400).json({ ok: false, error: 'chain must be dfk or metis' });
+      }
+      const result = await startPVEWorkersAutoRun(chain);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[PVE Admin] Error starting workers:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/pve/stop-workers/:chain - Stop parallel workers
+  app.post("/api/admin/pve/stop-workers/:chain", isAdmin, async (req, res) => {
+    try {
+      const { chain } = req.params;
+      if (chain !== 'dfk' && chain !== 'metis') {
+        return res.status(400).json({ ok: false, error: 'chain must be dfk or metis' });
+      }
+      const result = stopPVEWorkersAutoRun(chain);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[PVE Admin] Error stopping workers:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
