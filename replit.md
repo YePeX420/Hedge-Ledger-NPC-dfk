@@ -52,6 +52,13 @@ The project is built with a Node.js backend using Discord.js for bot functionali
     - Admin API: GET /api/admin/gardening-quest/status, /hero/:heroId, /player/:player, /pool/:poolId
     - Admin API: POST /api/admin/gardening-quest/trigger, /auto-run, /reset, /reset-to-block
 *   **Harmony Pool Indexer**: Tracks legacy Serendale JEWEL-ONE LP staking on the Harmony chain.
+*   **Battle-Ready Heroes (PVP Tournament Indexer)**: Indexes PvP battles from DFK's Sundered Isles tournaments to identify winning hero builds. Features:
+    - Parallel workers (5) with work-stealing for efficient batch processing
+    - Indexes placements (winner/finalist) and full hero snapshots at tournament time
+    - Realm support: 'cv' (Crystalvale) and 'sd' (Sundered Isles) taverns
+    - Admin API: POST /api/admin/tournament/trigger, GET /api/admin/tournament/status
+    - Tables: pvp_tournaments, tournament_placements, hero_tournament_snapshots, pvp_similarity_config
+    - Note: GraphQL API doesn't support `winner_not: null` filter - use `battleState === 5` filter in code
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules.
 *   **Leaderboard System**: Provides snapshot-based and historical rankings.
 *   **Season Engine**: Manages challenge passes and seasonal progression.

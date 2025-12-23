@@ -13,11 +13,11 @@ import {
 } from '../../../shared/schema.js';
 import { eq, sql, desc } from 'drizzle-orm';
 
-// GraphQL endpoints for each realm
-const REALM_ENDPOINTS = {
-  cv: 'https://api.defikingdoms.com/graphql', // Crystalvale (DFK Chain)
-  sd: 'https://api.defikingdoms.com/graphql', // Serendale (Klaytn/Kaia) - same API, different realm filter
-};
+// GraphQL endpoint for DFK battles
+// Note: All PvP battles use the same DFK API endpoint. The "realm" parameter indicates 
+// which marketplace to search for similar heroes (cv = Crystalvale Tavern, sd = Sundered Isles Barkeep).
+// PvP battles themselves only happen in Sundered Isles arena, but heroes can be purchased from either tavern.
+const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
 
 // Realm display names for user-facing messages
 export const REALM_DISPLAY_NAMES: Record<string, string> = {
@@ -25,7 +25,10 @@ export const REALM_DISPLAY_NAMES: Record<string, string> = {
   sd: 'Sundered Isles Barkeep',
 };
 
-const client = new GraphQLClient(REALM_ENDPOINTS.cv);
+// Create a new client for each request to ensure clean state
+function getClient(): GraphQLClient {
+  return new GraphQLClient(DFK_GRAPHQL_ENDPOINT);
+}
 
 const BATCH_SIZE = 50;
 const SUPPORTED_REALMS = ['cv', 'sd'] as const;
@@ -132,133 +135,155 @@ function updateThroughput(): void {
 }
 
 // Ensure tournament tables exist (auto-initialization)
+// Uses CREATE TABLE IF NOT EXISTS for each table to handle partial states
 let tablesInitialized = false;
 async function ensureTablesExist() {
   if (tablesInitialized) return;
   
-  try {
-    // Test if table exists by trying a simple query
-    await db.execute(sql`SELECT 1 FROM tournament_indexer_progress LIMIT 1`);
-    tablesInitialized = true;
-  } catch (error) {
-    // Table doesn't exist, create them
-    console.log('[TournamentIndexer] Creating tournament tables...');
-    
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS tournament_indexer_progress (
-        id SERIAL PRIMARY KEY,
-        realm VARCHAR(50) NOT NULL DEFAULT 'cv',
-        last_tournament_id INTEGER NOT NULL DEFAULT 0,
-        tournaments_indexed INTEGER NOT NULL DEFAULT 0,
-        placements_indexed INTEGER NOT NULL DEFAULT 0,
-        snapshots_indexed INTEGER NOT NULL DEFAULT 0,
-        status VARCHAR(50) NOT NULL DEFAULT 'idle',
-        last_error TEXT,
-        last_run_at TIMESTAMP,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS pvp_tournaments (
-        id SERIAL PRIMARY KEY,
-        tournament_id BIGINT NOT NULL UNIQUE,
-        realm VARCHAR(50) NOT NULL DEFAULT 'cv',
-        name VARCHAR(255),
-        format VARCHAR(100),
-        status VARCHAR(50),
-        party_size INTEGER,
-        level_min INTEGER,
-        level_max INTEGER,
-        rarity_min INTEGER,
-        rarity_max INTEGER,
-        stat_boost VARCHAR(100),
-        background VARCHAR(100),
-        tick_interval INTEGER,
-        registration_ends_at TIMESTAMP,
-        started_at TIMESTAMP,
-        ended_at TIMESTAMP,
-        total_entrants INTEGER DEFAULT 0,
-        host_player VARCHAR(100),
-        opponent_player VARCHAR(100),
-        winner_player VARCHAR(100),
-        raw_battle_data JSONB,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS tournament_placements (
-        id SERIAL PRIMARY KEY,
-        tournament_id BIGINT NOT NULL,
-        hero_id BIGINT NOT NULL,
-        player_address VARCHAR(100),
-        placement VARCHAR(50) NOT NULL,
-        team_index INTEGER,
-        party_slot INTEGER,
-        indexed_at TIMESTAMP DEFAULT NOW(),
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS hero_tournament_snapshots (
-        id SERIAL PRIMARY KEY,
-        placement_id INTEGER NOT NULL,
-        hero_id BIGINT NOT NULL,
-        tournament_id BIGINT NOT NULL,
-        realm VARCHAR(50) NOT NULL DEFAULT 'cv',
-        main_class VARCHAR(50),
-        sub_class VARCHAR(50),
-        rarity INTEGER,
-        generation INTEGER,
-        level INTEGER,
-        xp INTEGER,
-        strength INTEGER,
-        agility INTEGER,
-        dexterity INTEGER,
-        vitality INTEGER,
-        endurance INTEGER,
-        intelligence INTEGER,
-        wisdom INTEGER,
-        luck INTEGER,
-        hp INTEGER,
-        mp INTEGER,
-        stamina INTEGER,
-        active1 VARCHAR(100),
-        active2 VARCHAR(100),
-        passive1 VARCHAR(100),
-        passive2 VARCHAR(100),
-        summons_remaining INTEGER,
-        max_summons INTEGER,
-        combat_power_score NUMERIC(20, 2),
-        raw_hero_data JSONB,
-        snapshot_at TIMESTAMP DEFAULT NOW(),
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS pvp_similarity_config (
-        id SERIAL PRIMARY KEY,
-        config_name VARCHAR(100) NOT NULL DEFAULT 'default',
-        stats_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.40,
-        active_abilities_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.25,
-        passive_abilities_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.15,
-        class_match_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.10,
-        rarity_match_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.05,
-        gene_quality_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.05,
-        stat_weights JSONB DEFAULT '{"strength":0.15,"agility":0.15,"dexterity":0.10,"vitality":0.15,"endurance":0.10,"intelligence":0.15,"wisdom":0.10,"luck":0.10}',
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    
-    console.log('[TournamentIndexer] Tournament tables created');
-    tablesInitialized = true;
-  }
+  console.log('[TournamentIndexer] Ensuring all tournament tables exist...');
+  
+  // Create progress table
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS tournament_indexer_progress (
+      id SERIAL PRIMARY KEY,
+      realm TEXT NOT NULL DEFAULT 'cv',
+      last_tournament_id INTEGER NOT NULL DEFAULT 0,
+      tournaments_indexed INTEGER NOT NULL DEFAULT 0,
+      placements_indexed INTEGER NOT NULL DEFAULT 0,
+      snapshots_indexed INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'idle',
+      last_error TEXT,
+      last_run_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )
+  `);
+  
+  // Create tournaments table (matches shared/schema.ts pvpTournaments)
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS pvp_tournaments (
+      id SERIAL PRIMARY KEY,
+      tournament_id BIGINT NOT NULL UNIQUE,
+      realm TEXT NOT NULL DEFAULT 'cv',
+      name TEXT,
+      format TEXT,
+      status TEXT,
+      party_size INTEGER,
+      level_min INTEGER,
+      level_max INTEGER,
+      rarity_min INTEGER,
+      rarity_max INTEGER,
+      stat_boost TEXT,
+      background TEXT,
+      tick_interval INTEGER,
+      start_time TIMESTAMP WITH TIME ZONE,
+      end_time TIMESTAMP WITH TIME ZONE,
+      total_entrants INTEGER DEFAULT 0,
+      total_rounds INTEGER,
+      host_player TEXT,
+      opponent_player TEXT,
+      winner_player TEXT,
+      raw_battle_data JSONB,
+      last_indexed_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )
+  `);
+  
+  // Create placements table (matches shared/schema.ts tournamentPlacements)
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS tournament_placements (
+      id SERIAL PRIMARY KEY,
+      tournament_id BIGINT NOT NULL,
+      hero_id BIGINT NOT NULL,
+      player_address TEXT,
+      placement TEXT NOT NULL,
+      placement_rank INTEGER DEFAULT 1,
+      team_index INTEGER,
+      team_id TEXT,
+      matches_won INTEGER DEFAULT 0,
+      matches_lost INTEGER DEFAULT 0,
+      total_damage_dealt BIGINT DEFAULT 0,
+      total_damage_taken BIGINT DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      UNIQUE(tournament_id, hero_id)
+    )
+  `);
+  
+  // Create indexes for placements
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS tournament_placements_hero_idx ON tournament_placements(hero_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS tournament_placements_player_idx ON tournament_placements(player_address)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS tournament_placements_placement_idx ON tournament_placements(placement)`);
+  
+  // Create snapshots table (matches shared/schema.ts heroTournamentSnapshots)
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS hero_tournament_snapshots (
+      id SERIAL PRIMARY KEY,
+      placement_id INTEGER NOT NULL REFERENCES tournament_placements(id),
+      hero_id BIGINT NOT NULL,
+      tournament_id BIGINT NOT NULL,
+      realm TEXT NOT NULL DEFAULT 'cv',
+      rarity INTEGER NOT NULL,
+      main_class TEXT NOT NULL,
+      sub_class TEXT NOT NULL,
+      level INTEGER NOT NULL,
+      generation INTEGER,
+      strength INTEGER NOT NULL,
+      agility INTEGER NOT NULL,
+      dexterity INTEGER NOT NULL,
+      vitality INTEGER NOT NULL,
+      endurance INTEGER NOT NULL,
+      intelligence INTEGER NOT NULL,
+      wisdom INTEGER NOT NULL,
+      luck INTEGER NOT NULL,
+      hp INTEGER,
+      mp INTEGER,
+      stamina INTEGER,
+      active1 TEXT,
+      active2 TEXT,
+      passive1 TEXT,
+      passive2 TEXT,
+      stat_genes JSONB,
+      basic_gene_count INTEGER DEFAULT 0,
+      advanced_gene_count INTEGER DEFAULT 0,
+      elite_gene_count INTEGER DEFAULT 0,
+      exalted_gene_count INTEGER DEFAULT 0,
+      equipment JSONB,
+      summons_remaining INTEGER,
+      max_summons INTEGER,
+      combat_power_score INTEGER,
+      raw_hero_data JSONB,
+      snapshot_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )
+  `);
+  
+  // Create indexes for snapshots
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS hero_tournament_snapshots_placement_idx ON hero_tournament_snapshots(placement_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS hero_tournament_snapshots_hero_idx ON hero_tournament_snapshots(hero_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS hero_tournament_snapshots_tournament_idx ON hero_tournament_snapshots(tournament_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS hero_tournament_snapshots_class_idx ON hero_tournament_snapshots(main_class)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS hero_tournament_snapshots_level_rarity_idx ON hero_tournament_snapshots(level, rarity)`);
+  
+  // Create similarity config table
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS pvp_similarity_config (
+      id SERIAL PRIMARY KEY,
+      config_name TEXT NOT NULL DEFAULT 'default' UNIQUE,
+      stats_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.40,
+      active_abilities_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.25,
+      passive_abilities_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.15,
+      class_match_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.10,
+      rarity_match_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.05,
+      gene_quality_weight NUMERIC(5, 4) NOT NULL DEFAULT 0.05,
+      stat_weights JSONB DEFAULT '{"strength":0.15,"agility":0.15,"dexterity":0.10,"vitality":0.15,"endurance":0.10,"intelligence":0.15,"wisdom":0.10,"luck":0.10}',
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )
+  `);
+  
+  console.log('[TournamentIndexer] Tournament tables ready');
+  tablesInitialized = true;
 }
 
 // Get indexer progress for a realm
@@ -287,9 +312,10 @@ async function updateProgress(realm: RealmType, updates: Partial<typeof tourname
 }
 
 // GraphQL query for battles with hero data
+// Note: We can't filter by winner_not:null in the API, so we filter completed battles in code
 const BATTLES_QUERY = gql`
-  query GetBattles($first: Int!, $skip: Int!, $where: BattleFilter) {
-    battles(first: $first, skip: $skip, orderBy: id, orderDirection: desc, where: $where) {
+  query GetBattles($first: Int!, $skip: Int!) {
+    battles(first: $first, skip: $skip, orderBy: id, orderDirection: desc) {
       id
       host {
         id
@@ -304,6 +330,7 @@ const BATTLES_QUERY = gql`
         name
       }
       battleStartTime
+      battleState
       minLevel
       maxLevel
       minRarity
@@ -400,6 +427,7 @@ interface Battle {
   opponent: { id: string; name: string };
   winner: { id: string; name: string } | null;
   battleStartTime: number;
+  battleState: number; // 5 = completed
   minLevel: number;
   maxLevel: number;
   minRarity: number;
@@ -683,17 +711,19 @@ async function runWorker(workerId: number, dbProgress: typeof tournamentIndexerP
     worker.currentBatchEnd = workItem.skip + workItem.batchSize;
     
     try {
-      const data = await client.request<{ battles: Battle[] }>(BATTLES_QUERY, {
+      const data = await getClient().request<{ battles: Battle[] }>(BATTLES_QUERY, {
         first: workItem.batchSize,
         skip: workItem.skip,
-        where: { winner_not: null },
       });
       
       if (!data.battles || data.battles.length === 0) {
         continue;
       }
       
-      for (const battle of data.battles) {
+      // Filter to only completed battles (battleState=5) with a winner
+      const completedBattles = data.battles.filter(b => b.battleState === 5 && b.winner !== null);
+      
+      for (const battle of completedBattles) {
         if (!indexerState.isRunning) break;
         
         // Pass realm to processBattle for proper marketplace tracking
