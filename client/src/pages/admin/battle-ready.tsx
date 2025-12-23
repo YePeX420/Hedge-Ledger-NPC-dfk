@@ -199,6 +199,9 @@ interface TournamentPattern {
   min_team_stat_score: number | null;
   max_team_stat_score: number | null;
   shot_clock_duration: number | null;
+  // Entry fee and rewards
+  min_glories: number | null;
+  max_sponsor_count: number | null;
   occurrence_count: number | string;
   last_seen_at: string | null;
   label: string | null;
@@ -1138,6 +1141,16 @@ export default function BattleReadyAdmin() {
                               )}
                               {pattern.shot_clock_duration && pattern.shot_clock_duration !== 45 && (
                                 <Badge variant="outline" className="text-xs">{pattern.shot_clock_duration}s</Badge>
+                              )}
+                              {pattern.min_glories && pattern.min_glories > 0 && (
+                                <Badge variant="outline" className="text-xs bg-yellow-600/20 border-yellow-500">
+                                  Entry: {pattern.min_glories} Glory
+                                </Badge>
+                              )}
+                              {pattern.max_sponsor_count && pattern.max_sponsor_count > 0 && (
+                                <Badge variant="outline" className="text-xs bg-blue-600/20 border-blue-500">
+                                  Sponsored
+                                </Badge>
                               )}
                             </div>
                           </TableCell>

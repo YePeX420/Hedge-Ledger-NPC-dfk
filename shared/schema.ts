@@ -2716,6 +2716,14 @@ export const pvpTournaments = pgTable("pvp_tournaments", {
   // Tournament type signature for grouping similar tournaments
   tournamentTypeSignature: text("tournament_type_signature"),
   
+  // Entry fee and rewards
+  minGlories: integer("min_glories").default(0), // Entry fee in glories
+  hostGlories: integer("host_glories").default(0), // Glories staked by host
+  opponentGlories: integer("opponent_glories").default(0), // Glories staked by opponent
+  sponsorCount: integer("sponsor_count").default(0), // Number of sponsors
+  rewardsJson: json("rewards_json"), // Array of reward tokens/amounts
+  sponsorsJson: json("sponsors_json"), // Array of sponsor rewards
+  
   // Player info
   hostPlayer: text("host_player"),
   opponentPlayer: text("opponent_player"),

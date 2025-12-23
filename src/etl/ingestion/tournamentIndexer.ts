@@ -191,6 +191,12 @@ async function ensureTablesExist() {
       map_id INTEGER,
       glory_bout BOOLEAN DEFAULT false,
       tournament_type_signature TEXT,
+      min_glories INTEGER DEFAULT 0,
+      host_glories INTEGER DEFAULT 0,
+      opponent_glories INTEGER DEFAULT 0,
+      sponsor_count INTEGER DEFAULT 0,
+      rewards_json JSONB,
+      sponsors_json JSONB,
       host_player TEXT,
       opponent_player TEXT,
       winner_player TEXT,
@@ -225,6 +231,12 @@ async function ensureTablesExist() {
     { name: 'map_id', type: 'INTEGER' },
     { name: 'glory_bout', type: 'BOOLEAN DEFAULT false' },
     { name: 'tournament_type_signature', type: 'TEXT' },
+    { name: 'min_glories', type: 'INTEGER DEFAULT 0' },
+    { name: 'host_glories', type: 'INTEGER DEFAULT 0' },
+    { name: 'opponent_glories', type: 'INTEGER DEFAULT 0' },
+    { name: 'sponsor_count', type: 'INTEGER DEFAULT 0' },
+    { name: 'rewards_json', type: 'JSONB' },
+    { name: 'sponsors_json', type: 'JSONB' },
   ];
   
   for (const col of restrictionColumns) {
@@ -402,6 +414,24 @@ const BATTLES_QUERY = gql`
       privateBattle
       mapId
       gloryBout
+      minGlories
+      hostGlories
+      opponentGlories
+      sponsorCount
+      rewards {
+        token
+        isGasToken
+        totalAmount
+      }
+      sponsors {
+        token
+        isGasToken
+        amount
+        sponsor {
+          id
+          name
+        }
+      }
       hostHeroes {
         id
         normalizedId
@@ -488,6 +518,19 @@ interface BattleHero {
   maxSummons?: number;
 }
 
+interface BattleReward {
+  token: string;
+  isGasToken: boolean;
+  totalAmount: string;
+}
+
+interface BattleSponsor {
+  token: string;
+  isGasToken: boolean;
+  amount: string;
+  sponsor: { id: string; name: string } | null;
+}
+
 interface Battle {
   id: string;
   host: { id: string; name: string };
@@ -518,6 +561,13 @@ interface Battle {
   privateBattle: boolean; // Private battle flag
   mapId: number; // Battle map
   gloryBout: boolean | null; // Glory bout flag
+  // Entry fee and rewards
+  minGlories: number; // Entry fee in glories
+  hostGlories: number; // Glories staked by host
+  opponentGlories: number; // Glories staked by opponent
+  sponsorCount: number; // Number of sponsors
+  rewards: BattleReward[] | null; // Prize rewards
+  sponsors: BattleSponsor[] | null; // Sponsor rewards
   hostHeroes: BattleHero[];
   opponentHeroes: BattleHero[];
 }
@@ -633,6 +683,13 @@ async function processBattle(battle: Battle, realm: RealmType = 'cv'): Promise<{
       mapId: battle.mapId,
       gloryBout: battle.gloryBout || false,
       tournamentTypeSignature: signature,
+      // Entry fee and rewards
+      minGlories: battle.minGlories || 0,
+      hostGlories: battle.hostGlories || 0,
+      opponentGlories: battle.opponentGlories || 0,
+      sponsorCount: battle.sponsorCount || 0,
+      rewardsJson: battle.rewards || null,
+      sponsorsJson: battle.sponsors || null,
       // Player info
       hostPlayer: battle.host.id.toLowerCase(),
       opponentPlayer: battle.opponent.id.toLowerCase(),
