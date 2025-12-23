@@ -25,7 +25,7 @@ import { calculateSummoningProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
 import { decodeHeroGenes } from './hero-genetics.js';
 import { db } from './server/db.js';
-import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings, leagueSeasons, leagueSignups, seasonTierLocks, walletClusters, walletLinks, smurfIncidents, walletPowerSnapshots, poolSwapEvents, poolRewardEvents } from './shared/schema.ts';
+import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings, leagueSeasons, leagueSignups, seasonTierLocks, walletClusters, walletLinks, smurfIncidents, walletPowerSnapshots, poolSwapEvents, poolRewardEvents, combatKeywords, combatClassMeta, combatSkills, combatSources, syncRuns, syncRunItems } from './shared/schema.ts';
 import { runPreSeasonChecks, runInSeasonChecks, getOrCreateCluster, linkWalletToCluster } from './smurf-detection-service.js';
 import { eq, desc, asc, sql, inArray, and, gt, lt } from 'drizzle-orm';
 import http from 'http';
@@ -4297,6 +4297,174 @@ async function startAdminWebServer() {
     } catch (err) {
       console.error('[API] Error fetching hedge wallet balance:', err);
       res.status(500).json({ error: 'Failed to fetch wallet balance' });
+    }
+  });
+
+  // ============================================================================
+  // COMBAT SYNC ROUTES
+  // ============================================================================
+
+  // GET /api/admin/hedge/combat/sync/summary - Combat codex sync summary
+  app.get('/api/admin/hedge/combat/sync/summary', isAdmin, async (req, res) => {
+    try {
+      const [keywordCount] = await db.select({ count: sql`count(*)::int` }).from(combatKeywords);
+      const [classCount] = await db.select({ count: sql`count(*)::int` }).from(combatClassMeta);
+      const [skillCount] = await db.select({ count: sql`count(*)::int` }).from(combatSkills);
+
+      const lastSuccessResults = await db.select({
+        id: syncRuns.id,
+        started_at: syncRuns.startedAt,
+        finished_at: syncRuns.finishedAt,
+        discovered_urls: syncRuns.discoveredUrls,
+        classes_ingested: syncRuns.classesIngested,
+        skills_upserted: syncRuns.skillsUpserted,
+      })
+        .from(syncRuns)
+        .where(and(eq(syncRuns.domain, 'combat_codex'), eq(syncRuns.status, 'success')))
+        .orderBy(desc(syncRuns.startedAt))
+        .limit(1);
+
+      const lastRunResults = await db.select({
+        id: syncRuns.id,
+        started_at: syncRuns.startedAt,
+        finished_at: syncRuns.finishedAt,
+        status: syncRuns.status,
+        error: syncRuns.error,
+      })
+        .from(syncRuns)
+        .where(eq(syncRuns.domain, 'combat_codex'))
+        .orderBy(desc(syncRuns.startedAt))
+        .limit(1);
+
+      const runningRunResults = await db.select({
+        id: syncRuns.id,
+        started_at: syncRuns.startedAt,
+      })
+        .from(syncRuns)
+        .where(and(eq(syncRuns.domain, 'combat_codex'), eq(syncRuns.status, 'running')))
+        .orderBy(desc(syncRuns.startedAt))
+        .limit(1);
+
+      res.json({
+        ok: true,
+        counts: {
+          keywords: keywordCount?.count ?? 0,
+          classes: classCount?.count ?? 0,
+          skills: skillCount?.count ?? 0,
+        },
+        lastSuccess: lastSuccessResults[0] ?? null,
+        lastRun: lastRunResults[0] ?? null,
+        runningRun: runningRunResults[0] ?? null,
+      });
+    } catch (error) {
+      console.error('[HedgeProxy] Error fetching sync summary:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/hedge/combat/sync/runs - List sync runs
+  app.get('/api/admin/hedge/combat/sync/runs', isAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 25)));
+
+      const runs = await db.select({
+        id: syncRuns.id,
+        domain: syncRuns.domain,
+        startedAt: syncRuns.startedAt,
+        finishedAt: syncRuns.finishedAt,
+        status: syncRuns.status,
+        discoveredUrls: syncRuns.discoveredUrls,
+        keywordsUpserted: syncRuns.keywordsUpserted,
+        classesAttempted: syncRuns.classesAttempted,
+        classesIngested: syncRuns.classesIngested,
+        skillsUpserted: syncRuns.skillsUpserted,
+        ragDocsUpserted: syncRuns.ragDocsUpserted,
+        error: syncRuns.error,
+      })
+        .from(syncRuns)
+        .where(eq(syncRuns.domain, 'combat_codex'))
+        .orderBy(desc(syncRuns.startedAt))
+        .limit(limit);
+
+      res.json({ ok: true, count: runs.length, results: runs });
+    } catch (error) {
+      console.error('[HedgeProxy] Error fetching sync runs:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/hedge/combat/sync/runs/:id - Get run detail
+  app.get('/api/admin/hedge/combat/sync/runs/:id', isAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        return res.status(400).json({ ok: false, error: 'Invalid id' });
+      }
+
+      const [run] = await db.select()
+        .from(syncRuns)
+        .where(and(eq(syncRuns.id, id), eq(syncRuns.domain, 'combat_codex')));
+
+      if (!run) {
+        return res.status(404).json({ ok: false, error: 'Run not found' });
+      }
+
+      const items = await db.select()
+        .from(syncRunItems)
+        .where(eq(syncRunItems.syncRunId, id));
+
+      res.json({ ok: true, run, items });
+    } catch (error) {
+      console.error('[HedgeProxy] Error fetching run detail:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/hedge/combat/sources - List combat sources
+  app.get('/api/admin/hedge/combat/sources', isAdmin, async (req, res) => {
+    try {
+      const sources = await db.select().from(combatSources).orderBy(combatSources.kind, combatSources.url);
+      res.json({ ok: true, results: sources });
+    } catch (error) {
+      console.error('[HedgeProxy] Error fetching sources:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // PATCH /api/admin/hedge/combat/sources - Toggle source enabled
+  app.patch('/api/admin/hedge/combat/sources', isAdmin, async (req, res) => {
+    try {
+      const { url, enabled } = req.body;
+      if (typeof url !== 'string' || typeof enabled !== 'boolean') {
+        return res.status(400).json({ ok: false, error: 'Invalid request body' });
+      }
+
+      const [updated] = await db.update(combatSources)
+        .set({ enabled })
+        .where(eq(combatSources.url, url))
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ ok: false, error: 'Source not found' });
+      }
+
+      res.json({ ok: true, source: updated });
+    } catch (error) {
+      console.error('[HedgeProxy] Error updating source:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/hedge/combat/refresh - Trigger combat codex sync
+  app.post('/api/admin/hedge/combat/refresh', isAdmin, async (req, res) => {
+    try {
+      const { discover = true, concurrency = 3 } = req.body || {};
+      const { ingestCombatCodex } = await import('./src/dfk/combatCodexIngestor.js');
+      const result = await ingestCombatCodex({ discover, concurrency });
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[HedgeProxy] Error refreshing combat codex:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
 

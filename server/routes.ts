@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { db } from "./db";
 import { players, jewelBalances, depositRequests, queryCosts, interactionSessions, interactionMessages, walletSnapshots, adminSessions, bridgeEvents, walletBridgeMetrics, historicalPrices, walletClusters, walletLinks, poolSwapEvents, poolRewardEvents } from "@shared/schema";
 import { desc, sql, eq, inArray, gte, lte } from "drizzle-orm";
-import { getDebugSettings, setDebugSettings } from "../debug-settings.js";
+import { getDebugSettings, setDebugSettings, isOAuthBypassEnabled } from "../debug-settings.js";
 import { detectWalletLPPositions } from "../wallet-lp-detector.js";
 
 import { requirePublicApiKey, requireAdminApiKey } from "./middleware/hedgeAuth";
@@ -41,6 +41,17 @@ const ADMIN_USER_IDS = ['426019696916168714']; // yepex
 // Admin middleware - database-backed sessions
 async function isAdmin(req: any, res: any, next: any) {
   try {
+    // Check for OAuth bypass mode (for testing)
+    if (isOAuthBypassEnabled()) {
+      console.log('[AdminAuth] OAuth bypass enabled - granting admin access');
+      req.user = {
+        userId: 'bypass-admin',
+        username: 'Bypass Admin',
+        avatar: null,
+      };
+      return next();
+    }
+
     const sessionToken = req.cookies?.session_token;
     console.log(`[AdminAuth] Checking session. Cookie: ${sessionToken ? sessionToken.substring(0, 16) + '...' : 'NONE'}`);
     
