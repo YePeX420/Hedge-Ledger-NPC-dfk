@@ -103,30 +103,38 @@ interface Tournament {
   totalEntrants: number;
 }
 
-interface WinnerHero {
+interface HeroSnapshot {
   heroId: number;
+  tournamentId: number;
   mainClass: string;
+  subClass: string | null;
   level: number;
   rarity: number;
-  placement: string;
-  tournamentId: number;
   combatPowerScore: number | null;
-  stats: {
-    strength: number | null;
-    agility: number | null;
-    dexterity: number | null;
-    vitality: number | null;
-    endurance: number | null;
-    intelligence: number | null;
-    wisdom: number | null;
-    luck: number | null;
-  };
-  abilities: {
-    active1: string | null;
-    active2: string | null;
-    passive1: string | null;
-    passive2: string | null;
-  };
+  strength: number | null;
+  agility: number | null;
+  dexterity: number | null;
+  vitality: number | null;
+  endurance: number | null;
+  intelligence: number | null;
+  wisdom: number | null;
+  luck: number | null;
+  active1: string | null;
+  active2: string | null;
+  passive1: string | null;
+  passive2: string | null;
+}
+
+interface TournamentPlacement {
+  heroId: number;
+  tournamentId: number;
+  placement: string;
+}
+
+interface WinnerRecommendation {
+  snapshot: HeroSnapshot;
+  tournament: Tournament | null;
+  placement: TournamentPlacement | null;
 }
 
 const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
@@ -172,7 +180,7 @@ export default function BattleReadyAdmin() {
     queryKey: ['/api/admin/similarity/config'],
   });
 
-  const { data: winnersData, isLoading: winnersLoading } = useQuery<{ ok: boolean; recommendations: WinnerHero[]; totalWinners: number }>({
+  const { data: winnersData, isLoading: winnersLoading } = useQuery<{ ok: boolean; recommendations: WinnerRecommendation[]; totalWinners: number }>({
     queryKey: ['/api/admin/battle-ready/recommendations'],
   });
 
@@ -694,27 +702,32 @@ export default function BattleReadyAdmin() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {winnersData.recommendations.slice(0, 20).map((hero) => (
-                  <TableRow key={`${hero.heroId}-${hero.tournamentId}`} data-testid={`row-winner-${hero.heroId}`}>
-                    <TableCell className="font-mono">{hero.heroId}</TableCell>
-                    <TableCell>{hero.mainClass}</TableCell>
-                    <TableCell>{hero.level}</TableCell>
-                    <TableCell>
-                      <span className={RARITY_COLORS[hero.rarity] || ''}>
-                        {RARITY_NAMES[hero.rarity] || hero.rarity}
-                      </span>
-                    </TableCell>
-                    <TableCell className="font-bold">{hero.combatPowerScore || 'N/A'}</TableCell>
-                    <TableCell className="text-xs">
-                      STR:{hero.stats.strength} AGI:{hero.stats.agility} DEX:{hero.stats.dexterity}
-                      <br />
-                      VIT:{hero.stats.vitality} END:{hero.stats.endurance} INT:{hero.stats.intelligence}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {[hero.abilities.active1, hero.abilities.active2].filter(Boolean).join(', ') || 'None'}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {winnersData.recommendations.slice(0, 20).map((rec) => {
+                  const hero = rec.snapshot;
+                  const tournament = rec.tournament;
+                  if (!hero) return null;
+                  return (
+                    <TableRow key={`${hero.heroId}-${tournament?.tournamentId || hero.tournamentId}`} data-testid={`row-winner-${hero.heroId}`}>
+                      <TableCell className="font-mono">{hero.heroId}</TableCell>
+                      <TableCell>{hero.mainClass}</TableCell>
+                      <TableCell>{hero.level}</TableCell>
+                      <TableCell>
+                        <span className={RARITY_COLORS[hero.rarity] || ''}>
+                          {RARITY_NAMES[hero.rarity] || hero.rarity}
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-bold">{hero.combatPowerScore || 'N/A'}</TableCell>
+                      <TableCell className="text-xs">
+                        STR:{hero.strength ?? '-'} AGI:{hero.agility ?? '-'} DEX:{hero.dexterity ?? '-'}
+                        <br />
+                        VIT:{hero.vitality ?? '-'} END:{hero.endurance ?? '-'} INT:{hero.intelligence ?? '-'}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {[hero.active1, hero.active2].filter(Boolean).join(', ') || 'None'}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           ) : (
