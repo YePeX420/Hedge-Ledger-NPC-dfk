@@ -7800,6 +7800,147 @@ async function startAdminWebServer() {
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
+
+  // GET /api/admin/tavern-listings - Fetch top heroes for sale from both taverns with prices
+  app.get("/api/admin/tavern-listings", isAdmin, async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+      const { gql, request } = await import('graphql-request');
+      const { getCrystalPrice, getJewelPrice } = await import('./price-feed.js');
+      
+      const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
+      
+      // Hero ID ranges for realm filtering:
+      // Crystalvale (DFK Chain): IDs >= 1,000,000,000,000 and < 2,000,000,000,000
+      // Serendale (Klaytn): IDs >= 2,000,000,000,000
+      const CV_ID_MIN = "1000000000000";
+      const CV_ID_MAX = "2000000000000";
+      const SD_ID_MIN = "2000000000000";
+      
+      // Query for heroes for sale - order by price ascending, filter by ID range
+      const query = gql`
+        query TavernListings($first: Int!, $cvIdMin: BigInt!, $cvIdMax: BigInt!, $sdIdMin: BigInt!) {
+          crystalvale: heroes(
+            where: { salePrice_not: null, id_gte: $cvIdMin, id_lt: $cvIdMax },
+            first: $first,
+            orderBy: salePrice,
+            orderDirection: asc
+          ) {
+            id
+            normalizedId
+            mainClassStr
+            subClassStr
+            professionStr
+            rarity
+            level
+            generation
+            summons
+            maxSummons
+            salePrice
+            strength
+            agility
+            intelligence
+            wisdom
+            luck
+            dexterity
+            vitality
+            endurance
+            hp
+            mp
+            stamina
+          }
+          serendale: heroes(
+            where: { salePrice_not: null, id_gte: $sdIdMin },
+            first: $first,
+            orderBy: salePrice,
+            orderDirection: asc
+          ) {
+            id
+            normalizedId
+            mainClassStr
+            subClassStr
+            professionStr
+            rarity
+            level
+            generation
+            summons
+            maxSummons
+            salePrice
+            strength
+            agility
+            intelligence
+            wisdom
+            luck
+            dexterity
+            vitality
+            endurance
+            hp
+            mp
+            stamina
+          }
+        }
+      `;
+      
+      // Fetch data in parallel
+      const [graphqlData, crystalPrice, jewelPrice] = await Promise.all([
+        request(DFK_GRAPHQL_ENDPOINT, query, { 
+          first: limit,
+          cvIdMin: CV_ID_MIN,
+          cvIdMax: CV_ID_MAX,
+          sdIdMin: SD_ID_MIN
+        }),
+        getCrystalPrice().catch(() => 0),
+        getJewelPrice().catch(() => 0)
+      ]);
+      
+      // Helper to convert wei to token amount
+      const weiToToken = (weiStr) => {
+        if (!weiStr) return 0;
+        const wei = BigInt(weiStr);
+        const whole = wei / BigInt(1e18);
+        const frac = Number(wei % BigInt(1e18)) / 1e18;
+        return Number(whole) + frac;
+      };
+      
+      // Process Crystalvale heroes (CRYSTAL prices)
+      const crystalvaleHeroes = (graphqlData.crystalvale || []).map(hero => {
+        const priceInCrystal = weiToToken(hero.salePrice);
+        return {
+          ...hero,
+          tavern: 'cv',
+          nativeToken: 'CRYSTAL',
+          priceNative: priceInCrystal,
+          priceUSD: crystalPrice > 0 ? priceInCrystal * crystalPrice : null
+        };
+      });
+      
+      // Process Serendale heroes (JEWEL prices)
+      const serendaleHeroes = (graphqlData.serendale || []).map(hero => {
+        const priceInJewel = weiToToken(hero.salePrice);
+        return {
+          ...hero,
+          tavern: 'sd',
+          nativeToken: 'JEWEL',
+          priceNative: priceInJewel,
+          priceUSD: jewelPrice > 0 ? priceInJewel * jewelPrice : null
+        };
+      });
+      
+      res.json({
+        ok: true,
+        prices: {
+          crystal: crystalPrice,
+          jewel: jewelPrice
+        },
+        crystalvale: crystalvaleHeroes,
+        serendale: serendaleHeroes,
+        totalListings: crystalvaleHeroes.length + serendaleHeroes.length
+      });
+    } catch (error) {
+      console.error('[Tavern Listings] Error fetching listings:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
   
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 // Realm display names for marketplace locations
@@ -137,6 +138,46 @@ interface WinnerRecommendation {
   placement: TournamentPlacement | null;
 }
 
+interface TavernHero {
+  id: string;
+  normalizedId: number;
+  mainClassStr: string;
+  subClassStr: string;
+  professionStr: string;
+  rarity: number;
+  level: number;
+  generation: number;
+  summons: number;
+  maxSummons: number;
+  salePrice: string;
+  strength: number;
+  agility: number;
+  intelligence: number;
+  wisdom: number;
+  luck: number;
+  dexterity: number;
+  vitality: number;
+  endurance: number;
+  hp: number;
+  mp: number;
+  stamina: number;
+  tavern: 'cv' | 'sd';
+  nativeToken: 'CRYSTAL' | 'JEWEL';
+  priceNative: number;
+  priceUSD: number | null;
+}
+
+interface TavernListingsResponse {
+  ok: boolean;
+  prices: {
+    crystal: number;
+    jewel: number;
+  };
+  crystalvale: TavernHero[];
+  serendale: TavernHero[];
+  totalListings: number;
+}
+
 const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
 const RARITY_COLORS = ['text-gray-500', 'text-green-500', 'text-blue-500', 'text-orange-500', 'text-purple-500'];
 
@@ -165,6 +206,8 @@ export default function BattleReadyAdmin() {
   const [maxBattles, setMaxBattles] = useState("100");
   const [selectedRealm, setSelectedRealm] = useState<string>("cv");
   const [editingConfig, setEditingConfig] = useState<SimilarityConfig | null>(null);
+  const [selectedHeroes, setSelectedHeroes] = useState<Set<string>>(new Set());
+  const [tavernFilter, setTavernFilter] = useState<'all' | 'cv' | 'sd'>('all');
 
   const { data: statusData, isLoading: statusLoading, refetch: refetchStatus } = useQuery<TournamentStatus>({
     queryKey: ['/api/admin/tournament/status'],
@@ -182,6 +225,10 @@ export default function BattleReadyAdmin() {
 
   const { data: winnersData, isLoading: winnersLoading } = useQuery<{ ok: boolean; recommendations: WinnerRecommendation[]; totalWinners: number }>({
     queryKey: ['/api/admin/battle-ready/recommendations'],
+  });
+
+  const { data: tavernData, isLoading: tavernLoading, refetch: refetchTavern } = useQuery<TavernListingsResponse>({
+    queryKey: ['/api/admin/tavern-listings'],
   });
 
   const triggerMutation = useMutation({
@@ -273,6 +320,41 @@ export default function BattleReadyAdmin() {
   const progressPercent = live?.totalBattlesToProcess 
     ? Math.round((live.battlesProcessed / live.totalBattlesToProcess) * 100)
     : 0;
+
+  // Tavern heroes filtered and combined
+  const allTavernHeroes = useMemo(() => {
+    if (!tavernData) return [];
+    const cv = tavernData.crystalvale || [];
+    const sd = tavernData.serendale || [];
+    if (tavernFilter === 'cv') return cv;
+    if (tavernFilter === 'sd') return sd;
+    return [...cv, ...sd].sort((a, b) => (a.priceUSD ?? 999999) - (b.priceUSD ?? 999999));
+  }, [tavernData, tavernFilter]);
+
+  // Calculate team cost totals for selected heroes
+  const teamCostTotals = useMemo(() => {
+    const selected = allTavernHeroes.filter(h => selectedHeroes.has(h.id));
+    const crystalTotal = selected.filter(h => h.nativeToken === 'CRYSTAL').reduce((sum, h) => sum + h.priceNative, 0);
+    const jewelTotal = selected.filter(h => h.nativeToken === 'JEWEL').reduce((sum, h) => sum + h.priceNative, 0);
+    const usdTotal = selected.reduce((sum, h) => sum + (h.priceUSD ?? 0), 0);
+    return { crystalTotal, jewelTotal, usdTotal, count: selected.length };
+  }, [allTavernHeroes, selectedHeroes]);
+
+  // Toggle hero selection
+  const toggleHeroSelection = (heroId: string) => {
+    setSelectedHeroes(prev => {
+      const next = new Set(prev);
+      if (next.has(heroId)) {
+        next.delete(heroId);
+      } else {
+        next.add(heroId);
+      }
+      return next;
+    });
+  };
+
+  // Clear selection
+  const clearSelection = () => setSelectedHeroes(new Set());
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -780,6 +862,144 @@ export default function BattleReadyAdmin() {
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               No battles indexed yet.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5" />
+                Tavern Listings
+              </CardTitle>
+              <CardDescription>Top 50 cheapest heroes for sale from both taverns</CardDescription>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select value={tavernFilter} onValueChange={(v) => setTavernFilter(v as 'all' | 'cv' | 'sd')}>
+                <SelectTrigger className="w-40" data-testid="select-tavern-filter">
+                  <SelectValue placeholder="Filter tavern" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Taverns</SelectItem>
+                  <SelectItem value="cv">Crystalvale</SelectItem>
+                  <SelectItem value="sd">Sundered Isles</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={() => refetchTavern()} data-testid="button-refresh-tavern">
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Refresh
+              </Button>
+              {teamCostTotals.count > 0 && (
+                <Button variant="ghost" size="sm" onClick={clearSelection} data-testid="button-clear-selection">
+                  Clear ({teamCostTotals.count})
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {teamCostTotals.count > 0 && (
+            <div className="mb-4 p-4 bg-muted rounded-lg flex flex-wrap items-center gap-4" data-testid="team-cost-summary">
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-green-500" />
+                <span className="font-semibold">Team Cost ({teamCostTotals.count} heroes):</span>
+              </div>
+              {teamCostTotals.crystalTotal > 0 && (
+                <Badge variant="outline" className="text-blue-400" data-testid="text-crystal-total">
+                  {teamCostTotals.crystalTotal.toFixed(2)} CRYSTAL
+                </Badge>
+              )}
+              {teamCostTotals.jewelTotal > 0 && (
+                <Badge variant="outline" className="text-purple-400" data-testid="text-jewel-total">
+                  {teamCostTotals.jewelTotal.toFixed(2)} JEWEL
+                </Badge>
+              )}
+              <Badge className="bg-green-600" data-testid="text-usd-total">
+                ${teamCostTotals.usdTotal.toFixed(2)} USD
+              </Badge>
+            </div>
+          )}
+          
+          {tavernLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : allTavernHeroes.length > 0 ? (
+            <>
+              <div className="text-xs text-muted-foreground mb-2">
+                Prices: CRYSTAL ${tavernData?.prices.crystal?.toFixed(4) || 'N/A'} | JEWEL ${tavernData?.prices.jewel?.toFixed(4) || 'N/A'}
+              </div>
+              <div className="max-h-[500px] overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10"></TableHead>
+                      <TableHead>Hero ID</TableHead>
+                      <TableHead>Class</TableHead>
+                      <TableHead>Level</TableHead>
+                      <TableHead>Rarity</TableHead>
+                      <TableHead>Profession</TableHead>
+                      <TableHead>Summons</TableHead>
+                      <TableHead>Stats</TableHead>
+                      <TableHead className="text-right">Price</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {allTavernHeroes.map((hero) => (
+                      <TableRow 
+                        key={hero.id} 
+                        data-testid={`row-tavern-${hero.id}`}
+                        className={selectedHeroes.has(hero.id) ? 'bg-muted/50' : ''}
+                      >
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedHeroes.has(hero.id)}
+                            onCheckedChange={() => toggleHeroSelection(hero.id)}
+                            data-testid={`checkbox-hero-${hero.id}`}
+                          />
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{hero.normalizedId}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{hero.mainClassStr}</span>
+                            <span className="text-xs text-muted-foreground">{hero.subClassStr}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{hero.level}</TableCell>
+                        <TableCell>
+                          <span className={RARITY_COLORS[hero.rarity] || ''}>
+                            {RARITY_NAMES[hero.rarity] || hero.rarity}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-xs">{hero.professionStr}</TableCell>
+                        <TableCell className="text-xs">{hero.summons}/{hero.maxSummons}</TableCell>
+                        <TableCell className="text-xs">
+                          STR:{hero.strength} AGI:{hero.agility}
+                          <br />
+                          INT:{hero.intelligence} WIS:{hero.wisdom}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex flex-col items-end">
+                            <span className={hero.nativeToken === 'CRYSTAL' ? 'text-blue-400 font-medium' : 'text-purple-400 font-medium'}>
+                              {hero.priceNative.toFixed(2)} {hero.nativeToken}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              ${hero.priceUSD?.toFixed(2) ?? 'N/A'}
+                            </span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              No heroes for sale found. Try refreshing.
             </div>
           )}
         </CardContent>
