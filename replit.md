@@ -76,6 +76,13 @@ The project is built with a Node.js backend using Discord.js for bot functionali
       - GET /api/admin/battle-ready/recommendations - Winning hero builds
     - Tables: pvp_tournaments, tournament_placements, hero_tournament_snapshots, pvp_similarity_config
     - Note: GraphQL API doesn't support `winner_not: null` filter - use `battleState === 5` filter in code
+    - **Tavern Listings Integration**: Marketplace hero browser with team cost calculator
+      - Uses official DFK API: POST https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions
+      - Realm detection via hero ID ranges (CV: 1T-2T, SD: ≥2T) - deterministic, not network field
+      - Dual price display: native token (CRYSTAL/JEWEL) + USD via price-feed.js
+      - Class ID to name mapping for mainClassStr, subClassStr, professionStr
+      - Hero selection with checkbox and team cost totals (CRYSTAL + JEWEL + USD)
+      - Admin API: GET /api/admin/tavern-listings?limit=50
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules.
 *   **Leaderboard System**: Provides snapshot-based and historical rankings.
 *   **Season Engine**: Manages challenge passes and seasonal progression.
