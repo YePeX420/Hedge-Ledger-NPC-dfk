@@ -107,6 +107,39 @@ const runningWorkers = new Map(); // Which workers are currently running
 const donorReservations = new Map(); // Work-stealing reservations
 let activeWorkerCount = {}; // { dfk: 5, metis: 5 }
 
+// Retry wrapper with exponential backoff for RPC calls
+const MAX_RETRIES = 5;
+const INITIAL_RETRY_DELAY_MS = 1000;
+
+async function withRetry(fn, context = 'RPC call', chain = 'unknown') {
+  let lastError;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const isRetryable = 
+        error.message?.includes('socket hang up') ||
+        error.message?.includes('ECONNRESET') ||
+        error.message?.includes('ETIMEDOUT') ||
+        error.message?.includes('ENOTFOUND') ||
+        error.message?.includes('network') ||
+        error.code === 'ECONNRESET' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'UND_ERR_SOCKET';
+      
+      if (!isRetryable || attempt === MAX_RETRIES - 1) {
+        throw error;
+      }
+      
+      const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
+      console.warn(`[PVE ${chain}] ${context} failed (attempt ${attempt + 1}/${MAX_RETRIES}): ${error.message}. Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+}
+
 // Worker helpers
 function getWorkerKey(chain, workerId) {
   return `pve_${chain}_w${workerId}`;
@@ -473,12 +506,12 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
       // Fetch all relevant logs in one query
       const topicsToQuery = [completedTopic, rewardTopic, equipmentTopic].filter(Boolean);
       
-      const logs = await provider.getLogs({
+      const logs = await withRetry(() => provider.getLogs({
         address: config.contractAddress,
         topics: [topicsToQuery],
         fromBlock: currentBlock,
         toBlock: endBlock,
-      });
+      }), `getLogs ${currentBlock}-${endBlock}`, chain);
       
       // Group logs by transaction
       const txLogs = new Map();
@@ -736,11 +769,11 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
     
     try {
       // Same indexing logic as indexBlockRange
-      const logs = await provider.getLogs({
+      const logs = await withRetry(() => provider.getLogs({
         address: config.contractAddress,
         fromBlock: currentBlock,
         toBlock: endBlock,
-      });
+      }), `getLogs ${currentBlock}-${endBlock}`, chain);
       
       // Group by tx
       const byTx = new Map();
@@ -942,7 +975,7 @@ async function runPVEWorkerBatch(chain, workerId) {
     }
     
     const provider = getProvider(chain);
-    const latestBlock = await provider.getBlockNumber();
+    const latestBlock = await withRetry(() => provider.getBlockNumber(), 'getBlockNumber', chain);
     const workerTargetBlock = workerInfo.rangeEnd || latestBlock;
     
     const startBlock = workerInfo.currentBlock + 1;
@@ -1185,17 +1218,10 @@ export async function startPVEWorkersAutoRun(chain, intervalMs = AUTO_RUN_INTERV
   
   try {
     const provider = getProvider(chain);
-    latestBlock = await provider.getBlockNumber();
+    latestBlock = await withRetry(() => provider.getBlockNumber(), 'getBlockNumber (init)', chain);
   } catch (err) {
-    console.error(`[PVE ${chain}] Failed to get latest block:`, err.message);
-    await new Promise(r => setTimeout(r, 2000));
-    try {
-      const provider = getProvider(chain);
-      latestBlock = await provider.getBlockNumber();
-    } catch (err2) {
-      console.error(`[PVE ${chain}] RPC unavailable, cannot start workers`);
-      return { status: 'rpc_failed', error: err2.message };
-    }
+    console.error(`[PVE ${chain}] RPC unavailable, cannot start workers`);
+    return { status: 'rpc_failed', error: err.message };
   }
   
   // Get checkpoint to know where to start from
@@ -1285,7 +1311,7 @@ export async function runPVEIndexerBatch(chain) {
     }
     
     const provider = getProvider(chain);
-    const latestBlock = await provider.getBlockNumber();
+    const latestBlock = await withRetry(() => provider.getBlockNumber(), 'getBlockNumber', chain);
     
     const lastIndexedBlock = parseInt(checkpoint.last_indexed_block) || 0;
     const startBlock = lastIndexedBlock + 1;
