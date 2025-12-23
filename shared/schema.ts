@@ -2694,19 +2694,39 @@ export const pvpTournaments = pgTable("pvp_tournaments", {
   rarityMax: integer("rarity_max"),
   partySize: integer("party_size").notNull(), // 1, 3, or 6
   
-  // Additional requirements as JSON
-  additionalRequirements: json("additional_requirements").$type<{
-    allowedClasses?: string[];
-    bannedClasses?: string[];
-    allowedAbilities?: string[];
-    bannedAbilities?: string[];
-    maxSummons?: number;
-    minSummons?: number;
-  }>(),
+  // Tournament restrictions (DFK bitmasks and flags)
+  excludedClasses: integer("excluded_classes").default(0), // bitmask of excluded class IDs
+  excludedConsumables: integer("excluded_consumables").default(0), // bitmask of excluded consumable IDs
+  excludedOrigin: integer("excluded_origin").default(0), // bitmask of excluded equipment origins
+  allUniqueClasses: boolean("all_unique_classes").default(false), // "All Unique Classes" requirement
+  noTripleClasses: boolean("no_triple_classes").default(false), // "No Triple Classes" requirement
+  mustIncludeClass: boolean("must_include_class").default(false), // Must include specific class
+  includedClassId: integer("included_class_id"), // Required class ID if mustIncludeClass
+  battleInventory: integer("battle_inventory"), // Equipment rules bitmask
+  battleBudget: integer("battle_budget"), // Combat budget
+  minHeroStatScore: integer("min_hero_stat_score").default(0),
+  maxHeroStatScore: integer("max_hero_stat_score").default(3000),
+  minTeamStatScore: integer("min_team_stat_score").default(0),
+  maxTeamStatScore: integer("max_team_stat_score").default(9000),
+  shotClockDuration: integer("shot_clock_duration").default(45), // Turn timer in seconds
+  privateBattle: boolean("private_battle").default(false),
+  mapId: integer("map_id"),
+  gloryBout: boolean("glory_bout").default(false),
+  
+  // Tournament type signature for grouping similar tournaments
+  tournamentTypeSignature: text("tournament_type_signature"),
+  
+  // Player info
+  hostPlayer: text("host_player"),
+  opponentPlayer: text("opponent_player"),
+  winnerPlayer: text("winner_player"),
   
   // Stats
   totalEntrants: integer("total_entrants").default(0),
   totalRounds: integer("total_rounds").default(0),
+  
+  // Raw battle data for future use
+  rawBattleData: json("raw_battle_data"),
   
   // Indexing metadata
   lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
@@ -2717,6 +2737,8 @@ export const pvpTournaments = pgTable("pvp_tournaments", {
   statusIdx: index("pvp_tournaments_status_idx").on(table.status),
   realmIdx: index("pvp_tournaments_realm_idx").on(table.realm),
   formatIdx: index("pvp_tournaments_format_idx").on(table.format),
+  signatureIdx: index("pvp_tournaments_signature_idx").on(table.tournamentTypeSignature),
+  levelBracketIdx: index("pvp_tournaments_level_bracket_idx").on(table.levelMin, table.levelMax),
 }));
 
 export const insertPvpTournamentSchema = createInsertSchema(pvpTournaments).omit({ id: true, createdAt: true, updatedAt: true });

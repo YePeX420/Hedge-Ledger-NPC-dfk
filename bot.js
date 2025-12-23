@@ -7560,7 +7560,8 @@ async function startAdminWebServer() {
   // realm: 'cv' = Crystalvale Tavern, 'sd' = Serendale/Sundered Isles Barkeep
   app.post("/api/admin/tournament/trigger", isAdmin, async (req, res) => {
     try {
-      const { maxBattles = 100, realm = 'cv' } = req.body;
+      const body = req.body || {};
+      const { maxBattles = 100, realm = 'cv' } = body;
       const { runTournamentIndexer, getLiveIndexerState, REALM_DISPLAY_NAMES } = await import("./src/etl/ingestion/tournamentIndexer.js");
       
       const realmName = REALM_DISPLAY_NAMES?.[realm] || realm;
@@ -7596,7 +7597,8 @@ async function startAdminWebServer() {
   // realm: 'cv', 'sd', or undefined (alternates both realms)
   app.post("/api/admin/tournament/autorun/start", isAdmin, async (req, res) => {
     try {
-      const { maxBattlesPerRun = 200, realm } = req.body;
+      const body = req.body || {};
+      const { maxBattlesPerRun = 200, realm } = body;
       const { startAutoRun, REALM_DISPLAY_NAMES } = await import("./src/etl/ingestion/tournamentIndexer.js");
       const result = startAutoRun({ maxBattlesPerRun, realm });
       const realmInfo = realm ? REALM_DISPLAY_NAMES?.[realm] : 'both realms (alternating)';
@@ -7678,6 +7680,69 @@ async function startAdminWebServer() {
       res.json({ ok: true, recommendations, totalWinners: recommendations.length });
     } catch (error) {
       console.error('[Battle-Ready Admin] Error getting recommendations:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tournament/restrictions - Get tournament restriction stats for dashboard
+  app.get("/api/admin/tournament/restrictions", isAdmin, async (req, res) => {
+    try {
+      const { getTournamentRestrictionStats } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const stats = await getTournamentRestrictionStats();
+      res.json({ ok: true, ...stats });
+    } catch (error) {
+      console.error('[Tournament Admin] Error getting restriction stats:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tournament/signatures - Get tournament type signatures for grouping
+  app.get("/api/admin/tournament/signatures", isAdmin, async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+      const { getTournamentSignatures } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const signatures = await getTournamentSignatures(limit);
+      res.json({ ok: true, signatures });
+    } catch (error) {
+      console.error('[Tournament Admin] Error getting signatures:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tournament/:id - Get full tournament details with restrictions
+  app.get("/api/admin/tournament/:id", isAdmin, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      if (isNaN(tournamentId)) {
+        return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
+      }
+      
+      const { getTournamentDetails } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const details = await getTournamentDetails(tournamentId);
+      
+      if (!details) {
+        return res.status(404).json({ ok: false, error: 'Tournament not found' });
+      }
+      
+      res.json({ ok: true, ...details });
+    } catch (error) {
+      console.error('[Tournament Admin] Error getting tournament details:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tournament/by-signature/:signature - Get tournaments by signature
+  app.get("/api/admin/tournament/by-signature/:signature", isAdmin, async (req, res) => {
+    try {
+      const signature = decodeURIComponent(req.params.signature);
+      const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+      
+      const { getTournamentsBySignature } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const tournaments = await getTournamentsBySignature(signature, limit);
+      
+      res.json({ ok: true, signature, tournaments });
+    } catch (error) {
+      console.error('[Tournament Admin] Error getting tournaments by signature:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });

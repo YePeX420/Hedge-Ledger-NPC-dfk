@@ -56,7 +56,24 @@ The project is built with a Node.js backend using Discord.js for bot functionali
     - Parallel workers (5) with work-stealing for efficient batch processing
     - Indexes placements (winner/finalist) and full hero snapshots at tournament time
     - Realm support: 'cv' (Crystalvale) and 'sd' (Sundered Isles) taverns
-    - Admin API: POST /api/admin/tournament/trigger, GET /api/admin/tournament/status
+    - **Full Tournament Restriction Tracking**: Captures all battle restrictions from DFK GraphQL API:
+      - `excludedClasses` / `excludedConsumables` / `excludedOrigin` - bitmask restrictions
+      - `allUniqueClasses` / `noTripleClasses` - class composition rules
+      - `mustIncludeClass` / `includedClassId` - required class constraints
+      - `minHeroStatScore` / `maxHeroStatScore` / `minTeamStatScore` / `maxTeamStatScore` - stat brackets
+      - `battleInventory` / `battleBudget` - equipment/budget rules
+      - `privateBattle` / `gloryBout` / `mapId` - battle type flags
+    - **Tournament Type Signature**: Auto-generated signature (e.g., `lv1-100_r0-4_p3_stat0-3000_team0-9000`) for grouping similar tournament types
+    - **Raw Battle Data**: Full battle JSON stored for future analysis
+    - Admin API: 
+      - POST /api/admin/tournament/trigger - Start indexing
+      - GET /api/admin/tournament/status - Indexer status with live worker data
+      - GET /api/admin/tournament/recent - Recent indexed tournaments
+      - GET /api/admin/tournament/restrictions - Restriction usage statistics
+      - GET /api/admin/tournament/signatures - Tournament type groupings
+      - GET /api/admin/tournament/:id - Full tournament details with heroes
+      - GET /api/admin/tournament/by-signature/:sig - Tournaments by type
+      - GET /api/admin/battle-ready/recommendations - Winning hero builds
     - Tables: pvp_tournaments, tournament_placements, hero_tournament_snapshots, pvp_similarity_config
     - Note: GraphQL API doesn't support `winner_not: null` filter - use `battleState === 5` filter in code
 *   **Level Racer - Class Arena Edition**: A competitive hero leveling game with configurable rules.

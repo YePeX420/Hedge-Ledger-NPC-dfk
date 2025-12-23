@@ -11,7 +11,7 @@ import {
   heroTournamentSnapshots,
   tournamentIndexerProgress,
 } from '../../../shared/schema.js';
-import { eq, sql, desc } from 'drizzle-orm';
+import { eq, sql, desc, and } from 'drizzle-orm';
 
 // GraphQL endpoint for DFK battles
 // Note: All PvP battles use the same DFK API endpoint. The "realm" parameter indicates 
@@ -159,36 +159,85 @@ async function ensureTablesExist() {
     )
   `);
   
-  // Create tournaments table (matches shared/schema.ts pvpTournaments)
+  // Create tournaments table (matches shared/schema.ts pvpTournaments with all restriction fields)
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS pvp_tournaments (
       id SERIAL PRIMARY KEY,
       tournament_id BIGINT NOT NULL UNIQUE,
       realm TEXT NOT NULL DEFAULT 'cv',
       name TEXT,
-      format TEXT,
-      status TEXT,
-      party_size INTEGER,
+      format TEXT NOT NULL DEFAULT '3v3',
+      status TEXT NOT NULL DEFAULT 'completed',
+      party_size INTEGER NOT NULL DEFAULT 3,
       level_min INTEGER,
       level_max INTEGER,
       rarity_min INTEGER,
       rarity_max INTEGER,
-      stat_boost TEXT,
-      background TEXT,
-      tick_interval INTEGER,
+      excluded_classes INTEGER DEFAULT 0,
+      excluded_consumables INTEGER DEFAULT 0,
+      excluded_origin INTEGER DEFAULT 0,
+      all_unique_classes BOOLEAN DEFAULT false,
+      no_triple_classes BOOLEAN DEFAULT false,
+      must_include_class BOOLEAN DEFAULT false,
+      included_class_id INTEGER,
+      battle_inventory INTEGER,
+      battle_budget INTEGER,
+      min_hero_stat_score INTEGER DEFAULT 0,
+      max_hero_stat_score INTEGER DEFAULT 3000,
+      min_team_stat_score INTEGER DEFAULT 0,
+      max_team_stat_score INTEGER DEFAULT 9000,
+      shot_clock_duration INTEGER DEFAULT 45,
+      private_battle BOOLEAN DEFAULT false,
+      map_id INTEGER,
+      glory_bout BOOLEAN DEFAULT false,
+      tournament_type_signature TEXT,
+      host_player TEXT,
+      opponent_player TEXT,
+      winner_player TEXT,
       start_time TIMESTAMP WITH TIME ZONE,
       end_time TIMESTAMP WITH TIME ZONE,
       total_entrants INTEGER DEFAULT 0,
       total_rounds INTEGER,
-      host_player TEXT,
-      opponent_player TEXT,
-      winner_player TEXT,
       raw_battle_data JSONB,
       last_indexed_at TIMESTAMP WITH TIME ZONE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )
   `);
+  
+  // Add new restriction columns if table already exists (migration for existing installations)
+  const restrictionColumns = [
+    { name: 'excluded_classes', type: 'INTEGER DEFAULT 0' },
+    { name: 'excluded_consumables', type: 'INTEGER DEFAULT 0' },
+    { name: 'excluded_origin', type: 'INTEGER DEFAULT 0' },
+    { name: 'all_unique_classes', type: 'BOOLEAN DEFAULT false' },
+    { name: 'no_triple_classes', type: 'BOOLEAN DEFAULT false' },
+    { name: 'must_include_class', type: 'BOOLEAN DEFAULT false' },
+    { name: 'included_class_id', type: 'INTEGER' },
+    { name: 'battle_inventory', type: 'INTEGER' },
+    { name: 'battle_budget', type: 'INTEGER' },
+    { name: 'min_hero_stat_score', type: 'INTEGER DEFAULT 0' },
+    { name: 'max_hero_stat_score', type: 'INTEGER DEFAULT 3000' },
+    { name: 'min_team_stat_score', type: 'INTEGER DEFAULT 0' },
+    { name: 'max_team_stat_score', type: 'INTEGER DEFAULT 9000' },
+    { name: 'shot_clock_duration', type: 'INTEGER DEFAULT 45' },
+    { name: 'private_battle', type: 'BOOLEAN DEFAULT false' },
+    { name: 'map_id', type: 'INTEGER' },
+    { name: 'glory_bout', type: 'BOOLEAN DEFAULT false' },
+    { name: 'tournament_type_signature', type: 'TEXT' },
+  ];
+  
+  for (const col of restrictionColumns) {
+    try {
+      await db.execute(sql.raw(`ALTER TABLE pvp_tournaments ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`));
+    } catch (e) {
+      // Column might already exist, ignore
+    }
+  }
+  
+  // Create indexes for tournament queries
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS pvp_tournaments_signature_idx ON pvp_tournaments(tournament_type_signature)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS pvp_tournaments_level_bracket_idx ON pvp_tournaments(level_min, level_max)`);
   
   // Create placements table (matches shared/schema.ts tournamentPlacements)
   await db.execute(sql`
@@ -311,7 +360,7 @@ async function updateProgress(realm: RealmType, updates: Partial<typeof tourname
     .where(eq(tournamentIndexerProgress.realm, realm));
 }
 
-// GraphQL query for battles with hero data
+// GraphQL query for battles with hero data and full tournament restrictions
 // Note: We can't filter by winner_not:null in the API, so we filter completed battles in code
 const BATTLES_QUERY = gql`
   query GetBattles($first: Int!, $skip: Int!) {
@@ -335,6 +384,24 @@ const BATTLES_QUERY = gql`
       maxLevel
       minRarity
       maxRarity
+      partyCount
+      excludedClasses
+      excludedConsumables
+      excludedOrigin
+      allUniqueClasses
+      noTripleClasses
+      mustIncludeClass1
+      includedClass1
+      battleInventory
+      battleBudget
+      minHeroStatScore
+      maxHeroStatScore
+      minTeamStatScore
+      maxTeamStatScore
+      shotClockDuration
+      privateBattle
+      mapId
+      gloryBout
       hostHeroes {
         id
         normalizedId
@@ -432,8 +499,45 @@ interface Battle {
   maxLevel: number;
   minRarity: number;
   maxRarity: number;
+  // Tournament restrictions
+  partyCount: number; // 1, 3, or 6 for party size
+  excludedClasses: number; // bitmask of excluded class IDs
+  excludedConsumables: number; // bitmask of excluded consumable IDs
+  excludedOrigin: number; // bitmask of excluded equipment origins
+  allUniqueClasses: boolean; // All Unique Classes requirement
+  noTripleClasses: boolean; // No Triple Classes requirement
+  mustIncludeClass1: boolean | null; // Must include specific class
+  includedClass1: number | null; // Required class ID
+  battleInventory: number; // Equipment rules
+  battleBudget: number; // Combat budget
+  minHeroStatScore: number; // Min hero stat score
+  maxHeroStatScore: number; // Max hero stat score
+  minTeamStatScore: number; // Min team stat score
+  maxTeamStatScore: number; // Max team stat score
+  shotClockDuration: number; // Turn timer in seconds
+  privateBattle: boolean; // Private battle flag
+  mapId: number; // Battle map
+  gloryBout: boolean | null; // Glory bout flag
   hostHeroes: BattleHero[];
   opponentHeroes: BattleHero[];
+}
+
+// Generate a tournament type signature for grouping similar tournaments
+function generateTournamentSignature(battle: Battle): string {
+  const parts = [
+    `lv${battle.minLevel}-${battle.maxLevel}`,
+    `r${battle.minRarity}-${battle.maxRarity}`,
+    `p${battle.partyCount}`,
+    battle.allUniqueClasses ? 'unique' : '',
+    battle.noTripleClasses ? 'no3x' : '',
+    battle.excludedClasses > 0 ? `excl${battle.excludedClasses}` : '',
+    battle.excludedConsumables > 0 ? `cons${battle.excludedConsumables}` : '',
+    battle.excludedOrigin > 0 ? `orig${battle.excludedOrigin}` : '',
+    battle.includedClass1 ? `inc${battle.includedClass1}` : '',
+    `stat${battle.minHeroStatScore}-${battle.maxHeroStatScore}`,
+    `team${battle.minTeamStatScore}-${battle.maxTeamStatScore}`,
+  ].filter(p => p !== '');
+  return parts.join('_');
 }
 
 // Determine party size from hero count
@@ -493,7 +597,10 @@ async function processBattle(battle: Battle, realm: RealmType = 'cv'): Promise<{
   }
   
   try {
-    // Insert or update tournament record
+    // Generate tournament type signature for grouping similar tournaments
+    const signature = generateTournamentSignature(battle);
+    
+    // Insert or update tournament record with all restriction fields
     await db.insert(pvpTournaments).values({
       tournamentId: battleId,
       realm: realm,
@@ -506,9 +613,33 @@ async function processBattle(battle: Battle, realm: RealmType = 'cv'): Promise<{
       levelMax: battle.maxLevel,
       rarityMin: battle.minRarity,
       rarityMax: battle.maxRarity,
-      partySize,
+      partySize: battle.partyCount || partySize,
+      // Tournament restrictions from DFK API
+      excludedClasses: battle.excludedClasses || 0,
+      excludedConsumables: battle.excludedConsumables || 0,
+      excludedOrigin: battle.excludedOrigin || 0,
+      allUniqueClasses: battle.allUniqueClasses || false,
+      noTripleClasses: battle.noTripleClasses || false,
+      mustIncludeClass: battle.mustIncludeClass1 || false,
+      includedClassId: battle.includedClass1,
+      battleInventory: battle.battleInventory,
+      battleBudget: battle.battleBudget,
+      minHeroStatScore: battle.minHeroStatScore || 0,
+      maxHeroStatScore: battle.maxHeroStatScore || 3000,
+      minTeamStatScore: battle.minTeamStatScore || 0,
+      maxTeamStatScore: battle.maxTeamStatScore || 9000,
+      shotClockDuration: battle.shotClockDuration || 45,
+      privateBattle: battle.privateBattle || false,
+      mapId: battle.mapId,
+      gloryBout: battle.gloryBout || false,
+      tournamentTypeSignature: signature,
+      // Player info
+      hostPlayer: battle.host.id.toLowerCase(),
+      opponentPlayer: battle.opponent.id.toLowerCase(),
+      winnerPlayer: battle.winner.id.toLowerCase(),
       totalEntrants: 2,
       totalRounds: 1,
+      rawBattleData: battle,
       lastIndexedAt: new Date(),
     }).onConflictDoNothing();
     
@@ -999,9 +1130,10 @@ export async function getRecentTournaments(limit: number = 20) {
     .limit(limit);
 }
 
-// Get winner snapshots for a tournament format
+// Get winner snapshots for a tournament format with optional class filtering
 export async function getWinnerSnapshots(options: {
   format?: string;
+  mainClass?: string;
   levelMin?: number;
   levelMax?: number;
   rarityMin?: number;
@@ -1009,7 +1141,13 @@ export async function getWinnerSnapshots(options: {
   placement?: string;
   limit?: number;
 }) {
-  const { format, levelMin, levelMax, rarityMin, rarityMax, placement = 'winner', limit = 100 } = options;
+  const { format, mainClass, levelMin, levelMax, rarityMin, rarityMax, placement = 'winner', limit = 100 } = options;
+  
+  // Build conditions
+  const conditions = [eq(tournamentPlacements.placement, placement)];
+  if (mainClass) {
+    conditions.push(eq(heroTournamentSnapshots.mainClass, mainClass));
+  }
   
   let query = db
     .select({
@@ -1020,9 +1158,107 @@ export async function getWinnerSnapshots(options: {
     .from(heroTournamentSnapshots)
     .innerJoin(tournamentPlacements, eq(heroTournamentSnapshots.placementId, tournamentPlacements.id))
     .innerJoin(pvpTournaments, eq(tournamentPlacements.tournamentId, pvpTournaments.tournamentId))
-    .where(eq(tournamentPlacements.placement, placement))
+    .where(and(...conditions))
     .orderBy(desc(pvpTournaments.tournamentId))
     .limit(limit);
   
   return query;
+}
+
+// Get tournaments grouped by signature (for "Similar Tournaments" feature)
+export async function getTournamentsBySignature(signature: string, limit: number = 50) {
+  return db
+    .select()
+    .from(pvpTournaments)
+    .where(eq(pvpTournaments.tournamentTypeSignature, signature))
+    .orderBy(desc(pvpTournaments.tournamentId))
+    .limit(limit);
+}
+
+// Get unique tournament type signatures with counts
+export async function getTournamentSignatures(limit: number = 100) {
+  return db
+    .select({
+      signature: pvpTournaments.tournamentTypeSignature,
+      count: sql<number>`COUNT(*)::int`,
+      latestTournamentId: sql<number>`MAX(tournament_id)::int`,
+    })
+    .from(pvpTournaments)
+    .where(sql`${pvpTournaments.tournamentTypeSignature} IS NOT NULL`)
+    .groupBy(pvpTournaments.tournamentTypeSignature)
+    .orderBy(desc(sql`COUNT(*)`))
+    .limit(limit);
+}
+
+// Get full tournament details with restrictions by ID
+export async function getTournamentDetails(tournamentId: number) {
+  const [tournament] = await db
+    .select()
+    .from(pvpTournaments)
+    .where(eq(pvpTournaments.tournamentId, tournamentId))
+    .limit(1);
+  
+  if (!tournament) return null;
+  
+  // Get placements and snapshots for this tournament
+  const placements = await db
+    .select({
+      placement: tournamentPlacements,
+      snapshot: heroTournamentSnapshots,
+    })
+    .from(tournamentPlacements)
+    .innerJoin(heroTournamentSnapshots, eq(heroTournamentSnapshots.placementId, tournamentPlacements.id))
+    .where(eq(tournamentPlacements.tournamentId, tournamentId));
+  
+  return {
+    tournament,
+    placements,
+  };
+}
+
+// Get tournament restriction summary for dashboard
+export async function getTournamentRestrictionStats() {
+  // Get counts of different restriction types used
+  const [stats] = await db
+    .select({
+      totalTournaments: sql<number>`COUNT(*)::int`,
+      withExcludedClasses: sql<number>`SUM(CASE WHEN excluded_classes > 0 THEN 1 ELSE 0 END)::int`,
+      withExcludedConsumables: sql<number>`SUM(CASE WHEN excluded_consumables > 0 THEN 1 ELSE 0 END)::int`,
+      withAllUniqueClasses: sql<number>`SUM(CASE WHEN all_unique_classes THEN 1 ELSE 0 END)::int`,
+      withNoTripleClasses: sql<number>`SUM(CASE WHEN no_triple_classes THEN 1 ELSE 0 END)::int`,
+      withMustIncludeClass: sql<number>`SUM(CASE WHEN must_include_class THEN 1 ELSE 0 END)::int`,
+      privateBattles: sql<number>`SUM(CASE WHEN private_battle THEN 1 ELSE 0 END)::int`,
+      gloryBouts: sql<number>`SUM(CASE WHEN glory_bout THEN 1 ELSE 0 END)::int`,
+    })
+    .from(pvpTournaments);
+  
+  // Get format breakdown
+  const formatBreakdown = await db
+    .select({
+      format: pvpTournaments.format,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(pvpTournaments)
+    .groupBy(pvpTournaments.format);
+  
+  // Get level bracket breakdown
+  const levelBrackets = await db
+    .select({
+      levelMin: pvpTournaments.levelMin,
+      levelMax: pvpTournaments.levelMax,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(pvpTournaments)
+    .groupBy(pvpTournaments.levelMin, pvpTournaments.levelMax)
+    .orderBy(desc(sql`COUNT(*)`))
+    .limit(10);
+  
+  return {
+    ...stats,
+    formatBreakdown: formatBreakdown.reduce((acc, row) => {
+      acc[row.format || 'unknown'] = row.count;
+      return acc;
+    }, {} as Record<string, number>),
+    levelBrackets,
+  };
 }
