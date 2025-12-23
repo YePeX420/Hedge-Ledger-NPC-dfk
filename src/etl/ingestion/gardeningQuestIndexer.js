@@ -26,6 +26,7 @@ const MASTER_GARDENER_V2 = '0xB04e8D6aED037904B77A9F0b08002592925833b7';
 
 const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb'.toLowerCase();
 const JEWEL_ADDRESS = '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260'.toLowerCase();
+const QUEST_REWARD_FUND = '0x1137643FE14b032966a59Acd68EBf3c1271Df316';
 
 const POOL_NAMES = {
   0: 'wJEWEL-xJEWEL',
@@ -109,6 +110,50 @@ const TOKEN_SYMBOLS = {
   [CRYSTAL_ADDRESS]: 'CRYSTAL',
   [JEWEL_ADDRESS]: 'JEWEL',
 };
+
+// No historical block limit for fund snapshots - we want accurate historical data for yield validation
+async function getQuestRewardFundSnapshot(blockNumber = 'latest', retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const provider = getProvider();
+      const options = blockNumber === 'latest' ? {} : { blockTag: blockNumber };
+      
+      const crystalContract = new ethers.Contract(
+        CRYSTAL_ADDRESS,
+        ERC20_ABI,
+        provider
+      );
+      const jewelContract = new ethers.Contract(
+        JEWEL_ADDRESS,
+        ERC20_ABI,
+        provider
+      );
+      
+      // Quest Reward Fund holds CRYSTAL, wJEWEL, and native JEWEL (gas token)
+      // JEWEL pool = wJEWEL balance + native JEWEL balance
+      const [crystalBalance, wJewelBalance, nativeJewelBalance] = await Promise.all([
+        crystalContract.balanceOf(QUEST_REWARD_FUND, options),
+        jewelContract.balanceOf(QUEST_REWARD_FUND, options),
+        provider.getBalance(QUEST_REWARD_FUND, blockNumber === 'latest' ? undefined : blockNumber),
+      ]);
+      
+      // Total JEWEL = wJEWEL + native JEWEL
+      const totalJewelBalance = wJewelBalance + nativeJewelBalance;
+      
+      return {
+        crystalFundBalance: ethers.formatEther(crystalBalance),
+        jewelFundBalance: ethers.formatEther(totalJewelBalance),
+      };
+    } catch (error) {
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      console.log(`[GardeningQuest] Fund snapshot RPC failed at block ${blockNumber}: ${error.message}`);
+      return { crystalFundBalance: null, jewelFundBalance: null };
+    }
+  }
+}
 
 const QUEST_CORE_ABI = [
   'event RewardMinted(uint256 indexed questId, address indexed player, uint256 heroId, address indexed reward, uint256 amount, uint256 data)',
@@ -405,6 +450,9 @@ async function ensureTablesExist() {
     await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS hero_lp_stake NUMERIC(38, 18)`);
     await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS pool_total_lp NUMERIC(38, 18)`);
     await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS lp_token_price NUMERIC(20, 8)`);
+    // Quest Reward Fund snapshot columns for yield formula validation
+    await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS crystal_fund_balance NUMERIC(38, 18)`);
+    await db.execute(sql`ALTER TABLE gardening_quest_rewards ADD COLUMN IF NOT EXISTS jewel_fund_balance NUMERIC(38, 18)`);
     
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_hero_idx ON gardening_quest_rewards(hero_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS gardening_quest_rewards_player_idx ON gardening_quest_rewards(player)`);
@@ -744,6 +792,7 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
         const events = [];
         const txQuestInfoMaps = new Map(); // txHash -> Map<questId, questInfo>
         const blockCache = new Map(); // blockNumber -> block for timestamp lookups
+        const fundBalanceCache = new Map(); // blockNumber -> { crystalFundBalance, jewelFundBalance }
         
         for (const log of logs) {
           const txHash = log.transactionHash;
@@ -780,6 +829,13 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
             
             // Fetch pool value snapshot at reward block for yield validation
             const poolSnapshot = await getPoolValueSnapshot(questInfo.questType, playerAddress, log.blockNumber);
+            
+            // Fetch Quest Reward Fund snapshot at reward block (cached per block)
+            if (!fundBalanceCache.has(log.blockNumber)) {
+              const fundSnapshot = await getQuestRewardFundSnapshot(log.blockNumber);
+              fundBalanceCache.set(log.blockNumber, fundSnapshot);
+            }
+            const fundSnapshot = fundBalanceCache.get(log.blockNumber);
             
             // Check if this is an expedition reward (heroId=0) - need to distribute across heroes
             if (questInfo.source === 'expedition' && heroIdFromEvent === 0) {
@@ -828,6 +884,8 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
                   heroLpStake: poolSnapshot.heroLpStake,
                   poolTotalLp: poolSnapshot.poolTotalLp,
                   lpTokenPrice: poolSnapshot.lpTokenPrice,
+                  crystalFundBalance: fundSnapshot.crystalFundBalance,
+                  jewelFundBalance: fundSnapshot.jewelFundBalance,
                   blockNumber: log.blockNumber,
                   txHash: log.transactionHash,
                   logIndex: log.index,
@@ -850,6 +908,8 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
                   heroLpStake: poolSnapshot.heroLpStake,
                   poolTotalLp: poolSnapshot.poolTotalLp,
                   lpTokenPrice: poolSnapshot.lpTokenPrice,
+                  crystalFundBalance: fundSnapshot.crystalFundBalance,
+                  jewelFundBalance: fundSnapshot.jewelFundBalance,
                   blockNumber: log.blockNumber,
                   txHash: log.transactionHash,
                   logIndex: log.index,
@@ -871,6 +931,8 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
                 heroLpStake: poolSnapshot.heroLpStake,
                 poolTotalLp: poolSnapshot.poolTotalLp,
                 lpTokenPrice: poolSnapshot.lpTokenPrice,
+                crystalFundBalance: fundSnapshot.crystalFundBalance,
+                jewelFundBalance: fundSnapshot.jewelFundBalance,
                 blockNumber: log.blockNumber,
                 txHash: log.transactionHash,
                 logIndex: log.index,

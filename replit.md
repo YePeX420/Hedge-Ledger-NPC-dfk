@@ -44,7 +44,10 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Jeweler Indexer System**: Tracks cJEWEL staking positions, calculates APR, and provides leaderboards.
 *   **Gardening Quest Rewards Indexer**: Tracks CRYSTAL/JEWEL earned per hero from gardening quests with pool value snapshots for yield validation. Features:
     - Pool value snapshot fields (heroLpStake, poolTotalLp, lpTokenPrice) captured at reward time
-    - 5 parallel workers with work-stealing for fast historical scanning
+    - Quest Reward Fund snapshots (crystalFundBalance, jewelFundBalance) captured at each reward for yield formula validation
+    - JEWEL fund includes both wJEWEL (ERC20) and native JEWEL (gas token) balances
+    - Block-level caching for fund balance RPC calls to reduce API overhead
+    - 2 parallel workers for historical scanning
     - Reset-to-block functionality for scanning last N blocks (e.g., last 1M blocks)
     - Admin API: GET /api/admin/gardening-quest/status, /hero/:heroId, /player/:player, /pool/:poolId
     - Admin API: POST /api/admin/gardening-quest/trigger, /auto-run, /reset, /reset-to-block
