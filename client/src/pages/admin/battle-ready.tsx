@@ -11,7 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign } from "lucide-react";
+import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign, Tag, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 // Realm display names for marketplace locations
@@ -178,6 +178,47 @@ interface TavernListingsResponse {
   totalListings: number;
 }
 
+interface TournamentPattern {
+  signature: string;
+  tournament_name: string;
+  level_min: number;
+  level_max: number;
+  party_size: number;
+  all_unique_classes: boolean;
+  no_triple_classes: boolean;
+  battle_budget: number | null;
+  occurrence_count: number | string;
+  last_seen_at: string | null;
+  label: string | null;
+  labelInfo?: TournamentType | null;
+}
+
+interface TournamentType {
+  id: number;
+  signature: string | null;
+  name_pattern: string | null;
+  label: string;
+  description: string | null;
+  category: string;
+  color: string;
+  occurrence_count: number;
+  last_seen_at: string | null;
+  is_active: boolean;
+}
+
+interface PatternHero {
+  hero_id: string;
+  main_class: string;
+  sub_class: string;
+  level: number;
+  rarity: number;
+  strength: number;
+  agility: number;
+  intelligence: number;
+  wisdom: number;
+  tournament_name: string;
+}
+
 const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
 const RARITY_COLORS = ['text-gray-500', 'text-green-500', 'text-blue-500', 'text-orange-500', 'text-purple-500'];
 
@@ -208,6 +249,8 @@ export default function BattleReadyAdmin() {
   const [editingConfig, setEditingConfig] = useState<SimilarityConfig | null>(null);
   const [selectedHeroes, setSelectedHeroes] = useState<Set<string>>(new Set());
   const [tavernFilter, setTavernFilter] = useState<'all' | 'cv' | 'sd'>('all');
+  const [expandedPattern, setExpandedPattern] = useState<string | null>(null);
+  const [labelForm, setLabelForm] = useState<{ signature: string; label: string; category: string; color: string } | null>(null);
 
   const { data: statusData, isLoading: statusLoading, refetch: refetchStatus } = useQuery<TournamentStatus>({
     queryKey: ['/api/admin/tournament/status'],
@@ -229,6 +272,39 @@ export default function BattleReadyAdmin() {
 
   const { data: tavernData, isLoading: tavernLoading, refetch: refetchTavern } = useQuery<TavernListingsResponse>({
     queryKey: ['/api/admin/tavern-listings'],
+  });
+
+  const { data: patternsData, isLoading: patternsLoading, refetch: refetchPatterns } = useQuery<{ ok: boolean; patterns: TournamentPattern[]; totalLabels: number }>({
+    queryKey: ['/api/admin/tournament/patterns'],
+  });
+
+  // Get the label ID for the expanded pattern
+  const expandedLabelId = expandedPattern 
+    ? patternsData?.patterns.find(p => p.signature === expandedPattern)?.labelInfo?.id 
+    : null;
+
+  const { data: patternHeroesData, isLoading: patternHeroesLoading } = useQuery<{ ok: boolean; type: TournamentType; heroes: PatternHero[] }>({
+    queryKey: ['/api/admin/tournament/types', expandedLabelId, 'heroes'],
+    queryFn: async () => {
+      const response = await fetch(`/api/admin/tournament/types/${expandedLabelId}/heroes`);
+      if (!response.ok) throw new Error('Failed to fetch heroes');
+      return response.json();
+    },
+    enabled: !!expandedLabelId,
+  });
+
+  const createLabelMutation = useMutation({
+    mutationFn: async (data: { signature: string; label: string; category: string; color: string }) => {
+      return apiRequest('POST', '/api/admin/tournament/types', data);
+    },
+    onSuccess: () => {
+      toast({ title: "Label created", description: "Tournament type label saved" });
+      setLabelForm(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/patterns'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
   });
 
   const triggerMutation = useMutation({
@@ -862,6 +938,222 @@ export default function BattleReadyAdmin() {
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               No battles indexed yet.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Tournament Types Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Tag className="h-5 w-5" />
+                Tournament Types
+              </CardTitle>
+              <CardDescription>
+                Discovered tournament patterns with restrictions. {patternsData?.totalLabels || 0} labeled.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => refetchPatterns()} data-testid="button-refresh-patterns">
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {patternsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : patternsData?.patterns && patternsData.patterns.length > 0 ? (
+            <div className="space-y-2">
+              {/* Label creation form */}
+              {labelForm && (
+                <div className="p-4 bg-muted rounded-lg mb-4 space-y-3" data-testid="label-form">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">Create Label for: <code className="text-xs">{labelForm.signature}</code></span>
+                    <Button variant="ghost" size="sm" onClick={() => setLabelForm(null)}>Cancel</Button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <Label htmlFor="label-name">Label Name</Label>
+                      <Input 
+                        id="label-name"
+                        value={labelForm.label}
+                        onChange={(e) => setLabelForm({ ...labelForm, label: e.target.value })}
+                        placeholder="e.g., Beginner 3v3"
+                        data-testid="input-label-name"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="label-category">Category</Label>
+                      <Select value={labelForm.category} onValueChange={(v) => setLabelForm({ ...labelForm, category: v })}>
+                        <SelectTrigger data-testid="select-label-category">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="open">Open</SelectItem>
+                          <SelectItem value="beginner">Beginner</SelectItem>
+                          <SelectItem value="veteran">Veteran</SelectItem>
+                          <SelectItem value="specialty">Specialty</SelectItem>
+                          <SelectItem value="general">General</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="label-color">Color</Label>
+                      <Input 
+                        id="label-color"
+                        type="color"
+                        value={labelForm.color}
+                        onChange={(e) => setLabelForm({ ...labelForm, color: e.target.value })}
+                        className="h-9 w-full"
+                        data-testid="input-label-color"
+                      />
+                    </div>
+                  </div>
+                  <Button 
+                    onClick={() => createLabelMutation.mutate(labelForm)}
+                    disabled={!labelForm.label || createLabelMutation.isPending}
+                    data-testid="button-save-label"
+                  >
+                    {createLabelMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+                    Save Label
+                  </Button>
+                </div>
+              )}
+
+              {/* Patterns table */}
+              <div className="max-h-[400px] overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-8"></TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Restrictions</TableHead>
+                      <TableHead>Occurrences</TableHead>
+                      <TableHead>Label</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {patternsData.patterns.slice(0, 30).map((pattern, idx) => (
+                      <>
+                        <TableRow key={`${pattern.signature}-${idx}`} data-testid={`row-pattern-${idx}`}>
+                          <TableCell>
+                            {pattern.labelInfo && (
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-6 w-6"
+                                onClick={() => setExpandedPattern(expandedPattern === pattern.signature ? null : pattern.signature)}
+                                data-testid={`button-expand-${idx}`}
+                              >
+                                {expandedPattern === pattern.signature ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              </Button>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-xs font-mono">{pattern.signature}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              <Badge variant="outline" className="text-xs">
+                                Lv {pattern.level_min}-{pattern.level_max}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs">
+                                {pattern.party_size}v{pattern.party_size}
+                              </Badge>
+                              {pattern.all_unique_classes && (
+                                <Badge variant="secondary" className="text-xs">Unique Classes</Badge>
+                              )}
+                              {pattern.no_triple_classes && (
+                                <Badge variant="secondary" className="text-xs">No Triples</Badge>
+                              )}
+                              {pattern.battle_budget && (
+                                <Badge variant="secondary" className="text-xs">Budget: {pattern.battle_budget}</Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono">
+                              {typeof pattern.occurrence_count === 'number' 
+                                ? pattern.occurrence_count.toLocaleString() 
+                                : parseInt(String(pattern.occurrence_count)).toLocaleString()}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {pattern.label ? (
+                              <Badge style={{ backgroundColor: pattern.labelInfo?.color || '#6366f1' }}>
+                                {pattern.label}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">Unlabeled</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {!pattern.label && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => setLabelForm({ 
+                                  signature: pattern.signature, 
+                                  label: '', 
+                                  category: 'general', 
+                                  color: '#6366f1' 
+                                })}
+                                data-testid={`button-add-label-${idx}`}
+                              >
+                                <Plus className="h-3 w-3 mr-1" />
+                                Label
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                        {/* Expanded heroes row */}
+                        {expandedPattern === pattern.signature && pattern.labelInfo && (
+                          <TableRow key={`${pattern.signature}-heroes`}>
+                            <TableCell colSpan={6} className="bg-muted/30">
+                              <div className="p-2">
+                                <div className="text-sm font-medium mb-2">Winning Heroes for "{pattern.label}"</div>
+                                {patternHeroesLoading ? (
+                                  <div className="flex items-center justify-center py-4">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  </div>
+                                ) : patternHeroesData?.heroes && patternHeroesData.heroes.length > 0 ? (
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {patternHeroesData.heroes.slice(0, 8).map((hero, hIdx) => (
+                                      <div key={hIdx} className="p-2 bg-background rounded border text-xs">
+                                        <div className="font-medium">{hero.main_class}/{hero.sub_class}</div>
+                                        <div className="text-muted-foreground">
+                                          Lv {hero.level} | <span className={RARITY_COLORS[hero.rarity]}>{RARITY_NAMES[hero.rarity]}</span>
+                                        </div>
+                                        <div className="text-muted-foreground">
+                                          STR:{hero.strength} AGI:{hero.agility} INT:{hero.intelligence}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-muted-foreground text-xs">No winning heroes found for this type.</div>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              No tournament patterns discovered yet. Run the indexer to collect data.
             </div>
           )}
         </CardContent>
