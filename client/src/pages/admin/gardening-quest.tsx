@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Play, Square, RefreshCw, Gem, Coins, Users, Search, Sprout, Zap } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Loader2, Play, Square, RefreshCw, Gem, Coins, Users, Search, Sprout, Zap, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface WorkerProgress {
@@ -241,6 +242,19 @@ export default function AdminGardeningQuest() {
       toast({ title: "Failed to reset indexer", description: error.message, variant: "destructive" });
     },
   });
+
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/admin/gardening-quest/reset", {});
+    },
+    onSuccess: () => {
+      toast({ title: "Reset complete", description: "All gardening quest data cleared. Ready to re-index." });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/gardening-quest/status'] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+    },
+  });
   
   const handleResetToRecentBlocks = async () => {
     // DFK Chain produces ~1 block per 2 seconds = ~43200 blocks/day
@@ -422,6 +436,42 @@ export default function AdminGardeningQuest() {
                   )}
                   Reset to Last 1M Blocks
                 </Button>
+                
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={resetMutation.isPending || status?.isAutoRunning || hasActiveWorkers || isRunning}
+                      data-testid="button-reset-all"
+                    >
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      Reset All
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Reset All Gardening Quest Data?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will delete all indexed gardening quest data including pool rewards and hero earnings.
+                        You'll need to re-index to restore the data with the latest capture fields.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => resetMutation.mutate()}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        data-testid="button-confirm-reset-all"
+                      >
+                        {resetMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : null}
+                        Reset All Data
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
               
               {workers && workers.workers.length > 0 && (

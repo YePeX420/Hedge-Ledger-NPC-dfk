@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Play, Square, RefreshCw, Target, Sword, Shield, Percent, Activity, AlertCircle } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Loader2, Play, Square, RefreshCw, Target, Sword, Shield, Percent, Activity, AlertCircle, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface TimingInfo {
@@ -208,9 +209,11 @@ function ChainCard({
   onStart,
   onStop,
   onRun,
+  onReset,
   isStarting,
   isStopping,
-  isRunning: isTriggering
+  isRunning: isTriggering,
+  isResetting
 }: { 
   chain: 'dfk' | 'metis';
   chainStatus: ChainStatus;
@@ -218,9 +221,11 @@ function ChainCard({
   onStart: () => void;
   onStop: () => void;
   onRun: () => void;
+  onReset: () => void;
   isStarting: boolean;
   isStopping: boolean;
   isRunning: boolean;
+  isResetting: boolean;
 }) {
   const isChainRunning = liveProgress?.isRunning || chainStatus.isAutoRunning;
   const chainName = chain === 'dfk' ? 'DFK Chain' : 'Metis';
@@ -352,6 +357,42 @@ function ChainCard({
               Start Auto
             </Button>
           )}
+          
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isResetting || isChainRunning}
+                data-testid={`button-${chain}-reset`}
+              >
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Reset
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reset {chainName} Data?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will delete all indexed {activityType.toLowerCase()} data including completions, rewards, and equipment drops. 
+                  You'll need to re-index to restore the data with the latest capture fields.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={onReset}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  data-testid={`button-${chain}-confirm-reset`}
+                >
+                  {isResetting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : null}
+                  Reset All Data
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </CardContent>
     </Card>
@@ -659,6 +700,21 @@ export default function AdminPVEDropRates() {
     },
   });
 
+  const resetMutation = useMutation({
+    mutationFn: async (chain: string) => {
+      return await apiRequest("POST", `/api/admin/pve/reset/${chain}`, { resetBlock: 0 });
+    },
+    onSuccess: (_, chain) => {
+      toast({ title: "Reset complete", description: `${chain.toUpperCase()} data cleared. Ready to re-index.` });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/pve/status'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/pve/hunts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/pve/patrols'] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const totalCompletions = (status?.dfk?.checkpoint?.total_completions || 0) + 
                            (status?.metis?.checkpoint?.total_completions || 0);
   const totalRewards = (status?.dfk?.checkpoint?.total_rewards || 0) + 
@@ -757,9 +813,11 @@ export default function AdminPVEDropRates() {
               onStart={() => startMutation.mutate('dfk')}
               onStop={() => stopMutation.mutate('dfk')}
               onRun={() => runMutation.mutate('dfk')}
+              onReset={() => resetMutation.mutate('dfk')}
               isStarting={startMutation.isPending}
               isStopping={stopMutation.isPending}
               isRunning={runMutation.isPending}
+              isResetting={resetMutation.isPending}
             />
             <ChainCard
               chain="metis"
@@ -768,9 +826,11 @@ export default function AdminPVEDropRates() {
               onStart={() => startMutation.mutate('metis')}
               onStop={() => stopMutation.mutate('metis')}
               onRun={() => runMutation.mutate('metis')}
+              onReset={() => resetMutation.mutate('metis')}
               isStarting={startMutation.isPending}
               isStopping={stopMutation.isPending}
               isRunning={runMutation.isPending}
+              isResetting={resetMutation.isPending}
             />
           </div>
 

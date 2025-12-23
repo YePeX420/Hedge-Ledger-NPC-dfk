@@ -11,7 +11,8 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign, Tag, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign, Tag, ChevronDown, ChevronRight, Plus, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 // Realm display names for marketplace locations
@@ -411,6 +412,21 @@ export default function BattleReadyAdmin() {
     },
   });
 
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/admin/tournament/reset');
+    },
+    onSuccess: () => {
+      toast({ title: "Reset complete", description: "All tournament data cleared. Ready to re-index." });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/status'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/patterns'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/battle-ready/recommendations'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const config = editingConfig || configData?.config;
   const progress = statusData?.progress;
   const stats = statusData?.stats;
@@ -671,7 +687,7 @@ export default function BattleReadyAdmin() {
                   <Badge variant="secondary">Inactive</Badge>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
                   variant="outline"
@@ -692,6 +708,41 @@ export default function BattleReadyAdmin() {
                   <Square className="h-3 w-3 mr-1" />
                   Stop Auto-Run
                 </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={resetMutation.isPending || live?.isRunning || live?.isAutoRunning}
+                      data-testid="button-reset-tournaments"
+                    >
+                      <RotateCcw className="h-3 w-3 mr-1" />
+                      Reset & Re-index
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Reset Tournament Data?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will delete all indexed tournament data including heroes, placements, and snapshots. 
+                        You'll need to re-index to restore the data with the latest capture fields (entry fees, rewards, etc).
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => resetMutation.mutate()}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        data-testid="button-confirm-reset"
+                      >
+                        {resetMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : null}
+                        Reset All Data
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </div>
             

@@ -7811,6 +7811,31 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/tournament/reset - Reset tournament indexer (clear all data)
+  app.post("/api/admin/tournament/reset", isAdmin, async (req, res) => {
+    try {
+      const { stopTournamentIndexer } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      
+      // Stop indexer first if running
+      stopTournamentIndexer();
+      
+      // Clear all tournament data from database
+      await pool.query('DELETE FROM hero_tournament_snapshots');
+      await pool.query('DELETE FROM tournament_placements');
+      await pool.query('DELETE FROM pvp_tournaments');
+      
+      console.log('[Tournament Admin] Reset complete - all tournament data cleared');
+      res.json({ 
+        ok: true, 
+        message: 'Tournament data reset. All tournaments, placements, and hero snapshots cleared.',
+        tablesCleared: ['pvp_tournaments', 'tournament_placements', 'hero_tournament_snapshots']
+      });
+    } catch (error) {
+      console.error('[Tournament Admin] Error resetting tournament data:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // POST /api/admin/tournament/autorun/start - Start auto-run
   // realm: 'cv', 'sd', or undefined (alternates both realms)
   app.post("/api/admin/tournament/autorun/start", isAdmin, async (req, res) => {
