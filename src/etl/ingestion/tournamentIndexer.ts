@@ -11,7 +11,7 @@ import {
   heroTournamentSnapshots,
   tournamentIndexerProgress,
 } from '../../../shared/schema.js';
-import { eq, sql, desc, and } from 'drizzle-orm';
+import { eq, sql, desc, and, gte, lte } from 'drizzle-orm';
 
 // GraphQL endpoint for DFK battles
 // Note: All PvP battles use the same DFK API endpoint. The "realm" parameter indicates 
@@ -1113,7 +1113,7 @@ export async function getTournamentIndexerStatus() {
       tournaments: tournamentCount?.count || 0,
       placements: placementCount?.count || 0,
       snapshots: snapshotCount?.count || 0,
-      placementBreakdown: placementBreakdown.reduce((acc, row) => {
+      placementBreakdown: placementBreakdown.reduce((acc: Record<string, number>, row: { placement: string; count: number }) => {
         acc[row.placement] = row.count;
         return acc;
       }, {} as Record<string, number>),
@@ -1255,10 +1255,310 @@ export async function getTournamentRestrictionStats() {
   
   return {
     ...stats,
-    formatBreakdown: formatBreakdown.reduce((acc, row) => {
+    formatBreakdown: formatBreakdown.reduce((acc: Record<string, number>, row: { format: string | null; count: number }) => {
       acc[row.format || 'unknown'] = row.count;
       return acc;
     }, {} as Record<string, number>),
     levelBrackets,
   };
+}
+
+// ========================================
+// STAT PROFILE SIMILARITY FUNCTIONS
+// ========================================
+
+// Define stat names for consistent ordering
+const STAT_NAMES = ['strength', 'agility', 'dexterity', 'vitality', 'endurance', 'intelligence', 'wisdom', 'luck'] as const;
+type StatName = typeof STAT_NAMES[number];
+
+// Extract stats from a hero snapshot as a record
+function extractStats(snapshot: {
+  strength: number | null;
+  agility: number | null;
+  dexterity: number | null;
+  vitality: number | null;
+  endurance: number | null;
+  intelligence: number | null;
+  wisdom: number | null;
+  luck: number | null;
+}): Record<StatName, number> {
+  return {
+    strength: snapshot.strength || 0,
+    agility: snapshot.agility || 0,
+    dexterity: snapshot.dexterity || 0,
+    vitality: snapshot.vitality || 0,
+    endurance: snapshot.endurance || 0,
+    intelligence: snapshot.intelligence || 0,
+    wisdom: snapshot.wisdom || 0,
+    luck: snapshot.luck || 0,
+  };
+}
+
+// Get top N stats from a hero (sorted by value descending)
+function getTopStats(stats: Record<StatName, number>, n: number = 4): { stat: StatName; value: number }[] {
+  return Object.entries(stats)
+    .map(([stat, value]) => ({ stat: stat as StatName, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, n);
+}
+
+// Calculate stat profile similarity between two heroes
+// Returns a score from 0-1 where 1 means identical stat distribution
+export function calculateStatProfileSimilarity(
+  candidateStats: Record<StatName, number>,
+  winnerStats: Record<StatName, number>,
+  topN: number = 4
+): { score: number; details: { stat: StatName; candidateRank: number; winnerRank: number; match: boolean }[] } {
+  const candidateTop = getTopStats(candidateStats, topN);
+  const winnerTop = getTopStats(winnerStats, topN);
+  
+  // Get the stat names from winner's top stats (the benchmark)
+  const winnerTopStatNames = new Set(winnerTop.map(s => s.stat));
+  const candidateTopStatNames = new Set(candidateTop.map(s => s.stat));
+  
+  // Count how many of the candidate's top stats match the winner's top stats
+  let matchCount = 0;
+  const details: { stat: StatName; candidateRank: number; winnerRank: number; match: boolean }[] = [];
+  
+  for (const winnerStat of winnerTop) {
+    const candidateRank = candidateTop.findIndex(s => s.stat === winnerStat.stat) + 1;
+    const winnerRank = winnerTop.indexOf(winnerStat) + 1;
+    const match = candidateTopStatNames.has(winnerStat.stat);
+    
+    if (match) matchCount++;
+    
+    details.push({
+      stat: winnerStat.stat,
+      candidateRank: candidateRank || topN + 1, // If not in top N, rank is N+1
+      winnerRank,
+      match,
+    });
+  }
+  
+  // Base score: percentage of winner's top stats that candidate also has in top N
+  const baseScore = matchCount / topN;
+  
+  // Bonus for matching stat order (primary stat alignment)
+  let orderBonus = 0;
+  if (candidateTop[0]?.stat === winnerTop[0]?.stat) {
+    orderBonus += 0.15; // 15% bonus for matching primary stat
+  }
+  if (candidateTop.length > 1 && winnerTop.length > 1 && candidateTop[1]?.stat === winnerTop[1]?.stat) {
+    orderBonus += 0.10; // 10% bonus for matching secondary stat
+  }
+  
+  const score = Math.min(1, baseScore + orderBonus);
+  
+  return { score, details };
+}
+
+// Get class-specific stat profile from winning heroes of that class
+export async function getClassStatProfile(mainClass: string, limit: number = 50): Promise<{
+  class: string;
+  sampleSize: number;
+  avgStats: Record<StatName, number>;
+  topStatFrequency: Record<StatName, number>;
+  dominantStats: StatName[];
+}> {
+  // Get winner snapshots for this class
+  const winners = await db
+    .select({
+      strength: heroTournamentSnapshots.strength,
+      agility: heroTournamentSnapshots.agility,
+      dexterity: heroTournamentSnapshots.dexterity,
+      vitality: heroTournamentSnapshots.vitality,
+      endurance: heroTournamentSnapshots.endurance,
+      intelligence: heroTournamentSnapshots.intelligence,
+      wisdom: heroTournamentSnapshots.wisdom,
+      luck: heroTournamentSnapshots.luck,
+    })
+    .from(heroTournamentSnapshots)
+    .innerJoin(tournamentPlacements, eq(heroTournamentSnapshots.placementId, tournamentPlacements.id))
+    .where(and(
+      eq(heroTournamentSnapshots.mainClass, mainClass),
+      eq(tournamentPlacements.placement, 'winner')
+    ))
+    .limit(limit);
+  
+  if (winners.length === 0) {
+    return {
+      class: mainClass,
+      sampleSize: 0,
+      avgStats: { strength: 0, agility: 0, dexterity: 0, vitality: 0, endurance: 0, intelligence: 0, wisdom: 0, luck: 0 },
+      topStatFrequency: { strength: 0, agility: 0, dexterity: 0, vitality: 0, endurance: 0, intelligence: 0, wisdom: 0, luck: 0 },
+      dominantStats: [],
+    };
+  }
+  
+  // Calculate average stats and top stat frequency
+  const totals: Record<StatName, number> = { strength: 0, agility: 0, dexterity: 0, vitality: 0, endurance: 0, intelligence: 0, wisdom: 0, luck: 0 };
+  const topFrequency: Record<StatName, number> = { strength: 0, agility: 0, dexterity: 0, vitality: 0, endurance: 0, intelligence: 0, wisdom: 0, luck: 0 };
+  
+  for (const winner of winners) {
+    const stats = extractStats(winner);
+    
+    // Add to totals for averaging
+    for (const stat of STAT_NAMES) {
+      totals[stat] += stats[stat];
+    }
+    
+    // Count how often each stat appears in top 4
+    const topStats = getTopStats(stats, 4);
+    for (const top of topStats) {
+      topFrequency[top.stat]++;
+    }
+  }
+  
+  // Calculate averages
+  const avgStats: Record<StatName, number> = { strength: 0, agility: 0, dexterity: 0, vitality: 0, endurance: 0, intelligence: 0, wisdom: 0, luck: 0 };
+  for (const stat of STAT_NAMES) {
+    avgStats[stat] = Math.round(totals[stat] / winners.length);
+  }
+  
+  // Normalize frequency to percentage
+  for (const stat of STAT_NAMES) {
+    topFrequency[stat] = Math.round((topFrequency[stat] / winners.length) * 100);
+  }
+  
+  // Get dominant stats (appear in top 4 more than 50% of the time)
+  const dominantStats = STAT_NAMES
+    .filter(stat => topFrequency[stat] >= 50)
+    .sort((a, b) => topFrequency[b] - topFrequency[a]);
+  
+  return {
+    class: mainClass,
+    sampleSize: winners.length,
+    avgStats,
+    topStatFrequency: topFrequency,
+    dominantStats,
+  };
+}
+
+// Validate and normalize stat input from API
+function normalizeTargetStats(input: unknown): Record<StatName, number> {
+  const result: Record<StatName, number> = {
+    strength: 0, agility: 0, dexterity: 0, vitality: 0,
+    endurance: 0, intelligence: 0, wisdom: 0, luck: 0,
+  };
+  
+  if (!input || typeof input !== 'object') return result;
+  
+  const inputObj = input as Record<string, unknown>;
+  for (const stat of STAT_NAMES) {
+    const value = inputObj[stat];
+    if (typeof value === 'number' && !isNaN(value) && value >= 0) {
+      result[stat] = Math.floor(value);
+    } else if (typeof value === 'string') {
+      const parsed = parseInt(value, 10);
+      if (!isNaN(parsed) && parsed >= 0) {
+        result[stat] = parsed;
+      }
+    }
+  }
+  
+  return result;
+}
+
+// Find similar winning heroes by class and stat profile
+export async function findSimilarWinners(
+  targetClass: string,
+  targetStats: Record<StatName, number> | unknown,
+  options: {
+    levelMin?: number;
+    levelMax?: number;
+    rarityMin?: number;
+    rarityMax?: number;
+    minSimilarity?: number;
+    limit?: number;
+  } = {}
+): Promise<{
+  snapshot: typeof heroTournamentSnapshots.$inferSelect;
+  tournament: typeof pvpTournaments.$inferSelect;
+  placement: typeof tournamentPlacements.$inferSelect;
+  similarityScore: number;
+  statMatchDetails: { stat: StatName; candidateRank: number; winnerRank: number; match: boolean }[];
+}[]> {
+  const { levelMin, levelMax, rarityMin, rarityMax, minSimilarity = 0.5, limit = 20 } = options;
+  
+  // Validate and normalize input stats
+  const normalizedStats = normalizeTargetStats(targetStats);
+  
+  // Get all winner snapshots for this class with optional level/rarity filters
+  let query = db
+    .select({
+      snapshot: heroTournamentSnapshots,
+      tournament: pvpTournaments,
+      placement: tournamentPlacements,
+    })
+    .from(heroTournamentSnapshots)
+    .innerJoin(tournamentPlacements, eq(heroTournamentSnapshots.placementId, tournamentPlacements.id))
+    .innerJoin(pvpTournaments, eq(tournamentPlacements.tournamentId, pvpTournaments.tournamentId))
+    .where(and(
+      eq(heroTournamentSnapshots.mainClass, targetClass),
+      eq(tournamentPlacements.placement, 'winner'),
+      levelMin !== undefined ? gte(heroTournamentSnapshots.level, levelMin) : undefined,
+      levelMax !== undefined ? lte(heroTournamentSnapshots.level, levelMax) : undefined,
+      rarityMin !== undefined ? gte(heroTournamentSnapshots.rarity, rarityMin) : undefined,
+      rarityMax !== undefined ? lte(heroTournamentSnapshots.rarity, rarityMax) : undefined,
+    ))
+    .orderBy(desc(pvpTournaments.tournamentId))
+    .limit(100); // Get more than needed, then filter by similarity
+  
+  const winners = await query;
+  
+  // Calculate similarity for each winner
+  type WinnerWithSimilarity = {
+    snapshot: typeof heroTournamentSnapshots.$inferSelect;
+    tournament: typeof pvpTournaments.$inferSelect;
+    placement: typeof tournamentPlacements.$inferSelect;
+    similarityScore: number;
+    statMatchDetails: { stat: StatName; candidateRank: number; winnerRank: number; match: boolean }[];
+  };
+  
+  const withSimilarity: WinnerWithSimilarity[] = winners.map(w => {
+    const winnerStats = extractStats(w.snapshot);
+    const { score, details } = calculateStatProfileSimilarity(normalizedStats, winnerStats, 4);
+    return {
+      ...w,
+      similarityScore: score,
+      statMatchDetails: details,
+    };
+  });
+  
+  // Filter by minimum similarity and sort by score
+  return withSimilarity
+    .filter(w => w.similarityScore >= minSimilarity)
+    .sort((a, b) => b.similarityScore - a.similarityScore)
+    .slice(0, limit);
+}
+
+// Get all class stat profiles for dashboard display
+export async function getAllClassStatProfiles(): Promise<{
+  class: string;
+  sampleSize: number;
+  dominantStats: StatName[];
+  topStatFrequency: Record<StatName, number>;
+}[]> {
+  // Get unique classes from winner snapshots
+  const classes = await db
+    .selectDistinct({ mainClass: heroTournamentSnapshots.mainClass })
+    .from(heroTournamentSnapshots)
+    .innerJoin(tournamentPlacements, eq(heroTournamentSnapshots.placementId, tournamentPlacements.id))
+    .where(eq(tournamentPlacements.placement, 'winner'));
+  
+  const profiles = [];
+  for (const { mainClass } of classes) {
+    const profile = await getClassStatProfile(mainClass);
+    if (profile.sampleSize > 0) {
+      profiles.push({
+        class: profile.class,
+        sampleSize: profile.sampleSize,
+        dominantStats: profile.dominantStats,
+        topStatFrequency: profile.topStatFrequency,
+      });
+    }
+  }
+  
+  // Sort by sample size descending
+  return profiles.sort((a, b) => b.sampleSize - a.sampleSize);
 }

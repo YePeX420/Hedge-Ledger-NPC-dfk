@@ -7684,6 +7684,60 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/battle-ready/class-profiles - Get all class stat profiles based on winning heroes
+  app.get("/api/admin/battle-ready/class-profiles", isAdmin, async (req, res) => {
+    try {
+      const { getAllClassStatProfiles } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const profiles = await getAllClassStatProfiles();
+      res.json({ ok: true, profiles });
+    } catch (error) {
+      console.error('[Battle-Ready Admin] Error getting class profiles:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/battle-ready/class-profile/:class - Get stat profile for a specific class
+  app.get("/api/admin/battle-ready/class-profile/:class", isAdmin, async (req, res) => {
+    try {
+      const mainClass = req.params.class;
+      const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+      
+      const { getClassStatProfile } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const profile = await getClassStatProfile(mainClass, limit);
+      
+      res.json({ ok: true, ...profile });
+    } catch (error) {
+      console.error('[Battle-Ready Admin] Error getting class profile:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/battle-ready/find-similar - Find similar winning heroes based on a target hero's stats
+  app.post("/api/admin/battle-ready/find-similar", isAdmin, async (req, res) => {
+    try {
+      const { targetClass, targetStats, levelMin, levelMax, rarityMin, rarityMax, minSimilarity, limit } = req.body;
+      
+      if (!targetClass || !targetStats) {
+        return res.status(400).json({ ok: false, error: 'targetClass and targetStats are required' });
+      }
+      
+      const { findSimilarWinners } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const results = await findSimilarWinners(targetClass, targetStats, {
+        levelMin,
+        levelMax,
+        rarityMin,
+        rarityMax,
+        minSimilarity: minSimilarity ?? 0.5,
+        limit: limit ?? 20,
+      });
+      
+      res.json({ ok: true, matches: results, totalMatches: results.length });
+    } catch (error) {
+      console.error('[Battle-Ready Admin] Error finding similar heroes:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/tournament/restrictions - Get tournament restriction stats for dashboard
   app.get("/api/admin/tournament/restrictions", isAdmin, async (req, res) => {
     try {
