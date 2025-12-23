@@ -7802,96 +7802,34 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/tavern-listings - Fetch top heroes for sale from both taverns with prices
+  // Uses official DFK API: https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions
   app.get("/api/admin/tavern-listings", isAdmin, async (req, res) => {
     try {
+      console.log('[Tavern] Starting tavern-listings request...');
       const limit = req.query.limit ? parseInt(req.query.limit) : 50;
-      const { gql, request } = await import('graphql-request');
       const { getCrystalPrice, getJewelPrice } = await import('./price-feed.js');
       
-      const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
+      // Official DFK API for tavern listings (announced June 2025)
+      const DFK_TAVERN_API = 'https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions';
       
-      // Hero ID ranges for realm filtering:
-      // Crystalvale (DFK Chain): IDs >= 1,000,000,000,000 and < 2,000,000,000,000
-      // Serendale (Klaytn): IDs >= 2,000,000,000,000
-      const CV_ID_MIN = "1000000000000";
-      const CV_ID_MAX = "2000000000000";
-      const SD_ID_MIN = "2000000000000";
+      console.log('[Tavern] Fetching from official DFK API...');
       
-      // Query for heroes for sale - order by price ascending, filter by ID range
-      const query = gql`
-        query TavernListings($first: Int!, $cvIdMin: BigInt!, $cvIdMax: BigInt!, $sdIdMin: BigInt!) {
-          crystalvale: heroes(
-            where: { salePrice_not: null, id_gte: $cvIdMin, id_lt: $cvIdMax },
-            first: $first,
-            orderBy: salePrice,
-            orderDirection: asc
-          ) {
-            id
-            normalizedId
-            mainClassStr
-            subClassStr
-            professionStr
-            rarity
-            level
-            generation
-            summons
-            maxSummons
-            salePrice
-            strength
-            agility
-            intelligence
-            wisdom
-            luck
-            dexterity
-            vitality
-            endurance
-            hp
-            mp
-            stamina
-          }
-          serendale: heroes(
-            where: { salePrice_not: null, id_gte: $sdIdMin },
-            first: $first,
-            orderBy: salePrice,
-            orderDirection: asc
-          ) {
-            id
-            normalizedId
-            mainClassStr
-            subClassStr
-            professionStr
-            rarity
-            level
-            generation
-            summons
-            maxSummons
-            salePrice
-            strength
-            agility
-            intelligence
-            wisdom
-            luck
-            dexterity
-            vitality
-            endurance
-            hp
-            mp
-            stamina
-          }
-        }
-      `;
-      
-      // Fetch data in parallel
-      const [graphqlData, crystalPrice, jewelPrice] = await Promise.all([
-        request(DFK_GRAPHQL_ENDPOINT, query, { 
-          first: limit,
-          cvIdMin: CV_ID_MIN,
-          cvIdMax: CV_ID_MAX,
-          sdIdMin: SD_ID_MIN
+      // Fetch heroes and prices in parallel
+      const [apiResponse, crystalPrice, jewelPrice] = await Promise.all([
+        fetch(DFK_TAVERN_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit: limit * 2, offset: 0 })
+        }).then(async r => {
+          if (!r.ok) throw new Error(`DFK API error: ${r.status}`);
+          const data = await r.json();
+          console.log('[Tavern] DFK API returned', data?.length || 0, 'heroes');
+          return data;
         }),
-        getCrystalPrice().catch(() => 0),
-        getJewelPrice().catch(() => 0)
+        getCrystalPrice().catch(err => { console.log('[Tavern] Crystal price error:', err.message); return 0; }),
+        getJewelPrice().catch(err => { console.log('[Tavern] Jewel price error:', err.message); return 0; })
       ]);
+      console.log('[Tavern] Prices: CRYSTAL=$' + crystalPrice + ', JEWEL=$' + jewelPrice);
       
       // Helper to convert wei to token amount
       const weiToToken = (weiStr) => {
@@ -7902,29 +7840,101 @@ async function startAdminWebServer() {
         return Number(whole) + frac;
       };
       
-      // Process Crystalvale heroes (CRYSTAL prices)
-      const crystalvaleHeroes = (graphqlData.crystalvale || []).map(hero => {
-        const priceInCrystal = weiToToken(hero.salePrice);
-        return {
-          ...hero,
-          tavern: 'cv',
-          nativeToken: 'CRYSTAL',
-          priceNative: priceInCrystal,
-          priceUSD: crystalPrice > 0 ? priceInCrystal * crystalPrice : null
-        };
-      });
+      const allHeroes = Array.isArray(apiResponse) ? apiResponse : [];
       
-      // Process Serendale heroes (JEWEL prices)
-      const serendaleHeroes = (graphqlData.serendale || []).map(hero => {
-        const priceInJewel = weiToToken(hero.salePrice);
-        return {
-          ...hero,
-          tavern: 'sd',
-          nativeToken: 'JEWEL',
-          priceNative: priceInJewel,
-          priceUSD: jewelPrice > 0 ? priceInJewel * jewelPrice : null
+      // Class ID to name mapping (DFK returns numeric IDs)
+      const CLASS_NAMES = {
+        0: 'Warrior', 1: 'Knight', 2: 'Thief', 3: 'Archer', 4: 'Priest', 5: 'Wizard',
+        6: 'Monk', 7: 'Pirate', 8: 'Berserker', 9: 'Seer', 10: 'Legionnaire', 11: 'Scholar',
+        16: 'Paladin', 17: 'DarkKnight', 18: 'Summoner', 19: 'Ninja', 20: 'Shapeshifter',
+        21: 'Bard', 24: 'Dragoon', 25: 'Sage', 26: 'SpellBow', 28: 'DreadKnight'
+      };
+      const PROFESSION_NAMES = {
+        0: 'mining', 2: 'gardening', 4: 'fishing', 6: 'foraging'
+      };
+      const getClassName = (id) => CLASS_NAMES[parseInt(id)] || `Class${id}`;
+      const getProfessionName = (id) => PROFESSION_NAMES[parseInt(id)] || `profession${id}`;
+      
+      // Hero ID ranges determine realm/tavern location:
+      // - IDs >= 1,000,000,000,000 and < 2,000,000,000,000 = Crystalvale (DFK Chain) - CRYSTAL prices
+      // - IDs >= 2,000,000,000,000 = Serendale/Sundered Isles (Klaytn) - JEWEL prices
+      // - IDs < 1,000,000,000,000 = Legacy Serendale (Harmony) - skip
+      const CV_ID_MIN = BigInt("1000000000000");
+      const CV_ID_MAX = BigInt("2000000000000");
+      
+      const crystalvaleHeroes = [];
+      const serendaleHeroes = [];
+      
+      for (const hero of allHeroes) {
+        // DFK API uses 'startingPrice' or 'salePrice' field
+        const priceField = hero.startingPrice || hero.salePrice || hero.price;
+        const priceInToken = weiToToken(priceField);
+        const heroId = BigInt(hero.id || hero.heroId);
+        
+        // Build normalized hero object with class names resolved
+        const mainClassRaw = hero.mainClass ?? hero.mainClassStr;
+        const subClassRaw = hero.subClass ?? hero.subClassStr;
+        const professionRaw = hero.profession ?? hero.professionStr;
+        
+        // normalizedId should be a number (hero ID without the realm prefix)
+        const normalizedIdNum = Number(heroId % BigInt(1000000000000));
+        
+        const normalizedHero = {
+          id: String(heroId),
+          normalizedId: hero.normalizedId ? Number(hero.normalizedId) : normalizedIdNum,
+          mainClassStr: getClassName(mainClassRaw),
+          subClassStr: subClassRaw != null ? getClassName(subClassRaw) : '',
+          professionStr: getProfessionName(professionRaw),
+          rarity: hero.rarity ?? 0,
+          level: hero.level ?? 1,
+          generation: hero.generation ?? 0,
+          summons: hero.summons ?? 0,
+          maxSummons: hero.maxSummons ?? 0,
+          salePrice: priceField || '0',
+          strength: hero.strength ?? 0,
+          agility: hero.agility ?? 0,
+          intelligence: hero.intelligence ?? 0,
+          wisdom: hero.wisdom ?? 0,
+          luck: hero.luck ?? 0,
+          dexterity: hero.dexterity ?? 0,
+          vitality: hero.vitality ?? 0,
+          endurance: hero.endurance ?? 0,
+          hp: hero.hp ?? 0,
+          mp: hero.mp ?? 0,
+          stamina: hero.stamina ?? 25
         };
-      });
+        
+        if (heroId >= CV_ID_MIN && heroId < CV_ID_MAX) {
+          // Crystalvale - prices in CRYSTAL
+          crystalvaleHeroes.push({
+            ...normalizedHero,
+            tavern: 'cv',
+            nativeToken: 'CRYSTAL',
+            priceNative: priceInToken,
+            priceUSD: crystalPrice > 0 ? priceInToken * crystalPrice : null
+          });
+        } else if (heroId >= CV_ID_MAX) {
+          // Klaytn/Sundered Isles - prices in JEWEL
+          serendaleHeroes.push({
+            ...normalizedHero,
+            tavern: 'sd',
+            nativeToken: 'JEWEL',
+            priceNative: priceInToken,
+            priceUSD: jewelPrice > 0 ? priceInToken * jewelPrice : null
+          });
+        }
+        // Skip heroes with IDs < 1 trillion (legacy Harmony Serendale, deprecated)
+      }
+      
+      console.log('[Tavern] Categorized:', crystalvaleHeroes.length, 'CV heroes,', serendaleHeroes.length, 'SD heroes');
+      
+      // Sort by price ascending
+      crystalvaleHeroes.sort((a, b) => a.priceNative - b.priceNative);
+      serendaleHeroes.sort((a, b) => a.priceNative - b.priceNative);
+      
+      // Limit each list to requested limit
+      const cvLimited = crystalvaleHeroes.slice(0, limit);
+      const sdLimited = serendaleHeroes.slice(0, limit);
       
       res.json({
         ok: true,
@@ -7932,9 +7942,9 @@ async function startAdminWebServer() {
           crystal: crystalPrice,
           jewel: jewelPrice
         },
-        crystalvale: crystalvaleHeroes,
-        serendale: serendaleHeroes,
-        totalListings: crystalvaleHeroes.length + serendaleHeroes.length
+        crystalvale: cvLimited,
+        serendale: sdLimited,
+        totalListings: cvLimited.length + sdLimited.length
       });
     } catch (error) {
       console.error('[Tavern Listings] Error fetching listings:', error);
