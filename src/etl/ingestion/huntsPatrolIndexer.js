@@ -24,7 +24,8 @@ const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc'
 // Note: Archive RPC using same public endpoint (limited historical data but works)
 const DFK_ARCHIVE_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 const METIS_RPC = 'https://andromeda.metis.io/?owner=1088';
-const METIS_ARCHIVE_RPC = 'https://rpc.ankr.com/metis';
+// Note: Using same endpoint for archive since free archive RPCs are unavailable
+const METIS_ARCHIVE_RPC = 'https://andromeda.metis.io/?owner=1088';
 
 // DFK Chain contracts
 const HUNTS_DIAMOND = '0xEaC69796Cff468ED1694A6FfAc4cbC23bbe33aFa';
