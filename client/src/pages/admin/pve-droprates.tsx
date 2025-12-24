@@ -745,7 +745,7 @@ export default function AdminPVEDropRates() {
 
   const resetMutation = useMutation({
     mutationFn: async (chain: string) => {
-      return await apiRequest("POST", `/api/admin/pve/reset/${chain}`, { resetBlock: 0 });
+      return await apiRequest("POST", `/api/admin/pve/reset/${chain}`, { toBlock: 0 });
     },
     onSuccess: (_, chain) => {
       toast({ title: "Reset complete", description: `${chain.toUpperCase()} data cleared. Ready to re-index.` });
