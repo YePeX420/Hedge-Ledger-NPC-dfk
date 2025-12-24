@@ -797,97 +797,100 @@ export default function AdminPVEDropRates() {
             </Card>
           )}
           
-          {hasAdminAccess && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Sword className="w-4 h-4 text-amber-500" />
-                    DFK Hunts
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold" data-testid="text-dfk-total">
-                    {formatNumber(status?.dfk?.checkpoint?.total_completions || 0)}
-                  </div>
-                  <div className="text-xs text-muted-foreground">completions</div>
-                </CardContent>
-              </Card>
+          {hasAdminAccess && status && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Sword className="w-4 h-4 text-amber-500" />
+                      DFK Hunts
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold" data-testid="text-dfk-total">
+                      {formatNumber(status.dfk?.checkpoint?.total_completions || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">completions</div>
+                  </CardContent>
+                </Card>
 
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-blue-500" />
-                    Metis Patrols
-                  </CardTitle>
-                </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-metis-total">
-                  {formatNumber(status.metis?.checkpoint?.total_completions || 0)}
-                </div>
-                <div className="text-xs text-muted-foreground">completions</div>
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-blue-500" />
+                      Metis Patrols
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold" data-testid="text-metis-total">
+                      {formatNumber(status.metis?.checkpoint?.total_completions || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">completions</div>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-green-500" />
-                  Total Encounters
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-500" data-testid="text-total-encounters">
-                  {formatNumber(totalCompletions)}
-                </div>
-                <div className="text-xs text-muted-foreground">indexed</div>
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-green-500" />
+                      Total Encounters
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-green-500" data-testid="text-total-encounters">
+                      {formatNumber(totalCompletions)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">indexed</div>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <Percent className="w-4 h-4 text-purple-500" />
-                  Total Drops
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-purple-500" data-testid="text-total-drops">
-                  {formatNumber(totalRewards)}
-                </div>
-                <div className="text-xs text-muted-foreground">reward events</div>
-              </CardContent>
-            </Card>
-          </div>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Percent className="w-4 h-4 text-purple-500" />
+                      Total Drops
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-purple-500" data-testid="text-total-drops">
+                      {formatNumber(totalRewards)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">reward events</div>
+                  </CardContent>
+                </Card>
+              </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <ChainCard
-              chain="dfk"
-              chainStatus={status.dfk}
-              liveProgress={status.liveProgress?.dfk}
-              onStart={() => startMutation.mutate('dfk')}
-              onStop={() => stopMutation.mutate('dfk')}
-              onRun={() => runMutation.mutate('dfk')}
-              onReset={() => resetMutation.mutate('dfk')}
-              isStarting={startMutation.isPending}
-              isStopping={stopMutation.isPending}
-              isRunning={runMutation.isPending}
-              isResetting={resetMutation.isPending}
-            />
-            <ChainCard
-              chain="metis"
-              chainStatus={status.metis}
-              liveProgress={status.liveProgress?.metis}
-              onStart={() => startMutation.mutate('metis')}
-              onStop={() => stopMutation.mutate('metis')}
-              onRun={() => runMutation.mutate('metis')}
-              onReset={() => resetMutation.mutate('metis')}
-              isStarting={startMutation.isPending}
-              isStopping={stopMutation.isPending}
-              isRunning={runMutation.isPending}
-              isResetting={resetMutation.isPending}
-            />
-          </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <ChainCard
+                  chain="dfk"
+                  chainStatus={status.dfk}
+                  liveProgress={status.liveProgress?.dfk}
+                  onStart={() => startMutation.mutate('dfk')}
+                  onStop={() => stopMutation.mutate('dfk')}
+                  onRun={() => runMutation.mutate('dfk')}
+                  onReset={() => resetMutation.mutate('dfk')}
+                  isStarting={startMutation.isPending}
+                  isStopping={stopMutation.isPending}
+                  isRunning={runMutation.isPending}
+                  isResetting={resetMutation.isPending}
+                />
+                <ChainCard
+                  chain="metis"
+                  chainStatus={status.metis}
+                  liveProgress={status.liveProgress?.metis}
+                  onStart={() => startMutation.mutate('metis')}
+                  onStop={() => stopMutation.mutate('metis')}
+                  onRun={() => runMutation.mutate('metis')}
+                  onReset={() => resetMutation.mutate('metis')}
+                  isStarting={startMutation.isPending}
+                  isStopping={stopMutation.isPending}
+                  isRunning={runMutation.isPending}
+                  isResetting={resetMutation.isPending}
+                />
+              </div>
+            </>
+          )}
 
           <Card>
             <CardHeader>
@@ -918,15 +921,6 @@ export default function AdminPVEDropRates() {
             </CardContent>
           </Card>
         </>
-      ) : (
-        <Card>
-          <CardContent className="flex items-center justify-center p-8">
-            <div className="text-center text-muted-foreground">
-              <AlertCircle className="w-8 h-8 mx-auto mb-2" />
-              Failed to load PVE status
-            </div>
-          </CardContent>
-        </Card>
       )}
     </div>
   );
