@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign, Tag, ChevronDown, ChevronRight, Plus, RotateCcw } from "lucide-react";
+import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign, Tag, ChevronDown, ChevronRight, Plus, RotateCcw, Trash2, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 // Realm display names for marketplace locations
@@ -193,6 +193,7 @@ interface TournamentPattern {
   included_class_id: number | null;
   excluded_classes: number | null;
   excluded_consumables: number | null;
+  excluded_origin: number | null;
   battle_inventory: number | null;
   battle_budget: number | null;
   min_hero_stat_score: number | null;
@@ -200,7 +201,9 @@ interface TournamentPattern {
   min_team_stat_score: number | null;
   max_team_stat_score: number | null;
   shot_clock_duration: number | null;
-  // Entry fee and rewards
+  private_battle: boolean;
+  glory_bout: boolean;
+  map_id: number | null;
   min_glories: number | null;
   max_sponsor_count: number | null;
   occurrence_count: number | string;
@@ -335,6 +338,19 @@ export default function BattleReadyAdmin() {
     onSuccess: () => {
       toast({ title: "Label created", description: "Tournament type label saved" });
       setLabelForm(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/patterns'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteLabelMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest('DELETE', `/api/admin/tournament/types/${id}`, {});
+    },
+    onSuccess: () => {
+      toast({ title: "Label deleted", description: "Tournament type label removed" });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/patterns'] });
     },
     onError: (error: Error) => {
@@ -1203,6 +1219,31 @@ export default function BattleReadyAdmin() {
                                   Sponsored
                                 </Badge>
                               )}
+                              {pattern.glory_bout && (
+                                <Badge variant="outline" className="text-xs bg-purple-600/20 border-purple-500">
+                                  Glory Bout
+                                </Badge>
+                              )}
+                              {pattern.private_battle && (
+                                <Badge variant="outline" className="text-xs bg-gray-600/20 border-gray-500">
+                                  Private
+                                </Badge>
+                              )}
+                              {pattern.map_id !== null && pattern.map_id > 0 && (
+                                <Badge variant="outline" className="text-xs">
+                                  Map: {pattern.map_id}
+                                </Badge>
+                              )}
+                              {pattern.excluded_consumables && pattern.excluded_consumables > 0 && (
+                                <Badge variant="destructive" className="text-xs">
+                                  No Items
+                                </Badge>
+                              )}
+                              {pattern.excluded_origin && pattern.excluded_origin > 0 && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Origin Excl
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -1222,22 +1263,70 @@ export default function BattleReadyAdmin() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {!pattern.label && (
-                              <Button 
-                                variant="ghost" 
-                                size="sm"
-                                onClick={() => setLabelForm({ 
-                                  signature: pattern.signature, 
-                                  label: '', 
-                                  category: 'general', 
-                                  color: '#6366f1' 
-                                })}
-                                data-testid={`button-add-label-${idx}`}
-                              >
-                                <Plus className="h-3 w-3 mr-1" />
-                                Label
-                              </Button>
-                            )}
+                            <div className="flex items-center gap-1">
+                              {!pattern.label ? (
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => setLabelForm({ 
+                                    signature: pattern.signature, 
+                                    label: '', 
+                                    category: 'general', 
+                                    color: '#6366f1' 
+                                  })}
+                                  data-testid={`button-add-label-${idx}`}
+                                >
+                                  <Plus className="h-3 w-3 mr-1" />
+                                  Label
+                                </Button>
+                              ) : (
+                                <>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => setLabelForm({ 
+                                      signature: pattern.signature, 
+                                      label: pattern.label || '', 
+                                      category: pattern.labelInfo?.category || 'general', 
+                                      color: pattern.labelInfo?.color || '#6366f1' 
+                                    })}
+                                    data-testid={`button-edit-label-${idx}`}
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button 
+                                        variant="ghost" 
+                                        size="icon"
+                                        className="h-7 w-7 text-destructive hover:text-destructive"
+                                        data-testid={`button-delete-label-${idx}`}
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete Label</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Are you sure you want to delete the label "{pattern.label}"? This cannot be undone.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction 
+                                          onClick={() => pattern.labelInfo?.id && deleteLabelMutation.mutate(pattern.labelInfo.id)}
+                                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        >
+                                          Delete
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                         {/* Expanded heroes row */}

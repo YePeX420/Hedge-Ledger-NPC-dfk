@@ -10,6 +10,7 @@ import {
   tournamentPlacements, 
   heroTournamentSnapshots,
   tournamentIndexerProgress,
+  pvpTournamentTypes,
 } from '../../../shared/schema.js';
 import { eq, sql, desc, and, gte, lte } from 'drizzle-orm';
 
@@ -1245,6 +1246,209 @@ export async function getTournamentSignatures(limit: number = 100) {
     .groupBy(pvpTournaments.tournamentTypeSignature)
     .orderBy(desc(sql`COUNT(*)`))
     .limit(limit);
+}
+
+// Get tournament patterns with full restriction details and labels
+export async function getTournamentPatterns(limit: number = 100) {
+  // Get all unique tournament signatures with their restriction details
+  const patterns = await db
+    .select({
+      signature: pvpTournaments.tournamentTypeSignature,
+      tournament_name: sql<string>`MAX(${pvpTournaments.name})`,
+      level_min: sql<number>`MIN(${pvpTournaments.levelMin})`,
+      level_max: sql<number>`MAX(${pvpTournaments.levelMax})`,
+      rarity_min: sql<number>`MIN(${pvpTournaments.rarityMin})`,
+      rarity_max: sql<number>`MAX(${pvpTournaments.rarityMax})`,
+      party_size: sql<number>`MAX(${pvpTournaments.partySize})`,
+      all_unique_classes: sql<boolean>`BOOL_OR(${pvpTournaments.allUniqueClasses})`,
+      no_triple_classes: sql<boolean>`BOOL_OR(${pvpTournaments.noTripleClasses})`,
+      must_include_class: sql<boolean>`BOOL_OR(${pvpTournaments.mustIncludeClass})`,
+      included_class_id: sql<number>`MAX(${pvpTournaments.includedClassId})`,
+      excluded_classes: sql<number>`MAX(${pvpTournaments.excludedClasses})`,
+      excluded_consumables: sql<number>`MAX(${pvpTournaments.excludedConsumables})`,
+      excluded_origin: sql<number>`MAX(${pvpTournaments.excludedOrigin})`,
+      battle_inventory: sql<number>`MAX(${pvpTournaments.battleInventory})`,
+      battle_budget: sql<number>`MAX(${pvpTournaments.battleBudget})`,
+      min_hero_stat_score: sql<number>`MIN(${pvpTournaments.minHeroStatScore})`,
+      max_hero_stat_score: sql<number>`MAX(${pvpTournaments.maxHeroStatScore})`,
+      min_team_stat_score: sql<number>`MIN(${pvpTournaments.minTeamStatScore})`,
+      max_team_stat_score: sql<number>`MAX(${pvpTournaments.maxTeamStatScore})`,
+      shot_clock_duration: sql<number>`MAX(${pvpTournaments.shotClockDuration})`,
+      private_battle: sql<boolean>`BOOL_OR(${pvpTournaments.privateBattle})`,
+      glory_bout: sql<boolean>`BOOL_OR(${pvpTournaments.gloryBout})`,
+      map_id: sql<number>`MAX(${pvpTournaments.mapId})`,
+      min_glories: sql<number>`MAX(${pvpTournaments.minGlories})`,
+      max_sponsor_count: sql<number>`MAX(${pvpTournaments.sponsorCount})`,
+      occurrence_count: sql<number>`COUNT(*)::int`,
+      last_seen_at: sql<string>`MAX(${pvpTournaments.createdAt})`,
+    })
+    .from(pvpTournaments)
+    .where(sql`${pvpTournaments.tournamentTypeSignature} IS NOT NULL`)
+    .groupBy(pvpTournaments.tournamentTypeSignature)
+    .orderBy(desc(sql`COUNT(*)`))
+    .limit(limit);
+
+  // Get all active labels
+  const labels = await db
+    .select()
+    .from(pvpTournamentTypes)
+    .where(eq(pvpTournamentTypes.isActive, true));
+
+  // Create a map of signature -> label
+  type LabelType = typeof labels[number];
+  const labelMap = new Map<string, LabelType>(
+    labels.filter((l: LabelType) => l.signature).map((l: LabelType) => [l.signature!, l])
+  );
+
+  // Merge patterns with labels
+  type PatternType = typeof patterns[number];
+  const patternsWithLabels = patterns.map((p: PatternType) => ({
+    ...p,
+    label: labelMap.get(p.signature || '')?.label || null,
+    labelInfo: labelMap.get(p.signature || '') || null,
+  }));
+
+  return {
+    patterns: patternsWithLabels,
+    totalLabels: labels.length,
+  };
+}
+
+// Create or update a tournament type label
+export async function upsertTournamentTypeLabel(data: {
+  signature: string;
+  label: string;
+  category?: string;
+  color?: string;
+  description?: string;
+}) {
+  // Check if label exists for this signature
+  const existing = await db
+    .select()
+    .from(pvpTournamentTypes)
+    .where(eq(pvpTournamentTypes.signature, data.signature))
+    .limit(1);
+
+  // Count occurrences of this signature
+  const [countResult] = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(pvpTournaments)
+    .where(eq(pvpTournaments.tournamentTypeSignature, data.signature));
+
+  // Get last seen date
+  const [lastSeenResult] = await db
+    .select({ lastSeen: sql<Date>`MAX(${pvpTournaments.createdAt})` })
+    .from(pvpTournaments)
+    .where(eq(pvpTournaments.tournamentTypeSignature, data.signature));
+
+  if (existing.length > 0) {
+    // Update existing
+    const [updated] = await db
+      .update(pvpTournamentTypes)
+      .set({
+        label: data.label,
+        category: data.category || 'general',
+        color: data.color || '#6366f1',
+        description: data.description,
+        occurrenceCount: countResult?.count || 0,
+        lastSeenAt: lastSeenResult?.lastSeen || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(pvpTournamentTypes.signature, data.signature))
+      .returning();
+    return updated;
+  } else {
+    // Create new
+    const [created] = await db
+      .insert(pvpTournamentTypes)
+      .values({
+        signature: data.signature,
+        label: data.label,
+        category: data.category || 'general',
+        color: data.color || '#6366f1',
+        description: data.description,
+        occurrenceCount: countResult?.count || 0,
+        lastSeenAt: lastSeenResult?.lastSeen || null,
+        isActive: true,
+      })
+      .returning();
+    return created;
+  }
+}
+
+// Delete (soft-delete) a tournament type label
+export async function deleteTournamentTypeLabel(id: number) {
+  const result = await db
+    .update(pvpTournamentTypes)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(eq(pvpTournamentTypes.id, id))
+    .returning();
+  
+  if (result.length === 0) {
+    throw new Error(`Tournament type label with id ${id} not found`);
+  }
+  return result[0];
+}
+
+// Get all tournament type labels
+export async function getTournamentTypeLabels() {
+  return db
+    .select()
+    .from(pvpTournamentTypes)
+    .where(eq(pvpTournamentTypes.isActive, true))
+    .orderBy(desc(pvpTournamentTypes.occurrenceCount));
+}
+
+// Get winning heroes for a specific tournament type
+export async function getHeroesForTournamentType(labelId: number, limit: number = 50) {
+  // Get the label
+  const [label] = await db
+    .select()
+    .from(pvpTournamentTypes)
+    .where(eq(pvpTournamentTypes.id, labelId))
+    .limit(1);
+
+  if (!label || !label.signature) {
+    return { type: null, heroes: [] };
+  }
+
+  // Get tournaments with this signature
+  const tournaments = await db
+    .select({ tournamentId: pvpTournaments.tournamentId })
+    .from(pvpTournaments)
+    .where(eq(pvpTournaments.tournamentTypeSignature, label.signature));
+
+  if (tournaments.length === 0) {
+    return { type: label, heroes: [] };
+  }
+
+  const tournamentIds = tournaments.map((t: { tournamentId: number }) => t.tournamentId);
+
+  // Get winning hero snapshots from these tournaments
+  const heroes = await db
+    .select({
+      hero_id: heroTournamentSnapshots.heroId,
+      main_class: heroTournamentSnapshots.mainClass,
+      sub_class: heroTournamentSnapshots.subClass,
+      level: heroTournamentSnapshots.level,
+      rarity: heroTournamentSnapshots.rarity,
+      strength: heroTournamentSnapshots.strength,
+      agility: heroTournamentSnapshots.agility,
+      intelligence: heroTournamentSnapshots.intelligence,
+      wisdom: heroTournamentSnapshots.wisdom,
+      tournament_name: pvpTournaments.name,
+    })
+    .from(heroTournamentSnapshots)
+    .innerJoin(tournamentPlacements, eq(heroTournamentSnapshots.placementId, tournamentPlacements.id))
+    .innerJoin(pvpTournaments, eq(tournamentPlacements.tournamentId, pvpTournaments.tournamentId))
+    .where(and(
+      sql`${tournamentPlacements.tournamentId} = ANY(${sql`ARRAY[${sql.join(tournamentIds.map(id => sql`${id}`), sql`, `)}]`})`,
+      eq(tournamentPlacements.placement, 'winner')
+    ))
+    .orderBy(desc(pvpTournaments.tournamentId))
+    .limit(limit);
+
+  return { type: label, heroes };
 }
 
 // Get full tournament details with restrictions by ID

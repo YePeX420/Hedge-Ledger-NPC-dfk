@@ -2794,6 +2794,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/admin/tournament/patterns - Get tournament patterns with restrictions
+  app.get("/api/admin/tournament/patterns", isAdmin, async (req: any, res: any) => {
+    try {
+      const limit = parseInt(req.query.limit) || 100;
+      const { getTournamentPatterns } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const result = await getTournamentPatterns(limit);
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error getting patterns:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tournament/types - Get all tournament type labels
+  app.get("/api/admin/tournament/types", isAdmin, async (_req: any, res: any) => {
+    try {
+      const { getTournamentTypeLabels } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const types = await getTournamentTypeLabels();
+      res.json({ ok: true, types });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error getting types:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tournament/types - Create or update tournament type label
+  app.post("/api/admin/tournament/types", isAdmin, async (req: any, res: any) => {
+    try {
+      const { signature, label, category, color, description } = req.body;
+      if (!signature || !label) {
+        return res.status(400).json({ ok: false, error: 'signature and label are required' });
+      }
+      const { upsertTournamentTypeLabel } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const result = await upsertTournamentTypeLabel({ signature, label, category, color, description });
+      res.json({ ok: true, type: result });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error creating/updating type:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // DELETE /api/admin/tournament/types/:id - Delete tournament type label
+  app.delete("/api/admin/tournament/types/:id", isAdmin, async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ ok: false, error: 'id must be a number' });
+      }
+      const { deleteTournamentTypeLabel } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const result = await deleteTournamentTypeLabel(id);
+      res.json({ ok: true, type: result });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error deleting type:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tournament/types/:id/heroes - Get winning heroes for a tournament type
+  app.get("/api/admin/tournament/types/:id/heroes", isAdmin, async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id);
+      const limit = parseInt(req.query.limit) || 50;
+      if (isNaN(id)) {
+        return res.status(400).json({ ok: false, error: 'id must be a number' });
+      }
+      const { getHeroesForTournamentType } = await import("../src/etl/ingestion/tournamentIndexer.js");
+      const result = await getHeroesForTournamentType(id, limit);
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error('[Tournament Admin] Error getting heroes for type:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/similarity/config - Get similarity scoring config
   app.get("/api/admin/similarity/config", isAdmin, async (_req: any, res: any) => {
     try {
