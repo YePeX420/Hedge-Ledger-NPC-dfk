@@ -7774,6 +7774,31 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/tournament/dbcheck - Debug endpoint to check DB counts
+  app.get("/api/admin/tournament/dbcheck", isAdmin, async (req, res) => {
+    try {
+      const { sql } = await import('drizzle-orm');
+      
+      const [tournamentCount] = await db.execute(sql`SELECT COUNT(*) as count FROM pvp_tournaments`);
+      const [placementCount] = await db.execute(sql`SELECT COUNT(*) as count FROM tournament_placements`);
+      const [snapshotCount] = await db.execute(sql`SELECT COUNT(*) as count FROM hero_tournament_snapshots`);
+      const [dbName] = await db.execute(sql`SELECT current_database() as name`);
+      
+      res.json({
+        ok: true,
+        database: dbName?.name,
+        counts: {
+          tournaments: parseInt(tournamentCount?.count || '0'),
+          placements: parseInt(placementCount?.count || '0'),
+          snapshots: parseInt(snapshotCount?.count || '0'),
+        }
+      });
+    } catch (error) {
+      console.error('[Tournament Debug] Error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // POST /api/admin/tournament/trigger - Trigger battle indexing (non-blocking)
   // realm: 'cv' = Crystalvale Tavern, 'sd' = Serendale/Sundered Isles Barkeep
   app.post("/api/admin/tournament/trigger", isAdmin, async (req, res) => {
@@ -7814,15 +7839,14 @@ async function startAdminWebServer() {
   // POST /api/admin/tournament/reset - Reset tournament indexer (clear all data)
   app.post("/api/admin/tournament/reset", isAdmin, async (req, res) => {
     try {
-      const { stopTournamentIndexer } = await import("./src/etl/ingestion/tournamentIndexer.js");
+      const { stopTournamentIndexer, stopAutoRun } = await import("./src/etl/ingestion/tournamentIndexer.js");
       
-      // Stop indexer first if running
+      // Stop indexer and auto-run first if running
+      stopAutoRun();
       stopTournamentIndexer();
       
-      // Clear all tournament data from database
-      await pool.query('DELETE FROM hero_tournament_snapshots');
-      await pool.query('DELETE FROM tournament_placements');
-      await pool.query('DELETE FROM pvp_tournaments');
+      // Clear all tournament data using TRUNCATE (keeps tables, resets sequences)
+      await db.execute(sql`TRUNCATE TABLE hero_tournament_snapshots, tournament_placements, pvp_tournaments RESTART IDENTITY CASCADE`);
       
       console.log('[Tournament Admin] Reset complete - all tournament data cleared');
       res.json({ 

@@ -102,7 +102,7 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Season Engine**: Manages challenge passes and seasonal progression.
 
 **Design Decisions:**
-*   **Database**: PostgreSQL with Drizzle ORM, hosted on Neon serverless for cost optimization.
+*   **Database**: PostgreSQL with Drizzle ORM, hosted on Neon serverless (NEON_DATABASE_URL secret) for cost optimization. **Note**: The app uses Neon database while Replit's built-in SQL tools use a separate PostgreSQL instance - always use `/api/admin/tournament/dbcheck` endpoint to verify app database counts.
 *   **Deployment**: Unified Express server integrated with the bot.
 *   **UI/UX**: Responsive React admin dashboard with theming and environment indicators.
 *   **Authentication**: Discord OAuth2.
