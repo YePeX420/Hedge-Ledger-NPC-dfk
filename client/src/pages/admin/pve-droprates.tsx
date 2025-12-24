@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Loader2, Play, Square, RefreshCw, Target, Sword, Shield, Percent, Activity, AlertCircle, RotateCcw } from "lucide-react";
+import { Loader2, Play, Square, RefreshCw, Target, Sword, Shield, Percent, Activity, AlertCircle, RotateCcw, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface TimingInfo {
@@ -128,6 +128,7 @@ interface HierarchicalLoot {
   activityId: number;
   totalCompletions: number;
   regularLoot: RegularLoot[];
+  seasonalLoot: RegularLoot[];
   equipment: EquipmentParent[];
 }
 
@@ -409,6 +410,7 @@ function ActivityTable({ activities, type }: { activities: ActivityStats[]; type
   });
   
   const regularLoot = lootResponse?.regularLoot || [];
+  const seasonalLoot = lootResponse?.seasonalLoot || [];
   const equipment = lootResponse?.equipment || [];
   const totalCompletions = lootResponse?.totalCompletions || 0;
   
@@ -494,7 +496,7 @@ function ActivityTable({ activities, type }: { activities: ActivityStats[]; type
               <div className="flex items-center justify-center p-4">
                 <Loader2 className="w-6 h-6 animate-spin" />
               </div>
-            ) : (regularLoot.length > 0 || equipment.length > 0) ? (
+            ) : (regularLoot.length > 0 || seasonalLoot.length > 0 || equipment.length > 0) ? (
               <>
                 {/* Regular Loot Section */}
                 {regularLoot.length > 0 && (
@@ -523,6 +525,43 @@ function ActivityTable({ activities, type }: { activities: ActivityStats[]; type
                             <TableCell className="text-right">{formatNumber(loot.dropCount)}</TableCell>
                             <TableCell className="text-right text-muted-foreground">{formatNumber(loot.totalCompletions || totalCompletions)}</TableCell>
                             <TableCell className="text-right font-bold">
+                              {(loot.observedRate * 100).toFixed(2)}%
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                
+                {/* Seasonal Event Drops Section */}
+                {seasonalLoot.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2 text-muted-foreground flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      Seasonal Event Drops
+                    </h3>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item</TableHead>
+                          <TableHead className="text-right">Drops</TableHead>
+                          <TableHead className="text-right">Sample Size</TableHead>
+                          <TableHead className="text-right">Drop Rate</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {seasonalLoot.map((loot, idx) => (
+                          <TableRow key={idx} data-testid={`row-seasonal-${idx}`}>
+                            <TableCell className="font-medium">
+                              {loot.item_name || loot.item_address.slice(0, 10) + '...'}
+                              <Badge variant="outline" className="ml-2 text-xs text-amber-400 border-amber-400/30">
+                                seasonal
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">{formatNumber(loot.dropCount)}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">{formatNumber(loot.totalCompletions || totalCompletions)}</TableCell>
+                            <TableCell className="text-right font-bold text-amber-400">
                               {(loot.observedRate * 100).toFixed(2)}%
                             </TableCell>
                           </TableRow>

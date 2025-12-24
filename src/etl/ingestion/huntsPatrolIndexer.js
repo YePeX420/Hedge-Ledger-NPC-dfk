@@ -194,9 +194,17 @@ const KNOWN_ITEMS = {
   '0x1f9de5bb7ff3f87a1c2a96c9bf44d4f8f6fb0a12': { name: 'Shimmering Essence', type: 'material', rarity: 'uncommon' },
   
   // DFK Chain Equipment Contracts (parent categories - individual items have displayId/rarity)
+  // Equipment NFTs are minted from these contracts when HuntEquipmentMinted events fire
   '0xe60480b4083ca9f4d07034eb30bc7894114adac1': { name: 'Armor', type: 'equipment', rarity: 'varies', isEquipmentContract: true },
   '0x872c9e72e9e15e6c6bb1a3b3e840b3b8b1c2f3d4': { name: 'Weapon', type: 'equipment', rarity: 'varies', isEquipmentContract: true },
   '0x630706b99c053c727094c952ca685637dfe89c0a': { name: 'Armor (Alt)', type: 'equipment', rarity: 'varies', isEquipmentContract: true },
+  '0x19f894a5b7e0ad9b9239be0c8d1be5e0d0786f67': { name: 'Weapon', type: 'equipment', rarity: 'varies', isEquipmentContract: true },
+  '0x2f3b1b1e3c2f1f5c1d7c5a1e7f3d8a2b4c6e8f0a': { name: 'Shield', type: 'equipment', rarity: 'varies', isEquipmentContract: true },
+  '0x3e4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c': { name: 'Accessory', type: 'equipment', rarity: 'varies', isEquipmentContract: true },
+  
+  // Seasonal Event Items (limited-time drops from hunts/patrols)
+  '0x9b5d3e2a1c4f8b7e6a0d9c5f4e2b1a0c8d7e6f5a': { name: 'Winterfest Token', type: 'seasonal', rarity: 'common' },
+  '0xa1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0': { name: 'Perilous Journey Token', type: 'seasonal', rarity: 'common' },
   
   // Metis Patrol Items
   '0xb16838fc6eae51faea13fbeb655bde8bf702d5c2': { name: 'JEWEL', type: 'currency', rarity: 'common' },

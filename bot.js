@@ -5572,7 +5572,9 @@ async function startAdminWebServer() {
       `);
       const totalCompletions = parseInt(completionsResult[0]?.count || 0);
       
-      // Get non-equipment loot (consumables, materials, currency)
+      // Get non-equipment loot (consumables, materials, currency) - excludes seasonal
+      // Include items where is_equipment is FALSE/NULL, OR where item_type is explicitly NOT 'equipment'
+      // Explicitly exclude seasonal items (they go in their own section)
       const regularLoot = await db.execute(sql`
         SELECT 
           l.id as item_id,
@@ -5585,12 +5587,37 @@ async function startAdminWebServer() {
           FALSE as is_equipment
         FROM pve_reward_events r
         JOIN pve_loot_items l ON r.item_id = l.id
-        WHERE r.activity_id = ${activityIdInt} AND (r.is_equipment IS NULL OR r.is_equipment = FALSE)
+        WHERE r.activity_id = ${activityIdInt} 
+          AND (
+            (r.is_equipment IS NULL OR r.is_equipment = FALSE)
+            OR l.item_type IN ('consumable', 'currency', 'material', 'rune')
+          )
+          AND (l.item_type IS NULL OR l.item_type != 'seasonal')
+        GROUP BY l.id, l.item_address, l.name, l.item_type, l.rarity
+        ORDER BY drop_count DESC
+      `);
+      
+      // Get seasonal event drops separately
+      const seasonalLootQuery = await db.execute(sql`
+        SELECT 
+          l.id as item_id,
+          l.item_address,
+          l.name as item_name,
+          l.item_type,
+          l.rarity,
+          COUNT(r.id) as drop_count,
+          AVG(r.party_luck) as avg_party_luck,
+          FALSE as is_equipment
+        FROM pve_reward_events r
+        JOIN pve_loot_items l ON r.item_id = l.id
+        WHERE r.activity_id = ${activityIdInt} 
+          AND l.item_type = 'seasonal'
         GROUP BY l.id, l.item_address, l.name, l.item_type, l.rarity
         ORDER BY drop_count DESC
       `);
       
       // Get equipment parent categories (grouped by item_address/contract)
+      // Only include items where is_equipment = TRUE AND item_type is 'equipment' or NULL (unknown contracts)
       const equipmentParents = await db.execute(sql`
         SELECT 
           l.id as item_id,
@@ -5602,7 +5629,9 @@ async function startAdminWebServer() {
           TRUE as is_equipment
         FROM pve_reward_events r
         JOIN pve_loot_items l ON r.item_id = l.id
-        WHERE r.activity_id = ${activityIdInt} AND r.is_equipment = TRUE
+        WHERE r.activity_id = ${activityIdInt} 
+          AND r.is_equipment = TRUE
+          AND (l.item_type = 'equipment' OR l.item_type IS NULL)
         GROUP BY l.id, l.item_address, l.name, l.item_type
         ORDER BY drop_count DESC
       `);
@@ -5619,7 +5648,9 @@ async function startAdminWebServer() {
           AVG(r.party_luck) as avg_party_luck
         FROM pve_reward_events r
         JOIN pve_loot_items l ON r.item_id = l.id
-        WHERE r.activity_id = ${activityIdInt} AND r.is_equipment = TRUE
+        WHERE r.activity_id = ${activityIdInt} 
+          AND r.is_equipment = TRUE
+          AND (l.item_type = 'equipment' OR l.item_type IS NULL)
         GROUP BY l.id, l.item_address, r.display_id, r.rarity_tier, r.equipment_type
         ORDER BY l.item_address, r.rarity_tier DESC, drop_count DESC
       `);
@@ -5673,11 +5704,21 @@ async function startAdminWebServer() {
         avgPartyLuck: parseFloat(item.avg_party_luck) || 0,
       }));
       
+      // Format seasonal loot
+      const formattedSeasonalLoot = seasonalLootQuery.map(item => ({
+        ...item,
+        dropCount: parseInt(item.drop_count),
+        totalCompletions,
+        observedRate: totalCompletions > 0 ? parseInt(item.drop_count) / totalCompletions : 0,
+        avgPartyLuck: parseFloat(item.avg_party_luck) || 0,
+      }));
+      
       res.json({
         ok: true,
         activityId: activityIdInt,
         totalCompletions,
         regularLoot: formattedRegularLoot,
+        seasonalLoot: formattedSeasonalLoot,
         equipment: hierarchicalEquipment,
       });
     } catch (error) {
@@ -5723,6 +5764,64 @@ async function startAdminWebServer() {
       res.json({ ok: true, ...status, liveProgress });
     } catch (error) {
       console.error('[PVE Admin] Error fetching status:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/pve/items - Debug endpoint to review item classifications
+  app.get("/api/admin/pve/items", isAdmin, async (req, res) => {
+    try {
+      // Get all loot items with their classification and drop counts
+      const items = await db.execute(sql`
+        SELECT 
+          l.id,
+          l.item_address,
+          l.name,
+          l.item_type,
+          l.rarity,
+          l.chain_id,
+          COUNT(r.id) as total_drops,
+          SUM(CASE WHEN r.is_equipment = TRUE THEN 1 ELSE 0 END) as equipment_drops,
+          SUM(CASE WHEN r.is_equipment IS NULL OR r.is_equipment = FALSE THEN 1 ELSE 0 END) as regular_drops
+        FROM pve_loot_items l
+        LEFT JOIN pve_reward_events r ON l.id = r.item_id
+        GROUP BY l.id, l.item_address, l.name, l.item_type, l.rarity, l.chain_id
+        ORDER BY total_drops DESC
+      `);
+      
+      // Flag misclassified items (items with is_equipment=TRUE but item_type not 'equipment')
+      const flagged = items.filter(item => {
+        const eqDrops = parseInt(item.equipment_drops) || 0;
+        const isNonEquipmentType = item.item_type && item.item_type !== 'equipment';
+        return eqDrops > 0 && isNonEquipmentType;
+      });
+      
+      res.json({
+        ok: true,
+        totalItems: items.length,
+        flaggedCount: flagged.length,
+        flagged: flagged.map(f => ({
+          id: f.id,
+          address: f.item_address,
+          name: f.name,
+          item_type: f.item_type,
+          equipment_drops: parseInt(f.equipment_drops),
+          regular_drops: parseInt(f.regular_drops),
+          issue: `Item type '${f.item_type}' but has ${f.equipment_drops} equipment events`
+        })),
+        allItems: items.map(i => ({
+          id: i.id,
+          address: i.item_address,
+          name: i.name,
+          item_type: i.item_type,
+          chain_id: i.chain_id,
+          total_drops: parseInt(i.total_drops),
+          equipment_drops: parseInt(i.equipment_drops),
+          regular_drops: parseInt(i.regular_drops)
+        }))
+      });
+    } catch (error) {
+      console.error('[PVE Admin] Error fetching items:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
