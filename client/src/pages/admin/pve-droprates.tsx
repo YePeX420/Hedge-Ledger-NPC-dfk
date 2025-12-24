@@ -684,18 +684,22 @@ export default function AdminPVEDropRates() {
   const { toast } = useToast();
   const [activeChain, setActiveChain] = useState<'dfk' | 'metis'>('dfk');
 
-  const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useQuery<PVEStatus>({
+  const { data: status, isLoading: statusLoading, error: statusError, refetch: refetchStatus } = useQuery<PVEStatus>({
     queryKey: ['/api/admin/pve/status'],
     refetchInterval: 3000,
+    retry: 1,
   });
 
-  const { data: huntsData } = useQuery<{ ok: boolean; hunts: ActivityStats[] }>({
+  const { data: huntsData, isLoading: huntsLoading } = useQuery<{ ok: boolean; hunts: ActivityStats[] }>({
     queryKey: ['/api/pve/hunts'],
   });
 
-  const { data: patrolsData } = useQuery<{ ok: boolean; patrols: ActivityStats[] }>({
+  const { data: patrolsData, isLoading: patrolsLoading } = useQuery<{ ok: boolean; patrols: ActivityStats[] }>({
     queryKey: ['/api/pve/patrols'],
   });
+  
+  const hasAdminAccess = !!status && !statusError;
+  const isLoadingPublicData = huntsLoading || patrolsLoading;
   
   const hunts = huntsData?.hunts || [];
   const patrols = patrolsData?.patrols || [];
@@ -776,35 +780,47 @@ export default function AdminPVEDropRates() {
         </Button>
       </div>
 
-      {statusLoading ? (
+      {isLoadingPublicData ? (
         <div className="flex items-center justify-center p-8">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
-      ) : status ? (
+      ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <Sword className="w-4 h-4 text-amber-500" />
-                  DFK Hunts
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-dfk-total">
-                  {formatNumber(status.dfk?.checkpoint?.total_completions || 0)}
+          {statusError && (
+            <Card className="border-amber-500/50 bg-amber-500/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="w-5 h-5" />
+                  <span>Admin controls unavailable - viewing public drop rate data only</span>
                 </div>
-                <div className="text-xs text-muted-foreground">completions</div>
               </CardContent>
             </Card>
+          )}
+          
+          {hasAdminAccess && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Sword className="w-4 h-4 text-amber-500" />
+                    DFK Hunts
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="text-dfk-total">
+                    {formatNumber(status?.dfk?.checkpoint?.total_completions || 0)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">completions</div>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-blue-500" />
-                  Metis Patrols
-                </CardTitle>
-              </CardHeader>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-blue-500" />
+                    Metis Patrols
+                  </CardTitle>
+                </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold" data-testid="text-metis-total">
                   {formatNumber(status.metis?.checkpoint?.total_completions || 0)}
