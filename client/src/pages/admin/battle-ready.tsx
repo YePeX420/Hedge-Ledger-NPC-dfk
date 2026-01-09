@@ -288,6 +288,67 @@ function formatTTS(maxTeamStatScore: number | null): string | null {
   return `TTS ≤${max}`;
 }
 
+// Generate readable type name from tournament restrictions
+function generateReadableTypeName(pattern: TournamentPattern): string {
+  const parts: string[] = [];
+  
+  // Level restriction
+  const levelStr = formatLevelRange(pattern.level_min, pattern.level_max);
+  if (levelStr) {
+    parts.push(levelStr);
+  }
+  
+  // Rarity restriction
+  const rarityMin = pattern.rarity_min ?? 0;
+  const rarityMax = pattern.rarity_max ?? 4;
+  if (rarityMin > 0 || rarityMax < 4) {
+    if (rarityMin === rarityMax) {
+      parts.push(`${RARITY_NAMES[rarityMin]} Only`);
+    } else if (rarityMin > 0 && rarityMax === 4) {
+      parts.push(`${RARITY_NAMES[rarityMin]}+`);
+    } else if (rarityMin === 0 && rarityMax < 4) {
+      parts.push(`≤${RARITY_NAMES[rarityMax]}`);
+    } else {
+      parts.push(`${RARITY_NAMES[rarityMin]}-${RARITY_NAMES[rarityMax]}`);
+    }
+  }
+  
+  // Team stat score restriction
+  const ttsStr = formatTTS(pattern.max_team_stat_score);
+  if (ttsStr) {
+    parts.push(ttsStr);
+  }
+  
+  // Class restrictions
+  if (pattern.must_include_class && pattern.included_class_id != null) {
+    const className = CLASS_NAMES[pattern.included_class_id] || `Class${pattern.included_class_id}`;
+    parts.push(`Req: ${className}`);
+  }
+  
+  const excludedClasses = decodeClassBitmask(pattern.excluded_classes);
+  if (excludedClasses.length > 0) {
+    parts.push(`No: ${excludedClasses.slice(0, 2).join(', ')}${excludedClasses.length > 2 ? '...' : ''}`);
+  }
+  
+  // Class composition rules
+  if (pattern.all_unique_classes) {
+    parts.push('Unique Classes');
+  }
+  if (pattern.no_triple_classes) {
+    parts.push('No Triples');
+  }
+  
+  // Party size
+  const partySize = pattern.party_size ?? 3;
+  
+  // Build final name
+  if (parts.length === 0) {
+    return `Open ${partySize}v${partySize}`;
+  }
+  
+  return `${parts.join(' ')} ${partySize}v${partySize}`;
+}
+
 function StatusBadge({ status }: { status: string }) {
   if (status === 'running') {
     return (
@@ -338,6 +399,27 @@ export default function BattleReadyAdmin() {
   const { data: patternsData, isLoading: patternsLoading, refetch: refetchPatterns } = useQuery<{ ok: boolean; patterns: TournamentPattern[]; totalLabels: number }>({
     queryKey: ['/api/admin/tournament/patterns'],
   });
+
+  // Deduplicate patterns by signature, keeping the first occurrence with highest occurrence count
+  const uniquePatterns = useMemo(() => {
+    if (!patternsData?.patterns) return [];
+    const seen = new Map<string, TournamentPattern>();
+    for (const pattern of patternsData.patterns) {
+      const sig = pattern.signature;
+      if (!seen.has(sig)) {
+        seen.set(sig, pattern);
+      } else {
+        // Keep the one with higher occurrence count
+        const existing = seen.get(sig)!;
+        const existingCount = parseInt(String(existing.occurrence_count)) || 0;
+        const currentCount = parseInt(String(pattern.occurrence_count)) || 0;
+        if (currentCount > existingCount) {
+          seen.set(sig, pattern);
+        }
+      }
+    }
+    return Array.from(seen.values());
+  }, [patternsData?.patterns]);
 
   // Get the label ID for the expanded pattern
   const expandedLabelId = expandedPattern 
@@ -1098,7 +1180,7 @@ export default function BattleReadyAdmin() {
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
-          ) : patternsData?.patterns && patternsData.patterns.length > 0 ? (
+          ) : uniquePatterns.length > 0 ? (
             <div className="space-y-2">
               {/* Label creation form */}
               {labelForm && (
@@ -1170,7 +1252,7 @@ export default function BattleReadyAdmin() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {patternsData.patterns.slice(0, 30).map((pattern, idx) => (
+                    {uniquePatterns.slice(0, 30).map((pattern, idx) => (
                       <>
                         <TableRow key={`${pattern.signature}-${idx}`} data-testid={`row-pattern-${idx}`}>
                           <TableCell>
@@ -1187,7 +1269,8 @@ export default function BattleReadyAdmin() {
                             )}
                           </TableCell>
                           <TableCell>
-                            <div className="text-xs font-mono">{pattern.signature}</div>
+                            <div className="font-medium text-sm">{generateReadableTypeName(pattern)}</div>
+                            <div className="text-xs font-mono text-muted-foreground truncate max-w-[200px]" title={pattern.signature}>{pattern.signature}</div>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
