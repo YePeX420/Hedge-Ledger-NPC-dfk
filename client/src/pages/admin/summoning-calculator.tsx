@@ -111,6 +111,14 @@ interface SummoningResult {
     background: ProbabilityMap;
     hairStyle: ProbabilityMap;
     hairColor: ProbabilityMap;
+    eyeColor: ProbabilityMap;
+    skinColor: ProbabilityMap;
+    appendageColor: ProbabilityMap;
+    backAppendageColor: ProbabilityMap;
+    visualUnknown1: ProbabilityMap;
+    visualUnknown2: ProbabilityMap;
+    crafting1: ProbabilityMap;
+    crafting2: ProbabilityMap;
     mutations: MutationSet;
   };
   offspringGeneration: number;
@@ -456,16 +464,6 @@ export default function SummoningCalculator() {
                 <TabsContent value="visual">
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                     <ProbabilityTable 
-                      title="Gender" 
-                      probabilities={result.probabilities.gender}
-                      mutations={result.probabilities.mutations?.gender}
-                    />
-                    <ProbabilityTable 
-                      title="Background" 
-                      probabilities={result.probabilities.background}
-                      mutations={result.probabilities.mutations?.background}
-                    />
-                    <ProbabilityTable 
                       title="Hair Style" 
                       probabilities={result.probabilities.hairStyle}
                       mutations={result.probabilities.mutations?.hairStyle}
@@ -476,14 +474,74 @@ export default function SummoningCalculator() {
                       mutations={result.probabilities.mutations?.hairColor}
                     />
                     <ProbabilityTable 
-                      title="Head Appendage" 
+                      title="Head App" 
                       probabilities={result.probabilities.headAppendage}
                       mutations={result.probabilities.mutations?.headAppendage}
                     />
                     <ProbabilityTable 
-                      title="Back Appendage" 
+                      title="Head App Color" 
+                      probabilities={result.probabilities.appendageColor}
+                      mutations={result.probabilities.mutations?.appendageColor}
+                    />
+                    <ProbabilityTable 
+                      title="Back App" 
                       probabilities={result.probabilities.backAppendage}
                       mutations={result.probabilities.mutations?.backAppendage}
+                    />
+                    <ProbabilityTable 
+                      title="Back App Color" 
+                      probabilities={result.probabilities.backAppendageColor}
+                      mutations={result.probabilities.mutations?.backAppendageColor}
+                    />
+                  </div>
+
+                  <Separator className="my-4" />
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    <ProbabilityTable 
+                      title="Eye Color" 
+                      probabilities={result.probabilities.eyeColor}
+                      mutations={result.probabilities.mutations?.eyeColor}
+                    />
+                    <ProbabilityTable 
+                      title="Skin Color" 
+                      probabilities={result.probabilities.skinColor}
+                      mutations={result.probabilities.mutations?.skinColor}
+                    />
+                    <ProbabilityTable 
+                      title="Crafting 1" 
+                      probabilities={result.probabilities.crafting1}
+                      mutations={result.probabilities.mutations?.crafting1}
+                    />
+                    <ProbabilityTable 
+                      title="Crafting 2" 
+                      probabilities={result.probabilities.crafting2}
+                      mutations={result.probabilities.mutations?.crafting2}
+                    />
+                    <ProbabilityTable 
+                      title="Visual Unknown 1" 
+                      probabilities={result.probabilities.visualUnknown1}
+                      mutations={result.probabilities.mutations?.visualUnknown1}
+                    />
+                    <ProbabilityTable 
+                      title="Visual Unknown 2" 
+                      probabilities={result.probabilities.visualUnknown2}
+                      mutations={result.probabilities.mutations?.visualUnknown2}
+                    />
+                  </div>
+
+                  <Separator className="my-4" />
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    <ProbabilityTable 
+                      title="Gender" 
+                      probabilities={result.probabilities.gender}
+                      mutations={result.probabilities.mutations?.gender}
+                    />
+                    <ProbabilityTable 
+                      title="Background" 
+                      probabilities={result.probabilities.background}
+                      mutations={result.probabilities.mutations?.background}
                     />
                   </div>
                 </TabsContent>
