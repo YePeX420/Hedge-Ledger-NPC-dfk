@@ -256,9 +256,15 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
     extractVisualGeneIds(parent2Genetics.visual.visualUnknown2)
   );
   
-  // Crafting traits
-  const craft1Data = calculateTraitProbabilities(parent1Genetics.crafting1, parent2Genetics.crafting1);
-  const craft2Data = calculateTraitProbabilities(parent1Genetics.crafting2, parent2Genetics.crafting2);
+  // Crafting traits - extract gene ID values (use same function as visual traits)
+  const craft1Data = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.crafting1), 
+    extractVisualGeneIds(parent2Genetics.crafting1)
+  );
+  const craft2Data = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.crafting2), 
+    extractVisualGeneIds(parent2Genetics.crafting2)
+  );
   
   const results = {
     class: classData.probabilities,
