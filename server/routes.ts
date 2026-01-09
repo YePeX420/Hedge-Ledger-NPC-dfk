@@ -2927,6 +2927,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Note: Tavern listings endpoint is defined in bot.js to avoid duplicate route registration
+  
   const httpServer = createServer(app);
 
   return httpServer;

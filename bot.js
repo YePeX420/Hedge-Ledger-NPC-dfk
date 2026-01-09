@@ -8446,29 +8446,27 @@ async function startAdminWebServer() {
     try {
       console.log('[Tavern] Starting tavern-listings request...');
       const limit = req.query.limit ? parseInt(req.query.limit) : 50;
-      const { getCrystalPrice, getJewelPrice } = await import('./price-feed.js');
       
       // Official DFK API for tavern listings (announced June 2025)
       const DFK_TAVERN_API = 'https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions';
       
       console.log('[Tavern] Fetching from official DFK API...');
       
-      // Fetch heroes and prices in parallel
-      const [apiResponse, crystalPrice, jewelPrice] = await Promise.all([
-        fetch(DFK_TAVERN_API, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limit: limit * 2, offset: 0 })
-        }).then(async r => {
-          if (!r.ok) throw new Error(`DFK API error: ${r.status}`);
-          const data = await r.json();
-          console.log('[Tavern] DFK API returned', data?.length || 0, 'heroes');
-          return data;
-        }),
-        getCrystalPrice().catch(err => { console.log('[Tavern] Crystal price error:', err.message); return 0; }),
-        getJewelPrice().catch(err => { console.log('[Tavern] Jewel price error:', err.message); return 0; })
-      ]);
-      console.log('[Tavern] Prices: CRYSTAL=$' + crystalPrice + ', JEWEL=$' + jewelPrice);
+      // Fetch heroes only - skip prices to avoid slow price graph build
+      const apiResponse = await fetch(DFK_TAVERN_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: limit * 2, offset: 0 })
+      }).then(async r => {
+        if (!r.ok) throw new Error(`DFK API error: ${r.status}`);
+        const data = await r.json();
+        console.log('[Tavern] DFK API returned', data?.length || 0, 'heroes');
+        return data;
+      });
+      
+      // Skip price fetching to avoid slow price graph build
+      const crystalPrice = 0;
+      const jewelPrice = 0;
       
       // Helper to convert wei to token amount
       const weiToToken = (weiStr) => {
@@ -8540,7 +8538,12 @@ async function startAdminWebServer() {
           endurance: hero.endurance ?? 0,
           hp: hero.hp ?? 0,
           mp: hero.mp ?? 0,
-          stamina: hero.stamina ?? 25
+          stamina: hero.stamina ?? 25,
+          // Ability data for trait score calculation (TTS)
+          active1: hero.active1 != null ? `ability_${hero.active1}` : null,
+          active2: hero.active2 != null ? `ability_${hero.active2}` : null,
+          passive1: hero.passive1 != null ? `ability_${hero.passive1}` : null,
+          passive2: hero.passive2 != null ? `ability_${hero.passive2}` : null
         };
         
         if (heroId >= CV_ID_MIN && heroId < CV_ID_MAX) {

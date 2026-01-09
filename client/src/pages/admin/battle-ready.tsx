@@ -21,6 +21,56 @@ const REALM_DISPLAY_NAMES: Record<string, string> = {
   sd: 'Sundered Isles Barkeep',
 };
 
+// Ability tier scoring for TTS (Team Trait Score)
+// Active: IDs 0-14 → Basic (0-7)=0, Advanced (8-11)=1, Elite (12-13)=2, Exalted (14)=3
+// Passive: IDs 16-30 → Basic (16-23)=0, Advanced (24-27)=1, Elite (28-29)=2, Exalted (30)=3
+function getAbilityTierPoints(abilitySlot: string | number | null | undefined): number {
+  if (abilitySlot == null) return 0;
+  
+  // Handle "ability_X" format
+  let id: number;
+  if (typeof abilitySlot === 'string') {
+    const match = abilitySlot.match(/ability_(\d+)/);
+    if (!match) return 0;
+    id = parseInt(match[1], 10);
+  } else {
+    id = abilitySlot;
+  }
+  
+  if (isNaN(id)) return 0;
+  
+  // Active abilities (0-14)
+  if (id >= 0 && id <= 7) return 0;   // Basic
+  if (id >= 8 && id <= 11) return 1;  // Advanced
+  if (id >= 12 && id <= 13) return 2; // Elite
+  if (id === 14) return 3;            // Exalted
+  
+  // Passive abilities (16-30)
+  if (id >= 16 && id <= 23) return 0; // Basic
+  if (id >= 24 && id <= 27) return 1; // Advanced
+  if (id >= 28 && id <= 29) return 2; // Elite
+  if (id === 30) return 3;            // Exalted
+  
+  return 0;
+}
+
+// Calculate total trait score for a single hero (max 12 points: 4 slots × 3 max)
+function calculateHeroTraitScore(hero: { active1?: string | number | null; active2?: string | number | null; passive1?: string | number | null; passive2?: string | number | null }): number {
+  return getAbilityTierPoints(hero.active1) +
+         getAbilityTierPoints(hero.active2) +
+         getAbilityTierPoints(hero.passive1) +
+         getAbilityTierPoints(hero.passive2);
+}
+
+// Get tier name for display
+function getAbilityTierName(points: number): string {
+  if (points === 0) return 'Basic';
+  if (points === 1) return 'Advanced';
+  if (points === 2) return 'Elite';
+  if (points >= 3) return 'Exalted';
+  return 'Unknown';
+}
+
 interface SimilarityConfig {
   id: number;
   configName: string;
@@ -166,6 +216,11 @@ interface TavernHero {
   nativeToken: 'CRYSTAL' | 'JEWEL';
   priceNative: number;
   priceUSD: number | null;
+  // Ability data for trait score calculation
+  active1?: string | number | null;
+  active2?: string | number | null;
+  passive1?: string | number | null;
+  passive2?: string | number | null;
 }
 
 interface TavernListingsResponse {
@@ -371,6 +426,7 @@ export default function BattleReadyAdmin() {
   const [editingConfig, setEditingConfig] = useState<SimilarityConfig | null>(null);
   const [selectedHeroes, setSelectedHeroes] = useState<Set<string>>(new Set());
   const [tavernFilter, setTavernFilter] = useState<'all' | 'cv' | 'sd'>('all');
+  const [ttsFilter, setTtsFilter] = useState<'any' | '3' | '5' | '7' | '9'>('any');
   const [expandedPattern, setExpandedPattern] = useState<string | null>(null);
   const [labelForm, setLabelForm] = useState<{ signature: string; label: string; category: string; color: string } | null>(null);
 
@@ -573,18 +629,36 @@ export default function BattleReadyAdmin() {
     if (!tavernData) return [];
     const cv = tavernData.crystalvale || [];
     const sd = tavernData.serendale || [];
-    if (tavernFilter === 'cv') return cv;
-    if (tavernFilter === 'sd') return sd;
-    return [...cv, ...sd].sort((a, b) => (a.priceUSD ?? 999999) - (b.priceUSD ?? 999999));
-  }, [tavernData, tavernFilter]);
+    
+    // Filter by tavern first
+    let heroes: TavernHero[];
+    if (tavernFilter === 'cv') heroes = cv;
+    else if (tavernFilter === 'sd') heroes = sd;
+    else heroes = [...cv, ...sd];
+    
+    // Apply TTS filter if set
+    if (ttsFilter !== 'any') {
+      const maxTts = parseInt(ttsFilter, 10);
+      heroes = heroes.filter(h => {
+        const heroTts = calculateHeroTraitScore(h);
+        // For team of 3, check if hero could fit within team budget
+        // Individual hero max is 12, so we filter heroes with TTS ≤ maxTts/3 roughly
+        // But better to just show individual score and let user decide
+        return heroTts <= maxTts;
+      });
+    }
+    
+    return heroes.sort((a, b) => (a.priceUSD ?? 999999) - (b.priceUSD ?? 999999));
+  }, [tavernData, tavernFilter, ttsFilter]);
 
-  // Calculate team cost totals for selected heroes
+  // Calculate team cost totals and TTS for selected heroes
   const teamCostTotals = useMemo(() => {
     const selected = allTavernHeroes.filter(h => selectedHeroes.has(h.id));
     const crystalTotal = selected.filter(h => h.nativeToken === 'CRYSTAL').reduce((sum, h) => sum + h.priceNative, 0);
     const jewelTotal = selected.filter(h => h.nativeToken === 'JEWEL').reduce((sum, h) => sum + h.priceNative, 0);
     const usdTotal = selected.reduce((sum, h) => sum + (h.priceUSD ?? 0), 0);
-    return { crystalTotal, jewelTotal, usdTotal, count: selected.length };
+    const teamTts = selected.reduce((sum, h) => sum + calculateHeroTraitScore(h), 0);
+    return { crystalTotal, jewelTotal, usdTotal, count: selected.length, teamTts };
   }, [allTavernHeroes, selectedHeroes]);
 
   // Toggle hero selection
@@ -1508,6 +1582,18 @@ export default function BattleReadyAdmin() {
                   <SelectItem value="sd">Sundered Isles</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={ttsFilter} onValueChange={(v) => setTtsFilter(v as 'any' | '3' | '5' | '7' | '9')}>
+                <SelectTrigger className="w-32" data-testid="select-tts-filter">
+                  <SelectValue placeholder="Max TTS" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any TTS</SelectItem>
+                  <SelectItem value="3">TTS ≤3</SelectItem>
+                  <SelectItem value="5">TTS ≤5</SelectItem>
+                  <SelectItem value="7">TTS ≤7</SelectItem>
+                  <SelectItem value="9">TTS ≤9</SelectItem>
+                </SelectContent>
+              </Select>
               <Button variant="outline" size="sm" onClick={() => refetchTavern()} data-testid="button-refresh-tavern">
                 <RefreshCw className="h-4 w-4 mr-1" />
                 Refresh
@@ -1525,7 +1611,7 @@ export default function BattleReadyAdmin() {
             <div className="mb-4 p-4 bg-muted rounded-lg flex flex-wrap items-center gap-4" data-testid="team-cost-summary">
               <div className="flex items-center gap-2">
                 <DollarSign className="h-5 w-5 text-green-500" />
-                <span className="font-semibold">Team Cost ({teamCostTotals.count} heroes):</span>
+                <span className="font-semibold">Team ({teamCostTotals.count} heroes):</span>
               </div>
               {teamCostTotals.crystalTotal > 0 && (
                 <Badge variant="outline" className="text-blue-400" data-testid="text-crystal-total">
@@ -1539,6 +1625,9 @@ export default function BattleReadyAdmin() {
               )}
               <Badge className="bg-green-600" data-testid="text-usd-total">
                 ${teamCostTotals.usdTotal.toFixed(2)} USD
+              </Badge>
+              <Badge variant="outline" className="text-orange-400" data-testid="text-team-tts">
+                TTS: {teamCostTotals.teamTts}
               </Badge>
             </div>
           )}
@@ -1561,6 +1650,7 @@ export default function BattleReadyAdmin() {
                       <TableHead>Class</TableHead>
                       <TableHead>Level</TableHead>
                       <TableHead>Rarity</TableHead>
+                      <TableHead>TTS</TableHead>
                       <TableHead>Profession</TableHead>
                       <TableHead>Summons</TableHead>
                       <TableHead>Stats</TableHead>
@@ -1593,6 +1683,11 @@ export default function BattleReadyAdmin() {
                           <span className={RARITY_COLORS[hero.rarity] || ''}>
                             {RARITY_NAMES[hero.rarity] || hero.rarity}
                           </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs" data-testid={`text-hero-tts-${hero.id}`}>
+                            {calculateHeroTraitScore(hero)}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-xs">{hero.professionStr}</TableCell>
                         <TableCell className="text-xs">{hero.summons}/{hero.maxSummons}</TableCell>
