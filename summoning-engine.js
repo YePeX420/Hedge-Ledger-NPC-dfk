@@ -4,6 +4,12 @@
  * Calculates offspring trait probabilities using DeFi Kingdoms genetics system.
  * Uses weighted gene selection: D=75%, R1=18.75%, R2=5.5%, R3=0.75%
  * Includes class mutation system for advanced/elite/exalted classes.
+ * 
+ * Algorithm:
+ * 1. For each of 16 position combinations (P1.D×P2.D, P1.D×P2.R1, etc.)
+ * 2. Calculate combination weight (e.g., 0.75 × 0.75 = 0.5625)
+ * 3. 50% chance P1's gene selected, 50% chance P2's gene selected
+ * 4. If genes form mutation pair, 25% of the time mutated class is chosen instead
  */
 
 import { calculateRarityDistribution } from './rarity-calculator.js';
@@ -15,25 +21,52 @@ const GENE_WEIGHTS = {
   R3: 0.0075
 };
 
+const GENE_POSITIONS = ['dominant', 'R1', 'R2', 'R3'];
+
+/**
+ * Correct DFK Class Mutation Map
+ * Based on official DFK documentation and user-verified data
+ * 
+ * BASIC → ADVANCED:
+ * - Knight + Warrior → Paladin
+ * - Knight + Thief → DarkKnight  
+ * - Priest + Wizard → Summoner
+ * - Pirate + Monk → Ninja
+ * - Thief + Pirate → Shapeshifter
+ * - Archer + Monk → Bard
+ * 
+ * ADVANCED → ELITE:
+ * - Paladin + DarkKnight → Dragoon
+ * - Summoner + Ninja → Sage
+ * - Shapeshifter + Bard → Spellbow
+ * 
+ * ELITE → EXALTED:
+ * - Dragoon + Sage → DreadKnight
+ * - Dragoon + Spellbow → DreadKnight
+ * - Sage + Spellbow → DreadKnight
+ */
 const CLASS_MUTATION_MAP = {
-  'Knight+Priest': 'Paladin',
-  'Priest+Knight': 'Paladin',
-  'Warrior+Thief': 'DarkKnight',
-  'Thief+Warrior': 'DarkKnight',
-  'Wizard+Priest': 'Summoner',
+  // Basic → Advanced
+  'Knight+Warrior': 'Paladin',
+  'Warrior+Knight': 'Paladin',
+  'Knight+Thief': 'DarkKnight',
+  'Thief+Knight': 'DarkKnight',
   'Priest+Wizard': 'Summoner',
+  'Wizard+Priest': 'Summoner',
   'Pirate+Monk': 'Ninja',
   'Monk+Pirate': 'Ninja',
-  'Berserker+Monk': 'Shapeshifter',
-  'Monk+Berserker': 'Shapeshifter',
-  'Archer+Seer': 'Bard',
-  'Seer+Archer': 'Bard',
+  'Thief+Pirate': 'Shapeshifter',
+  'Pirate+Thief': 'Shapeshifter',
+  'Archer+Monk': 'Bard',
+  'Monk+Archer': 'Bard',
+  // Advanced → Elite
   'Paladin+DarkKnight': 'Dragoon',
   'DarkKnight+Paladin': 'Dragoon',
-  'Summoner+Shapeshifter': 'Sage',
-  'Shapeshifter+Summoner': 'Sage',
-  'Ninja+Bard': 'Spellbow',
-  'Bard+Ninja': 'Spellbow',
+  'Summoner+Ninja': 'Sage',
+  'Ninja+Summoner': 'Sage',
+  'Shapeshifter+Bard': 'Spellbow',
+  'Bard+Shapeshifter': 'Spellbow',
+  // Elite → Exalted
   'Dragoon+Sage': 'DreadKnight',
   'Sage+Dragoon': 'DreadKnight',
   'Dragoon+Spellbow': 'DreadKnight',
@@ -53,8 +86,11 @@ const MUTATION_CHANCE = 0.25;
  * @returns {Object} Complete probability distributions for all traits
  */
 export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics, parent1Rarity, parent2Rarity) {
+  // Class traits use mutation system
   const classData = calculateClassWithMutations(parent1Genetics.mainClass, parent2Genetics.mainClass);
   const subClassData = calculateClassWithMutations(parent1Genetics.subClass, parent2Genetics.subClass);
+  
+  // Non-class traits use standard probability calculation
   const professionData = calculateTraitProbabilities(parent1Genetics.profession, parent2Genetics.profession);
   const passive1Data = calculateTraitProbabilities(parent1Genetics.passive1, parent2Genetics.passive1);
   const passive2Data = calculateTraitProbabilities(parent1Genetics.passive2, parent2Genetics.passive2);
@@ -63,6 +99,8 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
   const statBoost1Data = calculateTraitProbabilities(parent1Genetics.statBoost1, parent2Genetics.statBoost1);
   const statBoost2Data = calculateTraitProbabilities(parent1Genetics.statBoost2, parent2Genetics.statBoost2);
   const elementData = calculateTraitProbabilities(parent1Genetics.element, parent2Genetics.element);
+  
+  // Visual traits
   const genderData = calculateTraitProbabilities(parent1Genetics.visual.gender, parent2Genetics.visual.gender);
   const headAppData = calculateTraitProbabilities(parent1Genetics.visual.headAppendage, parent2Genetics.visual.headAppendage);
   const backAppData = calculateTraitProbabilities(parent1Genetics.visual.backAppendage, parent2Genetics.visual.backAppendage);
@@ -75,6 +113,10 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
   const backAppColorData = calculateTraitProbabilities(parent1Genetics.visual.backAppendageColor, parent2Genetics.visual.backAppendageColor);
   const vu1Data = calculateTraitProbabilities(parent1Genetics.visual.visualUnknown1, parent2Genetics.visual.visualUnknown1);
   const vu2Data = calculateTraitProbabilities(parent1Genetics.visual.visualUnknown2, parent2Genetics.visual.visualUnknown2);
+  
+  // Crafting traits
+  const craft1Data = calculateTraitProbabilities(parent1Genetics.crafting1, parent2Genetics.crafting1);
+  const craft2Data = calculateTraitProbabilities(parent1Genetics.crafting2, parent2Genetics.crafting2);
   
   const results = {
     class: classData.probabilities,
@@ -99,6 +141,8 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
     backAppendageColor: backAppColorData.probabilities,
     visualUnknown1: vu1Data.probabilities,
     visualUnknown2: vu2Data.probabilities,
+    crafting1: craft1Data.probabilities,
+    crafting2: craft2Data.probabilities,
     rarity: calculateRarityDistribution(parent1Rarity, parent2Rarity),
     mutations: {
       class: Array.from(classData.mutations),
@@ -122,7 +166,9 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
       appendageColor: Array.from(appColorData.mutations),
       backAppendageColor: Array.from(backAppColorData.mutations),
       visualUnknown1: Array.from(vu1Data.mutations),
-      visualUnknown2: Array.from(vu2Data.mutations)
+      visualUnknown2: Array.from(vu2Data.mutations),
+      crafting1: Array.from(craft1Data.mutations),
+      crafting2: Array.from(craft2Data.mutations)
     }
   };
   
@@ -130,50 +176,79 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
 }
 
 /**
- * Calculate class probabilities with mutation handling
- * @param {Object} parent1Trait - Parent 1 class genes
- * @param {Object} parent2Trait - Parent 2 class genes
+ * Calculate class probabilities WITH mutation handling
+ * 
+ * For each of the 16 gene position combinations:
+ * 1. Calculate combination weight (P1.pos × P2.pos)
+ * 2. Check if the two genes form a mutation pair
+ * 3. If mutation pair:
+ *    - 75% of the time (no mutation): P1 gene gets 50%, P2 gene gets 50%
+ *    - 25% of the time (mutation): mutated class gets 100%
+ * 4. If not mutation pair:
+ *    - P1 gene gets 50%, P2 gene gets 50%
+ * 
+ * @param {Object} parent1Trait - Parent 1 class genes {dominant, R1, R2, R3}
+ * @param {Object} parent2Trait - Parent 2 class genes {dominant, R1, R2, R3}
  * @returns {Object} { probabilities, mutations }
  */
 function calculateClassWithMutations(parent1Trait, parent2Trait) {
-  const baseResult = calculateTraitProbabilities(parent1Trait, parent2Trait);
-  const probabilities = { ...baseResult.probabilities };
-  const mutations = new Set(baseResult.mutations);
+  const outcomes = {};
+  const mutations = new Set();
   
-  const genePositions = ['dominant', 'R1', 'R2', 'R3'];
+  // Get dominant classes for marking recessive mutations
+  const parent1Dominant = parent1Trait.dominant;
+  const parent2Dominant = parent2Trait.dominant;
   
-  for (const gene1 of genePositions) {
-    for (const gene2 of genePositions) {
-      const class1 = parent1Trait[gene1];
-      const class2 = parent2Trait[gene2];
+  // Iterate through all 16 gene position combinations
+  for (const pos1 of GENE_POSITIONS) {
+    for (const pos2 of GENE_POSITIONS) {
+      const gene1 = parent1Trait[pos1];
+      const gene2 = parent2Trait[pos2];
       
-      if (!class1 || !class2) continue;
+      if (!gene1 || !gene2) continue;
       
-      const mutationKey = `${class1}+${class2}`;
+      // Calculate weight for this position combination
+      const weight1 = GENE_WEIGHTS[pos1];
+      const weight2 = GENE_WEIGHTS[pos2];
+      const combinationWeight = weight1 * weight2;
+      
+      // Check if this gene pair can mutate
+      const mutationKey = `${gene1}+${gene2}`;
       const mutatedClass = CLASS_MUTATION_MAP[mutationKey];
       
       if (mutatedClass) {
-        const weight1 = GENE_WEIGHTS[gene1];
-        const weight2 = GENE_WEIGHTS[gene2];
-        const combinationProb = weight1 * weight2 * 100;
-        const mutationProb = combinationProb * MUTATION_CHANCE;
+        // Mutation is possible!
+        // 25% chance: mutated class is selected
+        // 75% chance: one of the parent genes is selected (50/50)
+        const mutationProb = combinationWeight * MUTATION_CHANCE * 100;
+        const nonMutationProb = combinationWeight * (1 - MUTATION_CHANCE) * 100;
         
-        probabilities[mutatedClass] = (probabilities[mutatedClass] || 0) + mutationProb;
-        probabilities[class1] = (probabilities[class1] || 0) - (mutationProb / 2);
-        probabilities[class2] = (probabilities[class2] || 0) - (mutationProb / 2);
-        
+        // Add mutation outcome
+        outcomes[mutatedClass] = (outcomes[mutatedClass] || 0) + mutationProb;
         mutations.add(mutatedClass);
+        
+        // Add non-mutation outcomes (50/50 between the two genes)
+        outcomes[gene1] = (outcomes[gene1] || 0) + (nonMutationProb * 0.5);
+        outcomes[gene2] = (outcomes[gene2] || 0) + (nonMutationProb * 0.5);
+      } else {
+        // No mutation possible - standard 50/50 selection
+        const prob = combinationWeight * 100;
+        outcomes[gene1] = (outcomes[gene1] || 0) + (prob * 0.5);
+        outcomes[gene2] = (outcomes[gene2] || 0) + (prob * 0.5);
+      }
+      
+      // Mark recessive genes as mutations (for highlighting)
+      if (gene1 !== parent1Dominant && gene1 !== parent2Dominant) {
+        mutations.add(gene1);
+      }
+      if (gene2 !== parent1Dominant && gene2 !== parent2Dominant) {
+        mutations.add(gene2);
       }
     }
   }
   
-  for (const key of Object.keys(probabilities)) {
-    if (probabilities[key] <= 0) {
-      delete probabilities[key];
-    }
-  }
-  
-  const sorted = Object.entries(probabilities)
+  // Sort by probability and round
+  const sorted = Object.entries(outcomes)
     .map(([trait, prob]) => [trait, Math.round(prob * 100) / 100])
     .filter(([, prob]) => prob > 0)
     .sort((a, b) => b[1] - a[1]);
@@ -185,45 +260,52 @@ function calculateClassWithMutations(parent1Trait, parent2Trait) {
 }
 
 /**
- * Calculate probability distribution for a single trait using weighted genetics
- * D=75%, R1=18.75%, R2=5.5%, R3=0.75%
+ * Calculate probability distribution for a single trait (non-class traits)
+ * Uses standard weighted genetics: D=75%, R1=18.75%, R2=5.5%, R3=0.75%
+ * 
  * @param {Object} parent1Trait - Trait object with { dominant, R1, R2, R3 } genes
  * @param {Object} parent2Trait - Trait object with { dominant, R1, R2, R3 } genes
  * @returns {Object} { probabilities: {...}, mutations: Set }
  */
 export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
-  const genePositions = ['dominant', 'R1', 'R2', 'R3'];
   const outcomes = {};
   const mutations = new Set();
+  
+  if (!parent1Trait || !parent2Trait) {
+    return { probabilities: {}, mutations };
+  }
   
   const parent1Dominant = parent1Trait.dominant;
   const parent2Dominant = parent2Trait.dominant;
   
-  for (const gene1 of genePositions) {
-    for (const gene2 of genePositions) {
-      const value1 = parent1Trait[gene1];
-      const value2 = parent2Trait[gene2];
+  // Iterate through all 16 gene position combinations
+  for (const pos1 of GENE_POSITIONS) {
+    for (const pos2 of GENE_POSITIONS) {
+      const gene1 = parent1Trait[pos1];
+      const gene2 = parent2Trait[pos2];
       
-      const weight1 = GENE_WEIGHTS[gene1];
-      const weight2 = GENE_WEIGHTS[gene2];
-      const combinationProb = weight1 * weight2 * 100;
+      const weight1 = GENE_WEIGHTS[pos1];
+      const weight2 = GENE_WEIGHTS[pos2];
+      const combinationWeight = weight1 * weight2 * 100;
       
-      if (value1) {
-        outcomes[value1] = (outcomes[value1] || 0) + (combinationProb * 0.5);
-        if (value1 !== parent1Dominant && value1 !== parent2Dominant) {
-          mutations.add(value1);
+      // 50/50 chance between the two genes
+      if (gene1) {
+        outcomes[gene1] = (outcomes[gene1] || 0) + (combinationWeight * 0.5);
+        if (gene1 !== parent1Dominant && gene1 !== parent2Dominant) {
+          mutations.add(gene1);
         }
       }
       
-      if (value2) {
-        outcomes[value2] = (outcomes[value2] || 0) + (combinationProb * 0.5);
-        if (value2 !== parent1Dominant && value2 !== parent2Dominant) {
-          mutations.add(value2);
+      if (gene2) {
+        outcomes[gene2] = (outcomes[gene2] || 0) + (combinationWeight * 0.5);
+        if (gene2 !== parent1Dominant && gene2 !== parent2Dominant) {
+          mutations.add(gene2);
         }
       }
     }
   }
   
+  // Sort by probability and round
   const sorted = Object.entries(outcomes)
     .map(([trait, prob]) => [trait, Math.round(prob * 100) / 100])
     .sort((a, b) => b[1] - a[1]);
