@@ -133,9 +133,22 @@ function ProbabilityTable({
 }: { 
   title: string; 
   probabilities: ProbabilityMap; 
-  mutations?: Set<string> | string[];
+  mutations?: Set<string> | string[] | null | undefined;
 }) {
-  const mutationSet = mutations instanceof Set ? mutations : new Set(mutations || []);
+  let mutationSet: Set<string>;
+  if (!mutations) {
+    mutationSet = new Set<string>();
+  } else if (mutations instanceof Set) {
+    mutationSet = mutations;
+  } else if (Array.isArray(mutations)) {
+    mutationSet = new Set(mutations);
+  } else {
+    console.warn(`[SummoningCalculator] Unexpected mutations format for ${title}:`, typeof mutations, mutations);
+    mutationSet = new Set<string>();
+  }
+  
+  if (!probabilities || typeof probabilities !== 'object') return null;
+  
   const sortedEntries = Object.entries(probabilities)
     .sort((a, b) => b[1] - a[1])
     .filter(([_, prob]) => prob > 0);
