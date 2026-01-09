@@ -276,7 +276,7 @@ function calculateTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
       const gene1 = parent1Trait[pos1];
       const gene2 = parent2Trait[pos2];
       
-      if (!gene1 || !gene2) continue;
+      if (gene1 === undefined || gene1 === null || gene2 === undefined || gene2 === null) continue;
       
       // Calculate weight for this position combination
       const weight1 = GENE_WEIGHTS[pos1];
@@ -356,11 +356,11 @@ export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
       const combinationWeight = weight1 * weight2 * 100;
       
       // 50/50 chance between the two genes
-      if (gene1) {
+      if (gene1 !== undefined && gene1 !== null) {
         outcomes[gene1] = (outcomes[gene1] || 0) + (combinationWeight * 0.5);
       }
       
-      if (gene2) {
+      if (gene2 !== undefined && gene2 !== null) {
         outcomes[gene2] = (outcomes[gene2] || 0) + (combinationWeight * 0.5);
       }
     }

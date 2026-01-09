@@ -135,58 +135,58 @@ function decodeHeroGenes(hero) {
         R3: visualTraits.gender.r3.name
       },
       headAppendage: {
-        dominant: visualTraits.headAppendage.d.name,
-        R1: visualTraits.headAppendage.r1.name,
-        R2: visualTraits.headAppendage.r2.name,
-        R3: visualTraits.headAppendage.r3.name
+        dominant: visualTraits.headAppendage.d.value,
+        R1: visualTraits.headAppendage.r1.value,
+        R2: visualTraits.headAppendage.r2.value,
+        R3: visualTraits.headAppendage.r3.value
       },
       backAppendage: {
-        dominant: visualTraits.backAppendage.d.name,
-        R1: visualTraits.backAppendage.r1.name,
-        R2: visualTraits.backAppendage.r2.name,
-        R3: visualTraits.backAppendage.r3.name
+        dominant: visualTraits.backAppendage.d.value,
+        R1: visualTraits.backAppendage.r1.value,
+        R2: visualTraits.backAppendage.r2.value,
+        R3: visualTraits.backAppendage.r3.value
       },
       background: {
-        dominant: visualTraits.background.d.name,
-        R1: visualTraits.background.r1.name,
-        R2: visualTraits.background.r2.name,
-        R3: visualTraits.background.r3.name
+        dominant: visualTraits.background.d.value,
+        R1: visualTraits.background.r1.value,
+        R2: visualTraits.background.r2.value,
+        R3: visualTraits.background.r3.value
       },
       hairStyle: {
-        dominant: visualTraits.hairStyle.d.name,
-        R1: visualTraits.hairStyle.r1.name,
-        R2: visualTraits.hairStyle.r2.name,
-        R3: visualTraits.hairStyle.r3.name
+        dominant: visualTraits.hairStyle.d.value,
+        R1: visualTraits.hairStyle.r1.value,
+        R2: visualTraits.hairStyle.r2.value,
+        R3: visualTraits.hairStyle.r3.value
       },
       hairColor: {
-        dominant: visualTraits.hairColor.d.hex,
-        R1: visualTraits.hairColor.r1.hex,
-        R2: visualTraits.hairColor.r2.hex,
-        R3: visualTraits.hairColor.r3.hex
+        dominant: visualTraits.hairColor.d.value,
+        R1: visualTraits.hairColor.r1.value,
+        R2: visualTraits.hairColor.r2.value,
+        R3: visualTraits.hairColor.r3.value
       },
       eyeColor: {
-        dominant: visualTraits.eyeColor.d.hex,
-        R1: visualTraits.eyeColor.r1.hex,
-        R2: visualTraits.eyeColor.r2.hex,
-        R3: visualTraits.eyeColor.r3.hex
+        dominant: visualTraits.eyeColor.d.value,
+        R1: visualTraits.eyeColor.r1.value,
+        R2: visualTraits.eyeColor.r2.value,
+        R3: visualTraits.eyeColor.r3.value
       },
       skinColor: {
-        dominant: visualTraits.skinColor.d.hex,
-        R1: visualTraits.skinColor.r1.hex,
-        R2: visualTraits.skinColor.r2.hex,
-        R3: visualTraits.skinColor.r3.hex
+        dominant: visualTraits.skinColor.d.value,
+        R1: visualTraits.skinColor.r1.value,
+        R2: visualTraits.skinColor.r2.value,
+        R3: visualTraits.skinColor.r3.value
       },
       appendageColor: {
-        dominant: visualTraits.appendageColor.d.hex,
-        R1: visualTraits.appendageColor.r1.hex,
-        R2: visualTraits.appendageColor.r2.hex,
-        R3: visualTraits.appendageColor.r3.hex
+        dominant: visualTraits.appendageColor.d.value,
+        R1: visualTraits.appendageColor.r1.value,
+        R2: visualTraits.appendageColor.r2.value,
+        R3: visualTraits.appendageColor.r3.value
       },
       backAppendageColor: {
-        dominant: visualTraits.backAppendageColor.d.hex,
-        R1: visualTraits.backAppendageColor.r1.hex,
-        R2: visualTraits.backAppendageColor.r2.hex,
-        R3: visualTraits.backAppendageColor.r3.hex
+        dominant: visualTraits.backAppendageColor.d.value,
+        R1: visualTraits.backAppendageColor.r1.value,
+        R2: visualTraits.backAppendageColor.r2.value,
+        R3: visualTraits.backAppendageColor.r3.value
       },
       visualUnknown1: {
         dominant: visualTraits.visualUnknown1.d.value,
