@@ -2997,3 +2997,98 @@ export const pvpTournamentTypes = pgTable("pvp_tournament_types", {
 export const insertPvpTournamentTypeSchema = createInsertSchema(pvpTournamentTypes).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPvpTournamentType = z.infer<typeof insertPvpTournamentTypeSchema>;
 export type PvpTournamentType = typeof pvpTournamentTypes.$inferSelect;
+
+// ============================================================================
+// TAVERN HEROES INDEXER - Cached marketplace listings with TTS
+// ============================================================================
+
+/**
+ * Tavern Heroes - Cached hero listings from DFK marketplace
+ * Indexed every 30 minutes with parallel workers
+ */
+export const tavernHeroes = pgTable("tavern_heroes", {
+  id: serial("id").primaryKey(),
+  heroId: text("hero_id").notNull(), // Full hero ID as string (can be > JS number max)
+  normalizedId: bigint("normalized_id", { mode: "number" }).notNull(),
+  realm: text("realm").notNull(), // 'cv' (Crystalvale) or 'sd' (Sundered Isles)
+  
+  // Class and profession
+  mainClass: text("main_class").notNull(),
+  subClass: text("sub_class"),
+  profession: text("profession"),
+  
+  // Hero attributes
+  rarity: integer("rarity").notNull().default(0),
+  level: integer("level").notNull().default(1),
+  generation: integer("generation").notNull().default(0),
+  summons: integer("summons").notNull().default(0),
+  maxSummons: integer("max_summons").notNull().default(0),
+  
+  // Stats
+  strength: integer("strength").default(0),
+  agility: integer("agility").default(0),
+  intelligence: integer("intelligence").default(0),
+  wisdom: integer("wisdom").default(0),
+  luck: integer("luck").default(0),
+  dexterity: integer("dexterity").default(0),
+  vitality: integer("vitality").default(0),
+  endurance: integer("endurance").default(0),
+  hp: integer("hp").default(0),
+  mp: integer("mp").default(0),
+  stamina: integer("stamina").default(25),
+  
+  // Abilities for TTS calculation
+  active1: text("active1"), // "ability_X" format
+  active2: text("active2"),
+  passive1: text("passive1"),
+  passive2: text("passive2"),
+  
+  // Pre-computed Team Trait Score (0-12 range)
+  traitScore: integer("trait_score").notNull().default(0),
+  
+  // Pricing
+  salePrice: text("sale_price"), // Raw price in wei
+  priceNative: numeric("price_native", { precision: 30, scale: 8 }), // Price in native token
+  nativeToken: text("native_token"), // 'CRYSTAL' or 'JEWEL'
+  
+  // Indexing metadata
+  indexedAt: timestamp("indexed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  batchId: text("batch_id"), // Links heroes indexed in same batch
+}, (table) => ({
+  heroIdIdx: uniqueIndex("tavern_heroes_hero_id_idx").on(table.heroId),
+  realmIdx: index("tavern_heroes_realm_idx").on(table.realm),
+  mainClassIdx: index("tavern_heroes_main_class_idx").on(table.mainClass),
+  traitScoreIdx: index("tavern_heroes_trait_score_idx").on(table.traitScore),
+  priceNativeIdx: index("tavern_heroes_price_native_idx").on(table.priceNative),
+  batchIdIdx: index("tavern_heroes_batch_id_idx").on(table.batchId),
+}));
+
+export const insertTavernHeroSchema = createInsertSchema(tavernHeroes).omit({ id: true, indexedAt: true });
+export type InsertTavernHero = z.infer<typeof insertTavernHeroSchema>;
+export type TavernHero = typeof tavernHeroes.$inferSelect;
+
+/**
+ * Tavern Indexer Progress - Track indexing state
+ */
+export const tavernIndexerProgress = pgTable("tavern_indexer_progress", {
+  id: serial("id").primaryKey(),
+  realm: text("realm").notNull().unique(), // 'cv' or 'sd'
+  
+  // Indexing stats
+  heroesIndexed: integer("heroes_indexed").default(0),
+  lastBatchId: text("last_batch_id"),
+  
+  // Status tracking
+  status: text("status").notNull().default('idle'), // 'idle', 'running', 'error'
+  lastError: text("last_error"),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  
+  // Timing
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertTavernIndexerProgressSchema = createInsertSchema(tavernIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertTavernIndexerProgress = z.infer<typeof insertTavernIndexerProgressSchema>;
+export type TavernIndexerProgress = typeof tavernIndexerProgress.$inferSelect;

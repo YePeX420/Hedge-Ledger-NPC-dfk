@@ -225,6 +225,8 @@ interface TavernHero {
 
 interface TavernListingsResponse {
   ok: boolean;
+  source?: 'indexed' | 'live';
+  lastIndexed?: string;
   prices: {
     crystal: number;
     jewel: number;
@@ -232,6 +234,21 @@ interface TavernListingsResponse {
   crystalvale: TavernHero[];
   serendale: TavernHero[];
   totalListings: number;
+}
+
+interface TavernIndexerStatus {
+  ok: boolean;
+  status: {
+    isRunning: boolean;
+    startedAt: string | null;
+    batchId: string | null;
+    totalHeroesIndexed: number;
+    workers: Array<{ id: number; realm: string; status: string; heroesIndexed: number }>;
+    errors: string[];
+    autoRunActive: boolean;
+  };
+  stats: Array<{ realm: string; total_heroes: string; avg_tts: string; min_price: string; max_price: string; avg_price: string }>;
+  progress: Array<{ realm: string; heroes_indexed: number; status: string; last_success_at: string | null }>;
 }
 
 interface TournamentPattern {
@@ -450,6 +467,22 @@ export default function BattleReadyAdmin() {
 
   const { data: tavernData, isLoading: tavernLoading, refetch: refetchTavern } = useQuery<TavernListingsResponse>({
     queryKey: ['/api/admin/tavern-listings'],
+  });
+
+  const { data: tavernIndexerData, refetch: refetchTavernIndexer } = useQuery<TavernIndexerStatus>({
+    queryKey: ['/api/admin/tavern-indexer/status'],
+    refetchInterval: 5000,
+  });
+
+  const triggerTavernIndexMutation = useMutation({
+    mutationFn: async () => apiRequest('POST', '/api/admin/tavern-indexer/trigger', {}),
+    onSuccess: () => {
+      toast({ title: "Indexing started", description: "Tavern indexer is now running" });
+      refetchTavernIndexer();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
   });
 
   const { data: patternsData, isLoading: patternsLoading, refetch: refetchPatterns } = useQuery<{ ok: boolean; patterns: TournamentPattern[]; totalLabels: number }>({
@@ -1632,6 +1665,64 @@ export default function BattleReadyAdmin() {
             </div>
           )}
           
+          {/* Tavern Indexer Status */}
+          <div className="mb-4 p-3 bg-muted/50 rounded-lg" data-testid="tavern-indexer-status">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  {tavernIndexerData?.status?.isRunning ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-yellow-500" />
+                  ) : (
+                    <div className="h-2 w-2 rounded-full bg-green-500" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {tavernIndexerData?.status?.isRunning ? 'Indexing...' : 'Indexed'}
+                  </span>
+                </div>
+                <Badge variant="outline" className="text-xs">
+                  {tavernIndexerData?.status?.totalHeroesIndexed || 0} heroes
+                </Badge>
+                {tavernData?.source === 'indexed' && tavernData?.lastIndexed && (
+                  <span className="text-xs text-muted-foreground">
+                    Last updated: {new Date(tavernData.lastIndexed.replace(' ', 'T')).toLocaleString()}
+                  </span>
+                )}
+                {tavernData?.source === 'live' && (
+                  <Badge variant="outline" className="text-xs text-orange-400">Live API</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => triggerTavernIndexMutation.mutate()}
+                  disabled={tavernIndexerData?.status?.isRunning || triggerTavernIndexMutation.isPending}
+                  data-testid="button-trigger-tavern-indexer"
+                >
+                  {(tavernIndexerData?.status?.isRunning || triggerTavernIndexMutation.isPending) ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-1" />
+                  )}
+                  Re-index
+                </Button>
+                {tavernIndexerData?.status?.autoRunActive && (
+                  <Badge variant="secondary" className="text-xs">Auto-refresh: 30min</Badge>
+                )}
+              </div>
+            </div>
+            {tavernIndexerData?.stats && tavernIndexerData.stats.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                {tavernIndexerData.stats.map(s => (
+                  <span key={s.realm}>
+                    {s.realm === 'cv' ? 'CV' : 'SD'}: {s.total_heroes} heroes, 
+                    avg {parseFloat(s.avg_price).toFixed(1)} {s.realm === 'cv' ? 'CRYSTAL' : 'JEWEL'}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {tavernLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin" />
@@ -1639,6 +1730,7 @@ export default function BattleReadyAdmin() {
           ) : allTavernHeroes.length > 0 ? (
             <>
               <div className="text-xs text-muted-foreground mb-2">
+                Source: {tavernData?.source === 'indexed' ? 'Database' : 'Live API'} | 
                 Prices: CRYSTAL ${tavernData?.prices.crystal?.toFixed(4) || 'N/A'} | JEWEL ${tavernData?.prices.jewel?.toFixed(4) || 'N/A'}
               </div>
               <div className="max-h-[500px] overflow-y-auto">

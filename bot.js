@@ -8440,19 +8440,88 @@ async function startAdminWebServer() {
     }
   });
 
-  // GET /api/admin/tavern-listings - Fetch top heroes for sale from both taverns with prices
-  // Uses official DFK API: https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions
+  // GET /api/admin/tavern-listings - Fetch heroes from indexed database (fast)
+  // Falls back to live DFK API if no indexed data available
   app.get("/api/admin/tavern-listings", isAdmin, async (req, res) => {
     try {
       console.log('[Tavern] Starting tavern-listings request...');
       const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+      const maxTts = req.query.maxTts ? parseInt(req.query.maxTts) : undefined;
       
-      // Official DFK API for tavern listings (announced June 2025)
+      // Try to get from indexed database first
+      try {
+        const { getTavernHeroes, getIndexerProgress } = await import("./src/etl/ingestion/tavernIndexer.js");
+        const progress = await getIndexerProgress();
+        
+        // Check if we have recent indexed data (any heroes indexed)
+        const totalIndexed = progress.reduce((sum, p) => sum + (p.heroes_indexed || 0), 0);
+        
+        if (totalIndexed > 0) {
+          console.log('[Tavern] Serving from indexed database');
+          
+          // Get heroes from both realms
+          const cvHeroes = await getTavernHeroes({ realm: 'cv', maxTts, limit });
+          const sdHeroes = await getTavernHeroes({ realm: 'sd', maxTts, limit });
+          
+          // Transform to match expected format
+          const transformHero = (h) => ({
+            id: h.hero_id,
+            normalizedId: Number(h.normalized_id),
+            mainClassStr: h.main_class,
+            subClassStr: h.sub_class || '',
+            professionStr: h.profession || '',
+            rarity: h.rarity || 0,
+            level: h.level || 1,
+            generation: h.generation || 0,
+            summons: h.summons || 0,
+            maxSummons: h.max_summons || 0,
+            salePrice: h.sale_price || '0',
+            strength: h.strength || 0,
+            agility: h.agility || 0,
+            intelligence: h.intelligence || 0,
+            wisdom: h.wisdom || 0,
+            luck: h.luck || 0,
+            dexterity: h.dexterity || 0,
+            vitality: h.vitality || 0,
+            endurance: h.endurance || 0,
+            hp: h.hp || 0,
+            mp: h.mp || 0,
+            stamina: h.stamina || 25,
+            active1: h.active1,
+            active2: h.active2,
+            passive1: h.passive1,
+            passive2: h.passive2,
+            tavern: h.realm,
+            nativeToken: h.native_token,
+            priceNative: parseFloat(h.price_native) || 0,
+            priceUSD: null,
+            traitScore: h.trait_score || 0
+          });
+          
+          const crystalvale = cvHeroes.map(transformHero);
+          const serendale = sdHeroes.map(transformHero);
+          
+          // Get last indexed time from progress
+          const lastIndexed = progress.find(p => p.last_success_at)?.last_success_at || null;
+          
+          return res.json({
+            ok: true,
+            source: 'indexed',
+            lastIndexed,
+            prices: { crystal: 0, jewel: 0 },
+            crystalvale,
+            serendale,
+            totalListings: crystalvale.length + serendale.length
+          });
+        }
+      } catch (indexerError) {
+        console.log('[Tavern] Indexer not available, falling back to live API:', indexerError.message);
+      }
+      
+      // Fallback to live DFK API
+      console.log('[Tavern] Fetching from live DFK API...');
       const DFK_TAVERN_API = 'https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions';
       
-      console.log('[Tavern] Fetching from official DFK API...');
-      
-      // Fetch heroes only - skip prices to avoid slow price graph build
       const apiResponse = await fetch(DFK_TAVERN_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -8464,7 +8533,6 @@ async function startAdminWebServer() {
         return data;
       });
       
-      // Skip price fetching to avoid slow price graph build
       const crystalPrice = 0;
       const jewelPrice = 0;
       
@@ -8590,6 +8658,106 @@ async function startAdminWebServer() {
       });
     } catch (error) {
       console.error('[Tavern Listings] Error fetching listings:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // ============================================================================
+  // TAVERN INDEXER ADMIN ENDPOINTS
+  // ============================================================================
+
+  // GET /api/admin/tavern-indexer/status - Get indexer status
+  app.get("/api/admin/tavern-indexer/status", isAdmin, async (req, res) => {
+    try {
+      const { getIndexerStatus, getIndexerProgress, getTavernStats } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      const status = getIndexerStatus();
+      const progress = await getIndexerProgress();
+      const stats = await getTavernStats();
+      
+      res.json({ ok: true, status, progress, stats });
+    } catch (error) {
+      console.error('[Tavern Indexer] Status error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tavern-indexer/trigger - Manually trigger indexing
+  app.post("/api/admin/tavern-indexer/trigger", isAdmin, async (req, res) => {
+    try {
+      const { triggerTavernIndex, getIndexerStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      console.log('[Tavern Indexer] Manual trigger requested');
+      
+      // Start indexer in background (don't await)
+      triggerTavernIndex().catch((err) => {
+        console.error('[Tavern Indexer] Background run error:', err);
+      });
+      
+      // Return immediately with current status
+      const status = getIndexerStatus();
+      res.json({ ok: true, message: 'Indexing started', status });
+    } catch (error) {
+      console.error('[Tavern Indexer] Trigger error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tavern-indexer/start - Start auto-run scheduler
+  app.post("/api/admin/tavern-indexer/start", isAdmin, async (req, res) => {
+    try {
+      const intervalMs = req.body?.intervalMs || 30 * 60 * 1000; // Default 30 minutes
+      const { startAutoRun, getIndexerStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      console.log(`[Tavern Indexer] Starting auto-run (interval: ${intervalMs / 1000}s)`);
+      
+      const result = startAutoRun(intervalMs);
+      const status = getIndexerStatus();
+      
+      res.json({ ok: true, ...result, status });
+    } catch (error) {
+      console.error('[Tavern Indexer] Start error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tavern-indexer/stop - Stop auto-run scheduler
+  app.post("/api/admin/tavern-indexer/stop", isAdmin, async (req, res) => {
+    try {
+      const { stopAutoRun, getIndexerStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      console.log('[Tavern Indexer] Stopping auto-run');
+      
+      const result = stopAutoRun();
+      const status = getIndexerStatus();
+      
+      res.json({ ok: true, ...result, status });
+    } catch (error) {
+      console.error('[Tavern Indexer] Stop error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tavern-indexer/heroes - Get indexed heroes with filters
+  app.get("/api/admin/tavern-indexer/heroes", isAdmin, async (req, res) => {
+    try {
+      const { getTavernHeroes } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      const options = {
+        realm: req.query.realm,
+        maxTts: req.query.maxTts ? parseInt(req.query.maxTts) : undefined,
+        mainClass: req.query.mainClass,
+        minPrice: req.query.minPrice ? parseFloat(req.query.minPrice) : undefined,
+        maxPrice: req.query.maxPrice ? parseFloat(req.query.maxPrice) : undefined,
+        limit: req.query.limit ? parseInt(req.query.limit) : 100,
+        offset: req.query.offset ? parseInt(req.query.offset) : 0
+      };
+      
+      const heroes = await getTavernHeroes(options);
+      
+      res.json({ ok: true, heroes, count: heroes.length });
+    } catch (error) {
+      console.error('[Tavern Indexer] Heroes query error:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
