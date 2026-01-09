@@ -8442,11 +8442,25 @@ async function startAdminWebServer() {
 
   // GET /api/admin/tavern-listings - Fetch heroes from indexed database (fast)
   // Falls back to live DFK API if no indexed data available
+  // Supports tournament-ready filtering: rarity, combat power, level, TTS
   app.get("/api/admin/tavern-listings", isAdmin, async (req, res) => {
     try {
       console.log('[Tavern] Starting tavern-listings request...');
+      
+      // Parse all filter parameters
       const limit = req.query.limit ? parseInt(req.query.limit) : 50;
       const maxTts = req.query.maxTts ? parseInt(req.query.maxTts) : undefined;
+      const minTts = req.query.minTts ? parseInt(req.query.minTts) : undefined;
+      const minRarity = req.query.minRarity ? parseInt(req.query.minRarity) : undefined;
+      const maxRarity = req.query.maxRarity ? parseInt(req.query.maxRarity) : undefined;
+      const minCombatPower = req.query.minCombatPower ? parseInt(req.query.minCombatPower) : undefined;
+      const maxCombatPower = req.query.maxCombatPower ? parseInt(req.query.maxCombatPower) : undefined;
+      const minLevel = req.query.minLevel ? parseInt(req.query.minLevel) : undefined;
+      const maxLevel = req.query.maxLevel ? parseInt(req.query.maxLevel) : undefined;
+      const mainClass = req.query.mainClass || undefined;
+      const sortBy = req.query.sortBy || 'price'; // price, combat_power, value, level, tts
+      const sortOrder = req.query.sortOrder || 'asc';
+      const realm = req.query.realm || undefined; // cv, sd, or undefined for both
       
       // Try to get from indexed database first
       try {
@@ -8457,11 +8471,28 @@ async function startAdminWebServer() {
         const totalIndexed = progress.reduce((sum, p) => sum + (p.heroes_indexed || 0), 0);
         
         if (totalIndexed > 0) {
-          console.log('[Tavern] Serving from indexed database');
+          console.log('[Tavern] Serving from indexed database with filters:', { 
+            minRarity, minCombatPower, minLevel, sortBy 
+          });
           
-          // Get heroes from both realms
-          const cvHeroes = await getTavernHeroes({ realm: 'cv', maxTts, limit });
-          const sdHeroes = await getTavernHeroes({ realm: 'sd', maxTts, limit });
+          // Build filter options
+          const filterOptions = { 
+            maxTts, minTts, minRarity, maxRarity, 
+            minCombatPower, maxCombatPower, 
+            minLevel, maxLevel, mainClass,
+            sortBy, sortOrder, limit 
+          };
+          
+          // Get heroes from both realms (or specific realm if requested)
+          let cvHeroes = [];
+          let sdHeroes = [];
+          
+          if (!realm || realm === 'cv') {
+            cvHeroes = await getTavernHeroes({ ...filterOptions, realm: 'cv' });
+          }
+          if (!realm || realm === 'sd') {
+            sdHeroes = await getTavernHeroes({ ...filterOptions, realm: 'sd' });
+          }
           
           // Transform to match expected format
           const transformHero = (h) => ({
@@ -8495,7 +8526,8 @@ async function startAdminWebServer() {
             nativeToken: h.native_token,
             priceNative: parseFloat(h.price_native) || 0,
             priceUSD: null,
-            traitScore: h.trait_score || 0
+            traitScore: h.trait_score || 0,
+            combatPower: h.combat_power || 0
           });
           
           const crystalvale = cvHeroes.map(transformHero);

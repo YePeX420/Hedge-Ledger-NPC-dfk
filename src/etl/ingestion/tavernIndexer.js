@@ -131,6 +131,7 @@ async function ensureTablesExist() {
         passive1 TEXT,
         passive2 TEXT,
         trait_score INTEGER NOT NULL DEFAULT 0,
+        combat_power INTEGER NOT NULL DEFAULT 0,
         sale_price TEXT,
         price_native NUMERIC(30, 8),
         native_token TEXT,
@@ -144,6 +145,22 @@ async function ensureTablesExist() {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_trait_score_idx ON tavern_heroes(trait_score)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_price_native_idx ON tavern_heroes(price_native)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_batch_id_idx ON tavern_heroes(batch_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_rarity_idx ON tavern_heroes(rarity)`);
+    
+    // Add combat_power column if it doesn't exist (migration for existing tables)
+    // This must run BEFORE index creation that uses this column
+    try {
+      await db.execute(sql`ALTER TABLE tavern_heroes ADD COLUMN IF NOT EXISTS combat_power INTEGER NOT NULL DEFAULT 0`);
+    } catch (err) {
+      // Column may already exist - ignore duplicate column errors
+      if (!err.message?.includes('already exists') && !err.message?.includes('duplicate column')) {
+        console.log('[TavernIndexer] Note: combat_power column check:', err.message);
+      }
+    }
+    
+    // Now create indexes that depend on combat_power
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_combat_power_idx ON tavern_heroes(combat_power DESC)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_tournament_ready_idx ON tavern_heroes(rarity, combat_power DESC, price_native ASC)`);
     
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS tavern_indexer_progress (
@@ -296,6 +313,12 @@ function normalizeHero(apiHero, batchId) {
   // Calculate TTS
   const traitScore = calculateHeroTraitScore({ active1, active2, passive1, passive2 });
   
+  // Calculate Combat Power (sum of 8 primary stats)
+  const combatPower = (apiHero.strength ?? 0) + (apiHero.agility ?? 0) + 
+                      (apiHero.intelligence ?? 0) + (apiHero.wisdom ?? 0) + 
+                      (apiHero.luck ?? 0) + (apiHero.dexterity ?? 0) + 
+                      (apiHero.vitality ?? 0) + (apiHero.endurance ?? 0);
+  
   // Price handling
   const priceField = apiHero.startingPrice || apiHero.salePrice || apiHero.price;
   const priceNative = weiToToken(priceField);
@@ -329,6 +352,7 @@ function normalizeHero(apiHero, batchId) {
     passive1,
     passive2,
     traitScore,
+    combatPower,
     salePrice: priceField || '0',
     priceNative,
     nativeToken,
@@ -348,13 +372,13 @@ async function upsertHeroes(heroes) {
           hero_id, normalized_id, realm, main_class, sub_class, profession,
           rarity, level, generation, summons, max_summons,
           strength, agility, intelligence, wisdom, luck, dexterity, vitality, endurance, hp, mp, stamina,
-          active1, active2, passive1, passive2, trait_score,
+          active1, active2, passive1, passive2, trait_score, combat_power,
           sale_price, price_native, native_token, batch_id, indexed_at
         ) VALUES (
           ${hero.heroId}, ${hero.normalizedId}, ${hero.realm}, ${hero.mainClass}, ${hero.subClass}, ${hero.profession},
           ${hero.rarity}, ${hero.level}, ${hero.generation}, ${hero.summons}, ${hero.maxSummons},
           ${hero.strength}, ${hero.agility}, ${hero.intelligence}, ${hero.wisdom}, ${hero.luck}, ${hero.dexterity}, ${hero.vitality}, ${hero.endurance}, ${hero.hp}, ${hero.mp}, ${hero.stamina},
-          ${hero.active1}, ${hero.active2}, ${hero.passive1}, ${hero.passive2}, ${hero.traitScore},
+          ${hero.active1}, ${hero.active2}, ${hero.passive1}, ${hero.passive2}, ${hero.traitScore}, ${hero.combatPower},
           ${hero.salePrice}, ${hero.priceNative}, ${hero.nativeToken}, ${hero.batchId}, NOW()
         )
         ON CONFLICT (hero_id) DO UPDATE SET
@@ -384,6 +408,7 @@ async function upsertHeroes(heroes) {
           passive1 = EXCLUDED.passive1,
           passive2 = EXCLUDED.passive2,
           trait_score = EXCLUDED.trait_score,
+          combat_power = EXCLUDED.combat_power,
           sale_price = EXCLUDED.sale_price,
           price_native = EXCLUDED.price_native,
           native_token = EXCLUDED.native_token,
@@ -648,38 +673,176 @@ export async function getIndexerProgress() {
 export async function getTavernHeroes(options = {}) {
   await ensureTablesExist();
   
-  const { realm, maxTts, minPrice, maxPrice, mainClass, limit = 100, offset = 0 } = options;
+  const { 
+    realm, 
+    minTts, 
+    maxTts, 
+    minRarity, 
+    maxRarity, 
+    minCombatPower, 
+    maxCombatPower,
+    minLevel,
+    maxLevel,
+    mainClass,
+    sortBy = 'price', // 'price', 'combat_power', 'value' (combat_power/price)
+    sortOrder = 'asc',
+    limit = 100, 
+    offset = 0 
+  } = options;
   
-  // Build query with drizzle sql templates for proper parameterization
-  // Simple approach: use basic query with optional filters
+  // Validate string inputs to prevent SQL injection
+  const validRealms = ['cv', 'sd'];
+  const validSortBy = ['price', 'combat_power', 'value', 'level', 'tts'];
+  const validSortOrder = ['asc', 'desc'];
+  
+  const safeRealm = realm && validRealms.includes(realm) ? realm : null;
+  const safeSortBy = validSortBy.includes(sortBy) ? sortBy : 'price';
+  const safeSortOrder = validSortOrder.includes(sortOrder) ? sortOrder : 'asc';
+  const safeLimit = Math.min(Math.max(1, parseInt(limit) || 100), 500);
+  const safeOffset = Math.max(0, parseInt(offset) || 0);
+  
+  // Validate mainClass (alphanumeric only)
+  const safeMainClass = mainClass && /^[A-Za-z0-9]+$/.test(mainClass) ? mainClass : null;
+  
+  // Use parameterized queries with drizzle sql template
+  // Build query dynamically but safely
   let result;
   
-  if (realm && maxTts !== undefined) {
+  // SECURITY: All queries use only parameterized values and static SQL fragments
+  // No sql.raw() usage - sort order is determined by branching logic, not string interpolation
+  
+  // Helper to execute query with proper sort order (no sql.raw)
+  const executeWithSort = async (baseQuery, sortType) => {
+    // sortType is validated against whitelist above, so we can safely branch
+    // Using static SQL fragments only - no dynamic string building
+    if (sortType === 'value') {
+      // Value sort: combat_power / price (higher = better deal)
+      return await baseQuery('value');
+    } else if (sortType === 'combat_power' && safeSortOrder === 'desc') {
+      return await baseQuery('cp_desc');
+    } else if (sortType === 'combat_power') {
+      return await baseQuery('cp_asc');
+    } else if (safeSortOrder === 'desc') {
+      return await baseQuery('price_desc');
+    } else {
+      return await baseQuery('price_asc');
+    }
+  };
+
+  // Tournament-ready query: minRarity + minCombatPower + realm
+  if (safeRealm && minRarity !== undefined && minCombatPower !== undefined) {
+    const minRarityVal = parseInt(minRarity);
+    const minCpVal = parseInt(minCombatPower);
+    
+    result = await executeWithSort(async (sort) => {
+      if (sort === 'value') {
+        return await db.execute(sql`
+          SELECT * FROM tavern_heroes 
+          WHERE realm = ${safeRealm} AND rarity >= ${minRarityVal} AND combat_power >= ${minCpVal}
+          ORDER BY (combat_power / NULLIF(price_native, 0)) DESC NULLS LAST
+          LIMIT ${safeLimit} OFFSET ${safeOffset}
+        `);
+      } else if (sort === 'cp_desc') {
+        return await db.execute(sql`
+          SELECT * FROM tavern_heroes 
+          WHERE realm = ${safeRealm} AND rarity >= ${minRarityVal} AND combat_power >= ${minCpVal}
+          ORDER BY combat_power DESC NULLS LAST
+          LIMIT ${safeLimit} OFFSET ${safeOffset}
+        `);
+      } else if (sort === 'cp_asc') {
+        return await db.execute(sql`
+          SELECT * FROM tavern_heroes 
+          WHERE realm = ${safeRealm} AND rarity >= ${minRarityVal} AND combat_power >= ${minCpVal}
+          ORDER BY combat_power ASC NULLS LAST
+          LIMIT ${safeLimit} OFFSET ${safeOffset}
+        `);
+      } else if (sort === 'price_desc') {
+        return await db.execute(sql`
+          SELECT * FROM tavern_heroes 
+          WHERE realm = ${safeRealm} AND rarity >= ${minRarityVal} AND combat_power >= ${minCpVal}
+          ORDER BY price_native DESC NULLS LAST
+          LIMIT ${safeLimit} OFFSET ${safeOffset}
+        `);
+      } else {
+        return await db.execute(sql`
+          SELECT * FROM tavern_heroes 
+          WHERE realm = ${safeRealm} AND rarity >= ${minRarityVal} AND combat_power >= ${minCpVal}
+          ORDER BY price_native ASC NULLS LAST
+          LIMIT ${safeLimit} OFFSET ${safeOffset}
+        `);
+      }
+    }, safeSortBy);
+  } else if (safeRealm && minRarity !== undefined) {
+    const minRarityVal = parseInt(minRarity);
     result = await db.execute(sql`
       SELECT * FROM tavern_heroes 
-      WHERE realm = ${realm} AND trait_score <= ${maxTts}
+      WHERE realm = ${safeRealm} AND rarity >= ${minRarityVal}
       ORDER BY price_native ASC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
     `);
-  } else if (realm) {
+  } else if (safeRealm && minCombatPower !== undefined) {
+    const minCpVal = parseInt(minCombatPower);
     result = await db.execute(sql`
       SELECT * FROM tavern_heroes 
-      WHERE realm = ${realm}
+      WHERE realm = ${safeRealm} AND combat_power >= ${minCpVal}
       ORDER BY price_native ASC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
+    `);
+  } else if (minRarity !== undefined && minCombatPower !== undefined) {
+    const minRarityVal = parseInt(minRarity);
+    const minCpVal = parseInt(minCombatPower);
+    
+    result = await executeWithSort(async (sort) => {
+      if (sort === 'value') {
+        return await db.execute(sql`
+          SELECT * FROM tavern_heroes 
+          WHERE rarity >= ${minRarityVal} AND combat_power >= ${minCpVal}
+          ORDER BY (combat_power / NULLIF(price_native, 0)) DESC NULLS LAST
+          LIMIT ${safeLimit} OFFSET ${safeOffset}
+        `);
+      } else {
+        return await db.execute(sql`
+          SELECT * FROM tavern_heroes 
+          WHERE rarity >= ${minRarityVal} AND combat_power >= ${minCpVal}
+          ORDER BY price_native ASC NULLS LAST
+          LIMIT ${safeLimit} OFFSET ${safeOffset}
+        `);
+      }
+    }, safeSortBy);
+  } else if (minRarity !== undefined) {
+    const minRarityVal = parseInt(minRarity);
+    result = await db.execute(sql`
+      SELECT * FROM tavern_heroes 
+      WHERE rarity >= ${minRarityVal}
+      ORDER BY price_native ASC NULLS LAST
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
+    `);
+  } else if (safeRealm && maxTts !== undefined) {
+    result = await db.execute(sql`
+      SELECT * FROM tavern_heroes 
+      WHERE realm = ${safeRealm} AND trait_score <= ${parseInt(maxTts)}
+      ORDER BY price_native ASC NULLS LAST
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
+    `);
+  } else if (safeRealm) {
+    result = await db.execute(sql`
+      SELECT * FROM tavern_heroes 
+      WHERE realm = ${safeRealm}
+      ORDER BY price_native ASC NULLS LAST
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
     `);
   } else if (maxTts !== undefined) {
     result = await db.execute(sql`
       SELECT * FROM tavern_heroes 
-      WHERE trait_score <= ${maxTts}
+      WHERE trait_score <= ${parseInt(maxTts)}
       ORDER BY price_native ASC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
     `);
   } else {
     result = await db.execute(sql`
       SELECT * FROM tavern_heroes 
       ORDER BY price_native ASC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
     `);
   }
   

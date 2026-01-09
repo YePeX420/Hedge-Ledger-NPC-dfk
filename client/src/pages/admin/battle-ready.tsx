@@ -216,7 +216,8 @@ interface TavernHero {
   nativeToken: 'CRYSTAL' | 'JEWEL';
   priceNative: number;
   priceUSD: number | null;
-  // Ability data for trait score calculation
+  // Combat power and ability data for tournament-ready filtering
+  combatPower?: number;
   active1?: string | number | null;
   active2?: string | number | null;
   passive1?: string | number | null;
@@ -444,6 +445,9 @@ export default function BattleReadyAdmin() {
   const [selectedHeroes, setSelectedHeroes] = useState<Set<string>>(new Set());
   const [tavernFilter, setTavernFilter] = useState<'all' | 'cv' | 'sd'>('all');
   const [ttsFilter, setTtsFilter] = useState<'any' | '3' | '5' | '7' | '9'>('any');
+  const [rarityFilter, setRarityFilter] = useState<'any' | '4' | '3' | '2'>('4'); // Default to Mythic for tournament-ready
+  const [combatPowerFilter, setCombatPowerFilter] = useState<'any' | '150' | '220' | '290'>('any'); // Level-aware presets
+  const [sortBy, setSortBy] = useState<'price' | 'combat_power' | 'value'>('price');
   const [expandedPattern, setExpandedPattern] = useState<string | null>(null);
   const [labelForm, setLabelForm] = useState<{ signature: string; label: string; category: string; color: string } | null>(null);
 
@@ -465,8 +469,25 @@ export default function BattleReadyAdmin() {
     queryKey: ['/api/admin/battle-ready/recommendations'],
   });
 
+  // Build query params for tavern listings
+  const tavernQueryParams = new URLSearchParams();
+  if (tavernFilter !== 'all') tavernQueryParams.set('realm', tavernFilter);
+  if (ttsFilter !== 'any') tavernQueryParams.set('maxTts', ttsFilter);
+  if (rarityFilter !== 'any') tavernQueryParams.set('minRarity', rarityFilter);
+  if (combatPowerFilter !== 'any') tavernQueryParams.set('minCombatPower', combatPowerFilter);
+  tavernQueryParams.set('sortBy', sortBy);
+  tavernQueryParams.set('limit', '100');
+  
+  const tavernQueryString = tavernQueryParams.toString();
+  const tavernQueryUrl = `/api/admin/tavern-listings${tavernQueryString ? `?${tavernQueryString}` : ''}`;
+  
   const { data: tavernData, isLoading: tavernLoading, refetch: refetchTavern } = useQuery<TavernListingsResponse>({
-    queryKey: ['/api/admin/tavern-listings'],
+    queryKey: ['/api/admin/tavern-listings', tavernFilter, ttsFilter, rarityFilter, combatPowerFilter, sortBy],
+    queryFn: async () => {
+      const response = await fetch(tavernQueryUrl);
+      if (!response.ok) throw new Error('Failed to fetch tavern listings');
+      return response.json();
+    },
   });
 
   const { data: tavernIndexerData, refetch: refetchTavernIndexer } = useQuery<TavernIndexerStatus>({
@@ -1602,7 +1623,7 @@ export default function BattleReadyAdmin() {
                 <ShoppingCart className="h-5 w-5" />
                 Tavern Listings
               </CardTitle>
-              <CardDescription>Top 50 cheapest heroes for sale from both taverns</CardDescription>
+              <CardDescription>Tournament-ready heroes from both taverns (Mythic rarity by default)</CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Select value={tavernFilter} onValueChange={(v) => setTavernFilter(v as 'all' | 'cv' | 'sd')}>
@@ -1625,6 +1646,38 @@ export default function BattleReadyAdmin() {
                   <SelectItem value="5">TTS ≤5</SelectItem>
                   <SelectItem value="7">TTS ≤7</SelectItem>
                   <SelectItem value="9">TTS ≤9</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={rarityFilter} onValueChange={(v) => setRarityFilter(v as 'any' | '4' | '3' | '2')}>
+                <SelectTrigger className="w-36" data-testid="select-rarity-filter">
+                  <SelectValue placeholder="Min Rarity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any Rarity</SelectItem>
+                  <SelectItem value="2">Rare+</SelectItem>
+                  <SelectItem value="3">Legendary+</SelectItem>
+                  <SelectItem value="4">Mythic</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={combatPowerFilter} onValueChange={(v) => setCombatPowerFilter(v as 'any' | '150' | '220' | '290')}>
+                <SelectTrigger className="w-40" data-testid="select-combat-power-filter">
+                  <SelectValue placeholder="Min Combat Power" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any CP</SelectItem>
+                  <SelectItem value="150">CP ≥150 (L1)</SelectItem>
+                  <SelectItem value="220">CP ≥220 (L10)</SelectItem>
+                  <SelectItem value="290">CP ≥290 (L20)</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'price' | 'combat_power' | 'value')}>
+                <SelectTrigger className="w-36" data-testid="select-sort-by">
+                  <SelectValue placeholder="Sort By" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="price">Cheapest</SelectItem>
+                  <SelectItem value="combat_power">Strongest</SelectItem>
+                  <SelectItem value="value">Best Value</SelectItem>
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={() => refetchTavern()} data-testid="button-refresh-tavern">
@@ -1742,6 +1795,7 @@ export default function BattleReadyAdmin() {
                       <TableHead>Class</TableHead>
                       <TableHead>Level</TableHead>
                       <TableHead>Rarity</TableHead>
+                      <TableHead>CP</TableHead>
                       <TableHead>TTS</TableHead>
                       <TableHead>Profession</TableHead>
                       <TableHead>Summons</TableHead>
@@ -1775,6 +1829,11 @@ export default function BattleReadyAdmin() {
                           <span className={RARITY_COLORS[hero.rarity] || ''}>
                             {RARITY_NAMES[hero.rarity] || hero.rarity}
                           </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="text-xs font-mono" data-testid={`text-hero-cp-${hero.id}`}>
+                            {hero.combatPower || (hero.strength + hero.agility + hero.intelligence + hero.wisdom + hero.luck + hero.dexterity + hero.vitality + hero.endurance) || 0}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-xs" data-testid={`text-hero-tts-${hero.id}`}>
