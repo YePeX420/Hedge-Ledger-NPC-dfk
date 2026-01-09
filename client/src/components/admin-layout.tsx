@@ -24,7 +24,8 @@ import {
   Sprout,
   RefreshCw,
   Crown,
-  Calculator
+  Calculator,
+  Dna
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -50,6 +51,7 @@ const navItems = [
   { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
   { href: '/admin/gardening-calc', label: 'Gardening Calculator', icon: Calculator },
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Swords },
+  { href: '/admin/summoning-calculator', label: 'Summoning Calculator', icon: Dna },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },

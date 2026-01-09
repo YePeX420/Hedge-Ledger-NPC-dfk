@@ -8796,6 +8796,148 @@ async function startAdminWebServer() {
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
+
+  // ============================================================================
+  // SUMMONING CALCULATOR ENDPOINTS
+  // ============================================================================
+
+  // GET /api/admin/summoning/hero/:id - Get hero with decoded genetics
+  app.get("/api/admin/summoning/hero/:id", isAdmin, async (req, res) => {
+    try {
+      const heroId = req.params.id;
+      
+      if (!heroId) {
+        return res.status(400).json({ ok: false, error: 'Hero ID required' });
+      }
+      
+      // Fetch hero from DFK GraphQL API
+      const hero = await onchain.getHeroById(heroId);
+      
+      if (!hero) {
+        return res.status(404).json({ ok: false, error: 'Hero not found' });
+      }
+      
+      // Decode full genetics (D/R1/R2/R3)
+      let genetics = null;
+      try {
+        genetics = decodeHeroGenes(hero);
+      } catch (decodeError) {
+        console.warn('[Summoning] Gene decode warning:', decodeError.message);
+      }
+      
+      res.json({
+        ok: true,
+        hero: {
+          id: hero.id,
+          normalizedId: hero.normalizedId,
+          mainClass: hero.mainClassStr,
+          subClass: hero.subClassStr,
+          profession: hero.professionStr,
+          rarity: hero.rarity,
+          rarityName: ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero.rarity] || 'Unknown',
+          level: hero.level,
+          generation: hero.generation,
+          summons: hero.summons,
+          maxSummons: hero.maxSummons,
+          summonsRemaining: hero.summonsRemaining,
+          strength: hero.strength,
+          agility: hero.agility,
+          intelligence: hero.intelligence,
+          wisdom: hero.wisdom,
+          luck: hero.luck,
+          dexterity: hero.dexterity,
+          vitality: hero.vitality,
+          endurance: hero.endurance,
+          hp: hero.hp,
+          mp: hero.mp,
+          statGenes: hero.statGenes,
+          visualGenes: hero.visualGenes,
+          owner: hero.owner?.name || hero.owner?.id || 'Unknown'
+        },
+        genetics
+      });
+    } catch (error) {
+      console.error('[Summoning] Hero fetch error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/summoning/calculate - Calculate summoning probabilities
+  app.post("/api/admin/summoning/calculate", isAdmin, async (req, res) => {
+    try {
+      const { hero1Id, hero2Id } = req.body;
+      
+      if (!hero1Id || !hero2Id) {
+        return res.status(400).json({ ok: false, error: 'Both hero IDs required' });
+      }
+      
+      // Fetch both heroes
+      const [hero1, hero2] = await Promise.all([
+        onchain.getHeroById(hero1Id),
+        onchain.getHeroById(hero2Id)
+      ]);
+      
+      if (!hero1) {
+        return res.status(404).json({ ok: false, error: `Hero ${hero1Id} not found` });
+      }
+      if (!hero2) {
+        return res.status(404).json({ ok: false, error: `Hero ${hero2Id} not found` });
+      }
+      
+      // Decode genetics
+      let genetics1, genetics2;
+      try {
+        genetics1 = decodeHeroGenes(hero1);
+        genetics2 = decodeHeroGenes(hero2);
+      } catch (decodeError) {
+        return res.status(400).json({ ok: false, error: 'Could not decode hero genetics: ' + decodeError.message });
+      }
+      
+      // Get rarity names
+      const rarityNames = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+      const rarity1 = rarityNames[hero1.rarity] || 'Common';
+      const rarity2 = rarityNames[hero2.rarity] || 'Common';
+      
+      // Calculate probabilities
+      const probabilities = calculateSummoningProbabilities(genetics1, genetics2, rarity1, rarity2);
+      
+      // Calculate offspring generation
+      const offspringGeneration = Math.max(hero1.generation, hero2.generation) + 1;
+      
+      res.json({
+        ok: true,
+        parent1: {
+          id: hero1.id,
+          normalizedId: hero1.normalizedId,
+          mainClass: hero1.mainClassStr,
+          subClass: hero1.subClassStr,
+          rarity: hero1.rarity,
+          rarityName: rarity1,
+          level: hero1.level,
+          generation: hero1.generation,
+          summonsRemaining: hero1.summonsRemaining
+        },
+        parent2: {
+          id: hero2.id,
+          normalizedId: hero2.normalizedId,
+          mainClass: hero2.mainClassStr,
+          subClass: hero2.subClassStr,
+          rarity: hero2.rarity,
+          rarityName: rarity2,
+          level: hero2.level,
+          generation: hero2.generation,
+          summonsRemaining: hero2.summonsRemaining
+        },
+        genetics1,
+        genetics2,
+        probabilities,
+        offspringGeneration
+      });
+    } catch (error) {
+      console.error('[Summoning] Calculate error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
   
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
