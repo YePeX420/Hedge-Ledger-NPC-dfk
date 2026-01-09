@@ -619,175 +619,168 @@ export default function SummoningCalculator() {
                 <span className="text-orange-400">Orange</span> = Mutation (trait not in either parent's dominant gene)
               </p>
             </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="stats">
-                <TabsList className="mb-4">
-                  <TabsTrigger value="stats" data-testid="tab-stats">
-                    <Swords className="h-4 w-4 mr-1" />
-                    Stat Genes
-                  </TabsTrigger>
-                  <TabsTrigger value="visual" data-testid="tab-visual">
-                    <Eye className="h-4 w-4 mr-1" />
-                    Visual Genes
-                  </TabsTrigger>
-                </TabsList>
+            <CardContent className="space-y-6">
+              {/* Stat Genes Section */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Swords className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-medium text-muted-foreground">Stat Genes</h3>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                  <ProbabilityTable 
+                    title="Class" 
+                    probabilities={result.probabilities.class}
+                    mutations={result.probabilities.mutations?.class}
+                  />
+                  <ProbabilityTable 
+                    title="Sub Class" 
+                    probabilities={result.probabilities.subClass}
+                    mutations={result.probabilities.mutations?.subClass}
+                  />
+                  <ProbabilityTable 
+                    title="Profession" 
+                    probabilities={result.probabilities.profession}
+                    mutations={result.probabilities.mutations?.profession}
+                  />
+                  <ProbabilityTable 
+                    title="Rarity" 
+                    probabilities={result.probabilities.rarity}
+                  />
+                  <ProbabilityTable 
+                    title="Stat Boost 1" 
+                    probabilities={result.probabilities.statBoost1}
+                    mutations={result.probabilities.mutations?.statBoost1}
+                  />
+                  <ProbabilityTable 
+                    title="Stat Boost 2" 
+                    probabilities={result.probabilities.statBoost2}
+                    mutations={result.probabilities.mutations?.statBoost2}
+                  />
+                </div>
 
-                <TabsContent value="stats">
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <ProbabilityTable 
-                      title="Class" 
-                      probabilities={result.probabilities.class}
-                      mutations={result.probabilities.mutations?.class}
-                    />
-                    <ProbabilityTable 
-                      title="Sub Class" 
-                      probabilities={result.probabilities.subClass}
-                      mutations={result.probabilities.mutations?.subClass}
-                    />
-                    <ProbabilityTable 
-                      title="Profession" 
-                      probabilities={result.probabilities.profession}
-                      mutations={result.probabilities.mutations?.profession}
-                    />
-                    <ProbabilityTable 
-                      title="Rarity" 
-                      probabilities={result.probabilities.rarity}
-                    />
-                    <ProbabilityTable 
-                      title="Stat Boost 1" 
-                      probabilities={result.probabilities.statBoost1}
-                      mutations={result.probabilities.mutations?.statBoost1}
-                    />
-                    <ProbabilityTable 
-                      title="Stat Boost 2" 
-                      probabilities={result.probabilities.statBoost2}
-                      mutations={result.probabilities.mutations?.statBoost2}
-                    />
-                  </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mt-4">
+                  <ProbabilityTable 
+                    title="Active 1" 
+                    probabilities={result.probabilities.active1}
+                    mutations={result.probabilities.mutations?.active1}
+                  />
+                  <ProbabilityTable 
+                    title="Active 2" 
+                    probabilities={result.probabilities.active2}
+                    mutations={result.probabilities.mutations?.active2}
+                  />
+                  <ProbabilityTable 
+                    title="Passive 1" 
+                    probabilities={result.probabilities.passive1}
+                    mutations={result.probabilities.mutations?.passive1}
+                  />
+                  <ProbabilityTable 
+                    title="Passive 2" 
+                    probabilities={result.probabilities.passive2}
+                    mutations={result.probabilities.mutations?.passive2}
+                  />
+                  <ProbabilityTable 
+                    title="Element" 
+                    probabilities={result.probabilities.element}
+                    mutations={result.probabilities.mutations?.element}
+                  />
+                </div>
+              </div>
 
-                  <Separator className="my-4" />
+              <Separator />
 
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                    <ProbabilityTable 
-                      title="Active 1" 
-                      probabilities={result.probabilities.active1}
-                      mutations={result.probabilities.mutations?.active1}
-                    />
-                    <ProbabilityTable 
-                      title="Active 2" 
-                      probabilities={result.probabilities.active2}
-                      mutations={result.probabilities.mutations?.active2}
-                    />
-                    <ProbabilityTable 
-                      title="Passive 1" 
-                      probabilities={result.probabilities.passive1}
-                      mutations={result.probabilities.mutations?.passive1}
-                    />
-                    <ProbabilityTable 
-                      title="Passive 2" 
-                      probabilities={result.probabilities.passive2}
-                      mutations={result.probabilities.mutations?.passive2}
-                    />
-                    <ProbabilityTable 
-                      title="Element" 
-                      probabilities={result.probabilities.element}
-                      mutations={result.probabilities.mutations?.element}
-                    />
-                  </div>
-                </TabsContent>
+              {/* Visual Genes Section */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Eye className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-medium text-muted-foreground">Visual Genes</h3>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                  <VisualProbabilityTable 
+                    title="Hair Style" 
+                    probabilities={result.probabilities.hairStyle}
+                    nameMap={HAIR_STYLE_NAMES}
+                    showPairNames={true}
+                    femaleNameMap={FEMALE_HAIR_STYLE_NAMES}
+                  />
+                  <VisualProbabilityTable 
+                    title="Hair Color" 
+                    probabilities={result.probabilities.hairColor}
+                    nameMap={HAIR_COLOR_NAMES}
+                    colorMap={HAIR_COLOR_HEX}
+                  />
+                  <VisualProbabilityTable 
+                    title="Head App" 
+                    probabilities={result.probabilities.headAppendage}
+                    nameMap={HEAD_APPENDAGE_NAMES}
+                  />
+                  <VisualProbabilityTable 
+                    title="Head App Color" 
+                    probabilities={result.probabilities.appendageColor}
+                    nameMap={HAIR_COLOR_NAMES}
+                    colorMap={APPENDAGE_COLOR_HEX}
+                  />
+                  <VisualProbabilityTable 
+                    title="Back App" 
+                    probabilities={result.probabilities.backAppendage}
+                    nameMap={BACK_APPENDAGE_NAMES}
+                  />
+                  <VisualProbabilityTable 
+                    title="Back App Color" 
+                    probabilities={result.probabilities.backAppendageColor}
+                    nameMap={HAIR_COLOR_NAMES}
+                    colorMap={APPENDAGE_COLOR_HEX}
+                  />
+                </div>
 
-                <TabsContent value="visual">
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <VisualProbabilityTable 
-                      title="Hair Style" 
-                      probabilities={result.probabilities.hairStyle}
-                      nameMap={HAIR_STYLE_NAMES}
-                      showPairNames={true}
-                      femaleNameMap={FEMALE_HAIR_STYLE_NAMES}
-                    />
-                    <VisualProbabilityTable 
-                      title="Hair Color" 
-                      probabilities={result.probabilities.hairColor}
-                      nameMap={HAIR_COLOR_NAMES}
-                      colorMap={HAIR_COLOR_HEX}
-                    />
-                    <VisualProbabilityTable 
-                      title="Head App" 
-                      probabilities={result.probabilities.headAppendage}
-                      nameMap={HEAD_APPENDAGE_NAMES}
-                    />
-                    <VisualProbabilityTable 
-                      title="Head App Color" 
-                      probabilities={result.probabilities.appendageColor}
-                      nameMap={HAIR_COLOR_NAMES}
-                      colorMap={APPENDAGE_COLOR_HEX}
-                    />
-                    <VisualProbabilityTable 
-                      title="Back App" 
-                      probabilities={result.probabilities.backAppendage}
-                      nameMap={BACK_APPENDAGE_NAMES}
-                    />
-                    <VisualProbabilityTable 
-                      title="Back App Color" 
-                      probabilities={result.probabilities.backAppendageColor}
-                      nameMap={HAIR_COLOR_NAMES}
-                      colorMap={APPENDAGE_COLOR_HEX}
-                    />
-                  </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mt-4">
+                  <VisualProbabilityTable 
+                    title="Eye Color" 
+                    probabilities={result.probabilities.eyeColor}
+                    nameMap={EYE_COLOR_NAMES}
+                    colorMap={EYE_COLOR_HEX}
+                  />
+                  <VisualProbabilityTable 
+                    title="Skin Color" 
+                    probabilities={result.probabilities.skinColor}
+                    nameMap={SKIN_COLOR_NAMES}
+                    colorMap={SKIN_COLOR_HEX}
+                  />
+                  <VisualProbabilityTable 
+                    title="Crafting 1" 
+                    probabilities={result.probabilities.crafting1}
+                    nameMap={CRAFTING_NAMES}
+                  />
+                  <VisualProbabilityTable 
+                    title="Crafting 2" 
+                    probabilities={result.probabilities.crafting2}
+                    nameMap={CRAFTING_NAMES}
+                  />
+                  <VisualProbabilityTable 
+                    title="Visual Unknown 1" 
+                    probabilities={result.probabilities.visualUnknown1}
+                    nameMap={VISUAL_UNKNOWN_NAMES}
+                  />
+                  <VisualProbabilityTable 
+                    title="Visual Unknown 2" 
+                    probabilities={result.probabilities.visualUnknown2}
+                    nameMap={VISUAL_UNKNOWN_NAMES}
+                  />
+                </div>
 
-                  <Separator className="my-4" />
-
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <VisualProbabilityTable 
-                      title="Eye Color" 
-                      probabilities={result.probabilities.eyeColor}
-                      nameMap={EYE_COLOR_NAMES}
-                      colorMap={EYE_COLOR_HEX}
-                    />
-                    <VisualProbabilityTable 
-                      title="Skin Color" 
-                      probabilities={result.probabilities.skinColor}
-                      nameMap={SKIN_COLOR_NAMES}
-                      colorMap={SKIN_COLOR_HEX}
-                    />
-                    <VisualProbabilityTable 
-                      title="Crafting 1" 
-                      probabilities={result.probabilities.crafting1}
-                      nameMap={CRAFTING_NAMES}
-                    />
-                    <VisualProbabilityTable 
-                      title="Crafting 2" 
-                      probabilities={result.probabilities.crafting2}
-                      nameMap={CRAFTING_NAMES}
-                    />
-                    <VisualProbabilityTable 
-                      title="Visual Unknown 1" 
-                      probabilities={result.probabilities.visualUnknown1}
-                      nameMap={VISUAL_UNKNOWN_NAMES}
-                    />
-                    <VisualProbabilityTable 
-                      title="Visual Unknown 2" 
-                      probabilities={result.probabilities.visualUnknown2}
-                      nameMap={VISUAL_UNKNOWN_NAMES}
-                    />
-                  </div>
-
-                  <Separator className="my-4" />
-
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <ProbabilityTable 
-                      title="Gender" 
-                      probabilities={result.probabilities.gender}
-                      mutations={result.probabilities.mutations?.gender}
-                    />
-                    <ProbabilityTable 
-                      title="Background" 
-                      probabilities={result.probabilities.background}
-                      mutations={result.probabilities.mutations?.background}
-                    />
-                  </div>
-                </TabsContent>
-              </Tabs>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mt-4">
+                  <ProbabilityTable 
+                    title="Gender" 
+                    probabilities={result.probabilities.gender}
+                    mutations={result.probabilities.mutations?.gender}
+                  />
+                  <ProbabilityTable 
+                    title="Background" 
+                    probabilities={result.probabilities.background}
+                    mutations={result.probabilities.mutations?.background}
+                  />
+                </div>
+              </div>
             </CardContent>
           </Card>
         </>
