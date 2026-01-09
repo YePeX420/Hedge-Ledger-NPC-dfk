@@ -25,15 +25,15 @@ const GENE_POSITIONS = ['dominant', 'R1', 'R2', 'R3'];
 
 /**
  * Correct DFK Class Mutation Map
- * Based on official DFK documentation and user-verified data
+ * Based on official Hero Class Summoning Tree image
  * 
  * BASIC → ADVANCED:
- * - Knight + Warrior → Paladin
- * - Knight + Thief → DarkKnight  
+ * - Warrior + Knight → Paladin
+ * - Thief + Archer → DarkKnight  
  * - Priest + Wizard → Summoner
- * - Pirate + Monk → Ninja
- * - Thief + Pirate → Shapeshifter
- * - Archer + Monk → Bard
+ * - Monk + Pirate → Ninja
+ * - Berserker + Seer → Shapeshifter
+ * - Legionnaire + Scholar → Bard
  * 
  * ADVANCED → ELITE:
  * - Paladin + DarkKnight → Dragoon
@@ -41,24 +41,22 @@ const GENE_POSITIONS = ['dominant', 'R1', 'R2', 'R3'];
  * - Shapeshifter + Bard → Spellbow
  * 
  * ELITE → EXALTED:
- * - Dragoon + Sage → DreadKnight
- * - Dragoon + Spellbow → DreadKnight
- * - Sage + Spellbow → DreadKnight
+ * - Dragoon + Sage → DreadKnight (only this combo)
  */
 const CLASS_MUTATION_MAP = {
-  // Basic → Advanced
-  'Knight+Warrior': 'Paladin',
+  // Basic → Advanced (from official Hero Class Summoning Tree)
   'Warrior+Knight': 'Paladin',
-  'Knight+Thief': 'DarkKnight',
-  'Thief+Knight': 'DarkKnight',
+  'Knight+Warrior': 'Paladin',
+  'Thief+Archer': 'DarkKnight',
+  'Archer+Thief': 'DarkKnight',
   'Priest+Wizard': 'Summoner',
   'Wizard+Priest': 'Summoner',
-  'Pirate+Monk': 'Ninja',
   'Monk+Pirate': 'Ninja',
-  'Thief+Pirate': 'Shapeshifter',
-  'Pirate+Thief': 'Shapeshifter',
-  'Archer+Monk': 'Bard',
-  'Monk+Archer': 'Bard',
+  'Pirate+Monk': 'Ninja',
+  'Berserker+Seer': 'Shapeshifter',
+  'Seer+Berserker': 'Shapeshifter',
+  'Legionnaire+Scholar': 'Bard',
+  'Scholar+Legionnaire': 'Bard',
   // Advanced → Elite
   'Paladin+DarkKnight': 'Dragoon',
   'DarkKnight+Paladin': 'Dragoon',
@@ -66,13 +64,9 @@ const CLASS_MUTATION_MAP = {
   'Ninja+Summoner': 'Sage',
   'Shapeshifter+Bard': 'Spellbow',
   'Bard+Shapeshifter': 'Spellbow',
-  // Elite → Exalted
+  // Elite → Exalted (only Dragoon+Sage)
   'Dragoon+Sage': 'DreadKnight',
-  'Sage+Dragoon': 'DreadKnight',
-  'Dragoon+Spellbow': 'DreadKnight',
-  'Spellbow+Dragoon': 'DreadKnight',
-  'Sage+Spellbow': 'DreadKnight',
-  'Spellbow+Sage': 'DreadKnight'
+  'Sage+Dragoon': 'DreadKnight'
 };
 
 const MUTATION_CHANCE = 0.25;
