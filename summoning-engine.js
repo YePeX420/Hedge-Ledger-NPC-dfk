@@ -146,6 +146,28 @@ const PASSIVE_SKILL_MUTATION_MAP = {
 };
 
 /**
+ * Helper to extract gene ID values from visual trait object
+ * Visual traits from hero-genetics.js have both names (dominant, R1...) and IDs (dominantValue, R1Value...)
+ * This extracts the ID values for summoning calculations
+ */
+function extractVisualGeneIds(visualTrait) {
+  if (!visualTrait) return null;
+  
+  // If trait has *Value fields, extract them
+  if (visualTrait.dominantValue !== undefined) {
+    return {
+      dominant: visualTrait.dominantValue,
+      R1: visualTrait.R1Value,
+      R2: visualTrait.R2Value,
+      R3: visualTrait.R3Value
+    };
+  }
+  
+  // Otherwise, trait already uses gene IDs directly (e.g., gender)
+  return visualTrait;
+}
+
+/**
  * Calculate all summoning probabilities for two parent heroes
  * @param {Object} parent1Genetics - Full genetics object from hero-genetics.js
  * @param {Object} parent2Genetics - Full genetics object from hero-genetics.js
@@ -170,19 +192,52 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
   const statBoost2Data = calculateTraitProbabilities(parent1Genetics.statBoost2, parent2Genetics.statBoost2);
   const elementData = calculateTraitProbabilities(parent1Genetics.element, parent2Genetics.element);
   
-  // Visual traits
+  // Visual traits - extract gene ID values for probability calculations
   const genderData = calculateTraitProbabilities(parent1Genetics.visual.gender, parent2Genetics.visual.gender);
-  const headAppData = calculateTraitProbabilities(parent1Genetics.visual.headAppendage, parent2Genetics.visual.headAppendage);
-  const backAppData = calculateTraitProbabilities(parent1Genetics.visual.backAppendage, parent2Genetics.visual.backAppendage);
-  const bgData = calculateTraitProbabilities(parent1Genetics.visual.background, parent2Genetics.visual.background);
-  const hairStyleData = calculateTraitProbabilities(parent1Genetics.visual.hairStyle, parent2Genetics.visual.hairStyle);
-  const hairColorData = calculateTraitProbabilities(parent1Genetics.visual.hairColor, parent2Genetics.visual.hairColor);
-  const eyeColorData = calculateTraitProbabilities(parent1Genetics.visual.eyeColor, parent2Genetics.visual.eyeColor);
-  const skinColorData = calculateTraitProbabilities(parent1Genetics.visual.skinColor, parent2Genetics.visual.skinColor);
-  const appColorData = calculateTraitProbabilities(parent1Genetics.visual.appendageColor, parent2Genetics.visual.appendageColor);
-  const backAppColorData = calculateTraitProbabilities(parent1Genetics.visual.backAppendageColor, parent2Genetics.visual.backAppendageColor);
-  const vu1Data = calculateTraitProbabilities(parent1Genetics.visual.visualUnknown1, parent2Genetics.visual.visualUnknown1);
-  const vu2Data = calculateTraitProbabilities(parent1Genetics.visual.visualUnknown2, parent2Genetics.visual.visualUnknown2);
+  const headAppData = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.headAppendage), 
+    extractVisualGeneIds(parent2Genetics.visual.headAppendage)
+  );
+  const backAppData = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.backAppendage), 
+    extractVisualGeneIds(parent2Genetics.visual.backAppendage)
+  );
+  const bgData = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.background), 
+    extractVisualGeneIds(parent2Genetics.visual.background)
+  );
+  const hairStyleData = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.hairStyle), 
+    extractVisualGeneIds(parent2Genetics.visual.hairStyle)
+  );
+  const hairColorData = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.hairColor), 
+    extractVisualGeneIds(parent2Genetics.visual.hairColor)
+  );
+  const eyeColorData = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.eyeColor), 
+    extractVisualGeneIds(parent2Genetics.visual.eyeColor)
+  );
+  const skinColorData = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.skinColor), 
+    extractVisualGeneIds(parent2Genetics.visual.skinColor)
+  );
+  const appColorData = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.appendageColor), 
+    extractVisualGeneIds(parent2Genetics.visual.appendageColor)
+  );
+  const backAppColorData = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.backAppendageColor), 
+    extractVisualGeneIds(parent2Genetics.visual.backAppendageColor)
+  );
+  const vu1Data = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.visualUnknown1), 
+    extractVisualGeneIds(parent2Genetics.visual.visualUnknown1)
+  );
+  const vu2Data = calculateTraitProbabilities(
+    extractVisualGeneIds(parent1Genetics.visual.visualUnknown2), 
+    extractVisualGeneIds(parent2Genetics.visual.visualUnknown2)
+  );
   
   // Crafting traits
   const craft1Data = calculateTraitProbabilities(parent1Genetics.crafting1, parent2Genetics.crafting1);

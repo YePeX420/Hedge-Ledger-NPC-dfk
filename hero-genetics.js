@@ -126,7 +126,7 @@ function decodeHeroGenes(hero) {
       R3: statTraits.element.r3.name
     },
     
-    // Visual traits with hex colors and proper names
+    // Visual traits with names (backward compatible) and gene ID values (for summoning)
     visual: {
       gender: {
         dominant: visualTraits.gender.d.name,
@@ -135,70 +135,115 @@ function decodeHeroGenes(hero) {
         R3: visualTraits.gender.r3.name
       },
       headAppendage: {
-        dominant: visualTraits.headAppendage.d.value,
-        R1: visualTraits.headAppendage.r1.value,
-        R2: visualTraits.headAppendage.r2.value,
-        R3: visualTraits.headAppendage.r3.value
+        dominant: visualTraits.headAppendage.d.name,
+        R1: visualTraits.headAppendage.r1.name,
+        R2: visualTraits.headAppendage.r2.name,
+        R3: visualTraits.headAppendage.r3.name,
+        // Gene ID values for summoning calculations
+        dominantValue: visualTraits.headAppendage.d.value,
+        R1Value: visualTraits.headAppendage.r1.value,
+        R2Value: visualTraits.headAppendage.r2.value,
+        R3Value: visualTraits.headAppendage.r3.value
       },
       backAppendage: {
-        dominant: visualTraits.backAppendage.d.value,
-        R1: visualTraits.backAppendage.r1.value,
-        R2: visualTraits.backAppendage.r2.value,
-        R3: visualTraits.backAppendage.r3.value
+        dominant: visualTraits.backAppendage.d.name,
+        R1: visualTraits.backAppendage.r1.name,
+        R2: visualTraits.backAppendage.r2.name,
+        R3: visualTraits.backAppendage.r3.name,
+        dominantValue: visualTraits.backAppendage.d.value,
+        R1Value: visualTraits.backAppendage.r1.value,
+        R2Value: visualTraits.backAppendage.r2.value,
+        R3Value: visualTraits.backAppendage.r3.value
       },
       background: {
-        dominant: visualTraits.background.d.value,
-        R1: visualTraits.background.r1.value,
-        R2: visualTraits.background.r2.value,
-        R3: visualTraits.background.r3.value
+        dominant: visualTraits.background.d.name,
+        R1: visualTraits.background.r1.name,
+        R2: visualTraits.background.r2.name,
+        R3: visualTraits.background.r3.name,
+        dominantValue: visualTraits.background.d.value,
+        R1Value: visualTraits.background.r1.value,
+        R2Value: visualTraits.background.r2.value,
+        R3Value: visualTraits.background.r3.value
       },
       hairStyle: {
-        dominant: visualTraits.hairStyle.d.value,
-        R1: visualTraits.hairStyle.r1.value,
-        R2: visualTraits.hairStyle.r2.value,
-        R3: visualTraits.hairStyle.r3.value
+        dominant: visualTraits.hairStyle.d.name,
+        R1: visualTraits.hairStyle.r1.name,
+        R2: visualTraits.hairStyle.r2.name,
+        R3: visualTraits.hairStyle.r3.name,
+        dominantValue: visualTraits.hairStyle.d.value,
+        R1Value: visualTraits.hairStyle.r1.value,
+        R2Value: visualTraits.hairStyle.r2.value,
+        R3Value: visualTraits.hairStyle.r3.value
       },
       hairColor: {
-        dominant: visualTraits.hairColor.d.value,
-        R1: visualTraits.hairColor.r1.value,
-        R2: visualTraits.hairColor.r2.value,
-        R3: visualTraits.hairColor.r3.value
+        dominant: visualTraits.hairColor.d.name,
+        R1: visualTraits.hairColor.r1.name,
+        R2: visualTraits.hairColor.r2.name,
+        R3: visualTraits.hairColor.r3.name,
+        dominantValue: visualTraits.hairColor.d.value,
+        R1Value: visualTraits.hairColor.r1.value,
+        R2Value: visualTraits.hairColor.r2.value,
+        R3Value: visualTraits.hairColor.r3.value
       },
       eyeColor: {
-        dominant: visualTraits.eyeColor.d.value,
-        R1: visualTraits.eyeColor.r1.value,
-        R2: visualTraits.eyeColor.r2.value,
-        R3: visualTraits.eyeColor.r3.value
+        dominant: visualTraits.eyeColor.d.name,
+        R1: visualTraits.eyeColor.r1.name,
+        R2: visualTraits.eyeColor.r2.name,
+        R3: visualTraits.eyeColor.r3.name,
+        dominantValue: visualTraits.eyeColor.d.value,
+        R1Value: visualTraits.eyeColor.r1.value,
+        R2Value: visualTraits.eyeColor.r2.value,
+        R3Value: visualTraits.eyeColor.r3.value
       },
       skinColor: {
-        dominant: visualTraits.skinColor.d.value,
-        R1: visualTraits.skinColor.r1.value,
-        R2: visualTraits.skinColor.r2.value,
-        R3: visualTraits.skinColor.r3.value
+        dominant: visualTraits.skinColor.d.name,
+        R1: visualTraits.skinColor.r1.name,
+        R2: visualTraits.skinColor.r2.name,
+        R3: visualTraits.skinColor.r3.name,
+        dominantValue: visualTraits.skinColor.d.value,
+        R1Value: visualTraits.skinColor.r1.value,
+        R2Value: visualTraits.skinColor.r2.value,
+        R3Value: visualTraits.skinColor.r3.value
       },
       appendageColor: {
-        dominant: visualTraits.appendageColor.d.value,
-        R1: visualTraits.appendageColor.r1.value,
-        R2: visualTraits.appendageColor.r2.value,
-        R3: visualTraits.appendageColor.r3.value
+        dominant: visualTraits.appendageColor.d.name,
+        R1: visualTraits.appendageColor.r1.name,
+        R2: visualTraits.appendageColor.r2.name,
+        R3: visualTraits.appendageColor.r3.name,
+        dominantValue: visualTraits.appendageColor.d.value,
+        R1Value: visualTraits.appendageColor.r1.value,
+        R2Value: visualTraits.appendageColor.r2.value,
+        R3Value: visualTraits.appendageColor.r3.value
       },
       backAppendageColor: {
-        dominant: visualTraits.backAppendageColor.d.value,
-        R1: visualTraits.backAppendageColor.r1.value,
-        R2: visualTraits.backAppendageColor.r2.value,
-        R3: visualTraits.backAppendageColor.r3.value
+        dominant: visualTraits.backAppendageColor.d.name,
+        R1: visualTraits.backAppendageColor.r1.name,
+        R2: visualTraits.backAppendageColor.r2.name,
+        R3: visualTraits.backAppendageColor.r3.name,
+        dominantValue: visualTraits.backAppendageColor.d.value,
+        R1Value: visualTraits.backAppendageColor.r1.value,
+        R2Value: visualTraits.backAppendageColor.r2.value,
+        R3Value: visualTraits.backAppendageColor.r3.value
       },
       visualUnknown1: {
-        dominant: visualTraits.visualUnknown1.d.value,
-        R1: visualTraits.visualUnknown1.r1.value,
-        R2: visualTraits.visualUnknown1.r2.value,
-        R3: visualTraits.visualUnknown1.r3.value
+        dominant: visualTraits.visualUnknown1.d.name,
+        R1: visualTraits.visualUnknown1.r1.name,
+        R2: visualTraits.visualUnknown1.r2.name,
+        R3: visualTraits.visualUnknown1.r3.name,
+        dominantValue: visualTraits.visualUnknown1.d.value,
+        R1Value: visualTraits.visualUnknown1.r1.value,
+        R2Value: visualTraits.visualUnknown1.r2.value,
+        R3Value: visualTraits.visualUnknown1.r3.value
       },
       visualUnknown2: {
-        dominant: visualTraits.visualUnknown2.d.value,
-        R1: visualTraits.visualUnknown2.r1.value,
-        R2: visualTraits.visualUnknown2.r2.value,
-        R3: visualTraits.visualUnknown2.r3.value
+        dominant: visualTraits.visualUnknown2.d.name,
+        R1: visualTraits.visualUnknown2.r1.name,
+        R2: visualTraits.visualUnknown2.r2.name,
+        R3: visualTraits.visualUnknown2.r3.name,
+        dominantValue: visualTraits.visualUnknown2.d.value,
+        R1Value: visualTraits.visualUnknown2.r1.value,
+        R2Value: visualTraits.visualUnknown2.r2.value,
+        R3Value: visualTraits.visualUnknown2.r3.value
       }
     },
     
