@@ -17,7 +17,8 @@ import {
   Swords,
   Eye,
   Palette,
-  Trees
+  Trees,
+  Image
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -27,6 +28,142 @@ import headAppendageTree from "@assets/image_1767989924709.png";
 import backAppendageTree from "@assets/image_1767989933201.png";
 import appendageColorTree from "@assets/image_1767989940273.png";
 import hairColorTree from "@assets/image_1767989948128.png";
+
+// Visual trait tier mappings - maps gene ID to tier indicator
+const GENE_TIERS: Record<number, string> = {
+  0: 'B1', 1: 'B2', 2: 'B3', 3: 'B4', 4: 'B5', 5: 'B6', 6: 'B7', 7: 'B8',
+  8: 'B9', 9: 'B10', 10: 'B11', 11: 'B12', 12: 'B13', 13: 'B14', 14: 'B15', 15: 'B16',
+  16: 'A1', 17: 'A2', 18: 'A3', 19: 'A4', 20: 'A5', 21: 'A6',
+  24: 'E1', 25: 'E2', 26: 'E3',
+  28: 'X1'
+};
+
+// Hair color hex codes by name
+const HAIR_COLOR_HEX: Record<string, string> = {
+  'Sand': '#ab9159', 'Rose': '#af3853', 'Emerald': '#578761', 'Teal': '#068483',
+  'Brown': '#48321e', 'Amethyst': '#66489e', 'Pink': '#ca93a7', 'Cornflower': '#62a7e6',
+  'Auburn': '#c34b1e', 'Ocean': '#326988', 'Plum': '#513f4f', 'Honey': '#d48b41',
+  'Wheat': '#d7bc65', 'Lavender': '#9b68ab', 'Chestnut': '#8d6b3a', 'Slate': '#566377',
+  'Forest': '#275435', 'Lime': '#77b23c', 'Crimson': '#880016', 'Obsidian': '#353132',
+  'Mint': '#dbfbf5', 'Silver': '#8f9bb3'
+};
+
+// Eye color hex codes by name  
+const EYE_COLOR_HEX: Record<string, string> = {
+  'Azure': '#203997', 'Mirabella': '#896693', 'Izmir': '#bb3f55', 'Turmalin': '#0d7634',
+  'Hazel': '#8d7136', 'Violet': '#613d8a', 'Aqua': '#2494a2', 'Crimson': '#a41e12'
+};
+
+// Skin color hex codes by name
+const SKIN_COLOR_HEX: Record<string, string> = {
+  'Nomad': '#c58135', 'Ginger': '#f1ca9e', 'Salmon': '#985e1c', 'Nutmeg': '#57340c',
+  'Peach': '#e6a861', 'Copper': '#7b4a11', 'Rose': '#e5ac91', 'Terra': '#aa5c38'
+};
+
+// Appendage color hex codes by name
+const APPENDAGE_COLOR_HEX: Record<string, string> = {
+  'Ivory': '#c5bfa7', 'Saffron': '#a88b47', 'Cacao': '#58381e', 'Cadet': '#566f7d',
+  'Indigo': '#2a386d', 'Blackberry': '#3f2e40', 'Merlot': '#830e18', 'Bromberry': '#6f3a3c',
+  'Frost': '#cddef0', 'Jacarta': '#df7126', 'Umber': '#835138', 'Fern': '#86a637',
+  'Cerise': '#6b173c', 'Coral': '#a0304d', 'Orchid': '#78547c', 'Plum': '#352a51',
+  'Birthstone': '#147256', 'Petal': '#cf7794', 'Gold': '#c29d35', 'Shadow': '#211f1f',
+  'Sky': '#77b5cf', 'Pearl': '#d7d7d7'
+};
+
+// Hair style names with gene IDs (male styles - shared between genders in probabilities)
+const HAIR_STYLE_NAMES: Record<number, string> = {
+  0: 'Battle Hawk', 1: 'Wolf Mane', 2: 'Enchanter', 3: 'Wild Growth',
+  4: 'Pixel', 5: 'Sunrise', 6: 'Bouffant', 7: 'Agleam Spike',
+  8: 'Wayfinder', 9: 'Faded Topknot', 10: 'Side Shave', 11: 'Ronin',
+  16: 'Gruff', 17: 'Rogue Locs', 18: 'Stone Cold', 19: "Zinra's Tail",
+  20: 'Hedgehog', 21: 'Delinquent',
+  24: 'Skegg', 25: 'Shinobi', 26: 'Sanjo',
+  28: 'Perfect Form'
+};
+
+// Female hair style names (for pairing display)
+const FEMALE_HAIR_STYLE_NAMES: Record<number, string> = {
+  0: 'Windswept', 1: 'Fauna', 2: 'Enchantress', 3: 'Pineapple Top',
+  4: 'Pixie', 5: 'Darkweave Plait', 6: 'Coif', 7: 'Courtly Updo',
+  8: 'Cerulean Tuft', 9: 'Lorelei', 10: 'Casual Ponytail', 11: 'Wild Ponytail',
+  16: 'Vogue Locs', 17: 'Twilight Locs', 18: 'Ethereal Wisherah', 19: 'Kunoichi',
+  20: 'Sweeping Wisherah', 21: 'Chignon',
+  24: 'Regal Locks', 25: 'Moonlight Cascade', 26: 'Mystic Coil',
+  28: 'Divine Radiance'
+};
+
+// Head appendage names with gene IDs
+const HEAD_APPENDAGE_NAMES: Record<number, string> = {
+  0: 'None', 1: 'Kitsune Ears', 2: 'Satyr Horns', 3: 'Ram Horns',
+  4: 'Imp Horns', 5: 'Cat Ears', 6: 'Minotaur Horns', 7: 'Faun Horns',
+  8: 'Draconic Horns', 9: 'Fae Circlet', 10: 'Ragfly Antennae', 11: 'Royal Crown',
+  16: 'Jagged Horns', 17: 'Spindle Horns', 18: 'Bear Ears', 19: 'Antennae',
+  20: 'Fallen Angel Coronet', 21: 'Power Horn',
+  24: 'Wood Elf Ears', 25: 'Snow Elf Ears', 26: 'Cranial Wings',
+  28: 'Insight Jewel'
+};
+
+// Back appendage names with gene IDs
+const BACK_APPENDAGE_NAMES: Record<number, string> = {
+  0: 'None', 1: 'Monkey Tail', 2: 'Cat Tail', 3: 'Imp Tail',
+  4: 'Minotaur Tail', 5: 'Daishō', 6: 'Kitsune Tail', 7: 'Zweihänder',
+  8: 'Skeletal Wings', 9: 'Skeletal Tail', 10: 'Afflicted Spikes', 11: "Traveler's Pack",
+  16: 'Gryphon Wings', 17: 'Draconic Wings', 18: 'Butterfly Wings', 19: 'Phoenix Wings',
+  20: 'Fallen Angel', 21: 'Crystal Wings',
+  24: 'Aura of the Inner Grove', 25: 'Ancient Orbs', 26: 'Arachnid Legs',
+  28: 'Cecaelia Tentacles'
+};
+
+// Hair color names with gene IDs
+const HAIR_COLOR_NAMES: Record<number, string> = {
+  0: 'Sand', 1: 'Rose', 2: 'Emerald', 3: 'Teal', 4: 'Brown', 5: 'Amethyst',
+  6: 'Pink', 7: 'Cornflower', 8: 'Auburn', 9: 'Ocean', 10: 'Plum', 11: 'Honey',
+  16: 'Wheat', 17: 'Lavender', 18: 'Chestnut', 19: 'Slate',
+  20: 'Forest', 21: 'Lime',
+  24: 'Crimson', 25: 'Obsidian', 26: 'Mint',
+  28: 'Silver'
+};
+
+// Eye color names with gene IDs
+const EYE_COLOR_NAMES: Record<number, string> = {
+  0: 'Azure', 2: 'Mirabella', 4: 'Izmir', 6: 'Turmalin',
+  8: 'Hazel', 10: 'Violet', 12: 'Aqua', 14: 'Crimson'
+};
+
+// Skin color names with gene IDs
+const SKIN_COLOR_NAMES: Record<number, string> = {
+  0: 'Nomad', 2: 'Ginger', 4: 'Salmon', 6: 'Nutmeg',
+  8: 'Peach', 10: 'Copper', 12: 'Rose', 14: 'Terra'
+};
+
+// Crafting skill names with gene IDs
+const CRAFTING_NAMES: Record<number, string> = {
+  0: 'Blacksmithing', 2: 'Goldsmithing', 4: 'Armorsmithing', 6: 'Woodworking',
+  8: 'Leatherworking', 10: 'Tailoring', 12: 'Enchanting', 14: 'Alchemy'
+};
+
+// Visual unknown just show numeric tier
+const VISUAL_UNKNOWN_NAMES: Record<number, string> = {
+  0: 'Basic1', 1: 'Basic2', 2: 'Basic3', 3: 'Basic4', 4: 'Basic5', 5: 'Basic6', 6: 'Basic7', 7: 'Basic8',
+  16: 'Advanced1', 17: 'Advanced2', 18: 'Advanced3', 19: 'Advanced4',
+  24: 'Elite1', 25: 'Elite2',
+  28: 'Exalted1'
+};
+
+// Helper to get tier indicator from trait name by looking up gene ID
+function getTierFromName(name: string, nameMap: Record<number, string>): string {
+  const entry = Object.entries(nameMap).find(([_, n]) => n === name);
+  if (entry) {
+    const geneId = parseInt(entry[0]);
+    return GENE_TIERS[geneId] || `?${geneId}`;
+  }
+  return '?';
+}
+
+// Helper to check if a trait is a mutation (Advanced or higher tier)
+function isMutationTier(tier: string): boolean {
+  return tier.startsWith('A') || tier.startsWith('E') || tier.startsWith('X');
+}
 
 interface HeroData {
   id: string;
@@ -196,6 +333,78 @@ function ProbabilityTable({
   );
 }
 
+// Visual trait probability table with tier indicators and color swatches
+function VisualProbabilityTable({ 
+  title, 
+  probabilities, 
+  nameMap,
+  colorMap,
+  showPairNames,
+  femaleNameMap
+}: { 
+  title: string; 
+  probabilities: ProbabilityMap; 
+  nameMap: Record<number, string>;
+  colorMap?: Record<string, string>;
+  showPairNames?: boolean;
+  femaleNameMap?: Record<number, string>;
+}) {
+  if (!probabilities || typeof probabilities !== 'object') return null;
+  
+  const sortedEntries = Object.entries(probabilities)
+    .sort((a, b) => b[1] - a[1])
+    .filter(([_, prob]) => prob > 0);
+
+  if (sortedEntries.length === 0) return null;
+
+  return (
+    <div className="space-y-1">
+      <h4 className="font-semibold text-sm">{title}</h4>
+      <div className="space-y-0.5">
+        {sortedEntries.map(([trait, prob]) => {
+          const tier = getTierFromName(trait, nameMap);
+          const isMutation = isMutationTier(tier);
+          const colorHex = colorMap?.[trait];
+          
+          // Get female name if showing pairs
+          let displayName = trait;
+          if (showPairNames && femaleNameMap) {
+            const geneId = Object.entries(nameMap).find(([_, n]) => n === trait)?.[0];
+            if (geneId) {
+              const femaleName = femaleNameMap[parseInt(geneId)];
+              if (femaleName && femaleName !== trait) {
+                displayName = `${trait} / ${femaleName}`;
+              }
+            }
+          }
+          
+          return (
+            <div 
+              key={trait} 
+              className={`flex items-center justify-between text-xs py-0.5 px-1 rounded gap-1 ${
+                isMutation ? "bg-orange-500/20" : ""
+              }`}
+            >
+              <div className="flex items-center gap-1 min-w-0 flex-1">
+                {colorHex && (
+                  <div 
+                    className="w-3 h-3 rounded-sm border border-border/50 flex-shrink-0"
+                    style={{ backgroundColor: colorHex }}
+                  />
+                )}
+                <span className={`truncate ${isMutation ? "text-orange-300 font-medium" : ""}`}>
+                  ({tier}) {displayName}
+                </span>
+              </div>
+              <span className="font-mono flex-shrink-0">{prob.toFixed(2)} %</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function GeneticsTable({ genetics, title }: { genetics: Genetics; title: string }) {
   const statTraits = [
     { name: "Class", value: genetics.mainClass },
@@ -290,6 +499,7 @@ export default function SummoningCalculator() {
   const [hero1Id, setHero1Id] = useState("");
   const [hero2Id, setHero2Id] = useState("");
   const [result, setResult] = useState<SummoningResult | null>(null);
+  const [pageTab, setPageTab] = useState<string>("calculator");
 
   const calculateMutation = useMutation({
     mutationFn: async ({ hero1Id, hero2Id }: { hero1Id: string; hero2Id: string }) => {
@@ -313,16 +523,32 @@ export default function SummoningCalculator() {
 
   return (
     <div className="container mx-auto p-4 space-y-6">
-      <div className="flex items-center gap-3">
-        <Calculator className="h-8 w-8" />
-        <div>
-          <h1 className="text-2xl font-bold">Summoning Calculator</h1>
-          <p className="text-muted-foreground">
-            Calculate offspring trait probabilities from two parent heroes
-          </p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Calculator className="h-8 w-8" />
+          <div>
+            <h1 className="text-2xl font-bold">Summoning Calculator</h1>
+            <p className="text-muted-foreground">
+              Calculate offspring trait probabilities from two parent heroes
+            </p>
+          </div>
         </div>
+        <Tabs value={pageTab} onValueChange={setPageTab}>
+          <TabsList>
+            <TabsTrigger value="calculator" data-testid="tab-calculator">
+              <Calculator className="h-4 w-4 mr-1" />
+              Calculator
+            </TabsTrigger>
+            <TabsTrigger value="infographics" data-testid="tab-infographics">
+              <Image className="h-4 w-4 mr-1" />
+              Infographics
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
+      {pageTab === "calculator" && (
+        <>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -472,70 +698,77 @@ export default function SummoningCalculator() {
 
                 <TabsContent value="visual">
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Hair Style" 
                       probabilities={result.probabilities.hairStyle}
-                      mutations={result.probabilities.mutations?.hairStyle}
+                      nameMap={HAIR_STYLE_NAMES}
+                      showPairNames={true}
+                      femaleNameMap={FEMALE_HAIR_STYLE_NAMES}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Hair Color" 
                       probabilities={result.probabilities.hairColor}
-                      mutations={result.probabilities.mutations?.hairColor}
+                      nameMap={HAIR_COLOR_NAMES}
+                      colorMap={HAIR_COLOR_HEX}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Head App" 
                       probabilities={result.probabilities.headAppendage}
-                      mutations={result.probabilities.mutations?.headAppendage}
+                      nameMap={HEAD_APPENDAGE_NAMES}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Head App Color" 
                       probabilities={result.probabilities.appendageColor}
-                      mutations={result.probabilities.mutations?.appendageColor}
+                      nameMap={HAIR_COLOR_NAMES}
+                      colorMap={APPENDAGE_COLOR_HEX}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Back App" 
                       probabilities={result.probabilities.backAppendage}
-                      mutations={result.probabilities.mutations?.backAppendage}
+                      nameMap={BACK_APPENDAGE_NAMES}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Back App Color" 
                       probabilities={result.probabilities.backAppendageColor}
-                      mutations={result.probabilities.mutations?.backAppendageColor}
+                      nameMap={HAIR_COLOR_NAMES}
+                      colorMap={APPENDAGE_COLOR_HEX}
                     />
                   </div>
 
                   <Separator className="my-4" />
 
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Eye Color" 
                       probabilities={result.probabilities.eyeColor}
-                      mutations={result.probabilities.mutations?.eyeColor}
+                      nameMap={EYE_COLOR_NAMES}
+                      colorMap={EYE_COLOR_HEX}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Skin Color" 
                       probabilities={result.probabilities.skinColor}
-                      mutations={result.probabilities.mutations?.skinColor}
+                      nameMap={SKIN_COLOR_NAMES}
+                      colorMap={SKIN_COLOR_HEX}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Crafting 1" 
                       probabilities={result.probabilities.crafting1}
-                      mutations={result.probabilities.mutations?.crafting1}
+                      nameMap={CRAFTING_NAMES}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Crafting 2" 
                       probabilities={result.probabilities.crafting2}
-                      mutations={result.probabilities.mutations?.crafting2}
+                      nameMap={CRAFTING_NAMES}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Visual Unknown 1" 
                       probabilities={result.probabilities.visualUnknown1}
-                      mutations={result.probabilities.mutations?.visualUnknown1}
+                      nameMap={VISUAL_UNKNOWN_NAMES}
                     />
-                    <ProbabilityTable 
+                    <VisualProbabilityTable 
                       title="Visual Unknown 2" 
                       probabilities={result.probabilities.visualUnknown2}
-                      mutations={result.probabilities.mutations?.visualUnknown2}
+                      nameMap={VISUAL_UNKNOWN_NAMES}
                     />
                   </div>
 
@@ -557,103 +790,107 @@ export default function SummoningCalculator() {
               </Tabs>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Trees className="h-5 w-5" />
-                Visual Mutation Trees
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Reference charts showing mutation paths from Basic → Advanced → Elite → Exalted → Transcendent
-              </p>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="hairstyle">
-                <TabsList className="mb-4 flex-wrap h-auto gap-1">
-                  <TabsTrigger value="hairstyle" data-testid="tab-hairstyle">
-                    Female Hairstyle
-                  </TabsTrigger>
-                  <TabsTrigger value="hairstyle-male" data-testid="tab-hairstyle-male">
-                    Male Hairstyle
-                  </TabsTrigger>
-                  <TabsTrigger value="head-app" data-testid="tab-head-app">
-                    Head Appendage
-                  </TabsTrigger>
-                  <TabsTrigger value="back-app" data-testid="tab-back-app">
-                    Back Appendage
-                  </TabsTrigger>
-                  <TabsTrigger value="app-color" data-testid="tab-app-color">
-                    Appendage Color
-                  </TabsTrigger>
-                  <TabsTrigger value="hair-color" data-testid="tab-hair-color">
-                    Hair Color
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="hairstyle">
-                  <div className="overflow-x-auto">
-                    <img 
-                      src={femaleHairstyleTree} 
-                      alt="Female Hairstyle Summoning Tree" 
-                      className="max-w-full h-auto rounded-lg border"
-                    />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="hairstyle-male">
-                  <div className="overflow-x-auto">
-                    <img 
-                      src={maleHairstyleTree} 
-                      alt="Male Hairstyle Summoning Tree" 
-                      className="max-w-full h-auto rounded-lg border"
-                    />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="head-app">
-                  <div className="overflow-x-auto">
-                    <img 
-                      src={headAppendageTree} 
-                      alt="Head Appendage Summoning Tree" 
-                      className="max-w-full h-auto rounded-lg border"
-                    />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="back-app">
-                  <div className="overflow-x-auto">
-                    <img 
-                      src={backAppendageTree} 
-                      alt="Back Appendage Summoning Tree" 
-                      className="max-w-full h-auto rounded-lg border"
-                    />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="app-color">
-                  <div className="overflow-x-auto">
-                    <img 
-                      src={appendageColorTree} 
-                      alt="Appendage Color Summoning Tree" 
-                      className="max-w-full h-auto rounded-lg border"
-                    />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="hair-color">
-                  <div className="overflow-x-auto">
-                    <img 
-                      src={hairColorTree} 
-                      alt="Hair Color Summoning Tree" 
-                      className="max-w-full h-auto rounded-lg border"
-                    />
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
         </>
+      )}
+      </>
+      )}
+
+      {pageTab === "infographics" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Trees className="h-5 w-5" />
+              Visual Mutation Trees
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Reference charts showing mutation paths from Basic → Advanced → Elite → Exalted → Transcendent
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="hairstyle">
+              <TabsList className="mb-4 flex-wrap h-auto gap-1">
+                <TabsTrigger value="hairstyle" data-testid="tab-infographic-hairstyle">
+                  Female Hairstyle
+                </TabsTrigger>
+                <TabsTrigger value="hairstyle-male" data-testid="tab-infographic-hairstyle-male">
+                  Male Hairstyle
+                </TabsTrigger>
+                <TabsTrigger value="head-app" data-testid="tab-infographic-head-app">
+                  Head Appendage
+                </TabsTrigger>
+                <TabsTrigger value="back-app" data-testid="tab-infographic-back-app">
+                  Back Appendage
+                </TabsTrigger>
+                <TabsTrigger value="app-color" data-testid="tab-infographic-app-color">
+                  Appendage Color
+                </TabsTrigger>
+                <TabsTrigger value="hair-color" data-testid="tab-infographic-hair-color">
+                  Hair Color
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="hairstyle">
+                <div className="overflow-x-auto">
+                  <img 
+                    src={femaleHairstyleTree} 
+                    alt="Female Hairstyle Summoning Tree" 
+                    className="max-w-full h-auto rounded-lg border"
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="hairstyle-male">
+                <div className="overflow-x-auto">
+                  <img 
+                    src={maleHairstyleTree} 
+                    alt="Male Hairstyle Summoning Tree" 
+                    className="max-w-full h-auto rounded-lg border"
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="head-app">
+                <div className="overflow-x-auto">
+                  <img 
+                    src={headAppendageTree} 
+                    alt="Head Appendage Summoning Tree" 
+                    className="max-w-full h-auto rounded-lg border"
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="back-app">
+                <div className="overflow-x-auto">
+                  <img 
+                    src={backAppendageTree} 
+                    alt="Back Appendage Summoning Tree" 
+                    className="max-w-full h-auto rounded-lg border"
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="app-color">
+                <div className="overflow-x-auto">
+                  <img 
+                    src={appendageColorTree} 
+                    alt="Appendage Color Summoning Tree" 
+                    className="max-w-full h-auto rounded-lg border"
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="hair-color">
+                <div className="overflow-x-auto">
+                  <img 
+                    src={hairColorTree} 
+                    alt="Hair Color Summoning Tree" 
+                    className="max-w-full h-auto rounded-lg border"
+                  />
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
