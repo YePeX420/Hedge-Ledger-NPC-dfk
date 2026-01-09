@@ -340,14 +340,10 @@ function calculateTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
  */
 export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
   const outcomes = {};
-  const mutations = new Set();
   
   if (!parent1Trait || !parent2Trait) {
-    return { probabilities: {}, mutations };
+    return { probabilities: {}, mutations: new Set() };
   }
-  
-  const parent1Dominant = parent1Trait.dominant;
-  const parent2Dominant = parent2Trait.dominant;
   
   // Iterate through all 16 gene position combinations
   for (const pos1 of GENE_POSITIONS) {
@@ -362,16 +358,10 @@ export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
       // 50/50 chance between the two genes
       if (gene1) {
         outcomes[gene1] = (outcomes[gene1] || 0) + (combinationWeight * 0.5);
-        if (gene1 !== parent1Dominant && gene1 !== parent2Dominant) {
-          mutations.add(gene1);
-        }
       }
       
       if (gene2) {
         outcomes[gene2] = (outcomes[gene2] || 0) + (combinationWeight * 0.5);
-        if (gene2 !== parent1Dominant && gene2 !== parent2Dominant) {
-          mutations.add(gene2);
-        }
       }
     }
   }
@@ -381,9 +371,10 @@ export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
     .map(([trait, prob]) => [trait, Math.round(prob * 100) / 100])
     .sort((a, b) => b[1] - a[1]);
   
+  // No mutations for traits without mutation maps (stat boosts, elements, visuals)
   return {
     probabilities: Object.fromEntries(sorted),
-    mutations
+    mutations: new Set()
   };
 }
 
