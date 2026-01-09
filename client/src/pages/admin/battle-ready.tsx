@@ -265,6 +265,29 @@ function formatWeight(w: string | number): string {
   return `${(num * 100).toFixed(0)}%`;
 }
 
+// Smart level display - hide unrestricted (1-100), show actual brackets
+function formatLevelRange(minLevel: number | null, maxLevel: number | null): string | null {
+  const min = minLevel ?? 1;
+  const max = maxLevel ?? 100;
+  
+  // Hide if unrestricted (1-100 or similar wide open ranges)
+  if (min <= 1 && max >= 100) return null;
+  
+  // Same level (e.g., Lv 10)
+  if (min === max) return `Lv ${min}`;
+  
+  // Range (e.g., Lv 10-14)
+  return `Lv ${min}-${max}`;
+}
+
+// Format Team Trait Score (TTS) - only show if restricted
+function formatTTS(maxTeamStatScore: number | null): string | null {
+  const max = maxTeamStatScore ?? 9000;
+  // Hide if unrestricted (9000 is default)
+  if (max >= 9000) return null;
+  return `TTS ≤${max}`;
+}
+
 function StatusBadge({ status }: { status: string }) {
   if (status === 'running') {
     return (
@@ -1024,9 +1047,14 @@ export default function BattleReadyAdmin() {
                   <TableRow key={t.tournamentId} data-testid={`row-battle-${t.tournamentId}`}>
                     <TableCell className="font-mono">{t.tournamentId}</TableCell>
                     <TableCell>{t.format}</TableCell>
-                    <TableCell>Lv {t.levelMin}-{t.levelMax}</TableCell>
                     <TableCell>
-                      {RARITY_NAMES[t.rarityMin] || t.rarityMin} - {RARITY_NAMES[t.rarityMax] || t.rarityMax}
+                      {formatLevelRange(t.levelMin, t.levelMax) || <span className="text-muted-foreground">Open</span>}
+                    </TableCell>
+                    <TableCell>
+                      {(t.rarityMin !== 0 || t.rarityMax !== 4) 
+                        ? `${RARITY_NAMES[t.rarityMin] || t.rarityMin} - ${RARITY_NAMES[t.rarityMax] || t.rarityMax}`
+                        : <span className="text-muted-foreground">Any</span>
+                      }
                     </TableCell>
                     <TableCell>{t.partySize}v{t.partySize}</TableCell>
                     <TableCell>
@@ -1163,12 +1191,19 @@ export default function BattleReadyAdmin() {
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
-                              <Badge variant="outline" className="text-xs">
-                                Lv {pattern.level_min}-{pattern.level_max}
-                              </Badge>
+                              {formatLevelRange(pattern.level_min, pattern.level_max) && (
+                                <Badge variant="default" className="text-xs bg-blue-600">
+                                  {formatLevelRange(pattern.level_min, pattern.level_max)}
+                                </Badge>
+                              )}
                               <Badge variant="outline" className="text-xs">
                                 {pattern.party_size}v{pattern.party_size}
                               </Badge>
+                              {formatTTS(pattern.max_team_stat_score) && (
+                                <Badge variant="default" className="text-xs bg-amber-600">
+                                  {formatTTS(pattern.max_team_stat_score)}
+                                </Badge>
+                              )}
                               {pattern.rarity_min !== null && pattern.rarity_max !== null && (pattern.rarity_min !== 0 || pattern.rarity_max !== 4) && (
                                 <Badge variant="outline" className="text-xs">
                                   {RARITY_NAMES[pattern.rarity_min] || 'Common'}-{RARITY_NAMES[pattern.rarity_max] || 'Mythic'}
@@ -1182,17 +1217,12 @@ export default function BattleReadyAdmin() {
                               )}
                               {pattern.excluded_classes && pattern.excluded_classes > 0 && (
                                 <Badge variant="destructive" className="text-xs">
-                                  Excl: {decodeClassBitmask(pattern.excluded_classes).join(', ')}
+                                  No: {decodeClassBitmask(pattern.excluded_classes).join(', ')}
                                 </Badge>
                               )}
                               {pattern.must_include_class && pattern.included_class_id !== null && (
                                 <Badge className="text-xs bg-green-600">
                                   Req: {CLASS_NAMES[pattern.included_class_id] || `Class${pattern.included_class_id}`}
-                                </Badge>
-                              )}
-                              {pattern.max_team_stat_score !== null && pattern.max_team_stat_score < 9000 && (
-                                <Badge variant="secondary" className="text-xs">
-                                  Team≤{pattern.max_team_stat_score}
                                 </Badge>
                               )}
                               {pattern.max_hero_stat_score !== null && pattern.max_hero_stat_score < 3000 && (
