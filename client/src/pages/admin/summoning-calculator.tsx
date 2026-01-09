@@ -38,36 +38,38 @@ const GENE_TIERS: Record<number, string> = {
   28: 'X1'
 };
 
-// Hair color hex codes by name
-const HAIR_COLOR_HEX: Record<string, string> = {
-  'Sand': '#ab9159', 'Rose': '#af3853', 'Emerald': '#578761', 'Teal': '#068483',
-  'Brown': '#48321e', 'Amethyst': '#66489e', 'Pink': '#ca93a7', 'Cornflower': '#62a7e6',
-  'Auburn': '#c34b1e', 'Ocean': '#326988', 'Plum': '#513f4f', 'Honey': '#d48b41',
-  'Wheat': '#d7bc65', 'Lavender': '#9b68ab', 'Chestnut': '#8d6b3a', 'Slate': '#566377',
-  'Forest': '#275435', 'Lime': '#77b23c', 'Crimson': '#880016', 'Obsidian': '#353132',
-  'Mint': '#dbfbf5', 'Silver': '#8f9bb3'
+// Hair color hex codes by gene ID
+const HAIR_COLOR_HEX: Record<number, string> = {
+  0: '#ab9159', 1: '#af3853', 2: '#578761', 3: '#068483',  // Sand, Rose, Emerald, Teal
+  4: '#48321e', 5: '#66489e', 6: '#ca93a7', 7: '#62a7e6',  // Brown, Amethyst, Pink, Cornflower
+  8: '#c34b1e', 9: '#326988', 10: '#513f4f', 11: '#d48b41', // Auburn, Ocean, Plum, Honey
+  12: '#dbfbf5', 13: '#8f9bb3', 14: '#c5bfa7', 15: '#d7bc65', // Mint, Silver, Ivory, Wheat
+  16: '#d7bc65', 17: '#9b68ab', 18: '#8d6b3a', 19: '#566377', // Wheat, Lavender, Chestnut, Slate
+  20: '#dbfbf5', 21: '#8f9bb3', // Mint, Silver (Advanced tier)
+  24: '#275435', 25: '#77b23c', 26: '#880016', // Forest, Lime, Crimson
+  28: '#353132' // Obsidian
 };
 
-// Eye color hex codes by name  
-const EYE_COLOR_HEX: Record<string, string> = {
-  'Azure': '#203997', 'Mirabella': '#896693', 'Izmir': '#bb3f55', 'Turmalin': '#0d7634',
-  'Hazel': '#8d7136', 'Violet': '#613d8a', 'Aqua': '#2494a2', 'Crimson': '#a41e12'
+// Eye color hex codes by gene ID
+const EYE_COLOR_HEX: Record<number, string> = {
+  0: '#203997', 2: '#896693', 4: '#bb3f55', 6: '#0d7634',  // Azure, Mirabella, Izmir, Turmalin
+  8: '#8d7136', 10: '#613d8a', 12: '#2494a2', 14: '#a41e12' // Hazel, Violet, Aqua, Crimson
 };
 
-// Skin color hex codes by name
-const SKIN_COLOR_HEX: Record<string, string> = {
-  'Nomad': '#c58135', 'Ginger': '#f1ca9e', 'Salmon': '#985e1c', 'Nutmeg': '#57340c',
-  'Peach': '#e6a861', 'Copper': '#7b4a11', 'Rose': '#e5ac91', 'Terra': '#aa5c38'
+// Skin color hex codes by gene ID
+const SKIN_COLOR_HEX: Record<number, string> = {
+  0: '#c58135', 2: '#f1ca9e', 4: '#985e1c', 6: '#57340c',  // Nomad, Ginger, Salmon, Nutmeg
+  8: '#e6a861', 10: '#7b4a11', 12: '#e5ac91', 14: '#aa5c38' // Peach, Copper, Rose, Terra
 };
 
-// Appendage color hex codes by name
-const APPENDAGE_COLOR_HEX: Record<string, string> = {
-  'Ivory': '#c5bfa7', 'Saffron': '#a88b47', 'Cacao': '#58381e', 'Cadet': '#566f7d',
-  'Indigo': '#2a386d', 'Blackberry': '#3f2e40', 'Merlot': '#830e18', 'Bromberry': '#6f3a3c',
-  'Frost': '#cddef0', 'Jacarta': '#df7126', 'Umber': '#835138', 'Fern': '#86a637',
-  'Cerise': '#6b173c', 'Coral': '#a0304d', 'Orchid': '#78547c', 'Plum': '#352a51',
-  'Birthstone': '#147256', 'Petal': '#cf7794', 'Gold': '#c29d35', 'Shadow': '#211f1f',
-  'Sky': '#77b5cf', 'Pearl': '#d7d7d7'
+// Appendage color hex codes by gene ID
+const APPENDAGE_COLOR_HEX: Record<number, string> = {
+  0: '#c5bfa7', 1: '#a88b47', 2: '#58381e', 3: '#566f7d',  // Ivory, Saffron, Cacao, Cadet
+  4: '#2a386d', 5: '#3f2e40', 6: '#830e18', 7: '#6f3a3c',  // Indigo, Blackberry, Merlot, Bromberry
+  8: '#cddef0', 9: '#df7126', 10: '#835138', 11: '#86a637', // Frost, Jacarta, Umber, Fern
+  16: '#6b173c', 17: '#a0304d', 18: '#78547c', 19: '#352a51', // Cerise, Coral, Orchid, Plum
+  24: '#147256', 25: '#cf7794', 26: '#c29d35', // Birthstone, Petal, Gold
+  28: '#211f1f' // Shadow
 };
 
 // Hair style names with gene IDs (male styles - shared between genders in probabilities)
@@ -150,15 +152,6 @@ const VISUAL_UNKNOWN_NAMES: Record<number, string> = {
   28: 'Exalted1'
 };
 
-// Helper to get tier indicator from trait name by looking up gene ID
-function getTierFromName(name: string, nameMap: Record<number, string>): string {
-  const entry = Object.entries(nameMap).find(([_, n]) => n === name);
-  if (entry) {
-    const geneId = parseInt(entry[0]);
-    return GENE_TIERS[geneId] || `?${geneId}`;
-  }
-  return '?';
-}
 
 // Helper to check if a trait is a mutation (Advanced or higher tier)
 function isMutationTier(tier: string): boolean {
@@ -334,6 +327,7 @@ function ProbabilityTable({
 }
 
 // Visual trait probability table with tier indicators and color swatches
+// Probabilities are keyed by gene ID (as strings), names/colors looked up by gene ID
 function VisualProbabilityTable({ 
   title, 
   probabilities, 
@@ -345,7 +339,7 @@ function VisualProbabilityTable({
   title: string; 
   probabilities: ProbabilityMap; 
   nameMap: Record<number, string>;
-  colorMap?: Record<string, string>;
+  colorMap?: Record<number, string>;
   showPairNames?: boolean;
   femaleNameMap?: Record<number, string>;
 }) {
@@ -362,19 +356,21 @@ function VisualProbabilityTable({
       <h4 className="font-semibold text-sm">{title}</h4>
       <div className="space-y-0.5">
         {sortedEntries.map(([trait, prob]) => {
-          const tier = getTierFromName(trait, nameMap);
+          // trait is gene ID as string (e.g., "0", "5", "16")
+          const geneId = Number(trait);
+          const tier = GENE_TIERS[geneId] || `?${geneId}`;
           const isMutation = isMutationTier(tier);
-          const colorHex = colorMap?.[trait];
+          const colorHex = colorMap?.[geneId];
+          
+          // Look up names directly by gene ID
+          const maleName = nameMap[geneId] || `Gene ${geneId}`;
+          let displayName = maleName;
           
           // Get female name if showing pairs
-          let displayName = trait;
           if (showPairNames && femaleNameMap) {
-            const geneId = Object.entries(nameMap).find(([_, n]) => n === trait)?.[0];
-            if (geneId) {
-              const femaleName = femaleNameMap[parseInt(geneId)];
-              if (femaleName && femaleName !== trait) {
-                displayName = `${trait} / ${femaleName}`;
-              }
+            const femaleName = femaleNameMap[geneId];
+            if (femaleName && femaleName !== maleName) {
+              displayName = `${maleName} / ${femaleName}`;
             }
           }
           
@@ -396,7 +392,7 @@ function VisualProbabilityTable({
                   ({tier}) {displayName}
                 </span>
               </div>
-              <span className="font-mono flex-shrink-0">{prob.toFixed(2)} %</span>
+              <span className="font-mono flex-shrink-0">{prob.toFixed(2)}%</span>
             </div>
           );
         })}
