@@ -13,6 +13,15 @@
  */
 
 import { calculateRarityDistribution } from './rarity-calculator.js';
+import {
+  HAIR_STYLE_MUTATION_MAP,
+  HAIR_COLOR_MUTATION_MAP,
+  HEAD_APPENDAGE_MUTATION_MAP,
+  BACK_APPENDAGE_MUTATION_MAP,
+  APPENDAGE_COLOR_MUTATION_MAP,
+  EYE_COLOR_MUTATION_MAP,
+  SKIN_COLOR_MUTATION_MAP
+} from './visual-mutation-maps.js';
 
 const GENE_WEIGHTS = {
   dominant: 0.75,
@@ -192,43 +201,51 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
   const statBoost2Data = calculateTraitProbabilities(parent1Genetics.statBoost2, parent2Genetics.statBoost2);
   const elementData = calculateTraitProbabilities(parent1Genetics.element, parent2Genetics.element);
   
-  // Visual traits - extract gene ID values for probability calculations
+  // Visual traits - extract gene ID values and use visual mutation maps
   const genderData = calculateTraitProbabilities(parent1Genetics.visual.gender, parent2Genetics.visual.gender);
-  const headAppData = calculateTraitProbabilities(
+  const headAppData = calculateVisualTraitWithMutations(
     extractVisualGeneIds(parent1Genetics.visual.headAppendage), 
-    extractVisualGeneIds(parent2Genetics.visual.headAppendage)
+    extractVisualGeneIds(parent2Genetics.visual.headAppendage),
+    HEAD_APPENDAGE_MUTATION_MAP
   );
-  const backAppData = calculateTraitProbabilities(
+  const backAppData = calculateVisualTraitWithMutations(
     extractVisualGeneIds(parent1Genetics.visual.backAppendage), 
-    extractVisualGeneIds(parent2Genetics.visual.backAppendage)
+    extractVisualGeneIds(parent2Genetics.visual.backAppendage),
+    BACK_APPENDAGE_MUTATION_MAP
   );
   const bgData = calculateTraitProbabilities(
     extractVisualGeneIds(parent1Genetics.visual.background), 
     extractVisualGeneIds(parent2Genetics.visual.background)
   );
-  const hairStyleData = calculateTraitProbabilities(
+  const hairStyleData = calculateVisualTraitWithMutations(
     extractVisualGeneIds(parent1Genetics.visual.hairStyle), 
-    extractVisualGeneIds(parent2Genetics.visual.hairStyle)
+    extractVisualGeneIds(parent2Genetics.visual.hairStyle),
+    HAIR_STYLE_MUTATION_MAP
   );
-  const hairColorData = calculateTraitProbabilities(
+  const hairColorData = calculateVisualTraitWithMutations(
     extractVisualGeneIds(parent1Genetics.visual.hairColor), 
-    extractVisualGeneIds(parent2Genetics.visual.hairColor)
+    extractVisualGeneIds(parent2Genetics.visual.hairColor),
+    HAIR_COLOR_MUTATION_MAP
   );
-  const eyeColorData = calculateTraitProbabilities(
+  const eyeColorData = calculateVisualTraitWithMutations(
     extractVisualGeneIds(parent1Genetics.visual.eyeColor), 
-    extractVisualGeneIds(parent2Genetics.visual.eyeColor)
+    extractVisualGeneIds(parent2Genetics.visual.eyeColor),
+    EYE_COLOR_MUTATION_MAP
   );
-  const skinColorData = calculateTraitProbabilities(
+  const skinColorData = calculateVisualTraitWithMutations(
     extractVisualGeneIds(parent1Genetics.visual.skinColor), 
-    extractVisualGeneIds(parent2Genetics.visual.skinColor)
+    extractVisualGeneIds(parent2Genetics.visual.skinColor),
+    SKIN_COLOR_MUTATION_MAP
   );
-  const appColorData = calculateTraitProbabilities(
+  const appColorData = calculateVisualTraitWithMutations(
     extractVisualGeneIds(parent1Genetics.visual.appendageColor), 
-    extractVisualGeneIds(parent2Genetics.visual.appendageColor)
+    extractVisualGeneIds(parent2Genetics.visual.appendageColor),
+    APPENDAGE_COLOR_MUTATION_MAP
   );
-  const backAppColorData = calculateTraitProbabilities(
+  const backAppColorData = calculateVisualTraitWithMutations(
     extractVisualGeneIds(parent1Genetics.visual.backAppendageColor), 
-    extractVisualGeneIds(parent2Genetics.visual.backAppendageColor)
+    extractVisualGeneIds(parent2Genetics.visual.backAppendageColor),
+    APPENDAGE_COLOR_MUTATION_MAP
   );
   const vu1Data = calculateTraitProbabilities(
     extractVisualGeneIds(parent1Genetics.visual.visualUnknown1), 
@@ -430,6 +447,74 @@ export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
   return {
     probabilities: Object.fromEntries(sorted),
     mutations: new Set()
+  };
+}
+
+/**
+ * Calculate probability distribution for visual traits WITH mutation support
+ * Uses numeric gene IDs and the visual mutation maps to calculate mutation outcomes
+ * 
+ * @param {Object} parent1Trait - Trait object with { dominant, R1, R2, R3 } gene IDs (numbers)
+ * @param {Object} parent2Trait - Trait object with { dominant, R1, R2, R3 } gene IDs (numbers)
+ * @param {Object} mutationMap - The visual mutation map (e.g., HAIR_STYLE_MUTATION_MAP)
+ * @returns {Object} { probabilities: {...}, mutations: Set }
+ */
+export function calculateVisualTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
+  const outcomes = {};
+  const mutations = new Set();
+  
+  if (!parent1Trait || !parent2Trait) {
+    return { probabilities: {}, mutations: new Set() };
+  }
+  
+  // Iterate through all 16 gene position combinations
+  for (const pos1 of GENE_POSITIONS) {
+    for (const pos2 of GENE_POSITIONS) {
+      const gene1 = parent1Trait[pos1];
+      const gene2 = parent2Trait[pos2];
+      
+      if (gene1 === undefined || gene1 === null || gene2 === undefined || gene2 === null) {
+        continue;
+      }
+      
+      const weight1 = GENE_WEIGHTS[pos1];
+      const weight2 = GENE_WEIGHTS[pos2];
+      const combinationWeight = weight1 * weight2;
+      
+      // Check for mutation - using numeric gene IDs
+      const mutationKey = `${gene1}+${gene2}`;
+      const mutatedGene = mutationMap[mutationKey];
+      
+      if (mutatedGene !== undefined && gene1 !== gene2) {
+        // Mutation possible - 25% chance to produce mutation result
+        const mutationProb = combinationWeight * MUTATION_CHANCE * 100;
+        const nonMutationProb = combinationWeight * (1 - MUTATION_CHANCE) * 100;
+        
+        // Add mutation outcome
+        outcomes[mutatedGene] = (outcomes[mutatedGene] || 0) + mutationProb;
+        mutations.add(mutatedGene);
+        
+        // Add non-mutation outcomes (50/50 between the two genes)
+        outcomes[gene1] = (outcomes[gene1] || 0) + (nonMutationProb * 0.5);
+        outcomes[gene2] = (outcomes[gene2] || 0) + (nonMutationProb * 0.5);
+      } else {
+        // No mutation possible - standard 50/50 selection
+        const prob = combinationWeight * 100;
+        outcomes[gene1] = (outcomes[gene1] || 0) + (prob * 0.5);
+        outcomes[gene2] = (outcomes[gene2] || 0) + (prob * 0.5);
+      }
+    }
+  }
+  
+  // Sort by probability and round
+  const sorted = Object.entries(outcomes)
+    .map(([trait, prob]) => [trait, Math.round(prob * 100) / 100])
+    .filter(([, prob]) => prob > 0)
+    .sort((a, b) => b[1] - a[1]);
+  
+  return {
+    probabilities: Object.fromEntries(sorted),
+    mutations
   };
 }
 
