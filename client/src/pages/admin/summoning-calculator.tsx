@@ -15,9 +15,18 @@ import {
   Sparkles,
   Dna,
   Swords,
-  Eye
+  Eye,
+  Palette,
+  Trees
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+
+import femaleHairstyleTree from "@assets/image_1767989909914.png";
+import maleHairstyleTree from "@assets/image_1767989916670.png";
+import headAppendageTree from "@assets/image_1767989924709.png";
+import backAppendageTree from "@assets/image_1767989933201.png";
+import appendageColorTree from "@assets/image_1767989940273.png";
+import hairColorTree from "@assets/image_1767989948128.png";
 
 interface HeroData {
   id: string;
@@ -542,6 +551,102 @@ export default function SummoningCalculator() {
                       title="Background" 
                       probabilities={result.probabilities.background}
                       mutations={result.probabilities.mutations?.background}
+                    />
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Trees className="h-5 w-5" />
+                Visual Mutation Trees
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Reference charts showing mutation paths from Basic → Advanced → Elite → Exalted → Transcendent
+              </p>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="hairstyle">
+                <TabsList className="mb-4 flex-wrap h-auto gap-1">
+                  <TabsTrigger value="hairstyle" data-testid="tab-hairstyle">
+                    Female Hairstyle
+                  </TabsTrigger>
+                  <TabsTrigger value="hairstyle-male" data-testid="tab-hairstyle-male">
+                    Male Hairstyle
+                  </TabsTrigger>
+                  <TabsTrigger value="head-app" data-testid="tab-head-app">
+                    Head Appendage
+                  </TabsTrigger>
+                  <TabsTrigger value="back-app" data-testid="tab-back-app">
+                    Back Appendage
+                  </TabsTrigger>
+                  <TabsTrigger value="app-color" data-testid="tab-app-color">
+                    Appendage Color
+                  </TabsTrigger>
+                  <TabsTrigger value="hair-color" data-testid="tab-hair-color">
+                    Hair Color
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="hairstyle">
+                  <div className="overflow-x-auto">
+                    <img 
+                      src={femaleHairstyleTree} 
+                      alt="Female Hairstyle Summoning Tree" 
+                      className="max-w-full h-auto rounded-lg border"
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="hairstyle-male">
+                  <div className="overflow-x-auto">
+                    <img 
+                      src={maleHairstyleTree} 
+                      alt="Male Hairstyle Summoning Tree" 
+                      className="max-w-full h-auto rounded-lg border"
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="head-app">
+                  <div className="overflow-x-auto">
+                    <img 
+                      src={headAppendageTree} 
+                      alt="Head Appendage Summoning Tree" 
+                      className="max-w-full h-auto rounded-lg border"
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="back-app">
+                  <div className="overflow-x-auto">
+                    <img 
+                      src={backAppendageTree} 
+                      alt="Back Appendage Summoning Tree" 
+                      className="max-w-full h-auto rounded-lg border"
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="app-color">
+                  <div className="overflow-x-auto">
+                    <img 
+                      src={appendageColorTree} 
+                      alt="Appendage Color Summoning Tree" 
+                      className="max-w-full h-auto rounded-lg border"
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="hair-color">
+                  <div className="overflow-x-auto">
+                    <img 
+                      src={hairColorTree} 
+                      alt="Hair Color Summoning Tree" 
+                      className="max-w-full h-auto rounded-lg border"
                     />
                   </div>
                 </TabsContent>
