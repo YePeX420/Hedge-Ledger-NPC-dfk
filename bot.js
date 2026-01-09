@@ -11288,6 +11288,9 @@ async function startAdminWebServer() {
       
       // Auto-start Tournament/Battle indexer
       await autoStartTournamentIndexer();
+      
+      // Auto-start Tavern indexer (marketplace heroes)
+      await autoStartTavernIndexer();
     } else {
       console.log('[AutoStart] Development environment - indexers will only run when manually triggered from admin panel');
     }
@@ -11401,6 +11404,38 @@ async function startAdminWebServer() {
       console.log(`[TournamentIndexer] Auto-start complete: ${result.status}`);
     } catch (err) {
       console.error('[TournamentIndexer] Auto-start error:', err.message);
+    }
+  }
+  
+  // Auto-start Tavern indexer on server startup (production only)
+  async function autoStartTavernIndexer() {
+    try {
+      // Wait a bit after Tournament indexer to stagger load
+      await new Promise(r => setTimeout(r, 25000));
+      
+      console.log('[TavernIndexer] Auto-starting Tavern marketplace indexer...');
+      const { startAutoRun, getIndexerStatus, runFullIndex } = await import('./src/etl/ingestion/tavernIndexer.js');
+      
+      const status = getIndexerStatus();
+      if (status.isRunning || status.autoRunActive) {
+        console.log('[TavernIndexer] Already running, skipping auto-start');
+        return;
+      }
+      
+      // Run initial index then start auto-refresh
+      console.log('[TavernIndexer] Running initial index...');
+      runFullIndex().then(() => {
+        console.log('[TavernIndexer] Initial index complete, starting auto-refresh...');
+        startAutoRun();
+      }).catch(err => {
+        console.error('[TavernIndexer] Initial index error:', err.message);
+        // Still try to start auto-run even if initial fails
+        startAutoRun();
+      });
+      
+      console.log('[TavernIndexer] Auto-start initiated');
+    } catch (err) {
+      console.error('[TavernIndexer] Auto-start error:', err.message);
     }
   }
   
