@@ -17,8 +17,8 @@ import { calculateRarityDistribution } from './rarity-calculator.js';
 const GENE_WEIGHTS = {
   dominant: 0.75,
   R1: 0.1875,
-  R2: 0.055,
-  R3: 0.0075
+  R2: 0.046875,
+  R3: 0.015625
 };
 
 const GENE_POSITIONS = ['dominant', 'R1', 'R2', 'R3'];
@@ -176,8 +176,8 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
  * 1. Calculate combination weight (P1.pos × P2.pos)
  * 2. Check if the two genes form a mutation pair
  * 3. If mutation pair:
- *    - 75% of the time (no mutation): P1 gene gets 50%, P2 gene gets 50%
- *    - 25% of the time (mutation): mutated class gets 100%
+ *    - 25% chance: mutated class is selected
+ *    - 75% chance: one of the parent genes is selected (50/50)
  * 4. If not mutation pair:
  *    - P1 gene gets 50%, P2 gene gets 50%
  * 
