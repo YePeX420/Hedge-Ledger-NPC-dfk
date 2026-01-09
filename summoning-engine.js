@@ -72,6 +72,80 @@ const CLASS_MUTATION_MAP = {
 const MUTATION_CHANCE = 0.25;
 
 /**
+ * Active Skill Mutation Map
+ * Based on official DFK Skill Summoning Tree
+ * 
+ * BASIC → ADVANCED:
+ * - Poisoned Blade + Blinding Winds → Exhaust
+ * - Heal + Cleanse → Daze
+ * - Iron Skin + Speed → Explosion
+ * - Critical Aim + Deathmark → Hardened Shield
+ * 
+ * ADVANCED → ELITE:
+ * - Exhaust + Daze → Stun
+ * - Explosion + Hardened Shield → Second Wind
+ * 
+ * ELITE → TRANSCENDANT:
+ * - Stun + Second Wind → Resurrection
+ */
+const ACTIVE_SKILL_MUTATION_MAP = {
+  // Basic → Advanced
+  'Poisoned Blade+Blinding Winds': 'Exhaust',
+  'Blinding Winds+Poisoned Blade': 'Exhaust',
+  'Heal+Cleanse': 'Daze',
+  'Cleanse+Heal': 'Daze',
+  'Iron Skin+Speed': 'Explosion',
+  'Speed+Iron Skin': 'Explosion',
+  'Critical Aim+Deathmark': 'Hardened Shield',
+  'Deathmark+Critical Aim': 'Hardened Shield',
+  // Advanced → Elite
+  'Exhaust+Daze': 'Stun',
+  'Daze+Exhaust': 'Stun',
+  'Explosion+Hardened Shield': 'Second Wind',
+  'Hardened Shield+Explosion': 'Second Wind',
+  // Elite → Transcendant
+  'Stun+Second Wind': 'Resurrection',
+  'Second Wind+Stun': 'Resurrection'
+};
+
+/**
+ * Passive Skill Mutation Map
+ * Based on official DFK Skill Summoning Tree
+ * 
+ * BASIC → ADVANCED:
+ * - Duelist + Clutch → Leadership
+ * - Foresight + Headstrong → Efficient
+ * - Clear Vision + Fearless → Intimidation
+ * - Chatterbox + Stalwart → Toxic
+ * 
+ * ADVANCED → ELITE:
+ * - Leadership + Efficient → Giant Slayer
+ * - Intimidation + Toxic → Last Stand
+ * 
+ * ELITE → TRANSCENDANT:
+ * - Giant Slayer + Last Stand → Second Life
+ */
+const PASSIVE_SKILL_MUTATION_MAP = {
+  // Basic → Advanced
+  'Duelist+Clutch': 'Leadership',
+  'Clutch+Duelist': 'Leadership',
+  'Foresight+Headstrong': 'Efficient',
+  'Headstrong+Foresight': 'Efficient',
+  'Clear Vision+Fearless': 'Intimidation',
+  'Fearless+Clear Vision': 'Intimidation',
+  'Chatterbox+Stalwart': 'Toxic',
+  'Stalwart+Chatterbox': 'Toxic',
+  // Advanced → Elite
+  'Leadership+Efficient': 'Giant Slayer',
+  'Efficient+Leadership': 'Giant Slayer',
+  'Intimidation+Toxic': 'Last Stand',
+  'Toxic+Intimidation': 'Last Stand',
+  // Elite → Transcendant
+  'Giant Slayer+Last Stand': 'Second Life',
+  'Last Stand+Giant Slayer': 'Second Life'
+};
+
+/**
  * Calculate all summoning probabilities for two parent heroes
  * @param {Object} parent1Genetics - Full genetics object from hero-genetics.js
  * @param {Object} parent2Genetics - Full genetics object from hero-genetics.js
@@ -81,15 +155,17 @@ const MUTATION_CHANCE = 0.25;
  */
 export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics, parent1Rarity, parent2Rarity) {
   // Class traits use mutation system
-  const classData = calculateClassWithMutations(parent1Genetics.mainClass, parent2Genetics.mainClass);
-  const subClassData = calculateClassWithMutations(parent1Genetics.subClass, parent2Genetics.subClass);
+  const classData = calculateTraitWithMutations(parent1Genetics.mainClass, parent2Genetics.mainClass, CLASS_MUTATION_MAP);
+  const subClassData = calculateTraitWithMutations(parent1Genetics.subClass, parent2Genetics.subClass, CLASS_MUTATION_MAP);
   
-  // Non-class traits use standard probability calculation
+  // Skill traits use their own mutation maps
+  const passive1Data = calculateTraitWithMutations(parent1Genetics.passive1, parent2Genetics.passive1, PASSIVE_SKILL_MUTATION_MAP);
+  const passive2Data = calculateTraitWithMutations(parent1Genetics.passive2, parent2Genetics.passive2, PASSIVE_SKILL_MUTATION_MAP);
+  const active1Data = calculateTraitWithMutations(parent1Genetics.active1, parent2Genetics.active1, ACTIVE_SKILL_MUTATION_MAP);
+  const active2Data = calculateTraitWithMutations(parent1Genetics.active2, parent2Genetics.active2, ACTIVE_SKILL_MUTATION_MAP);
+  
+  // Non-mutation traits use standard probability calculation
   const professionData = calculateTraitProbabilities(parent1Genetics.profession, parent2Genetics.profession);
-  const passive1Data = calculateTraitProbabilities(parent1Genetics.passive1, parent2Genetics.passive1);
-  const passive2Data = calculateTraitProbabilities(parent1Genetics.passive2, parent2Genetics.passive2);
-  const active1Data = calculateTraitProbabilities(parent1Genetics.active1, parent2Genetics.active1);
-  const active2Data = calculateTraitProbabilities(parent1Genetics.active2, parent2Genetics.active2);
   const statBoost1Data = calculateTraitProbabilities(parent1Genetics.statBoost1, parent2Genetics.statBoost1);
   const statBoost2Data = calculateTraitProbabilities(parent1Genetics.statBoost2, parent2Genetics.statBoost2);
   const elementData = calculateTraitProbabilities(parent1Genetics.element, parent2Genetics.element);
@@ -170,26 +246,27 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
 }
 
 /**
- * Calculate class probabilities WITH mutation handling
+ * Calculate trait probabilities WITH mutation handling
  * 
  * For each of the 16 gene position combinations:
  * 1. Calculate combination weight (P1.pos × P2.pos)
  * 2. Check if the two genes form a mutation pair
  * 3. If mutation pair:
- *    - 25% chance: mutated class is selected
+ *    - 25% chance: mutated trait is selected
  *    - 75% chance: one of the parent genes is selected (50/50)
  * 4. If not mutation pair:
  *    - P1 gene gets 50%, P2 gene gets 50%
  * 
- * @param {Object} parent1Trait - Parent 1 class genes {dominant, R1, R2, R3}
- * @param {Object} parent2Trait - Parent 2 class genes {dominant, R1, R2, R3}
+ * @param {Object} parent1Trait - Parent 1 genes {dominant, R1, R2, R3}
+ * @param {Object} parent2Trait - Parent 2 genes {dominant, R1, R2, R3}
+ * @param {Object} mutationMap - Map of gene pairs to mutated outcomes
  * @returns {Object} { probabilities, mutations }
  */
-function calculateClassWithMutations(parent1Trait, parent2Trait) {
+function calculateTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
   const outcomes = {};
   const mutations = new Set();
   
-  // Get dominant classes for marking recessive mutations
+  // Get dominant traits for marking recessive mutations
   const parent1Dominant = parent1Trait.dominant;
   const parent2Dominant = parent2Trait.dominant;
   
@@ -208,18 +285,18 @@ function calculateClassWithMutations(parent1Trait, parent2Trait) {
       
       // Check if this gene pair can mutate
       const mutationKey = `${gene1}+${gene2}`;
-      const mutatedClass = CLASS_MUTATION_MAP[mutationKey];
+      const mutatedTrait = mutationMap[mutationKey];
       
-      if (mutatedClass) {
+      if (mutatedTrait) {
         // Mutation is possible!
-        // 25% chance: mutated class is selected
+        // 25% chance: mutated trait is selected
         // 75% chance: one of the parent genes is selected (50/50)
         const mutationProb = combinationWeight * MUTATION_CHANCE * 100;
         const nonMutationProb = combinationWeight * (1 - MUTATION_CHANCE) * 100;
         
         // Add mutation outcome
-        outcomes[mutatedClass] = (outcomes[mutatedClass] || 0) + mutationProb;
-        mutations.add(mutatedClass);
+        outcomes[mutatedTrait] = (outcomes[mutatedTrait] || 0) + mutationProb;
+        mutations.add(mutatedTrait);
         
         // Add non-mutation outcomes (50/50 between the two genes)
         outcomes[gene1] = (outcomes[gene1] || 0) + (nonMutationProb * 0.5);
@@ -231,12 +308,12 @@ function calculateClassWithMutations(parent1Trait, parent2Trait) {
         outcomes[gene2] = (outcomes[gene2] || 0) + (prob * 0.5);
       }
       
-      // Mark recessive genes as mutations (for highlighting)
-      if (gene1 !== parent1Dominant && gene1 !== parent2Dominant) {
-        mutations.add(gene1);
+      // Mark recessive genes as mutations (for highlighting) - only if NOT a skill mutation result
+      if (gene1 !== parent1Dominant && gene1 !== parent2Dominant && !mutationMap[`${gene1}+${gene1}`]) {
+        // Don't mark base genes as mutations - only mark actual mutation results
       }
-      if (gene2 !== parent1Dominant && gene2 !== parent2Dominant) {
-        mutations.add(gene2);
+      if (gene2 !== parent1Dominant && gene2 !== parent2Dominant && !mutationMap[`${gene2}+${gene2}`]) {
+        // Don't mark base genes as mutations - only mark actual mutation results
       }
     }
   }
