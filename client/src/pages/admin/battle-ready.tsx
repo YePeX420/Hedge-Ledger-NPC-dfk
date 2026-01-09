@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign, Tag, ChevronDown, ChevronRight, Plus, RotateCcw, Trash2, Edit } from "lucide-react";
+import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign, Tag, ChevronDown, ChevronRight, Plus, RotateCcw, Trash2, Edit, Gem } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 // Realm display names for marketplace locations
@@ -222,6 +222,8 @@ interface TavernHero {
   active2?: string | number | null;
   passive1?: string | number | null;
   passive2?: string | number | null;
+  // Enhancement stone used during summoning (null = no stone, string = stone contract address)
+  summonStone?: string | null;
 }
 
 interface TavernListingsResponse {
@@ -447,6 +449,7 @@ export default function BattleReadyAdmin() {
   const [ttsFilter, setTtsFilter] = useState<'any' | '3' | '5' | '7' | '9'>('any');
   const [rarityFilter, setRarityFilter] = useState<'any' | '4' | '3' | '2'>('4'); // Default to Mythic for tournament-ready
   const [combatPowerFilter, setCombatPowerFilter] = useState<'any' | '150' | '220' | '290'>('any'); // Level-aware presets
+  const [minLevelFilter, setMinLevelFilter] = useState<'any' | '10' | '20' | '50'>('10'); // Default L10+ for tournaments
   const [sortBy, setSortBy] = useState<'price' | 'combat_power' | 'value'>('price');
   const [expandedPattern, setExpandedPattern] = useState<string | null>(null);
   const [labelForm, setLabelForm] = useState<{ signature: string; label: string; category: string; color: string } | null>(null);
@@ -475,6 +478,7 @@ export default function BattleReadyAdmin() {
   if (ttsFilter !== 'any') tavernQueryParams.set('maxTts', ttsFilter);
   if (rarityFilter !== 'any') tavernQueryParams.set('minRarity', rarityFilter);
   if (combatPowerFilter !== 'any') tavernQueryParams.set('minCombatPower', combatPowerFilter);
+  if (minLevelFilter !== 'any') tavernQueryParams.set('minLevel', minLevelFilter);
   tavernQueryParams.set('sortBy', sortBy);
   tavernQueryParams.set('limit', '100');
   
@@ -482,7 +486,7 @@ export default function BattleReadyAdmin() {
   const tavernQueryUrl = `/api/admin/tavern-listings${tavernQueryString ? `?${tavernQueryString}` : ''}`;
   
   const { data: tavernData, isLoading: tavernLoading, refetch: refetchTavern } = useQuery<TavernListingsResponse>({
-    queryKey: ['/api/admin/tavern-listings', tavernFilter, ttsFilter, rarityFilter, combatPowerFilter, sortBy],
+    queryKey: ['/api/admin/tavern-listings', tavernFilter, ttsFilter, rarityFilter, combatPowerFilter, minLevelFilter, sortBy],
     queryFn: async () => {
       const response = await fetch(tavernQueryUrl);
       if (!response.ok) throw new Error('Failed to fetch tavern listings');
@@ -1670,6 +1674,17 @@ export default function BattleReadyAdmin() {
                   <SelectItem value="290">CP ≥290 (L20)</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={minLevelFilter} onValueChange={(v) => setMinLevelFilter(v as 'any' | '10' | '20' | '50')}>
+                <SelectTrigger className="w-32" data-testid="select-level-filter">
+                  <SelectValue placeholder="Min Level" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any Level</SelectItem>
+                  <SelectItem value="10">Level 10+</SelectItem>
+                  <SelectItem value="20">Level 20+</SelectItem>
+                  <SelectItem value="50">Level 50+</SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'price' | 'combat_power' | 'value')}>
                 <SelectTrigger className="w-36" data-testid="select-sort-by">
                   <SelectValue placeholder="Sort By" />
@@ -1826,9 +1841,16 @@ export default function BattleReadyAdmin() {
                         </TableCell>
                         <TableCell>{hero.level}</TableCell>
                         <TableCell>
-                          <span className={RARITY_COLORS[hero.rarity] || ''}>
-                            {RARITY_NAMES[hero.rarity] || hero.rarity}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className={RARITY_COLORS[hero.rarity] || ''}>
+                              {RARITY_NAMES[hero.rarity] || hero.rarity}
+                            </span>
+                            {hero.summonStone && (
+                              <Badge variant="outline" className="text-xs px-1 py-0 text-emerald-400 border-emerald-400/50" data-testid={`badge-stoned-${hero.id}`}>
+                                <Gem className="h-3 w-3" />
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <Badge variant="secondary" className="text-xs font-mono" data-testid={`text-hero-cp-${hero.id}`}>

@@ -8527,7 +8527,8 @@ async function startAdminWebServer() {
             priceNative: parseFloat(h.price_native) || 0,
             priceUSD: null,
             traitScore: h.trait_score || 0,
-            combatPower: h.combat_power || 0
+            combatPower: h.combat_power || 0,
+            summonStone: h.summon_stone || null
           });
           
           const crystalvale = cvHeroes.map(transformHero);
