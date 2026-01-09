@@ -126,6 +126,28 @@ function decodeHeroGenes(hero) {
       R3: statTraits.element.r3.name
     },
     
+    // Crafting profession genes (from stat genes, displayed with visuals for convenience)
+    crafting1: {
+      dominant: statTraits.crafting1.d.name,
+      R1: statTraits.crafting1.r1.name,
+      R2: statTraits.crafting1.r2.name,
+      R3: statTraits.crafting1.r3.name,
+      dominantValue: statTraits.crafting1.d.value,
+      R1Value: statTraits.crafting1.r1.value,
+      R2Value: statTraits.crafting1.r2.value,
+      R3Value: statTraits.crafting1.r3.value
+    },
+    crafting2: {
+      dominant: statTraits.crafting2.d.name,
+      R1: statTraits.crafting2.r1.name,
+      R2: statTraits.crafting2.r2.name,
+      R3: statTraits.crafting2.r3.name,
+      dominantValue: statTraits.crafting2.d.value,
+      R1Value: statTraits.crafting2.r1.value,
+      R2Value: statTraits.crafting2.r2.value,
+      R3Value: statTraits.crafting2.r3.value
+    },
+    
     // Visual traits with names (backward compatible) and gene ID values (for summoning)
     visual: {
       gender: {

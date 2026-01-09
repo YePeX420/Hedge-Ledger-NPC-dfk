@@ -222,6 +222,27 @@ const GENDER_GENES = [
   'None'     // 15
 ];
 
+// Crafting profession genes (revealed via Gene Reroll, formerly statsUnknown1/2)
+// Uses EVEN gene values like profession genes: 0, 2, 4, 6, 8, 10, 12, 14
+const CRAFTING_GENES = [
+  'Blacksmithing',   // 0
+  'Unknown1',        // 1 - not used
+  'Goldsmithing',    // 2
+  'Unknown3',        // 3 - not used
+  'Armorsmithing',   // 4
+  'Unknown5',        // 5 - not used
+  'Woodworking',     // 6
+  'Unknown7',        // 7 - not used
+  'Leatherworking',  // 8
+  'Unknown9',        // 9 - not used
+  'Tailoring',       // 10
+  'Unknown11',       // 11 - not used
+  'Enchanting',      // 12
+  'Unknown13',       // 13 - not used
+  'Alchemy',         // 14
+  'Unknown15'        // 15 - not used
+];
+
 // Visual genes use numeric values (skin colors, hair styles, etc.)
 const NUMERIC_VISUAL = [
   'Value0', 'Value1', 'Value2', 'Value3', 'Value4', 'Value5', 'Value6', 'Value7',
@@ -242,9 +263,9 @@ const STAT_TRAITS = [
   { name: 'active2', mapping: ACTIVE_GENES },
   { name: 'statBoost1', mapping: STAT_BOOST_GENES },
   { name: 'statBoost2', mapping: STAT_BOOST_GENES },
-  { name: 'statsUnknown1', mapping: NUMERIC_VISUAL },
+  { name: 'crafting1', mapping: CRAFTING_GENES },
   { name: 'element', mapping: ELEMENT_GENES },
-  { name: 'statsUnknown2', mapping: NUMERIC_VISUAL }
+  { name: 'crafting2', mapping: CRAFTING_GENES }
 ];
 
 // ============================================================================
