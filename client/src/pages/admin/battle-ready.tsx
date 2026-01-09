@@ -224,6 +224,9 @@ interface TavernHero {
   passive2?: string | number | null;
   // Enhancement stone used during summoning (null = no stone, string = stone contract address)
   summonStone?: string | null;
+  // Decoded stone tier (lesser/normal/greater) and type (might/swiftness/etc)
+  stoneTier?: 'lesser' | 'normal' | 'greater' | null;
+  stoneType?: 'chaos' | 'finesse' | 'fortitude' | 'fortune' | 'insight' | 'might' | 'swiftness' | 'vigor' | 'wit' | null;
 }
 
 interface TavernListingsResponse {
@@ -1846,8 +1849,24 @@ export default function BattleReadyAdmin() {
                               {RARITY_NAMES[hero.rarity] || hero.rarity}
                             </span>
                             {hero.summonStone && (
-                              <Badge variant="outline" className="text-xs px-1 py-0 text-emerald-400 border-emerald-400/50" data-testid={`badge-stoned-${hero.id}`}>
-                                <Gem className="h-3 w-3" />
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs px-1 py-0 ${
+                                  hero.stoneTier === 'greater' ? 'text-yellow-400 border-yellow-400/50' :
+                                  hero.stoneTier === 'normal' ? 'text-slate-300 border-slate-400/50' :
+                                  hero.stoneTier === 'lesser' ? 'text-amber-600 border-amber-500/50' :
+                                  'text-emerald-400 border-emerald-400/50'
+                                }`} 
+                                data-testid={`badge-stoned-${hero.id}`}
+                                title={hero.stoneTier && hero.stoneType ? 
+                                  `${hero.stoneTier.charAt(0).toUpperCase() + hero.stoneTier.slice(1)} ${hero.stoneType.charAt(0).toUpperCase() + hero.stoneType.slice(1)} Stone` : 
+                                  'Enhancement Stone'}
+                              >
+                                <Gem className="h-3 w-3 mr-0.5" />
+                                <span className="text-[10px]">
+                                  {hero.stoneTier === 'greater' ? 'G' : hero.stoneTier === 'lesser' ? 'L' : ''}
+                                  {hero.stoneType ? hero.stoneType.slice(0, 3).toUpperCase() : ''}
+                                </span>
                               </Badge>
                             )}
                           </div>

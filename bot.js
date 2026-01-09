@@ -8528,7 +8528,9 @@ async function startAdminWebServer() {
             priceUSD: null,
             traitScore: h.trait_score || 0,
             combatPower: h.combat_power || 0,
-            summonStone: h.summon_stone || null
+            summonStone: h.summon_stone || null,
+            stoneTier: h.stone_tier || null,
+            stoneType: h.stone_type || null
           });
           
           const crystalvale = cvHeroes.map(transformHero);
