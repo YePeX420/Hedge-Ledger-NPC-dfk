@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 
 type SearchMode = "tavern" | "myHero";
@@ -130,6 +131,7 @@ export default function SummonSniper() {
   const [summonType, setSummonType] = useState<SummonType>("regular");
   const [myHeroId, setMyHeroId] = useState("");
   const [bridgeFeeUsd, setBridgeFeeUsd] = useState("0.50"); // Estimated bridge fee per hero in USD
+  const [sortBy, setSortBy] = useState<"efficiency" | "chance" | "price">("efficiency");
 
   const { data: sniperFilters } = useQuery<{ ok: boolean; filters: SniperFilters }>({
     queryKey: ['/api/admin/sniper/filters']
@@ -222,6 +224,21 @@ export default function SummonSniper() {
     const colors = ['text-gray-400', 'text-green-400', 'text-blue-400', 'text-orange-400', 'text-purple-400'];
     return colors[rarity] || 'text-gray-400';
   };
+
+  // Sort pairs based on selected sort option
+  const sortedPairs = useMemo(() => {
+    if (!sniperResult?.pairs) return [];
+    const pairs = [...sniperResult.pairs];
+    switch (sortBy) {
+      case "chance":
+        return pairs.sort((a, b) => b.targetProbability - a.targetProbability);
+      case "price":
+        return pairs.sort((a, b) => a.totalCostUsd - b.totalCostUsd);
+      case "efficiency":
+      default:
+        return pairs.sort((a, b) => b.efficiency - a.efficiency);
+    }
+  }, [sniperResult?.pairs, sortBy]);
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -609,7 +626,19 @@ export default function SummonSniper() {
             )}
             
             <div className="text-sm text-muted-foreground space-y-1">
-              <p>Ranked by efficiency (probability per USD spent)</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span>Sort by:</span>
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as "efficiency" | "chance" | "price")}>
+                  <SelectTrigger className="w-[160px] h-8" data-testid="select-sort-by">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="efficiency">Efficiency (%/$)</SelectItem>
+                    <SelectItem value="chance">Highest Chance</SelectItem>
+                    <SelectItem value="price">Lowest Price</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {sniperResult.tokenPrices && (
                 <p className="text-xs">
                   Token prices: CRYSTAL ${sniperResult.tokenPrices.CRYSTAL?.toFixed(4) || '0'}, JEWEL ${sniperResult.tokenPrices.JEWEL?.toFixed(4) || '0'}
@@ -635,7 +664,7 @@ export default function SummonSniper() {
               </p>
             ) : (
               <div className="space-y-4">
-                {sniperResult.pairs.map((pair, idx) => (
+                {sortedPairs.map((pair, idx) => (
                   <Card key={idx} className="bg-muted/30">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-4 flex-wrap">
