@@ -9032,6 +9032,7 @@ async function startAdminWebServer() {
         targetProfessions = [],
         realms = ['cv', 'sd'],
         minSummonsRemaining = 0,
+        minRarity = 0,
         maxGeneration = 10,
         minLevel = 1,
         maxTTS = null,
@@ -9051,7 +9052,7 @@ async function startAdminWebServer() {
 
       console.log('[Sniper] Search request:', { 
         targetClasses: classArray, targetProfessions: professionArray, 
-        realms, minSummonsRemaining, minLevel, maxTTS 
+        realms, minSummonsRemaining, minRarity, minLevel, maxTTS 
       });
 
       // Validate realm filter - only allow known realms
@@ -9072,6 +9073,7 @@ async function startAdminWebServer() {
           price_native, native_token, trait_score, combat_power
         FROM tavern_heroes
         WHERE (max_summons - summons) >= ${minSummonsRemaining}
+          AND rarity >= ${minRarity}
           AND generation <= ${maxGeneration}
           AND realm = ANY(${filteredRealms})
           AND level >= ${safeMinLevel}
@@ -9272,7 +9274,8 @@ async function startAdminWebServer() {
           targetClasses: classArray,
           targetProfessions: professionArray,
           realms: filteredRealms,
-          minSummonsRemaining
+          minSummonsRemaining,
+          minRarity
         }
       });
 

@@ -63,10 +63,19 @@ interface SniperResult {
   };
 }
 
+const RARITIES = [
+  { id: 0, name: 'Common' },
+  { id: 1, name: 'Uncommon' },
+  { id: 2, name: 'Rare' },
+  { id: 3, name: 'Legendary' },
+  { id: 4, name: 'Mythic' }
+];
+
 export default function SummonSniper() {
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [selectedProfessions, setSelectedProfessions] = useState<string[]>([]);
   const [sniperRealms, setSniperRealms] = useState<string[]>(["cv", "sd"]);
+  const [minRarity, setMinRarity] = useState(0);
   const [sniperMinSummons, setSniperMinSummons] = useState("0");
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
   const [sniperMaxTTS, setSniperMaxTTS] = useState("");
@@ -82,6 +91,7 @@ export default function SummonSniper() {
         targetClasses: selectedClasses,
         targetProfessions: selectedProfessions,
         realms: sniperRealms,
+        minRarity,
         minSummonsRemaining: parseInt(sniperMinSummons) || 0,
         minLevel: parseInt(sniperMinLevel) || 1,
         maxTTS: sniperMaxTTS ? parseFloat(sniperMaxTTS) : null,
@@ -197,6 +207,28 @@ export default function SummonSniper() {
             {selectedProfessions.length > 0 && (
               <p className="text-xs text-muted-foreground">
                 Selected: {selectedProfessions.join(", ")}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <Label>Minimum Parent Rarity</Label>
+            <div className="flex flex-wrap gap-2">
+              {RARITIES.map(r => (
+                <Badge
+                  key={r.id}
+                  variant={minRarity === r.id ? "default" : "outline"}
+                  className="cursor-pointer text-sm py-1 px-3"
+                  onClick={() => setMinRarity(r.id)}
+                  data-testid={`badge-rarity-${r.name.toLowerCase()}`}
+                >
+                  {r.name}
+                </Badge>
+              ))}
+            </div>
+            {minRarity > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Only showing {RARITIES[minRarity].name}+ parents
               </p>
             )}
           </div>
