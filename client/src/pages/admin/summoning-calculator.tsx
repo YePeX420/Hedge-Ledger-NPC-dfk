@@ -152,6 +152,12 @@ const VISUAL_UNKNOWN_NAMES: Record<number, string> = {
   28: 'Exalted1'
 };
 
+// Background names with gene IDs (even numbers only)
+const BACKGROUND_NAMES: Record<number, string> = {
+  0: 'Desert', 2: 'Forest', 4: 'Plains', 6: 'Island',
+  8: 'Swamp', 10: 'Mountains', 12: 'City', 14: 'Arctic'
+};
+
 
 // Helper to check if a trait is a mutation (Advanced or higher tier)
 function isMutationTier(tier: string): boolean {
@@ -770,10 +776,10 @@ export default function SummoningCalculator() {
                     probabilities={result.probabilities.gender}
                     mutations={result.probabilities.mutations?.gender}
                   />
-                  <ProbabilityTable 
+                  <VisualProbabilityTable 
                     title="Background" 
                     probabilities={result.probabilities.background}
-                    mutations={result.probabilities.mutations?.background}
+                    nameMap={BACKGROUND_NAMES}
                   />
                 </div>
               </div>
