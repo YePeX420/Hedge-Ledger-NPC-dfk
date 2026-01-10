@@ -9202,9 +9202,12 @@ async function startAdminWebServer() {
       };
       const getProfessionName = (id) => PROFESSION_NAMES[parseInt(id)] || `profession${id}`;
       
-      // Hero ID ranges determine realm
-      const CV_ID_MIN = BigInt("1000000000000");
-      const CV_ID_MAX = BigInt("2000000000000");
+      // Network values from DFK API determine realm
+      // 'dfk' = DFK Chain (Crystalvale), 'met' = Metis (Sundered Isles)
+      const NETWORK_TO_REALM = {
+        'dfk': { realm: 'cv', token: 'CRYSTAL' },
+        'met': { realm: 'sd', token: 'JEWEL' }
+      };
       
       const allApiHeroes = Array.isArray(apiResponse) ? apiResponse : [];
       
@@ -9215,18 +9218,15 @@ async function startAdminWebServer() {
         const priceField = hero.startingPrice || hero.salePrice || hero.price;
         const priceInToken = weiToToken(priceField);
         
-        // Determine realm from hero ID
-        let realm = null;
-        let nativeToken = null;
-        if (heroId >= CV_ID_MIN && heroId < CV_ID_MAX) {
-          realm = 'cv';
-          nativeToken = 'CRYSTAL';
-        } else if (heroId >= CV_ID_MAX) {
-          realm = 'sd';
-          nativeToken = 'JEWEL';
-        } else {
-          continue; // Skip legacy Harmony heroes
+        // Determine realm from network field (authoritative) - not hero ID ranges
+        const network = hero.network || '';
+        const realmInfo = NETWORK_TO_REALM[network];
+        if (!realmInfo) {
+          // Skip unknown networks (e.g., legacy Harmony 'hmy')
+          continue;
         }
+        const realm = realmInfo.realm;
+        const nativeToken = realmInfo.token;
         
         // Apply realm filter
         if (!filteredRealms.includes(realm)) continue;
@@ -9315,21 +9315,21 @@ async function startAdminWebServer() {
             });
           }
           
-          // Determine realm from hero ID
+          // For user's own hero, determine realm from which chain it was fetched on
+          // getHeroById queries DFK Chain by default, so those heroes use CRYSTAL
+          // If heroData includes network/chain info, use that; otherwise default to DFK Chain
           const heroIdBig = BigInt(myHeroId);
           let userRealm = null;
           let userToken = null;
-          if (heroIdBig >= CV_ID_MIN && heroIdBig < CV_ID_MAX) {
-            userRealm = 'cv';
-            userToken = 'CRYSTAL';
-          } else if (heroIdBig >= CV_ID_MAX) {
+          
+          // Check if heroData has network info from the RPC response
+          if (heroData.network === 'met' || heroData.chainId === 1088) {
             userRealm = 'sd';
             userToken = 'JEWEL';
           } else {
-            return res.status(400).json({ 
-              ok: false, 
-              error: 'Hero appears to be from legacy Harmony realm (not supported)' 
-            });
+            // Default to Crystalvale (DFK Chain) since that's where getHeroById queries
+            userRealm = 'cv';
+            userToken = 'CRYSTAL';
           }
           
           const userMainClass = getClassName(heroData.mainClass);
