@@ -551,6 +551,18 @@ export default function SummonSniper() {
                           ))}
                         </div>
                       )}
+                      
+                      <div className="mt-3 pt-3 border-t">
+                        <a
+                          href={`/admin/summoning-calculator?hero1=${pair.hero1.id}&hero2=${pair.hero2.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-sm text-blue-400 hover:underline"
+                          data-testid={`link-calculator-${idx}`}
+                        >
+                          View Full Summon Chances <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}

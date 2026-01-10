@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -559,6 +559,7 @@ export default function SummoningCalculator() {
   const [hero2Id, setHero2Id] = useState("");
   const [result, setResult] = useState<SummoningResult | null>(null);
   const [pageTab, setPageTab] = useState<string>("calculator");
+  const [autoCalculateTriggered, setAutoCalculateTriggered] = useState(false);
   
   // Sniper state
   const [sniperTargetClass, setSniperTargetClass] = useState("");
@@ -594,6 +595,24 @@ export default function SummoningCalculator() {
     if (!hero1Id || !hero2Id) return;
     calculateMutation.mutate({ hero1Id, hero2Id });
   };
+
+  // Auto-populate from URL params (e.g., ?hero1=123&hero2=456)
+  useEffect(() => {
+    if (autoCalculateTriggered) return;
+    // Use window.location.search directly for new tab opens
+    const params = new URLSearchParams(window.location.search);
+    const h1 = params.get('hero1');
+    const h2 = params.get('hero2');
+    if (h1 && h2) {
+      setHero1Id(h1);
+      setHero2Id(h2);
+      setAutoCalculateTriggered(true);
+      // Auto-calculate after setting IDs
+      setTimeout(() => {
+        calculateMutation.mutate({ hero1Id: h1, hero2Id: h2 });
+      }, 100);
+    }
+  }, [autoCalculateTriggered]);
 
   // Sniper search mutation
   const sniperMutation = useMutation({
