@@ -55,6 +55,8 @@ interface SniperPair {
     summonTokenCost: number;
     tearCost: number;
     tearCount: number;
+    bridgeCostUsd: number;
+    heroesNeedingBridge: number;
     totalCost: number;
     totalCostUsd: number;
     tokenPriceUsd: number;
@@ -127,6 +129,7 @@ export default function SummonSniper() {
   const [searchMode, setSearchMode] = useState<SearchMode>("tavern");
   const [summonType, setSummonType] = useState<SummonType>("regular");
   const [myHeroId, setMyHeroId] = useState("");
+  const [bridgeFeeUsd, setBridgeFeeUsd] = useState("0.50"); // Estimated bridge fee per hero in USD
 
   const { data: sniperFilters } = useQuery<{ ok: boolean; filters: SniperFilters }>({
     queryKey: ['/api/admin/sniper/filters']
@@ -152,6 +155,7 @@ export default function SummonSniper() {
         summonType,
         searchMode,
         myHeroId: searchMode === "myHero" ? myHeroId : undefined,
+        bridgeFeeUsd: parseFloat(bridgeFeeUsd) || 0,
         limit: 20
       });
       return response.json();
@@ -505,6 +509,24 @@ export default function SummonSniper() {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="bridgeFee">Bridge Fee per Hero (USD)</Label>
+              <Input
+                id="bridgeFee"
+                type="number"
+                step="0.01"
+                value={bridgeFeeUsd}
+                onChange={(e) => setBridgeFeeUsd(e.target.value)}
+                placeholder="0.50"
+                data-testid="input-bridge-fee"
+              />
+              <p className="text-xs text-muted-foreground">
+                Metis heroes need bridging to CV for summoning. Estimate ~$0.50 per hero.
+              </p>
+            </div>
+          </div>
+
           <div className="flex items-center gap-4 flex-wrap">
             <Label>Realms:</Label>
             <div className="flex gap-2">
@@ -711,6 +733,11 @@ export default function SummonSniper() {
                               <div>Purchase: {pair.costs.purchaseCost.toFixed(2)} {pair.hero1.token}</div>
                               <div>Summon: {pair.costs.summonTokenCost} {pair.hero1.token}</div>
                               <div>Tears: {pair.costs.tearCount} ({pair.costs.tearCost.toFixed(2)} {pair.hero1.token})</div>
+                              {pair.costs.heroesNeedingBridge > 0 && (
+                                <div className="text-yellow-500">
+                                  Bridge: ${pair.costs.bridgeCostUsd.toFixed(2)} ({pair.costs.heroesNeedingBridge} hero{pair.costs.heroesNeedingBridge > 1 ? 'es' : ''})
+                                </div>
+                              )}
                             </div>
                           )}
                           <div className="text-xs text-muted-foreground pt-1">

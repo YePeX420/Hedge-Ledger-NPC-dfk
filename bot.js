@@ -9069,6 +9069,7 @@ async function startAdminWebServer() {
         summonType = 'regular',  // 'regular' or 'dark'
         searchMode = 'tavern',   // 'tavern' or 'myHero'
         myHeroId = null,         // Hero ID for 'myHero' mode
+        bridgeFeeUsd = 0.50,     // Estimated bridging fee per hero in USD (Metis heroes need bridging to CV)
         limit = 20
       } = req.body;
 
@@ -9396,8 +9397,8 @@ async function startAdminWebServer() {
         if (byRealm[h.realm]) byRealm[h.realm].push(h);
       }
 
-      // Calculate full cost for a hero pair (purchase + summon token cost + tears)
-      function calculatePairFullCost(hero1, hero2, tearPriceValue, useDarkSummon = false) {
+      // Calculate full cost for a hero pair (purchase + summon token cost + tears + bridging)
+      function calculatePairFullCost(hero1, hero2, tearPriceValue, useDarkSummon = false, bridgeFeePerHeroUsd = 0) {
         const purchaseCost = parseFloat(hero1.price_native) + parseFloat(hero2.price_native);
         
         // Summon token cost - uses the lower generation hero as summoner
@@ -9415,11 +9416,20 @@ async function startAdminWebServer() {
         const tearCount = useDarkSummon ? 0 : getMinTears(higherTier);  // No tears for dark summon
         const tearCost = tearCount * (tearPriceValue || 0.05);
         
+        // Bridging cost - Metis heroes need to be bridged to CV for summoning
+        // Count heroes that need bridging (realm = 'sd' = Metis)
+        let heroesNeedingBridge = 0;
+        if (hero1.realm === 'sd' && !hero1.is_user_hero) heroesNeedingBridge++;
+        if (hero2.realm === 'sd' && !hero2.is_user_hero) heroesNeedingBridge++;
+        const bridgeCostUsd = heroesNeedingBridge * bridgeFeePerHeroUsd;
+        
         return {
           purchaseCost,
           summonTokenCost,
           tearCost,
           tearCount,
+          bridgeCostUsd,
+          heroesNeedingBridge,
           totalCost: purchaseCost + summonTokenCost + tearCost,
           isDarkSummon: useDarkSummon
         };
@@ -9448,7 +9458,7 @@ async function startAdminWebServer() {
         const tavernHeroesToPair = heroes.slice(0, 200);
         
         for (const tavernHero of tavernHeroesToPair) {
-          const costs = calculatePairFullCost(userHero, tavernHero, tearPrice, isDarkSummon);
+          const costs = calculatePairFullCost(userHero, tavernHero, tearPrice, isDarkSummon, bridgeFeeUsd);
           candidatePairs.push({ 
             hero1: userHero, 
             hero2: tavernHero, 
@@ -9481,7 +9491,7 @@ async function startAdminWebServer() {
             for (let j = i + 1; j < targetHeroes.length; j++) {
               const hero1 = targetHeroes[i];
               const hero2 = targetHeroes[j];
-              const costs = calculatePairFullCost(hero1, hero2, tearPrice, isDarkSummon);
+              const costs = calculatePairFullCost(hero1, hero2, tearPrice, isDarkSummon, bridgeFeeUsd);
               candidatePairs.push({ hero1, hero2, realm, ...costs });
             }
           }
@@ -9489,7 +9499,7 @@ async function startAdminWebServer() {
           // 2. Target hero + Cheap other hero
           for (const targetHero of targetHeroes) {
             for (const otherHero of cheapOthers) {
-              const costs = calculatePairFullCost(targetHero, otherHero, tearPrice, isDarkSummon);
+              const costs = calculatePairFullCost(targetHero, otherHero, tearPrice, isDarkSummon, bridgeFeeUsd);
               candidatePairs.push({ hero1: targetHero, hero2: otherHero, realm, ...costs });
             }
           }
@@ -9501,7 +9511,7 @@ async function startAdminWebServer() {
             for (let j = i + 1; j < cheapLimit; j++) {
               const hero1 = cheapOthers[i];
               const hero2 = cheapOthers[j];
-              const costs = calculatePairFullCost(hero1, hero2, tearPrice, isDarkSummon);
+              const costs = calculatePairFullCost(hero1, hero2, tearPrice, isDarkSummon, bridgeFeeUsd);
               candidatePairs.push({ hero1, hero2, realm, ...costs });
             }
           }
@@ -9568,7 +9578,7 @@ async function startAdminWebServer() {
       // Score pairs with actual probability calculations
       const pairs = [];
       
-      for (const { hero1, hero2, realm, purchaseCost, summonTokenCost, tearCost, tearCount, totalCost } of pairsToScore) {
+      for (const { hero1, hero2, realm, purchaseCost, summonTokenCost, tearCost, tearCount, bridgeCostUsd, heroesNeedingBridge, totalCost } of pairsToScore) {
         try {
           // Get genes from cache or fetch from GraphQL
           const genes1 = await getHeroGenes(hero1.hero_id);
@@ -9670,9 +9680,10 @@ async function startAdminWebServer() {
           const targetProb = hasAnyTarget ? jointProbability * 100 : 0;
           if (targetProb === 0) continue;
 
-          // Calculate USD total cost
+          // Calculate USD total cost (including bridging fees)
           const tokenPriceUsd = realm === 'cv' ? crystalPriceUsd : jewelPriceUsd;
-          const totalCostUsd = totalCost * tokenPriceUsd;
+          const tokenCostUsd = totalCost * tokenPriceUsd;
+          const totalCostUsd = tokenCostUsd + (bridgeCostUsd || 0);  // Add bridging cost to total USD
           
           // Use USD for efficiency if available, otherwise use native token
           const efficiency = totalCostUsd > 0 ? targetProb / totalCostUsd : targetProb / totalCost;
@@ -9715,6 +9726,8 @@ async function startAdminWebServer() {
               summonTokenCost,
               tearCost: Math.round(tearCost * 100) / 100,
               tearCount,
+              bridgeCostUsd: Math.round((bridgeCostUsd || 0) * 100) / 100,
+              heroesNeedingBridge: heroesNeedingBridge || 0,
               totalCost: Math.round(totalCost * 100) / 100,
               totalCostUsd: Math.round(totalCostUsd * 100) / 100,
               tokenPriceUsd: Math.round(tokenPriceUsd * 10000) / 10000
