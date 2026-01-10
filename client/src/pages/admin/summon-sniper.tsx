@@ -5,8 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info } from "lucide-react";
+import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+
+type SearchMode = "tavern" | "myHero";
+type SummonType = "regular" | "dark";
 
 interface ProbabilityMap {
   [key: string]: number;
@@ -64,6 +67,19 @@ interface SniperPair {
   };
 }
 
+interface UserHeroInfo {
+  id: string;
+  mainClass: string;
+  subClass: string;
+  profession: string;
+  rarity: number;
+  level: number;
+  generation: number;
+  summonsRemaining: number;
+  realm: string;
+  token: string;
+}
+
 interface SniperResult {
   ok: boolean;
   pairs: SniperPair[];
@@ -80,7 +96,10 @@ interface SniperResult {
     targetPassiveSkills: string[];
     realms: string[];
     minSummonsRemaining: number;
+    summonType?: string;
+    searchMode?: string;
   };
+  userHero?: UserHeroInfo | null;
 }
 
 const RARITIES = [
@@ -102,6 +121,11 @@ export default function SummonSniper() {
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
   const [sniperMaxTTS, setSniperMaxTTS] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
+  
+  // New state for search mode and summon type
+  const [searchMode, setSearchMode] = useState<SearchMode>("tavern");
+  const [summonType, setSummonType] = useState<SummonType>("regular");
+  const [myHeroId, setMyHeroId] = useState("");
 
   const { data: sniperFilters } = useQuery<{ ok: boolean; filters: SniperFilters }>({
     queryKey: ['/api/admin/sniper/filters']
@@ -109,6 +133,10 @@ export default function SummonSniper() {
 
   const sniperMutation = useMutation({
     mutationFn: async () => {
+      // For dark summons, force minSummons to 0 (heroes must have 0 summons remaining)
+      const effectiveMinSummons = summonType === "dark" ? 0 : (parseInt(sniperMinSummons) || 0);
+      const effectiveMaxSummons = summonType === "dark" ? 0 : undefined;
+      
       const response = await apiRequest("POST", "/api/admin/sniper/search", {
         targetClasses: selectedClasses,
         targetProfessions: selectedProfessions,
@@ -116,9 +144,13 @@ export default function SummonSniper() {
         targetPassiveSkills: selectedPassiveSkills,
         realms: sniperRealms,
         minRarity,
-        minSummonsRemaining: parseInt(sniperMinSummons) || 0,
+        minSummonsRemaining: effectiveMinSummons,
+        maxSummonsRemaining: effectiveMaxSummons,
         minLevel: parseInt(sniperMinLevel) || 1,
         maxTTS: sniperMaxTTS ? parseFloat(sniperMaxTTS) : null,
+        summonType,
+        searchMode,
+        myHeroId: searchMode === "myHero" ? myHeroId : undefined,
         limit: 20
       });
       return response.json();
@@ -131,7 +163,10 @@ export default function SummonSniper() {
   });
 
   const handleSniperSearch = () => {
+    // Need at least one trait filter
     if (selectedClasses.length === 0 && selectedProfessions.length === 0 && selectedActiveSkills.length === 0 && selectedPassiveSkills.length === 0) return;
+    // In myHero mode, need a hero ID
+    if (searchMode === "myHero" && !myHeroId.trim()) return;
     sniperMutation.mutate();
   };
 
@@ -207,6 +242,92 @@ export default function SummonSniper() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Search Mode Toggle */}
+          <div className="space-y-3">
+            <Label>Search Mode</Label>
+            <div className="flex gap-2">
+              <Badge
+                variant={searchMode === "tavern" ? "default" : "outline"}
+                className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
+                  searchMode === "tavern" 
+                    ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                    : "hover:bg-muted"
+                }`}
+                onClick={() => setSearchMode("tavern")}
+                data-testid="badge-mode-tavern"
+              >
+                <Users className="h-3.5 w-3.5 mr-1.5" />
+                Two from Tavern
+              </Badge>
+              <Badge
+                variant={searchMode === "myHero" ? "default" : "outline"}
+                className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
+                  searchMode === "myHero" 
+                    ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                    : "hover:bg-muted"
+                }`}
+                onClick={() => setSearchMode("myHero")}
+                data-testid="badge-mode-myhero"
+              >
+                <User className="h-3.5 w-3.5 mr-1.5" />
+                Pair for My Hero
+              </Badge>
+            </div>
+            {searchMode === "myHero" && (
+              <div className="mt-2">
+                <Label htmlFor="myHeroId">Your Hero ID</Label>
+                <Input
+                  id="myHeroId"
+                  type="text"
+                  value={myHeroId}
+                  onChange={(e) => setMyHeroId(e.target.value)}
+                  placeholder="Enter your hero ID (e.g., 1000000123456)"
+                  className="mt-1 max-w-md"
+                  data-testid="input-my-hero-id"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Find the best tavern hero to pair with your existing hero
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Summon Type Toggle */}
+          <div className="space-y-3">
+            <Label>Summon Type</Label>
+            <div className="flex gap-2">
+              <Badge
+                variant={summonType === "regular" ? "default" : "outline"}
+                className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
+                  summonType === "regular" 
+                    ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                    : "hover:bg-muted"
+                }`}
+                onClick={() => setSummonType("regular")}
+                data-testid="badge-summon-regular"
+              >
+                Regular Summon
+              </Badge>
+              <Badge
+                variant={summonType === "dark" ? "default" : "outline"}
+                className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
+                  summonType === "dark" 
+                    ? "bg-purple-600 text-white ring-2 ring-purple-500 ring-offset-1 ring-offset-background" 
+                    : "hover:bg-muted"
+                }`}
+                onClick={() => setSummonType("dark")}
+                data-testid="badge-summon-dark"
+              >
+                Dark Summon
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {summonType === "regular" 
+                ? "Standard summoning with full token cost. Heroes must have summons remaining."
+                : "Dark summoning burns both heroes (1/4 cost). Heroes must have exactly 0 summons remaining."}
+            </p>
+          </div>
+
           <div className="space-y-3">
             <Label>Target Classes (select one or more)</Label>
             <div className="flex flex-wrap gap-2">
@@ -339,15 +460,23 @@ export default function SummonSniper() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="minSummons">Min Summons Remaining</Label>
-              <Input
-                id="minSummons"
-                type="number"
-                value={sniperMinSummons}
-                onChange={(e) => setSniperMinSummons(e.target.value)}
-                placeholder="0"
-                data-testid="input-min-summons"
-              />
+              <Label htmlFor="minSummons">
+                {summonType === "dark" ? "Summons Remaining (Fixed)" : "Min Summons Remaining"}
+              </Label>
+              {summonType === "dark" ? (
+                <div className="h-9 px-3 py-2 bg-muted rounded-md text-sm text-muted-foreground flex items-center">
+                  0 (Dark Summon requires 0)
+                </div>
+              ) : (
+                <Input
+                  id="minSummons"
+                  type="number"
+                  value={sniperMinSummons}
+                  onChange={(e) => setSniperMinSummons(e.target.value)}
+                  placeholder="0"
+                  data-testid="input-min-summons"
+                />
+              )}
             </div>
 
             <div className="space-y-2">
@@ -431,11 +560,31 @@ export default function SummonSniper() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 flex-wrap">
               <TrendingUp className="h-5 w-5" />
-              Best Hero Pairs
+              {sniperResult.userHero ? 'Best Tavern Matches' : 'Best Hero Pairs'}
               <Badge variant="outline" className="ml-2">
-                {sniperResult.pairs.length} pairs from {sniperResult.totalHeroes} heroes
+                {sniperResult.pairs.length} {sniperResult.userHero ? 'matches' : 'pairs'} from {sniperResult.totalHeroes} heroes
               </Badge>
+              {sniperResult.searchParams?.summonType === 'dark' && (
+                <Badge className="bg-purple-600 text-white">Dark Summon</Badge>
+              )}
             </CardTitle>
+            
+            {/* User Hero Info Card */}
+            {sniperResult.userHero && (
+              <div className="mt-3 p-3 bg-muted/50 rounded-lg border">
+                <div className="flex items-center gap-2 mb-1">
+                  <User className="h-4 w-4" />
+                  <span className="font-medium">Your Hero</span>
+                </div>
+                <div className={`text-sm ${getRarityColor(sniperResult.userHero.rarity)}`}>
+                  {getRarityName(sniperResult.userHero.rarity)} {sniperResult.userHero.mainClass}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Lv{sniperResult.userHero.level} Gen{sniperResult.userHero.generation} | {sniperResult.userHero.summonsRemaining} summons | ID: {sniperResult.userHero.id}
+                </div>
+              </div>
+            )}
+            
             <div className="text-sm text-muted-foreground space-y-1">
               <p>Ranked by efficiency (probability per USD spent)</p>
               {sniperResult.tokenPrices && (
@@ -474,29 +623,46 @@ export default function SummonSniper() {
                           </div>
                           
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                            <div className="space-y-1">
-                              <div className="font-medium">Hero 1</div>
-                              <div className={getRarityColor(pair.hero1.rarity)}>
-                                {getRarityName(pair.hero1.rarity)} {pair.hero1.mainClass}
+                            {/* In myHero mode, hero1 is the user's hero - show simplified */}
+                            {sniperResult.userHero ? (
+                              <div className="space-y-1 opacity-60">
+                                <div className="font-medium flex items-center gap-1">
+                                  <User className="h-3 w-3" /> Your Hero
+                                </div>
+                                <div className={getRarityColor(pair.hero1.rarity)}>
+                                  {getRarityName(pair.hero1.rarity)} {pair.hero1.mainClass}
+                                </div>
+                                <div className="text-muted-foreground text-xs">
+                                  (Already owned)
+                                </div>
                               </div>
-                              <div className="text-muted-foreground">
-                                Lv{pair.hero1.level} Gen{pair.hero1.generation} | {pair.hero1.summonsRemaining} summons
+                            ) : (
+                              <div className="space-y-1">
+                                <div className="font-medium">Hero 1</div>
+                                <div className={getRarityColor(pair.hero1.rarity)}>
+                                  {getRarityName(pair.hero1.rarity)} {pair.hero1.mainClass}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  Lv{pair.hero1.level} Gen{pair.hero1.generation} | {pair.hero1.summonsRemaining} summons
+                                </div>
+                                <div className="text-muted-foreground">
+                                  {pair.hero1.price.toFixed(2)} {pair.hero1.token}
+                                </div>
+                                <a
+                                  href={`https://game.defikingdoms.com/marketplace/heroes/${pair.hero1.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-400 hover:underline flex items-center gap-1"
+                                >
+                                  View in Tavern <ExternalLink className="h-3 w-3" />
+                                </a>
                               </div>
-                              <div className="text-muted-foreground">
-                                {pair.hero1.price.toFixed(2)} {pair.hero1.token}
-                              </div>
-                              <a
-                                href={`https://game.defikingdoms.com/marketplace/heroes/${pair.hero1.id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-blue-400 hover:underline flex items-center gap-1"
-                              >
-                                View in Tavern <ExternalLink className="h-3 w-3" />
-                              </a>
-                            </div>
+                            )}
 
                             <div className="space-y-1">
-                              <div className="font-medium">Hero 2</div>
+                              <div className="font-medium">
+                                {sniperResult.userHero ? 'Tavern Match' : 'Hero 2'}
+                              </div>
                               <div className={getRarityColor(pair.hero2.rarity)}>
                                 {getRarityName(pair.hero2.rarity)} {pair.hero2.mainClass}
                               </div>

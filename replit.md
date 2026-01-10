@@ -18,12 +18,20 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Hero Systems**: Includes Hero Genetics decoding, Breeding Charts, and Summoning Probability Calculator.
 *   **Tavern Bargain Finder**: Scans the marketplace for optimal hero pairs for summoning.
 *   **Summon Sniper**: Finds optimal hero pairs from the tavern marketplace for breeding specific traits. Features:
+    - **Search Modes**:
+      - **Two from Tavern**: Pairs two tavern heroes together for optimal trait probability
+      - **Pair for My Hero**: Finds best tavern hero to pair with user's owned hero (fetches hero from blockchain by ID)
+    - **Summon Types**:
+      - **Regular**: Full summoning cost (6 + 2×summons + 10×generation), includes tear costs
+      - **Dark Summon**: 1/4 cost of regular, requires heroes with exactly 0 summons remaining, no tears needed
     - **Joint Probability Calculation**: Correctly multiplies individual trait probabilities (P(class) × P(profession) × P(subclass)) for accurate multi-trait targeting
-    - **Hybrid Gene Fetching**: Queries tavern_heroes for basic filters, fetches statGenes/visualGenes on-demand via GraphQL API for top 50 candidate pairs
-    - **Efficiency Ranking**: Pairs ranked by probability per token spent (targetProbability / totalCost)
-    - Filters: target class, profession, subclass, realm (cv/sd), max price, min summons remaining
+    - **Hybrid Gene Fetching**: Fetches heroes from live DFK API, gets statGenes/visualGenes on-demand via GraphQL API for top candidate pairs
+    - **Efficiency Ranking**: Pairs ranked by probability per USD spent (targetProbability / totalCostUSD)
+    - **Live Token Pricing**: Uses buildFocusedPriceGraph() from garden-analytics.js for fast CRYSTAL/JEWEL USD pricing
+    - Filters: target class (multi-select), profession (multi-select), realm (cv/sd), min summons remaining, min rarity
     - Admin API: GET /api/admin/sniper/filters, POST /api/admin/sniper/search
-    - UI: "Summon Sniper" tab in Summoning Calculator page
+    - UI: "Summon Sniper" tab in Summoning Calculator page with dark/light mode support
+    - Results display includes joint probability, efficiency score, token costs, USD costs, and direct links to Summoning Calculator
 *   **Player User Model System**: Classifies players for personalized responses and smurf detection.
 *   **Smurf Detection & League Signup System**: Manages competitive leagues with multi-account and power snapshot features.
 *   **Challenge/Achievement System**: A gamified progression system with an ETL subsystem for metric extraction and progress computation across various categories (e.g., Hero Progression, Economy, Professions). This includes a Tier Calibration Panel for data-driven threshold tuning and ETL schedulers for automatic updates.

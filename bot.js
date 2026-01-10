@@ -9060,11 +9060,15 @@ async function startAdminWebServer() {
         targetPassiveSkills = [],
         realms = ['cv', 'sd'],
         minSummonsRemaining = 0,
+        maxSummonsRemaining = undefined,  // For dark summon (must be 0)
         minRarity = 0,
         maxGeneration = 10,
         minLevel = 1,
         maxTTS = null,
         tearPrice = 0.05,
+        summonType = 'regular',  // 'regular' or 'dark'
+        searchMode = 'tavern',   // 'tavern' or 'myHero'
+        myHeroId = null,         // Hero ID for 'myHero' mode
         limit = 20
       } = req.body;
 
@@ -9096,9 +9100,13 @@ async function startAdminWebServer() {
         console.warn('[Sniper] Could not fetch token prices (proceeding without USD):', priceErr?.message);
       }
 
+      const isDarkSummon = summonType === 'dark';
+      const isMyHeroMode = searchMode === 'myHero' && myHeroId;
+      
       console.log('[Sniper] Search request:', { 
         targetClasses: classArray, targetProfessions: professionArray, 
-        realms, minSummonsRemaining, minRarity, minLevel, maxTTS, tearPrice
+        realms, minSummonsRemaining, maxSummonsRemaining, minRarity, minLevel, maxTTS, tearPrice,
+        summonType, searchMode, myHeroId: isMyHeroMode ? myHeroId : null
       });
 
       // Validate realm filter - only allow known realms
@@ -9126,12 +9134,14 @@ async function startAdminWebServer() {
         return tearsByTier[tier] || 10;
       }
       
-      function calculateSummonTokenCost(generation, totalSummoned) {
+      function calculateSummonTokenCost(generation, totalSummoned, useDarkSummon = false) {
         const baseCost = 6;
         const perChildIncrease = 2;
         const generationIncrease = 10;
         let cost = baseCost + (perChildIncrease * totalSummoned) + (generationIncrease * generation);
         if (generation === 0 && cost > 30) cost = 30;
+        // Dark summon costs 1/4 of regular summon
+        if (useDarkSummon) cost = cost / 4;
         return cost;
       }
 
@@ -9218,6 +9228,8 @@ async function startAdminWebServer() {
         
         // Apply filters
         if (summonsRemaining < minSummonsRemaining) continue;
+        // For dark summon, heroes must have exactly 0 summons remaining
+        if (maxSummonsRemaining !== undefined && summonsRemaining > maxSummonsRemaining) continue;
         if (rarity < minRarity) continue;
         if (generation > maxGeneration) continue;
         if (level < safeMinLevel) continue;
@@ -9273,12 +9285,98 @@ async function startAdminWebServer() {
       
       console.log(`[Sniper] Found ${heroes.length} total eligible heroes (after dedup)`);
 
-      if (heroes.length < 2) {
+      // ============================================================
+      // MY HERO MODE: Fetch user's hero and pair with tavern heroes
+      // ============================================================
+      let userHero = null;
+      if (isMyHeroMode) {
+        console.log(`[Sniper] MyHero mode - fetching hero ${myHeroId}...`);
+        try {
+          const heroData = await getHeroById(myHeroId);
+          if (!heroData) {
+            return res.status(404).json({ 
+              ok: false, 
+              error: `Hero ${myHeroId} not found` 
+            });
+          }
+          
+          // Determine realm from hero ID
+          const heroIdBig = BigInt(myHeroId);
+          let userRealm = null;
+          let userToken = null;
+          if (heroIdBig >= CV_ID_MIN && heroIdBig < CV_ID_MAX) {
+            userRealm = 'cv';
+            userToken = 'CRYSTAL';
+          } else if (heroIdBig >= CV_ID_MAX) {
+            userRealm = 'sd';
+            userToken = 'JEWEL';
+          } else {
+            return res.status(400).json({ 
+              ok: false, 
+              error: 'Hero appears to be from legacy Harmony realm (not supported)' 
+            });
+          }
+          
+          const userMainClass = getClassName(heroData.mainClass);
+          const userSubClass = getClassName(heroData.subClass);
+          const userProfession = getProfessionName(heroData.profession ?? 0);
+          const userSummonsRemaining = (heroData.maxSummons ?? 0) - (heroData.summons ?? 0);
+          
+          // Check if user's hero meets summon requirements
+          if (isDarkSummon && userSummonsRemaining !== 0) {
+            return res.status(400).json({ 
+              ok: false, 
+              error: `Dark summon requires heroes with 0 summons remaining. Your hero has ${userSummonsRemaining} summons.` 
+            });
+          }
+          
+          userHero = {
+            hero_id: String(myHeroId),
+            normalized_id: Number(heroIdBig % BigInt(1000000000000)),
+            realm: userRealm,
+            main_class: userMainClass,
+            sub_class: userSubClass,
+            profession: userProfession,
+            rarity: heroData.rarity ?? 0,
+            level: heroData.level ?? 1,
+            generation: heroData.generation ?? 0,
+            summons: heroData.summons ?? 0,
+            max_summons: heroData.maxSummons ?? 0,
+            price_native: 0, // User already owns this hero
+            native_token: userToken,
+            is_user_hero: true,
+            statGenes: heroData.statGenes,
+            visualGenes: heroData.visualGenes
+          };
+          
+          console.log(`[Sniper] User hero: ${userMainClass} (${userRealm}), ${userSummonsRemaining} summons remaining`);
+          
+          // Filter tavern heroes to same realm as user's hero
+          heroes = heroes.filter(h => h.realm === userRealm);
+          console.log(`[Sniper] Filtered to ${heroes.length} heroes in ${userRealm} realm`);
+        } catch (err) {
+          console.error('[Sniper] Error fetching user hero:', err);
+          return res.status(500).json({ 
+            ok: false, 
+            error: `Failed to fetch hero: ${err.message}` 
+          });
+        }
+      }
+
+      const minHeroesRequired = isMyHeroMode ? 1 : 2;
+      if (heroes.length < minHeroesRequired) {
         return res.json({
           ok: true,
-          message: 'Not enough eligible heroes found',
+          message: isMyHeroMode 
+            ? 'No eligible tavern heroes found to pair with your hero'
+            : 'Not enough eligible heroes found',
           pairs: [],
-          totalHeroes: heroes.length
+          totalHeroes: heroes.length,
+          userHero: userHero ? {
+            id: userHero.hero_id,
+            mainClass: userHero.main_class,
+            realm: userHero.realm
+          } : null
         });
       }
 
@@ -9289,20 +9387,22 @@ async function startAdminWebServer() {
       }
 
       // Calculate full cost for a hero pair (purchase + summon token cost + tears)
-      function calculatePairFullCost(hero1, hero2, tearPriceValue) {
+      function calculatePairFullCost(hero1, hero2, tearPriceValue, useDarkSummon = false) {
         const purchaseCost = parseFloat(hero1.price_native) + parseFloat(hero2.price_native);
         
         // Summon token cost - uses the lower generation hero as summoner
-        const summonCost1 = calculateSummonTokenCost(hero1.generation, hero1.summons);
-        const summonCost2 = calculateSummonTokenCost(hero2.generation, hero2.summons);
+        // Dark summon uses 1/4 of the regular cost
+        const summonCost1 = calculateSummonTokenCost(hero1.generation, hero1.summons, useDarkSummon);
+        const summonCost2 = calculateSummonTokenCost(hero2.generation, hero2.summons, useDarkSummon);
         const summonTokenCost = Math.min(summonCost1, summonCost2);
         
         // Tear cost - based on higher tier class between the two heroes
+        // Dark summons don't require tears for the basic summon (only for optional rarity boost)
         const tier1 = getClassTier(hero1.main_class);
         const tier2 = getClassTier(hero2.main_class);
         const tierOrder = { basic: 0, advanced: 1, elite: 2, exalted: 3 };
         const higherTier = tierOrder[tier1] >= tierOrder[tier2] ? tier1 : tier2;
-        const tearCount = getMinTears(higherTier);
+        const tearCount = useDarkSummon ? 0 : getMinTears(higherTier);  // No tears for dark summon
         const tearCost = tearCount * (tearPriceValue || 0.05);
         
         return {
@@ -9310,7 +9410,8 @@ async function startAdminWebServer() {
           summonTokenCost,
           tearCost,
           tearCount,
-          totalCost: purchaseCost + summonTokenCost + tearCost
+          totalCost: purchaseCost + summonTokenCost + tearCost,
+          isDarkSummon: useDarkSummon
         };
       }
 
@@ -9326,46 +9427,73 @@ async function startAdminWebServer() {
       const isTargetProfession = (h) => targetProfessionSet.has((h.profession || '').toLowerCase());
       const isTargetHero = (h) => isTargetClass(h) || isTargetProfession(h);
       
-      for (const realm of Object.keys(byRealm)) {
-        const realmHeroes = byRealm[realm];
-        if (realmHeroes.length < 2) continue;
+      if (isMyHeroMode && userHero) {
+        // ============================================================
+        // MY HERO MODE: Pair user's hero with each tavern hero
+        // ============================================================
+        console.log(`[Sniper] MyHero mode - generating pairs with user's hero...`);
         
-        // Separate target class/profession heroes from others
-        const targetHeroes = realmHeroes.filter(isTargetHero);
-        const otherHeroes = realmHeroes.filter(h => !isTargetHero(h));
+        // Sort tavern heroes by price and take cheapest
+        heroes.sort((a, b) => a.price_native - b.price_native);
+        const tavernHeroesToPair = heroes.slice(0, 200);
         
-        // Sort others by price and limit to 100 cheapest
-        otherHeroes.sort((a, b) => a.price_native - b.price_native);
-        const cheapOthers = otherHeroes.slice(0, 100);
-        
-        // Generate pairs:
-        // 1. Target hero + Target hero (for best class probability)
-        for (let i = 0; i < targetHeroes.length; i++) {
-          for (let j = i + 1; j < targetHeroes.length; j++) {
-            const hero1 = targetHeroes[i];
-            const hero2 = targetHeroes[j];
-            const costs = calculatePairFullCost(hero1, hero2, tearPrice);
-            candidatePairs.push({ hero1, hero2, realm, ...costs });
-          }
+        for (const tavernHero of tavernHeroesToPair) {
+          const costs = calculatePairFullCost(userHero, tavernHero, tearPrice, isDarkSummon);
+          candidatePairs.push({ 
+            hero1: userHero, 
+            hero2: tavernHero, 
+            realm: userHero.realm, 
+            isMyHeroPair: true,
+            ...costs 
+          });
         }
         
-        // 2. Target hero + Cheap other hero
-        for (const targetHero of targetHeroes) {
-          for (const otherHero of cheapOthers) {
-            const costs = calculatePairFullCost(targetHero, otherHero, tearPrice);
-            candidatePairs.push({ hero1: targetHero, hero2: otherHero, realm, ...costs });
+        console.log(`[Sniper] Generated ${candidatePairs.length} pairs with user's hero`);
+      } else {
+        // ============================================================
+        // TAVERN MODE: Pair tavern heroes with each other
+        // ============================================================
+        for (const realm of Object.keys(byRealm)) {
+          const realmHeroes = byRealm[realm];
+          if (realmHeroes.length < 2) continue;
+          
+          // Separate target class/profession heroes from others
+          const targetHeroes = realmHeroes.filter(isTargetHero);
+          const otherHeroes = realmHeroes.filter(h => !isTargetHero(h));
+          
+          // Sort others by price and limit to 100 cheapest
+          otherHeroes.sort((a, b) => a.price_native - b.price_native);
+          const cheapOthers = otherHeroes.slice(0, 100);
+          
+          // Generate pairs:
+          // 1. Target hero + Target hero (for best class probability)
+          for (let i = 0; i < targetHeroes.length; i++) {
+            for (let j = i + 1; j < targetHeroes.length; j++) {
+              const hero1 = targetHeroes[i];
+              const hero2 = targetHeroes[j];
+              const costs = calculatePairFullCost(hero1, hero2, tearPrice, isDarkSummon);
+              candidatePairs.push({ hero1, hero2, realm, ...costs });
+            }
           }
-        }
-        
-        // 3. Cheap other + Cheap other (if no targets found, these can still produce target class)
-        // Limit to top 30 cheapest to avoid explosion
-        const cheapLimit = Math.min(cheapOthers.length, 30);
-        for (let i = 0; i < cheapLimit; i++) {
-          for (let j = i + 1; j < cheapLimit; j++) {
-            const hero1 = cheapOthers[i];
-            const hero2 = cheapOthers[j];
-            const costs = calculatePairFullCost(hero1, hero2, tearPrice);
-            candidatePairs.push({ hero1, hero2, realm, ...costs });
+          
+          // 2. Target hero + Cheap other hero
+          for (const targetHero of targetHeroes) {
+            for (const otherHero of cheapOthers) {
+              const costs = calculatePairFullCost(targetHero, otherHero, tearPrice, isDarkSummon);
+              candidatePairs.push({ hero1: targetHero, hero2: otherHero, realm, ...costs });
+            }
+          }
+          
+          // 3. Cheap other + Cheap other (if no targets found, these can still produce target class)
+          // Limit to top 30 cheapest to avoid explosion
+          const cheapLimit = Math.min(cheapOthers.length, 30);
+          for (let i = 0; i < cheapLimit; i++) {
+            for (let j = i + 1; j < cheapLimit; j++) {
+              const hero1 = cheapOthers[i];
+              const hero2 = cheapOthers[j];
+              const costs = calculatePairFullCost(hero1, hero2, tearPrice, isDarkSummon);
+              candidatePairs.push({ hero1, hero2, realm, ...costs });
+            }
           }
         }
       }
@@ -9384,15 +9512,27 @@ async function startAdminWebServer() {
       pairsWithoutTarget.sort((a, b) => a.totalCost - b.totalCost);
       
       // Take up to 80 pairs with target heroes + 20 cheapest without
+      // In myHero mode, take more since we have fewer total pairs
+      const targetLimit = isMyHeroMode ? 150 : 80;
+      const otherLimit = isMyHeroMode ? 50 : 20;
       const pairsToScore = [
-        ...pairsWithTarget.slice(0, 80),
-        ...pairsWithoutTarget.slice(0, 20)
+        ...pairsWithTarget.slice(0, targetLimit),
+        ...pairsWithoutTarget.slice(0, otherLimit)
       ];
       
       console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs (${pairsWithTarget.length} with target class), scoring ${pairsToScore.length}`);
 
       // Cache for hero genes fetched from GraphQL
       const geneCache = new Map();
+      
+      // Pre-populate cache with user's hero genes if available
+      if (userHero && userHero.statGenes) {
+        geneCache.set(userHero.hero_id, {
+          statGenes: userHero.statGenes,
+          visualGenes: userHero.visualGenes
+        });
+        console.log(`[Sniper] Pre-cached user hero genes for ${userHero.hero_id}`);
+      }
       
       async function getHeroGenes(heroId) {
         if (geneCache.has(heroId)) {
@@ -9608,8 +9748,22 @@ async function startAdminWebServer() {
           targetPassiveSkills: passiveSkillArray,
           realms: filteredRealms,
           minSummonsRemaining,
-          minRarity
-        }
+          minRarity,
+          summonType,
+          searchMode
+        },
+        userHero: userHero ? {
+          id: userHero.hero_id,
+          mainClass: userHero.main_class,
+          subClass: userHero.sub_class,
+          profession: userHero.profession,
+          rarity: userHero.rarity,
+          level: userHero.level,
+          generation: userHero.generation,
+          summonsRemaining: userHero.max_summons - userHero.summons,
+          realm: userHero.realm,
+          token: userHero.native_token
+        } : null
       });
 
     } catch (error) {
