@@ -9070,6 +9070,8 @@ async function startAdminWebServer() {
         searchMode = 'tavern',   // 'tavern' or 'myHero'
         myHeroId = null,         // Hero ID for 'myHero' mode
         bridgeFeeUsd = 0.50,     // Estimated bridging fee per hero in USD (Metis heroes need bridging to CV)
+        minOffspringSkillScore = null,  // Minimum expected offspring skill score (TTS) - null means no filter
+        sortBy = 'efficiency',   // 'efficiency', 'chance', 'price', or 'skillScore'
         limit = 20
       } = req.body;
 
@@ -9693,6 +9695,14 @@ async function startAdminWebServer() {
           
           // Calculate offspring TTS probabilities
           const ttsData = calculateTTSProbabilities(probs);
+          
+          // Filter by minimum offspring skill score (only if threshold is set)
+          if (minOffspringSkillScore !== null && minOffspringSkillScore !== undefined) {
+            const expectedTTS = ttsData?.expectedTTS ?? 0;
+            if (expectedTTS < minOffspringSkillScore) {
+              continue;
+            }
+          }
 
           // Calculate USD total cost (including bridging fees)
           const tokenPriceUsd = realm === 'cv' ? crystalPriceUsd : jewelPriceUsd;
@@ -9773,8 +9783,22 @@ async function startAdminWebServer() {
 
       console.log(`[Sniper] Scored ${pairs.length} pairs with non-zero probability`);
 
-      // Sort by efficiency (probability per token)
-      pairs.sort((a, b) => b.efficiency - a.efficiency);
+      // Sort by selected criteria
+      switch (sortBy) {
+        case 'chance':
+          pairs.sort((a, b) => b.targetProbability - a.targetProbability);
+          break;
+        case 'price':
+          pairs.sort((a, b) => a.totalCostUsd - b.totalCostUsd);
+          break;
+        case 'skillScore':
+          pairs.sort((a, b) => (b.tts?.expected ?? 0) - (a.tts?.expected ?? 0));
+          break;
+        case 'efficiency':
+        default:
+          pairs.sort((a, b) => b.efficiency - a.efficiency);
+          break;
+      }
 
       // Return top results
       const topPairs = pairs.slice(0, limit);

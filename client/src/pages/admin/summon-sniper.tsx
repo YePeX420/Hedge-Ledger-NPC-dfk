@@ -139,6 +139,7 @@ export default function SummonSniper() {
   const [sniperMinSummons, setSniperMinSummons] = useState("0");
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
   const [sniperMaxTTS, setSniperMaxTTS] = useState("");
+  const [minOffspringSkillScore, setMinOffspringSkillScore] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
   
   // New state for search mode and summon type
@@ -146,7 +147,7 @@ export default function SummonSniper() {
   const [summonType, setSummonType] = useState<SummonType>("regular");
   const [myHeroId, setMyHeroId] = useState("");
   const [bridgeFeeUsd, setBridgeFeeUsd] = useState("0.50"); // Estimated bridge fee per hero in USD
-  const [sortBy, setSortBy] = useState<"efficiency" | "chance" | "price">("efficiency");
+  const [sortBy, setSortBy] = useState<"efficiency" | "chance" | "price" | "skillScore">("efficiency");
 
   const { data: sniperFilters } = useQuery<{ ok: boolean; filters: SniperFilters }>({
     queryKey: ['/api/admin/sniper/filters']
@@ -169,10 +170,12 @@ export default function SummonSniper() {
         maxSummonsRemaining: effectiveMaxSummons,
         minLevel: parseInt(sniperMinLevel) || 1,
         maxTTS: sniperMaxTTS ? parseFloat(sniperMaxTTS) : null,
+        minOffspringSkillScore: minOffspringSkillScore ? parseFloat(minOffspringSkillScore) : null,
         summonType,
         searchMode,
         myHeroId: searchMode === "myHero" ? myHeroId : undefined,
         bridgeFeeUsd: parseFloat(bridgeFeeUsd) || 0,
+        sortBy,
         limit: 20
       });
       return response.json();
@@ -249,6 +252,8 @@ export default function SummonSniper() {
         return pairs.sort((a, b) => b.targetProbability - a.targetProbability);
       case "price":
         return pairs.sort((a, b) => a.totalCostUsd - b.totalCostUsd);
+      case "skillScore":
+        return pairs.sort((a, b) => (b.tts?.expected || 0) - (a.tts?.expected || 0));
       case "efficiency":
       default:
         return pairs.sort((a, b) => b.efficiency - a.efficiency);
@@ -529,7 +534,7 @@ export default function SummonSniper() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="maxTTS">Max TTS (optional)</Label>
+              <Label htmlFor="maxTTS">Max Parent TTS</Label>
               <Input
                 id="maxTTS"
                 type="number"
@@ -537,6 +542,19 @@ export default function SummonSniper() {
                 onChange={(e) => setSniperMaxTTS(e.target.value)}
                 placeholder="Any"
                 data-testid="input-max-tts"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="minOffspringSkillScore">Min Offspring Skill Score</Label>
+              <Input
+                id="minOffspringSkillScore"
+                type="number"
+                step="0.1"
+                value={minOffspringSkillScore}
+                onChange={(e) => setMinOffspringSkillScore(e.target.value)}
+                placeholder="Any"
+                data-testid="input-min-offspring-skill-score"
               />
             </div>
           </div>
@@ -643,14 +661,15 @@ export default function SummonSniper() {
             <div className="text-sm text-muted-foreground space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span>Sort by:</span>
-                <Select value={sortBy} onValueChange={(v) => setSortBy(v as "efficiency" | "chance" | "price")}>
-                  <SelectTrigger className="w-[160px] h-8" data-testid="select-sort-by">
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as "efficiency" | "chance" | "price" | "skillScore")}>
+                  <SelectTrigger className="w-[180px] h-8" data-testid="select-sort-by">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="efficiency">Efficiency (%/$)</SelectItem>
                     <SelectItem value="chance">Highest Chance</SelectItem>
                     <SelectItem value="price">Lowest Price</SelectItem>
+                    <SelectItem value="skillScore">Offspring Skill Score</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
