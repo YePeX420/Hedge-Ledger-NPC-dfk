@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useAuth } from '@/lib/auth';
 import { useQuery } from '@tanstack/react-query';
@@ -26,7 +26,9 @@ import {
   Crown,
   Calculator,
   Dna,
-  Target
+  Target,
+  Menu,
+  X
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -68,6 +70,7 @@ const navItems = [
 export function AdminLayout({ children }: AdminLayoutProps) {
   const { user, logout } = useAuth();
   const [location] = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const { data: envInfo } = useQuery<EnvironmentInfo>({
     queryKey: ['/api/admin/environment'],
@@ -78,10 +81,27 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     ? `https://cdn.discordapp.com/avatars/${user.discordId}/${user.avatar}.png`
     : null;
 
+  const handleNavClick = () => {
+    setSidebarOpen(false);
+  };
+
   return (
     <div className="flex h-screen w-full bg-background" data-testid="admin-layout">
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 border-r bg-card flex flex-col">
+      <aside className={`
+        fixed lg:static inset-y-0 left-0 z-50
+        w-64 border-r bg-card flex flex-col
+        transform transition-transform duration-200 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
         {/* Logo/Brand */}
         <div className="p-4 border-b">
           <div className="flex items-center gap-2">
@@ -103,18 +123,27 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 )}
               </div>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden h-8 w-8"
+              onClick={() => setSidebarOpen(false)}
+              data-testid="button-close-sidebar"
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-2 space-y-1">
+        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location === item.href || 
               (item.href !== '/admin' && location.startsWith(item.href));
             const Icon = item.icon;
             
             return (
-              <Link key={item.href} href={item.href}>
+              <Link key={item.href} href={item.href} onClick={handleNavClick}>
                 <div
                   className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
                     isActive 
@@ -161,9 +190,31 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        {children}
-      </main>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile header */}
+        <header className="lg:hidden flex items-center gap-3 p-3 border-b bg-card">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSidebarOpen(true)}
+            data-testid="button-open-sidebar"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+          <span className="font-semibold">Hedge Ledger</span>
+          {envInfo && (
+            <Badge 
+              variant={envInfo.isProduction ? "default" : "secondary"}
+              className="text-[10px] px-1 py-0"
+            >
+              {envInfo.isProduction ? 'PROD' : 'DEV'}
+            </Badge>
+          )}
+        </header>
+        <main className="flex-1 overflow-auto">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }
