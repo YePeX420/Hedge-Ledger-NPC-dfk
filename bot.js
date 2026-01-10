@@ -9028,28 +9028,30 @@ async function startAdminWebServer() {
       const { getHeroById } = await import('./onchain-data.js');
       
       const {
-        targetClass,
-        targetSubClass,
-        targetProfession,
+        targetClasses = [],
+        targetProfessions = [],
         realms = ['cv', 'sd'],
-        maxPricePerHero = 1000,
-        minSummonsRemaining = 1,
+        minSummonsRemaining = 0,
         maxGeneration = 10,
         minLevel = 1,
         maxTTS = null,
         limit = 20
       } = req.body;
 
-      if (!targetClass && !targetProfession) {
+      // Normalize inputs to arrays
+      const classArray = Array.isArray(targetClasses) ? targetClasses : (targetClasses ? [targetClasses] : []);
+      const professionArray = Array.isArray(targetProfessions) ? targetProfessions : (targetProfessions ? [targetProfessions] : []);
+
+      if (classArray.length === 0 && professionArray.length === 0) {
         return res.status(400).json({ 
           ok: false, 
-          error: 'At least targetClass or targetProfession is required' 
+          error: 'At least one class or profession must be selected' 
         });
       }
 
       console.log('[Sniper] Search request:', { 
-        targetClass, targetSubClass, targetProfession, 
-        realms, maxPricePerHero, minSummonsRemaining, minLevel, maxTTS 
+        targetClasses: classArray, targetProfessions: professionArray, 
+        realms, minSummonsRemaining, minLevel, maxTTS 
       });
 
       // Validate realm filter - only allow known realms
@@ -9059,6 +9061,7 @@ async function startAdminWebServer() {
         : validRealms;
 
       // Fetch heroes from tavern - genes will be fetched on demand from GraphQL
+      // No price filter - we'll list cheapest options automatically
       const safeTTS = maxTTS !== null ? parseFloat(maxTTS) : null;
       const safeMinLevel = parseInt(minLevel) || 1;
       
@@ -9068,14 +9071,13 @@ async function startAdminWebServer() {
           rarity, level, generation, summons, max_summons,
           price_native, native_token, trait_score, combat_power
         FROM tavern_heroes
-        WHERE price_native <= ${maxPricePerHero}
-          AND (max_summons - summons) >= ${minSummonsRemaining}
+        WHERE (max_summons - summons) >= ${minSummonsRemaining}
           AND generation <= ${maxGeneration}
           AND realm = ANY(${filteredRealms})
           AND level >= ${safeMinLevel}
           AND (${safeTTS}::numeric IS NULL OR trait_score <= ${safeTTS})
         ORDER BY price_native ASC
-        LIMIT 200
+        LIMIT 300
       `;
       console.log(`[Sniper] Found ${heroes.length} eligible heroes`);
 
@@ -9161,41 +9163,44 @@ async function startAdminWebServer() {
 
           const probs = calculateSummoningProbabilities(genetics1, genetics2, rarity1, rarity2);
 
-          // Calculate JOINT probability of all target traits
-          // P(A AND B) = P(A) * P(B) for independent events
+          // Calculate JOINT probability of target traits
+          // For multiple classes/professions: use OR logic (sum probabilities)
+          // Between categories (class AND profession): use AND logic (multiply)
           let jointProbability = 1.0;
           let hasAnyTarget = false;
           
-          if (targetClass && probs.class) {
-            const classProb = Object.entries(probs.class).find(([name]) => 
-              name.toLowerCase() === targetClass.toLowerCase()
-            );
-            if (classProb) {
-              jointProbability *= parseFloat(classProb[1]) / 100;
+          // Multiple target classes: OR logic (sum their probabilities, cap at 1)
+          if (classArray.length > 0 && probs.class) {
+            let classSum = 0;
+            for (const targetClass of classArray) {
+              const classProb = Object.entries(probs.class).find(([name]) => 
+                name.toLowerCase() === targetClass.toLowerCase()
+              );
+              if (classProb) {
+                classSum += parseFloat(classProb[1]) / 100;
+              }
+            }
+            if (classSum > 0) {
+              jointProbability *= Math.min(classSum, 1.0);
               hasAnyTarget = true;
             } else {
               jointProbability = 0;
             }
           }
 
-          if (targetProfession && probs.profession) {
-            const profProb = Object.entries(probs.profession).find(([name]) => 
-              name.toLowerCase().includes(targetProfession.toLowerCase())
-            );
-            if (profProb) {
-              jointProbability *= parseFloat(profProb[1]) / 100;
-              hasAnyTarget = true;
-            } else {
-              jointProbability = 0;
+          // Multiple target professions: OR logic (sum their probabilities, cap at 1)
+          if (professionArray.length > 0 && probs.profession) {
+            let profSum = 0;
+            for (const targetProfession of professionArray) {
+              const profProb = Object.entries(probs.profession).find(([name]) => 
+                name.toLowerCase().includes(targetProfession.toLowerCase())
+              );
+              if (profProb) {
+                profSum += parseFloat(profProb[1]) / 100;
+              }
             }
-          }
-
-          if (targetSubClass && probs.subClass) {
-            const subProb = Object.entries(probs.subClass).find(([name]) => 
-              name.toLowerCase() === targetSubClass.toLowerCase()
-            );
-            if (subProb) {
-              jointProbability *= parseFloat(subProb[1]) / 100;
+            if (profSum > 0) {
+              jointProbability *= Math.min(profSum, 1.0);
               hasAnyTarget = true;
             } else {
               jointProbability = 0;
@@ -9264,11 +9269,9 @@ async function startAdminWebServer() {
         totalHeroes: heroes.length,
         totalPairsScored: pairs.length,
         searchParams: {
-          targetClass,
-          targetSubClass,
-          targetProfession,
-          realms,
-          maxPricePerHero,
+          targetClasses: classArray,
+          targetProfessions: professionArray,
+          realms: filteredRealms,
           minSummonsRemaining
         }
       });

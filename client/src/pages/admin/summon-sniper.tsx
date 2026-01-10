@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Target, Filter, TrendingUp, DollarSign, ExternalLink, Loader2 } from "lucide-react";
+import { Target, Filter, TrendingUp, DollarSign, ExternalLink, Loader2, Info } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 interface ProbabilityMap {
@@ -56,21 +56,18 @@ interface SniperResult {
   totalHeroes: number;
   totalPairsScored: number;
   searchParams: {
-    targetClass: string;
-    targetSubClass: string;
-    targetProfession: string;
+    targetClasses: string[];
+    targetProfessions: string[];
     realms: string[];
-    maxPricePerHero: number;
     minSummonsRemaining: number;
   };
 }
 
 export default function SummonSniper() {
-  const [sniperTargetClass, setSniperTargetClass] = useState("");
-  const [sniperTargetProfession, setSniperTargetProfession] = useState("");
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  const [selectedProfessions, setSelectedProfessions] = useState<string[]>([]);
   const [sniperRealms, setSniperRealms] = useState<string[]>(["cv", "sd"]);
-  const [sniperMaxPrice, setSniperMaxPrice] = useState("500");
-  const [sniperMinSummons, setSniperMinSummons] = useState("1");
+  const [sniperMinSummons, setSniperMinSummons] = useState("0");
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
   const [sniperMaxTTS, setSniperMaxTTS] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
@@ -82,11 +79,10 @@ export default function SummonSniper() {
   const sniperMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/admin/sniper/search", {
-        targetClass: sniperTargetClass || undefined,
-        targetProfession: sniperTargetProfession || undefined,
+        targetClasses: selectedClasses,
+        targetProfessions: selectedProfessions,
         realms: sniperRealms,
-        maxPricePerHero: parseFloat(sniperMaxPrice) || 500,
-        minSummonsRemaining: parseInt(sniperMinSummons) || 1,
+        minSummonsRemaining: parseInt(sniperMinSummons) || 0,
         minLevel: parseInt(sniperMinLevel) || 1,
         maxTTS: sniperMaxTTS ? parseFloat(sniperMaxTTS) : null,
         limit: 20
@@ -101,8 +97,24 @@ export default function SummonSniper() {
   });
 
   const handleSniperSearch = () => {
-    if (!sniperTargetClass && !sniperTargetProfession) return;
+    if (selectedClasses.length === 0 && selectedProfessions.length === 0) return;
     sniperMutation.mutate();
+  };
+
+  const toggleClass = (cls: string) => {
+    setSelectedClasses(prev => 
+      prev.includes(cls) 
+        ? prev.filter(c => c !== cls)
+        : [...prev, cls]
+    );
+  };
+
+  const toggleProfession = (prof: string) => {
+    setSelectedProfessions(prev => 
+      prev.includes(prof) 
+        ? prev.filter(p => p !== prof)
+        : [...prev, prof]
+    );
   };
 
   const toggleRealm = (realm: string) => {
@@ -139,56 +151,57 @@ export default function SummonSniper() {
             <Filter className="h-5 w-5" />
             Search Filters
           </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Select your target traits and filter criteria to find the best hero pairs
-          </p>
+          <div className="flex items-start gap-2 text-sm text-muted-foreground">
+            <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
+            <span>Select multiple classes/professions to find heroes that can breed ANY of the selected traits. Results automatically show cheapest pairs ranked by efficiency.</span>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="targetClass">Target Class</Label>
-              <select
-                id="targetClass"
-                value={sniperTargetClass}
-                onChange={(e) => setSniperTargetClass(e.target.value)}
-                className="w-full h-9 px-3 rounded-md border bg-background text-sm"
-                data-testid="select-target-class"
-              >
-                <option value="">Any Class</option>
-                {sniperFilters?.filters?.classes?.map(cls => (
-                  <option key={cls} value={cls}>{cls}</option>
-                ))}
-              </select>
+        <CardContent className="space-y-6">
+          <div className="space-y-3">
+            <Label>Target Classes (select one or more)</Label>
+            <div className="flex flex-wrap gap-2">
+              {sniperFilters?.filters?.classes?.map(cls => (
+                <Badge
+                  key={cls}
+                  variant={selectedClasses.includes(cls) ? "default" : "outline"}
+                  className="cursor-pointer text-sm py-1 px-3"
+                  onClick={() => toggleClass(cls)}
+                  data-testid={`badge-class-${cls.toLowerCase()}`}
+                >
+                  {cls}
+                </Badge>
+              ))}
             </div>
+            {selectedClasses.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Selected: {selectedClasses.join(", ")}
+              </p>
+            )}
+          </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="targetProfession">Target Profession</Label>
-              <select
-                id="targetProfession"
-                value={sniperTargetProfession}
-                onChange={(e) => setSniperTargetProfession(e.target.value)}
-                className="w-full h-9 px-3 rounded-md border bg-background text-sm"
-                data-testid="select-target-profession"
-              >
-                <option value="">Any Profession</option>
-                {sniperFilters?.filters?.professions?.map(prof => (
-                  <option key={prof} value={prof}>{prof}</option>
-                ))}
-              </select>
+          <div className="space-y-3">
+            <Label>Target Professions (select one or more)</Label>
+            <div className="flex flex-wrap gap-2">
+              {sniperFilters?.filters?.professions?.map(prof => (
+                <Badge
+                  key={prof}
+                  variant={selectedProfessions.includes(prof) ? "default" : "outline"}
+                  className="cursor-pointer text-sm py-1 px-3"
+                  onClick={() => toggleProfession(prof)}
+                  data-testid={`badge-profession-${prof.toLowerCase()}`}
+                >
+                  {prof}
+                </Badge>
+              ))}
             </div>
+            {selectedProfessions.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Selected: {selectedProfessions.join(", ")}
+              </p>
+            )}
+          </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="maxPrice">Max Price (per hero)</Label>
-              <Input
-                id="maxPrice"
-                type="number"
-                value={sniperMaxPrice}
-                onChange={(e) => setSniperMaxPrice(e.target.value)}
-                placeholder="500"
-                data-testid="input-max-price"
-              />
-            </div>
-
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="minSummons">Min Summons Remaining</Label>
               <Input
@@ -196,7 +209,7 @@ export default function SummonSniper() {
                 type="number"
                 value={sniperMinSummons}
                 onChange={(e) => setSniperMinSummons(e.target.value)}
-                placeholder="1"
+                placeholder="0"
                 data-testid="input-min-summons"
               />
             </div>
@@ -214,7 +227,7 @@ export default function SummonSniper() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="maxTTS">Max TTS (leave empty for any)</Label>
+              <Label htmlFor="maxTTS">Max TTS (optional)</Label>
               <Input
                 id="maxTTS"
                 type="number"
@@ -250,7 +263,7 @@ export default function SummonSniper() {
 
           <Button
             onClick={handleSniperSearch}
-            disabled={(!sniperTargetClass && !sniperTargetProfession) || sniperMutation.isPending}
+            disabled={(selectedClasses.length === 0 && selectedProfessions.length === 0) || sniperMutation.isPending}
             data-testid="button-sniper-search"
           >
             {sniperMutation.isPending ? (
@@ -279,9 +292,16 @@ export default function SummonSniper() {
                 {sniperResult.pairs.length} pairs from {sniperResult.totalHeroes} heroes
               </Badge>
             </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Ranked by efficiency (probability per token spent)
-            </p>
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p>Ranked by efficiency (probability per token spent)</p>
+              {sniperResult.searchParams && (
+                <p className="text-xs">
+                  Searching for: {sniperResult.searchParams.targetClasses?.length > 0 && `Classes: ${sniperResult.searchParams.targetClasses.join(" OR ")}`}
+                  {sniperResult.searchParams.targetClasses?.length > 0 && sniperResult.searchParams.targetProfessions?.length > 0 && " AND "}
+                  {sniperResult.searchParams.targetProfessions?.length > 0 && `Professions: ${sniperResult.searchParams.targetProfessions.join(" OR ")}`}
+                </p>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {sniperResult.pairs.length === 0 ? (
