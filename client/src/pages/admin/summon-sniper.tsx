@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Target, Filter, TrendingUp, DollarSign, ExternalLink, Loader2, Info } from "lucide-react";
+import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 interface ProbabilityMap {
@@ -482,8 +482,7 @@ export default function SummonSniper() {
                               <div className="text-muted-foreground">
                                 Lv{pair.hero1.level} Gen{pair.hero1.generation} | {pair.hero1.summonsRemaining} summons
                               </div>
-                              <div className="flex items-center gap-1">
-                                <DollarSign className="h-3 w-3" />
+                              <div className="text-muted-foreground">
                                 {pair.hero1.price.toFixed(2)} {pair.hero1.token}
                               </div>
                               <a
@@ -504,8 +503,7 @@ export default function SummonSniper() {
                               <div className="text-muted-foreground">
                                 Lv{pair.hero2.level} Gen{pair.hero2.generation} | {pair.hero2.summonsRemaining} summons
                               </div>
-                              <div className="flex items-center gap-1">
-                                <DollarSign className="h-3 w-3" />
+                              <div className="text-muted-foreground">
                                 {pair.hero2.price.toFixed(2)} {pair.hero2.token}
                               </div>
                               <a
