@@ -43,6 +43,13 @@ interface SniperPair {
   targetProbability: number;
   totalCost: number;
   efficiency: number;
+  costs?: {
+    purchaseCost: number;
+    summonTokenCost: number;
+    tearCost: number;
+    tearCount: number;
+    totalCost: number;
+  };
   probabilities: {
     class: ProbabilityMap;
     subClass: ProbabilityMap;
@@ -403,10 +410,17 @@ export default function SummonSniper() {
                           <div className="text-lg font-bold text-green-400">
                             {pair.targetProbability.toFixed(1)}% chance
                           </div>
-                          <div className="text-sm text-muted-foreground">
+                          <div className="text-sm font-medium">
                             Total: {pair.totalCost.toFixed(2)} {pair.hero1.token}
                           </div>
-                          <div className="text-xs text-muted-foreground">
+                          {pair.costs && (
+                            <div className="text-xs text-muted-foreground space-y-0.5">
+                              <div>Purchase: {pair.costs.purchaseCost.toFixed(2)}</div>
+                              <div>Summon: {pair.costs.summonTokenCost} {pair.hero1.token}</div>
+                              <div>Tears: {pair.costs.tearCount} ({pair.costs.tearCost.toFixed(2)})</div>
+                            </div>
+                          )}
+                          <div className="text-xs text-muted-foreground pt-1">
                             Efficiency: {pair.efficiency.toFixed(4)}
                           </div>
                         </div>

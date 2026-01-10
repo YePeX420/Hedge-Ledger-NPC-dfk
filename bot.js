@@ -9036,6 +9036,7 @@ async function startAdminWebServer() {
         maxGeneration = 10,
         minLevel = 1,
         maxTTS = null,
+        tearPrice = 0.05,
         limit = 20
       } = req.body;
 
@@ -9052,7 +9053,7 @@ async function startAdminWebServer() {
 
       console.log('[Sniper] Search request:', { 
         targetClasses: classArray, targetProfessions: professionArray, 
-        realms, minSummonsRemaining, minRarity, minLevel, maxTTS 
+        realms, minSummonsRemaining, minRarity, minLevel, maxTTS, tearPrice
       });
 
       // Validate realm filter - only allow known realms
@@ -9061,12 +9062,67 @@ async function startAdminWebServer() {
         ? realms.filter(r => validRealms.includes(r))
         : validRealms;
 
-      // Fetch heroes from tavern - genes will be fetched on demand from GraphQL
-      // No price filter - we'll list cheapest options automatically
+      // Class tier definitions for tear cost calculation
+      const basicClasses = ['Warrior', 'Knight', 'Thief', 'Archer', 'Priest', 'Wizard', 'Monk', 'Pirate', 'Berserker', 'Seer', 'Legionnaire', 'Scholar'];
+      const advancedClasses = ['Paladin', 'DarkKnight', 'Summoner', 'Ninja', 'Shapeshifter', 'Bard'];
+      const eliteClasses = ['Dragoon', 'Sage', 'Spellbow'];
+      const exaltedClasses = ['DreadKnight'];
+      
+      function getClassTier(className) {
+        const normalized = className?.toLowerCase() || '';
+        if (exaltedClasses.some(c => c.toLowerCase() === normalized)) return 'exalted';
+        if (eliteClasses.some(c => c.toLowerCase() === normalized)) return 'elite';
+        if (advancedClasses.some(c => c.toLowerCase() === normalized)) return 'advanced';
+        return 'basic';
+      }
+      
+      function getMinTears(tier) {
+        const tearsByTier = { basic: 10, advanced: 40, elite: 70, exalted: 100 };
+        return tearsByTier[tier] || 10;
+      }
+      
+      function calculateSummonTokenCost(generation, totalSummoned) {
+        const baseCost = 6;
+        const perChildIncrease = 2;
+        const generationIncrease = 10;
+        let cost = baseCost + (perChildIncrease * totalSummoned) + (generationIncrease * generation);
+        if (generation === 0 && cost > 30) cost = 30;
+        return cost;
+      }
+
+      // Fetch heroes from tavern
+      // Query 1: Get heroes matching target classes (up to 200)
+      // Query 2: Get cheapest heroes regardless of class (up to 200)
+      // Combine and deduplicate
       const safeTTS = maxTTS !== null ? parseFloat(maxTTS) : null;
       const safeMinLevel = parseInt(minLevel) || 1;
       
-      const heroes = await rawPg`
+      let heroes = [];
+      
+      // If target classes specified, fetch heroes matching those classes
+      if (classArray.length > 0) {
+        const classHeroes = await rawPg`
+          SELECT 
+            hero_id, normalized_id, realm, main_class, sub_class, profession,
+            rarity, level, generation, summons, max_summons,
+            price_native, native_token, trait_score, combat_power
+          FROM tavern_heroes
+          WHERE (max_summons - summons) >= ${minSummonsRemaining}
+            AND rarity >= ${minRarity}
+            AND generation <= ${maxGeneration}
+            AND realm = ANY(${filteredRealms})
+            AND level >= ${safeMinLevel}
+            AND (${safeTTS}::numeric IS NULL OR trait_score <= ${safeTTS})
+            AND main_class = ANY(${classArray})
+          ORDER BY price_native ASC
+          LIMIT 200
+        `;
+        heroes = [...classHeroes];
+        console.log(`[Sniper] Found ${classHeroes.length} heroes matching target classes`);
+      }
+      
+      // Also fetch cheapest heroes regardless of class for pairing potential
+      const cheapestHeroes = await rawPg`
         SELECT 
           hero_id, normalized_id, realm, main_class, sub_class, profession,
           rarity, level, generation, summons, max_summons,
@@ -9079,9 +9135,19 @@ async function startAdminWebServer() {
           AND level >= ${safeMinLevel}
           AND (${safeTTS}::numeric IS NULL OR trait_score <= ${safeTTS})
         ORDER BY price_native ASC
-        LIMIT 300
+        LIMIT 200
       `;
-      console.log(`[Sniper] Found ${heroes.length} eligible heroes`);
+      
+      // Deduplicate by hero_id
+      const seenIds = new Set(heroes.map(h => h.hero_id));
+      for (const h of cheapestHeroes) {
+        if (!seenIds.has(h.hero_id)) {
+          heroes.push(h);
+          seenIds.add(h.hero_id);
+        }
+      }
+      
+      console.log(`[Sniper] Found ${heroes.length} total eligible heroes (after dedup)`);
 
       if (heroes.length < 2) {
         return res.json({
@@ -9098,26 +9164,53 @@ async function startAdminWebServer() {
         if (byRealm[h.realm]) byRealm[h.realm].push(h);
       }
 
-      // Generate candidate pairs (top cheapest pairs by total cost)
+      // Calculate full cost for a hero pair (purchase + summon token cost + tears)
+      function calculatePairFullCost(hero1, hero2, tearPriceValue) {
+        const purchaseCost = parseFloat(hero1.price_native) + parseFloat(hero2.price_native);
+        
+        // Summon token cost - uses the lower generation hero as summoner
+        const summonCost1 = calculateSummonTokenCost(hero1.generation, hero1.summons);
+        const summonCost2 = calculateSummonTokenCost(hero2.generation, hero2.summons);
+        const summonTokenCost = Math.min(summonCost1, summonCost2);
+        
+        // Tear cost - based on higher tier class between the two heroes
+        const tier1 = getClassTier(hero1.main_class);
+        const tier2 = getClassTier(hero2.main_class);
+        const tierOrder = { basic: 0, advanced: 1, elite: 2, exalted: 3 };
+        const higherTier = tierOrder[tier1] >= tierOrder[tier2] ? tier1 : tier2;
+        const tearCount = getMinTears(higherTier);
+        const tearCost = tearCount * (tearPriceValue || 0.05);
+        
+        return {
+          purchaseCost,
+          summonTokenCost,
+          tearCost,
+          tearCount,
+          totalCost: purchaseCost + summonTokenCost + tearCost
+        };
+      }
+
+      // Generate candidate pairs from all heroes
       const candidatePairs = [];
       for (const realm of Object.keys(byRealm)) {
         const realmHeroes = byRealm[realm];
         if (realmHeroes.length < 2) continue;
         
-        // Take top 30 cheapest heroes per realm for pairing
-        for (let i = 0; i < Math.min(realmHeroes.length, 30); i++) {
-          for (let j = i + 1; j < Math.min(realmHeroes.length, 30); j++) {
+        // Generate all pairs within realm (up to 50 heroes per realm for manageable count)
+        const heroLimit = Math.min(realmHeroes.length, 50);
+        for (let i = 0; i < heroLimit; i++) {
+          for (let j = i + 1; j < heroLimit; j++) {
             const hero1 = realmHeroes[i];
             const hero2 = realmHeroes[j];
-            const totalCost = parseFloat(hero1.price_native) + parseFloat(hero2.price_native);
-            candidatePairs.push({ hero1, hero2, realm, totalCost });
+            const costs = calculatePairFullCost(hero1, hero2, tearPrice);
+            candidatePairs.push({ hero1, hero2, realm, ...costs });
           }
         }
       }
 
       // Sort by total cost and take top N for scoring
       candidatePairs.sort((a, b) => a.totalCost - b.totalCost);
-      const pairsToScore = candidatePairs.slice(0, 50); // Score top 50 cheapest pairs
+      const pairsToScore = candidatePairs.slice(0, 100); // Score top 100 cheapest pairs
       
       console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs, scoring top ${pairsToScore.length}`);
 
@@ -9148,7 +9241,7 @@ async function startAdminWebServer() {
       // Score pairs with actual probability calculations
       const pairs = [];
       
-      for (const { hero1, hero2, realm, totalCost } of pairsToScore) {
+      for (const { hero1, hero2, realm, purchaseCost, summonTokenCost, tearCost, tearCount, totalCost } of pairsToScore) {
         try {
           // Get genes from cache or fetch from GraphQL
           const genes1 = await getHeroGenes(hero1.hero_id);
@@ -9225,6 +9318,7 @@ async function startAdminWebServer() {
               level: hero1.level,
               generation: hero1.generation,
               summonsRemaining: hero1.max_summons - hero1.summons,
+              summons: hero1.summons,
               price: parseFloat(hero1.price_native),
               token: hero1.native_token
             },
@@ -9238,12 +9332,20 @@ async function startAdminWebServer() {
               level: hero2.level,
               generation: hero2.generation,
               summonsRemaining: hero2.max_summons - hero2.summons,
+              summons: hero2.summons,
               price: parseFloat(hero2.price_native),
               token: hero2.native_token
             },
             realm,
             targetProbability: targetProb,
-            totalCost,
+            costs: {
+              purchaseCost: Math.round(purchaseCost * 100) / 100,
+              summonTokenCost,
+              tearCost: Math.round(tearCost * 100) / 100,
+              tearCount,
+              totalCost: Math.round(totalCost * 100) / 100
+            },
+            totalCost: Math.round(totalCost * 100) / 100,
             efficiency,
             probabilities: {
               class: probs.class,
