@@ -130,7 +130,7 @@ const RARITIES = [
 ];
 
 export default function SummonSniper() {
-  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  const [selectedClasses, setSelectedClasses] = useState<string[]>(['Archer', 'Berserker', 'Knight', 'Priest', 'Seer', 'Warrior', 'Wizard', 'Pirate']);
   const [selectedProfessions, setSelectedProfessions] = useState<string[]>([]);
   const [selectedActiveSkills, setSelectedActiveSkills] = useState<string[]>([]);
   const [selectedPassiveSkills, setSelectedPassiveSkills] = useState<string[]>([]);
