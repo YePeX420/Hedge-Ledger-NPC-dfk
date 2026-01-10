@@ -9126,6 +9126,12 @@ async function startAdminWebServer() {
       };
       const getClassName = (id) => CLASS_NAMES[parseInt(id)] || `Class${id}`;
       
+      // Profession ID to name mapping
+      const PROFESSION_NAMES = {
+        0: 'mining', 2: 'gardening', 4: 'fishing', 6: 'foraging'
+      };
+      const getProfessionName = (id) => PROFESSION_NAMES[parseInt(id)] || `profession${id}`;
+      
       // Hero ID ranges determine realm
       const CV_ID_MIN = BigInt("1000000000000");
       const CV_ID_MAX = BigInt("2000000000000");
@@ -9157,6 +9163,7 @@ async function startAdminWebServer() {
         
         const mainClass = getClassName(hero.mainClass ?? hero.mainClassStr);
         const subClass = getClassName(hero.subClass ?? hero.subClassStr);
+        const professionName = getProfessionName(hero.profession ?? 0);
         const rarity = hero.rarity ?? 0;
         const level = hero.level ?? 1;
         const generation = hero.generation ?? 0;
@@ -9177,7 +9184,7 @@ async function startAdminWebServer() {
           realm,
           main_class: mainClass,
           sub_class: subClass,
-          profession: hero.profession ?? 0,
+          profession: professionName,
           rarity,
           level,
           generation,
@@ -9193,18 +9200,25 @@ async function startAdminWebServer() {
       console.log(`[Sniper] After filtering: ${heroes.length} eligible heroes`);
       
       // Now filter/select heroes for pairing
-      // Prioritize heroes matching target classes, plus cheapest overall
-      const targetClassHeroes = heroes.filter(h => classArray.includes(h.main_class));
+      // Prioritize heroes matching target classes AND/OR target professions
+      const targetClassHeroes = classArray.length > 0 
+        ? heroes.filter(h => classArray.includes(h.main_class))
+        : [];
+      const targetProfessionHeroes = professionArray.length > 0
+        ? heroes.filter(h => professionArray.includes(h.profession))
+        : [];
+      
       console.log(`[Sniper] Found ${targetClassHeroes.length} heroes matching target classes`);
+      console.log(`[Sniper] Found ${targetProfessionHeroes.length} heroes matching target professions`);
       
       // Sort all by price and take cheapest for pairing pool
       heroes.sort((a, b) => a.price_native - b.price_native);
       const cheapestHeroes = heroes.slice(0, 200);
       
-      // Combine target class heroes + cheapest, deduplicate
+      // Combine target class heroes + target profession heroes + cheapest, deduplicate
       const seenIds = new Set();
       const combinedHeroes = [];
-      for (const h of [...targetClassHeroes, ...cheapestHeroes]) {
+      for (const h of [...targetClassHeroes, ...targetProfessionHeroes, ...cheapestHeroes]) {
         if (!seenIds.has(h.hero_id)) {
           combinedHeroes.push(h);
           seenIds.add(h.hero_id);
@@ -9256,21 +9270,24 @@ async function startAdminWebServer() {
       }
 
       // Generate candidate pairs from all heroes
-      // Strategy: Generate pairs where at least one hero is a target class hero
-      // This ensures we find the best pairs for summoning the target class
+      // Strategy: Generate pairs where at least one hero is a target class/profession hero
+      // This ensures we find the best pairs for summoning the target class/profession
       const candidatePairs = [];
       
-      // Track which heroes are target class heroes
+      // Track which heroes match target criteria
       const targetClassSet = new Set(classArray.map(c => c.toLowerCase()));
+      const targetProfessionSet = new Set(professionArray.map(p => p.toLowerCase()));
       const isTargetClass = (h) => targetClassSet.has((h.main_class || '').toLowerCase());
+      const isTargetProfession = (h) => targetProfessionSet.has((h.profession || '').toLowerCase());
+      const isTargetHero = (h) => isTargetClass(h) || isTargetProfession(h);
       
       for (const realm of Object.keys(byRealm)) {
         const realmHeroes = byRealm[realm];
         if (realmHeroes.length < 2) continue;
         
-        // Separate target class heroes from others
-        const targetHeroes = realmHeroes.filter(isTargetClass);
-        const otherHeroes = realmHeroes.filter(h => !isTargetClass(h));
+        // Separate target class/profession heroes from others
+        const targetHeroes = realmHeroes.filter(isTargetHero);
+        const otherHeroes = realmHeroes.filter(h => !isTargetHero(h));
         
         // Sort others by price and limit to 100 cheapest
         otherHeroes.sort((a, b) => a.price_native - b.price_native);
@@ -9308,13 +9325,13 @@ async function startAdminWebServer() {
         }
       }
 
-      // Prioritize pairs containing target class heroes when selecting pairs to score
-      // This ensures we score pairs that are most likely to produce the target class
+      // Prioritize pairs containing target class/profession heroes when selecting pairs to score
+      // This ensures we score pairs that are most likely to produce the target class/profession
       const pairsWithTarget = candidatePairs.filter(p => 
-        isTargetClass(p.hero1) || isTargetClass(p.hero2)
+        isTargetHero(p.hero1) || isTargetHero(p.hero2)
       );
       const pairsWithoutTarget = candidatePairs.filter(p => 
-        !isTargetClass(p.hero1) && !isTargetClass(p.hero2)
+        !isTargetHero(p.hero1) && !isTargetHero(p.hero2)
       );
       
       // Sort each group by cost
