@@ -133,9 +133,9 @@ export default function SummonSniper() {
 
   const sniperMutation = useMutation({
     mutationFn: async () => {
-      // For dark summons, force minSummons to 0 (heroes must have 0 summons remaining)
-      const effectiveMinSummons = summonType === "dark" ? 0 : (parseInt(sniperMinSummons) || 0);
-      const effectiveMaxSummons = summonType === "dark" ? 0 : undefined;
+      // For dark summons, any summons remaining is fine (more = higher rarity chance)
+      const effectiveMinSummons = parseInt(sniperMinSummons) || 0;
+      const effectiveMaxSummons = undefined;  // No max restriction
       
       const response = await apiRequest("POST", "/api/admin/sniper/search", {
         targetClasses: selectedClasses,
@@ -324,7 +324,7 @@ export default function SummonSniper() {
             <p className="text-xs text-muted-foreground">
               {summonType === "regular" 
                 ? "Standard summoning with full token cost. Heroes must have summons remaining."
-                : "Dark summoning burns both heroes (1/4 cost). Heroes must have exactly 0 summons remaining."}
+                : "Dark summoning burns both heroes (1/4 cost). More summons = higher rarity chance."}
             </p>
           </div>
 
@@ -465,7 +465,7 @@ export default function SummonSniper() {
               </Label>
               {summonType === "dark" ? (
                 <div className="h-9 px-3 py-2 bg-muted rounded-md text-sm text-muted-foreground flex items-center">
-                  0 (Dark Summon requires 0)
+                  Any (more summons = higher rarity chance)
                 </div>
               ) : (
                 <Input
@@ -638,7 +638,7 @@ export default function SummonSniper() {
                               </div>
                             ) : (
                               <div className="space-y-1">
-                                <div className="font-medium">Hero 1</div>
+                                <div className="font-medium">Hero 1 ({pair.hero1.id})</div>
                                 <div className={getRarityColor(pair.hero1.rarity)}>
                                   {getRarityName(pair.hero1.rarity)} {pair.hero1.mainClass}
                                 </div>
@@ -661,7 +661,7 @@ export default function SummonSniper() {
 
                             <div className="space-y-1">
                               <div className="font-medium">
-                                {sniperResult.userHero ? 'Tavern Match' : 'Hero 2'}
+                                {sniperResult.userHero ? `Tavern Match (${pair.hero2.id})` : `Hero 2 (${pair.hero2.id})`}
                               </div>
                               <div className={getRarityColor(pair.hero2.rarity)}>
                                 {getRarityName(pair.hero2.rarity)} {pair.hero2.mainClass}

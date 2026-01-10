@@ -9060,7 +9060,7 @@ async function startAdminWebServer() {
         targetPassiveSkills = [],
         realms = ['cv', 'sd'],
         minSummonsRemaining = 0,
-        maxSummonsRemaining = undefined,  // For dark summon (must be 0)
+        maxSummonsRemaining = undefined,  // Optional filter for max summons remaining
         minRarity = 0,
         maxGeneration = 10,
         minLevel = 1,
@@ -9143,6 +9143,21 @@ async function startAdminWebServer() {
         // Dark summon costs 1/4 of regular summon
         if (useDarkSummon) cost = cost / 4;
         return cost;
+      }
+      
+      // TTS (Trait Score) calculation: sum of tier indices for active1, active2, passive1, passive2
+      // Skill value ranges map to tiers: 0-15=Basic(0), 16-23=Advanced(1), 24-27=Elite(2), 28-31=Transcendent(3)
+      function getSkillTier(skillValue) {
+        if (skillValue == null) return 0;
+        const val = parseInt(skillValue);
+        if (val >= 28) return 3; // Transcendent
+        if (val >= 24) return 2; // Elite
+        if (val >= 16) return 1; // Advanced
+        return 0; // Basic (0-15)
+      }
+      
+      function calculateTTS(active1, active2, passive1, passive2) {
+        return getSkillTier(active1) + getSkillTier(active2) + getSkillTier(passive1) + getSkillTier(passive2);
       }
 
       // Fetch heroes from LIVE DFK API (not stale database)
@@ -9228,7 +9243,7 @@ async function startAdminWebServer() {
         
         // Apply filters
         if (summonsRemaining < minSummonsRemaining) continue;
-        // For dark summon, heroes must have exactly 0 summons remaining
+        // Optional max summons filter (not used for dark summon)
         if (maxSummonsRemaining !== undefined && summonsRemaining > maxSummonsRemaining) continue;
         if (rarity < minRarity) continue;
         if (generation > maxGeneration) continue;
@@ -9322,13 +9337,8 @@ async function startAdminWebServer() {
           const userProfession = getProfessionName(heroData.profession ?? 0);
           const userSummonsRemaining = (heroData.maxSummons ?? 0) - (heroData.summons ?? 0);
           
-          // Check if user's hero meets summon requirements
-          if (isDarkSummon && userSummonsRemaining !== 0) {
-            return res.status(400).json({ 
-              ok: false, 
-              error: `Dark summon requires heroes with 0 summons remaining. Your hero has ${userSummonsRemaining} summons.` 
-            });
-          }
+          // Dark summon can use any hero with summons remaining
+          // More summons available = higher rarity chance
           
           userHero = {
             hero_id: String(myHeroId),
@@ -12247,11 +12257,11 @@ async function startAdminWebServer() {
     console.log('✅ Vite dev server configured');
   } catch (err) {
     console.log(`❌ Failed to setup Vite: ${err.message}`);
-    console.log('Falling back to static file serving from dist/public/');
+    console.log('Falling back to static file serving from static-build/');
 
-    // Serve built React app from dist/public
-    const distPath = path.resolve(import.meta.dirname, 'dist', 'public');
-    if (fs.existsSync(distPath)) {
+    // Serve built React app from static-build (not gitignored, persists across restarts)
+    const distPath = path.resolve(import.meta.dirname, 'static-build');
+    if (fs.existsSync(distPath) && fs.existsSync(path.resolve(distPath, 'index.html'))) {
       app.use(express.static(distPath));
       // SPA fallback - serve index.html for all non-API routes
       app.use((req, res, next) => {
@@ -12265,10 +12275,10 @@ async function startAdminWebServer() {
         }
         res.sendFile(path.resolve(distPath, 'index.html'));
       });
-      console.log('✅ Serving React app from dist/public/');
+      console.log('✅ Serving React app from static-build/');
     } else {
       console.log(
-        '⚠️ dist/public not found - run "npx vite build" to build the client'
+        '⚠️ static-build not found - run "npx vite build --outDir static-build" to build the client'
       );
     }
   }

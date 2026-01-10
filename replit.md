@@ -23,7 +23,7 @@ The project is built with a Node.js backend using Discord.js for bot functionali
       - **Pair for My Hero**: Finds best tavern hero to pair with user's owned hero (fetches hero from blockchain by ID)
     - **Summon Types**:
       - **Regular**: Full summoning cost (6 + 2×summons + 10×generation), includes tear costs
-      - **Dark Summon**: 1/4 cost of regular, requires heroes with exactly 0 summons remaining, no tears needed
+      - **Dark Summon**: 1/4 cost of regular, no tears needed. More remaining summons = higher rarity chance (no 0-summons restriction)
     - **Joint Probability Calculation**: Correctly multiplies individual trait probabilities (P(class) × P(profession) × P(subclass)) for accurate multi-trait targeting
     - **Hybrid Gene Fetching**: Fetches heroes from live DFK API, gets statGenes/visualGenes on-demand via GraphQL API for top candidate pairs
     - **Efficiency Ranking**: Pairs ranked by probability per USD spent (targetProbability / totalCostUSD)
@@ -124,6 +124,10 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Payment Automation**: Blockchain monitoring for JEWEL payment verification.
 *   **Wallet Tracking**: Daily snapshots of key token balances.
 *   **Environment-Aware Indexers**: Indexers auto-start only in production, requiring manual trigger in development.
+*   **Frontend Build Process**: Due to Replit file sync behavior, frontend builds use a two-step process:
+    1. Build to /tmp: `npx vite build --outDir /tmp/vite-build`
+    2. Copy to workspace: `cp -r /tmp/vite-build/* static-build/`
+    3. The server serves static files from `static-build/` (not dist/public which is gitignored)
 
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2 authentication.
