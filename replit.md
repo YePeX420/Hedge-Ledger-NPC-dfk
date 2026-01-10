@@ -17,6 +17,13 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Command System**: Implements core commands for garden optimization and portfolio analysis.
 *   **Hero Systems**: Includes Hero Genetics decoding, Breeding Charts, and Summoning Probability Calculator.
 *   **Tavern Bargain Finder**: Scans the marketplace for optimal hero pairs for summoning.
+*   **Summon Sniper**: Finds optimal hero pairs from the tavern marketplace for breeding specific traits. Features:
+    - **Joint Probability Calculation**: Correctly multiplies individual trait probabilities (P(class) × P(profession) × P(subclass)) for accurate multi-trait targeting
+    - **Hybrid Gene Fetching**: Queries tavern_heroes for basic filters, fetches statGenes/visualGenes on-demand via GraphQL API for top 50 candidate pairs
+    - **Efficiency Ranking**: Pairs ranked by probability per token spent (targetProbability / totalCost)
+    - Filters: target class, profession, subclass, realm (cv/sd), max price, min summons remaining
+    - Admin API: GET /api/admin/sniper/filters, POST /api/admin/sniper/search
+    - UI: "Summon Sniper" tab in Summoning Calculator page
 *   **Player User Model System**: Classifies players for personalized responses and smurf detection.
 *   **Smurf Detection & League Signup System**: Manages competitive leagues with multi-account and power snapshot features.
 *   **Challenge/Achievement System**: A gamified progression system with an ETL subsystem for metric extraction and progress computation across various categories (e.g., Hero Progression, Economy, Professions). This includes a Tier Calibration Panel for data-driven threshold tuning and ETL schedulers for automatic updates.

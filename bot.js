@@ -8938,6 +8938,304 @@ async function startAdminWebServer() {
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
+
+  // ============================================================================
+  // SUMMON SNIPER - Find optimal hero pairs from tavern
+  // ============================================================================
+
+  // GET /api/admin/sniper/filters - Get available filter options
+  app.get("/api/admin/sniper/filters", isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      
+      // Get distinct values from tavern_heroes
+      const [classesResult, professionsResult, realmsResult, priceRangeResult] = await Promise.all([
+        rawPg`SELECT DISTINCT main_class FROM tavern_heroes WHERE main_class IS NOT NULL ORDER BY main_class`,
+        rawPg`SELECT DISTINCT profession FROM tavern_heroes WHERE profession IS NOT NULL ORDER BY profession`,
+        rawPg`SELECT DISTINCT realm FROM tavern_heroes ORDER BY realm`,
+        rawPg`SELECT MIN(price_native) as min_price, MAX(price_native) as max_price FROM tavern_heroes WHERE price_native > 0`
+      ]);
+
+      const classes = classesResult.map(r => r.main_class);
+      const professions = professionsResult.map(r => r.profession);
+      const realms = realmsResult.map(r => r.realm);
+      const priceRange = priceRangeResult[0] || { min_price: 0, max_price: 10000 };
+
+      res.json({
+        ok: true,
+        filters: {
+          classes,
+          professions,
+          realms,
+          priceRange: {
+            min: parseFloat(priceRange.min_price) || 0,
+            max: parseFloat(priceRange.max_price) || 10000
+          },
+          rarities: [
+            { id: 0, name: 'Common' },
+            { id: 1, name: 'Uncommon' },
+            { id: 2, name: 'Rare' },
+            { id: 3, name: 'Legendary' },
+            { id: 4, name: 'Mythic' }
+          ]
+        }
+      });
+    } catch (error) {
+      console.error('[Sniper] Filters error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/sniper/search - Find optimal hero pairs
+  app.post("/api/admin/sniper/search", isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { getHeroById } = await import('./onchain-data.js');
+      
+      const {
+        targetClass,
+        targetSubClass,
+        targetProfession,
+        realms = ['cv', 'sd'],
+        maxPricePerHero = 1000,
+        minSummonsRemaining = 1,
+        maxGeneration = 10,
+        limit = 20
+      } = req.body;
+
+      if (!targetClass && !targetProfession) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: 'At least targetClass or targetProfession is required' 
+        });
+      }
+
+      console.log('[Sniper] Search request:', { 
+        targetClass, targetSubClass, targetProfession, 
+        realms, maxPricePerHero, minSummonsRemaining 
+      });
+
+      // Validate realm filter - only allow known realms
+      const validRealms = ['cv', 'sd'];
+      const filteredRealms = Array.isArray(realms) 
+        ? realms.filter(r => validRealms.includes(r))
+        : validRealms;
+
+      // Fetch heroes from tavern - genes will be fetched on demand from GraphQL
+      const heroes = await rawPg`
+        SELECT 
+          hero_id, normalized_id, realm, main_class, sub_class, profession,
+          rarity, level, generation, summons, max_summons,
+          price_native, native_token, trait_score, combat_power
+        FROM tavern_heroes
+        WHERE price_native <= ${maxPricePerHero}
+          AND (max_summons - summons) >= ${minSummonsRemaining}
+          AND generation <= ${maxGeneration}
+          AND realm = ANY(${filteredRealms})
+        ORDER BY price_native ASC
+        LIMIT 200
+      `;
+      console.log(`[Sniper] Found ${heroes.length} eligible heroes`);
+
+      if (heroes.length < 2) {
+        return res.json({
+          ok: true,
+          message: 'Not enough eligible heroes found',
+          pairs: [],
+          totalHeroes: heroes.length
+        });
+      }
+
+      // Group heroes by realm for same-realm pairing (cheaper summoning)
+      const byRealm = { cv: [], sd: [] };
+      for (const h of heroes) {
+        if (byRealm[h.realm]) byRealm[h.realm].push(h);
+      }
+
+      // Generate candidate pairs (top cheapest pairs by total cost)
+      const candidatePairs = [];
+      for (const realm of Object.keys(byRealm)) {
+        const realmHeroes = byRealm[realm];
+        if (realmHeroes.length < 2) continue;
+        
+        // Take top 30 cheapest heroes per realm for pairing
+        for (let i = 0; i < Math.min(realmHeroes.length, 30); i++) {
+          for (let j = i + 1; j < Math.min(realmHeroes.length, 30); j++) {
+            const hero1 = realmHeroes[i];
+            const hero2 = realmHeroes[j];
+            const totalCost = parseFloat(hero1.price_native) + parseFloat(hero2.price_native);
+            candidatePairs.push({ hero1, hero2, realm, totalCost });
+          }
+        }
+      }
+
+      // Sort by total cost and take top N for scoring
+      candidatePairs.sort((a, b) => a.totalCost - b.totalCost);
+      const pairsToScore = candidatePairs.slice(0, 50); // Score top 50 cheapest pairs
+      
+      console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs, scoring top ${pairsToScore.length}`);
+
+      // Cache for hero genes fetched from GraphQL
+      const geneCache = new Map();
+      
+      async function getHeroGenes(heroId) {
+        if (geneCache.has(heroId)) {
+          return geneCache.get(heroId);
+        }
+        
+        try {
+          const heroData = await getHeroById(heroId);
+          if (heroData && heroData.statGenes) {
+            const genes = {
+              statGenes: heroData.statGenes,
+              visualGenes: heroData.visualGenes
+            };
+            geneCache.set(heroId, genes);
+            return genes;
+          }
+        } catch (err) {
+          console.log(`[Sniper] Failed to fetch genes for ${heroId}:`, err.message);
+        }
+        return null;
+      }
+
+      // Score pairs with actual probability calculations
+      const pairs = [];
+      
+      for (const { hero1, hero2, realm, totalCost } of pairsToScore) {
+        try {
+          // Get genes from cache or fetch from GraphQL
+          const genes1 = await getHeroGenes(hero1.hero_id);
+          const genes2 = await getHeroGenes(hero2.hero_id);
+          
+          if (!genes1 || !genes2) continue;
+          
+          // Decode genetics
+          const genetics1 = decodeHeroGenes(genes1);
+          const genetics2 = decodeHeroGenes(genes2);
+
+          const rarity1 = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero1.rarity] || 'Common';
+          const rarity2 = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero2.rarity] || 'Common';
+
+          const probs = calculateSummoningProbabilities(genetics1, genetics2, rarity1, rarity2);
+
+          // Calculate JOINT probability of all target traits
+          // P(A AND B) = P(A) * P(B) for independent events
+          let jointProbability = 1.0;
+          let hasAnyTarget = false;
+          
+          if (targetClass && probs.class) {
+            const classProb = Object.entries(probs.class).find(([name]) => 
+              name.toLowerCase() === targetClass.toLowerCase()
+            );
+            if (classProb) {
+              jointProbability *= parseFloat(classProb[1]) / 100;
+              hasAnyTarget = true;
+            } else {
+              jointProbability = 0;
+            }
+          }
+
+          if (targetProfession && probs.profession) {
+            const profProb = Object.entries(probs.profession).find(([name]) => 
+              name.toLowerCase().includes(targetProfession.toLowerCase())
+            );
+            if (profProb) {
+              jointProbability *= parseFloat(profProb[1]) / 100;
+              hasAnyTarget = true;
+            } else {
+              jointProbability = 0;
+            }
+          }
+
+          if (targetSubClass && probs.subClass) {
+            const subProb = Object.entries(probs.subClass).find(([name]) => 
+              name.toLowerCase() === targetSubClass.toLowerCase()
+            );
+            if (subProb) {
+              jointProbability *= parseFloat(subProb[1]) / 100;
+              hasAnyTarget = true;
+            } else {
+              jointProbability = 0;
+            }
+          }
+
+          const targetProb = hasAnyTarget ? jointProbability * 100 : 0;
+          if (targetProb === 0) continue;
+
+          const efficiency = targetProb / totalCost;
+
+          pairs.push({
+            hero1: {
+              id: hero1.hero_id,
+              normalizedId: hero1.normalized_id,
+              mainClass: hero1.main_class,
+              subClass: hero1.sub_class,
+              profession: hero1.profession,
+              rarity: hero1.rarity,
+              level: hero1.level,
+              generation: hero1.generation,
+              summonsRemaining: hero1.max_summons - hero1.summons,
+              price: parseFloat(hero1.price_native),
+              token: hero1.native_token
+            },
+            hero2: {
+              id: hero2.hero_id,
+              normalizedId: hero2.normalized_id,
+              mainClass: hero2.main_class,
+              subClass: hero2.sub_class,
+              profession: hero2.profession,
+              rarity: hero2.rarity,
+              level: hero2.level,
+              generation: hero2.generation,
+              summonsRemaining: hero2.max_summons - hero2.summons,
+              price: parseFloat(hero2.price_native),
+              token: hero2.native_token
+            },
+            realm,
+            targetProbability: targetProb,
+            totalCost,
+            efficiency,
+            probabilities: {
+              class: probs.class,
+              subClass: probs.subClass,
+              profession: probs.profession
+            }
+          });
+
+        } catch (err) {
+          console.log(`[Sniper] Skipping pair due to error:`, err.message);
+        }
+      }
+
+      console.log(`[Sniper] Scored ${pairs.length} pairs with non-zero probability`);
+
+      // Sort by efficiency (probability per token)
+      pairs.sort((a, b) => b.efficiency - a.efficiency);
+
+      // Return top results
+      const topPairs = pairs.slice(0, limit);
+
+      res.json({
+        ok: true,
+        pairs: topPairs,
+        totalHeroes: heroes.length,
+        totalPairsScored: pairs.length,
+        searchParams: {
+          targetClass,
+          targetSubClass,
+          targetProfession,
+          realms,
+          maxPricePerHero,
+          minSummonsRemaining
+        }
+      });
+
+    } catch (error) {
+      console.error('[Sniper] Search error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
   
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
   app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {

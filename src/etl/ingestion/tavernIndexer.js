@@ -178,6 +178,16 @@ async function ensureTablesExist() {
       }
     }
     
+    // Add statGenes and visualGenes columns for Summon Sniper feature
+    try {
+      await db.execute(sql`ALTER TABLE tavern_heroes ADD COLUMN IF NOT EXISTS stat_genes TEXT`);
+      await db.execute(sql`ALTER TABLE tavern_heroes ADD COLUMN IF NOT EXISTS visual_genes TEXT`);
+    } catch (err) {
+      if (!err.message?.includes('already exists') && !err.message?.includes('duplicate column')) {
+        console.log('[TavernIndexer] Note: stat_genes/visual_genes column check:', err.message);
+      }
+    }
+    
     // Now create indexes that depend on combat_power
     await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_combat_power_idx ON tavern_heroes(combat_power DESC)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_tournament_ready_idx ON tavern_heroes(rarity, combat_power DESC, price_native ASC)`);
@@ -355,6 +365,10 @@ function normalizeHero(apiHero, batchId) {
   const stoneTier = stoneInfo?.tier || null;
   const stoneType = stoneInfo?.type || null;
   
+  // Capture raw gene strings for summoning calculations
+  const statGenes = apiHero.statGenes || null;
+  const visualGenes = apiHero.visualGenes || null;
+  
   return {
     heroId,
     normalizedId,
@@ -387,6 +401,8 @@ function normalizeHero(apiHero, batchId) {
     summonStone,
     stoneTier,
     stoneType,
+    statGenes,
+    visualGenes,
     salePrice: priceField || '0',
     priceNative,
     nativeToken,
@@ -407,12 +423,14 @@ async function upsertHeroes(heroes) {
           rarity, level, generation, summons, max_summons,
           strength, agility, intelligence, wisdom, luck, dexterity, vitality, endurance, hp, mp, stamina,
           active1, active2, passive1, passive2, trait_score, combat_power, summon_stone, stone_tier, stone_type,
+          stat_genes, visual_genes,
           sale_price, price_native, native_token, batch_id, indexed_at
         ) VALUES (
           ${hero.heroId}, ${hero.normalizedId}, ${hero.realm}, ${hero.mainClass}, ${hero.subClass}, ${hero.profession},
           ${hero.rarity}, ${hero.level}, ${hero.generation}, ${hero.summons}, ${hero.maxSummons},
           ${hero.strength}, ${hero.agility}, ${hero.intelligence}, ${hero.wisdom}, ${hero.luck}, ${hero.dexterity}, ${hero.vitality}, ${hero.endurance}, ${hero.hp}, ${hero.mp}, ${hero.stamina},
           ${hero.active1}, ${hero.active2}, ${hero.passive1}, ${hero.passive2}, ${hero.traitScore}, ${hero.combatPower}, ${hero.summonStone}, ${hero.stoneTier}, ${hero.stoneType},
+          ${hero.statGenes}, ${hero.visualGenes},
           ${hero.salePrice}, ${hero.priceNative}, ${hero.nativeToken}, ${hero.batchId}, NOW()
         )
         ON CONFLICT (hero_id) DO UPDATE SET
@@ -446,6 +464,8 @@ async function upsertHeroes(heroes) {
           summon_stone = EXCLUDED.summon_stone,
           stone_tier = EXCLUDED.stone_tier,
           stone_type = EXCLUDED.stone_type,
+          stat_genes = EXCLUDED.stat_genes,
+          visual_genes = EXCLUDED.visual_genes,
           sale_price = EXCLUDED.sale_price,
           price_native = EXCLUDED.price_native,
           native_token = EXCLUDED.native_token,
