@@ -32,6 +32,7 @@ import AdminGardeningQuest from "@/pages/admin/gardening-quest";
 import AdminGardeningCalc from "@/pages/admin/gardening-calc";
 import AdminBattleReady from "@/pages/admin/battle-ready";
 import AdminSummoningCalculator from "@/pages/admin/summoning-calculator";
+import AdminSummonSniper from "@/pages/admin/summon-sniper";
 import AdminPVEDropRates from "@/pages/admin/pve-droprates";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
 import CombatClasses from "@/pages/admin/combat-classes";
@@ -253,6 +254,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminSummoningCalculator />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/summon-sniper">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminSummonSniper />
           </ProtectedAdminPage>
         )}
       </Route>
