@@ -5,12 +5,13 @@
  * can produce a higher tier gene through mutation.
  * 
  * Tier structure:
- * - Basic (B1-B16): Gene IDs 0-15
+ * - Basic (B1-B12): Gene IDs 0-11
  * - Advanced (A1-A6): Gene IDs 16-21
  * - Elite (E1-E3): Gene IDs 24-26
  * - Exalted/Transcendent (X1): Gene ID 28
  * 
- * Mutation happens when two different genes combine and match a mutation pair.
+ * Mutation happens when two CONSECUTIVE basic genes combine.
+ * Pattern: 0+1, 2+3, 4+5, 6+7, 8+9, 10+11
  * The mutation probability follows the same genetics weights as trait inheritance.
  */
 
@@ -18,52 +19,53 @@
  * Hair Style Mutation Map
  * Maps pairs of hair style gene IDs to their mutation result
  * 
- * Basic → Advanced:
- * B1(0) + B3(2) → A1(16)   Battle Hawk + Pixel → Gruff
- * B2(1) + B4(3) → A2(17)   Wolf Mane + Mohawk → Rogue Locs
- * B5(4) + B7(6) → A3(18)   Blade Runner + Tornado → Frizz Out
- * B6(5) + B8(7) → A4(19)   Wild Flow + Curly → Bedhead
- * B9(8) + B11(10) → A5(20) Side Part + Center Part → Fire Swept
- * B10(9) + B12(11) → A6(21) Bob + Fade → Electro
+ * Basic → Advanced (consecutive pairs):
+ * B1(0) + B2(1) → A1(16)   Battle Hawk + Wolf Mane → Gruff
+ * B3(2) + B4(3) → A2(17)   Enchanter + Wild Growth → Rogue Locs
+ * B5(4) + B6(5) → A3(18)   Pixel + Sunrise → Stone Cold
+ * B7(6) + B8(7) → A4(19)   Bouffant + Agleam Spike → Zinra's Tail
+ * B9(8) + B10(9) → A5(20)  Wayfinder + Faded Topknot → Hedgehog
+ * B11(10) + B12(11) → A6(21) Side Shave + Ronin → Delinquent
  * 
  * Advanced → Elite:
- * A1(16) + A2(17) → E1(24) Gruff + Rogue Locs → Royalty
- * A3(18) + A4(19) → E2(25) Frizz Out + Bedhead → Crown
- * A5(20) + A6(21) → E3(26) Fire Swept + Electro → Celestial
+ * A1(16) + A2(17) → E1(24) Gruff + Rogue Locs → Skegg
+ * A3(18) + A4(19) → E2(25) Stone Cold + Zinra's Tail → Shinobi
+ * A5(20) + A6(21) → E3(26) Hedgehog + Delinquent → Sonjo
  * 
  * Elite → Exalted:
- * E1(24) + E2(25) → X1(28) Royalty + Crown → Divine
- * E2(25) + E3(26) → X1(28) Crown + Celestial → Divine
+ * E1(24) + E2(25) → X1(28) Skegg + Shinobi → Perfect Form
+ * E2(25) + E3(26) → X1(28) Shinobi + Sonjo → Perfect Form
  */
 export const HAIR_STYLE_MUTATION_MAP = {
-  // Basic → Advanced
-  '0+2': 16, '2+0': 16,     // Battle Hawk + Pixel → Gruff
-  '1+3': 17, '3+1': 17,     // Wolf Mane + Mohawk → Rogue Locs
-  '4+6': 18, '6+4': 18,     // Blade Runner + Tornado → Frizz Out
-  '5+7': 19, '7+5': 19,     // Wild Flow + Curly → Bedhead
-  '8+10': 20, '10+8': 20,   // Side Part + Center Part → Fire Swept
-  '9+11': 21, '11+9': 21,   // Bob + Fade → Electro
+  // Basic → Advanced (consecutive pairs)
+  '0+1': 16, '1+0': 16,     // Battle Hawk + Wolf Mane → Gruff
+  '2+3': 17, '3+2': 17,     // Enchanter + Wild Growth → Rogue Locs
+  '4+5': 18, '5+4': 18,     // Pixel + Sunrise → Stone Cold
+  '6+7': 19, '7+6': 19,     // Bouffant + Agleam Spike → Zinra's Tail
+  '8+9': 20, '9+8': 20,     // Wayfinder + Faded Topknot → Hedgehog
+  '10+11': 21, '11+10': 21, // Side Shave + Ronin → Delinquent
   // Advanced → Elite
-  '16+17': 24, '17+16': 24, // Gruff + Rogue Locs → Royalty
-  '18+19': 25, '19+18': 25, // Frizz Out + Bedhead → Crown
-  '20+21': 26, '21+20': 26, // Fire Swept + Electro → Celestial
+  '16+17': 24, '17+16': 24, // Gruff + Rogue Locs → Skegg
+  '18+19': 25, '19+18': 25, // Stone Cold + Zinra's Tail → Shinobi
+  '20+21': 26, '21+20': 26, // Hedgehog + Delinquent → Sonjo
   // Elite → Exalted
-  '24+25': 28, '25+24': 28, // Royalty + Crown → Divine
-  '25+26': 28, '26+25': 28, // Crown + Celestial → Divine
+  '24+25': 28, '25+24': 28, // Skegg + Shinobi → Perfect Form
+  '25+26': 28, '26+25': 28, // Shinobi + Sonjo → Perfect Form
 };
 
 /**
  * Hair Color Mutation Map
- * Basic (0-15) → Advanced (16-21) → Elite (24-26) → Exalted (28)
+ * Basic (0-11) → Advanced (16-21) → Elite (24-26) → Exalted (28)
+ * Consecutive pairs: 0+1, 2+3, 4+5, 6+7, 8+9, 10+11
  */
 export const HAIR_COLOR_MUTATION_MAP = {
-  // Basic → Advanced
-  '0+2': 16, '2+0': 16,     // Pair 1 → A1
-  '1+3': 17, '3+1': 17,     // Pair 2 → A2
-  '4+6': 18, '6+4': 18,     // Pair 3 → A3
-  '5+7': 19, '7+5': 19,     // Pair 4 → A4
-  '8+10': 20, '10+8': 20,   // Pair 5 → A5
-  '9+11': 21, '11+9': 21,   // Pair 6 → A6
+  // Basic → Advanced (consecutive pairs)
+  '0+1': 16, '1+0': 16,
+  '2+3': 17, '3+2': 17,
+  '4+5': 18, '5+4': 18,
+  '6+7': 19, '7+6': 19,
+  '8+9': 20, '9+8': 20,
+  '10+11': 21, '11+10': 21,
   // Advanced → Elite
   '16+17': 24, '17+16': 24,
   '18+19': 25, '19+18': 25,
@@ -75,16 +77,16 @@ export const HAIR_COLOR_MUTATION_MAP = {
 
 /**
  * Head Appendage Mutation Map
- * Follows same tier structure as other visual traits
+ * Consecutive pairs: 0+1, 2+3, 4+5, 6+7, 8+9, 10+11
  */
 export const HEAD_APPENDAGE_MUTATION_MAP = {
-  // Basic → Advanced
-  '0+2': 16, '2+0': 16,
-  '1+3': 17, '3+1': 17,
-  '4+6': 18, '6+4': 18,
-  '5+7': 19, '7+5': 19,
-  '8+10': 20, '10+8': 20,
-  '9+11': 21, '11+9': 21,
+  // Basic → Advanced (consecutive pairs)
+  '0+1': 16, '1+0': 16,
+  '2+3': 17, '3+2': 17,
+  '4+5': 18, '5+4': 18,
+  '6+7': 19, '7+6': 19,
+  '8+9': 20, '9+8': 20,
+  '10+11': 21, '11+10': 21,
   // Advanced → Elite
   '16+17': 24, '17+16': 24,
   '18+19': 25, '19+18': 25,
@@ -96,15 +98,16 @@ export const HEAD_APPENDAGE_MUTATION_MAP = {
 
 /**
  * Back Appendage Mutation Map
+ * Consecutive pairs: 0+1, 2+3, 4+5, 6+7, 8+9, 10+11
  */
 export const BACK_APPENDAGE_MUTATION_MAP = {
-  // Basic → Advanced
-  '0+2': 16, '2+0': 16,
-  '1+3': 17, '3+1': 17,
-  '4+6': 18, '6+4': 18,
-  '5+7': 19, '7+5': 19,
-  '8+10': 20, '10+8': 20,
-  '9+11': 21, '11+9': 21,
+  // Basic → Advanced (consecutive pairs)
+  '0+1': 16, '1+0': 16,
+  '2+3': 17, '3+2': 17,
+  '4+5': 18, '5+4': 18,
+  '6+7': 19, '7+6': 19,
+  '8+9': 20, '9+8': 20,
+  '10+11': 21, '11+10': 21,
   // Advanced → Elite
   '16+17': 24, '17+16': 24,
   '18+19': 25, '19+18': 25,
@@ -116,15 +119,16 @@ export const BACK_APPENDAGE_MUTATION_MAP = {
 
 /**
  * Appendage Color Mutation Map
+ * Consecutive pairs: 0+1, 2+3, 4+5, 6+7, 8+9, 10+11
  */
 export const APPENDAGE_COLOR_MUTATION_MAP = {
-  // Basic → Advanced
-  '0+2': 16, '2+0': 16,
-  '1+3': 17, '3+1': 17,
-  '4+6': 18, '6+4': 18,
-  '5+7': 19, '7+5': 19,
-  '8+10': 20, '10+8': 20,
-  '9+11': 21, '11+9': 21,
+  // Basic → Advanced (consecutive pairs)
+  '0+1': 16, '1+0': 16,
+  '2+3': 17, '3+2': 17,
+  '4+5': 18, '5+4': 18,
+  '6+7': 19, '7+6': 19,
+  '8+9': 20, '9+8': 20,
+  '10+11': 21, '11+10': 21,
   // Advanced → Elite
   '16+17': 24, '17+16': 24,
   '18+19': 25, '19+18': 25,
@@ -136,15 +140,16 @@ export const APPENDAGE_COLOR_MUTATION_MAP = {
 
 /**
  * Eye Color Mutation Map
+ * Consecutive pairs: 0+1, 2+3, 4+5, 6+7, 8+9, 10+11
  */
 export const EYE_COLOR_MUTATION_MAP = {
-  // Basic → Advanced
-  '0+2': 16, '2+0': 16,
-  '1+3': 17, '3+1': 17,
-  '4+6': 18, '6+4': 18,
-  '5+7': 19, '7+5': 19,
-  '8+10': 20, '10+8': 20,
-  '9+11': 21, '11+9': 21,
+  // Basic → Advanced (consecutive pairs)
+  '0+1': 16, '1+0': 16,
+  '2+3': 17, '3+2': 17,
+  '4+5': 18, '5+4': 18,
+  '6+7': 19, '7+6': 19,
+  '8+9': 20, '9+8': 20,
+  '10+11': 21, '11+10': 21,
   // Advanced → Elite
   '16+17': 24, '17+16': 24,
   '18+19': 25, '19+18': 25,
@@ -156,15 +161,16 @@ export const EYE_COLOR_MUTATION_MAP = {
 
 /**
  * Skin Color Mutation Map
+ * Consecutive pairs: 0+1, 2+3, 4+5, 6+7, 8+9, 10+11
  */
 export const SKIN_COLOR_MUTATION_MAP = {
-  // Basic → Advanced
-  '0+2': 16, '2+0': 16,
-  '1+3': 17, '3+1': 17,
-  '4+6': 18, '6+4': 18,
-  '5+7': 19, '7+5': 19,
-  '8+10': 20, '10+8': 20,
-  '9+11': 21, '11+9': 21,
+  // Basic → Advanced (consecutive pairs)
+  '0+1': 16, '1+0': 16,
+  '2+3': 17, '3+2': 17,
+  '4+5': 18, '5+4': 18,
+  '6+7': 19, '7+6': 19,
+  '8+9': 20, '9+8': 20,
+  '10+11': 21, '11+10': 21,
   // Advanced → Elite
   '16+17': 24, '17+16': 24,
   '18+19': 25, '19+18': 25,
