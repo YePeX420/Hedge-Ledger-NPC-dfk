@@ -937,6 +937,19 @@ export async function getTavernStats() {
   return Array.isArray(result) ? result : (result.rows || []);
 }
 
+export async function resetTavernIndex() {
+  await ensureTablesExist();
+  
+  console.log('[TavernIndexer] Resetting tavern index - clearing all heroes...');
+  
+  await db.execute(sql`DELETE FROM tavern_heroes`);
+  await db.execute(sql`DELETE FROM tavern_indexer_progress`);
+  
+  console.log('[TavernIndexer] Reset complete - tavern heroes cleared');
+  
+  return { ok: true, message: 'Tavern index reset' };
+}
+
 // ============================================================================
 // EXPORTS
 // ============================================================================

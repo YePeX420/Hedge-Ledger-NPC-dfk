@@ -513,6 +513,19 @@ export default function BattleReadyAdmin() {
     },
   });
 
+  const resetTavernIndexMutation = useMutation({
+    mutationFn: async () => apiRequest('POST', '/api/admin/tavern-indexer/reset', {}),
+    onSuccess: () => {
+      toast({ title: "Reset complete", description: "Tavern data cleared. Starting fresh index with gene data..." });
+      refetchTavernIndexer();
+      refetchTavern();
+      triggerTavernIndexMutation.mutate();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const { data: patternsData, isLoading: patternsLoading, refetch: refetchPatterns } = useQuery<{ ok: boolean; patterns: TournamentPattern[]; totalLabels: number }>({
     queryKey: ['/api/admin/tournament/patterns'],
   });
@@ -1763,6 +1776,20 @@ export default function BattleReadyAdmin() {
                 )}
               </div>
               <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => resetTavernIndexMutation.mutate()}
+                  disabled={tavernIndexerData?.status?.isRunning || resetTavernIndexMutation.isPending || triggerTavernIndexMutation.isPending}
+                  data-testid="button-reset-tavern-indexer"
+                >
+                  {resetTavernIndexMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4 mr-1" />
+                  )}
+                  Reset
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"

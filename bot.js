@@ -8738,6 +8738,29 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/tavern-indexer/reset - Reset all indexed heroes
+  app.post("/api/admin/tavern-indexer/reset", isAdmin, async (req, res) => {
+    try {
+      const { resetTavernIndex, getIndexerStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      // Block reset during active indexing
+      const currentStatus = getIndexerStatus();
+      if (currentStatus.isRunning) {
+        return res.status(409).json({ ok: false, error: 'Cannot reset while indexer is running' });
+      }
+      
+      console.log('[Tavern Indexer] Reset requested - clearing all heroes');
+      
+      const result = await resetTavernIndex();
+      const status = getIndexerStatus();
+      
+      res.json({ ok: true, message: 'Tavern index reset', status });
+    } catch (error) {
+      console.error('[Tavern Indexer] Reset error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // POST /api/admin/tavern-indexer/start - Start auto-run scheduler
   app.post("/api/admin/tavern-indexer/start", isAdmin, async (req, res) => {
     try {
