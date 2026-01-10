@@ -214,7 +214,11 @@ export default function SummonSniper() {
                 <Badge
                   key={cls}
                   variant={selectedClasses.includes(cls) ? "default" : "outline"}
-                  className="cursor-pointer text-sm py-1 px-3"
+                  className={`cursor-pointer text-sm py-1 px-3 transition-colors ${
+                    selectedClasses.includes(cls) 
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                      : "hover:bg-muted"
+                  }`}
                   onClick={() => toggleClass(cls)}
                   data-testid={`badge-class-${cls.toLowerCase()}`}
                 >
@@ -236,7 +240,11 @@ export default function SummonSniper() {
                 <Badge
                   key={prof}
                   variant={selectedProfessions.includes(prof) ? "default" : "outline"}
-                  className="cursor-pointer text-sm py-1 px-3"
+                  className={`cursor-pointer text-sm py-1 px-3 transition-colors ${
+                    selectedProfessions.includes(prof) 
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                      : "hover:bg-muted"
+                  }`}
                   onClick={() => toggleProfession(prof)}
                   data-testid={`badge-profession-${prof.toLowerCase()}`}
                 >
@@ -258,7 +266,11 @@ export default function SummonSniper() {
                 <Badge
                   key={skill}
                   variant={selectedActiveSkills.includes(skill) ? "default" : "outline"}
-                  className="cursor-pointer text-sm py-1 px-3"
+                  className={`cursor-pointer text-sm py-1 px-3 transition-colors ${
+                    selectedActiveSkills.includes(skill) 
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                      : "hover:bg-muted"
+                  }`}
                   onClick={() => toggleActiveSkill(skill)}
                   data-testid={`badge-active-${skill.toLowerCase().replace(/\s+/g, '-')}`}
                 >
@@ -280,7 +292,11 @@ export default function SummonSniper() {
                 <Badge
                   key={skill}
                   variant={selectedPassiveSkills.includes(skill) ? "default" : "outline"}
-                  className="cursor-pointer text-sm py-1 px-3"
+                  className={`cursor-pointer text-sm py-1 px-3 transition-colors ${
+                    selectedPassiveSkills.includes(skill) 
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                      : "hover:bg-muted"
+                  }`}
                   onClick={() => togglePassiveSkill(skill)}
                   data-testid={`badge-passive-${skill.toLowerCase().replace(/\s+/g, '-')}`}
                 >
@@ -302,7 +318,11 @@ export default function SummonSniper() {
                 <Badge
                   key={r.id}
                   variant={minRarity === r.id ? "default" : "outline"}
-                  className="cursor-pointer text-sm py-1 px-3"
+                  className={`cursor-pointer text-sm py-1 px-3 transition-colors ${
+                    minRarity === r.id 
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                      : "hover:bg-muted"
+                  }`}
                   onClick={() => setMinRarity(r.id)}
                   data-testid={`badge-rarity-${r.name.toLowerCase()}`}
                 >
@@ -360,7 +380,11 @@ export default function SummonSniper() {
             <div className="flex gap-2">
               <Badge
                 variant={sniperRealms.includes("cv") ? "default" : "outline"}
-                className="cursor-pointer"
+                className={`cursor-pointer transition-colors ${
+                  sniperRealms.includes("cv") 
+                    ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                    : "hover:bg-muted"
+                }`}
                 onClick={() => toggleRealm("cv")}
                 data-testid="badge-realm-cv"
               >
@@ -368,7 +392,11 @@ export default function SummonSniper() {
               </Badge>
               <Badge
                 variant={sniperRealms.includes("sd") ? "default" : "outline"}
-                className="cursor-pointer"
+                className={`cursor-pointer transition-colors ${
+                  sniperRealms.includes("sd") 
+                    ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                    : "hover:bg-muted"
+                }`}
                 onClick={() => toggleRealm("sd")}
                 data-testid="badge-realm-sd"
               >
