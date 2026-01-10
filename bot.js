@@ -9242,6 +9242,16 @@ async function startAdminWebServer() {
         const maxSummons = hero.maxSummons ?? 0;
         const summonsRemaining = maxSummons - summons;
         
+        // Calculate TTS from hero's ability gene values
+        // Each ability slot can only have ONE dominant skill - use max tier of dominant gene
+        // Gene values: 0-15=Basic(0), 16-23=Advanced(1), 24-27=Elite(2), 28-31=Transcendent(3)
+        const heroTTS = calculateTTS(
+          hero.active1,
+          hero.active2,
+          hero.passive1,
+          hero.passive2
+        );
+        
         // Apply filters
         if (summonsRemaining < minSummonsRemaining) continue;
         // Optional max summons filter (not used for dark summon)
@@ -9249,7 +9259,8 @@ async function startAdminWebServer() {
         if (rarity < minRarity) continue;
         if (generation > maxGeneration) continue;
         if (level < safeMinLevel) continue;
-        // TTS filter would require calculation - skip for now as not commonly used
+        // TTS filter - only include heroes at or below max TTS
+        if (safeTTS !== null && heroTTS > safeTTS) continue;
         
         heroes.push({
           hero_id: String(heroId),
@@ -9265,7 +9276,7 @@ async function startAdminWebServer() {
           max_summons: maxSummons,
           price_native: priceInToken,
           native_token: nativeToken,
-          trait_score: 0,
+          trait_score: heroTTS,
           combat_power: 0
         });
       }
