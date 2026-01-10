@@ -278,8 +278,8 @@ const RARITY_COLORS: Record<number, string> = {
   0: "bg-gray-500",
   1: "bg-green-500",
   2: "bg-blue-500",
-  3: "bg-purple-500",
-  4: "bg-orange-500"
+  3: "bg-orange-500",
+  4: "bg-purple-500"
 };
 
 const RARITY_NAMES = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"];
