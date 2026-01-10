@@ -43,6 +43,18 @@ interface SniperHero {
   realm: string;
 }
 
+interface TTSData {
+  distribution: { [tts: string]: number };
+  cumulative: { [tts: string]: number };
+  expected: number;
+  slotTiers?: {
+    active1: { [tier: string]: number };
+    active2: { [tier: string]: number };
+    passive1: { [tier: string]: number };
+    passive2: { [tier: string]: number };
+  };
+}
+
 interface SniperPair {
   hero1: SniperHero;
   hero2: SniperHero;
@@ -67,8 +79,11 @@ interface SniperPair {
     subClass: ProbabilityMap;
     profession: ProbabilityMap;
     active1?: ProbabilityMap;
+    active2?: ProbabilityMap;
     passive1?: ProbabilityMap;
+    passive2?: ProbabilityMap;
   };
+  tts?: TTSData;
 }
 
 interface UserHeroInfo {
@@ -783,6 +798,37 @@ export default function SummonSniper() {
                               <span>{prob}%</span>
                             </div>
                           ))}
+                        </div>
+                      )}
+                      
+                      {pair.tts && (
+                        <div className="mt-3 pt-3 border-t">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-sm font-medium">Offspring TTS Probability</span>
+                            <Badge variant="secondary" className="text-xs">
+                              Expected: {pair.tts.expected?.toFixed(1) ?? '0'}
+                            </Badge>
+                          </div>
+                          <div className="grid grid-cols-4 gap-1 text-xs">
+                            {Object.entries(pair.tts.distribution || {})
+                              .filter(([_, prob]) => prob > 0.5)
+                              .sort((a, b) => parseInt(b[0]) - parseInt(a[0]))
+                              .slice(0, 8)
+                              .map(([tts, prob]) => (
+                                <div key={tts} className="flex justify-between bg-muted/50 rounded px-2 py-1">
+                                  <span className="text-muted-foreground">TTS {tts}:</span>
+                                  <span className={parseInt(tts) >= 4 ? 'text-green-400' : ''}>{(prob as number).toFixed(1)}%</span>
+                                </div>
+                              ))}
+                          </div>
+                          {pair.tts.cumulative && (
+                            <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                              <span>TTS≥2: <span className="text-foreground">{pair.tts.cumulative["2"]?.toFixed(1) ?? '0'}%</span></span>
+                              <span>TTS≥4: <span className="text-green-400">{pair.tts.cumulative["4"]?.toFixed(1) ?? '0'}%</span></span>
+                              <span>TTS≥6: <span className="text-yellow-400">{pair.tts.cumulative["6"]?.toFixed(1) ?? '0'}%</span></span>
+                              <span>TTS≥8: <span className="text-orange-400">{pair.tts.cumulative["8"]?.toFixed(1) ?? '0'}%</span></span>
+                            </div>
+                          )}
                         </div>
                       )}
                       

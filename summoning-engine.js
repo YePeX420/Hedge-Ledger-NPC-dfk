@@ -569,6 +569,167 @@ export function formatProbabilities(probabilities, maxItems = 10) {
 }
 
 /**
+ * Skill Tier Mapping for TTS (Trait Tier Score) Calculation
+ * Basic = 0 points, Advanced = 1 point, Elite = 2 points, Transcendent/Exalted = 3 points
+ * Max TTS = 12 (all 4 ability slots at Transcendent)
+ * 
+ * Mappings from gene-decoder.js ACTIVE_GENES and PASSIVE_GENES arrays
+ */
+const SKILL_TIERS = {
+  // Active Skills - Basic (Tier 0) - indices 0-7 in ACTIVE_GENES
+  'Poisoned Blade': 0,  // 0
+  'Blinding Winds': 0,  // 1
+  'Heal': 0,            // 2
+  'Cleanse': 0,         // 3
+  'Iron Skin': 0,       // 4
+  'Speed': 0,           // 5
+  'Critical Aim': 0,    // 6
+  'Deathmark': 0,       // 7
+  
+  // Active Skills - Advanced (Tier 1) - indices 8-11 in ACTIVE_GENES
+  'Exhaust': 1,          // 8
+  'Daze': 1,             // 9
+  'Explosion': 1,        // 10
+  'Hardened Shield': 1,  // 11
+  
+  // Active Skills - Elite (Tier 2) - indices 12-13 in ACTIVE_GENES
+  'Stun': 2,             // 12
+  'Second Wind': 2,      // 13
+  
+  // Active Skills - Exalted/Transcendent (Tier 3) - index 14 in ACTIVE_GENES
+  'Resurrection': 3,     // 14
+  
+  // Passive Skills - Basic (Tier 0) - indices 0-7 in PASSIVE_GENES
+  'Duelist': 0,       // 0
+  'Clutch': 0,        // 1
+  'Foresight': 0,     // 2
+  'Headstrong': 0,    // 3
+  'Clear Vision': 0,  // 4
+  'Fearless': 0,      // 5
+  'Chatterbox': 0,    // 6
+  'Stalwart': 0,      // 7
+  
+  // Passive Skills - Advanced (Tier 1) - indices 8-11 in PASSIVE_GENES
+  'Leadership': 1,    // 8
+  'Efficient': 1,     // 9
+  'Menacing': 1,      // 10 - Enemies deal -5% damage (max 15%)
+  'Intimidation': 1,  // Mutation result - same as Menacing, different name in mutation map
+  'Toxic': 1,         // 11
+  
+  // Passive Skills - Elite (Tier 2) - indices 12-13 in PASSIVE_GENES
+  'Giant Slayer': 2,  // 12
+  'Last Stand': 2,    // 13
+  
+  // Passive Skills - Exalted/Transcendent (Tier 3) - index 14 in PASSIVE_GENES
+  'Second Life': 3,   // 14
+  
+  // Fallback for Unknown skills
+  'Unknown15': 0
+};
+
+/**
+ * Get skill tier for a skill name
+ * @param {string} skillName - The skill name
+ * @returns {number} Tier value (0-3)
+ */
+export function getSkillTierByName(skillName) {
+  const tier = SKILL_TIERS[skillName];
+  if (tier === undefined && skillName && !skillName.startsWith('Unknown')) {
+    console.warn(`[TTS] Unknown skill name: "${skillName}" - defaulting to tier 0`);
+  }
+  return tier ?? 0;
+}
+
+/**
+ * Calculate probability distribution of achieving different TTS values
+ * for an offspring from two parent heroes.
+ * 
+ * Each skill slot produces ONE outcome. TTS is the sum of tiers across all 4 slots.
+ * 
+ * @param {Object} probs - Summoning probabilities from calculateSummoningProbabilities
+ *                         Must have active1, active2, passive1, passive2 probability maps
+ * @returns {Object} { ttsProbabilities: {[tts]: probability}, expectedTTS: number }
+ */
+export function calculateTTSProbabilities(probs) {
+  // Convert skill probabilities to tier probabilities for each slot
+  function getSlotTierProbs(skillProbs) {
+    const tierProbs = { 0: 0, 1: 0, 2: 0, 3: 0 };
+    if (!skillProbs || typeof skillProbs !== 'object') {
+      tierProbs[0] = 100; // Default to Basic
+      return tierProbs;
+    }
+    for (const [skill, prob] of Object.entries(skillProbs)) {
+      const tier = getSkillTierByName(skill);
+      tierProbs[tier] = (tierProbs[tier] || 0) + prob;
+    }
+    // Normalize to 100%
+    const total = Object.values(tierProbs).reduce((a, b) => a + b, 0);
+    if (total > 0 && Math.abs(total - 100) > 0.1) {
+      for (const tier of Object.keys(tierProbs)) {
+        tierProbs[tier] = (tierProbs[tier] / total) * 100;
+      }
+    }
+    return tierProbs;
+  }
+  
+  const active1Tiers = getSlotTierProbs(probs.active1);
+  const active2Tiers = getSlotTierProbs(probs.active2);
+  const passive1Tiers = getSlotTierProbs(probs.passive1);
+  const passive2Tiers = getSlotTierProbs(probs.passive2);
+  
+  // Calculate TTS distribution by iterating all tier combinations
+  const ttsProbabilities = {};
+  for (let t1 = 0; t1 <= 3; t1++) {
+    for (let t2 = 0; t2 <= 3; t2++) {
+      for (let t3 = 0; t3 <= 3; t3++) {
+        for (let t4 = 0; t4 <= 3; t4++) {
+          const tts = t1 + t2 + t3 + t4;
+          const prob = (active1Tiers[t1] / 100) * (active2Tiers[t2] / 100) * 
+                       (passive1Tiers[t3] / 100) * (passive2Tiers[t4] / 100) * 100;
+          if (prob > 0) {
+            ttsProbabilities[tts] = (ttsProbabilities[tts] || 0) + prob;
+          }
+        }
+      }
+    }
+  }
+  
+  // Calculate expected TTS
+  let expectedTTS = 0;
+  for (const [tts, prob] of Object.entries(ttsProbabilities)) {
+    expectedTTS += parseInt(tts) * prob / 100;
+  }
+  
+  // Calculate probability of achieving TTS >= targetTTS (cumulative)
+  const cumulativeProbs = {};
+  for (let target = 0; target <= 12; target++) {
+    let cumProb = 0;
+    for (const [tts, prob] of Object.entries(ttsProbabilities)) {
+      if (parseInt(tts) >= target) {
+        cumProb += prob;
+      }
+    }
+    cumulativeProbs[target] = Math.round(cumProb * 100) / 100;
+  }
+  
+  return {
+    ttsProbabilities: Object.fromEntries(
+      Object.entries(ttsProbabilities)
+        .map(([tts, prob]) => [tts, Math.round(prob * 100) / 100])
+        .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+    ),
+    cumulativeProbs,
+    expectedTTS: Math.round(expectedTTS * 100) / 100,
+    slotTierProbs: {
+      active1: active1Tiers,
+      active2: active2Tiers,
+      passive1: passive1Tiers,
+      passive2: passive2Tiers
+    }
+  };
+}
+
+/**
  * Create a summary of the most interesting summoning outcomes
  * @param {Object} allProbabilities - Full probability results
  * @returns {Object} Summary object with key highlights

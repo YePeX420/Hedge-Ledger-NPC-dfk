@@ -21,7 +21,7 @@ import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './pool-cache.js';
 import { generateOptimizationMessages } from './report-formatter.js';
-import { calculateSummoningProbabilities } from './summoning-engine.js';
+import { calculateSummoningProbabilities, calculateTTSProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
 import { decodeHeroGenes } from './hero-genetics.js';
 import { getCrystalPrice, getJewelPrice } from './price-feed.js';
@@ -9690,6 +9690,9 @@ async function startAdminWebServer() {
 
           const targetProb = hasAnyTarget ? jointProbability * 100 : 0;
           if (targetProb === 0) continue;
+          
+          // Calculate offspring TTS probabilities
+          const ttsData = calculateTTSProbabilities(probs);
 
           // Calculate USD total cost (including bridging fees)
           const tokenPriceUsd = realm === 'cv' ? crystalPriceUsd : jewelPriceUsd;
@@ -9751,7 +9754,15 @@ async function startAdminWebServer() {
               subClass: probs.subClass,
               profession: probs.profession,
               active1: probs.active1 || {},
-              passive1: probs.passive1 || {}
+              active2: probs.active2 || {},
+              passive1: probs.passive1 || {},
+              passive2: probs.passive2 || {}
+            },
+            tts: {
+              distribution: ttsData.ttsProbabilities,
+              cumulative: ttsData.cumulativeProbs,
+              expected: ttsData.expectedTTS,
+              slotTiers: ttsData.slotTierProbs
             }
           });
 
