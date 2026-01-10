@@ -39,6 +39,7 @@ interface SniperHero {
   summonsRemaining: number;
   price: number;
   token: string;
+  realm: string;
 }
 
 interface SniperPair {
@@ -628,6 +629,9 @@ export default function SummonSniper() {
                               <div className="space-y-1 opacity-60">
                                 <div className="font-medium flex items-center gap-1">
                                   <User className="h-3 w-3" /> Your Hero
+                                  <Badge variant="outline" className="text-[10px] px-1 py-0">
+                                    {pair.hero1.realm === 'cv' ? 'CV' : 'SD'}
+                                  </Badge>
                                 </div>
                                 <div className={getRarityColor(pair.hero1.rarity)}>
                                   {getRarityName(pair.hero1.rarity)} {pair.hero1.mainClass}
@@ -638,7 +642,12 @@ export default function SummonSniper() {
                               </div>
                             ) : (
                               <div className="space-y-1">
-                                <div className="font-medium">Hero 1 ({pair.hero1.id})</div>
+                                <div className="font-medium flex items-center gap-1">
+                                  Hero 1 ({pair.hero1.id})
+                                  <Badge variant="outline" className="text-[10px] px-1 py-0">
+                                    {pair.hero1.realm === 'cv' ? 'CV' : 'SD'}
+                                  </Badge>
+                                </div>
                                 <div className={getRarityColor(pair.hero1.rarity)}>
                                   {getRarityName(pair.hero1.rarity)} {pair.hero1.mainClass}
                                 </div>
@@ -660,8 +669,11 @@ export default function SummonSniper() {
                             )}
 
                             <div className="space-y-1">
-                              <div className="font-medium">
+                              <div className="font-medium flex items-center gap-1">
                                 {sniperResult.userHero ? `Tavern Match (${pair.hero2.id})` : `Hero 2 (${pair.hero2.id})`}
+                                <Badge variant="outline" className="text-[10px] px-1 py-0">
+                                  {pair.hero2.realm === 'cv' ? 'CV' : 'SD'}
+                                </Badge>
                               </div>
                               <div className={getRarityColor(pair.hero2.rarity)}>
                                 {getRarityName(pair.hero2.rarity)} {pair.hero2.mainClass}

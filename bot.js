@@ -9690,7 +9690,8 @@ async function startAdminWebServer() {
               summonsRemaining: hero1.max_summons - hero1.summons,
               summons: hero1.summons,
               price: parseFloat(hero1.price_native),
-              token: hero1.native_token
+              token: hero1.native_token,
+              realm: hero1.realm
             },
             hero2: {
               id: hero2.hero_id,
@@ -9704,7 +9705,8 @@ async function startAdminWebServer() {
               summonsRemaining: hero2.max_summons - hero2.summons,
               summons: hero2.summons,
               price: parseFloat(hero2.price_native),
-              token: hero2.native_token
+              token: hero2.native_token,
+              realm: hero2.realm
             },
             realm,
             targetProbability: targetProb,
