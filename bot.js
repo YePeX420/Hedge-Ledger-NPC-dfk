@@ -24,6 +24,8 @@ import { generateOptimizationMessages } from './report-formatter.js';
 import { calculateSummoningProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
 import { decodeHeroGenes } from './hero-genetics.js';
+import { getCrystalPrice, getJewelPrice } from './price-feed.js';
+import { buildFocusedPriceGraph } from './garden-analytics.js';
 import { db } from './server/db.js';
 import { jewelBalances, players, depositRequests, queryCosts, interactionSessions, interactionMessages, gardenOptimizations, walletSnapshots, adminSessions, userSettings, leagueSeasons, leagueSignups, seasonTierLocks, walletClusters, walletLinks, smurfIncidents, walletPowerSnapshots, poolSwapEvents, poolRewardEvents, combatKeywords, combatClassMeta, combatSkills, combatSources, syncRuns, syncRunItems } from './shared/schema.ts';
 import { runPreSeasonChecks, runInSeasonChecks, getOrCreateCluster, linkWalletToCluster } from './smurf-detection-service.js';
@@ -8988,12 +8990,36 @@ async function startAdminWebServer() {
       const levelRange = levelRangeResult[0] || { min_level: 1, max_level: 100 };
       const ttsRange = ttsRangeResult[0] || { min_tts: 0, max_tts: 100 };
 
+      // Static ability lists (active and passive skills from DFK)
+      const activeSkills = [
+        // Basic
+        'Poisoned Blade', 'Blinding Winds', 'Heal', 'Cleanse', 'Iron Skin', 'Speed', 'Critical Aim', 'Deathmark',
+        // Advanced
+        'Exhaust', 'Daze', 'Explosion', 'Hardened Shield',
+        // Elite
+        'Stun', 'Second Wind',
+        // Transcendant
+        'Resurrection'
+      ];
+      const passiveSkills = [
+        // Basic
+        'Duelist', 'Clutch', 'Foresight', 'Headstrong', 'Clear Vision', 'Fearless', 'Chatterbox', 'Stalwart',
+        // Advanced
+        'Leadership', 'Efficient', 'Intimidation', 'Toxic',
+        // Elite
+        'Giant Slayer', 'Last Stand',
+        // Transcendant
+        'Second Life'
+      ];
+
       res.json({
         ok: true,
         filters: {
           classes,
           professions,
           realms,
+          activeSkills,
+          passiveSkills,
           priceRange: {
             min: parseFloat(priceRange.min_price) || 0,
             max: parseFloat(priceRange.max_price) || 10000
@@ -9030,6 +9056,8 @@ async function startAdminWebServer() {
       const {
         targetClasses = [],
         targetProfessions = [],
+        targetActiveSkills = [],
+        targetPassiveSkills = [],
         realms = ['cv', 'sd'],
         minSummonsRemaining = 0,
         minRarity = 0,
@@ -9043,12 +9071,29 @@ async function startAdminWebServer() {
       // Normalize inputs to arrays
       const classArray = Array.isArray(targetClasses) ? targetClasses : (targetClasses ? [targetClasses] : []);
       const professionArray = Array.isArray(targetProfessions) ? targetProfessions : (targetProfessions ? [targetProfessions] : []);
+      const activeSkillArray = Array.isArray(targetActiveSkills) ? targetActiveSkills : (targetActiveSkills ? [targetActiveSkills] : []);
+      const passiveSkillArray = Array.isArray(targetPassiveSkills) ? targetPassiveSkills : (targetPassiveSkills ? [targetPassiveSkills] : []);
 
-      if (classArray.length === 0 && professionArray.length === 0) {
+      if (classArray.length === 0 && professionArray.length === 0 && activeSkillArray.length === 0 && passiveSkillArray.length === 0) {
         return res.status(400).json({ 
           ok: false, 
-          error: 'At least one class or profession must be selected' 
+          error: 'At least one class, profession, or ability must be selected' 
         });
+      }
+
+      // Fetch current USD prices for tokens using fast focused price graph
+      let crystalPriceUsd = 0;
+      let jewelPriceUsd = 0;
+      const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb'.toLowerCase();
+      const JEWEL_ADDRESS = '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260'.toLowerCase();
+      try {
+        // Use focused price graph (fast, ~1-2 seconds) instead of full graph (~2-5 min)
+        const priceGraph = await buildFocusedPriceGraph([]);
+        crystalPriceUsd = priceGraph.get(CRYSTAL_ADDRESS) || 0;
+        jewelPriceUsd = priceGraph.get(JEWEL_ADDRESS) || 0;
+        console.log(`[Sniper] Token prices: CRYSTAL=$${crystalPriceUsd.toFixed(4)}, JEWEL=$${jewelPriceUsd.toFixed(4)}`);
+      } catch (priceErr) {
+        console.warn('[Sniper] Could not fetch token prices (proceeding without USD):', priceErr?.message);
       }
 
       console.log('[Sniper] Search request:', { 
@@ -9434,10 +9479,53 @@ async function startAdminWebServer() {
             }
           }
 
+          // Multiple target active skills: OR logic (sum their probabilities, cap at 1)
+          if (activeSkillArray.length > 0 && probs.active1) {
+            let activeSum = 0;
+            for (const targetSkill of activeSkillArray) {
+              const skillProb = Object.entries(probs.active1).find(([name]) => 
+                name.toLowerCase() === targetSkill.toLowerCase()
+              );
+              if (skillProb) {
+                activeSum += parseFloat(skillProb[1]) / 100;
+              }
+            }
+            if (activeSum > 0) {
+              jointProbability *= Math.min(activeSum, 1.0);
+              hasAnyTarget = true;
+            } else {
+              jointProbability = 0;
+            }
+          }
+
+          // Multiple target passive skills: OR logic (sum their probabilities, cap at 1)
+          if (passiveSkillArray.length > 0 && probs.passive1) {
+            let passiveSum = 0;
+            for (const targetSkill of passiveSkillArray) {
+              const skillProb = Object.entries(probs.passive1).find(([name]) => 
+                name.toLowerCase() === targetSkill.toLowerCase()
+              );
+              if (skillProb) {
+                passiveSum += parseFloat(skillProb[1]) / 100;
+              }
+            }
+            if (passiveSum > 0) {
+              jointProbability *= Math.min(passiveSum, 1.0);
+              hasAnyTarget = true;
+            } else {
+              jointProbability = 0;
+            }
+          }
+
           const targetProb = hasAnyTarget ? jointProbability * 100 : 0;
           if (targetProb === 0) continue;
 
-          const efficiency = targetProb / totalCost;
+          // Calculate USD total cost
+          const tokenPriceUsd = realm === 'cv' ? crystalPriceUsd : jewelPriceUsd;
+          const totalCostUsd = totalCost * tokenPriceUsd;
+          
+          // Use USD for efficiency if available, otherwise use native token
+          const efficiency = totalCostUsd > 0 ? targetProb / totalCostUsd : targetProb / totalCost;
 
           pairs.push({
             hero1: {
@@ -9475,14 +9563,19 @@ async function startAdminWebServer() {
               summonTokenCost,
               tearCost: Math.round(tearCost * 100) / 100,
               tearCount,
-              totalCost: Math.round(totalCost * 100) / 100
+              totalCost: Math.round(totalCost * 100) / 100,
+              totalCostUsd: Math.round(totalCostUsd * 100) / 100,
+              tokenPriceUsd: Math.round(tokenPriceUsd * 10000) / 10000
             },
             totalCost: Math.round(totalCost * 100) / 100,
+            totalCostUsd: Math.round(totalCostUsd * 100) / 100,
             efficiency,
             probabilities: {
               class: probs.class,
               subClass: probs.subClass,
-              profession: probs.profession
+              profession: probs.profession,
+              active1: probs.active1 || {},
+              passive1: probs.passive1 || {}
             }
           });
 
@@ -9504,9 +9597,15 @@ async function startAdminWebServer() {
         pairs: topPairs,
         totalHeroes: heroes.length,
         totalPairsScored: pairs.length,
+        tokenPrices: {
+          CRYSTAL: crystalPriceUsd,
+          JEWEL: jewelPriceUsd
+        },
         searchParams: {
           targetClasses: classArray,
           targetProfessions: professionArray,
+          targetActiveSkills: activeSkillArray,
+          targetPassiveSkills: passiveSkillArray,
           realms: filteredRealms,
           minSummonsRemaining,
           minRarity

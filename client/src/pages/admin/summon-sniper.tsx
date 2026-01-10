@@ -15,6 +15,8 @@ interface ProbabilityMap {
 interface SniperFilters {
   classes: string[];
   professions: string[];
+  activeSkills: string[];
+  passiveSkills: string[];
   realms: string[];
   priceRange: { min: number; max: number };
   rarities: { id: number; name: string }[];
@@ -42,6 +44,7 @@ interface SniperPair {
   realm: string;
   targetProbability: number;
   totalCost: number;
+  totalCostUsd: number;
   efficiency: number;
   costs?: {
     purchaseCost: number;
@@ -49,11 +52,15 @@ interface SniperPair {
     tearCost: number;
     tearCount: number;
     totalCost: number;
+    totalCostUsd: number;
+    tokenPriceUsd: number;
   };
   probabilities: {
     class: ProbabilityMap;
     subClass: ProbabilityMap;
     profession: ProbabilityMap;
+    active1?: ProbabilityMap;
+    passive1?: ProbabilityMap;
   };
 }
 
@@ -62,9 +69,15 @@ interface SniperResult {
   pairs: SniperPair[];
   totalHeroes: number;
   totalPairsScored: number;
+  tokenPrices?: {
+    CRYSTAL: number;
+    JEWEL: number;
+  };
   searchParams: {
     targetClasses: string[];
     targetProfessions: string[];
+    targetActiveSkills: string[];
+    targetPassiveSkills: string[];
     realms: string[];
     minSummonsRemaining: number;
   };
@@ -81,6 +94,8 @@ const RARITIES = [
 export default function SummonSniper() {
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [selectedProfessions, setSelectedProfessions] = useState<string[]>([]);
+  const [selectedActiveSkills, setSelectedActiveSkills] = useState<string[]>([]);
+  const [selectedPassiveSkills, setSelectedPassiveSkills] = useState<string[]>([]);
   const [sniperRealms, setSniperRealms] = useState<string[]>(["cv", "sd"]);
   const [minRarity, setMinRarity] = useState(0);
   const [sniperMinSummons, setSniperMinSummons] = useState("0");
@@ -97,6 +112,8 @@ export default function SummonSniper() {
       const response = await apiRequest("POST", "/api/admin/sniper/search", {
         targetClasses: selectedClasses,
         targetProfessions: selectedProfessions,
+        targetActiveSkills: selectedActiveSkills,
+        targetPassiveSkills: selectedPassiveSkills,
         realms: sniperRealms,
         minRarity,
         minSummonsRemaining: parseInt(sniperMinSummons) || 0,
@@ -114,7 +131,7 @@ export default function SummonSniper() {
   });
 
   const handleSniperSearch = () => {
-    if (selectedClasses.length === 0 && selectedProfessions.length === 0) return;
+    if (selectedClasses.length === 0 && selectedProfessions.length === 0 && selectedActiveSkills.length === 0 && selectedPassiveSkills.length === 0) return;
     sniperMutation.mutate();
   };
 
@@ -131,6 +148,22 @@ export default function SummonSniper() {
       prev.includes(prof) 
         ? prev.filter(p => p !== prof)
         : [...prev, prof]
+    );
+  };
+
+  const toggleActiveSkill = (skill: string) => {
+    setSelectedActiveSkills(prev => 
+      prev.includes(skill) 
+        ? prev.filter(s => s !== skill)
+        : [...prev, skill]
+    );
+  };
+
+  const togglePassiveSkill = (skill: string) => {
+    setSelectedPassiveSkills(prev => 
+      prev.includes(skill) 
+        ? prev.filter(s => s !== skill)
+        : [...prev, skill]
     );
   };
 
@@ -214,6 +247,50 @@ export default function SummonSniper() {
             {selectedProfessions.length > 0 && (
               <p className="text-xs text-muted-foreground">
                 Selected: {selectedProfessions.join(", ")}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <Label>Target Active Skills (optional)</Label>
+            <div className="flex flex-wrap gap-2">
+              {sniperFilters?.filters?.activeSkills?.map(skill => (
+                <Badge
+                  key={skill}
+                  variant={selectedActiveSkills.includes(skill) ? "default" : "outline"}
+                  className="cursor-pointer text-sm py-1 px-3"
+                  onClick={() => toggleActiveSkill(skill)}
+                  data-testid={`badge-active-${skill.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  {skill}
+                </Badge>
+              ))}
+            </div>
+            {selectedActiveSkills.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Selected: {selectedActiveSkills.join(", ")}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <Label>Target Passive Skills (optional)</Label>
+            <div className="flex flex-wrap gap-2">
+              {sniperFilters?.filters?.passiveSkills?.map(skill => (
+                <Badge
+                  key={skill}
+                  variant={selectedPassiveSkills.includes(skill) ? "default" : "outline"}
+                  className="cursor-pointer text-sm py-1 px-3"
+                  onClick={() => togglePassiveSkill(skill)}
+                  data-testid={`badge-passive-${skill.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  {skill}
+                </Badge>
+              ))}
+            </div>
+            {selectedPassiveSkills.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Selected: {selectedPassiveSkills.join(", ")}
               </p>
             )}
           </div>
@@ -332,12 +409,21 @@ export default function SummonSniper() {
               </Badge>
             </CardTitle>
             <div className="text-sm text-muted-foreground space-y-1">
-              <p>Ranked by efficiency (probability per token spent)</p>
+              <p>Ranked by efficiency (probability per USD spent)</p>
+              {sniperResult.tokenPrices && (
+                <p className="text-xs">
+                  Token prices: CRYSTAL ${sniperResult.tokenPrices.CRYSTAL?.toFixed(4) || '0'}, JEWEL ${sniperResult.tokenPrices.JEWEL?.toFixed(4) || '0'}
+                </p>
+              )}
               {sniperResult.searchParams && (
                 <p className="text-xs">
                   Searching for: {sniperResult.searchParams.targetClasses?.length > 0 && `Classes: ${sniperResult.searchParams.targetClasses.join(" OR ")}`}
                   {sniperResult.searchParams.targetClasses?.length > 0 && sniperResult.searchParams.targetProfessions?.length > 0 && " AND "}
                   {sniperResult.searchParams.targetProfessions?.length > 0 && `Professions: ${sniperResult.searchParams.targetProfessions.join(" OR ")}`}
+                  {(sniperResult.searchParams.targetClasses?.length > 0 || sniperResult.searchParams.targetProfessions?.length > 0) && sniperResult.searchParams.targetActiveSkills?.length > 0 && " AND "}
+                  {sniperResult.searchParams.targetActiveSkills?.length > 0 && `Active: ${sniperResult.searchParams.targetActiveSkills.join(" OR ")}`}
+                  {(sniperResult.searchParams.targetClasses?.length > 0 || sniperResult.searchParams.targetProfessions?.length > 0 || sniperResult.searchParams.targetActiveSkills?.length > 0) && sniperResult.searchParams.targetPassiveSkills?.length > 0 && " AND "}
+                  {sniperResult.searchParams.targetPassiveSkills?.length > 0 && `Passive: ${sniperResult.searchParams.targetPassiveSkills.join(" OR ")}`}
                 </p>
               )}
             </div>
@@ -411,17 +497,20 @@ export default function SummonSniper() {
                             {pair.targetProbability.toFixed(1)}% chance
                           </div>
                           <div className="text-sm font-medium">
-                            Total: {pair.totalCost.toFixed(2)} {pair.hero1.token}
+                            Total: ${pair.totalCostUsd?.toFixed(2) || '0.00'} USD
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            ({pair.totalCost.toFixed(2)} {pair.hero1.token})
                           </div>
                           {pair.costs && (
                             <div className="text-xs text-muted-foreground space-y-0.5">
-                              <div>Purchase: {pair.costs.purchaseCost.toFixed(2)}</div>
+                              <div>Purchase: {pair.costs.purchaseCost.toFixed(2)} {pair.hero1.token}</div>
                               <div>Summon: {pair.costs.summonTokenCost} {pair.hero1.token}</div>
-                              <div>Tears: {pair.costs.tearCount} ({pair.costs.tearCost.toFixed(2)})</div>
+                              <div>Tears: {pair.costs.tearCount} ({pair.costs.tearCost.toFixed(2)} {pair.hero1.token})</div>
                             </div>
                           )}
                           <div className="text-xs text-muted-foreground pt-1">
-                            Efficiency: {pair.efficiency.toFixed(4)}
+                            Efficiency: {pair.efficiency.toFixed(4)} %/$
                           </div>
                         </div>
                       </div>
