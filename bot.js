@@ -8972,17 +8972,21 @@ async function startAdminWebServer() {
       const { rawPg } = await import('./server/db.js');
       
       // Get distinct values from tavern_heroes
-      const [classesResult, professionsResult, realmsResult, priceRangeResult] = await Promise.all([
+      const [classesResult, professionsResult, realmsResult, priceRangeResult, levelRangeResult, ttsRangeResult] = await Promise.all([
         rawPg`SELECT DISTINCT main_class FROM tavern_heroes WHERE main_class IS NOT NULL ORDER BY main_class`,
         rawPg`SELECT DISTINCT profession FROM tavern_heroes WHERE profession IS NOT NULL ORDER BY profession`,
         rawPg`SELECT DISTINCT realm FROM tavern_heroes ORDER BY realm`,
-        rawPg`SELECT MIN(price_native) as min_price, MAX(price_native) as max_price FROM tavern_heroes WHERE price_native > 0`
+        rawPg`SELECT MIN(price_native) as min_price, MAX(price_native) as max_price FROM tavern_heroes WHERE price_native > 0`,
+        rawPg`SELECT MIN(level) as min_level, MAX(level) as max_level FROM tavern_heroes`,
+        rawPg`SELECT MIN(trait_score) as min_tts, MAX(trait_score) as max_tts FROM tavern_heroes`
       ]);
 
       const classes = classesResult.map(r => r.main_class);
       const professions = professionsResult.map(r => r.profession);
       const realms = realmsResult.map(r => r.realm);
       const priceRange = priceRangeResult[0] || { min_price: 0, max_price: 10000 };
+      const levelRange = levelRangeResult[0] || { min_level: 1, max_level: 100 };
+      const ttsRange = ttsRangeResult[0] || { min_tts: 0, max_tts: 100 };
 
       res.json({
         ok: true,
@@ -8993,6 +8997,14 @@ async function startAdminWebServer() {
           priceRange: {
             min: parseFloat(priceRange.min_price) || 0,
             max: parseFloat(priceRange.max_price) || 10000
+          },
+          levelRange: {
+            min: parseInt(levelRange.min_level) || 1,
+            max: parseInt(levelRange.max_level) || 100
+          },
+          ttsRange: {
+            min: parseFloat(ttsRange.min_tts) || 0,
+            max: parseFloat(ttsRange.max_tts) || 100
           },
           rarities: [
             { id: 0, name: 'Common' },
@@ -9023,6 +9035,8 @@ async function startAdminWebServer() {
         maxPricePerHero = 1000,
         minSummonsRemaining = 1,
         maxGeneration = 10,
+        minLevel = 1,
+        maxTTS = null,
         limit = 20
       } = req.body;
 
@@ -9035,7 +9049,7 @@ async function startAdminWebServer() {
 
       console.log('[Sniper] Search request:', { 
         targetClass, targetSubClass, targetProfession, 
-        realms, maxPricePerHero, minSummonsRemaining 
+        realms, maxPricePerHero, minSummonsRemaining, minLevel, maxTTS 
       });
 
       // Validate realm filter - only allow known realms
@@ -9045,6 +9059,9 @@ async function startAdminWebServer() {
         : validRealms;
 
       // Fetch heroes from tavern - genes will be fetched on demand from GraphQL
+      const safeTTS = maxTTS !== null ? parseFloat(maxTTS) : null;
+      const safeMinLevel = parseInt(minLevel) || 1;
+      
       const heroes = await rawPg`
         SELECT 
           hero_id, normalized_id, realm, main_class, sub_class, profession,
@@ -9055,6 +9072,8 @@ async function startAdminWebServer() {
           AND (max_summons - summons) >= ${minSummonsRemaining}
           AND generation <= ${maxGeneration}
           AND realm = ANY(${filteredRealms})
+          AND level >= ${safeMinLevel}
+          AND (${safeTTS}::numeric IS NULL OR trait_score <= ${safeTTS})
         ORDER BY price_native ASC
         LIMIT 200
       `;

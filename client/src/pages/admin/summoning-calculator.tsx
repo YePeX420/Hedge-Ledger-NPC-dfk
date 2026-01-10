@@ -566,6 +566,8 @@ export default function SummoningCalculator() {
   const [sniperRealms, setSniperRealms] = useState<string[]>(["cv", "sd"]);
   const [sniperMaxPrice, setSniperMaxPrice] = useState("500");
   const [sniperMinSummons, setSniperMinSummons] = useState("1");
+  const [sniperMinLevel, setSniperMinLevel] = useState("1");
+  const [sniperMaxTTS, setSniperMaxTTS] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
 
   // Fetch sniper filters
@@ -602,6 +604,8 @@ export default function SummoningCalculator() {
         realms: sniperRealms,
         maxPricePerHero: parseFloat(sniperMaxPrice) || 500,
         minSummonsRemaining: parseInt(sniperMinSummons) || 1,
+        minLevel: parseInt(sniperMinLevel) || 1,
+        maxTTS: sniperMaxTTS ? parseFloat(sniperMaxTTS) : null,
         limit: 20
       });
       return response.json();
@@ -1070,6 +1074,30 @@ export default function SummoningCalculator() {
                     onChange={(e) => setSniperMinSummons(e.target.value)}
                     placeholder="1"
                     data-testid="input-min-summons"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="minLevel">Min Level</Label>
+                  <Input
+                    id="minLevel"
+                    type="number"
+                    value={sniperMinLevel}
+                    onChange={(e) => setSniperMinLevel(e.target.value)}
+                    placeholder="1"
+                    data-testid="input-min-level"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="maxTTS">Max TTS (leave empty for any)</Label>
+                  <Input
+                    id="maxTTS"
+                    type="number"
+                    value={sniperMaxTTS}
+                    onChange={(e) => setSniperMaxTTS(e.target.value)}
+                    placeholder="Any"
+                    data-testid="input-max-tts"
                   />
                 </div>
               </div>
