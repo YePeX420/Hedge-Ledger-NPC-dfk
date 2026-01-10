@@ -9090,62 +9090,127 @@ async function startAdminWebServer() {
         return cost;
       }
 
-      // Fetch heroes from tavern
-      // Query 1: Get heroes matching target classes (up to 200)
-      // Query 2: Get cheapest heroes regardless of class (up to 200)
-      // Combine and deduplicate
+      // Fetch heroes from LIVE DFK API (not stale database)
       const safeTTS = maxTTS !== null ? parseFloat(maxTTS) : null;
       const safeMinLevel = parseInt(minLevel) || 1;
       
-      let heroes = [];
+      console.log('[Sniper] Fetching heroes from live DFK API...');
+      const DFK_TAVERN_API = 'https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions';
       
-      // If target classes specified, fetch heroes matching those classes
-      if (classArray.length > 0) {
-        const classHeroes = await rawPg`
-          SELECT 
-            hero_id, normalized_id, realm, main_class, sub_class, profession,
-            rarity, level, generation, summons, max_summons,
-            price_native, native_token, trait_score, combat_power
-          FROM tavern_heroes
-          WHERE (max_summons - summons) >= ${minSummonsRemaining}
-            AND rarity >= ${minRarity}
-            AND generation <= ${maxGeneration}
-            AND realm = ANY(${filteredRealms})
-            AND level >= ${safeMinLevel}
-            AND (${safeTTS}::numeric IS NULL OR trait_score <= ${safeTTS})
-            AND main_class = ANY(${classArray})
-          ORDER BY price_native ASC
-          LIMIT 200
-        `;
-        heroes = [...classHeroes];
-        console.log(`[Sniper] Found ${classHeroes.length} heroes matching target classes`);
+      const apiResponse = await fetch(DFK_TAVERN_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 2000, offset: 0 })
+      }).then(async r => {
+        if (!r.ok) throw new Error(`DFK API error: ${r.status}`);
+        const data = await r.json();
+        console.log('[Sniper] DFK API returned', data?.length || 0, 'heroes');
+        return data;
+      });
+      
+      // Helper to convert wei to token amount
+      const weiToToken = (weiStr) => {
+        if (!weiStr) return 0;
+        const wei = BigInt(weiStr);
+        const whole = wei / BigInt(1e18);
+        const frac = Number(wei % BigInt(1e18)) / 1e18;
+        return Number(whole) + frac;
+      };
+      
+      // Class ID to name mapping (DFK API returns numeric IDs)
+      const CLASS_NAMES = {
+        0: 'Warrior', 1: 'Knight', 2: 'Thief', 3: 'Archer', 4: 'Priest', 5: 'Wizard',
+        6: 'Monk', 7: 'Pirate', 8: 'Berserker', 9: 'Seer', 10: 'Legionnaire', 11: 'Scholar',
+        16: 'Paladin', 17: 'DarkKnight', 18: 'Summoner', 19: 'Ninja', 20: 'Shapeshifter',
+        21: 'Bard', 24: 'Dragoon', 25: 'Sage', 26: 'SpellBow', 28: 'DreadKnight'
+      };
+      const getClassName = (id) => CLASS_NAMES[parseInt(id)] || `Class${id}`;
+      
+      // Hero ID ranges determine realm
+      const CV_ID_MIN = BigInt("1000000000000");
+      const CV_ID_MAX = BigInt("2000000000000");
+      
+      const allApiHeroes = Array.isArray(apiResponse) ? apiResponse : [];
+      
+      // Transform and filter heroes from live API
+      let heroes = [];
+      for (const hero of allApiHeroes) {
+        const heroId = BigInt(hero.id || hero.heroId);
+        const priceField = hero.startingPrice || hero.salePrice || hero.price;
+        const priceInToken = weiToToken(priceField);
+        
+        // Determine realm from hero ID
+        let realm = null;
+        let nativeToken = null;
+        if (heroId >= CV_ID_MIN && heroId < CV_ID_MAX) {
+          realm = 'cv';
+          nativeToken = 'CRYSTAL';
+        } else if (heroId >= CV_ID_MAX) {
+          realm = 'sd';
+          nativeToken = 'JEWEL';
+        } else {
+          continue; // Skip legacy Harmony heroes
+        }
+        
+        // Apply realm filter
+        if (!filteredRealms.includes(realm)) continue;
+        
+        const mainClass = getClassName(hero.mainClass ?? hero.mainClassStr);
+        const subClass = getClassName(hero.subClass ?? hero.subClassStr);
+        const rarity = hero.rarity ?? 0;
+        const level = hero.level ?? 1;
+        const generation = hero.generation ?? 0;
+        const summons = hero.summons ?? 0;
+        const maxSummons = hero.maxSummons ?? 0;
+        const summonsRemaining = maxSummons - summons;
+        
+        // Apply filters
+        if (summonsRemaining < minSummonsRemaining) continue;
+        if (rarity < minRarity) continue;
+        if (generation > maxGeneration) continue;
+        if (level < safeMinLevel) continue;
+        // TTS filter would require calculation - skip for now as not commonly used
+        
+        heroes.push({
+          hero_id: String(heroId),
+          normalized_id: Number(heroId % BigInt(1000000000000)),
+          realm,
+          main_class: mainClass,
+          sub_class: subClass,
+          profession: hero.profession ?? 0,
+          rarity,
+          level,
+          generation,
+          summons,
+          max_summons: maxSummons,
+          price_native: priceInToken,
+          native_token: nativeToken,
+          trait_score: 0,
+          combat_power: 0
+        });
       }
       
-      // Also fetch cheapest heroes regardless of class for pairing potential
-      const cheapestHeroes = await rawPg`
-        SELECT 
-          hero_id, normalized_id, realm, main_class, sub_class, profession,
-          rarity, level, generation, summons, max_summons,
-          price_native, native_token, trait_score, combat_power
-        FROM tavern_heroes
-        WHERE (max_summons - summons) >= ${minSummonsRemaining}
-          AND rarity >= ${minRarity}
-          AND generation <= ${maxGeneration}
-          AND realm = ANY(${filteredRealms})
-          AND level >= ${safeMinLevel}
-          AND (${safeTTS}::numeric IS NULL OR trait_score <= ${safeTTS})
-        ORDER BY price_native ASC
-        LIMIT 200
-      `;
+      console.log(`[Sniper] After filtering: ${heroes.length} eligible heroes`);
       
-      // Deduplicate by hero_id
-      const seenIds = new Set(heroes.map(h => h.hero_id));
-      for (const h of cheapestHeroes) {
+      // Now filter/select heroes for pairing
+      // Prioritize heroes matching target classes, plus cheapest overall
+      const targetClassHeroes = heroes.filter(h => classArray.includes(h.main_class));
+      console.log(`[Sniper] Found ${targetClassHeroes.length} heroes matching target classes`);
+      
+      // Sort all by price and take cheapest for pairing pool
+      heroes.sort((a, b) => a.price_native - b.price_native);
+      const cheapestHeroes = heroes.slice(0, 200);
+      
+      // Combine target class heroes + cheapest, deduplicate
+      const seenIds = new Set();
+      const combinedHeroes = [];
+      for (const h of [...targetClassHeroes, ...cheapestHeroes]) {
         if (!seenIds.has(h.hero_id)) {
-          heroes.push(h);
+          combinedHeroes.push(h);
           seenIds.add(h.hero_id);
         }
       }
+      heroes = combinedHeroes;
       
       console.log(`[Sniper] Found ${heroes.length} total eligible heroes (after dedup)`);
 
@@ -9191,28 +9256,78 @@ async function startAdminWebServer() {
       }
 
       // Generate candidate pairs from all heroes
+      // Strategy: Generate pairs where at least one hero is a target class hero
+      // This ensures we find the best pairs for summoning the target class
       const candidatePairs = [];
+      
+      // Track which heroes are target class heroes
+      const targetClassSet = new Set(classArray.map(c => c.toLowerCase()));
+      const isTargetClass = (h) => targetClassSet.has((h.main_class || '').toLowerCase());
+      
       for (const realm of Object.keys(byRealm)) {
         const realmHeroes = byRealm[realm];
         if (realmHeroes.length < 2) continue;
         
-        // Generate all pairs within realm (up to 50 heroes per realm for manageable count)
-        const heroLimit = Math.min(realmHeroes.length, 50);
-        for (let i = 0; i < heroLimit; i++) {
-          for (let j = i + 1; j < heroLimit; j++) {
-            const hero1 = realmHeroes[i];
-            const hero2 = realmHeroes[j];
+        // Separate target class heroes from others
+        const targetHeroes = realmHeroes.filter(isTargetClass);
+        const otherHeroes = realmHeroes.filter(h => !isTargetClass(h));
+        
+        // Sort others by price and limit to 100 cheapest
+        otherHeroes.sort((a, b) => a.price_native - b.price_native);
+        const cheapOthers = otherHeroes.slice(0, 100);
+        
+        // Generate pairs:
+        // 1. Target hero + Target hero (for best class probability)
+        for (let i = 0; i < targetHeroes.length; i++) {
+          for (let j = i + 1; j < targetHeroes.length; j++) {
+            const hero1 = targetHeroes[i];
+            const hero2 = targetHeroes[j];
+            const costs = calculatePairFullCost(hero1, hero2, tearPrice);
+            candidatePairs.push({ hero1, hero2, realm, ...costs });
+          }
+        }
+        
+        // 2. Target hero + Cheap other hero
+        for (const targetHero of targetHeroes) {
+          for (const otherHero of cheapOthers) {
+            const costs = calculatePairFullCost(targetHero, otherHero, tearPrice);
+            candidatePairs.push({ hero1: targetHero, hero2: otherHero, realm, ...costs });
+          }
+        }
+        
+        // 3. Cheap other + Cheap other (if no targets found, these can still produce target class)
+        // Limit to top 30 cheapest to avoid explosion
+        const cheapLimit = Math.min(cheapOthers.length, 30);
+        for (let i = 0; i < cheapLimit; i++) {
+          for (let j = i + 1; j < cheapLimit; j++) {
+            const hero1 = cheapOthers[i];
+            const hero2 = cheapOthers[j];
             const costs = calculatePairFullCost(hero1, hero2, tearPrice);
             candidatePairs.push({ hero1, hero2, realm, ...costs });
           }
         }
       }
 
-      // Sort by total cost and take top N for scoring
-      candidatePairs.sort((a, b) => a.totalCost - b.totalCost);
-      const pairsToScore = candidatePairs.slice(0, 100); // Score top 100 cheapest pairs
+      // Prioritize pairs containing target class heroes when selecting pairs to score
+      // This ensures we score pairs that are most likely to produce the target class
+      const pairsWithTarget = candidatePairs.filter(p => 
+        isTargetClass(p.hero1) || isTargetClass(p.hero2)
+      );
+      const pairsWithoutTarget = candidatePairs.filter(p => 
+        !isTargetClass(p.hero1) && !isTargetClass(p.hero2)
+      );
       
-      console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs, scoring top ${pairsToScore.length}`);
+      // Sort each group by cost
+      pairsWithTarget.sort((a, b) => a.totalCost - b.totalCost);
+      pairsWithoutTarget.sort((a, b) => a.totalCost - b.totalCost);
+      
+      // Take up to 80 pairs with target heroes + 20 cheapest without
+      const pairsToScore = [
+        ...pairsWithTarget.slice(0, 80),
+        ...pairsWithoutTarget.slice(0, 20)
+      ];
+      
+      console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs (${pairsWithTarget.length} with target class), scoring ${pairsToScore.length}`);
 
       // Cache for hero genes fetched from GraphQL
       const geneCache = new Map();
