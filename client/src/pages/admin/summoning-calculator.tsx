@@ -640,7 +640,7 @@ export default function SummoningCalculator() {
 
   return (
     <div className="container mx-auto p-4 space-y-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <Calculator className="h-8 w-8" />
           <div>
@@ -650,8 +650,8 @@ export default function SummoningCalculator() {
             </p>
           </div>
         </div>
-        <Tabs value={pageTab} onValueChange={setPageTab}>
-          <TabsList>
+        <Tabs value={pageTab} onValueChange={setPageTab} className="w-full">
+          <TabsList className="flex flex-wrap h-auto gap-1 w-full sm:w-auto">
             <TabsTrigger value="calculator" data-testid="tab-calculator">
               <Calculator className="h-4 w-4 mr-1" />
               Calculator
@@ -662,7 +662,7 @@ export default function SummoningCalculator() {
             </TabsTrigger>
             <TabsTrigger value="sniper" data-testid="tab-sniper">
               <Target className="h-4 w-4 mr-1" />
-              Summon Sniper
+              Sniper
             </TabsTrigger>
           </TabsList>
         </Tabs>
