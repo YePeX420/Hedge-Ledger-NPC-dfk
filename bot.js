@@ -9715,7 +9715,8 @@ async function startAdminWebServer() {
             // Validate bounds: TTS must be 0-12, probability must be 0-100
             if (!isNaN(targetKey) && targetKey >= 0 && targetKey <= 12 && 
                 !isNaN(minProb) && minProb >= 0 && minProb <= 100) {
-              const cumulativeProb = ttsData?.cumulativeProbs?.[targetKey] ?? 0;
+              // Access with both numeric and string key for safety
+              const cumulativeProb = ttsData?.cumulativeProbs?.[targetKey] ?? ttsData?.cumulativeProbs?.[String(targetKey)] ?? 0;
               if (cumulativeProb < minProb) {
                 continue;
               }
