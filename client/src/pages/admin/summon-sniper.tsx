@@ -140,6 +140,8 @@ export default function SummonSniper() {
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
   const [sniperMaxTTS, setSniperMaxTTS] = useState("");
   const [minOffspringSkillScore, setMinOffspringSkillScore] = useState("");
+  const [targetTTSValue, setTargetTTSValue] = useState("");
+  const [minTTSProbability, setMinTTSProbability] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
   
   // New state for search mode and summon type
@@ -171,6 +173,8 @@ export default function SummonSniper() {
         minLevel: parseInt(sniperMinLevel) || 1,
         maxTTS: sniperMaxTTS ? parseFloat(sniperMaxTTS) : null,
         minOffspringSkillScore: minOffspringSkillScore ? parseFloat(minOffspringSkillScore) : null,
+        targetTTSValue: targetTTSValue ? parseInt(targetTTSValue) : null,
+        minTTSProbability: minTTSProbability ? parseFloat(minTTSProbability) : null,
         summonType,
         searchMode,
         myHeroId: searchMode === "myHero" ? myHeroId : undefined,
@@ -556,6 +560,41 @@ export default function SummonSniper() {
                 placeholder="Any"
                 data-testid="input-min-offspring-skill-score"
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="targetTTSValue">Target TTS</Label>
+              <Input
+                id="targetTTSValue"
+                type="number"
+                min="0"
+                max="12"
+                value={targetTTSValue}
+                onChange={(e) => setTargetTTSValue(e.target.value)}
+                placeholder="e.g. 8"
+                data-testid="input-target-tts-value"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="minTTSProbability">Min % Chance</Label>
+              <Input
+                id="minTTSProbability"
+                type="number"
+                step="1"
+                min="0"
+                max="100"
+                value={minTTSProbability}
+                onChange={(e) => setMinTTSProbability(e.target.value)}
+                placeholder="e.g. 20"
+                data-testid="input-min-tts-probability"
+              />
+            </div>
+            <div className="flex items-end">
+              <p className="text-xs text-muted-foreground pb-2">
+                Filter pairs with at least X% chance of TTS &ge; target
+              </p>
             </div>
           </div>
 
