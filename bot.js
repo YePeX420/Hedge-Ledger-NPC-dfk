@@ -9707,11 +9707,18 @@ async function startAdminWebServer() {
           }
           
           // Filter by target TTS cumulative probability (only if both values are set)
+          // cumulativeProbs uses numeric keys (0-12) and percentage values (0-100)
           if (targetTTSValue !== null && targetTTSValue !== undefined && 
               minTTSProbability !== null && minTTSProbability !== undefined) {
-            const cumulativeProb = ttsData?.cumulativeProbs?.[String(targetTTSValue)] ?? 0;
-            if (cumulativeProb < minTTSProbability) {
-              continue;
+            const targetKey = Math.floor(Number(targetTTSValue));
+            const minProb = Number(minTTSProbability);
+            // Validate bounds: TTS must be 0-12, probability must be 0-100
+            if (!isNaN(targetKey) && targetKey >= 0 && targetKey <= 12 && 
+                !isNaN(minProb) && minProb >= 0 && minProb <= 100) {
+              const cumulativeProb = ttsData?.cumulativeProbs?.[targetKey] ?? 0;
+              if (cumulativeProb < minProb) {
+                continue;
+              }
             }
           }
 
