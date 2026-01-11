@@ -9071,6 +9071,8 @@ async function startAdminWebServer() {
         myHeroId = null,         // Hero ID for 'myHero' mode
         bridgeFeeUsd = 0.50,     // Estimated bridging fee per hero in USD (Metis heroes need bridging to CV)
         minOffspringSkillScore = null,  // Minimum expected offspring skill score (TTS) - null means no filter
+        targetTTSValue = null,   // Target TTS value for cumulative probability filter (e.g., 8 means "TTS >= 8")
+        minTTSProbability = null, // Minimum probability % of achieving targetTTSValue (e.g., 20 means ">= 20% chance")
         sortBy = 'efficiency',   // 'efficiency', 'chance', 'price', or 'skillScore'
         limit = 20
       } = req.body;
@@ -9700,6 +9702,15 @@ async function startAdminWebServer() {
           if (minOffspringSkillScore !== null && minOffspringSkillScore !== undefined) {
             const expectedTTS = ttsData?.expectedTTS ?? 0;
             if (expectedTTS < minOffspringSkillScore) {
+              continue;
+            }
+          }
+          
+          // Filter by target TTS cumulative probability (only if both values are set)
+          if (targetTTSValue !== null && targetTTSValue !== undefined && 
+              minTTSProbability !== null && minTTSProbability !== undefined) {
+            const cumulativeProb = ttsData?.cumulativeProbs?.[String(targetTTSValue)] ?? 0;
+            if (cumulativeProb < minTTSProbability) {
               continue;
             }
           }
