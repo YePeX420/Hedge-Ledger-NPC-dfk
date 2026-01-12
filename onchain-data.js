@@ -181,11 +181,38 @@ export async function getHeroById(heroId) {
     }
   `;
 
+  // Helper to try fetching hero with different ID formats
+  async function tryFetch(id) {
+    try {
+      const data = await client.request(query, { heroId: id.toString() });
+      return data.hero;
+    } catch {
+      return null;
+    }
+  }
+
   try {
     console.log(`[getHeroById] Fetching hero ID: ${heroId}`);
-    const data = await client.request(query, { heroId: heroId.toString() });
-    console.log(`[getHeroById] Response for ${heroId}:`, data.hero ? `Found (id=${data.hero.id})` : 'null');
-    return data.hero;
+    
+    // First try the ID as-is
+    let hero = await tryFetch(heroId);
+    
+    if (!hero) {
+      // Try with CV prefix (1 trillion + ID)
+      const cvId = (BigInt(1000000000000) + BigInt(heroId)).toString();
+      console.log(`[getHeroById] Trying CV format: ${cvId}`);
+      hero = await tryFetch(cvId);
+    }
+    
+    if (!hero) {
+      // Try with SD prefix (2 trillion + ID)
+      const sdId = (BigInt(2000000000000) + BigInt(heroId)).toString();
+      console.log(`[getHeroById] Trying SD format: ${sdId}`);
+      hero = await tryFetch(sdId);
+    }
+    
+    console.log(`[getHeroById] Response for ${heroId}:`, hero ? `Found (id=${hero.id})` : 'null');
+    return hero;
   } catch (error) {
     console.error(`[getHeroById] Error fetching hero ${heroId}:`, error.message);
     return null;
