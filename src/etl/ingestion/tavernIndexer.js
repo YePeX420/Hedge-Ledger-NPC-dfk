@@ -10,6 +10,7 @@ import { db } from '../../../server/db.js';
 import { sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { lookupStone } from '../../data/enhancementStones.js';
+import pLimit from 'p-limit';
 
 // Configuration
 const DFK_TAVERN_API = 'https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions';
@@ -1092,23 +1093,36 @@ export async function resetTavernIndex() {
 // GENE BACKFILL - Fetch statGenes from GraphQL and decode recessives
 // ============================================================================
 
-const GENE_BACKFILL_BATCH_SIZE = 20;
-const GENE_BACKFILL_CONCURRENCY = 3;
+const GENE_BACKFILL_CONCURRENCY = 4; // Default number of parallel workers
+const GENE_BACKFILL_MAX_CONCURRENCY = 8; // Maximum allowed concurrency
 const DFK_GRAPHQL_URL = 'https://api.defikingdoms.com/graphql';
 
-let geneBackfillState = {
+// Shared state object - mutate in place, never reassign
+const geneBackfillState = {
   isRunning: false,
   startedAt: null,
   processed: 0,
   errors: 0,
-  lastError: null
+  lastError: null,
+  inFlight: 0,
+  heroesPerMinute: 0,
+  rateLimitHits: 0,
+  totalHeroes: 0
 };
 
 export function getGeneBackfillStatus() {
+  // Calculate heroes/minute if running
+  if (geneBackfillState.isRunning && geneBackfillState.startedAt) {
+    const elapsedMs = Date.now() - new Date(geneBackfillState.startedAt).getTime();
+    const elapsedMinutes = elapsedMs / 60000;
+    if (elapsedMinutes > 0) {
+      geneBackfillState.heroesPerMinute = Math.round(geneBackfillState.processed / elapsedMinutes);
+    }
+  }
   return { ...geneBackfillState };
 }
 
-async function fetchHeroGenesFromGraphQL(heroId) {
+async function fetchHeroGenesFromGraphQL(heroId, retryCount = 0) {
   const query = `
     query GetHeroGenes($heroId: ID!) {
       hero(id: $heroId) {
@@ -1124,6 +1138,18 @@ async function fetchHeroGenesFromGraphQL(heroId) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables: { heroId: String(heroId) } })
   });
+  
+  // Handle rate limiting with exponential backoff
+  if (response.status === 429 || response.status >= 500) {
+    geneBackfillState.rateLimitHits++;
+    if (retryCount < 3) {
+      const backoffMs = Math.min(1000 * Math.pow(2, retryCount) + Math.random() * 500, 10000);
+      console.log(`[GeneBackfill] Rate limit/error ${response.status}, backing off ${Math.round(backoffMs)}ms (retry ${retryCount + 1}/3)`);
+      await new Promise(r => setTimeout(r, backoffMs));
+      return fetchHeroGenesFromGraphQL(heroId, retryCount + 1);
+    }
+    throw new Error(`GraphQL request failed after retries: ${response.status}`);
+  }
   
   if (!response.ok) {
     throw new Error(`GraphQL request failed: ${response.status}`);
@@ -1233,21 +1259,31 @@ async function processHeroGenes(heroId) {
   }
 }
 
-export async function runGeneBackfill(maxHeroes = 500) {
+export async function runGeneBackfill(maxHeroes = 500, concurrency = GENE_BACKFILL_CONCURRENCY) {
   if (geneBackfillState.isRunning) {
     console.log('[GeneBackfill] Already running, skipping');
     return { ok: false, message: 'Already running' };
   }
   
-  geneBackfillState = {
+  // Validate and clamp concurrency to safe bounds
+  let safeConcurrency = parseInt(concurrency) || GENE_BACKFILL_CONCURRENCY;
+  if (isNaN(safeConcurrency) || safeConcurrency < 1) safeConcurrency = 1;
+  if (safeConcurrency > GENE_BACKFILL_MAX_CONCURRENCY) safeConcurrency = GENE_BACKFILL_MAX_CONCURRENCY;
+  
+  // Mutate shared state in place (never reassign to avoid race conditions with polling)
+  Object.assign(geneBackfillState, {
     isRunning: true,
     startedAt: new Date().toISOString(),
     processed: 0,
     errors: 0,
-    lastError: null
-  };
+    lastError: null,
+    inFlight: 0,
+    heroesPerMinute: 0,
+    rateLimitHits: 0,
+    totalHeroes: 0
+  });
   
-  console.log(`[GeneBackfill] Starting backfill (max ${maxHeroes} heroes)...`);
+  console.log(`[GeneBackfill] Starting parallel backfill (max ${maxHeroes} heroes, ${safeConcurrency} workers)...`);
   
   try {
     const pendingResult = await db.execute(sql`
@@ -1257,49 +1293,63 @@ export async function runGeneBackfill(maxHeroes = 500) {
     `);
     
     const pendingHeroes = Array.isArray(pendingResult) ? pendingResult : (pendingResult.rows || []);
+    geneBackfillState.totalHeroes = pendingHeroes.length;
     console.log(`[GeneBackfill] Found ${pendingHeroes.length} heroes needing gene data`);
     
     if (pendingHeroes.length === 0) {
-      geneBackfillState.isRunning = false;
       return { ok: true, message: 'No heroes need backfill', processed: 0 };
     }
     
-    for (let i = 0; i < pendingHeroes.length; i += GENE_BACKFILL_BATCH_SIZE) {
-      const batch = pendingHeroes.slice(i, i + GENE_BACKFILL_BATCH_SIZE);
-      
-      const workers = [];
-      for (let j = 0; j < batch.length; j += Math.ceil(batch.length / GENE_BACKFILL_CONCURRENCY)) {
-        const chunk = batch.slice(j, j + Math.ceil(batch.length / GENE_BACKFILL_CONCURRENCY));
-        workers.push((async () => {
-          for (const hero of chunk) {
-            const success = await processHeroGenes(hero.hero_id);
-            geneBackfillState.processed++;
-            if (!success) geneBackfillState.errors++;
-            await new Promise(r => setTimeout(r, 200));
-          }
-        })());
-      }
-      
-      await Promise.all(workers);
-      
-      if (i % 50 === 0) {
-        console.log(`[GeneBackfill] Progress: ${geneBackfillState.processed}/${pendingHeroes.length}`);
-      }
-    }
+    // Create rate limiter with configurable concurrency
+    const limit = pLimit(safeConcurrency);
     
-    console.log(`[GeneBackfill] Complete: ${geneBackfillState.processed} processed, ${geneBackfillState.errors} errors`);
-    geneBackfillState.isRunning = false;
+    // Process all heroes in parallel with bounded concurrency
+    const processWithLimit = async (hero) => {
+      geneBackfillState.inFlight++;
+      try {
+        const success = await processHeroGenes(hero.hero_id);
+        geneBackfillState.processed++;
+        if (!success) geneBackfillState.errors++;
+        
+        // Progress logging every 100 heroes
+        if (geneBackfillState.processed % 100 === 0) {
+          const elapsed = (Date.now() - new Date(geneBackfillState.startedAt).getTime()) / 60000;
+          const rate = elapsed > 0 ? Math.round(geneBackfillState.processed / elapsed) : 0;
+          const remaining = geneBackfillState.totalHeroes - geneBackfillState.processed;
+          const eta = rate > 0 ? Math.round(remaining / rate) : '?';
+          console.log(`[GeneBackfill] Progress: ${geneBackfillState.processed}/${geneBackfillState.totalHeroes} (${rate}/min, ETA: ${eta} min, errors: ${geneBackfillState.errors}, rate-limits: ${geneBackfillState.rateLimitHits})`);
+        }
+        
+        return success;
+      } finally {
+        geneBackfillState.inFlight--;
+      }
+    };
+    
+    // Launch all tasks with rate limiting
+    const tasks = pendingHeroes.map(hero => limit(() => processWithLimit(hero)));
+    await Promise.all(tasks);
+    
+    const elapsed = (Date.now() - new Date(geneBackfillState.startedAt).getTime()) / 60000;
+    const rate = elapsed > 0 ? Math.round(geneBackfillState.processed / elapsed) : 0;
+    
+    console.log(`[GeneBackfill] Complete: ${geneBackfillState.processed} processed, ${geneBackfillState.errors} errors, ${rate}/min avg rate`);
     
     return { 
       ok: true, 
       processed: geneBackfillState.processed, 
-      errors: geneBackfillState.errors 
+      errors: geneBackfillState.errors,
+      rateLimitHits: geneBackfillState.rateLimitHits,
+      heroesPerMinute: rate
     };
   } catch (err) {
     console.error('[GeneBackfill] Fatal error:', err);
-    geneBackfillState.isRunning = false;
     geneBackfillState.lastError = err.message;
     return { ok: false, error: err.message };
+  } finally {
+    // Always reset running state on any exit path
+    geneBackfillState.isRunning = false;
+    geneBackfillState.inFlight = 0;
   }
 }
 

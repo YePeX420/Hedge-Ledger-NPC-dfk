@@ -8844,10 +8844,11 @@ async function startAdminWebServer() {
     try {
       const { runGeneBackfill, getGeneBackfillStatus, getGenesStats } = await import("./src/etl/ingestion/tavernIndexer.js");
       
-      const maxHeroes = parseInt(req.body?.maxHeroes) || 500;
-      console.log(`[Gene Backfill] Trigger requested (max: ${maxHeroes})`);
+      const maxHeroes = parseInt(req.body?.maxHeroes || req.query?.maxHeroes) || 500;
+      const concurrency = parseInt(req.body?.concurrency || req.query?.concurrency) || 6;
+      console.log(`[Gene Backfill] Trigger requested (max: ${maxHeroes}, concurrency: ${concurrency})`);
       
-      runGeneBackfill(maxHeroes).catch((err) => {
+      runGeneBackfill(maxHeroes, concurrency).catch((err) => {
         console.error('[Gene Backfill] Background run error:', err);
       });
       
