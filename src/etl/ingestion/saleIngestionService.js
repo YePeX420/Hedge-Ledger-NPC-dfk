@@ -57,6 +57,101 @@ async function ensureSaleTablesExist() {
     CREATE INDEX IF NOT EXISTS tavern_listing_snapshots_hero_idx 
     ON tavern_listing_snapshots(hero_id)
   `);
+  
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS tavern_sales (
+      id SERIAL PRIMARY KEY,
+      hero_id INTEGER NOT NULL,
+      realm TEXT NOT NULL,
+      sale_timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      token_address TEXT,
+      token_symbol TEXT,
+      price_amount NUMERIC(30, 8),
+      is_floor_hero BOOLEAN DEFAULT FALSE,
+      as_of_date DATE,
+      UNIQUE(hero_id, sale_timestamp)
+    )
+  `);
+  
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS tavern_sales_realm_idx ON tavern_sales(realm)
+  `);
+  
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS tavern_sales_timestamp_idx ON tavern_sales(sale_timestamp DESC)
+  `);
+  
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS hero_snapshots (
+      id SERIAL PRIMARY KEY,
+      sale_id INTEGER REFERENCES tavern_sales(id),
+      hero_id INTEGER NOT NULL,
+      rarity INTEGER,
+      main_class TEXT,
+      sub_class TEXT,
+      level INTEGER,
+      profession TEXT,
+      summons_remaining INTEGER,
+      max_summons INTEGER,
+      strength INTEGER DEFAULT 0,
+      agility INTEGER DEFAULT 0,
+      dexterity INTEGER DEFAULT 0,
+      vitality INTEGER DEFAULT 0,
+      intelligence INTEGER DEFAULT 0,
+      wisdom INTEGER DEFAULT 0,
+      luck INTEGER DEFAULT 0,
+      advanced_genes INTEGER DEFAULT 0,
+      elite_genes INTEGER DEFAULT 0,
+      exalted_genes INTEGER DEFAULT 0
+    )
+  `);
+  
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS tavern_listing_history (
+      id SERIAL PRIMARY KEY,
+      hero_id TEXT NOT NULL,
+      realm TEXT,
+      snapshot_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      price_native NUMERIC(30, 8),
+      native_token TEXT,
+      main_class TEXT,
+      sub_class TEXT,
+      profession TEXT,
+      rarity INTEGER,
+      level INTEGER,
+      generation INTEGER,
+      summons INTEGER,
+      max_summons INTEGER,
+      trait_score INTEGER,
+      status TEXT,
+      status_changed_at TIMESTAMPTZ
+    )
+  `);
+  
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS tavern_demand_metrics (
+      id SERIAL PRIMARY KEY,
+      realm TEXT NOT NULL,
+      main_class TEXT NOT NULL,
+      sub_class TEXT,
+      profession TEXT,
+      rarity INTEGER,
+      level_band TEXT,
+      as_of_date DATE DEFAULT CURRENT_DATE,
+      sales_count_7d INTEGER DEFAULT 0,
+      sales_count_30d INTEGER DEFAULT 0,
+      avg_time_on_market_hours NUMERIC(10, 2),
+      median_price_native NUMERIC(30, 8),
+      demand_score NUMERIC(10, 2) DEFAULT 0,
+      velocity_score NUMERIC(10, 2) DEFAULT 0,
+      liquidity_score NUMERIC(10, 2) DEFAULT 0,
+      UNIQUE(realm, main_class, as_of_date)
+    )
+  `);
+  
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS tavern_demand_metrics_date_idx ON tavern_demand_metrics(as_of_date DESC)
+  `);
 }
 
 export async function takeListingSnapshot() {
@@ -484,5 +579,44 @@ export async function getRecentSales(limit = 50, realm = null) {
   } catch (err) {
     console.error('[SaleIngestion] getRecentSales error:', err.message);
     return [];
+  }
+}
+
+export async function getDemandMetrics(realm = null) {
+  try {
+    await ensureSaleTablesExist();
+    
+    let query;
+    if (realm) {
+      query = sql`
+        SELECT * FROM tavern_demand_metrics 
+        WHERE realm = ${realm}
+        ORDER BY as_of_date DESC, demand_score DESC
+        LIMIT 100
+      `;
+    } else {
+      query = sql`
+        SELECT * FROM tavern_demand_metrics 
+        ORDER BY as_of_date DESC, demand_score DESC
+        LIMIT 100
+      `;
+    }
+    
+    const result = await db.execute(query);
+    return Array.isArray(result) ? result : (result.rows || []);
+  } catch (err) {
+    console.error('[SaleIngestion] getDemandMetrics error:', err.message);
+    return [];
+  }
+}
+
+export async function initializeSaleTables() {
+  try {
+    await ensureSaleTablesExist();
+    console.log('[SaleIngestion] Tables initialized');
+    return { ok: true };
+  } catch (err) {
+    console.error('[SaleIngestion] Table initialization error:', err.message);
+    return { ok: false, error: err.message };
   }
 }

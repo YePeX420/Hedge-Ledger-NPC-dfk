@@ -9101,34 +9101,10 @@ async function startAdminWebServer() {
   // GET /api/admin/market-intel/demand-metrics - Get demand metrics by cohort
   app.get("/api/admin/market-intel/demand-metrics", isAdmin, async (req, res) => {
     try {
+      const { getDemandMetrics } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
       const realm = req.query.realm || null;
-      const mainClass = req.query.mainClass || null;
-      
-      let query;
-      if (realm && mainClass) {
-        query = sql`
-          SELECT * FROM tavern_demand_metrics 
-          WHERE realm = ${realm} AND main_class = ${mainClass}
-          ORDER BY as_of_date DESC, demand_score DESC
-          LIMIT 100
-        `;
-      } else if (realm) {
-        query = sql`
-          SELECT * FROM tavern_demand_metrics 
-          WHERE realm = ${realm}
-          ORDER BY as_of_date DESC, demand_score DESC
-          LIMIT 100
-        `;
-      } else {
-        query = sql`
-          SELECT * FROM tavern_demand_metrics 
-          ORDER BY as_of_date DESC, demand_score DESC
-          LIMIT 100
-        `;
-      }
-      
-      const result = await db.execute(query);
-      const metrics = Array.isArray(result) ? result : (result.rows || []);
+      const metrics = await getDemandMetrics(realm);
       
       res.json({ ok: true, metrics, count: metrics.length });
     } catch (error) {
