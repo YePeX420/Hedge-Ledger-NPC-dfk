@@ -72,10 +72,12 @@ interface SniperResult {
 export default function BargainHunter() {
   const [result, setResult] = useState<SniperResult | null>(null);
 
+  const ALL_CLASSES = ['Archer', 'Berserker', 'Knight', 'Priest', 'Seer', 'Warrior', 'Wizard', 'Pirate'];
+
   const searchMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/admin/sniper/search", {
-        targetClasses: [],
+        targetClasses: ALL_CLASSES,
         targetProfessions: [],
         targetActiveSkills: [],
         targetPassiveSkills: [],
