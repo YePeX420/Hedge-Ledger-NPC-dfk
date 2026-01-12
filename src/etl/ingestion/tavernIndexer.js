@@ -45,6 +45,8 @@ let indexerState = {
 };
 
 let autoRunInterval = null;
+let autoRunIntervalMs = null;
+let autoRunLastTrigger = null;
 let tablesInitialized = false;
 
 // ============================================================================
@@ -687,11 +689,16 @@ export function startAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) {
   
   console.log(`[TavernIndexer] Starting auto-run (interval: ${intervalMs / 1000}s)`);
   
+  // Track interval settings for next run calculation
+  autoRunIntervalMs = intervalMs;
+  autoRunLastTrigger = new Date().toISOString();
+  
   // Run immediately on start
   runFullIndex().catch(err => console.error('[TavernIndexer] Initial run error:', err.message));
   
   // Schedule recurring runs
   autoRunInterval = setInterval(() => {
+    autoRunLastTrigger = new Date().toISOString();
     runFullIndex().catch(err => console.error('[TavernIndexer] Scheduled run error:', err.message));
   }, intervalMs);
   
@@ -705,6 +712,8 @@ export function stopAutoRun() {
   
   clearInterval(autoRunInterval);
   autoRunInterval = null;
+  autoRunIntervalMs = null;
+  autoRunLastTrigger = null;
   console.log('[TavernIndexer] Auto-run stopped');
   
   return { status: 'stopped' };
@@ -715,6 +724,13 @@ export function stopAutoRun() {
 // ============================================================================
 
 export function getIndexerStatus() {
+  // Calculate next run time if auto-run is active
+  let nextRunAt = null;
+  if (autoRunInterval && autoRunLastTrigger && autoRunIntervalMs) {
+    const lastTrigger = new Date(autoRunLastTrigger);
+    nextRunAt = new Date(lastTrigger.getTime() + autoRunIntervalMs).toISOString();
+  }
+  
   return {
     isRunning: indexerState.isRunning,
     startedAt: indexerState.startedAt,
@@ -722,7 +738,9 @@ export function getIndexerStatus() {
     totalHeroesIndexed: indexerState.totalHeroesIndexed,
     workers: indexerState.workers,
     errors: indexerState.errors.slice(-5),
-    autoRunActive: !!autoRunInterval
+    autoRunActive: !!autoRunInterval,
+    autoRunIntervalMs,
+    nextRunAt
   };
 }
 

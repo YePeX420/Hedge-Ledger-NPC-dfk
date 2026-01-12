@@ -56,6 +56,7 @@ const navItems = [
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Swords },
   { href: '/admin/summoning-calculator', label: 'Summoning Calculator', icon: Dna },
   { href: '/admin/summon-sniper', label: 'Summon Sniper', icon: Target },
+  { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
