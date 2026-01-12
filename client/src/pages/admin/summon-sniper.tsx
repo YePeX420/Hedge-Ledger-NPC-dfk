@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users } from "lucide-react";
+import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users, Zap, Sparkles } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 
-type SearchMode = "tavern" | "myHero";
+type SearchMode = "tavern" | "myHero" | "bargainHunter" | "darkBargainHunter";
 type SummonType = "regular" | "dark";
 
 interface ProbabilityMap {
@@ -159,6 +159,16 @@ export default function SummonSniper() {
       const effectiveMinSummons = parseInt(sniperMinSummons) || 0;
       const effectiveMaxSummons = undefined;  // No max restriction
       
+      // Determine effective summon type based on search mode
+      // Bargain Hunter modes override the summon type toggle
+      const isBargainHunter = searchMode === "bargainHunter" || searchMode === "darkBargainHunter";
+      const effectiveSummonType: SummonType = searchMode === "darkBargainHunter" ? "dark" 
+        : searchMode === "bargainHunter" ? "regular" 
+        : summonType;
+      
+      // Map search mode to API search mode (bargain hunters use tavern mode)
+      const apiSearchMode = isBargainHunter ? "tavern" : searchMode;
+      
       const response = await apiRequest("POST", "/api/admin/sniper/search", {
         targetClasses: selectedClasses,
         targetProfessions: selectedProfessions,
@@ -171,12 +181,12 @@ export default function SummonSniper() {
         minLevel: parseInt(sniperMinLevel) || 1,
         targetTTSValue: targetTTSValue ? parseInt(targetTTSValue) : null,
         minTTSProbability: minTTSProbability ? parseFloat(minTTSProbability) : null,
-        summonType,
-        searchMode,
+        summonType: effectiveSummonType,
+        searchMode: apiSearchMode,
         myHeroId: searchMode === "myHero" ? myHeroId : undefined,
         bridgeFeeUsd: parseFloat(bridgeFeeUsd) || 0,
-        sortBy,
-        limit: 20
+        sortBy: isBargainHunter ? "skillScore" : sortBy, // Bargain hunters prioritize TTS
+        limit: 50 // More results for bargain hunter
       });
       return response.json();
     },
@@ -287,7 +297,7 @@ export default function SummonSniper() {
           {/* Search Mode Toggle */}
           <div className="space-y-3">
             <Label>Search Mode</Label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Badge
                 variant={searchMode === "tavern" ? "default" : "outline"}
                 className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
@@ -314,6 +324,32 @@ export default function SummonSniper() {
                 <User className="h-3.5 w-3.5 mr-1.5" />
                 Pair for My Hero
               </Badge>
+              <Badge
+                variant={searchMode === "bargainHunter" ? "default" : "outline"}
+                className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
+                  searchMode === "bargainHunter" 
+                    ? "bg-amber-600 text-white ring-2 ring-amber-500 ring-offset-1 ring-offset-background" 
+                    : "hover:bg-muted"
+                }`}
+                onClick={() => setSearchMode("bargainHunter")}
+                data-testid="badge-mode-bargain"
+              >
+                <Zap className="h-3.5 w-3.5 mr-1.5" />
+                Summoning Bargain Hunter
+              </Badge>
+              <Badge
+                variant={searchMode === "darkBargainHunter" ? "default" : "outline"}
+                className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
+                  searchMode === "darkBargainHunter" 
+                    ? "bg-purple-600 text-white ring-2 ring-purple-500 ring-offset-1 ring-offset-background" 
+                    : "hover:bg-muted"
+                }`}
+                onClick={() => setSearchMode("darkBargainHunter")}
+                data-testid="badge-mode-dark-bargain"
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                Dark Summoning Bargain Hunter
+              </Badge>
             </div>
             {searchMode === "myHero" && (
               <div className="mt-2">
@@ -332,43 +368,52 @@ export default function SummonSniper() {
                 </p>
               </div>
             )}
+            {(searchMode === "bargainHunter" || searchMode === "darkBargainHunter") && (
+              <p className="text-xs text-muted-foreground">
+                {searchMode === "bargainHunter" 
+                  ? "Find hero pairs with the highest Total Tier Score (TTS) potential for the lowest cost. Regular summon mode."
+                  : "Find hero pairs with the highest TTS potential using Dark Summoning (1/4 token cost, burns both heroes)."}
+              </p>
+            )}
           </div>
 
-          {/* Summon Type Toggle */}
-          <div className="space-y-3">
-            <Label>Summon Type</Label>
-            <div className="flex gap-2">
-              <Badge
-                variant={summonType === "regular" ? "default" : "outline"}
-                className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
-                  summonType === "regular" 
-                    ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
-                    : "hover:bg-muted"
-                }`}
-                onClick={() => setSummonType("regular")}
-                data-testid="badge-summon-regular"
-              >
-                Regular Summon
-              </Badge>
-              <Badge
-                variant={summonType === "dark" ? "default" : "outline"}
-                className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
-                  summonType === "dark" 
-                    ? "bg-purple-600 text-white ring-2 ring-purple-500 ring-offset-1 ring-offset-background" 
-                    : "hover:bg-muted"
-                }`}
-                onClick={() => setSummonType("dark")}
-                data-testid="badge-summon-dark"
-              >
-                Dark Summon
-              </Badge>
+          {/* Summon Type Toggle - Hidden in Bargain Hunter modes */}
+          {searchMode !== "bargainHunter" && searchMode !== "darkBargainHunter" && (
+            <div className="space-y-3">
+              <Label>Summon Type</Label>
+              <div className="flex gap-2">
+                <Badge
+                  variant={summonType === "regular" ? "default" : "outline"}
+                  className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
+                    summonType === "regular" 
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                      : "hover:bg-muted"
+                  }`}
+                  onClick={() => setSummonType("regular")}
+                  data-testid="badge-summon-regular"
+                >
+                  Regular Summon
+                </Badge>
+                <Badge
+                  variant={summonType === "dark" ? "default" : "outline"}
+                  className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
+                    summonType === "dark" 
+                      ? "bg-purple-600 text-white ring-2 ring-purple-500 ring-offset-1 ring-offset-background" 
+                      : "hover:bg-muted"
+                  }`}
+                  onClick={() => setSummonType("dark")}
+                  data-testid="badge-summon-dark"
+                >
+                  Dark Summon
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {summonType === "regular" 
+                  ? "Standard summoning with full token cost. Heroes must have summons remaining."
+                  : "Dark summoning burns both heroes (1/4 cost). More summons = higher rarity chance."}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {summonType === "regular" 
-                ? "Standard summoning with full token cost. Heroes must have summons remaining."
-                : "Dark summoning burns both heroes (1/4 cost). More summons = higher rarity chance."}
-            </p>
-          </div>
+          )}
 
           <div className="space-y-3">
             <Label>Target Classes (select one or more)</Label>

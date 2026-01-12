@@ -49,6 +49,9 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Frontend Build Process**: Utilizes a two-step build process to accommodate Replit's file sync behavior, building to `/tmp` and copying to `static-build/`.
 
 ## Recent Changes (January 2026)
+*   **Bargain Hunter Modes**: Added "Summoning Bargain Hunter" and "Dark Summoning Bargain Hunter" tabs to Summon Sniper. These modes automatically set summon type and prioritize TTS efficiency (highest skill tier score for lowest cost).
+*   **Pair Scoring Limit Removed**: Summon Sniper now scores ALL candidate pairs instead of limiting to 2,200. With indexed gene data (no API calls needed), full coverage is fast.
+*   **ACTIVE_GENE_MAP Fix**: Corrected skill indices in bot.js to match gene-decoder.js (elite skills 24=Stun, 25=Second Wind, 28=Resurrection; advanced skills 17=Daze, 18=Explosion, 19=Hardened Shield).
 *   **TTS Filter UX Improvement**: Added TTS metadata to Summon Sniper API response (`ttsMetadata: { maxExpectedTTS, maxCumulativeByTarget, requestedTarget, requestedMinProb }`). Frontend now displays helpful guidance when TTS filter is unattainable, showing max available probabilities and suggesting lower thresholds (1-2).
 *   **TTS Reality Check**: Most DFK heroes have tier 0 skills. Expected TTS ranges 0.04-0.64 across pairs. TTS ≥6 with 3% chance is mathematically impossible - this is correct behavior, not a bug.
 *   **Skill Tier Warnings Suppressed**: Unknown skills (Backstab, Silence, Inner Calm) now default to tier 0 silently without console spam.

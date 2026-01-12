@@ -10014,16 +10014,11 @@ async function startAdminWebServer() {
       pairsWithTarget.sort((a, b) => a.totalCost - b.totalCost);
       pairsWithoutTarget.sort((a, b) => a.totalCost - b.totalCost);
       
-      // Score more pairs for better coverage - with indexed gene data this is fast
-      // Sample from different price ranges to avoid missing expensive but good pairs
-      const targetLimit = isMyHeroMode ? 2000 : 2000;
-      const otherLimit = isMyHeroMode ? 200 : 200;
-      const pairsToScore = [
-        ...pairsWithTarget.slice(0, targetLimit),
-        ...pairsWithoutTarget.slice(0, otherLimit)
-      ];
+      // Score ALL candidate pairs - with indexed gene data this is fast (no API calls needed)
+      // No limit - we need to find all high-TTS pairs regardless of price for Bargain Hunter mode
+      const pairsToScore = [...pairsWithTarget, ...pairsWithoutTarget];
       
-      console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs (${pairsWithTarget.length} with target class), scoring ${pairsToScore.length}`);
+      console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs (${pairsWithTarget.length} with target class), scoring ALL ${pairsToScore.length}`);
 
       // Class gene ID to name mapping
       const CLASS_GENE_MAP = [
