@@ -166,36 +166,42 @@ const BACKGROUND_NAMES: Record<number, string> = {
 
 // Skill name to tier mapping for highlighting non-basic skills
 // Tier: 'B' = Basic (no highlight), 'A' = Advanced, 'E' = Elite, 'X' = Exalted
+// Keys are lowercase for case-insensitive matching
 const SKILL_NAME_TO_TIER: Record<string, string> = {
   // Active Skills - Basic (0-7)
-  'Poisoned Blade': 'B', 'Blinding Winds': 'B', 'Heal': 'B', 'Cleanse': 'B',
-  'Iron Skin': 'B', 'Speed': 'B', 'Critical Aim': 'B', 'Deathmark': 'B',
+  'poisoned blade': 'B', 'blinding winds': 'B', 'heal': 'B', 'cleanse': 'B',
+  'iron skin': 'B', 'speed': 'B', 'critical aim': 'B', 'deathmark': 'B',
   // Active Skills - Advanced (16-19)
-  'Exhaust': 'A', 'Daze': 'A', 'Explosion': 'A', 'Hardened Shield': 'A',
+  'exhaust': 'A', 'daze': 'A', 'explosion': 'A', 'hardened shield': 'A',
   // Active Skills - Elite (24-25)
-  'Stun': 'E', 'Second Wind': 'E',
+  'stun': 'E', 'second wind': 'E',
   // Active Skills - Exalted (28)
-  'Resurrection': 'X',
+  'resurrection': 'X',
   // Passive Skills - Basic (0-7)
-  'Duelist': 'B', 'Clutch': 'B', 'Foresight': 'B', 'Headstrong': 'B',
-  'Clear Vision': 'B', 'Fearless': 'B', 'Chatterbox': 'B', 'Stalwart': 'B',
+  'duelist': 'B', 'clutch': 'B', 'foresight': 'B', 'headstrong': 'B',
+  'clear vision': 'B', 'fearless': 'B', 'chatterbox': 'B', 'stalwart': 'B',
   // Passive Skills - Advanced (16-19)
-  'Leadership': 'A', 'Efficient': 'A', 'Intimidation': 'A', 'Toxic': 'A',
+  'leadership': 'A', 'efficient': 'A', 'intimidation': 'A', 'toxic': 'A',
   // Passive Skills - Elite (24-25)
-  'Giant Slayer': 'E', 'Last Stand': 'E',
+  'giant slayer': 'E', 'last stand': 'E',
   // Passive Skills - Exalted (28)
-  'Second Life': 'X',
+  'second life': 'X',
 };
+
+// Normalize skill name for lookup (lowercase, trim)
+function normalizeSkillName(skillName: string): string {
+  return skillName.toLowerCase().trim();
+}
 
 // Helper to check if a skill name is non-basic (Advanced, Elite, or Exalted)
 function isNonBasicSkill(skillName: string): boolean {
-  const tier = SKILL_NAME_TO_TIER[skillName];
+  const tier = SKILL_NAME_TO_TIER[normalizeSkillName(skillName)];
   return tier === 'A' || tier === 'E' || tier === 'X';
 }
 
 // Get tier color class for a skill
 function getSkillTierColor(skillName: string): string {
-  const tier = SKILL_NAME_TO_TIER[skillName];
+  const tier = SKILL_NAME_TO_TIER[normalizeSkillName(skillName)];
   if (tier === 'A') return 'text-cyan-400'; // Advanced
   if (tier === 'E') return 'text-cyan-400'; // Elite
   if (tier === 'X') return 'text-cyan-400'; // Exalted
