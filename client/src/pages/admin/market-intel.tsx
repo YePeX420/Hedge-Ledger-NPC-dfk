@@ -134,10 +134,10 @@ export default function MarketIntelPage() {
       const params = new URLSearchParams();
       params.set('mainClass', priceToolClass);
       params.set('realm', priceToolRealm);
-      if (priceToolRarity) params.set('rarity', priceToolRarity);
+      if (priceToolRarity && priceToolRarity !== 'any') params.set('rarity', priceToolRarity);
       if (priceToolLevelMin) params.set('levelMin', priceToolLevelMin);
       if (priceToolLevelMax) params.set('levelMax', priceToolLevelMax);
-      if (priceToolProfession) params.set('profession', priceToolProfession);
+      if (priceToolProfession && priceToolProfession !== 'any') params.set('profession', priceToolProfession);
       
       const res = await fetch(`/api/admin/market-intel/price-recommendation?${params.toString()}`, {
         credentials: 'include'
@@ -535,7 +535,7 @@ export default function MarketIntelPage() {
                   <SelectValue placeholder="Any" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Any</SelectItem>
+                  <SelectItem value="any">Any</SelectItem>
                   <SelectItem value="0">Common</SelectItem>
                   <SelectItem value="1">Uncommon</SelectItem>
                   <SelectItem value="2">Rare</SelectItem>
@@ -574,7 +574,7 @@ export default function MarketIntelPage() {
                   <SelectValue placeholder="Any" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Any</SelectItem>
+                  <SelectItem value="any">Any</SelectItem>
                   {PROFESSION_OPTIONS.map(p => (
                     <SelectItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
                   ))}
