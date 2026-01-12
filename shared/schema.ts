@@ -3092,3 +3092,296 @@ export const tavernIndexerProgress = pgTable("tavern_indexer_progress", {
 export const insertTavernIndexerProgressSchema = createInsertSchema(tavernIndexerProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertTavernIndexerProgress = z.infer<typeof insertTavernIndexerProgressSchema>;
 export type TavernIndexerProgress = typeof tavernIndexerProgress.$inferSelect;
+
+// ============================================================================
+// MARKET INTEL - Listing History and Demand Metrics
+// ============================================================================
+
+/**
+ * Tavern Listing History - Hourly snapshots for delta comparison (detect sales)
+ */
+export const tavernListingHistory = pgTable("tavern_listing_history", {
+  id: serial("id").primaryKey(),
+  heroId: text("hero_id").notNull(),
+  realm: text("realm").notNull(),
+  
+  // Snapshot data
+  snapshotAt: timestamp("snapshot_at", { withTimezone: true }).notNull(),
+  priceNative: numeric("price_native", { precision: 30, scale: 8 }),
+  nativeToken: text("native_token"),
+  
+  // Hero traits at snapshot time (denormalized for historical accuracy)
+  mainClass: text("main_class"),
+  subClass: text("sub_class"),
+  profession: text("profession"),
+  rarity: integer("rarity"),
+  level: integer("level"),
+  generation: integer("generation"),
+  summons: integer("summons"),
+  maxSummons: integer("max_summons"),
+  traitScore: integer("trait_score"),
+  
+  // Status: 'listed', 'sold', 'delisted' (computed by delta comparison)
+  status: text("status").notNull().default('listed'),
+  statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  heroIdSnapshotIdx: index("tavern_listing_history_hero_snapshot_idx").on(table.heroId, table.snapshotAt),
+  realmSnapshotIdx: index("tavern_listing_history_realm_snapshot_idx").on(table.realm, table.snapshotAt),
+  statusIdx: index("tavern_listing_history_status_idx").on(table.status),
+}));
+
+export const insertTavernListingHistorySchema = createInsertSchema(tavernListingHistory).omit({ id: true, createdAt: true });
+export type InsertTavernListingHistory = z.infer<typeof insertTavernListingHistorySchema>;
+export type TavernListingHistory = typeof tavernListingHistory.$inferSelect;
+
+/**
+ * Tavern Demand Metrics - Pre-computed demand scores per cohort
+ */
+export const tavernDemandMetrics = pgTable("tavern_demand_metrics", {
+  id: serial("id").primaryKey(),
+  realm: text("realm").notNull(),
+  asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(),
+  
+  // Cohort definition
+  mainClass: text("main_class").notNull(),
+  subClass: text("sub_class"),
+  profession: text("profession"),
+  rarity: integer("rarity"),
+  levelBand: text("level_band"), // '1-5', '6-10', '11-15', etc.
+  
+  // Demand signals
+  salesCount7d: integer("sales_count_7d").default(0),
+  salesCount30d: integer("sales_count_30d").default(0),
+  avgTimeOnMarketHours: numeric("avg_time_on_market_hours", { precision: 10, scale: 2 }),
+  medianPriceNative: numeric("median_price_native", { precision: 30, scale: 8 }),
+  priceVelocity7d: numeric("price_velocity_7d", { precision: 10, scale: 4 }), // % change
+  
+  // Computed scores (0-100)
+  demandScore: integer("demand_score").default(50),
+  velocityScore: integer("velocity_score").default(50),
+  liquidityScore: integer("liquidity_score").default(50),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  realmDateIdx: index("tavern_demand_metrics_realm_date_idx").on(table.realm, table.asOfDate),
+  cohortIdx: index("tavern_demand_metrics_cohort_idx").on(table.realm, table.mainClass, table.rarity),
+}));
+
+export const insertTavernDemandMetricsSchema = createInsertSchema(tavernDemandMetrics).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertTavernDemandMetrics = z.infer<typeof insertTavernDemandMetricsSchema>;
+export type TavernDemandMetrics = typeof tavernDemandMetrics.$inferSelect;
+
+// ============================================================================
+// SUMMON PROFIT TRACKER - Sessions, Outcomes, and Conversion Metrics
+// ============================================================================
+
+/**
+ * Summon Sessions - Track individual summoning attempts with full cost breakdown
+ */
+export const summonSessions = pgTable("summon_sessions", {
+  id: serial("id").primaryKey(),
+  realm: text("realm").notNull(), // 'cv' or 'sd'
+  walletAddress: text("wallet_address").notNull(),
+  
+  // Parent heroes
+  parent1HeroId: text("parent1_hero_id").notNull(),
+  parent2HeroId: text("parent2_hero_id").notNull(),
+  
+  // Parent acquisition costs (if purchased from tavern)
+  parent1CostNative: numeric("parent1_cost_native", { precision: 30, scale: 8 }),
+  parent2CostNative: numeric("parent2_cost_native", { precision: 30, scale: 8 }),
+  parent1CostUsd: numeric("parent1_cost_usd", { precision: 15, scale: 2 }),
+  parent2CostUsd: numeric("parent2_cost_usd", { precision: 15, scale: 2 }),
+  
+  // Summoning costs
+  summonFeeNative: numeric("summon_fee_native", { precision: 30, scale: 8 }),
+  summonFeeUsd: numeric("summon_fee_usd", { precision: 15, scale: 2 }),
+  enhancementStonesUsed: integer("enhancement_stones_used").default(0),
+  enhancementStoneCostNative: numeric("enhancement_stone_cost_native", { precision: 30, scale: 8 }),
+  enhancementStoneCostUsd: numeric("enhancement_stone_cost_usd", { precision: 15, scale: 2 }),
+  gasCostNative: numeric("gas_cost_native", { precision: 30, scale: 8 }),
+  gasCostUsd: numeric("gas_cost_usd", { precision: 15, scale: 2 }),
+  
+  // Total costs
+  totalCostNative: numeric("total_cost_native", { precision: 30, scale: 8 }),
+  totalCostUsd: numeric("total_cost_usd", { precision: 15, scale: 2 }),
+  nativeToken: text("native_token").notNull(), // 'CRYSTAL' or 'JEWEL'
+  
+  // Expected outcome (from Summon Sniper prediction)
+  expectedOffspringValue: numeric("expected_offspring_value", { precision: 30, scale: 8 }),
+  expectedProfitNative: numeric("expected_profit_native", { precision: 30, scale: 8 }),
+  targetTraits: json("target_traits").$type<{
+    mainClass?: string;
+    subClass?: string;
+    profession?: string;
+    statBoosts?: string[];
+  }>(),
+  
+  // Summon result
+  offspringHeroId: text("offspring_hero_id"),
+  summonedAt: timestamp("summoned_at", { withTimezone: true }),
+  summonTxHash: text("summon_tx_hash"),
+  
+  // Session state: 'pending', 'summoned', 'listed', 'sold', 'failed'
+  status: text("status").notNull().default('pending'),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  walletIdx: index("summon_sessions_wallet_idx").on(table.walletAddress),
+  realmIdx: index("summon_sessions_realm_idx").on(table.realm),
+  statusIdx: index("summon_sessions_status_idx").on(table.status),
+  summonedAtIdx: index("summon_sessions_summoned_at_idx").on(table.summonedAt),
+}));
+
+export const insertSummonSessionSchema = createInsertSchema(summonSessions).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSummonSession = z.infer<typeof insertSummonSessionSchema>;
+export type SummonSession = typeof summonSessions.$inferSelect;
+
+/**
+ * Summon Offspring - Actual traits of summoned hero (compared to expected)
+ */
+export const summonOffspring = pgTable("summon_offspring", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull().references(() => summonSessions.id),
+  heroId: text("hero_id").notNull(),
+  
+  // Actual traits
+  mainClass: text("main_class").notNull(),
+  subClass: text("sub_class"),
+  profession: text("profession"),
+  rarity: integer("rarity").notNull(),
+  generation: integer("generation").notNull(),
+  
+  // Stats
+  strength: integer("strength"),
+  agility: integer("agility"),
+  intelligence: integer("intelligence"),
+  wisdom: integer("wisdom"),
+  luck: integer("luck"),
+  dexterity: integer("dexterity"),
+  vitality: integer("vitality"),
+  endurance: integer("endurance"),
+  
+  // Abilities
+  active1: text("active1"),
+  active2: text("active2"),
+  passive1: text("passive1"),
+  passive2: text("passive2"),
+  traitScore: integer("trait_score"),
+  
+  // Demand match score (how well it matches high-demand traits)
+  demandMatchScore: integer("demand_match_score").default(0),
+  matchedTargetTraits: boolean("matched_target_traits").default(false),
+  
+  // Valuation
+  estimatedValueNative: numeric("estimated_value_native", { precision: 30, scale: 8 }),
+  estimatedValueUsd: numeric("estimated_value_usd", { precision: 15, scale: 2 }),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdIdx: index("summon_offspring_session_id_idx").on(table.sessionId),
+  heroIdIdx: uniqueIndex("summon_offspring_hero_id_idx").on(table.heroId),
+  mainClassIdx: index("summon_offspring_main_class_idx").on(table.mainClass),
+}));
+
+export const insertSummonOffspringSchema = createInsertSchema(summonOffspring).omit({ id: true, createdAt: true });
+export type InsertSummonOffspring = z.infer<typeof insertSummonOffspringSchema>;
+export type SummonOffspring = typeof summonOffspring.$inferSelect;
+
+/**
+ * Summon Sales Outcomes - Track whether offspring sold and at what profit/loss
+ */
+export const summonSalesOutcomes = pgTable("summon_sales_outcomes", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull().references(() => summonSessions.id),
+  offspringId: integer("offspring_id").notNull().references(() => summonOffspring.id),
+  
+  // Listing info
+  listedAt: timestamp("listed_at", { withTimezone: true }),
+  listPriceNative: numeric("list_price_native", { precision: 30, scale: 8 }),
+  
+  // Sale result
+  soldAt: timestamp("sold_at", { withTimezone: true }),
+  salePriceNative: numeric("sale_price_native", { precision: 30, scale: 8 }),
+  salePriceUsd: numeric("sale_price_usd", { precision: 15, scale: 2 }),
+  buyerAddress: text("buyer_address"),
+  saleTxHash: text("sale_tx_hash"),
+  
+  // Time metrics
+  timeOnMarketHours: numeric("time_on_market_hours", { precision: 10, scale: 2 }),
+  
+  // Profit/Loss calculation
+  profitNative: numeric("profit_native", { precision: 30, scale: 8 }),
+  profitUsd: numeric("profit_usd", { precision: 15, scale: 2 }),
+  profitMarginPercent: numeric("profit_margin_percent", { precision: 10, scale: 2 }),
+  
+  // Outcome status: 'listed', 'sold', 'expired', 'delisted', 'burned'
+  outcome: text("outcome").notNull().default('listed'),
+  lossReason: text("loss_reason"), // If outcome is not 'sold'
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdIdx: index("summon_sales_outcomes_session_id_idx").on(table.sessionId),
+  outcomeIdx: index("summon_sales_outcomes_outcome_idx").on(table.outcome),
+  soldAtIdx: index("summon_sales_outcomes_sold_at_idx").on(table.soldAt),
+}));
+
+export const insertSummonSalesOutcomeSchema = createInsertSchema(summonSalesOutcomes).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSummonSalesOutcome = z.infer<typeof insertSummonSalesOutcomeSchema>;
+export type SummonSalesOutcome = typeof summonSalesOutcomes.$inferSelect;
+
+/**
+ * Summon Conversion Metrics - Per-cohort conversion rates and profit stats
+ */
+export const summonConversionMetrics = pgTable("summon_conversion_metrics", {
+  id: serial("id").primaryKey(),
+  realm: text("realm").notNull(),
+  asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(),
+  
+  // Cohort definition (offspring characteristics)
+  mainClass: text("main_class").notNull(),
+  subClass: text("sub_class"),
+  profession: text("profession"),
+  rarity: integer("rarity"),
+  traitScoreBand: text("trait_score_band"), // '0-3', '4-6', '7-9', '10-12'
+  
+  // Conversion metrics
+  totalSummons: integer("total_summons").default(0),
+  listedCount: integer("listed_count").default(0),
+  soldCount: integer("sold_count").default(0),
+  conversionRate: numeric("conversion_rate", { precision: 5, scale: 4 }), // 0.0000 - 1.0000
+  
+  // Time metrics
+  avgTimeToSaleHours: numeric("avg_time_to_sale_hours", { precision: 10, scale: 2 }),
+  medianTimeToSaleHours: numeric("median_time_to_sale_hours", { precision: 10, scale: 2 }),
+  
+  // Profit metrics
+  avgProfitNative: numeric("avg_profit_native", { precision: 30, scale: 8 }),
+  avgProfitUsd: numeric("avg_profit_usd", { precision: 15, scale: 2 }),
+  avgLossNative: numeric("avg_loss_native", { precision: 30, scale: 8 }), // Average loss on non-converters
+  avgLossUsd: numeric("avg_loss_usd", { precision: 15, scale: 2 }),
+  
+  // Risk-adjusted profit formula components
+  expectedValueNative: numeric("expected_value_native", { precision: 30, scale: 8 }),
+  riskAdjustedProfitNative: numeric("risk_adjusted_profit_native", { precision: 30, scale: 8 }),
+  
+  // Confidence
+  sampleSize: integer("sample_size").default(0),
+  confidenceLevel: text("confidence_level").default('low'), // 'low', 'medium', 'high' based on sample size
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  realmDateIdx: index("summon_conversion_metrics_realm_date_idx").on(table.realm, table.asOfDate),
+  cohortIdx: index("summon_conversion_metrics_cohort_idx").on(table.realm, table.mainClass, table.rarity),
+  conversionRateIdx: index("summon_conversion_metrics_conv_rate_idx").on(table.conversionRate),
+}))
+
+export const insertSummonConversionMetricsSchema = createInsertSchema(summonConversionMetrics).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSummonConversionMetrics = z.infer<typeof insertSummonConversionMetricsSchema>;
+export type SummonConversionMetrics = typeof summonConversionMetrics.$inferSelect;
