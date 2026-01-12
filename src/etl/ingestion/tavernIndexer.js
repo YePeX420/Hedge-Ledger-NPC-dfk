@@ -1166,7 +1166,8 @@ async function fetchHeroGenesFromGraphQL(heroId, retryCount = 0) {
 function decodeStatGenesLocal(statGenes) {
   if (!statGenes) return null;
   
-  const kai = '123456789abcdefghjkmnpqrstuvwx';
+  // Use the same 32-character Kai alphabet as gene-decoder.js
+  const kai = '123456789abcdefghijkmnopqrstuvwx';
   const genesBigInt = BigInt(statGenes);
   let kaiString = '';
   let temp = genesBigInt;
@@ -1199,7 +1200,8 @@ function decodeStatGenesLocal(statGenes) {
 }
 
 function kaiToId(kaiChar) {
-  const kai = '123456789abcdefghjkmnpqrstuvwx';
+  // Use the same 32-character Kai alphabet as gene-decoder.js
+  const kai = '123456789abcdefghijkmnopqrstuvwx';
   return kai.indexOf(kaiChar);
 }
 
@@ -1400,6 +1402,41 @@ export async function resetBrokenGeneStatus() {
   console.log(`[GeneBackfill] Reset ${brokenCount} heroes to genes_status='pending'`);
   
   return { ok: true, reset: brokenCount };
+}
+
+// Reset ALL gene statuses to pending for complete re-indexing
+// Use this after fixing gene decoding bugs
+export async function resetAllGeneStatus() {
+  await ensureTablesExist();
+  
+  console.log('[GeneBackfill] Resetting ALL genes_status to pending for re-indexing...');
+  
+  // Count how many will be reset
+  const countResult = await db.execute(sql`
+    SELECT COUNT(*) as count
+    FROM tavern_heroes
+    WHERE genes_status = 'complete'
+  `);
+  
+  const countRows = Array.isArray(countResult) ? countResult : (countResult.rows || []);
+  const resetCount = parseInt(countRows[0]?.count || 0);
+  
+  console.log(`[GeneBackfill] Found ${resetCount} heroes with genes_status='complete' to reset`);
+  
+  if (resetCount === 0) {
+    return { ok: true, message: 'No complete records found', reset: 0 };
+  }
+  
+  // Reset their status to 'pending' so they get re-processed with fixed alphabet
+  await db.execute(sql`
+    UPDATE tavern_heroes
+    SET genes_status = 'pending'
+    WHERE genes_status = 'complete'
+  `);
+  
+  console.log(`[GeneBackfill] Reset ${resetCount} heroes to genes_status='pending'`);
+  
+  return { ok: true, reset: resetCount };
 }
 
 // ============================================================================

@@ -8932,6 +8932,21 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/tavern-indexer/reset-all-genes - Reset ALL genes_status for complete re-indexing
+  app.post("/api/admin/tavern-indexer/reset-all-genes", isAdmin, async (req, res) => {
+    try {
+      const { resetAllGeneStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      console.log('[Gene Backfill] Reset ALL genes requested (for re-indexing with fixed alphabet)');
+      const result = await resetAllGeneStatus();
+      
+      res.json(result);
+    } catch (error) {
+      console.error('[Gene Backfill] Reset all genes error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // ============================================================================
   // MARKET INTEL & SALE INGESTION ENDPOINTS
   // ============================================================================
