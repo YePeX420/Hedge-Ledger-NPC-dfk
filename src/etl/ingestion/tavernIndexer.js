@@ -747,6 +747,68 @@ export function stopAutoRun() {
   return { status: 'stopped' };
 }
 
+// Abort flag for stopping running workers
+let abortRequested = false;
+
+export function isAbortRequested() {
+  return abortRequested;
+}
+
+export async function forceStopIndexer() {
+  console.log('[TavernIndexer] Force stop requested');
+  
+  // Set abort flag to stop any running workers
+  abortRequested = true;
+  
+  // Stop auto-run if active
+  if (autoRunInterval) {
+    clearInterval(autoRunInterval);
+    autoRunInterval = null;
+    autoRunIntervalMs = null;
+    autoRunLastTrigger = null;
+  }
+  
+  // Reset in-memory state
+  indexerState = {
+    isRunning: false,
+    startedAt: null,
+    batchId: null,
+    workers: [],
+    totalHeroesIndexed: 0,
+    cvHeroesIndexed: 0,
+    sdHeroesIndexed: 0,
+    errors: []
+  };
+  
+  // Reset tables initialized flag so next status call re-initializes
+  tablesInitialized = false;
+  
+  // Update database progress to idle (with timeout to prevent hanging)
+  try {
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Database update timeout')), 5000)
+    );
+    const updatePromise = db.execute(sql`
+      UPDATE tavern_indexer_progress 
+      SET status = 'idle', last_error = NULL
+      WHERE status = 'running'
+    `);
+    await Promise.race([updatePromise, timeoutPromise]);
+    console.log('[TavernIndexer] Database progress reset to idle');
+  } catch (err) {
+    console.error('[TavernIndexer] Failed to reset database progress:', err.message);
+    // Continue anyway - the main goal is to reset in-memory state
+  }
+  
+  // Clear abort flag after a short delay to allow workers to see it
+  setTimeout(() => {
+    abortRequested = false;
+  }, 1000);
+  
+  console.log('[TavernIndexer] Force stop complete');
+  return { ok: true, message: 'Indexer force stopped' };
+}
+
 // ============================================================================
 // STATUS AND QUERIES
 // ============================================================================
@@ -776,13 +838,22 @@ export function getIndexerStatus() {
 }
 
 export async function getIndexerProgress() {
-  await ensureTablesExist();
-  
-  const result = await db.execute(sql`
-    SELECT * FROM tavern_indexer_progress ORDER BY realm
-  `);
-  
-  return Array.isArray(result) ? result : (result.rows || []);
+  try {
+    await ensureTablesExist();
+    
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Query timeout')), 10000)
+    );
+    const queryPromise = db.execute(sql`
+      SELECT * FROM tavern_indexer_progress ORDER BY realm
+    `);
+    const result = await Promise.race([queryPromise, timeoutPromise]);
+    
+    return Array.isArray(result) ? result : (result.rows || []);
+  } catch (err) {
+    console.error('[TavernIndexer] getIndexerProgress error:', err.message);
+    return [];
+  }
 }
 
 export async function getTavernHeroes(options = {}) {
@@ -978,21 +1049,30 @@ export async function getTavernHeroes(options = {}) {
 }
 
 export async function getTavernStats() {
-  await ensureTablesExist();
-  
-  const result = await db.execute(sql`
-    SELECT 
-      realm,
-      COUNT(*) as total_heroes,
-      AVG(trait_score) as avg_tts,
-      MIN(price_native) as min_price,
-      MAX(price_native) as max_price,
-      AVG(price_native) as avg_price
-    FROM tavern_heroes
-    GROUP BY realm
-  `);
-  
-  return Array.isArray(result) ? result : (result.rows || []);
+  try {
+    await ensureTablesExist();
+    
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Query timeout')), 10000)
+    );
+    const queryPromise = db.execute(sql`
+      SELECT 
+        realm,
+        COUNT(*) as total_heroes,
+        AVG(trait_score) as avg_tts,
+        MIN(price_native) as min_price,
+        MAX(price_native) as max_price,
+        AVG(price_native) as avg_price
+      FROM tavern_heroes
+      GROUP BY realm
+    `);
+    const result = await Promise.race([queryPromise, timeoutPromise]);
+    
+    return Array.isArray(result) ? result : (result.rows || []);
+  } catch (err) {
+    console.error('[TavernIndexer] getTavernStats error:', err.message);
+    return [];
+  }
 }
 
 export async function resetTavernIndex() {

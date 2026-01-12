@@ -8798,6 +8798,23 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/tavern-indexer/force-stop - Force stop indexer and reset state
+  app.post("/api/admin/tavern-indexer/force-stop", isAdmin, async (req, res) => {
+    try {
+      const { forceStopIndexer, getIndexerStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      console.log('[Tavern Indexer] Force stop requested');
+      
+      const result = await forceStopIndexer();
+      const status = getIndexerStatus();
+      
+      res.json({ ok: true, ...result, status });
+    } catch (error) {
+      console.error('[Tavern Indexer] Force stop error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/tavern-indexer/heroes - Get indexed heroes with filters
   app.get("/api/admin/tavern-indexer/heroes", isAdmin, async (req, res) => {
     try {

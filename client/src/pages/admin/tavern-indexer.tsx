@@ -196,6 +196,17 @@ export default function TavernIndexerAdmin() {
     },
   });
 
+  const forceStopMutation = useMutation({
+    mutationFn: async () => apiRequest('POST', '/api/admin/tavern-indexer/force-stop', {}),
+    onSuccess: () => {
+      toast({ title: "Force stopped", description: "Indexer state has been reset" });
+      refetch();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const status = data?.status;
   const progress = data?.progress || [];
   const stats = data?.stats || [];
@@ -358,6 +369,20 @@ export default function TavernIndexerAdmin() {
                 Start Auto-Run (30m)
               </Button>
             )}
+
+            <Button
+              variant="secondary"
+              onClick={() => forceStopMutation.mutate()}
+              disabled={forceStopMutation.isPending}
+              data-testid="button-force-stop"
+            >
+              {forceStopMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Square className="h-4 w-4 mr-2" />
+              )}
+              Force Stop
+            </Button>
 
             <AlertDialog>
               <AlertDialogTrigger asChild>
