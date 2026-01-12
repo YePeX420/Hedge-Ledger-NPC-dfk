@@ -2,14 +2,23 @@
  * Hero Summoning Probability Engine
  * 
  * Calculates offspring trait probabilities using DeFi Kingdoms genetics system.
- * Uses weighted gene selection: D=75%, R1=18.75%, R2=5.5%, R3=0.75%
+ * Uses weighted gene selection: D=75%, R1=18.75%, R2=4.6875%, R3=1.5625%
  * Includes class mutation system for advanced/elite/exalted classes.
+ * 
+ * IMPORTANT: This engine produces ACTUAL ON-CHAIN CONTRACT ODDS, not display-only
+ * visualizations. The dfk-adventures.herokuapp.com calculator uses a different
+ * "tier reassignment" display model that shows higher percentages for elite skills
+ * (e.g., 33.98% for Stun vs our 14.06%). Our 14.06% is mathematically correct per
+ * the DFK smart contract logic:
+ * - P(Stun) = P(D+D) × P(mutation) = 0.75 × 0.75 × 0.25 = 14.0625%
  * 
  * Algorithm:
  * 1. For each of 16 position combinations (P1.D×P2.D, P1.D×P2.R1, etc.)
  * 2. Calculate combination weight (e.g., 0.75 × 0.75 = 0.5625)
  * 3. 50% chance P1's gene selected, 50% chance P2's gene selected
- * 4. If genes form mutation pair, 25% of the time mutated class is chosen instead
+ * 4. If genes form mutation pair:
+ *    - 25% mutation rate for Basic→Advanced and Advanced→Elite
+ *    - 12.5% mutation rate for Elite→Exalted (e.g., Resurrection)
  */
 
 import { calculateRarityDistribution } from './rarity-calculator.js';
@@ -78,7 +87,11 @@ const CLASS_MUTATION_MAP = {
   'Sage+Dragoon': 'DreadKnight'
 };
 
-const MUTATION_CHANCE = 0.25;
+const MUTATION_CHANCE_STANDARD = 0.25;  // Basic→Advanced, Advanced→Elite
+const MUTATION_CHANCE_EXALTED = 0.125;  // Elite→Exalted (Transcendent)
+
+// Exalted/Transcendent skill outcomes - these use the lower 12.5% mutation rate
+const EXALTED_SKILLS = new Set(['Resurrection', 'Second Life', 'DreadKnight']);
 
 /**
  * Active Skill Mutation Map
@@ -330,8 +343,9 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
  * 1. Calculate combination weight (P1.pos × P2.pos)
  * 2. Check if the two genes form a mutation pair
  * 3. If mutation pair:
- *    - 25% chance: mutated trait is selected
- *    - 75% chance: one of the parent genes is selected (50/50)
+ *    - 25% mutation rate for Basic→Advanced and Advanced→Elite
+ *    - 12.5% mutation rate for Elite→Exalted (e.g., Resurrection, Second Life, DreadKnight)
+ *    - Remaining probability: one of the parent genes is selected (50/50)
  * 4. If not mutation pair:
  *    - P1 gene gets 50%, P2 gene gets 50%
  * 
@@ -367,10 +381,13 @@ function calculateTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
       
       if (mutatedTrait) {
         // Mutation is possible!
-        // 25% chance: mutated trait is selected
-        // 75% chance: one of the parent genes is selected (50/50)
-        const mutationProb = combinationWeight * MUTATION_CHANCE * 100;
-        const nonMutationProb = combinationWeight * (1 - MUTATION_CHANCE) * 100;
+        // Use lower mutation rate for exalted/transcendent outcomes (12.5%)
+        const mutationChance = EXALTED_SKILLS.has(mutatedTrait) 
+          ? MUTATION_CHANCE_EXALTED 
+          : MUTATION_CHANCE_STANDARD;
+        
+        const mutationProb = combinationWeight * mutationChance * 100;
+        const nonMutationProb = combinationWeight * (1 - mutationChance) * 100;
         
         // Add mutation outcome
         outcomes[mutatedTrait] = (outcomes[mutatedTrait] || 0) + mutationProb;
@@ -384,14 +401,6 @@ function calculateTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
         const prob = combinationWeight * 100;
         outcomes[gene1] = (outcomes[gene1] || 0) + (prob * 0.5);
         outcomes[gene2] = (outcomes[gene2] || 0) + (prob * 0.5);
-      }
-      
-      // Mark recessive genes as mutations (for highlighting) - only if NOT a skill mutation result
-      if (gene1 !== parent1Dominant && gene1 !== parent2Dominant && !mutationMap[`${gene1}+${gene1}`]) {
-        // Don't mark base genes as mutations - only mark actual mutation results
-      }
-      if (gene2 !== parent1Dominant && gene2 !== parent2Dominant && !mutationMap[`${gene2}+${gene2}`]) {
-        // Don't mark base genes as mutations - only mark actual mutation results
       }
     }
   }
@@ -492,9 +501,9 @@ export function calculateVisualTraitWithMutations(parent1Trait, parent2Trait, mu
       const mutatedGene = mutationMap[mutationKey];
       
       if (mutatedGene !== undefined && gene1 !== gene2) {
-        // Mutation possible - 25% chance to produce mutation result
-        const mutationProb = combinationWeight * MUTATION_CHANCE * 100;
-        const nonMutationProb = combinationWeight * (1 - MUTATION_CHANCE) * 100;
+        // Mutation possible - 25% chance for visual trait mutations (no exalted visual traits)
+        const mutationProb = combinationWeight * MUTATION_CHANCE_STANDARD * 100;
+        const nonMutationProb = combinationWeight * (1 - MUTATION_CHANCE_STANDARD) * 100;
         
         // Add mutation outcome
         outcomes[mutatedGene] = (outcomes[mutatedGene] || 0) + mutationProb;
