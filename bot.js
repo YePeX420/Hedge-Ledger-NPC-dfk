@@ -12359,13 +12359,37 @@ async function startAdminWebServer() {
     console.log(`❌ Failed to setup Vite: ${err.message}`);
     console.log('Falling back to static file serving...');
 
-    // Runtime workaround: If dist/public exists (from Vite build), sync it to static-build
-    // This handles Replit deployments where build and run phases are separate containers
     const staticBuildPath = path.resolve(import.meta.dirname, 'static-build');
     const distPublicPath = path.resolve(import.meta.dirname, 'dist', 'public');
+    const staticBuildIndex = path.resolve(staticBuildPath, 'index.html');
     const distPublicIndex = path.resolve(distPublicPath, 'index.html');
     
-    if (fs.existsSync(distPublicIndex)) {
+    // Check if we have any built frontend files
+    const hasStaticBuild = fs.existsSync(staticBuildIndex);
+    const hasDistPublic = fs.existsSync(distPublicIndex);
+    
+    // If no frontend build exists at all, run vite build at startup
+    // This handles Replit deployments where build artifacts don't persist to run phase
+    if (!hasStaticBuild && !hasDistPublic) {
+      console.log('🔨 No frontend build found - running vite build at startup...');
+      try {
+        const { execSync } = await import('child_process');
+        // Build directly into static-build to avoid sync issues
+        execSync('npx vite build --outDir static-build', { 
+          stdio: 'inherit',
+          cwd: import.meta.dirname,
+          timeout: 300000 // 5 minute timeout
+        });
+        console.log('✅ Frontend build completed to static-build/');
+      } catch (buildErr) {
+        console.error('❌ CRITICAL: Failed to build frontend:', buildErr.message);
+        console.error('❌ Server will not be able to serve the web interface.');
+        // Don't abort - API endpoints should still work even if frontend fails
+      }
+    }
+    
+    // After potential build, sync dist/public to static-build if it exists (for builds that went to dist/public)
+    if (fs.existsSync(distPublicIndex) && !fs.existsSync(staticBuildIndex)) {
       console.log('📦 Syncing dist/public to static-build for runtime serving...');
       try {
         // Clear existing static-build to avoid stale files
@@ -12396,7 +12420,7 @@ async function startAdminWebServer() {
     }
 
     // Check multiple possible build output directories
-    // - static-build/: Primary location (committed to repo, copied at runtime)
+    // - static-build/: Primary location (synced from dist/public)
     // - dist/public/: Vite build output
     // - dist/: Alternative location
     const possiblePaths = [
