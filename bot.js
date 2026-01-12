@@ -9495,6 +9495,9 @@ async function startAdminWebServer() {
       const { rawPg } = await import('./server/db.js');
       const { getHeroById } = await import('./onchain-data.js');
       
+      // Check if minSummonsRemaining was explicitly provided
+      const minSummonsExplicit = req.body.minSummonsRemaining !== undefined;
+      
       const {
         targetClasses = [],
         targetProfessions = [],
@@ -9550,9 +9553,15 @@ async function startAdminWebServer() {
       const isDarkSummon = summonType === 'dark';
       const isMyHeroMode = searchMode === 'myHero' && myHeroId;
       
+      // For regular summons, default to requiring at least 1 summon remaining
+      // Only apply this default if minSummonsRemaining was NOT explicitly set by the client
+      const effectiveMinSummons = (!minSummonsExplicit && !isDarkSummon && minSummonsRemaining === 0) 
+        ? 1 
+        : minSummonsRemaining;
+      
       console.log('[Sniper] Search request:', { 
         targetClasses: classArray, targetProfessions: professionArray, 
-        realms, minSummonsRemaining, maxSummonsRemaining, minRarity, minLevel, maxTTS, tearPrice,
+        realms, minSummonsRemaining: effectiveMinSummons, maxSummonsRemaining, minRarity, minLevel, maxTTS, tearPrice,
         summonType, searchMode, myHeroId: isMyHeroMode ? myHeroId : null
       });
 
@@ -9684,8 +9693,9 @@ async function startAdminWebServer() {
         const heroTTS = parseInt(hero.trait_score) || 0;
         
         // Apply filters
-        if (summonsRemaining < minSummonsRemaining) continue;
-        if (maxSummonsRemaining !== undefined && summonsRemaining > maxSummonsRemaining) continue;
+        // Dark Summon can use heroes with 0 regular summons remaining, so skip this filter for dark summon
+        if (!isDarkSummon && summonsRemaining < effectiveMinSummons) continue;
+        if (!isDarkSummon && maxSummonsRemaining !== undefined && summonsRemaining > maxSummonsRemaining) continue;
         if (rarity < minRarity) continue;
         if (generation > maxGeneration) continue;
         if (level < safeMinLevel) continue;
@@ -9708,7 +9718,30 @@ async function startAdminWebServer() {
           trait_score: heroTTS,
           combat_power: parseInt(hero.combat_power) || 0,
           stat_genes: hero.stat_genes,
-          visual_genes: hero.visual_genes
+          visual_genes: hero.visual_genes,
+          genes_status: hero.genes_status,
+          main_class_r1: hero.main_class_r1,
+          main_class_r2: hero.main_class_r2,
+          main_class_r3: hero.main_class_r3,
+          sub_class_r1: hero.sub_class_r1,
+          sub_class_r2: hero.sub_class_r2,
+          sub_class_r3: hero.sub_class_r3,
+          active1: hero.active1,
+          active2: hero.active2,
+          passive1: hero.passive1,
+          passive2: hero.passive2,
+          active1_r1: hero.active1_r1,
+          active1_r2: hero.active1_r2,
+          active1_r3: hero.active1_r3,
+          active2_r1: hero.active2_r1,
+          active2_r2: hero.active2_r2,
+          active2_r3: hero.active2_r3,
+          passive1_r1: hero.passive1_r1,
+          passive1_r2: hero.passive1_r2,
+          passive1_r3: hero.passive1_r3,
+          passive2_r1: hero.passive2_r1,
+          passive2_r2: hero.passive2_r2,
+          passive2_r3: hero.passive2_r3
         });
       }
       
@@ -9973,10 +10006,10 @@ async function startAdminWebServer() {
       pairsWithTarget.sort((a, b) => a.totalCost - b.totalCost);
       pairsWithoutTarget.sort((a, b) => a.totalCost - b.totalCost);
       
-      // Take up to 80 pairs with target heroes + 20 cheapest without
-      // In myHero mode, take more since we have fewer total pairs
-      const targetLimit = isMyHeroMode ? 150 : 80;
-      const otherLimit = isMyHeroMode ? 50 : 20;
+      // Score more pairs for better coverage - with indexed gene data this is fast
+      // Sample from different price ranges to avoid missing expensive but good pairs
+      const targetLimit = isMyHeroMode ? 2000 : 2000;
+      const otherLimit = isMyHeroMode ? 200 : 200;
       const pairsToScore = [
         ...pairsWithTarget.slice(0, targetLimit),
         ...pairsWithoutTarget.slice(0, otherLimit)
@@ -9984,34 +10017,142 @@ async function startAdminWebServer() {
       
       console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs (${pairsWithTarget.length} with target class), scoring ${pairsToScore.length}`);
 
-      // Cache for hero genes - pre-populated from indexed database
-      const geneCache = new Map();
+      // Class gene ID to name mapping
+      const CLASS_GENE_MAP = [
+        'Warrior', 'Knight', 'Thief', 'Archer', 'Priest', 'Wizard', 'Monk', 'Pirate',
+        'Berserker', 'Seer', 'Legionnaire', 'Scholar', 'Unknown12', 'Unknown13', 'Unknown14', 'Unknown15',
+        'Paladin', 'DarkKnight', 'Summoner', 'Ninja', 'Shapeshifter', 'Bard', 'Unknown22', 'Unknown23',
+        'Dragoon', 'Sage', 'Spellbow', 'Unknown27', 'DreadKnight', 'Unknown29', 'Unknown30', 'Unknown31'
+      ];
       
-      // Pre-populate cache from indexed heroes (all have stat_genes already)
+      // Skill gene ID to name mapping (sparse)
+      const ACTIVE_GENE_MAP = {
+        0: 'Poisoned Blade', 1: 'Blinding Winds', 2: 'Heal', 3: 'Cleanse',
+        4: 'Iron Skin', 5: 'Speed', 6: 'Critical Aim', 7: 'Deathmark',
+        16: 'Exhaust', 17: 'Silence', 18: 'Backstab', 19: 'Inner Calm',
+        24: 'Stun', 25: 'Second Wind', 28: 'Resurrection'
+      };
+      
+      const PASSIVE_GENE_MAP = {
+        0: 'Duelist', 1: 'Clutch', 2: 'Foresight', 3: 'Headstrong',
+        4: 'Clear Vision', 5: 'Fearless', 6: 'Chatterbox', 7: 'Stalwart',
+        16: 'Leadership', 17: 'Efficient', 18: 'Intimidation', 19: 'Toxic',
+        24: 'Giant Slayer', 25: 'Last Stand', 28: 'Second Life'
+      };
+
+      // Build genetics object from indexed hero component columns
+      function buildGeneticsFromIndex(hero) {
+        const getClassName = (geneId) => CLASS_GENE_MAP[parseInt(geneId)] || `Unknown${geneId}`;
+        const getActiveName = (geneId) => ACTIVE_GENE_MAP[parseInt(geneId)] || `Unknown`;
+        const getPassiveName = (geneId) => PASSIVE_GENE_MAP[parseInt(geneId)] || `Unknown`;
+        
+        // Parse skill ID from "ability_X" format (e.g., "ability_7" -> 7)
+        const parseSkillId = (skillStr) => {
+          if (!skillStr) return null;
+          const match = skillStr.match(/ability_(\d+)/);
+          return match ? parseInt(match[1]) : null;
+        };
+        
+        // Get dominant active/passive skill names from the "ability_X" format columns
+        const getDominantActive = (skillStr) => {
+          const id = parseSkillId(skillStr);
+          return id !== null ? getActiveName(id) : 'Unknown';
+        };
+        const getDominantPassive = (skillStr) => {
+          const id = parseSkillId(skillStr);
+          return id !== null ? getPassiveName(id) : 'Unknown';
+        };
+        
+        // Profession mapping (database stores lowercase)
+        const PROFESSION_MAP = {
+          'mining': 'Mining',
+          'gardening': 'Gardening',
+          'fishing': 'Fishing',
+          'foraging': 'Foraging'
+        };
+        
+        return {
+          id: hero.hero_id,
+          mainClass: {
+            dominant: hero.main_class || 'Unknown',
+            R1: getClassName(hero.main_class_r1),
+            R2: getClassName(hero.main_class_r2),
+            R3: getClassName(hero.main_class_r3)
+          },
+          subClass: {
+            dominant: hero.sub_class || 'Unknown',
+            R1: getClassName(hero.sub_class_r1),
+            R2: getClassName(hero.sub_class_r2),
+            R3: getClassName(hero.sub_class_r3)
+          },
+          profession: {
+            dominant: PROFESSION_MAP[hero.profession] || 'Unknown',
+            R1: 'Unknown', R2: 'Unknown', R3: 'Unknown'
+          },
+          passive1: {
+            dominant: getDominantPassive(hero.passive1),
+            R1: getPassiveName(hero.passive1_r1),
+            R2: getPassiveName(hero.passive1_r2),
+            R3: getPassiveName(hero.passive1_r3)
+          },
+          passive2: {
+            dominant: getDominantPassive(hero.passive2),
+            R1: getPassiveName(hero.passive2_r1),
+            R2: getPassiveName(hero.passive2_r2),
+            R3: getPassiveName(hero.passive2_r3)
+          },
+          active1: {
+            dominant: getDominantActive(hero.active1),
+            R1: getActiveName(hero.active1_r1),
+            R2: getActiveName(hero.active1_r2),
+            R3: getActiveName(hero.active1_r3)
+          },
+          active2: {
+            dominant: getDominantActive(hero.active2),
+            R1: getActiveName(hero.active2_r1),
+            R2: getActiveName(hero.active2_r2),
+            R3: getActiveName(hero.active2_r3)
+          },
+          statBoost1: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+          statBoost2: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+          element: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+          visual: {
+            gender: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+            headAppendage: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown', dominantValue: 0, R1Value: 0, R2Value: 0, R3Value: 0 },
+            backAppendage: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown', dominantValue: 0, R1Value: 0, R2Value: 0, R3Value: 0 },
+            background: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown', dominantValue: 0, R1Value: 0, R2Value: 0, R3Value: 0 },
+            hairStyle: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+            hairColor: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+            eyeColor: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+            skinColor: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+            appendageColor: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' },
+            backAppendageColor: { dominant: 'Unknown', R1: 'Unknown', R2: 'Unknown', R3: 'Unknown' }
+          }
+        };
+      }
+
+      // Cache for hero genetics - pre-populated from indexed database using component columns
+      const geneticsCache = new Map();
+      
+      // Pre-populate cache from indexed heroes using component columns
       for (const h of heroes) {
-        if (h.stat_genes) {
-          geneCache.set(h.hero_id, {
-            statGenes: h.stat_genes,
-            visualGenes: h.visual_genes
-          });
+        if (h.genes_status === 'complete' && h.main_class_r1 !== null) {
+          geneticsCache.set(h.hero_id, buildGeneticsFromIndex(h));
         }
       }
-      console.log(`[Sniper] Pre-cached ${geneCache.size} hero genes from index`);
+      console.log(`[Sniper] Pre-cached ${geneticsCache.size} hero genetics from component columns`);
       
-      // Pre-populate cache with user's hero genes if available
+      // Pre-populate cache with user's hero genes if available (uses raw gene decoding)
       if (userHero && userHero.statGenes) {
-        geneCache.set(userHero.hero_id, {
-          statGenes: userHero.statGenes,
-          visualGenes: userHero.visualGenes
-        });
-        console.log(`[Sniper] Pre-cached user hero genes for ${userHero.hero_id}`);
+        geneticsCache.set(userHero.hero_id, decodeHeroGenes(userHero));
+        console.log(`[Sniper] Pre-cached user hero genetics for ${userHero.hero_id}`);
       }
       
-      function getHeroGenes(heroId) {
-        if (geneCache.has(heroId)) {
-          return geneCache.get(heroId);
+      function getHeroGenetics(heroId) {
+        if (geneticsCache.has(heroId)) {
+          return geneticsCache.get(heroId);
         }
-        console.log(`[Sniper] Warning: No genes found for hero ${heroId} (not in index)`);
+        console.log(`[Sniper] Warning: No genetics found for hero ${heroId} (not in index)`);
         return null;
       }
 
@@ -10020,15 +10161,11 @@ async function startAdminWebServer() {
       
       for (const { hero1, hero2, realm, purchaseCost, summonTokenCost, tearCost, tearCount, bridgeCostUsd, heroesNeedingBridge, totalCost } of pairsToScore) {
         try {
-          // Get genes from pre-populated cache (indexed data)
-          const genes1 = getHeroGenes(hero1.hero_id);
-          const genes2 = getHeroGenes(hero2.hero_id);
+          // Get pre-decoded genetics from cache
+          const genetics1 = getHeroGenetics(hero1.hero_id);
+          const genetics2 = getHeroGenetics(hero2.hero_id);
           
-          if (!genes1 || !genes2) continue;
-          
-          // Decode genetics
-          const genetics1 = decodeHeroGenes(genes1);
-          const genetics2 = decodeHeroGenes(genes2);
+          if (!genetics1 || !genetics2) continue;
 
           const rarity1 = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero1.rarity] || 'Common';
           const rarity2 = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero2.rarity] || 'Common';
