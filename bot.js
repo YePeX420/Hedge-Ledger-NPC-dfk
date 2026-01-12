@@ -9113,6 +9113,29 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/market-intel/price-recommendation - Get hero price recommendation
+  app.get("/api/admin/market-intel/price-recommendation", isAdmin, async (req, res) => {
+    try {
+      const { getHeroPriceRecommendation } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      const params = {
+        mainClass: req.query.mainClass || null,
+        rarity: req.query.rarity !== undefined && req.query.rarity !== '' ? req.query.rarity : null,
+        levelMin: req.query.levelMin || null,
+        levelMax: req.query.levelMax || null,
+        profession: req.query.profession || null,
+        realm: req.query.realm || null
+      };
+      
+      const result = await getHeroPriceRecommendation(params);
+      
+      res.json(result);
+    } catch (error) {
+      console.error('[Market Intel] Price recommendation error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // ============================================================================
   // SUMMON PROFIT TRACKER ENDPOINTS
   // ============================================================================

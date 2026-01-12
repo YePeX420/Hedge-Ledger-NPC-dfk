@@ -9,7 +9,7 @@
  * 4. Update demand metrics based on sale velocity
  */
 
-import { db } from '../../../server/db.js';
+import { db, rawPg } from '../../../server/db.js';
 import { sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
@@ -617,6 +617,145 @@ export async function initializeSaleTables() {
     return { ok: true };
   } catch (err) {
     console.error('[SaleIngestion] Table initialization error:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+export async function getHeroPriceRecommendation(params) {
+  try {
+    await ensureSaleTablesExist();
+    
+    const { mainClass, rarity, levelMin, levelMax, profession, realm } = params;
+    
+    // Build query based on provided filters
+    // Use a flexible approach: get all sales from last 30 days with hero data, filter in JS
+    const allSales = await rawPg`
+      SELECT 
+        ts.hero_id,
+        ts.price_amount,
+        ts.token_symbol,
+        ts.sale_timestamp,
+        ts.realm,
+        hs.main_class,
+        hs.sub_class,
+        hs.rarity,
+        hs.level,
+        hs.profession
+      FROM tavern_sales ts
+      LEFT JOIN hero_snapshots hs ON ts.id = hs.sale_id
+      WHERE ts.sale_timestamp > NOW() - INTERVAL '30 days'
+      ORDER BY ts.sale_timestamp DESC
+      LIMIT 500
+    `;
+    
+    // Apply filters in JavaScript for flexibility
+    let similarSales = allSales.filter(s => {
+      // Realm filter
+      if (realm && s.realm !== realm) return false;
+      // Class filter
+      if (mainClass && s.main_class !== mainClass) return false;
+      // Rarity filter
+      if (rarity !== undefined && rarity !== null && rarity !== '' && s.rarity !== parseInt(rarity)) return false;
+      // Level range
+      if (levelMin && (s.level === null || s.level < parseInt(levelMin))) return false;
+      if (levelMax && (s.level === null || s.level > parseInt(levelMax))) return false;
+      // Profession filter  
+      if (profession && s.profession !== profession) return false;
+      return true;
+    }).slice(0, 100);
+    
+    if (similarSales.length === 0) {
+      return {
+        ok: true,
+        recommendation: null,
+        similarSalesCount: 0,
+        message: 'No similar sales found. Try broadening your criteria.'
+      };
+    }
+    
+    // Calculate price statistics
+    const prices = similarSales
+      .map(s => parseFloat(s.price_amount))
+      .filter(p => !isNaN(p) && p > 0)
+      .sort((a, b) => a - b);
+    
+    if (prices.length === 0) {
+      return {
+        ok: true,
+        recommendation: null,
+        similarSalesCount: similarSales.length,
+        message: 'No valid price data found.'
+      };
+    }
+    
+    const sum = prices.reduce((a, b) => a + b, 0);
+    const avg = sum / prices.length;
+    const median = prices.length % 2 === 0
+      ? (prices[prices.length / 2 - 1] + prices[prices.length / 2]) / 2
+      : prices[Math.floor(prices.length / 2)];
+    const min = prices[0];
+    const max = prices[prices.length - 1];
+    
+    // Percentiles for buy/sell recommendations
+    const p10 = prices[Math.floor(prices.length * 0.1)] || min;
+    const p25 = prices[Math.floor(prices.length * 0.25)] || min;
+    const p75 = prices[Math.floor(prices.length * 0.75)] || max;
+    const p90 = prices[Math.floor(prices.length * 0.9)] || max;
+    
+    // Calculate standard deviation for confidence
+    const variance = prices.reduce((acc, p) => acc + Math.pow(p - avg, 2), 0) / prices.length;
+    const stdDev = Math.sqrt(variance);
+    const coefficientOfVariation = (stdDev / avg) * 100;
+    
+    // Confidence level based on sample size and price variation
+    let confidence = 'low';
+    if (similarSales.length >= 20 && coefficientOfVariation < 50) {
+      confidence = 'high';
+    } else if (similarSales.length >= 10 && coefficientOfVariation < 75) {
+      confidence = 'medium';
+    }
+    
+    const token = similarSales[0]?.token_symbol || (realm === 'cv' ? 'CRYSTAL' : 'JEWEL');
+    
+    return {
+      ok: true,
+      recommendation: {
+        // Buy recommendations (lower prices = better deals)
+        buyLow: Math.round(p10 * 100) / 100,      // Great deal
+        buyFair: Math.round(p25 * 100) / 100,     // Fair price to buy
+        
+        // Market price
+        marketMedian: Math.round(median * 100) / 100,
+        marketAverage: Math.round(avg * 100) / 100,
+        
+        // Sell recommendations (higher prices = better returns)
+        sellFair: Math.round(p75 * 100) / 100,    // Fair price to sell
+        sellHigh: Math.round(p90 * 100) / 100,    // Premium price
+        
+        priceRange: {
+          min: Math.round(min * 100) / 100,
+          max: Math.round(max * 100) / 100
+        },
+        
+        token,
+        confidence,
+        sampleSize: similarSales.length,
+        priceVariation: Math.round(coefficientOfVariation)
+      },
+      recentSales: similarSales.slice(0, 10).map(s => ({
+        heroId: s.hero_id,
+        price: parseFloat(s.price_amount),
+        token: s.token_symbol,
+        saleDate: s.sale_timestamp,
+        mainClass: s.main_class,
+        rarity: s.rarity,
+        level: s.level,
+        profession: s.profession
+      })),
+      similarSalesCount: similarSales.length
+    };
+  } catch (err) {
+    console.error('[SaleIngestion] getHeroPriceRecommendation error:', err.message);
     return { ok: false, error: err.message };
   }
 }

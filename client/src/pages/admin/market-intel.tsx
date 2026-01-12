@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, TrendingUp, TrendingDown, DollarSign, Clock, Target, Play, RefreshCw, Activity, BarChart3 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2, TrendingUp, TrendingDown, DollarSign, Clock, Target, Play, RefreshCw, Activity, BarChart3, Calculator, ShoppingCart, Tag, Percent } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const RARITY_NAMES: Record<number, string> = {
@@ -16,6 +18,47 @@ const RARITY_NAMES: Record<number, string> = {
 const RARITY_COLORS: Record<number, string> = {
   0: 'bg-gray-500', 1: 'bg-green-500', 2: 'bg-blue-500', 3: 'bg-orange-500', 4: 'bg-purple-500'
 };
+
+const CLASS_OPTIONS = [
+  'Warrior', 'Knight', 'Thief', 'Archer', 'Priest', 'Wizard',
+  'Monk', 'Pirate', 'Berserker', 'Seer', 'Legionnaire', 'Scholar',
+  'Paladin', 'DarkKnight', 'Summoner', 'Ninja', 'Shapeshifter',
+  'Bard', 'Dragoon', 'Sage', 'SpellBow', 'DreadKnight'
+];
+
+const PROFESSION_OPTIONS = ['mining', 'gardening', 'fishing', 'foraging'];
+
+interface PriceRecommendation {
+  buyLow: number;
+  buyFair: number;
+  marketMedian: number;
+  marketAverage: number;
+  sellFair: number;
+  sellHigh: number;
+  priceRange: { min: number; max: number };
+  token: string;
+  confidence: 'low' | 'medium' | 'high';
+  sampleSize: number;
+  priceVariation: number;
+}
+
+interface PriceRecommendationResponse {
+  ok: boolean;
+  recommendation: PriceRecommendation | null;
+  recentSales?: Array<{
+    heroId: string;
+    price: number;
+    token: string;
+    saleDate: string;
+    mainClass: string;
+    rarity: number;
+    level: number;
+    profession: string;
+  }>;
+  similarSalesCount: number;
+  message?: string;
+  error?: string;
+}
 
 interface SaleIngestionStatus {
   isRunning: boolean;
@@ -69,6 +112,44 @@ interface DemandMetric {
 export default function MarketIntelPage() {
   const { toast } = useToast();
   const [selectedRealm, setSelectedRealm] = useState<string>("all");
+  
+  // Price Tool State
+  const [priceToolClass, setPriceToolClass] = useState<string>("");
+  const [priceToolRarity, setPriceToolRarity] = useState<string>("");
+  const [priceToolLevelMin, setPriceToolLevelMin] = useState<string>("");
+  const [priceToolLevelMax, setPriceToolLevelMax] = useState<string>("");
+  const [priceToolProfession, setPriceToolProfession] = useState<string>("");
+  const [priceToolRealm, setPriceToolRealm] = useState<string>("cv");
+  const [priceResult, setPriceResult] = useState<PriceRecommendationResponse | null>(null);
+  const [priceLoading, setPriceLoading] = useState(false);
+
+  const fetchPriceRecommendation = async () => {
+    if (!priceToolClass) {
+      toast({ title: "Select a class", description: "Class is required for price lookup", variant: "destructive" });
+      return;
+    }
+    
+    setPriceLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('mainClass', priceToolClass);
+      params.set('realm', priceToolRealm);
+      if (priceToolRarity) params.set('rarity', priceToolRarity);
+      if (priceToolLevelMin) params.set('levelMin', priceToolLevelMin);
+      if (priceToolLevelMax) params.set('levelMax', priceToolLevelMax);
+      if (priceToolProfession) params.set('profession', priceToolProfession);
+      
+      const res = await fetch(`/api/admin/market-intel/price-recommendation?${params.toString()}`, {
+        credentials: 'include'
+      });
+      const data = await res.json();
+      setPriceResult(data);
+    } catch (err: any) {
+      toast({ title: "Price lookup failed", description: err.message, variant: "destructive" });
+    } finally {
+      setPriceLoading(false);
+    }
+  };
 
   const statusQuery = useQuery<{ ok: boolean; status: SaleIngestionStatus; stats: SalesStats[] }>({
     queryKey: ['/api/admin/market-intel/status'],
@@ -408,6 +489,259 @@ export default function MarketIntelPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Hero Price Tool */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calculator className="h-5 w-5" />
+            Hero Price Tool
+          </CardTitle>
+          <CardDescription>Get buy/sell price recommendations based on recent market data</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-6 lg:grid-cols-7">
+            <div className="space-y-2">
+              <Label>Realm</Label>
+              <Select value={priceToolRealm} onValueChange={setPriceToolRealm}>
+                <SelectTrigger data-testid="select-price-realm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cv">Crystalvale</SelectItem>
+                  <SelectItem value="sd">Sundered Isles</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Class *</Label>
+              <Select value={priceToolClass} onValueChange={setPriceToolClass}>
+                <SelectTrigger data-testid="select-price-class">
+                  <SelectValue placeholder="Select class" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CLASS_OPTIONS.map(c => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Rarity</Label>
+              <Select value={priceToolRarity} onValueChange={setPriceToolRarity}>
+                <SelectTrigger data-testid="select-price-rarity">
+                  <SelectValue placeholder="Any" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Any</SelectItem>
+                  <SelectItem value="0">Common</SelectItem>
+                  <SelectItem value="1">Uncommon</SelectItem>
+                  <SelectItem value="2">Rare</SelectItem>
+                  <SelectItem value="3">Legendary</SelectItem>
+                  <SelectItem value="4">Mythic</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Level Min</Label>
+              <Input
+                type="number"
+                placeholder="1"
+                value={priceToolLevelMin}
+                onChange={(e) => setPriceToolLevelMin(e.target.value)}
+                data-testid="input-price-level-min"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Level Max</Label>
+              <Input
+                type="number"
+                placeholder="100"
+                value={priceToolLevelMax}
+                onChange={(e) => setPriceToolLevelMax(e.target.value)}
+                data-testid="input-price-level-max"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Profession</Label>
+              <Select value={priceToolProfession} onValueChange={setPriceToolProfession}>
+                <SelectTrigger data-testid="select-price-profession">
+                  <SelectValue placeholder="Any" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Any</SelectItem>
+                  {PROFESSION_OPTIONS.map(p => (
+                    <SelectItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>&nbsp;</Label>
+              <Button 
+                onClick={fetchPriceRecommendation}
+                disabled={priceLoading || !priceToolClass}
+                className="w-full"
+                data-testid="button-get-price"
+              >
+                {priceLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
+                <span className="ml-2">Get Prices</span>
+              </Button>
+            </div>
+          </div>
+
+          {priceResult && (
+            <div className="mt-6">
+              {priceResult.recommendation ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={
+                        priceResult.recommendation.confidence === 'high' ? 'default' :
+                        priceResult.recommendation.confidence === 'medium' ? 'secondary' : 'outline'
+                      }>
+                        {priceResult.recommendation.confidence.toUpperCase()} confidence
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">
+                        Based on {priceResult.recommendation.sampleSize} recent sales
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <Percent className="h-4 w-4" />
+                      {priceResult.recommendation.priceVariation}% price variation
+                    </div>
+                  </div>
+                  
+                  <div className="grid gap-4 md:grid-cols-3">
+                    {/* Buy Recommendations */}
+                    <div className="rounded-md border border-green-500/30 bg-green-500/5 p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <ShoppingCart className="h-4 w-4 text-green-500" />
+                        <span className="text-sm font-medium">Buy Prices</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Great Deal</span>
+                          <span className="font-bold text-green-500" data-testid="text-buy-low">
+                            {priceResult.recommendation.buyLow} {priceResult.recommendation.token}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Fair Price</span>
+                          <span className="font-medium" data-testid="text-buy-fair">
+                            {priceResult.recommendation.buyFair} {priceResult.recommendation.token}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Market Price */}
+                    <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <BarChart3 className="h-4 w-4 text-blue-500" />
+                        <span className="text-sm font-medium">Market Value</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Median</span>
+                          <span className="font-bold text-blue-500" data-testid="text-market-median">
+                            {priceResult.recommendation.marketMedian} {priceResult.recommendation.token}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Average</span>
+                          <span className="font-medium" data-testid="text-market-avg">
+                            {priceResult.recommendation.marketAverage} {priceResult.recommendation.token}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs text-muted-foreground">
+                          <span>Range</span>
+                          <span>
+                            {priceResult.recommendation.priceRange.min} - {priceResult.recommendation.priceRange.max}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sell Recommendations */}
+                    <div className="rounded-md border border-orange-500/30 bg-orange-500/5 p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Tag className="h-4 w-4 text-orange-500" />
+                        <span className="text-sm font-medium">Sell Prices</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Fair Price</span>
+                          <span className="font-medium" data-testid="text-sell-fair">
+                            {priceResult.recommendation.sellFair} {priceResult.recommendation.token}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Premium</span>
+                          <span className="font-bold text-orange-500" data-testid="text-sell-high">
+                            {priceResult.recommendation.sellHigh} {priceResult.recommendation.token}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recent Sales Table */}
+                  {priceResult.recentSales && priceResult.recentSales.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-sm font-medium mb-2">Recent Similar Sales</h4>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Hero</TableHead>
+                            <TableHead>Class</TableHead>
+                            <TableHead>Rarity</TableHead>
+                            <TableHead>Level</TableHead>
+                            <TableHead>Price</TableHead>
+                            <TableHead>When</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {priceResult.recentSales.map((sale, idx) => (
+                            <TableRow key={`${sale.heroId}-${idx}`}>
+                              <TableCell className="font-mono text-xs">{sale.heroId}</TableCell>
+                              <TableCell>{sale.mainClass || '-'}</TableCell>
+                              <TableCell>
+                                {sale.rarity !== undefined && sale.rarity !== null && (
+                                  <Badge className={`${RARITY_COLORS[sale.rarity]} text-xs`}>
+                                    {RARITY_NAMES[sale.rarity]}
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>{sale.level || '-'}</TableCell>
+                              <TableCell className="font-medium">
+                                {sale.price.toFixed(2)} {sale.token}
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {new Date(sale.saleDate).toLocaleDateString()}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  {priceResult.message || 'No similar sales found. Try broadening your criteria.'}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

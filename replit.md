@@ -49,6 +49,8 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Frontend Build Process**: Utilizes a two-step build process to accommodate Replit's file sync behavior, building to `/tmp` and copying to `static-build/`.
 
 ## Recent Changes (January 2026)
+*   **Market Intel Hero Price Tool**: Added a hero price recommendation tool to the Market Intel tab. Users can select hero attributes (class, rarity, level range, profession, realm) and get buy/sell price recommendations based on recent market sales data. Shows market median, price range, and confidence level based on sample size and price variation.
+*   **Market Intel Sale Detection**: Implemented hourly tavern listing snapshots with delta comparison to detect hero sales. Records sale prices with full hero trait snapshots for market analysis.
 *   **Bargain Hunter Tabs**: Added dedicated "Bargain Hunter" and "Dark Bargain Hunter" pages to the admin panel sidebar. These auto-load results sorted by TTS efficiency (highest skill tier score for lowest cost). Regular Bargain Hunter uses standard summoning; Dark Bargain Hunter uses dark summoning (1/4 token cost).
 *   **Pair Scoring Limit Removed**: Summon Sniper now scores ALL candidate pairs instead of limiting to 2,200. With indexed gene data (no API calls needed), full coverage is fast.
 *   **ACTIVE_GENE_MAP Fix**: Corrected skill indices in bot.js to match gene-decoder.js (elite skills 24=Stun, 25=Second Wind, 28=Resurrection; advanced skills 17=Daze, 18=Explosion, 19=Hardened Shield).
