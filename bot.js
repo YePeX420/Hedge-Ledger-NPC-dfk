@@ -9953,12 +9953,20 @@ async function startAdminWebServer() {
           if (realmHeroes.length < 2) continue;
           
           // Separate target class/profession heroes from others
-          const targetHeroes = realmHeroes.filter(isTargetHero);
+          let targetHeroes = realmHeroes.filter(isTargetHero);
           const otherHeroes = realmHeroes.filter(h => !isTargetHero(h));
           
           // Sort others by price and limit to 100 cheapest
           otherHeroes.sort((a, b) => a.price_native - b.price_native);
           const cheapOthers = otherHeroes.slice(0, 100);
+          
+          // CRITICAL: Limit target heroes to prevent OOM when many classes are selected
+          // With 20k+ target heroes, nested loop generates 200M+ pairs causing memory crash
+          // Sort by price and limit to 500 cheapest targets per realm for pair generation
+          if (targetHeroes.length > 500) {
+            targetHeroes.sort((a, b) => a.price_native - b.price_native);
+            targetHeroes = targetHeroes.slice(0, 500);
+          }
           
           // Generate pairs:
           // 1. Target hero + Target hero (for best class probability)
