@@ -3,7 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Zap, ExternalLink, Loader2, TrendingUp, RefreshCw } from "lucide-react";
+import { Zap, ExternalLink, Loader2, TrendingUp, RefreshCw, Calculator } from "lucide-react";
+import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 
 interface ProbabilityMap {
@@ -238,7 +239,17 @@ export default function BargainHunter() {
                     
                     {pair.tts && (
                       <div className="mt-4 pt-4 border-t">
-                        <div className="text-sm font-medium mb-2">TTS Probability Distribution</div>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm font-medium">TTS Probability Distribution</div>
+                          <Link
+                            href={`/admin/summoning-calculator?hero1=${pair.hero1.normalizedId}&hero2=${pair.hero2.normalizedId}`}
+                            className="text-xs text-cyan-500 hover:text-cyan-400 flex items-center gap-1"
+                            data-testid={`link-calc-${idx}`}
+                          >
+                            <Calculator className="h-3 w-3" />
+                            View Full Summon Chances
+                          </Link>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                           {Object.entries(pair.tts.cumulative || {})
                             .sort(([a], [b]) => parseInt(b) - parseInt(a))
