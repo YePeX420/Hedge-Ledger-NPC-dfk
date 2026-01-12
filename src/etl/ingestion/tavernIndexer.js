@@ -1180,9 +1180,7 @@ function kaiToId(kaiChar) {
 async function processHeroGenes(heroId) {
   try {
     const hero = await fetchHeroGenesFromGraphQL(heroId);
-    console.log(`[GeneBackfill] Processing hero ${heroId}: statGenes=${hero?.statGenes ? 'EXISTS' : 'NULL'}`);
     if (!hero || !hero.statGenes) {
-      console.log(`[GeneBackfill] Hero ${heroId}: No statGenes from GraphQL, marking failed`);
       await db.execute(sql`
         UPDATE tavern_heroes 
         SET genes_status = 'failed'
@@ -1193,7 +1191,6 @@ async function processHeroGenes(heroId) {
     
     const decoded = decodeStatGenesLocal(hero.statGenes);
     if (!decoded) {
-      console.log(`[GeneBackfill] Hero ${heroId}: Failed to decode statGenes`);
       await db.execute(sql`
         UPDATE tavern_heroes 
         SET genes_status = 'failed'
@@ -1202,7 +1199,6 @@ async function processHeroGenes(heroId) {
       return false;
     }
     
-    console.log(`[GeneBackfill] Hero ${heroId}: Writing statGenes (${String(hero.statGenes).substring(0, 20)}...) to database`);
     await db.execute(sql`
       UPDATE tavern_heroes SET
         stat_genes = ${hero.statGenes},
@@ -1229,7 +1225,6 @@ async function processHeroGenes(heroId) {
       WHERE hero_id = ${heroId}
     `);
     
-    console.log(`[GeneBackfill] Hero ${heroId}: Successfully updated, genes_status=complete`);
     return true;
   } catch (err) {
     console.error(`[GeneBackfill] Error processing hero ${heroId}:`, err.message);
@@ -1320,6 +1315,41 @@ export async function getGenesStats() {
   `);
   
   return Array.isArray(result) ? result : (result.rows || []);
+}
+
+// Reset genes_status for heroes marked 'complete' but missing stat_genes data
+// This fixes heroes that were incorrectly marked complete by an older version of the code
+export async function resetBrokenGeneStatus() {
+  await ensureTablesExist();
+  
+  console.log('[GeneBackfill] Resetting genes_status for heroes with NULL stat_genes...');
+  
+  // First count how many are affected
+  const countResult = await db.execute(sql`
+    SELECT COUNT(*) as count
+    FROM tavern_heroes
+    WHERE genes_status = 'complete' AND stat_genes IS NULL
+  `);
+  
+  const countRows = Array.isArray(countResult) ? countResult : (countResult.rows || []);
+  const brokenCount = parseInt(countRows[0]?.count || 0);
+  
+  console.log(`[GeneBackfill] Found ${brokenCount} heroes with genes_status='complete' but NULL stat_genes`);
+  
+  if (brokenCount === 0) {
+    return { ok: true, message: 'No broken records found', reset: 0 };
+  }
+  
+  // Reset their status to 'pending' so they get re-processed
+  const updateResult = await db.execute(sql`
+    UPDATE tavern_heroes
+    SET genes_status = 'pending'
+    WHERE genes_status = 'complete' AND stat_genes IS NULL
+  `);
+  
+  console.log(`[GeneBackfill] Reset ${brokenCount} heroes to genes_status='pending'`);
+  
+  return { ok: true, reset: brokenCount };
 }
 
 // ============================================================================

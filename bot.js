@@ -8895,6 +8895,21 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/tavern-indexer/reset-broken-genes - Reset genes_status for heroes with NULL stat_genes
+  app.post("/api/admin/tavern-indexer/reset-broken-genes", isAdmin, async (req, res) => {
+    try {
+      const { resetBrokenGeneStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      console.log('[Gene Backfill] Reset broken genes requested');
+      const result = await resetBrokenGeneStatus();
+      
+      res.json(result);
+    } catch (error) {
+      console.error('[Gene Backfill] Reset broken genes error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // ============================================================================
   // MARKET INTEL & SALE INGESTION ENDPOINTS
   // ============================================================================
@@ -9587,13 +9602,6 @@ async function startAdminWebServer() {
       const apiResponse = indexedResult || [];
       console.log('[Sniper] Indexed database returned', apiResponse.length, 'heroes with complete genes');
       
-      // Debug: Log raw query result to check stat_genes before transformation
-      if (apiResponse.length > 0) {
-        const rawFirst = apiResponse[0];
-        console.log(`[Sniper] DEBUG RAW - First row keys:`, Object.keys(rawFirst).join(', '));
-        console.log(`[Sniper] DEBUG RAW - stat_genes value:`, rawFirst.stat_genes ? `EXISTS (${String(rawFirst.stat_genes).substring(0, 30)}...)` : 'NULL');
-        console.log(`[Sniper] DEBUG RAW - genes_status value:`, rawFirst.genes_status);
-      }
       
       // Helper to convert wei to token amount
       const weiToToken = (weiStr) => {
@@ -9957,15 +9965,6 @@ async function startAdminWebServer() {
 
       // Cache for hero genes - pre-populated from indexed database
       const geneCache = new Map();
-      
-      // Debug: Log first hero's structure to see if stat_genes exists
-      if (heroes.length > 0) {
-        const sampleHero = heroes[0];
-        console.log(`[Sniper] DEBUG - First hero keys:`, Object.keys(sampleHero).join(', '));
-        console.log(`[Sniper] DEBUG - First hero stat_genes:`, sampleHero.stat_genes ? 'EXISTS' : 'NULL/UNDEFINED');
-        console.log(`[Sniper] DEBUG - First hero genes_status:`, sampleHero.genes_status);
-        console.log(`[Sniper] DEBUG - First hero statGenes (camelCase):`, sampleHero.statGenes ? 'EXISTS' : 'NULL/UNDEFINED');
-      }
       
       // Pre-populate cache from indexed heroes (all have stat_genes already)
       for (const h of heroes) {
