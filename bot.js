@@ -12359,17 +12359,21 @@ async function startAdminWebServer() {
     console.log(`❌ Failed to setup Vite: ${err.message}`);
     console.log('Falling back to static file serving...');
 
-    // Runtime workaround: If dist/public exists but static-build doesn't have index.html,
-    // copy the files at runtime (handles Replit deployment where build and run are separate)
+    // Runtime workaround: If dist/public exists (from Vite build), sync it to static-build
+    // This handles Replit deployments where build and run phases are separate containers
     const staticBuildPath = path.resolve(import.meta.dirname, 'static-build');
     const distPublicPath = path.resolve(import.meta.dirname, 'dist', 'public');
-    const staticBuildIndex = path.resolve(staticBuildPath, 'index.html');
     const distPublicIndex = path.resolve(distPublicPath, 'index.html');
     
-    if (fs.existsSync(distPublicIndex) && !fs.existsSync(staticBuildIndex)) {
-      console.log('📦 Copying dist/public to static-build for runtime serving...');
+    if (fs.existsSync(distPublicIndex)) {
+      console.log('📦 Syncing dist/public to static-build for runtime serving...');
       try {
+        // Clear existing static-build to avoid stale files
+        if (fs.existsSync(staticBuildPath)) {
+          fs.rmSync(staticBuildPath, { recursive: true, force: true });
+        }
         fs.mkdirSync(staticBuildPath, { recursive: true });
+        
         // Copy all files from dist/public to static-build
         const copyRecursive = (src, dest) => {
           const entries = fs.readdirSync(src, { withFileTypes: true });
@@ -12385,9 +12389,9 @@ async function startAdminWebServer() {
           }
         };
         copyRecursive(distPublicPath, staticBuildPath);
-        console.log('✅ Copied build files to static-build/');
+        console.log('✅ Synced build files to static-build/');
       } catch (copyErr) {
-        console.error('❌ Failed to copy build files:', copyErr.message);
+        console.error('❌ Failed to sync build files:', copyErr.message);
       }
     }
 
