@@ -8703,6 +8703,27 @@ async function startAdminWebServer() {
   // TAVERN INDEXER ADMIN ENDPOINTS
   // ============================================================================
 
+  // GET /api/admin/tavern-indexer/hero/:heroId - Look up a specific hero
+  app.get("/api/admin/tavern-indexer/hero/:heroId", isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const heroId = req.params.heroId;
+      
+      const result = await rawPg`
+        SELECT * FROM tavern_heroes WHERE hero_id = ${heroId}
+      `;
+      
+      if (result.length === 0) {
+        return res.json({ ok: false, error: 'Hero not found in tavern index' });
+      }
+      
+      res.json({ ok: true, hero: result[0] });
+    } catch (error) {
+      console.error('[Tavern Indexer] Hero lookup error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/tavern-indexer/status - Get indexer status
   app.get("/api/admin/tavern-indexer/status", isAdmin, async (req, res) => {
     try {
@@ -9592,12 +9613,11 @@ async function startAdminWebServer() {
       
       console.log('[Sniper] Fetching heroes from indexed database (genes_status = complete)...');
       
-      // Query indexed tavern heroes with complete gene data
+      // Query indexed tavern heroes with complete gene data (no limit - search all)
       const indexedResult = await rawPg`
         SELECT * FROM tavern_heroes 
         WHERE genes_status = 'complete'
         ORDER BY price_native ASC NULLS LAST
-        LIMIT 2000
       `;
       
       const apiResponse = indexedResult || [];
