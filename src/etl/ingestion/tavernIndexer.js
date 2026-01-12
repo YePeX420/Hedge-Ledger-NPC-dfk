@@ -1180,7 +1180,9 @@ function kaiToId(kaiChar) {
 async function processHeroGenes(heroId) {
   try {
     const hero = await fetchHeroGenesFromGraphQL(heroId);
+    console.log(`[GeneBackfill] Processing hero ${heroId}: statGenes=${hero?.statGenes ? 'EXISTS' : 'NULL'}`);
     if (!hero || !hero.statGenes) {
+      console.log(`[GeneBackfill] Hero ${heroId}: No statGenes from GraphQL, marking failed`);
       await db.execute(sql`
         UPDATE tavern_heroes 
         SET genes_status = 'failed'
@@ -1191,6 +1193,7 @@ async function processHeroGenes(heroId) {
     
     const decoded = decodeStatGenesLocal(hero.statGenes);
     if (!decoded) {
+      console.log(`[GeneBackfill] Hero ${heroId}: Failed to decode statGenes`);
       await db.execute(sql`
         UPDATE tavern_heroes 
         SET genes_status = 'failed'
@@ -1199,6 +1202,7 @@ async function processHeroGenes(heroId) {
       return false;
     }
     
+    console.log(`[GeneBackfill] Hero ${heroId}: Writing statGenes (${String(hero.statGenes).substring(0, 20)}...) to database`);
     await db.execute(sql`
       UPDATE tavern_heroes SET
         stat_genes = ${hero.statGenes},
@@ -1225,6 +1229,7 @@ async function processHeroGenes(heroId) {
       WHERE hero_id = ${heroId}
     `);
     
+    console.log(`[GeneBackfill] Hero ${heroId}: Successfully updated, genes_status=complete`);
     return true;
   } catch (err) {
     console.error(`[GeneBackfill] Error processing hero ${heroId}:`, err.message);
