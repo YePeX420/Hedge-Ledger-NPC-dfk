@@ -12359,13 +12359,45 @@ async function startAdminWebServer() {
     console.log(`❌ Failed to setup Vite: ${err.message}`);
     console.log('Falling back to static file serving...');
 
+    // Runtime workaround: If dist/public exists but static-build doesn't have index.html,
+    // copy the files at runtime (handles Replit deployment where build and run are separate)
+    const staticBuildPath = path.resolve(import.meta.dirname, 'static-build');
+    const distPublicPath = path.resolve(import.meta.dirname, 'dist', 'public');
+    const staticBuildIndex = path.resolve(staticBuildPath, 'index.html');
+    const distPublicIndex = path.resolve(distPublicPath, 'index.html');
+    
+    if (fs.existsSync(distPublicIndex) && !fs.existsSync(staticBuildIndex)) {
+      console.log('📦 Copying dist/public to static-build for runtime serving...');
+      try {
+        fs.mkdirSync(staticBuildPath, { recursive: true });
+        // Copy all files from dist/public to static-build
+        const copyRecursive = (src, dest) => {
+          const entries = fs.readdirSync(src, { withFileTypes: true });
+          for (const entry of entries) {
+            const srcPath = path.join(src, entry.name);
+            const destPath = path.join(dest, entry.name);
+            if (entry.isDirectory()) {
+              fs.mkdirSync(destPath, { recursive: true });
+              copyRecursive(srcPath, destPath);
+            } else {
+              fs.copyFileSync(srcPath, destPath);
+            }
+          }
+        };
+        copyRecursive(distPublicPath, staticBuildPath);
+        console.log('✅ Copied build files to static-build/');
+      } catch (copyErr) {
+        console.error('❌ Failed to copy build files:', copyErr.message);
+      }
+    }
+
     // Check multiple possible build output directories
-    // - static-build/: Used in development for manual builds
-    // - dist/public/: Default Vite output with Express server setup
-    // - dist/: Alternative Vite output location
+    // - static-build/: Primary location (committed to repo, copied at runtime)
+    // - dist/public/: Vite build output
+    // - dist/: Alternative location
     const possiblePaths = [
-      path.resolve(import.meta.dirname, 'static-build'),
-      path.resolve(import.meta.dirname, 'dist', 'public'),
+      staticBuildPath,
+      distPublicPath,
       path.resolve(import.meta.dirname, 'dist')
     ];
     
