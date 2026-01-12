@@ -353,11 +353,24 @@ function decodeStatGenes(statGenes) {
     
     const mapping = trait.mapping;
     
+    // For 16-element lookup tables (like ACTIVE_GENES, PASSIVE_GENES),
+    // Kai encoding packs both skill ID and tier info in 5 bits.
+    // We normalize by taking value % 16 to extract just the skill ID.
+    // This fixes decoding for active/passive skill genes where raw values
+    // can exceed 15 (e.g., 17, 19, 25), causing undefined lookups.
+    const mappingLen = mapping.length;
+    const normalizeValue = (val) => mappingLen === 16 ? val % 16 : val;
+    
+    const dNorm = normalizeValue(dVal);
+    const r1Norm = normalizeValue(r1Val);
+    const r2Norm = normalizeValue(r2Val);
+    const r3Norm = normalizeValue(r3Val);
+    
     decoded[trait.name] = {
-      d: { value: dVal, name: mapping[dVal] },
-      r1: { value: r1Val, name: mapping[r1Val] },
-      r2: { value: r2Val, name: mapping[r2Val] },
-      r3: { value: r3Val, name: mapping[r3Val] }
+      d: { value: dNorm, name: mapping[dNorm] },
+      r1: { value: r1Norm, name: mapping[r1Norm] },
+      r2: { value: r2Norm, name: mapping[r2Norm] },
+      r3: { value: r3Norm, name: mapping[r3Norm] }
     };
   }
   

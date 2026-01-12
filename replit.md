@@ -48,6 +48,11 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Environment-Aware Indexers**: Indexers auto-start only in production, requiring manual trigger in development.
 *   **Frontend Build Process**: Utilizes a two-step build process to accommodate Replit's file sync behavior, building to `/tmp` and copying to `static-build/`.
 
+## Recent Changes (January 2026)
+*   **Gene Decoding Fix**: Fixed critical bug in `gene-decoder.js` where active/passive skill genes were returning undefined values. Raw Kai-decoded values for 16-element lookup tables (ACTIVE_GENES, PASSIVE_GENES) now use `value % 16` normalization to extract skill IDs correctly.
+*   **Hero ID Format Fix**: Updated `getHeroById` in `onchain-data.js` to try multiple ID formats (raw, CV prefix 1T+, SD prefix 2T+) when fetching heroes from the DFK GraphQL API.
+*   **Elite Skill Mutations**: Summoning Calculator now correctly displays elite/exalted skill probabilities (Stun, Second Wind, Resurrection) in offspring predictions.
+
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2 authentication.
 *   **OpenAI API**: Utilizes GPT-4o-mini for AI-driven conversational responses.
