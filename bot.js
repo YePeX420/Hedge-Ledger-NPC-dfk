@@ -8886,9 +8886,10 @@ async function startAdminWebServer() {
   // GET /api/admin/tavern-indexer/genes-status - Get gene backfill status
   app.get("/api/admin/tavern-indexer/genes-status", isAdmin, async (req, res) => {
     try {
-      const { getGeneBackfillStatus, getGenesStats } = await import("./src/etl/ingestion/tavernIndexer.js");
+      const { getGeneBackfillStatus, getGenesStats, getAutoContinueStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
       
       const status = getGeneBackfillStatus();
+      const autoContinue = getAutoContinueStatus();
       const rawStats = await getGenesStats();
       
       // Transform raw SQL result into the format expected by frontend
@@ -8910,7 +8911,7 @@ async function startAdminWebServer() {
       
       const stats = { complete, incomplete, total, percentage };
       
-      res.json({ ok: true, status, stats });
+      res.json({ ok: true, status, stats, autoContinue });
     } catch (error) {
       console.error('[Gene Backfill] Status error:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
@@ -8943,6 +8944,41 @@ async function startAdminWebServer() {
       res.json(result);
     } catch (error) {
       console.error('[Gene Backfill] Reset all genes error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tavern-indexer/auto-continue - Start auto-continue backfill mode
+  app.post("/api/admin/tavern-indexer/auto-continue", isAdmin, async (req, res) => {
+    try {
+      const { startAutoContinueBackfill, getAutoContinueStatus, getGenesStats } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      const batchSize = parseInt(req.body?.batchSize) || 200;
+      const concurrency = parseInt(req.body?.concurrency) || 2;
+      const delay = parseInt(req.body?.delay) || 5000;
+      
+      console.log(`[Gene Backfill] Auto-continue requested (batch=${batchSize}, concurrency=${concurrency}, delay=${delay}ms)`);
+      const result = await startAutoContinueBackfill(batchSize, concurrency, delay);
+      const stats = await getGenesStats();
+      
+      res.json({ ...result, stats, autoContinue: getAutoContinueStatus() });
+    } catch (error) {
+      console.error('[Gene Backfill] Auto-continue error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/tavern-indexer/stop-auto-continue - Stop auto-continue backfill mode
+  app.post("/api/admin/tavern-indexer/stop-auto-continue", isAdmin, async (req, res) => {
+    try {
+      const { stopAutoContinueBackfill, getAutoContinueStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      console.log('[Gene Backfill] Stop auto-continue requested');
+      const result = stopAutoContinueBackfill();
+      
+      res.json({ ...result, autoContinue: getAutoContinueStatus() });
+    } catch (error) {
+      console.error('[Gene Backfill] Stop auto-continue error:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });

@@ -1440,6 +1440,94 @@ export async function resetAllGeneStatus() {
 }
 
 // ============================================================================
+// AUTO-CONTINUE BACKFILL
+// ============================================================================
+
+let autoContinueActive = false;
+let autoContinueStopRequested = false;
+
+export async function startAutoContinueBackfill(batchSize = 200, concurrency = 2, delayBetweenBatchesMs = 5000) {
+  if (autoContinueActive) {
+    console.log('[GeneBackfill] Auto-continue already active');
+    return { ok: false, message: 'Auto-continue already running' };
+  }
+  
+  autoContinueActive = true;
+  autoContinueStopRequested = false;
+  
+  console.log(`[GeneBackfill] Starting auto-continue mode (batch=${batchSize}, concurrency=${concurrency}, delay=${delayBetweenBatchesMs}ms)`);
+  
+  let totalProcessed = 0;
+  let consecutiveErrors = 0;
+  
+  const runLoop = async () => {
+    while (!autoContinueStopRequested) {
+      // Check if any heroes remain
+      const stats = await getGenesStats();
+      const pending = parseInt(stats.find(s => s.genes_status === 'pending')?.count || 0);
+      
+      if (pending === 0) {
+        console.log('[GeneBackfill] Auto-continue complete - no more pending heroes');
+        break;
+      }
+      
+      console.log(`[GeneBackfill] Auto-continue: ${pending} heroes remaining`);
+      
+      // Run a batch
+      const result = await runGeneBackfill(batchSize, concurrency);
+      
+      if (result.ok && result.processed > 0) {
+        totalProcessed += result.processed;
+        consecutiveErrors = 0;
+        console.log(`[GeneBackfill] Auto-continue batch complete: ${result.processed} processed (total: ${totalProcessed})`);
+      } else {
+        consecutiveErrors++;
+        console.log(`[GeneBackfill] Auto-continue batch issue: ${result.message || result.error}`);
+        
+        // Stop after 5 consecutive errors
+        if (consecutiveErrors >= 5) {
+          console.log('[GeneBackfill] Auto-continue stopped: too many consecutive errors');
+          break;
+        }
+      }
+      
+      // Wait between batches to avoid rate limiting
+      if (!autoContinueStopRequested) {
+        await new Promise(resolve => setTimeout(resolve, delayBetweenBatchesMs));
+      }
+    }
+    
+    autoContinueActive = false;
+    console.log(`[GeneBackfill] Auto-continue finished. Total processed: ${totalProcessed}`);
+  };
+  
+  // Run in background (don't await)
+  runLoop().catch(err => {
+    console.error('[GeneBackfill] Auto-continue fatal error:', err);
+    autoContinueActive = false;
+  });
+  
+  return { ok: true, message: 'Auto-continue started', batchSize, concurrency, delayBetweenBatchesMs };
+}
+
+export function stopAutoContinueBackfill() {
+  if (!autoContinueActive) {
+    return { ok: false, message: 'Auto-continue not running' };
+  }
+  
+  autoContinueStopRequested = true;
+  console.log('[GeneBackfill] Auto-continue stop requested');
+  return { ok: true, message: 'Auto-continue stop requested' };
+}
+
+export function getAutoContinueStatus() {
+  return {
+    active: autoContinueActive,
+    stopRequested: autoContinueStopRequested
+  };
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
