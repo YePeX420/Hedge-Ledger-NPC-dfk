@@ -12357,11 +12357,27 @@ async function startAdminWebServer() {
     console.log('✅ Vite dev server configured');
   } catch (err) {
     console.log(`❌ Failed to setup Vite: ${err.message}`);
-    console.log('Falling back to static file serving from static-build/');
+    console.log('Falling back to static file serving...');
 
-    // Serve built React app from static-build (not gitignored, persists across restarts)
-    const distPath = path.resolve(import.meta.dirname, 'static-build');
-    if (fs.existsSync(distPath) && fs.existsSync(path.resolve(distPath, 'index.html'))) {
+    // Check multiple possible build output directories
+    // - static-build/: Used in development for manual builds
+    // - dist/public/: Default Vite output with Express server setup
+    // - dist/: Alternative Vite output location
+    const possiblePaths = [
+      path.resolve(import.meta.dirname, 'static-build'),
+      path.resolve(import.meta.dirname, 'dist', 'public'),
+      path.resolve(import.meta.dirname, 'dist')
+    ];
+    
+    let distPath = null;
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p) && fs.existsSync(path.resolve(p, 'index.html'))) {
+        distPath = p;
+        break;
+      }
+    }
+    
+    if (distPath) {
       app.use(express.static(distPath));
       // SPA fallback - serve index.html for all non-API routes
       app.use((req, res, next) => {
@@ -12375,13 +12391,27 @@ async function startAdminWebServer() {
         }
         res.sendFile(path.resolve(distPath, 'index.html'));
       });
-      console.log('✅ Serving React app from static-build/');
+      console.log(`✅ Serving React app from ${distPath}`);
     } else {
-      console.log(
-        '⚠️ static-build not found - run "npx vite build --outDir static-build" to build the client'
-      );
+      console.log('⚠️ No built frontend found. Checked locations:');
+      possiblePaths.forEach(p => console.log(`   - ${p}`));
+      console.log('Run "npm run build" or "npx vite build --outDir static-build" to build the client');
     }
   }
+
+  // Global error handler - must be added last, after all routes
+  app.use((err, req, res, next) => {
+    console.error('[Express Error Handler] Unhandled error:', {
+      method: req.method,
+      path: req.path,
+      error: err.message,
+      stack: err.stack
+    });
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      message: isProduction() ? 'An unexpected error occurred' : err.message
+    });
+  });
 
   server.listen(5000, async () => {
     console.log('✅ Web server listening on port 5000');
