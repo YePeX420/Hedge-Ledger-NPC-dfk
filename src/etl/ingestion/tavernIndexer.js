@@ -660,6 +660,17 @@ async function runFullIndex() {
     
     console.log(`[TavernIndexer] Complete: ${cvHeroes} CV, ${sdHeroes} SD heroes indexed`);
     
+    // Automatically run gene backfill after successful indexing
+    // This fetches recessive gene data from GraphQL for breeding calculations
+    const totalIndexed = cvHeroes + sdHeroes;
+    if (totalIndexed > 0) {
+      console.log(`[TavernIndexer] Starting automatic gene backfill for ${totalIndexed} heroes...`);
+      // Run in background, don't await - let it complete asynchronously
+      runGeneBackfill(totalIndexed).catch(err => {
+        console.error('[TavernIndexer] Auto gene backfill error:', err.message);
+      });
+    }
+    
     return {
       status: 'success',
       batchId,
