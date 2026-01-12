@@ -49,6 +49,9 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Frontend Build Process**: Utilizes a two-step build process to accommodate Replit's file sync behavior, building to `/tmp` and copying to `static-build/`.
 
 ## Recent Changes (January 2026)
+*   **TTS Filter UX Improvement**: Added TTS metadata to Summon Sniper API response (`ttsMetadata: { maxExpectedTTS, maxCumulativeByTarget, requestedTarget, requestedMinProb }`). Frontend now displays helpful guidance when TTS filter is unattainable, showing max available probabilities and suggesting lower thresholds (1-2).
+*   **TTS Reality Check**: Most DFK heroes have tier 0 skills. Expected TTS ranges 0.04-0.64 across pairs. TTS ≥6 with 3% chance is mathematically impossible - this is correct behavior, not a bug.
+*   **Skill Tier Warnings Suppressed**: Unknown skills (Backstab, Silence, Inner Calm) now default to tier 0 silently without console spam.
 *   **Gene Decoding Fix**: Fixed critical bug in `gene-decoder.js` where active/passive skill genes were returning undefined values. Raw Kai-decoded values for 16-element lookup tables (ACTIVE_GENES, PASSIVE_GENES) now use `value % 16` normalization to extract skill IDs correctly.
 *   **Hero ID Format Fix**: Updated `getHeroById` in `onchain-data.js` to try multiple ID formats (raw, CV prefix 1T+, SD prefix 2T+) when fetching heroes from the DFK GraphQL API.
 *   **Elite Skill Mutations**: Summoning Calculator now correctly displays elite/exalted skill probabilities (Stun, Second Wind, Resurrection) in offspring predictions.

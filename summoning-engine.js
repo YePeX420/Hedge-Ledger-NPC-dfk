@@ -643,9 +643,6 @@ const SKILL_TIERS = {
  */
 export function getSkillTierByName(skillName) {
   const tier = SKILL_TIERS[skillName];
-  if (tier === undefined && skillName && !skillName.startsWith('Unknown')) {
-    console.warn(`[TTS] Unknown skill name: "${skillName}" - defaulting to tier 0`);
-  }
   return tier ?? 0;
 }
 

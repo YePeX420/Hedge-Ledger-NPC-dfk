@@ -10167,6 +10167,10 @@ async function startAdminWebServer() {
       // Score pairs with actual probability calculations
       const pairs = [];
       
+      // Track TTS metadata for user guidance (max probabilities seen across all pairs)
+      let ttsMetadata = { maxExpectedTTS: 0, maxCumulativeByTarget: {} };
+      for (let t = 0; t <= 12; t++) ttsMetadata.maxCumulativeByTarget[t] = 0;
+      
       for (const { hero1, hero2, realm, purchaseCost, summonTokenCost, tearCost, tearCount, bridgeCostUsd, heroesNeedingBridge, totalCost } of pairsToScore) {
         try {
           // Get pre-decoded genetics from cache
@@ -10262,11 +10266,25 @@ async function startAdminWebServer() {
             }
           }
 
+          // Calculate offspring TTS probabilities FIRST (before any filtering)
+          // This allows tracking of max TTS values across ALL pairs for user guidance
+          const ttsData = calculateTTSProbabilities(probs);
+          
+          // Track max TTS values seen across all pairs (for user guidance when TTS filter is too strict)
+          if (ttsData?.expectedTTS > ttsMetadata.maxExpectedTTS) {
+            ttsMetadata.maxExpectedTTS = ttsData.expectedTTS;
+          }
+          if (ttsData?.cumulativeProbs) {
+            for (let t = 0; t <= 12; t++) {
+              const prob = ttsData.cumulativeProbs[t] ?? 0;
+              if (prob > ttsMetadata.maxCumulativeByTarget[t]) {
+                ttsMetadata.maxCumulativeByTarget[t] = prob;
+              }
+            }
+          }
+          
           const targetProb = hasAnyTarget ? jointProbability * 100 : 0;
           if (targetProb === 0) continue;
-          
-          // Calculate offspring TTS probabilities
-          const ttsData = calculateTTSProbabilities(probs);
           
           // Filter by minimum offspring skill score (only if threshold is set)
           if (minOffspringSkillScore !== null && minOffspringSkillScore !== undefined) {
@@ -10400,6 +10418,12 @@ async function startAdminWebServer() {
         tokenPrices: {
           CRYSTAL: crystalPriceUsd,
           JEWEL: jewelPriceUsd
+        },
+        ttsMetadata: {
+          maxExpectedTTS: Math.round(ttsMetadata.maxExpectedTTS * 100) / 100,
+          maxCumulativeByTarget: ttsMetadata.maxCumulativeByTarget,
+          requestedTarget: targetTTSValue ?? null,
+          requestedMinProb: minTTSProbability ?? null
         },
         searchParams: {
           targetClasses: classArray,

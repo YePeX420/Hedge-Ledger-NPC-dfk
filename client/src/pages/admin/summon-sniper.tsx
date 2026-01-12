@@ -701,9 +701,29 @@ export default function SummonSniper() {
           </CardHeader>
           <CardContent>
             {sniperResult.pairs.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
-                No matching hero pairs found. Try adjusting your filters.
-              </p>
+              <div className="text-center py-8 space-y-3">
+                <p className="text-muted-foreground">
+                  No matching hero pairs found. Try adjusting your filters.
+                </p>
+                {/* Show TTS metadata when TTS filter may be too strict */}
+                {sniperResult.ttsMetadata && (sniperResult.ttsMetadata.requestedTarget !== null || (targetTTSValue && minTTSProbability)) && (
+                  <div className="text-xs text-amber-500 bg-amber-500/10 rounded-md p-3 max-w-md mx-auto" data-testid="tts-guidance-panel">
+                    <p className="font-medium mb-1">TTS Filter may be too strict</p>
+                    <p>
+                      You requested TTS &ge; {sniperResult.ttsMetadata.requestedTarget ?? targetTTSValue} with &ge; {sniperResult.ttsMetadata.requestedMinProb ?? minTTSProbability}% chance.
+                    </p>
+                    <p className="mt-1">
+                      Best available: {sniperResult.ttsMetadata.maxCumulativeByTarget?.[(sniperResult.ttsMetadata.requestedTarget ?? parseInt(targetTTSValue) ?? 0)]?.toFixed(2) || '0'}% chance for TTS &ge; {sniperResult.ttsMetadata.requestedTarget ?? targetTTSValue}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      Max expected TTS across all pairs: {sniperResult.ttsMetadata.maxExpectedTTS?.toFixed(2) || '0'}
+                    </p>
+                    <p className="mt-2 text-muted-foreground italic">
+                      Try lowering Target TTS to 1-2 or reducing Min % Chance
+                    </p>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="space-y-4">
                 {sortedPairs.map((pair, idx) => (
