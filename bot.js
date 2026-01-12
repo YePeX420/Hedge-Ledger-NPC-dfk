@@ -10033,11 +10033,12 @@ async function startAdminWebServer() {
         'Dragoon', 'Sage', 'Spellbow', 'Unknown27', 'DreadKnight', 'Unknown29', 'Unknown30', 'Unknown31'
       ];
       
-      // Skill gene ID to name mapping (sparse)
+      // Skill gene ID to name mapping (sparse) - matches gene-decoder.js ACTIVE_GENES
+      // Basic: 0-7, Advanced: 16-19, Elite: 24-25, Exalted: 28
       const ACTIVE_GENE_MAP = {
         0: 'Poisoned Blade', 1: 'Blinding Winds', 2: 'Heal', 3: 'Cleanse',
         4: 'Iron Skin', 5: 'Speed', 6: 'Critical Aim', 7: 'Deathmark',
-        16: 'Exhaust', 17: 'Silence', 18: 'Backstab', 19: 'Inner Calm',
+        16: 'Exhaust', 17: 'Daze', 18: 'Explosion', 19: 'Hardened Shield',
         24: 'Stun', 25: 'Second Wind', 28: 'Resurrection'
       };
       
