@@ -318,12 +318,21 @@ function normalizeHero(apiHero, batchId) {
   const heroIdBigInt = BigInt(heroId);
   const normalizedId = Number(heroIdBigInt % BigInt(1000000000000));
   
-  // Determine realm from hero ID
+  // Determine realm from network field (where hero is listed for sale)
+  // met = Metis (Sundered Isles), dfk = DFK Chain (Crystalvale)
   let realm = 'unknown';
-  if (heroIdBigInt >= CV_ID_MIN && heroIdBigInt < CV_ID_MAX) {
-    realm = 'cv';
-  } else if (heroIdBigInt >= CV_ID_MAX) {
+  const network = apiHero.network?.toLowerCase();
+  if (network === 'met' || network === 'metis') {
     realm = 'sd';
+  } else if (network === 'dfk' || network === 'avalanche' || network === 'avax') {
+    realm = 'cv';
+  } else {
+    // Fallback to hero ID if network not available
+    if (heroIdBigInt >= CV_ID_MIN && heroIdBigInt < CV_ID_MAX) {
+      realm = 'cv';
+    } else if (heroIdBigInt >= CV_ID_MAX) {
+      realm = 'sd';
+    }
   }
   
   const mainClassRaw = apiHero.mainClass ?? apiHero.mainClassStr;

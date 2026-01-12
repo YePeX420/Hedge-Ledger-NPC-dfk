@@ -138,8 +138,6 @@ export default function SummonSniper() {
   const [minRarity, setMinRarity] = useState(0);
   const [sniperMinSummons, setSniperMinSummons] = useState("0");
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
-  const [sniperMaxTTS, setSniperMaxTTS] = useState("");
-  const [minOffspringSkillScore, setMinOffspringSkillScore] = useState("");
   const [targetTTSValue, setTargetTTSValue] = useState("");
   const [minTTSProbability, setMinTTSProbability] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
@@ -171,8 +169,6 @@ export default function SummonSniper() {
         minSummonsRemaining: effectiveMinSummons,
         maxSummonsRemaining: effectiveMaxSummons,
         minLevel: parseInt(sniperMinLevel) || 1,
-        maxTTS: sniperMaxTTS ? parseFloat(sniperMaxTTS) : null,
-        minOffspringSkillScore: minOffspringSkillScore ? parseFloat(minOffspringSkillScore) : null,
         targetTTSValue: targetTTSValue ? parseInt(targetTTSValue) : null,
         minTTSProbability: minTTSProbability ? parseFloat(minTTSProbability) : null,
         summonType,
@@ -537,33 +533,6 @@ export default function SummonSniper() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="maxTTS">Max Parent TTS</Label>
-              <Input
-                id="maxTTS"
-                type="number"
-                value={sniperMaxTTS}
-                onChange={(e) => setSniperMaxTTS(e.target.value)}
-                placeholder="Any"
-                data-testid="input-max-tts"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="minOffspringSkillScore">Min Offspring Skill Score</Label>
-              <Input
-                id="minOffspringSkillScore"
-                type="number"
-                step="0.1"
-                value={minOffspringSkillScore}
-                onChange={(e) => setMinOffspringSkillScore(e.target.value)}
-                placeholder="Any"
-                data-testid="input-min-offspring-skill-score"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="targetTTSValue">Target TTS</Label>
               <Input
