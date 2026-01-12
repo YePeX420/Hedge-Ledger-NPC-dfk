@@ -8896,6 +8896,338 @@ async function startAdminWebServer() {
   });
 
   // ============================================================================
+  // MARKET INTEL & SALE INGESTION ENDPOINTS
+  // ============================================================================
+
+  // GET /api/admin/market-intel/status - Get sale ingestion status
+  app.get("/api/admin/market-intel/status", isAdmin, async (req, res) => {
+    try {
+      const { getSaleIngestionStatus, getSalesStats } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      const status = getSaleIngestionStatus();
+      const stats = await getSalesStats(null, 30);
+      
+      res.json({ ok: true, status, stats });
+    } catch (error) {
+      console.error('[Market Intel] Status error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/market-intel/snapshot - Take a listing snapshot
+  app.post("/api/admin/market-intel/snapshot", isAdmin, async (req, res) => {
+    try {
+      const { takeListingSnapshot } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      console.log('[Market Intel] Manual snapshot triggered');
+      const result = await takeListingSnapshot();
+      
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[Market Intel] Snapshot error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/market-intel/reconcile - Run sale reconciliation
+  app.post("/api/admin/market-intel/reconcile", isAdmin, async (req, res) => {
+    try {
+      const { reconcileSales } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      console.log('[Market Intel] Manual reconciliation triggered');
+      const result = await reconcileSales();
+      
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[Market Intel] Reconcile error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/market-intel/full-cycle - Run full ingestion cycle
+  app.post("/api/admin/market-intel/full-cycle", isAdmin, async (req, res) => {
+    try {
+      const { runFullIngestionCycle } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      console.log('[Market Intel] Full ingestion cycle triggered');
+      const result = await runFullIngestionCycle();
+      
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('[Market Intel] Full cycle error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/market-intel/start-auto - Start auto ingestion
+  app.post("/api/admin/market-intel/start-auto", isAdmin, async (req, res) => {
+    try {
+      const { startAutoIngestion, getSaleIngestionStatus } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      const intervalMs = req.body?.intervalMs || 60 * 60 * 1000; // Default 1 hour
+      console.log(`[Market Intel] Starting auto ingestion (interval: ${intervalMs / 60000} min)`);
+      
+      startAutoIngestion(intervalMs);
+      const status = getSaleIngestionStatus();
+      
+      res.json({ ok: true, message: 'Auto ingestion started', status });
+    } catch (error) {
+      console.error('[Market Intel] Start auto error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/market-intel/stop-auto - Stop auto ingestion
+  app.post("/api/admin/market-intel/stop-auto", isAdmin, async (req, res) => {
+    try {
+      const { stopAutoIngestion, getSaleIngestionStatus } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      console.log('[Market Intel] Stopping auto ingestion');
+      stopAutoIngestion();
+      const status = getSaleIngestionStatus();
+      
+      res.json({ ok: true, message: 'Auto ingestion stopped', status });
+    } catch (error) {
+      console.error('[Market Intel] Stop auto error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/market-intel/recent-sales - Get recent sales with hero data
+  app.get("/api/admin/market-intel/recent-sales", isAdmin, async (req, res) => {
+    try {
+      const { getRecentSales } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+      const realm = req.query.realm || null;
+      
+      const sales = await getRecentSales(limit, realm);
+      
+      res.json({ ok: true, sales, count: sales.length });
+    } catch (error) {
+      console.error('[Market Intel] Recent sales error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/market-intel/demand-metrics - Get demand metrics by cohort
+  app.get("/api/admin/market-intel/demand-metrics", isAdmin, async (req, res) => {
+    try {
+      const realm = req.query.realm || null;
+      const mainClass = req.query.mainClass || null;
+      
+      let query;
+      if (realm && mainClass) {
+        query = sql`
+          SELECT * FROM tavern_demand_metrics 
+          WHERE realm = ${realm} AND main_class = ${mainClass}
+          ORDER BY as_of_date DESC, demand_score DESC
+          LIMIT 100
+        `;
+      } else if (realm) {
+        query = sql`
+          SELECT * FROM tavern_demand_metrics 
+          WHERE realm = ${realm}
+          ORDER BY as_of_date DESC, demand_score DESC
+          LIMIT 100
+        `;
+      } else {
+        query = sql`
+          SELECT * FROM tavern_demand_metrics 
+          ORDER BY as_of_date DESC, demand_score DESC
+          LIMIT 100
+        `;
+      }
+      
+      const result = await db.execute(query);
+      const metrics = Array.isArray(result) ? result : (result.rows || []);
+      
+      res.json({ ok: true, metrics, count: metrics.length });
+    } catch (error) {
+      console.error('[Market Intel] Demand metrics error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // ============================================================================
+  // SUMMON PROFIT TRACKER ENDPOINTS
+  // ============================================================================
+
+  // GET /api/admin/profit-tracker/sessions - Get summon sessions
+  app.get("/api/admin/profit-tracker/sessions", isAdmin, async (req, res) => {
+    try {
+      const wallet = req.query.wallet || null;
+      const status = req.query.status || null;
+      const limit = parseInt(req.query.limit) || 50;
+      
+      let query;
+      if (wallet && status) {
+        query = sql`
+          SELECT * FROM summon_sessions 
+          WHERE wallet_address = ${wallet} AND status = ${status}
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        `;
+      } else if (wallet) {
+        query = sql`
+          SELECT * FROM summon_sessions 
+          WHERE wallet_address = ${wallet}
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        `;
+      } else if (status) {
+        query = sql`
+          SELECT * FROM summon_sessions 
+          WHERE status = ${status}
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        `;
+      } else {
+        query = sql`
+          SELECT * FROM summon_sessions 
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        `;
+      }
+      
+      const result = await db.execute(query);
+      const sessions = Array.isArray(result) ? result : (result.rows || []);
+      
+      res.json({ ok: true, sessions, count: sessions.length });
+    } catch (error) {
+      console.error('[Profit Tracker] Sessions error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/profit-tracker/sessions - Create a new summon session
+  app.post("/api/admin/profit-tracker/sessions", isAdmin, async (req, res) => {
+    try {
+      const { 
+        realm, walletAddress, parent1HeroId, parent2HeroId,
+        parent1CostNative, parent2CostNative, summonFeeNative,
+        enhancementStonesUsed, enhancementStoneCostNative,
+        nativeToken, targetTraits
+      } = req.body;
+      
+      if (!realm || !walletAddress || !parent1HeroId || !parent2HeroId || !nativeToken) {
+        return res.status(400).json({ ok: false, error: 'Missing required fields' });
+      }
+      
+      // Safely parse numeric fields, defaulting to 0 for NaN values
+      const parseCost = (val) => {
+        if (val === '' || val === null || val === undefined) return null;
+        const num = Number(val);
+        return isNaN(num) ? null : num;
+      };
+      
+      const p1Cost = parseCost(parent1CostNative);
+      const p2Cost = parseCost(parent2CostNative);
+      const summonFee = parseCost(summonFeeNative);
+      const stoneCost = parseCost(enhancementStoneCostNative);
+      const stonesUsed = parseInt(enhancementStonesUsed) || 0;
+      
+      const totalCost = (p1Cost || 0) + (p2Cost || 0) + (summonFee || 0) + (stoneCost || 0);
+      
+      // Safely handle targetTraits - only stringify if defined
+      const targetTraitsJson = targetTraits != null ? JSON.stringify(targetTraits) : null;
+      
+      await db.execute(sql`
+        INSERT INTO summon_sessions (
+          realm, wallet_address, parent1_hero_id, parent2_hero_id,
+          parent1_cost_native, parent2_cost_native, summon_fee_native,
+          enhancement_stones_used, enhancement_stone_cost_native,
+          total_cost_native, native_token, target_traits, status
+        ) VALUES (
+          ${realm}, ${walletAddress}, ${parent1HeroId}, ${parent2HeroId},
+          ${p1Cost}, ${p2Cost}, ${summonFee},
+          ${stonesUsed}, ${stoneCost},
+          ${totalCost}, ${nativeToken}, ${targetTraitsJson}, 'pending'
+        )
+      `);
+      
+      res.json({ ok: true, message: 'Session created' });
+    } catch (error) {
+      console.error('[Profit Tracker] Create session error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/profit-tracker/conversion-metrics - Get conversion metrics
+  app.get("/api/admin/profit-tracker/conversion-metrics", isAdmin, async (req, res) => {
+    try {
+      const realm = req.query.realm || null;
+      
+      let query;
+      if (realm) {
+        query = sql`
+          SELECT * FROM summon_conversion_metrics 
+          WHERE realm = ${realm}
+          ORDER BY as_of_date DESC, conversion_rate DESC
+          LIMIT 100
+        `;
+      } else {
+        query = sql`
+          SELECT * FROM summon_conversion_metrics 
+          ORDER BY as_of_date DESC, conversion_rate DESC
+          LIMIT 100
+        `;
+      }
+      
+      const result = await db.execute(query);
+      const metrics = Array.isArray(result) ? result : (result.rows || []);
+      
+      res.json({ ok: true, metrics, count: metrics.length });
+    } catch (error) {
+      console.error('[Profit Tracker] Conversion metrics error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/profit-tracker/roi-summary - Get ROI summary
+  app.get("/api/admin/profit-tracker/roi-summary", isAdmin, async (req, res) => {
+    try {
+      const wallet = req.query.wallet || null;
+      
+      let baseQuery;
+      if (wallet) {
+        baseQuery = sql`
+          SELECT 
+            COUNT(*) as total_sessions,
+            COUNT(CASE WHEN status = 'sold' THEN 1 END) as sold_count,
+            SUM(total_cost_native) as total_invested,
+            (SELECT SUM(sale_price_native) FROM summon_sales_outcomes sso 
+             JOIN summon_sessions ss ON sso.session_id = ss.id 
+             WHERE ss.wallet_address = ${wallet}) as total_revenue,
+            (SELECT SUM(profit_native) FROM summon_sales_outcomes sso 
+             JOIN summon_sessions ss ON sso.session_id = ss.id 
+             WHERE ss.wallet_address = ${wallet}) as total_profit
+          FROM summon_sessions
+          WHERE wallet_address = ${wallet}
+        `;
+      } else {
+        baseQuery = sql`
+          SELECT 
+            COUNT(*) as total_sessions,
+            COUNT(CASE WHEN status = 'sold' THEN 1 END) as sold_count,
+            SUM(total_cost_native) as total_invested,
+            (SELECT SUM(sale_price_native) FROM summon_sales_outcomes) as total_revenue,
+            (SELECT SUM(profit_native) FROM summon_sales_outcomes) as total_profit
+          FROM summon_sessions
+        `;
+      }
+      
+      const result = await db.execute(baseQuery);
+      const summary = Array.isArray(result) ? result[0] : (result.rows?.[0] || {});
+      
+      res.json({ ok: true, summary });
+    } catch (error) {
+      console.error('[Profit Tracker] ROI summary error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // ============================================================================
   // SUMMONING CALCULATOR ENDPOINTS
   // ============================================================================
 

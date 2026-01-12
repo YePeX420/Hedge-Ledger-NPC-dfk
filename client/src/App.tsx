@@ -34,6 +34,8 @@ import AdminBattleReady from "@/pages/admin/battle-ready";
 import AdminSummoningCalculator from "@/pages/admin/summoning-calculator";
 import AdminSummonSniper from "@/pages/admin/summon-sniper";
 import AdminTavernIndexer from "@/pages/admin/tavern-indexer";
+import AdminMarketIntel from "@/pages/admin/market-intel";
+import AdminProfitTracker from "@/pages/admin/profit-tracker";
 import AdminPVEDropRates from "@/pages/admin/pve-droprates";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
 import CombatClasses from "@/pages/admin/combat-classes";
@@ -271,6 +273,22 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminTavernIndexer />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/market-intel">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminMarketIntel />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/profit-tracker">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminProfitTracker />
           </ProtectedAdminPage>
         )}
       </Route>
