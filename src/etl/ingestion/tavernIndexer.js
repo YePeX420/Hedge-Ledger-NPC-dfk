@@ -16,7 +16,7 @@ const DFK_TAVERN_API = 'https://api.defikingdoms.com/communityAllPublicHeroSaleA
 const NUM_WORKERS = 3;
 const BATCH_SIZE = 100;
 const AUTO_RUN_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
-const FETCH_LIMIT = 500; // Max heroes to fetch per realm
+const MAX_SAFETY_LIMIT = 50000; // Safety cap to prevent infinite loops - should never hit this with real data
 
 // Hero ID ranges for realm detection
 const CV_ID_MIN = BigInt("1000000000000");
@@ -604,11 +604,11 @@ async function runFullIndex() {
     let currentOffset = NUM_WORKERS * BATCH_SIZE;
     let consecutiveEmpty = 0;
     
-    while (currentOffset < FETCH_LIMIT && consecutiveEmpty < 2) {
+    while (consecutiveEmpty < 2 && currentOffset < MAX_SAFETY_LIMIT) {
       const batchResults = await Promise.all(
         Array.from({ length: NUM_WORKERS }, (_, i) => {
           const offset = currentOffset + (i * BATCH_SIZE);
-          if (offset >= FETCH_LIMIT) return Promise.resolve({ heroesProcessed: 0 });
+          if (offset >= MAX_SAFETY_LIMIT) return Promise.resolve({ heroesProcessed: 0 });
           return runWorker(i, offset, BATCH_SIZE, batchId);
         })
       );
@@ -621,6 +621,11 @@ async function runFullIndex() {
       }
       
       currentOffset += NUM_WORKERS * BATCH_SIZE;
+    }
+    
+    // Log warning if we hit the safety cap (shouldn't happen with real data)
+    if (currentOffset >= MAX_SAFETY_LIMIT) {
+      console.warn(`[TavernIndexer] WARNING: Hit safety cap of ${MAX_SAFETY_LIMIT} heroes - possible API issue`);
     }
     
     // Cleanup old heroes not in this batch
