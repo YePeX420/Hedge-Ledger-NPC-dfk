@@ -119,6 +119,12 @@ interface SniperResult {
     searchMode?: string;
   };
   userHero?: UserHeroInfo | null;
+  ttsMetadata?: {
+    maxExpectedTTS: number;
+    maxCumulativeByTarget: Record<number, number>;
+    requestedTarget: number | null;
+    requestedMinProb: number | null;
+  };
 }
 
 const RARITIES = [
@@ -716,7 +722,7 @@ export default function SummonSniper() {
                       Best available: {sniperResult.ttsMetadata.maxCumulativeByTarget?.[(sniperResult.ttsMetadata.requestedTarget ?? parseInt(targetTTSValue) ?? 0)]?.toFixed(2) || '0'}% chance for TTS &ge; {sniperResult.ttsMetadata.requestedTarget ?? targetTTSValue}
                     </p>
                     <p className="mt-1 text-muted-foreground">
-                      Max expected TTS across all pairs: {sniperResult.ttsMetadata.maxExpectedTTS?.toFixed(2) || '0'}
+                      Max expected TTS across all pairs: {Math.round(sniperResult.ttsMetadata.maxExpectedTTS || 0)}
                     </p>
                     <p className="mt-2 text-muted-foreground italic">
                       Try lowering Target TTS to 1-2 or reducing Min % Chance
@@ -853,7 +859,7 @@ export default function SummonSniper() {
                           <div className="flex items-center gap-2 mb-2">
                             <span className="text-sm font-medium">Offspring TTS Probability</span>
                             <Badge variant="secondary" className="text-xs">
-                              Expected: {pair.tts.expected?.toFixed(1) ?? '0'}
+                              Expected: {Math.round(pair.tts.expected || 0)}
                             </Badge>
                           </div>
                           <div className="grid grid-cols-4 gap-1 text-xs">

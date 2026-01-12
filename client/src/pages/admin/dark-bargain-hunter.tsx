@@ -182,7 +182,7 @@ export default function DarkBargainHunter() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary">
-                          Expected TTS: {pair.tts?.expected?.toFixed(2) || '0.00'}
+                          Expected TTS: {Math.round(pair.tts?.expected || 0)}
                         </Badge>
                         <Badge variant="outline" className="text-green-600">
                           ${pair.totalCostUsd?.toFixed(2)}

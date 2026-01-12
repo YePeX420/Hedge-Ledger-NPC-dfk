@@ -164,6 +164,44 @@ const BACKGROUND_NAMES: Record<number, string> = {
 };
 
 
+// Skill name to tier mapping for highlighting non-basic skills
+// Tier: 'B' = Basic (no highlight), 'A' = Advanced, 'E' = Elite, 'X' = Exalted
+const SKILL_NAME_TO_TIER: Record<string, string> = {
+  // Active Skills - Basic (0-7)
+  'Poisoned Blade': 'B', 'Blinding Winds': 'B', 'Heal': 'B', 'Cleanse': 'B',
+  'Iron Skin': 'B', 'Speed': 'B', 'Critical Aim': 'B', 'Deathmark': 'B',
+  // Active Skills - Advanced (16-19)
+  'Exhaust': 'A', 'Daze': 'A', 'Explosion': 'A', 'Hardened Shield': 'A',
+  // Active Skills - Elite (24-25)
+  'Stun': 'E', 'Second Wind': 'E',
+  // Active Skills - Exalted (28)
+  'Resurrection': 'X',
+  // Passive Skills - Basic (0-7)
+  'Duelist': 'B', 'Clutch': 'B', 'Foresight': 'B', 'Headstrong': 'B',
+  'Clear Vision': 'B', 'Fearless': 'B', 'Chatterbox': 'B', 'Stalwart': 'B',
+  // Passive Skills - Advanced (16-19)
+  'Leadership': 'A', 'Efficient': 'A', 'Intimidation': 'A', 'Toxic': 'A',
+  // Passive Skills - Elite (24-25)
+  'Giant Slayer': 'E', 'Last Stand': 'E',
+  // Passive Skills - Exalted (28)
+  'Second Life': 'X',
+};
+
+// Helper to check if a skill name is non-basic (Advanced, Elite, or Exalted)
+function isNonBasicSkill(skillName: string): boolean {
+  const tier = SKILL_NAME_TO_TIER[skillName];
+  return tier === 'A' || tier === 'E' || tier === 'X';
+}
+
+// Get tier color class for a skill
+function getSkillTierColor(skillName: string): string {
+  const tier = SKILL_NAME_TO_TIER[skillName];
+  if (tier === 'A') return 'text-cyan-400'; // Advanced
+  if (tier === 'E') return 'text-cyan-400'; // Elite
+  if (tier === 'X') return 'text-cyan-400'; // Exalted
+  return ''; // Basic - no special color
+}
+
 // Helper to check if a trait is a mutation (Advanced or higher tier)
 function isMutationTier(tier: string): boolean {
   return tier.startsWith('A') || tier.startsWith('E') || tier.startsWith('X');
@@ -287,11 +325,13 @@ const RARITY_NAMES = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"];
 function ProbabilityTable({ 
   title, 
   probabilities, 
-  mutations 
+  mutations,
+  isSkillTable = false
 }: { 
   title: string; 
   probabilities: ProbabilityMap; 
   mutations?: Set<string> | string[] | null | undefined;
+  isSkillTable?: boolean;
 }) {
   let mutationSet: Set<string>;
   if (!mutations) {
@@ -319,16 +359,19 @@ function ProbabilityTable({
       <div className="space-y-0.5">
         {sortedEntries.map(([trait, prob]) => {
           const isMutation = mutationSet.has(trait);
+          const isNonBasic = isSkillTable && isNonBasicSkill(trait);
+          const tierColor = isSkillTable ? getSkillTierColor(trait) : '';
+          
           return (
             <div 
               key={trait} 
               className={`flex justify-between text-xs py-0.5 px-1 rounded ${
                 isMutation ? "bg-orange-500/20 text-orange-300" : ""
               }`}
-              title={isMutation ? "Mutation (not in parent dominant genes)" : undefined}
+              title={isMutation ? "Mutation (not in parent dominant genes)" : isNonBasic ? "Non-basic skill (Advanced/Elite/Exalted)" : undefined}
             >
-              <span className={isMutation ? "font-medium" : ""}>{trait}</span>
-              <span className="font-mono">{prob.toFixed(2)}%</span>
+              <span className={`${isMutation ? "font-medium" : ""} ${tierColor}`}>{trait}</span>
+              <span className={`font-mono ${tierColor}`}>{prob.toFixed(2)}%</span>
             </div>
           );
         })}
@@ -803,21 +846,25 @@ export default function SummoningCalculator() {
                     title="Active 1" 
                     probabilities={result.probabilities.active1}
                     mutations={result.probabilities.mutations?.active1}
+                    isSkillTable={true}
                   />
                   <ProbabilityTable 
                     title="Active 2" 
                     probabilities={result.probabilities.active2}
                     mutations={result.probabilities.mutations?.active2}
+                    isSkillTable={true}
                   />
                   <ProbabilityTable 
                     title="Passive 1" 
                     probabilities={result.probabilities.passive1}
                     mutations={result.probabilities.mutations?.passive1}
+                    isSkillTable={true}
                   />
                   <ProbabilityTable 
                     title="Passive 2" 
                     probabilities={result.probabilities.passive2}
                     mutations={result.probabilities.mutations?.passive2}
+                    isSkillTable={true}
                   />
                   <ProbabilityTable 
                     title="Element" 
