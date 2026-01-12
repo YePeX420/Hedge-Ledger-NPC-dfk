@@ -33,6 +33,8 @@ import AdminGardeningCalc from "@/pages/admin/gardening-calc";
 import AdminBattleReady from "@/pages/admin/battle-ready";
 import AdminSummoningCalculator from "@/pages/admin/summoning-calculator";
 import AdminSummonSniper from "@/pages/admin/summon-sniper";
+import AdminBargainHunter from "@/pages/admin/bargain-hunter";
+import AdminDarkBargainHunter from "@/pages/admin/dark-bargain-hunter";
 import AdminTavernIndexer from "@/pages/admin/tavern-indexer";
 import AdminMarketIntel from "@/pages/admin/market-intel";
 import AdminProfitTracker from "@/pages/admin/profit-tracker";
@@ -265,6 +267,22 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminSummonSniper />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/bargain-hunter">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminBargainHunter />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/dark-bargain-hunter">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminDarkBargainHunter />
           </ProtectedAdminPage>
         )}
       </Route>

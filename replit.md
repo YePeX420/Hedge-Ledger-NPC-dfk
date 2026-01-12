@@ -49,7 +49,7 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Frontend Build Process**: Utilizes a two-step build process to accommodate Replit's file sync behavior, building to `/tmp` and copying to `static-build/`.
 
 ## Recent Changes (January 2026)
-*   **Bargain Hunter Modes**: Added "Summoning Bargain Hunter" and "Dark Summoning Bargain Hunter" tabs to Summon Sniper. These modes automatically set summon type and prioritize TTS efficiency (highest skill tier score for lowest cost).
+*   **Bargain Hunter Tabs**: Added dedicated "Bargain Hunter" and "Dark Bargain Hunter" pages to the admin panel sidebar. These auto-load results sorted by TTS efficiency (highest skill tier score for lowest cost). Regular Bargain Hunter uses standard summoning; Dark Bargain Hunter uses dark summoning (1/4 token cost).
 *   **Pair Scoring Limit Removed**: Summon Sniper now scores ALL candidate pairs instead of limiting to 2,200. With indexed gene data (no API calls needed), full coverage is fast.
 *   **ACTIVE_GENE_MAP Fix**: Corrected skill indices in bot.js to match gene-decoder.js (elite skills 24=Stun, 25=Second Wind, 28=Resurrection; advanced skills 17=Daze, 18=Explosion, 19=Hardened Shield).
 *   **TTS Filter UX Improvement**: Added TTS metadata to Summon Sniper API response (`ttsMetadata: { maxExpectedTTS, maxCumulativeByTarget, requestedTarget, requestedMinProb }`). Frontend now displays helpful guidance when TTS filter is unattainable, showing max available probabilities and suggesting lower thresholds (1-2).
