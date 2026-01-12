@@ -379,8 +379,8 @@ function normalizeHero(apiHero, batchId) {
     rarity: apiHero.rarity ?? 0,
     level: apiHero.level ?? 1,
     generation: apiHero.generation ?? 0,
-    summons: apiHero.summons ?? 0,
-    maxSummons: apiHero.maxSummons ?? 0,
+    summons: 0,
+    maxSummons: apiHero.summonsRemaining ?? 0,
     strength: apiHero.strength ?? 0,
     agility: apiHero.agility ?? 0,
     intelligence: apiHero.intelligence ?? 0,
@@ -948,6 +948,235 @@ export async function resetTavernIndex() {
   console.log('[TavernIndexer] Reset complete - tavern heroes cleared');
   
   return { ok: true, message: 'Tavern index reset' };
+}
+
+// ============================================================================
+// GENE BACKFILL - Fetch statGenes from GraphQL and decode recessives
+// ============================================================================
+
+const GENE_BACKFILL_BATCH_SIZE = 20;
+const GENE_BACKFILL_CONCURRENCY = 3;
+const DFK_GRAPHQL_URL = 'https://api.defikingdoms.com/graphql';
+
+let geneBackfillState = {
+  isRunning: false,
+  startedAt: null,
+  processed: 0,
+  errors: 0,
+  lastError: null
+};
+
+export function getGeneBackfillStatus() {
+  return { ...geneBackfillState };
+}
+
+async function fetchHeroGenesFromGraphQL(heroId) {
+  const query = `
+    query GetHeroGenes($heroId: ID!) {
+      hero(id: $heroId) {
+        id
+        statGenes
+        visualGenes
+      }
+    }
+  `;
+  
+  const response = await fetch(DFK_GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables: { heroId: String(heroId) } })
+  });
+  
+  if (!response.ok) {
+    throw new Error(`GraphQL request failed: ${response.status}`);
+  }
+  
+  const json = await response.json();
+  if (json.errors) {
+    throw new Error(json.errors[0]?.message || 'GraphQL error');
+  }
+  
+  return json.data?.hero;
+}
+
+function decodeStatGenesLocal(statGenes) {
+  if (!statGenes) return null;
+  
+  const kai = '123456789abcdefghjkmnpqrstuvwx';
+  const genesBigInt = BigInt(statGenes);
+  let kaiString = '';
+  let temp = genesBigInt;
+  for (let i = 0; i < 48; i++) {
+    kaiString = kai[Number(temp % 32n)] + kaiString;
+    temp = temp / 32n;
+  }
+  
+  const extractGeneSet = (start) => ({
+    d: kaiString[start],
+    r1: kaiString[start + 1],
+    r2: kaiString[start + 2],
+    r3: kaiString[start + 3]
+  });
+  
+  return {
+    class: extractGeneSet(0),
+    subClass: extractGeneSet(4),
+    profession: extractGeneSet(8),
+    passive1: extractGeneSet(12),
+    passive2: extractGeneSet(16),
+    active1: extractGeneSet(20),
+    active2: extractGeneSet(24),
+    statBoost1: extractGeneSet(28),
+    statBoost2: extractGeneSet(32),
+    element: extractGeneSet(36),
+    hpSm: extractGeneSet(40),
+    mpSm: extractGeneSet(44)
+  };
+}
+
+function kaiToId(kaiChar) {
+  const kai = '123456789abcdefghjkmnpqrstuvwx';
+  return kai.indexOf(kaiChar);
+}
+
+async function processHeroGenes(heroId) {
+  try {
+    const hero = await fetchHeroGenesFromGraphQL(heroId);
+    if (!hero || !hero.statGenes) {
+      await db.execute(sql`
+        UPDATE tavern_heroes 
+        SET genes_status = 'failed'
+        WHERE hero_id = ${heroId}
+      `);
+      return false;
+    }
+    
+    const decoded = decodeStatGenesLocal(hero.statGenes);
+    if (!decoded) {
+      await db.execute(sql`
+        UPDATE tavern_heroes 
+        SET genes_status = 'failed'
+        WHERE hero_id = ${heroId}
+      `);
+      return false;
+    }
+    
+    await db.execute(sql`
+      UPDATE tavern_heroes SET
+        stat_genes = ${hero.statGenes},
+        visual_genes = ${hero.visualGenes || null},
+        main_class_r1 = ${String(kaiToId(decoded.class.r1))},
+        main_class_r2 = ${String(kaiToId(decoded.class.r2))},
+        main_class_r3 = ${String(kaiToId(decoded.class.r3))},
+        sub_class_r1 = ${String(kaiToId(decoded.subClass.r1))},
+        sub_class_r2 = ${String(kaiToId(decoded.subClass.r2))},
+        sub_class_r3 = ${String(kaiToId(decoded.subClass.r3))},
+        active1_r1 = ${String(kaiToId(decoded.active1.r1))},
+        active1_r2 = ${String(kaiToId(decoded.active1.r2))},
+        active1_r3 = ${String(kaiToId(decoded.active1.r3))},
+        active2_r1 = ${String(kaiToId(decoded.active2.r1))},
+        active2_r2 = ${String(kaiToId(decoded.active2.r2))},
+        active2_r3 = ${String(kaiToId(decoded.active2.r3))},
+        passive1_r1 = ${String(kaiToId(decoded.passive1.r1))},
+        passive1_r2 = ${String(kaiToId(decoded.passive1.r2))},
+        passive1_r3 = ${String(kaiToId(decoded.passive1.r3))},
+        passive2_r1 = ${String(kaiToId(decoded.passive2.r1))},
+        passive2_r2 = ${String(kaiToId(decoded.passive2.r2))},
+        passive2_r3 = ${String(kaiToId(decoded.passive2.r3))},
+        genes_status = 'complete'
+      WHERE hero_id = ${heroId}
+    `);
+    
+    return true;
+  } catch (err) {
+    console.error(`[GeneBackfill] Error processing hero ${heroId}:`, err.message);
+    geneBackfillState.lastError = err.message;
+    return false;
+  }
+}
+
+export async function runGeneBackfill(maxHeroes = 500) {
+  if (geneBackfillState.isRunning) {
+    console.log('[GeneBackfill] Already running, skipping');
+    return { ok: false, message: 'Already running' };
+  }
+  
+  geneBackfillState = {
+    isRunning: true,
+    startedAt: new Date().toISOString(),
+    processed: 0,
+    errors: 0,
+    lastError: null
+  };
+  
+  console.log(`[GeneBackfill] Starting backfill (max ${maxHeroes} heroes)...`);
+  
+  try {
+    const pendingResult = await db.execute(sql`
+      SELECT hero_id FROM tavern_heroes 
+      WHERE genes_status = 'pending' OR genes_status IS NULL
+      LIMIT ${maxHeroes}
+    `);
+    
+    const pendingHeroes = Array.isArray(pendingResult) ? pendingResult : (pendingResult.rows || []);
+    console.log(`[GeneBackfill] Found ${pendingHeroes.length} heroes needing gene data`);
+    
+    if (pendingHeroes.length === 0) {
+      geneBackfillState.isRunning = false;
+      return { ok: true, message: 'No heroes need backfill', processed: 0 };
+    }
+    
+    for (let i = 0; i < pendingHeroes.length; i += GENE_BACKFILL_BATCH_SIZE) {
+      const batch = pendingHeroes.slice(i, i + GENE_BACKFILL_BATCH_SIZE);
+      
+      const workers = [];
+      for (let j = 0; j < batch.length; j += Math.ceil(batch.length / GENE_BACKFILL_CONCURRENCY)) {
+        const chunk = batch.slice(j, j + Math.ceil(batch.length / GENE_BACKFILL_CONCURRENCY));
+        workers.push((async () => {
+          for (const hero of chunk) {
+            const success = await processHeroGenes(hero.hero_id);
+            geneBackfillState.processed++;
+            if (!success) geneBackfillState.errors++;
+            await new Promise(r => setTimeout(r, 200));
+          }
+        })());
+      }
+      
+      await Promise.all(workers);
+      
+      if (i % 50 === 0) {
+        console.log(`[GeneBackfill] Progress: ${geneBackfillState.processed}/${pendingHeroes.length}`);
+      }
+    }
+    
+    console.log(`[GeneBackfill] Complete: ${geneBackfillState.processed} processed, ${geneBackfillState.errors} errors`);
+    geneBackfillState.isRunning = false;
+    
+    return { 
+      ok: true, 
+      processed: geneBackfillState.processed, 
+      errors: geneBackfillState.errors 
+    };
+  } catch (err) {
+    console.error('[GeneBackfill] Fatal error:', err);
+    geneBackfillState.isRunning = false;
+    geneBackfillState.lastError = err.message;
+    return { ok: false, error: err.message };
+  }
+}
+
+export async function getGenesStats() {
+  await ensureTablesExist();
+  
+  const result = await db.execute(sql`
+    SELECT 
+      genes_status,
+      COUNT(*) as count
+    FROM tavern_heroes
+    GROUP BY genes_status
+  `);
+  
+  return Array.isArray(result) ? result : (result.rows || []);
 }
 
 // ============================================================================

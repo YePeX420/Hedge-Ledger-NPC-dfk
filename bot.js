@@ -8822,6 +8822,43 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/tavern-indexer/backfill-genes - Trigger gene backfill from GraphQL
+  app.post("/api/admin/tavern-indexer/backfill-genes", isAdmin, async (req, res) => {
+    try {
+      const { runGeneBackfill, getGeneBackfillStatus, getGenesStats } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      const maxHeroes = parseInt(req.body?.maxHeroes) || 500;
+      console.log(`[Gene Backfill] Trigger requested (max: ${maxHeroes})`);
+      
+      runGeneBackfill(maxHeroes).catch((err) => {
+        console.error('[Gene Backfill] Background run error:', err);
+      });
+      
+      const status = getGeneBackfillStatus();
+      const stats = await getGenesStats();
+      
+      res.json({ ok: true, message: 'Gene backfill started', status, stats });
+    } catch (error) {
+      console.error('[Gene Backfill] Trigger error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/tavern-indexer/genes-status - Get gene backfill status
+  app.get("/api/admin/tavern-indexer/genes-status", isAdmin, async (req, res) => {
+    try {
+      const { getGeneBackfillStatus, getGenesStats } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      const status = getGeneBackfillStatus();
+      const stats = await getGenesStats();
+      
+      res.json({ ok: true, status, stats });
+    } catch (error) {
+      console.error('[Gene Backfill] Status error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // ============================================================================
   // SUMMONING CALCULATOR ENDPOINTS
   // ============================================================================
@@ -9165,23 +9202,22 @@ async function startAdminWebServer() {
         return getSkillTier(active1) + getSkillTier(active2) + getSkillTier(passive1) + getSkillTier(passive2);
       }
 
-      // Fetch heroes from LIVE DFK API (not stale database)
+      // Fetch heroes from INDEXED DATABASE (heroes with complete gene data)
       const safeTTS = maxTTS !== null ? parseFloat(maxTTS) : null;
       const safeMinLevel = parseInt(minLevel) || 1;
       
-      console.log('[Sniper] Fetching heroes from live DFK API...');
-      const DFK_TAVERN_API = 'https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions';
+      console.log('[Sniper] Fetching heroes from indexed database (genes_status = complete)...');
       
-      const apiResponse = await fetch(DFK_TAVERN_API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ limit: 2000, offset: 0 })
-      }).then(async r => {
-        if (!r.ok) throw new Error(`DFK API error: ${r.status}`);
-        const data = await r.json();
-        console.log('[Sniper] DFK API returned', data?.length || 0, 'heroes');
-        return data;
-      });
+      // Query indexed tavern heroes with complete gene data
+      const indexedResult = await rawPg`
+        SELECT * FROM tavern_heroes 
+        WHERE genes_status = 'complete'
+        ORDER BY price_native ASC NULLS LAST
+        LIMIT 2000
+      `;
+      
+      const apiResponse = indexedResult || [];
+      console.log('[Sniper] Indexed database returned', apiResponse.length, 'heroes with complete genes');
       
       // Helper to convert wei to token amount
       const weiToToken = (weiStr) => {
@@ -9216,59 +9252,43 @@ async function startAdminWebServer() {
       
       const allApiHeroes = Array.isArray(apiResponse) ? apiResponse : [];
       
-      // Transform and filter heroes from live API
+      // Transform and filter heroes from indexed database
+      // Indexed data has snake_case fields: hero_id, main_class, stat_genes, etc.
       let heroes = [];
       for (const hero of allApiHeroes) {
-        const heroId = BigInt(hero.id || hero.heroId);
-        const priceField = hero.startingPrice || hero.salePrice || hero.price;
-        const priceInToken = weiToToken(priceField);
-        
-        // Determine realm from network field (authoritative) - not hero ID ranges
-        const network = hero.network || '';
-        const realmInfo = NETWORK_TO_REALM[network];
-        if (!realmInfo) {
-          // Skip unknown networks (e.g., legacy Harmony 'hmy')
-          continue;
-        }
-        const realm = realmInfo.realm;
-        const nativeToken = realmInfo.token;
+        // Handle indexed data format (already has hero_id, main_class, stat_genes)
+        const heroId = hero.hero_id;
+        const realm = hero.realm;
+        const nativeToken = hero.native_token || (realm === 'cv' ? 'CRYSTAL' : 'JEWEL');
         
         // Apply realm filter
         if (!filteredRealms.includes(realm)) continue;
         
-        const mainClass = getClassName(hero.mainClass ?? hero.mainClassStr);
-        const subClass = getClassName(hero.subClass ?? hero.subClassStr);
-        const professionName = getProfessionName(hero.profession ?? 0);
-        const rarity = hero.rarity ?? 0;
-        const level = hero.level ?? 1;
-        const generation = hero.generation ?? 0;
-        const summons = hero.summons ?? 0;
-        const maxSummons = hero.maxSummons ?? 0;
+        const mainClass = hero.main_class;
+        const subClass = hero.sub_class;
+        const professionName = hero.profession;
+        const rarity = parseInt(hero.rarity) || 0;
+        const level = parseInt(hero.level) || 1;
+        const generation = parseInt(hero.generation) || 0;
+        const summons = parseInt(hero.summons) || 0;
+        const maxSummons = parseInt(hero.max_summons) || 0;
         const summonsRemaining = maxSummons - summons;
+        const priceInToken = parseFloat(hero.price_native) || 0;
         
-        // Calculate TTS from hero's ability gene values
-        // Each ability slot can only have ONE dominant skill - use max tier of dominant gene
-        // Gene values: 0-15=Basic(0), 16-23=Advanced(1), 24-27=Elite(2), 28-31=Transcendent(3)
-        const heroTTS = calculateTTS(
-          hero.active1,
-          hero.active2,
-          hero.passive1,
-          hero.passive2
-        );
+        // Use pre-calculated TTS from index
+        const heroTTS = parseInt(hero.trait_score) || 0;
         
         // Apply filters
         if (summonsRemaining < minSummonsRemaining) continue;
-        // Optional max summons filter (not used for dark summon)
         if (maxSummonsRemaining !== undefined && summonsRemaining > maxSummonsRemaining) continue;
         if (rarity < minRarity) continue;
         if (generation > maxGeneration) continue;
         if (level < safeMinLevel) continue;
-        // TTS filter - only include heroes at or below max TTS
         if (safeTTS !== null && heroTTS > safeTTS) continue;
         
         heroes.push({
           hero_id: String(heroId),
-          normalized_id: Number(heroId % BigInt(1000000000000)),
+          normalized_id: parseInt(hero.normalized_id) || 0,
           realm,
           main_class: mainClass,
           sub_class: subClass,
@@ -9281,7 +9301,9 @@ async function startAdminWebServer() {
           price_native: priceInToken,
           native_token: nativeToken,
           trait_score: heroTTS,
-          combat_power: 0
+          combat_power: parseInt(hero.combat_power) || 0,
+          stat_genes: hero.stat_genes,
+          visual_genes: hero.visual_genes
         });
       }
       
@@ -9557,8 +9579,19 @@ async function startAdminWebServer() {
       
       console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs (${pairsWithTarget.length} with target class), scoring ${pairsToScore.length}`);
 
-      // Cache for hero genes fetched from GraphQL
+      // Cache for hero genes - pre-populated from indexed database
       const geneCache = new Map();
+      
+      // Pre-populate cache from indexed heroes (all have stat_genes already)
+      for (const h of heroes) {
+        if (h.stat_genes) {
+          geneCache.set(h.hero_id, {
+            statGenes: h.stat_genes,
+            visualGenes: h.visual_genes
+          });
+        }
+      }
+      console.log(`[Sniper] Pre-cached ${geneCache.size} hero genes from index`);
       
       // Pre-populate cache with user's hero genes if available
       if (userHero && userHero.statGenes) {
@@ -9569,24 +9602,11 @@ async function startAdminWebServer() {
         console.log(`[Sniper] Pre-cached user hero genes for ${userHero.hero_id}`);
       }
       
-      async function getHeroGenes(heroId) {
+      function getHeroGenes(heroId) {
         if (geneCache.has(heroId)) {
           return geneCache.get(heroId);
         }
-        
-        try {
-          const heroData = await getHeroById(heroId);
-          if (heroData && heroData.statGenes) {
-            const genes = {
-              statGenes: heroData.statGenes,
-              visualGenes: heroData.visualGenes
-            };
-            geneCache.set(heroId, genes);
-            return genes;
-          }
-        } catch (err) {
-          console.log(`[Sniper] Failed to fetch genes for ${heroId}:`, err.message);
-        }
+        console.log(`[Sniper] Warning: No genes found for hero ${heroId} (not in index)`);
         return null;
       }
 
@@ -9595,9 +9615,9 @@ async function startAdminWebServer() {
       
       for (const { hero1, hero2, realm, purchaseCost, summonTokenCost, tearCost, tearCount, bridgeCostUsd, heroesNeedingBridge, totalCost } of pairsToScore) {
         try {
-          // Get genes from cache or fetch from GraphQL
-          const genes1 = await getHeroGenes(hero1.hero_id);
-          const genes2 = await getHeroGenes(hero2.hero_id);
+          // Get genes from pre-populated cache (indexed data)
+          const genes1 = getHeroGenes(hero1.hero_id);
+          const genes2 = getHeroGenes(hero2.hero_id);
           
           if (!genes1 || !genes2) continue;
           
