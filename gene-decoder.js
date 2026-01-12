@@ -91,43 +91,45 @@ const PROFESSION_GENES = [
   'Unknown31'    // 31 (max Kai value)
 ];
 
-const PASSIVE_GENES = [
-  'Duelist',      // 0 - Basic1: +2.5% Block/Spell Block, +20% damage 1v1
-  'Clutch',       // 1 - Basic2: +20% damage when below 25% HP
-  'Foresight',    // 2 - Basic3: +3% Evasion
-  'Headstrong',   // 3 - Basic4: +32.5% Daze resistance, +2.5% Status Effect Resistance
-  'Clear Vision', // 4 - Basic5: +32.5% Blind resistance, +2.5% Status Effect Resistance
-  'Fearless',     // 5 - Basic6: +32.5% Fear resistance, +2.5% Status Effect Resistance
-  'Chatterbox',   // 6 - Basic7: +32.5% Silence resistance, +2.5% Status Effect Resistance
-  'Stalwart',     // 7 - Basic8: +32.5% Poison resistance, +2.5% Status Effect Resistance
-  'Leadership',   // 8 - Advanced1: Allies deal +5% damage (max 15%)
-  'Efficient',    // 9 - Advanced2: -10% Mana consumption
-  'Menacing',     // 10 - Advanced3: Enemies deal -5% damage (max 15%)
-  'Toxic',        // 11 - Advanced4: 3% chance to apply Poison per hit
-  'Giant Slayer', // 12 - Elite1: +10%/+20% damage vs higher HP targets
-  'Last Stand',   // 13 - Elite2: Survive with 10% HP once per battle
-  'Second Life',  // 14 - Exalted1: Revive with 35% HP once per battle
-  'Unknown15'     // 15 - Placeholder
-];
+// Passive skill genes - SPARSE MAPPING matching degenking library
+// Basic: 0-7, Advanced: 16-19, Elite: 24-25, Exalted: 28
+const PASSIVE_GENES = {
+  0: 'Duelist',       // Basic1: +2.5% Block/Spell Block, +20% damage 1v1
+  1: 'Clutch',        // Basic2: +20% damage when below 25% HP
+  2: 'Foresight',     // Basic3: +3% Evasion
+  3: 'Headstrong',    // Basic4: +32.5% Daze resistance, +2.5% Status Effect Resistance
+  4: 'Clear Vision',  // Basic5: +32.5% Blind resistance, +2.5% Status Effect Resistance
+  5: 'Fearless',      // Basic6: +32.5% Fear resistance, +2.5% Status Effect Resistance
+  6: 'Chatterbox',    // Basic7: +32.5% Silence resistance, +2.5% Status Effect Resistance
+  7: 'Stalwart',      // Basic8: +32.5% Poison resistance, +2.5% Status Effect Resistance
+  16: 'Leadership',   // Advanced1: Allies deal +5% damage (max 15%)
+  17: 'Efficient',    // Advanced2: -10% Mana consumption
+  18: 'Intimidation', // Advanced3: Enemies deal -5% damage (max 15%)
+  19: 'Toxic',        // Advanced4: 3% chance to apply Poison per hit
+  24: 'Giant Slayer', // Elite1: +10%/+20% damage vs higher HP targets
+  25: 'Last Stand',   // Elite2: Survive with 10% HP once per battle
+  28: 'Second Life',  // Exalted1: Revive with 35% HP once per battle
+};
 
-const ACTIVE_GENES = [
-  'Poisoned Blade',  // 0 - Basic1: Deal 1.0*POWER damage, 80% Poison
-  'Blinding Winds',  // 1 - Basic2: Deal 1.0*POWER damage, 80% Blind
-  'Heal',            // 2 - Basic3: Heal 35% max HP
-  'Cleanse',         // 3 - Basic4: Cleanse target, 50% double cleanse
-  'Iron Skin',       // 4 - Basic5: -15% Physical damage for 80 ticks
-  'Speed',           // 5 - Basic6: +20% Haste for 30 ticks, +500 Initiative
-  'Critical Aim',    // 6 - Basic7: Deal 1.0*POWER damage, +35% CSC this attack, +20% CSC for 2 turns
-  'Deathmark',       // 7 - Basic8: Deal 1.2*POWER damage, 80% +15% damage taken for 40 ticks
-  'Exhaust',         // 8 - Advanced1: Deal 1.2*POWER damage, 50% Exhaust
-  'Daze',            // 9 - Advanced2: Deal 1.2*POWER damage, 70% Daze
-  'Explosion',       // 10 - Advanced3: Channel, Deal 1.5*POWER AOE, 75% Pierce
-  'Hardened Shield', // 11 - Advanced4: -30% damage taken for 40 ticks
-  'Stun',            // 12 - Elite1: Deal 1.4*POWER damage, 70% Stun
-  'Second Wind',     // 13 - Elite2: Restore 50% missing HP, allies heal 50% of that
-  'Resurrection',    // 14 - Exalted1: Revive ally with 35% HP
-  'Unknown15'        // 15 - Placeholder
-];
+// Active skill genes - SPARSE MAPPING matching degenking library
+// Basic: 0-7, Advanced: 16-19, Elite: 24-25, Exalted: 28
+const ACTIVE_GENES = {
+  0: 'Poisoned Blade',  // Basic1: Deal 1.0*POWER damage, 80% Poison
+  1: 'Blinding Winds',  // Basic2: Deal 1.0*POWER damage, 80% Blind
+  2: 'Heal',            // Basic3: Heal 35% max HP
+  3: 'Cleanse',         // Basic4: Cleanse target, 50% double cleanse
+  4: 'Iron Skin',       // Basic5: -15% Physical damage for 80 ticks
+  5: 'Speed',           // Basic6: +20% Haste for 30 ticks, +500 Initiative
+  6: 'Critical Aim',    // Basic7: Deal 1.0*POWER damage, +35% CSC this attack, +20% CSC for 2 turns
+  7: 'Deathmark',       // Basic8: Deal 1.2*POWER damage, 80% +15% damage taken for 40 ticks
+  16: 'Exhaust',        // Advanced1: Deal 1.2*POWER damage, 50% Exhaust
+  17: 'Daze',           // Advanced2: Deal 1.2*POWER damage, 70% Daze
+  18: 'Explosion',      // Advanced3: Channel, Deal 1.5*POWER AOE, 75% Pierce
+  19: 'Hardened Shield',// Advanced4: -30% damage taken for 40 ticks
+  24: 'Stun',           // Elite1: Deal 1.4*POWER damage, 70% Stun
+  25: 'Second Wind',    // Elite2: Restore 50% missing HP, allies heal 50% of that
+  28: 'Resurrection',   // Exalted1: Revive ally with 35% HP
+};
 
 // Official gene-to-stat boost mapping from degenking library
 // Note: Uses even-spaced values (0, 2, 4, 6, 8, 10, 12, 14)
@@ -353,24 +355,24 @@ function decodeStatGenes(statGenes) {
     
     const mapping = trait.mapping;
     
-    // For 16-element lookup tables (like ACTIVE_GENES, PASSIVE_GENES),
-    // Kai encoding packs both skill ID and tier info in 5 bits.
-    // We normalize by taking value % 16 to extract just the skill ID.
-    // This fixes decoding for active/passive skill genes where raw values
-    // can exceed 15 (e.g., 17, 19, 25), causing undefined lookups.
-    const mappingLen = mapping.length;
-    const normalizeValue = (val) => mappingLen === 16 ? val % 16 : val;
-    
-    const dNorm = normalizeValue(dVal);
-    const r1Norm = normalizeValue(r1Val);
-    const r2Norm = normalizeValue(r2Val);
-    const r3Norm = normalizeValue(r3Val);
+    // For sparse object mappings (ACTIVE_GENES, PASSIVE_GENES), directly use
+    // the raw Kai value as key. These use sparse indices: 0-7 (basic), 
+    // 16-19 (advanced), 24-25 (elite), 28 (exalted).
+    // For array mappings (CLASS_GENES, etc.), direct index access works.
+    const isArrayMapping = Array.isArray(mapping);
+    const lookupValue = (val) => {
+      if (isArrayMapping) {
+        return mapping[val] || `Unknown${val}`;
+      } else {
+        return mapping[val] || `Unknown${val}`;
+      }
+    };
     
     decoded[trait.name] = {
-      d: { value: dNorm, name: mapping[dNorm] },
-      r1: { value: r1Norm, name: mapping[r1Norm] },
-      r2: { value: r2Norm, name: mapping[r2Norm] },
-      r3: { value: r3Norm, name: mapping[r3Norm] }
+      d: { value: dVal, name: lookupValue(dVal) },
+      r1: { value: r1Val, name: lookupValue(r1Val) },
+      r2: { value: r2Val, name: lookupValue(r2Val) },
+      r3: { value: r3Val, name: lookupValue(r3Val) }
     };
   }
   

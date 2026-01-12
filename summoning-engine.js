@@ -585,52 +585,52 @@ export function formatProbabilities(probabilities, maxItems = 10) {
  * Mappings from gene-decoder.js ACTIVE_GENES and PASSIVE_GENES arrays
  */
 const SKILL_TIERS = {
-  // Active Skills - Basic (Tier 0) - indices 0-7 in ACTIVE_GENES
-  'Poisoned Blade': 0,  // 0
-  'Blinding Winds': 0,  // 1
-  'Heal': 0,            // 2
-  'Cleanse': 0,         // 3
-  'Iron Skin': 0,       // 4
-  'Speed': 0,           // 5
-  'Critical Aim': 0,    // 6
-  'Deathmark': 0,       // 7
+  // Active Skills - Basic (Tier 0) - gene indices 0-7
+  'Poisoned Blade': 0,  // gene 0
+  'Blinding Winds': 0,  // gene 1
+  'Heal': 0,            // gene 2
+  'Cleanse': 0,         // gene 3
+  'Iron Skin': 0,       // gene 4
+  'Speed': 0,           // gene 5
+  'Critical Aim': 0,    // gene 6
+  'Deathmark': 0,       // gene 7
   
-  // Active Skills - Advanced (Tier 1) - indices 8-11 in ACTIVE_GENES
-  'Exhaust': 1,          // 8
-  'Daze': 1,             // 9
-  'Explosion': 1,        // 10
-  'Hardened Shield': 1,  // 11
+  // Active Skills - Advanced (Tier 1) - gene indices 16-19
+  'Exhaust': 1,          // gene 16
+  'Daze': 1,             // gene 17
+  'Explosion': 1,        // gene 18
+  'Hardened Shield': 1,  // gene 19
   
-  // Active Skills - Elite (Tier 2) - indices 12-13 in ACTIVE_GENES
-  'Stun': 2,             // 12
-  'Second Wind': 2,      // 13
+  // Active Skills - Elite (Tier 2) - gene indices 24-25
+  'Stun': 2,             // gene 24
+  'Second Wind': 2,      // gene 25
   
-  // Active Skills - Exalted/Transcendent (Tier 3) - index 14 in ACTIVE_GENES
-  'Resurrection': 3,     // 14
+  // Active Skills - Exalted/Transcendent (Tier 3) - gene index 28
+  'Resurrection': 3,     // gene 28
   
-  // Passive Skills - Basic (Tier 0) - indices 0-7 in PASSIVE_GENES
-  'Duelist': 0,       // 0
-  'Clutch': 0,        // 1
-  'Foresight': 0,     // 2
-  'Headstrong': 0,    // 3
-  'Clear Vision': 0,  // 4
-  'Fearless': 0,      // 5
-  'Chatterbox': 0,    // 6
-  'Stalwart': 0,      // 7
+  // Passive Skills - Basic (Tier 0) - gene indices 0-7
+  'Duelist': 0,       // gene 0
+  'Clutch': 0,        // gene 1
+  'Foresight': 0,     // gene 2
+  'Headstrong': 0,    // gene 3
+  'Clear Vision': 0,  // gene 4
+  'Fearless': 0,      // gene 5
+  'Chatterbox': 0,    // gene 6
+  'Stalwart': 0,      // gene 7
   
-  // Passive Skills - Advanced (Tier 1) - indices 8-11 in PASSIVE_GENES
-  'Leadership': 1,    // 8
-  'Efficient': 1,     // 9
-  'Menacing': 1,      // 10 - Enemies deal -5% damage (max 15%)
-  'Intimidation': 1,  // Mutation result - same as Menacing, different name in mutation map
-  'Toxic': 1,         // 11
+  // Passive Skills - Advanced (Tier 1) - gene indices 16-19
+  'Leadership': 1,    // gene 16
+  'Efficient': 1,     // gene 17
+  'Intimidation': 1,  // gene 18 - Enemies deal -5% damage (max 15%)
+  'Menacing': 1,      // alias for Intimidation (legacy)
+  'Toxic': 1,         // gene 19
   
-  // Passive Skills - Elite (Tier 2) - indices 12-13 in PASSIVE_GENES
-  'Giant Slayer': 2,  // 12
-  'Last Stand': 2,    // 13
+  // Passive Skills - Elite (Tier 2) - gene indices 24-25
+  'Giant Slayer': 2,  // gene 24
+  'Last Stand': 2,    // gene 25
   
-  // Passive Skills - Exalted/Transcendent (Tier 3) - index 14 in PASSIVE_GENES
-  'Second Life': 3,   // 14
+  // Passive Skills - Exalted/Transcendent (Tier 3) - gene index 28
+  'Second Life': 3,   // gene 28
   
   // Fallback for Unknown skills
   'Unknown15': 0
