@@ -450,15 +450,15 @@ export default function TavernIndexerAdmin() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Gene progress */}
-          {geneStats && (
+          {geneStats && geneStats.total !== undefined && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span>Complete gene data</span>
                 <span className="text-muted-foreground">
-                  {geneStats.complete.toLocaleString()} / {geneStats.total.toLocaleString()} ({geneStats.percentage.toFixed(1)}%)
+                  {(geneStats.complete || 0).toLocaleString()} / {(geneStats.total || 0).toLocaleString()} ({(geneStats.percentage || 0).toFixed(1)}%)
                 </span>
               </div>
-              <Progress value={geneStats.percentage} className="h-2" />
+              <Progress value={geneStats.percentage || 0} className="h-2" />
             </div>
           )}
 

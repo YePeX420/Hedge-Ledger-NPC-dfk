@@ -8850,7 +8850,26 @@ async function startAdminWebServer() {
       const { getGeneBackfillStatus, getGenesStats } = await import("./src/etl/ingestion/tavernIndexer.js");
       
       const status = getGeneBackfillStatus();
-      const stats = await getGenesStats();
+      const rawStats = await getGenesStats();
+      
+      // Transform raw SQL result into the format expected by frontend
+      // rawStats is array like [{ genes_status: 'complete', count: '500' }, { genes_status: 'pending', count: '200' }]
+      let complete = 0;
+      let incomplete = 0;
+      
+      for (const row of rawStats) {
+        const count = parseInt(row.count) || 0;
+        if (row.genes_status === 'complete') {
+          complete = count;
+        } else {
+          incomplete += count;
+        }
+      }
+      
+      const total = complete + incomplete;
+      const percentage = total > 0 ? (complete / total) * 100 : 0;
+      
+      const stats = { complete, incomplete, total, percentage };
       
       res.json({ ok: true, status, stats });
     } catch (error) {
