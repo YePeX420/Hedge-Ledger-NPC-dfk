@@ -48,6 +48,9 @@ interface IndexerStatus {
   startedAt: string | null;
   batchId: string | null;
   totalHeroesIndexed: number;
+  cvHeroesIndexed: number;
+  sdHeroesIndexed: number;
+  numWorkers: number;
   workers: WorkerState[];
   errors: string[];
   autoRunActive: boolean;
@@ -257,7 +260,14 @@ export default function TavernIndexerAdmin() {
           {/* Progress bars when running */}
           {status?.isRunning && status.workers && status.workers.length > 0 && (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">Workers processing heroes...</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">{status.numWorkers || 10} workers processing heroes...</p>
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-blue-500" data-testid="text-cv-progress">CV: {(status.cvHeroesIndexed || 0).toLocaleString()}</span>
+                  <span className="text-purple-500" data-testid="text-sd-progress">SD: {(status.sdHeroesIndexed || 0).toLocaleString()}</span>
+                  <span className="font-semibold" data-testid="text-total-progress">Total: {(status.totalHeroesIndexed || 0).toLocaleString()}</span>
+                </div>
+              </div>
               {status.workers.map((worker, idx) => (
                 <div key={idx} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">

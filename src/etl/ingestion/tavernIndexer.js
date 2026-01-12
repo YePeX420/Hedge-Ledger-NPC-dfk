@@ -13,7 +13,7 @@ import { lookupStone } from '../../data/enhancementStones.js';
 
 // Configuration
 const DFK_TAVERN_API = 'https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions';
-const NUM_WORKERS = 3;
+const NUM_WORKERS = 10; // 10 parallel workers for fast fetching
 const BATCH_SIZE = 100;
 const AUTO_RUN_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_SAFETY_LIMIT = 50000; // Safety cap to prevent infinite loops - should never hit this with real data
@@ -41,6 +41,8 @@ let indexerState = {
   batchId: null,
   workers: [],
   totalHeroesIndexed: 0,
+  cvHeroesIndexed: 0,
+  sdHeroesIndexed: 0,
   errors: []
 };
 
@@ -422,9 +424,11 @@ function normalizeHero(apiHero, batchId) {
 }
 
 async function upsertHeroes(heroes) {
-  if (heroes.length === 0) return 0;
+  if (heroes.length === 0) return { total: 0, cv: 0, sd: 0 };
   
-  let inserted = 0;
+  let total = 0;
+  let cv = 0;
+  let sd = 0;
   
   for (const hero of heroes) {
     try {
@@ -483,13 +487,15 @@ async function upsertHeroes(heroes) {
           batch_id = EXCLUDED.batch_id,
           indexed_at = NOW()
       `);
-      inserted++;
+      total++;
+      if (hero.realm === 'cv') cv++;
+      else if (hero.realm === 'sd') sd++;
     } catch (error) {
       console.error(`[TavernIndexer] Failed to upsert hero ${hero.heroId}:`, error.message);
     }
   }
   
-  return inserted;
+  return { total, cv, sd };
 }
 
 async function cleanupOldHeroes(batchId) {
@@ -539,16 +545,20 @@ async function runWorker(workerId, offset, limit, batchId) {
       .map(h => normalizeHero(h, batchId))
       .filter(h => h.realm === 'cv' || h.realm === 'sd'); // Skip legacy heroes
     
-    // Upsert to database
-    const inserted = await upsertHeroes(normalizedHeroes);
+    // Upsert to database - returns actual inserted counts per realm
+    const { total: inserted, cv: cvCount, sd: sdCount } = await upsertHeroes(normalizedHeroes);
     
     indexerState.workers[workerId].status = 'done';
     indexerState.workers[workerId].heroesProcessed = inserted;
+    indexerState.workers[workerId].cvCount = cvCount;
+    indexerState.workers[workerId].sdCount = sdCount;
     indexerState.totalHeroesIndexed += inserted;
+    indexerState.cvHeroesIndexed += cvCount;
+    indexerState.sdHeroesIndexed += sdCount;
     
-    console.log(`[TavernIndexer ${workerLabel}] Processed ${inserted} heroes`);
+    console.log(`[TavernIndexer ${workerLabel}] Processed ${inserted} heroes (CV: ${cvCount}, SD: ${sdCount})`);
     
-    return { workerId, heroesProcessed: inserted };
+    return { workerId, heroesProcessed: inserted, cvCount, sdCount };
   } catch (error) {
     indexerState.workers[workerId].status = 'error';
     indexerState.workers[workerId].error = error.message;
@@ -578,6 +588,8 @@ async function runFullIndex() {
     batchId,
     workers: [],
     totalHeroesIndexed: 0,
+    cvHeroesIndexed: 0,
+    sdHeroesIndexed: 0,
     errors: []
   };
   
@@ -752,6 +764,9 @@ export function getIndexerStatus() {
     startedAt: indexerState.startedAt,
     batchId: indexerState.batchId,
     totalHeroesIndexed: indexerState.totalHeroesIndexed,
+    cvHeroesIndexed: indexerState.cvHeroesIndexed || 0,
+    sdHeroesIndexed: indexerState.sdHeroesIndexed || 0,
+    numWorkers: NUM_WORKERS,
     workers: indexerState.workers,
     errors: indexerState.errors.slice(-5),
     autoRunActive: !!autoRunInterval,
