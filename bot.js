@@ -10453,8 +10453,8 @@ async function startAdminWebServer() {
           break;
       }
 
-      // Return top results
-      const topPairs = pairs.slice(0, limit);
+      // Return top results (limit=0 means no limit - return all pairs)
+      const topPairs = limit > 0 ? pairs.slice(0, limit) : pairs;
 
       res.json({
         ok: true,

@@ -92,7 +92,7 @@ export default function BargainHunter() {
         searchMode: "tavern",
         bridgeFeeUsd: 0.5,
         sortBy: "skillScore",
-        limit: 100
+        limit: 0
       });
       return response.json();
     },
