@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Zap, ExternalLink, Loader2, TrendingUp, RefreshCw, Calculator } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
@@ -72,6 +73,7 @@ interface SniperResult {
 
 export default function BargainHunter() {
   const [result, setResult] = useState<SniperResult | null>(null);
+  const [realmFilter, setRealmFilter] = useState<string>("all");
 
   const ALL_CLASSES = ['Archer', 'Berserker', 'Knight', 'Priest', 'Seer', 'Warrior', 'Wizard', 'Pirate'];
 
@@ -107,12 +109,16 @@ export default function BargainHunter() {
 
   const sortedPairs = useMemo(() => {
     if (!result?.pairs) return [];
-    return [...result.pairs].sort((a, b) => {
+    let filtered = [...result.pairs];
+    if (realmFilter !== "all") {
+      filtered = filtered.filter(pair => pair.realm === realmFilter);
+    }
+    return filtered.sort((a, b) => {
       const aEfficiency = (a.tts?.expected || 0) / (a.totalCostUsd || 1);
       const bEfficiency = (b.tts?.expected || 0) / (b.totalCostUsd || 1);
       return bEfficiency - aEfficiency;
     });
-  }, [result?.pairs]);
+  }, [result?.pairs, realmFilter]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -160,9 +166,29 @@ export default function BargainHunter() {
 
       {result && (
         <div className="space-y-4">
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span>Scored {result.totalPairsScored?.toLocaleString()} pairs</span>
-            <span>from {result.totalHeroes?.toLocaleString()} heroes</span>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span>Scored {result.totalPairsScored?.toLocaleString()} pairs</span>
+              <span>from {result.totalHeroes?.toLocaleString()} heroes</span>
+              {realmFilter !== "all" && (
+                <Badge variant="outline">
+                  Showing {sortedPairs.length} {realmFilter === "cv" ? "Crystalvale" : "Sundered Isles"} pairs
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Realm:</span>
+              <Select value={realmFilter} onValueChange={setRealmFilter}>
+                <SelectTrigger className="w-40" data-testid="select-realm-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Realms</SelectItem>
+                  <SelectItem value="cv">Crystalvale</SelectItem>
+                  <SelectItem value="sd">Sundered Isles</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="grid gap-4">
