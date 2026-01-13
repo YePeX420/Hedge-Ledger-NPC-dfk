@@ -10282,6 +10282,10 @@ async function startAdminWebServer() {
       let ttsMetadata = { maxExpectedTTS: 0, maxCumulativeByTarget: {} };
       for (let t = 0; t <= 12; t++) ttsMetadata.maxCumulativeByTarget[t] = 0;
       
+      // Debug logging flag - log first scored pair for validation
+      let debugLoggedFirstPair = false;
+      const DEBUG_TTS = process.env.DEBUG_SNIPER_TTS === 'true';
+      
       for (const { hero1, hero2, realm, purchaseCost, summonTokenCost, tearCost, tearCount, bridgeCostUsd, heroesNeedingBridge, totalCost } of pairsToScore) {
         try {
           // Get pre-decoded genetics from cache
@@ -10381,6 +10385,19 @@ async function startAdminWebServer() {
           // This allows tracking of max TTS values across ALL pairs for user guidance
           const ttsData = calculateTTSProbabilities(probs);
           
+          // Debug logging: log first pair's TTS data for validation (enabled via DEBUG_SNIPER_TTS=true)
+          if (DEBUG_TTS && !debugLoggedFirstPair) {
+            debugLoggedFirstPair = true;
+            console.log('[Sniper DEBUG] Sample pair TTS data:');
+            console.log('  Hero1:', hero1.hero_id, hero1.main_class);
+            console.log('  Hero2:', hero2.hero_id, hero2.main_class);
+            console.log('  expectedTTS:', ttsData?.expectedTTS);
+            console.log('  cumulativeProbs:', JSON.stringify(ttsData?.cumulativeProbs || {}));
+            console.log('  slotTierProbs:', JSON.stringify(ttsData?.slotTierProbs || {}));
+            console.log('  Input probs.active1:', JSON.stringify(probs?.active1 || {}));
+            console.log('  Input probs.passive1:', JSON.stringify(probs?.passive1 || {}));
+          }
+          
           // Track max TTS values seen across all pairs (for user guidance when TTS filter is too strict)
           if (ttsData?.expectedTTS > ttsMetadata.maxExpectedTTS) {
             ttsMetadata.maxExpectedTTS = ttsData.expectedTTS;
@@ -10410,7 +10427,13 @@ async function startAdminWebServer() {
           if (targetTTSValue !== null && targetTTSValue !== undefined && 
               minTTSProbability !== null && minTTSProbability !== undefined) {
             const targetKey = Math.floor(Number(targetTTSValue));
-            const minProb = Number(minTTSProbability);
+            let minProb = Number(minTTSProbability);
+            
+            // Normalize: if minProb <= 1, assume it's a fraction and convert to percentage
+            if (!isNaN(minProb) && minProb > 0 && minProb <= 1) {
+              minProb = minProb * 100;
+            }
+            
             // Validate bounds: TTS must be 0-12, probability must be 0-100
             if (!isNaN(targetKey) && targetKey >= 0 && targetKey <= 12 && 
                 !isNaN(minProb) && minProb >= 0 && minProb <= 100) {

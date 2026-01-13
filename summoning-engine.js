@@ -680,13 +680,28 @@ const SKILL_TIERS = {
 };
 
 /**
- * Get skill tier for a skill name
- * @param {string} skillName - The skill name
+ * Get skill tier for a skill name or numeric ID
+ * @param {string|number} skill - The skill name ("Stun") or numeric ID (24 or "24")
  * @returns {number} Tier value (0-3)
  */
-export function getSkillTierByName(skillName) {
-  const tier = SKILL_TIERS[skillName];
-  return tier ?? 0;
+export function getSkillTierByName(skill) {
+  if (skill == null) return 0;
+  
+  // Try name lookup first
+  const byName = SKILL_TIERS[skill];
+  if (byName !== undefined) return byName;
+  
+  // Try numeric ID lookup (handles "24" or 24)
+  const id = parseInt(skill);
+  if (!isNaN(id)) {
+    // Tier bands: 0-7=Basic(0), 16-19=Advanced(1), 24-25=Elite(2), 28=Exalted(3)
+    if (id >= 28) return 3; // Exalted
+    if (id >= 24) return 2; // Elite
+    if (id >= 16) return 1; // Advanced
+    return 0; // Basic (0-15)
+  }
+  
+  return 0; // Default to Basic
 }
 
 /**
@@ -703,22 +718,60 @@ export function calculateTTSProbabilities(probs) {
   // Convert skill probabilities to tier probabilities for each slot
   function getSlotTierProbs(skillProbs) {
     const tierProbs = { 0: 0, 1: 0, 2: 0, 3: 0 };
-    if (!skillProbs || typeof skillProbs !== 'object') {
-      tierProbs[0] = 100; // Default to Basic
+    
+    // Handle null, undefined, non-objects, AND empty objects
+    if (!skillProbs || typeof skillProbs !== 'object' || Object.keys(skillProbs).length === 0) {
+      tierProbs[0] = 100; // Default to Basic (tier 0)
       return tierProbs;
     }
+    
     for (const [skill, prob] of Object.entries(skillProbs)) {
-      const tier = getSkillTierByName(skill);
+      // Handle both skill names ("Stun") and numeric IDs ("24" or 24)
+      const tier = getSkillTier(skill);
       tierProbs[tier] = (tierProbs[tier] || 0) + prob;
     }
-    // Normalize to 100%
+    
+    // Normalize: handle both 0-1 (fractions) and 0-100 (percentages)
     const total = Object.values(tierProbs).reduce((a, b) => a + b, 0);
-    if (total > 0 && Math.abs(total - 100) > 0.1) {
+    
+    if (total === 0) {
+      // No valid probabilities found - default to tier 0
+      tierProbs[0] = 100;
+      return tierProbs;
+    }
+    
+    // If total is close to 1, assume fractions and convert to percentages
+    if (total > 0 && total <= 1.01) {
+      for (const tier of Object.keys(tierProbs)) {
+        tierProbs[tier] = tierProbs[tier] * 100;
+      }
+    } else if (Math.abs(total - 100) > 0.1) {
+      // Otherwise normalize to 100% if not already
       for (const tier of Object.keys(tierProbs)) {
         tierProbs[tier] = (tierProbs[tier] / total) * 100;
       }
     }
+    
     return tierProbs;
+  }
+  
+  // Helper: get tier from either skill name or numeric ID
+  function getSkillTier(skillKey) {
+    // Try name lookup first
+    const byName = SKILL_TIERS[skillKey];
+    if (byName !== undefined) return byName;
+    
+    // Try numeric ID lookup (handles "24" or 24)
+    const id = parseInt(skillKey);
+    if (!isNaN(id)) {
+      // Tier bands: 0-7=Basic(0), 16-19=Advanced(1), 24-25=Elite(2), 28=Exalted(3)
+      if (id >= 28) return 3; // Exalted
+      if (id >= 24) return 2; // Elite
+      if (id >= 16) return 1; // Advanced
+      return 0; // Basic (0-15)
+    }
+    
+    return 0; // Default to Basic
   }
   
   const active1Tiers = getSlotTierProbs(probs.active1);
