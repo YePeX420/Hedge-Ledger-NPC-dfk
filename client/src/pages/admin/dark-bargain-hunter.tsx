@@ -64,6 +64,7 @@ interface CacheResult {
 export default function DarkBargainHunter() {
   const [realmFilter, setRealmFilter] = useState<string>("all");
   const [minRarityFilter, setMinRarityFilter] = useState<number>(0);
+  const [minLevelFilter, setMinLevelFilter] = useState<number>(1);
   const [minEliteChance, setMinEliteChance] = useState<number>(0);
   const [minExaltedChance, setMinExaltedChance] = useState<number>(0);
 
@@ -100,6 +101,11 @@ export default function DarkBargainHunter() {
         pair.hero1.rarity >= minRarityFilter && pair.hero2.rarity >= minRarityFilter
       );
     }
+    if (minLevelFilter > 1) {
+      filtered = filtered.filter(pair => 
+        pair.hero1.level >= minLevelFilter && pair.hero2.level >= minLevelFilter
+      );
+    }
     if (minEliteChance > 0) {
       filtered = filtered.filter(pair => (pair.eliteChance || 0) >= minEliteChance);
     }
@@ -109,7 +115,7 @@ export default function DarkBargainHunter() {
     // Use pre-computed efficiency from cache (TS per native token cost)
     // This avoids re-sorting and maintains cache ordering
     return filtered.sort((a, b) => (b.efficiency || 0) - (a.efficiency || 0));
-  }, [result?.pairs, realmFilter, minRarityFilter, minEliteChance, minExaltedChance]);
+  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minEliteChance, minExaltedChance]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -256,6 +262,23 @@ export default function DarkBargainHunter() {
                     <SelectItem value="2">Rare+</SelectItem>
                     <SelectItem value="3">Legendary+</SelectItem>
                     <SelectItem value="4">Mythic</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Min Level:</span>
+                <Select value={String(minLevelFilter)} onValueChange={(v) => setMinLevelFilter(Number(v))}>
+                  <SelectTrigger className="w-24" data-testid="select-level-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Any</SelectItem>
+                    <SelectItem value="5">5+</SelectItem>
+                    <SelectItem value="10">10+</SelectItem>
+                    <SelectItem value="15">15+</SelectItem>
+                    <SelectItem value="20">20+</SelectItem>
+                    <SelectItem value="30">30+</SelectItem>
+                    <SelectItem value="50">50+</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
