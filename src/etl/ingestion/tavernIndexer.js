@@ -1184,11 +1184,13 @@ function decodeStatGenesLocal(statGenes) {
     temp = temp / 32n;
   }
   
+  // FIXED: Kai encoding stores [R3, R2, R1, D] in each 4-char block
+  // R3 is at lowest position (left), D is at highest position (right)
   const extractGeneSet = (start) => ({
-    d: kaiString[start],
-    r1: kaiString[start + 1],
-    r2: kaiString[start + 2],
-    r3: kaiString[start + 3]
+    r3: kaiString[start],       // Position 0 = R3 (least significant)
+    r2: kaiString[start + 1],   // Position 1 = R2
+    r1: kaiString[start + 2],   // Position 2 = R1
+    d: kaiString[start + 3]     // Position 3 = D (most significant/dominant)
   });
   
   return {
