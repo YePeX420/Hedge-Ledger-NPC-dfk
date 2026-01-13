@@ -131,14 +131,30 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   
   console.log(`[BargainCache] ${eligibleHeroes.length} eligible heroes for ${summonType} summoning`);
   
-  // Sort by price and limit to top 600 cheapest heroes to keep pair scoring manageable
-  // 600 heroes = ~180k pairs which takes ~2-3 minutes to score
-  eligibleHeroes.sort((a, b) => (parseFloat(a.price_native) || 0) - (parseFloat(b.price_native) || 0));
-  const MAX_HEROES = 600;
-  if (eligibleHeroes.length > MAX_HEROES) {
-    console.log(`[BargainCache] Limiting to ${MAX_HEROES} cheapest heroes (from ${eligibleHeroes.length})`);
-    eligibleHeroes = eligibleHeroes.slice(0, MAX_HEROES);
+  // Group heroes by rarity and take cheapest from each rarity tier
+  // This ensures we have heroes from all rarity levels for fair comparisons
+  const HEROES_PER_RARITY = 150; // 150 per rarity x 5 rarities = up to 750 heroes
+  const heroesByRarity = { 0: [], 1: [], 2: [], 3: [], 4: [] };
+  
+  for (const h of eligibleHeroes) {
+    const rarity = h.rarity || 0;
+    if (rarity >= 0 && rarity <= 4) {
+      heroesByRarity[rarity].push(h);
+    }
   }
+  
+  // Sort each rarity by price and take cheapest
+  const selectedHeroes = [];
+  const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+  for (let r = 0; r <= 4; r++) {
+    heroesByRarity[r].sort((a, b) => (parseFloat(a.price_native) || 0) - (parseFloat(b.price_native) || 0));
+    const taken = heroesByRarity[r].slice(0, HEROES_PER_RARITY);
+    selectedHeroes.push(...taken);
+    console.log(`[BargainCache] ${RARITY_LABELS[r]}: ${heroesByRarity[r].length} available, taking ${taken.length} cheapest`);
+  }
+  
+  eligibleHeroes = selectedHeroes;
+  console.log(`[BargainCache] Selected ${eligibleHeroes.length} heroes across all rarities`);
   
   // Skill ID to name mappings (same as gene-decoder.js)
   const ACTIVE_GENES = {
@@ -377,9 +393,29 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   
   console.log(`[BargainCache] Scored ${allPairs.length} pairs for ${summonType} summoning (skipped: ${skippedNoGenetics} no-genetics, ${skippedProbError} prob-errors)`);
   
-  // Sort by TTS efficiency (TTS per dollar) and take top N
-  allPairs.sort((a, b) => b.efficiency - a.efficiency);
-  const topPairs = allPairs.slice(0, limit);
+  // Group pairs by minimum rarity of the pair (the lower rarity determines pair tier)
+  // This ensures we have top pairs for each rarity level
+  const pairsByMinRarity = { 0: [], 1: [], 2: [], 3: [], 4: [] }; // Common(0) to Mythic(4)
+  
+  for (const pair of allPairs) {
+    const minRarity = Math.min(pair.hero1.rarity, pair.hero2.rarity);
+    pairsByMinRarity[minRarity].push(pair);
+  }
+  
+  // Sort each rarity group by efficiency and take top N per group
+  const PAIRS_PER_RARITY = 200; // 200 pairs per rarity = up to 1000 total
+  const topPairs = [];
+  
+  for (let rarity = 0; rarity <= 4; rarity++) {
+    const rarityPairs = pairsByMinRarity[rarity];
+    rarityPairs.sort((a, b) => b.efficiency - a.efficiency);
+    const topForRarity = rarityPairs.slice(0, PAIRS_PER_RARITY);
+    topPairs.push(...topForRarity);
+    console.log(`[BargainCache] Rarity ${RARITY_NAMES[rarity]}: ${rarityPairs.length} pairs, keeping top ${topForRarity.length}`);
+  }
+  
+  // Final sort by efficiency for overall display
+  topPairs.sort((a, b) => b.efficiency - a.efficiency);
   
   return {
     pairs: topPairs,
