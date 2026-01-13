@@ -8729,9 +8729,28 @@ async function startAdminWebServer() {
     try {
       const { getIndexerStatus, getIndexerProgress, getTavernStats } = await import("./src/etl/ingestion/tavernIndexer.js");
       
+      // Get sync status immediately (never blocks)
       const status = getIndexerStatus();
-      const progress = await getIndexerProgress();
-      const stats = await getTavernStats();
+      
+      // Run async queries in parallel with overall timeout
+      const timeoutMs = 15000;
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Status fetch timeout')), timeoutMs)
+      );
+      
+      const dataPromise = Promise.all([
+        getIndexerProgress().catch(err => {
+          console.error('[Tavern Indexer] Progress query error:', err.message);
+          return [];
+        }),
+        getTavernStats().catch(err => {
+          console.error('[Tavern Indexer] Stats query error:', err.message);
+          return [];
+        })
+      ]);
+      
+      const [progress, stats] = await Promise.race([dataPromise, timeoutPromise])
+        .catch(() => [[], []]); // Return empty arrays on timeout
       
       res.json({ ok: true, status, progress, stats });
     } catch (error) {
