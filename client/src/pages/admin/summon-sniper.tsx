@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users } from "lucide-react";
+import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users, Link } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -84,6 +85,11 @@ interface SniperPair {
     passive2?: ProbabilityMap;
   };
   tts?: TSData;
+  ts?: TSData;
+  eliteExaltedChances?: {
+    eliteChance: number;
+    exaltedChance: number;
+  };
 }
 
 interface UserHeroInfo {
@@ -156,6 +162,7 @@ export default function SummonSniper() {
   const [myHeroId, setMyHeroId] = useState("");
   const [bridgeFeeUsd, setBridgeFeeUsd] = useState("0.50"); // Estimated bridge fee per hero in USD
   const [sortBy, setSortBy] = useState<"efficiency" | "chance" | "price" | "skillScore">("efficiency");
+  const [requireAllSkills, setRequireAllSkills] = useState(false); // AND mode for skills
 
   const { data: sniperFilters } = useQuery<{ ok: boolean; filters: SniperFilters }>({
     queryKey: ['/api/admin/sniper/filters']
@@ -186,6 +193,7 @@ export default function SummonSniper() {
         myHeroId: searchMode === "myHero" ? myHeroId : undefined,
         bridgeFeeUsd: parseFloat(bridgeFeeUsd) || 0,
         sortBy,
+        requireAllSkills,
         limit: 50
       });
       return response.json();
@@ -433,7 +441,23 @@ export default function SummonSniper() {
           </div>
 
           <div className="space-y-3">
-            <Label>Target Active Skills (optional)</Label>
+            <div className="flex items-center justify-between">
+              <Label>Target Active Skills (optional)</Label>
+              {(selectedActiveSkills.length + selectedPassiveSkills.length >= 2) && (
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="require-all-skills"
+                    checked={requireAllSkills}
+                    onCheckedChange={setRequireAllSkills}
+                    data-testid="switch-require-all-skills"
+                  />
+                  <Label htmlFor="require-all-skills" className="text-sm font-normal cursor-pointer flex items-center gap-1.5">
+                    <Link className="h-3.5 w-3.5" />
+                    Require ALL skills
+                  </Label>
+                </div>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               {sniperFilters?.filters?.activeSkills?.map(skill => (
                 <Badge
@@ -454,6 +478,7 @@ export default function SummonSniper() {
             {selectedActiveSkills.length > 0 && (
               <p className="text-xs text-muted-foreground">
                 Selected: {selectedActiveSkills.join(", ")}
+                {requireAllSkills && selectedActiveSkills.length > 1 && " (finding pairs that can produce ALL)"}
               </p>
             )}
           </div>

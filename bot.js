@@ -9634,6 +9634,7 @@ async function startAdminWebServer() {
         minEliteChance = null,   // Minimum % chance of at least one elite skill (Stun, Second Wind, Giant Slayer, Last Stand)
         minExaltedChance = null, // Minimum % chance of at least one exalted skill (Resurrection, Second Life)
         sortBy = 'efficiency',   // 'efficiency', 'chance', 'price', or 'skillScore'
+        requireAllSkills = false, // When true, require pairs that can produce ALL selected skills (AND mode)
         limit = 20
       } = req.body;
 
@@ -10624,70 +10625,98 @@ async function startAdminWebServer() {
             }
           }
 
-          // Multiple target active skills: OR logic across BOTH active slots
-          // Mutations like Resurrection can appear in either active1 or active2 slot
-          // Sum probabilities from both slots for each target skill
+          // Helper to get skill probability from a slot
+          function getSkillProbInSlot(slotProbs, skillName) {
+            if (!slotProbs) return 0;
+            const entry = Object.entries(slotProbs).find(([name]) => 
+              name.toLowerCase() === skillName.toLowerCase()
+            );
+            return entry ? parseFloat(entry[1]) / 100 : 0;
+          }
+          
+          // Active skills: OR mode (any skill) or AND mode (all skills in different slots)
           if (activeSkillArray.length > 0 && (probs.active1 || probs.active2)) {
-            let activeSum = 0;
-            for (const targetSkill of activeSkillArray) {
-              // Check active1 slot
-              if (probs.active1) {
-                const skillProb1 = Object.entries(probs.active1).find(([name]) => 
-                  name.toLowerCase() === targetSkill.toLowerCase()
-                );
-                if (skillProb1) {
-                  activeSum += parseFloat(skillProb1[1]) / 100;
+            if (requireAllSkills && activeSkillArray.length >= 2) {
+              // AND mode: Calculate P(all skills appear in different slots)
+              // For 2 skills: P(S1 in slot1 AND S2 in slot2) + P(S1 in slot2 AND S2 in slot1)
+              // For >2 skills: Only possible if we have enough slots (max 2 active slots)
+              if (activeSkillArray.length > 2) {
+                // Can't fit more than 2 skills in 2 slots
+                jointProbability = 0;
+              } else {
+                const skill1 = activeSkillArray[0];
+                const skill2 = activeSkillArray[1];
+                const p1Slot1 = getSkillProbInSlot(probs.active1, skill1);
+                const p1Slot2 = getSkillProbInSlot(probs.active2, skill1);
+                const p2Slot1 = getSkillProbInSlot(probs.active1, skill2);
+                const p2Slot2 = getSkillProbInSlot(probs.active2, skill2);
+                
+                // P(S1 in slot1, S2 in slot2) + P(S1 in slot2, S2 in slot1)
+                const andProb = (p1Slot1 * p2Slot2) + (p1Slot2 * p2Slot1);
+                if (andProb > 0) {
+                  jointProbability *= andProb;
+                  hasAnyTarget = true;
+                } else {
+                  jointProbability = 0;
                 }
               }
-              // Check active2 slot
-              if (probs.active2) {
-                const skillProb2 = Object.entries(probs.active2).find(([name]) => 
-                  name.toLowerCase() === targetSkill.toLowerCase()
-                );
-                if (skillProb2) {
-                  activeSum += parseFloat(skillProb2[1]) / 100;
-                }
-              }
-            }
-            if (activeSum > 0) {
-              jointProbability *= Math.min(activeSum, 1.0);
-              hasAnyTarget = true;
             } else {
-              jointProbability = 0;
+              // OR mode: Sum probabilities across all skills and slots
+              let activeSum = 0;
+              for (const targetSkill of activeSkillArray) {
+                activeSum += getSkillProbInSlot(probs.active1, targetSkill);
+                activeSum += getSkillProbInSlot(probs.active2, targetSkill);
+              }
+              if (activeSum > 0) {
+                jointProbability *= Math.min(activeSum, 1.0);
+                hasAnyTarget = true;
+              } else {
+                jointProbability = 0;
+              }
             }
           }
 
-          // Multiple target passive skills: OR logic across BOTH passive slots
-          // Mutations like Second Life can appear in either passive1 or passive2 slot
+          // Passive skills: OR mode (any skill) or AND mode (all skills in different slots)
           if (passiveSkillArray.length > 0 && (probs.passive1 || probs.passive2)) {
-            let passiveSum = 0;
-            for (const targetSkill of passiveSkillArray) {
-              // Check passive1 slot
-              if (probs.passive1) {
-                const skillProb1 = Object.entries(probs.passive1).find(([name]) => 
-                  name.toLowerCase() === targetSkill.toLowerCase()
-                );
-                if (skillProb1) {
-                  passiveSum += parseFloat(skillProb1[1]) / 100;
+            if (requireAllSkills && passiveSkillArray.length >= 2) {
+              // AND mode: Calculate P(all skills appear in different slots)
+              if (passiveSkillArray.length > 2) {
+                // Can't fit more than 2 skills in 2 slots
+                jointProbability = 0;
+              } else {
+                const skill1 = passiveSkillArray[0];
+                const skill2 = passiveSkillArray[1];
+                const p1Slot1 = getSkillProbInSlot(probs.passive1, skill1);
+                const p1Slot2 = getSkillProbInSlot(probs.passive2, skill1);
+                const p2Slot1 = getSkillProbInSlot(probs.passive1, skill2);
+                const p2Slot2 = getSkillProbInSlot(probs.passive2, skill2);
+                
+                const andProb = (p1Slot1 * p2Slot2) + (p1Slot2 * p2Slot1);
+                if (andProb > 0) {
+                  jointProbability *= andProb;
+                  hasAnyTarget = true;
+                } else {
+                  jointProbability = 0;
                 }
               }
-              // Check passive2 slot
-              if (probs.passive2) {
-                const skillProb2 = Object.entries(probs.passive2).find(([name]) => 
-                  name.toLowerCase() === targetSkill.toLowerCase()
-                );
-                if (skillProb2) {
-                  passiveSum += parseFloat(skillProb2[1]) / 100;
-                }
-              }
-            }
-            if (passiveSum > 0) {
-              jointProbability *= Math.min(passiveSum, 1.0);
-              hasAnyTarget = true;
             } else {
-              jointProbability = 0;
+              // OR mode: Sum probabilities across all skills and slots
+              let passiveSum = 0;
+              for (const targetSkill of passiveSkillArray) {
+                passiveSum += getSkillProbInSlot(probs.passive1, targetSkill);
+                passiveSum += getSkillProbInSlot(probs.passive2, targetSkill);
+              }
+              if (passiveSum > 0) {
+                jointProbability *= Math.min(passiveSum, 1.0);
+                hasAnyTarget = true;
+              } else {
+                jointProbability = 0;
+              }
             }
           }
+          
+          // For AND mode with 1 active + 1 passive skill, they're independent (different slot types)
+          // The joint probability is already correct from the above multiplications
 
           // Calculate offspring TS probabilities FIRST (before any filtering)
           // This allows tracking of max TS values across ALL pairs for user guidance
@@ -10932,7 +10961,8 @@ async function startAdminWebServer() {
           minSummonsRemaining,
           minRarity,
           summonType,
-          searchMode
+          searchMode,
+          requireAllSkills
         },
         userHero: userHero ? {
           id: userHero.hero_id,
