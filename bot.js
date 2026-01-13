@@ -10006,6 +10006,13 @@ async function startAdminWebServer() {
         return d === skillGeneId || r1 === skillGeneId || r2 === skillGeneId || r3 === skillGeneId;
       }
       
+      // Helper: Check if hero has enough summons for the search type
+      function heroHasEnoughSummons(hero) {
+        const summonsRemaining = (hero.max_summons || 0) - (hero.summons || 0);
+        // Dark summon can use any hero, regular summon needs >= effectiveMinSummons
+        return isDarkSummon || summonsRemaining >= effectiveMinSummons;
+      }
+      
       if (activeGeneIdsNeeded.size > 0 || passiveGeneIdsNeeded.size > 0) {
         console.log(`[Sniper] Looking for heroes with skill genes - Active: [${[...activeGeneIdsNeeded].join(',')}], Passive: [${[...passiveGeneIdsNeeded].join(',')}]`);
         
@@ -10021,10 +10028,11 @@ async function startAdminWebServer() {
             console.log(`[Sniper] Building complementary pairs for ${skillName} (needs ${precursors[0]}=${precursor1Id} + ${precursors[1]}=${precursor2Id})`);
             
             // For each active slot, find heroes with precursor1 vs precursor2
+            // Also check summons - filter out heroes without enough summons for the search type
             for (const slot of ['active1', 'active2']) {
-              const withPrecursor1 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor1Id, slot));
-              const withPrecursor2 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor2Id, slot));
-              const withTarget = heroes.filter(h => targetSkillId !== undefined && heroHasSpecificSkillInSlot(h, targetSkillId, slot));
+              const withPrecursor1 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor1Id, slot) && heroHasEnoughSummons(h));
+              const withPrecursor2 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor2Id, slot) && heroHasEnoughSummons(h));
+              const withTarget = heroes.filter(h => targetSkillId !== undefined && heroHasSpecificSkillInSlot(h, targetSkillId, slot) && heroHasEnoughSummons(h));
               
               console.log(`[Sniper]   ${slot}: ${withPrecursor1.length} with ${precursors[0]}, ${withPrecursor2.length} with ${precursors[1]}, ${withTarget.length} with ${skillName}`);
               
@@ -10065,10 +10073,11 @@ async function startAdminWebServer() {
             
             console.log(`[Sniper] Building complementary pairs for ${skillName} (needs ${precursors[0]}=${precursor1Id} + ${precursors[1]}=${precursor2Id})`);
             
+            // Also check summons - filter out heroes without enough summons for the search type
             for (const slot of ['passive1', 'passive2']) {
-              const withPrecursor1 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor1Id, slot));
-              const withPrecursor2 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor2Id, slot));
-              const withTarget = heroes.filter(h => targetSkillId !== undefined && heroHasSpecificSkillInSlot(h, targetSkillId, slot));
+              const withPrecursor1 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor1Id, slot) && heroHasEnoughSummons(h));
+              const withPrecursor2 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor2Id, slot) && heroHasEnoughSummons(h));
+              const withTarget = heroes.filter(h => targetSkillId !== undefined && heroHasSpecificSkillInSlot(h, targetSkillId, slot) && heroHasEnoughSummons(h));
               
               console.log(`[Sniper]   ${slot}: ${withPrecursor1.length} with ${precursors[0]}, ${withPrecursor2.length} with ${precursors[1]}, ${withTarget.length} with ${skillName}`);
               
