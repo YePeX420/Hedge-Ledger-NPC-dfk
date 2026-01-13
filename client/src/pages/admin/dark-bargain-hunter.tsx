@@ -29,10 +29,18 @@ interface TSData {
   expected: number;
 }
 
+interface CostBreakdown {
+  purchaseCost: number;
+  summonTokenCost: number;
+  tearCount: number;
+  tearCost: number;
+}
+
 interface SniperPair {
   hero1: SniperHero;
   hero2: SniperHero;
   realm: string;
+  costs?: CostBreakdown;
   totalCost: number;
   totalCostUsd: number;
   efficiency: number;
@@ -348,6 +356,30 @@ export default function DarkBargainHunter() {
                         </div>
                       ))}
                     </div>
+                    
+                    {/* Cost Breakdown - Dark summoning has no tears */}
+                    {pair.costs && (
+                      <div className="mt-3 pt-3 border-t">
+                        <div className="text-sm font-medium mb-2 text-muted-foreground">Cost Breakdown (Dark Summon)</div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                          <div className="flex items-center justify-between bg-muted/30 px-2 py-1 rounded">
+                            <span className="text-muted-foreground">Heroes:</span>
+                            <span className="font-medium">{pair.costs.purchaseCost.toFixed(1)} {pair.hero1.token}</span>
+                          </div>
+                          <div className="flex items-center justify-between bg-muted/30 px-2 py-1 rounded">
+                            <span className="text-muted-foreground">Summon (1/4):</span>
+                            <span className="font-medium">{pair.costs.summonTokenCost.toFixed(1)} {pair.hero1.token}</span>
+                          </div>
+                          <div className="flex items-center justify-between bg-purple-500/10 px-2 py-1 rounded">
+                            <span className="text-muted-foreground">Total:</span>
+                            <span className="font-medium text-purple-400">{pair.totalCost.toFixed(1)} {pair.hero1.token}</span>
+                          </div>
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Dark summoning: No tears required
+                        </div>
+                      </div>
+                    )}
                     
                     {pair.ts && (
                       <div className="mt-4 pt-4 border-t">

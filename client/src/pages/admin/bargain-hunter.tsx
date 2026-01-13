@@ -29,10 +29,18 @@ interface TSData {
   expected: number;
 }
 
+interface CostBreakdown {
+  purchaseCost: number;
+  summonTokenCost: number;
+  tearCount: number;
+  tearCost: number;
+}
+
 interface SniperPair {
   hero1: SniperHero;
   hero2: SniperHero;
   realm: string;
+  costs?: CostBreakdown;
   totalCost: number;
   totalCostUsd: number;
   efficiency: number;
@@ -324,6 +332,31 @@ export default function BargainHunter() {
                         </div>
                       ))}
                     </div>
+                    
+                    {/* Cost Breakdown */}
+                    {pair.costs && (
+                      <div className="mt-3 pt-3 border-t">
+                        <div className="text-sm font-medium mb-2 text-muted-foreground">Cost Breakdown</div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                          <div className="flex items-center justify-between bg-muted/30 px-2 py-1 rounded">
+                            <span className="text-muted-foreground">Heroes:</span>
+                            <span className="font-medium">{pair.costs.purchaseCost.toFixed(1)} {pair.hero1.token}</span>
+                          </div>
+                          <div className="flex items-center justify-between bg-muted/30 px-2 py-1 rounded">
+                            <span className="text-muted-foreground">Summon:</span>
+                            <span className="font-medium">{pair.costs.summonTokenCost.toFixed(1)} {pair.hero1.token}</span>
+                          </div>
+                          <div className="flex items-center justify-between bg-muted/30 px-2 py-1 rounded">
+                            <span className="text-muted-foreground">Tears:</span>
+                            <span className="font-medium">{pair.costs.tearCount} ({pair.costs.tearCost.toFixed(1)} {pair.hero1.token})</span>
+                          </div>
+                          <div className="flex items-center justify-between bg-primary/10 px-2 py-1 rounded">
+                            <span className="text-muted-foreground">Total:</span>
+                            <span className="font-medium text-primary">{pair.totalCost.toFixed(1)} {pair.hero1.token}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     
                     {pair.ts && (
                       <div className="mt-4 pt-4 border-t">
