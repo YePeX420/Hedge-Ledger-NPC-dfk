@@ -11,6 +11,7 @@ import { sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { lookupStone } from '../../data/enhancementStones.js';
 import pLimit from 'p-limit';
+import { refreshBargainHunterCache } from './bargainHunterCache.js';
 
 // Configuration
 const DFK_TAVERN_API = 'https://api.defikingdoms.com/communityAllPublicHeroSaleAuctions';
@@ -681,6 +682,13 @@ async function runFullIndex() {
       // Run in background, don't await - let it complete asynchronously
       runGeneBackfill(totalIndexed).catch(err => {
         console.error('[TavernIndexer] Auto gene backfill error:', err.message);
+      });
+      
+      // Refresh Bargain Hunter cache after indexing
+      // Run in background to avoid blocking
+      console.log(`[TavernIndexer] Triggering Bargain Hunter cache refresh...`);
+      refreshBargainHunterCache().catch(err => {
+        console.error('[TavernIndexer] Bargain Hunter cache error:', err.message);
       });
     }
     

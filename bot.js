@@ -9460,6 +9460,69 @@ async function startAdminWebServer() {
   // SUMMON SNIPER - Find optimal hero pairs from tavern
   // ============================================================================
 
+  // GET /api/admin/bargain-cache - Get cached bargain hunter pairs (fast)
+  app.get("/api/admin/bargain-cache", isAdmin, async (req, res) => {
+    try {
+      const { getCachedBargainPairs, refreshBargainHunterCache, getCacheStatus } = await import('./src/etl/ingestion/bargainHunterCache.js');
+      
+      const summonType = req.query.type === 'dark' ? 'dark' : 'regular';
+      
+      // Try to get cached data
+      let cached = await getCachedBargainPairs(summonType);
+      
+      // If no cache exists, return empty with status
+      if (!cached) {
+        const status = getCacheStatus();
+        return res.json({
+          ok: true,
+          cached: false,
+          isRefreshing: status.isRunning,
+          pairs: [],
+          totalHeroes: 0,
+          totalPairsScored: 0,
+          message: status.isRunning ? 'Cache is being computed, please wait...' : 'Cache not yet available. Trigger a refresh.'
+        });
+      }
+      
+      res.json({
+        ok: true,
+        cached: true,
+        pairs: cached.pairs,
+        totalHeroes: cached.totalHeroes,
+        totalPairsScored: cached.totalPairsScored,
+        tokenPrices: cached.tokenPrices,
+        computedAt: cached.computedAt
+      });
+      
+    } catch (error) {
+      console.error('[BargainCache API] Error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/bargain-cache/refresh - Manually trigger cache refresh
+  app.post("/api/admin/bargain-cache/refresh", isAdmin, async (req, res) => {
+    try {
+      const { refreshBargainHunterCache, getCacheStatus } = await import('./src/etl/ingestion/bargainHunterCache.js');
+      
+      const status = getCacheStatus();
+      if (status.isRunning) {
+        return res.json({ ok: true, status: 'already_running', message: 'Cache refresh already in progress' });
+      }
+      
+      // Start refresh in background
+      refreshBargainHunterCache().catch(err => {
+        console.error('[BargainCache API] Background refresh error:', err.message);
+      });
+      
+      res.json({ ok: true, status: 'started', message: 'Cache refresh started in background' });
+      
+    } catch (error) {
+      console.error('[BargainCache API] Error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/sniper/filters - Get available filter options
   app.get("/api/admin/sniper/filters", isAdmin, async (req, res) => {
     try {
