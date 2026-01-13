@@ -61,12 +61,15 @@ interface CacheResult {
   message?: string;
 }
 
+type SortOption = "efficiency" | "lowestCost" | "eliteChance" | "exaltedChance" | "expectedTS";
+
 export default function DarkBargainHunter() {
   const [realmFilter, setRealmFilter] = useState<string>("all");
   const [minRarityFilter, setMinRarityFilter] = useState<number>(0);
   const [minLevelFilter, setMinLevelFilter] = useState<number>(1);
   const [minEliteChance, setMinEliteChance] = useState<number>(0);
   const [minExaltedChance, setMinExaltedChance] = useState<number>(0);
+  const [sortBy, setSortBy] = useState<SortOption>("efficiency");
 
   const { data: result, isLoading, refetch } = useQuery<CacheResult>({
     queryKey: ['/api/admin/bargain-cache', 'dark'],
@@ -112,10 +115,23 @@ export default function DarkBargainHunter() {
     if (minExaltedChance > 0) {
       filtered = filtered.filter(pair => (pair.exaltedChance || 0) >= minExaltedChance);
     }
-    // Use pre-computed efficiency from cache (TS per native token cost)
-    // This avoids re-sorting and maintains cache ordering
-    return filtered.sort((a, b) => (b.efficiency || 0) - (a.efficiency || 0));
-  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minEliteChance, minExaltedChance]);
+    // Sort based on selected option
+    return filtered.sort((a, b) => {
+      switch (sortBy) {
+        case "lowestCost":
+          return (a.totalCost || 0) - (b.totalCost || 0);
+        case "eliteChance":
+          return (b.eliteChance || 0) - (a.eliteChance || 0);
+        case "exaltedChance":
+          return (b.exaltedChance || 0) - (a.exaltedChance || 0);
+        case "expectedTS":
+          return (b.ts?.expected || 0) - (a.ts?.expected || 0);
+        case "efficiency":
+        default:
+          return (b.efficiency || 0) - (a.efficiency || 0);
+      }
+    });
+  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minEliteChance, minExaltedChance, sortBy]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -292,6 +308,21 @@ export default function DarkBargainHunter() {
                     <SelectItem value="all">All Realms</SelectItem>
                     <SelectItem value="cv">Crystalvale</SelectItem>
                     <SelectItem value="sd">Sundered Isles</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Sort by:</span>
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+                  <SelectTrigger className="w-40" data-testid="select-sort-by">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="efficiency">TS Efficiency</SelectItem>
+                    <SelectItem value="lowestCost">Lowest Cost</SelectItem>
+                    <SelectItem value="expectedTS">Expected TS</SelectItem>
+                    <SelectItem value="eliteChance">Elite Chance</SelectItem>
+                    <SelectItem value="exaltedChance">Exalted Chance</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
