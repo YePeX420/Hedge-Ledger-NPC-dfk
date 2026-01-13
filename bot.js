@@ -8855,6 +8855,23 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/tavern-indexer/health-check - Check and repair auto-run if needed
+  app.post("/api/admin/tavern-indexer/health-check", isAdmin, async (req, res) => {
+    try {
+      const { ensureAutoRunHealthy, getIndexerStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
+      
+      console.log('[Tavern Indexer] Health check requested');
+      
+      const result = ensureAutoRunHealthy();
+      const status = getIndexerStatus();
+      
+      res.json({ ok: true, ...result, status });
+    } catch (error) {
+      console.error('[Tavern Indexer] Health check error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/tavern-indexer/heroes - Get indexed heroes with filters
   app.get("/api/admin/tavern-indexer/heroes", isAdmin, async (req, res) => {
     try {
@@ -13858,26 +13875,24 @@ async function startAdminWebServer() {
       await new Promise(r => setTimeout(r, 25000));
       
       console.log('[TavernIndexer] Auto-starting Tavern marketplace indexer...');
-      const { startAutoRun, getIndexerStatus, runFullIndex } = await import('./src/etl/ingestion/tavernIndexer.js');
+      const { startAutoRun, getIndexerStatus, ensureAutoRunHealthy } = await import('./src/etl/ingestion/tavernIndexer.js');
       
       const status = getIndexerStatus();
       if (status.isRunning || status.autoRunActive) {
         console.log('[TavernIndexer] Already running, skipping auto-start');
-        return;
+      } else {
+        // Start auto-run (which runs initial index internally)
+        console.log('[TavernIndexer] Starting auto-run scheduler...');
+        startAutoRun();
       }
       
-      // Run initial index then start auto-refresh
-      console.log('[TavernIndexer] Running initial index...');
-      runFullIndex().then(() => {
-        console.log('[TavernIndexer] Initial index complete, starting auto-refresh...');
-        startAutoRun();
-      }).catch(err => {
-        console.error('[TavernIndexer] Initial index error:', err.message);
-        // Still try to start auto-run even if initial fails
-        startAutoRun();
-      });
+      // Set up periodic health check every 15 minutes to ensure auto-run stays alive
+      setInterval(() => {
+        console.log('[TavernIndexer] Running periodic health check...');
+        ensureAutoRunHealthy();
+      }, 15 * 60 * 1000); // 15 minutes
       
-      console.log('[TavernIndexer] Auto-start initiated');
+      console.log('[TavernIndexer] Auto-start complete with health monitoring');
     } catch (err) {
       console.error('[TavernIndexer] Auto-start error:', err.message);
     }

@@ -718,28 +718,85 @@ async function runFullIndex() {
 // AUTO-RUN SCHEDULER
 // ============================================================================
 
+let lastSuccessfulRun = null;
+let autoRunAttempts = 0;
+
 export function startAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) {
   if (autoRunInterval) {
     console.log('[TavernIndexer] Auto-run already active');
     return { status: 'already_running' };
   }
   
-  console.log(`[TavernIndexer] Starting auto-run (interval: ${intervalMs / 1000}s)`);
+  console.log(`[TavernIndexer] Starting auto-run (interval: ${intervalMs / 1000}s = ${intervalMs / 60000} mins)`);
   
   // Track interval settings for next run calculation
   autoRunIntervalMs = intervalMs;
   autoRunLastTrigger = new Date().toISOString();
+  autoRunAttempts = 0;
   
   // Run immediately on start
-  runFullIndex().catch(err => console.error('[TavernIndexer] Initial run error:', err.message));
+  executeScheduledRun('initial');
   
   // Schedule recurring runs
   autoRunInterval = setInterval(() => {
     autoRunLastTrigger = new Date().toISOString();
-    runFullIndex().catch(err => console.error('[TavernIndexer] Scheduled run error:', err.message));
+    executeScheduledRun('scheduled');
   }, intervalMs);
   
+  console.log(`[TavernIndexer] Auto-run interval set. Next run at: ${new Date(Date.now() + intervalMs).toISOString()}`);
+  
   return { status: 'started', intervalMs };
+}
+
+// Wrapper for scheduled runs with better error handling and logging
+async function executeScheduledRun(runType = 'scheduled') {
+  autoRunAttempts++;
+  const runId = `${runType}-${autoRunAttempts}`;
+  
+  console.log(`[TavernIndexer] Starting ${runType} run #${autoRunAttempts} at ${new Date().toISOString()}`);
+  
+  try {
+    const result = await runFullIndex();
+    
+    if (result.status === 'success') {
+      lastSuccessfulRun = new Date().toISOString();
+      console.log(`[TavernIndexer] ${runType} run #${autoRunAttempts} completed successfully. Heroes indexed: ${result.totalHeroes}`);
+    } else if (result.status === 'error') {
+      console.error(`[TavernIndexer] ${runType} run #${autoRunAttempts} failed:`, result.error);
+    } else {
+      console.log(`[TavernIndexer] ${runType} run #${autoRunAttempts} result:`, result.status);
+    }
+    
+    return result;
+  } catch (err) {
+    console.error(`[TavernIndexer] ${runType} run #${autoRunAttempts} threw exception:`, err.message);
+    return { status: 'error', error: err.message };
+  }
+}
+
+// Health check function - can be called to verify and restart auto-run if needed
+export function ensureAutoRunHealthy() {
+  if (!autoRunInterval) {
+    console.log('[TavernIndexer] Health check: Auto-run not active, restarting...');
+    return startAutoRun(autoRunIntervalMs || AUTO_RUN_INTERVAL_MS);
+  }
+  
+  // Check if we haven't had a successful run in too long (2x the interval)
+  const maxStaleMs = (autoRunIntervalMs || AUTO_RUN_INTERVAL_MS) * 2;
+  if (lastSuccessfulRun) {
+    const staleDuration = Date.now() - new Date(lastSuccessfulRun).getTime();
+    if (staleDuration > maxStaleMs) {
+      console.warn(`[TavernIndexer] Health check: Last success was ${Math.round(staleDuration / 60000)} mins ago, triggering fresh run...`);
+      executeScheduledRun('health-check');
+    }
+  }
+  
+  return { status: 'healthy', autoRunActive: true, lastSuccessfulRun };
+}
+
+// Get last successful run timestamp
+export function getLastSuccessfulRun() {
+  return lastSuccessfulRun;
 }
 
 export function stopAutoRun() {
@@ -842,7 +899,9 @@ export function getIndexerStatus() {
     errors: indexerState.errors.slice(-5),
     autoRunActive: !!autoRunInterval,
     autoRunIntervalMs,
-    nextRunAt
+    nextRunAt,
+    lastSuccessfulRun,
+    autoRunAttempts
   };
 }
 
