@@ -736,6 +736,54 @@ export function calculateTTSProbabilities(probs) {
 }
 
 /**
+ * Calculate probability of getting at least one Elite or Exalted skill
+ * 
+ * @param {Object} slotTierProbs - Tier probabilities for each slot from calculateTTSProbabilities
+ *                                  { active1: {0,1,2,3}, active2: {...}, passive1: {...}, passive2: {...} }
+ * @returns {Object} { eliteChance: number, exaltedChance: number } - Percentages (0-100)
+ */
+export function calculateEliteExaltedChances(slotTierProbs) {
+  if (!slotTierProbs) {
+    return { eliteChance: 0, exaltedChance: 0 };
+  }
+  
+  const slots = ['active1', 'active2', 'passive1', 'passive2'];
+  
+  // P(no elite in slot) = P(tier 0) + P(tier 1) + P(tier 3) (everything except tier 2)
+  // P(at least 1 elite) = 1 - product of P(no elite) for all slots
+  let probNoEliteAll = 1;
+  let probNoExaltedAll = 1;
+  
+  for (const slot of slots) {
+    const tiers = slotTierProbs[slot];
+    if (!tiers) continue;
+    
+    // Convert percentages to probabilities (0-1)
+    const t0 = (tiers[0] || 0) / 100;
+    const t1 = (tiers[1] || 0) / 100;
+    const t2 = (tiers[2] || 0) / 100;
+    const t3 = (tiers[3] || 0) / 100;
+    
+    // P(no elite in this slot) = 1 - P(tier 2)
+    const probNoEliteSlot = 1 - t2;
+    // P(no exalted in this slot) = 1 - P(tier 3)
+    const probNoExaltedSlot = 1 - t3;
+    
+    probNoEliteAll *= probNoEliteSlot;
+    probNoExaltedAll *= probNoExaltedSlot;
+  }
+  
+  // Convert back to percentages
+  const eliteChance = (1 - probNoEliteAll) * 100;
+  const exaltedChance = (1 - probNoExaltedAll) * 100;
+  
+  return {
+    eliteChance: Math.round(eliteChance * 100) / 100,
+    exaltedChance: Math.round(exaltedChance * 100) / 100
+  };
+}
+
+/**
  * Create a summary of the most interesting summoning outcomes
  * @param {Object} allProbabilities - Full probability results
  * @returns {Object} Summary object with key highlights

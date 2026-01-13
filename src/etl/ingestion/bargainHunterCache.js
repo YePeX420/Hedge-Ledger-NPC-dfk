@@ -101,7 +101,7 @@ async function getTokenPrices() {
 async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   const { rawPg } = await import('../../../server/db.js');
   const { decodeStatGenes } = await import('../../../gene-decoder.js');
-  const { calculateSummoningProbabilities, calculateTTSProbabilities } = await import('../../../summoning-engine.js');
+  const { calculateSummoningProbabilities, calculateTTSProbabilities, calculateEliteExaltedChances } = await import('../../../summoning-engine.js');
   
   const isDarkSummon = summonType === 'dark';
   const prices = await getTokenPrices();
@@ -338,6 +338,9 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
           }
           const ttsData = calculateTTSProbabilities(probs);
           
+          // Calculate elite and exalted chances
+          const eliteExalted = calculateEliteExaltedChances(ttsData?.slotTierProbs);
+          
           const expectedTTS = ttsData?.expectedTTS || 0;
           // Use totalCost as denominator since USD prices may not be available
           const efficiency = totalCost > 0 ? expectedTTS / totalCost : 0;
@@ -377,6 +380,8 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
             totalCost: Math.round(totalCost * 100) / 100,
             totalCostUsd: Math.round(totalCostUsd * 100) / 100,
             efficiency,
+            eliteChance: eliteExalted.eliteChance,
+            exaltedChance: eliteExalted.exaltedChance,
             tts: {
               expected: expectedTTS,
               distribution: ttsData?.ttsProbabilities || {},

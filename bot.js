@@ -9631,6 +9631,8 @@ async function startAdminWebServer() {
         minOffspringSkillScore = null,  // Minimum expected offspring skill score (TTS) - null means no filter
         targetTTSValue = null,   // Target TTS value for cumulative probability filter (e.g., 8 means "TTS >= 8")
         minTTSProbability = null, // Minimum probability % of achieving targetTTSValue (e.g., 20 means ">= 20% chance")
+        minEliteChance = null,   // Minimum % chance of at least one elite skill (Stun, Second Wind, Giant Slayer, Last Stand)
+        minExaltedChance = null, // Minimum % chance of at least one exalted skill (Resurrection, Second Life)
         sortBy = 'efficiency',   // 'efficiency', 'chance', 'price', or 'skillScore'
         limit = 20
       } = req.body;
@@ -10419,6 +10421,47 @@ async function startAdminWebServer() {
               }
             }
           }
+          
+          // Filter by elite chance (at least one tier-2 skill: Stun, Second Wind, Giant Slayer, Last Stand)
+          // Elite/Exalted calculation: P(at least 1) = 1 - P(none in any of 4 slots)
+          if (minEliteChance !== null && minEliteChance !== undefined) {
+            const minElite = Number(minEliteChance);
+            if (!isNaN(minElite) && minElite >= 0 && minElite <= 100) {
+              // Calculate P(at least one elite skill) from slot tier probabilities
+              const slots = ttsData?.slotTierProbs || {};
+              let pNoElite = 1.0;
+              for (const slot of ['active1', 'active2', 'passive1', 'passive2']) {
+                const slotProbs = slots[slot] || {};
+                // Tier 2 is elite - try both numeric and string keys for compatibility
+                const pEliteInSlot = (slotProbs['2'] ?? slotProbs[2] ?? 0) / 100;  // Convert percentage to decimal
+                pNoElite *= (1 - pEliteInSlot);
+              }
+              const eliteChance = (1 - pNoElite) * 100;  // Convert back to percentage
+              if (eliteChance < minElite) {
+                continue;
+              }
+            }
+          }
+          
+          // Filter by exalted chance (at least one tier-3 skill: Resurrection, Second Life)
+          if (minExaltedChance !== null && minExaltedChance !== undefined) {
+            const minExalted = Number(minExaltedChance);
+            if (!isNaN(minExalted) && minExalted >= 0 && minExalted <= 100) {
+              // Calculate P(at least one exalted skill) from slot tier probabilities
+              const slots = ttsData?.slotTierProbs || {};
+              let pNoExalted = 1.0;
+              for (const slot of ['active1', 'active2', 'passive1', 'passive2']) {
+                const slotProbs = slots[slot] || {};
+                // Tier 3 is exalted - try both numeric and string keys for compatibility
+                const pExaltedInSlot = (slotProbs['3'] ?? slotProbs[3] ?? 0) / 100;  // Convert percentage to decimal
+                pNoExalted *= (1 - pExaltedInSlot);
+              }
+              const exaltedChance = (1 - pNoExalted) * 100;  // Convert back to percentage
+              if (exaltedChance < minExalted) {
+                continue;
+              }
+            }
+          }
 
           // Calculate USD total cost (including bridging fees)
           const tokenPriceUsd = realm === 'cv' ? crystalPriceUsd : jewelPriceUsd;
@@ -10489,7 +10532,22 @@ async function startAdminWebServer() {
               cumulative: ttsData.cumulativeProbs,
               expected: ttsData.expectedTTS,
               slotTiers: ttsData.slotTierProbs
-            }
+            },
+            eliteExaltedChances: (() => {
+              const slots = ttsData?.slotTierProbs || {};
+              let pNoElite = 1.0;
+              let pNoExalted = 1.0;
+              for (const slot of ['active1', 'active2', 'passive1', 'passive2']) {
+                const slotProbs = slots[slot] || {};
+                // Try both string and numeric keys for compatibility
+                pNoElite *= (1 - (slotProbs['2'] ?? slotProbs[2] ?? 0) / 100);
+                pNoExalted *= (1 - (slotProbs['3'] ?? slotProbs[3] ?? 0) / 100);
+              }
+              return {
+                eliteChance: Math.round((1 - pNoElite) * 10000) / 100,  // 2 decimal places
+                exaltedChance: Math.round((1 - pNoExalted) * 10000) / 100
+              };
+            })()
           });
 
         } catch (err) {

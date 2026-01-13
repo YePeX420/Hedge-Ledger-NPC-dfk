@@ -36,6 +36,8 @@ interface SniperPair {
   totalCost: number;
   totalCostUsd: number;
   efficiency: number;
+  eliteChance?: number;
+  exaltedChance?: number;
   tts?: TTSData;
 }
 
@@ -54,6 +56,8 @@ interface CacheResult {
 export default function DarkBargainHunter() {
   const [realmFilter, setRealmFilter] = useState<string>("all");
   const [minRarityFilter, setMinRarityFilter] = useState<number>(0);
+  const [minEliteChance, setMinEliteChance] = useState<number>(0);
+  const [minExaltedChance, setMinExaltedChance] = useState<number>(0);
 
   const { data: result, isLoading, refetch } = useQuery<CacheResult>({
     queryKey: ['/api/admin/bargain-cache', 'dark'],
@@ -88,10 +92,16 @@ export default function DarkBargainHunter() {
         pair.hero1.rarity >= minRarityFilter && pair.hero2.rarity >= minRarityFilter
       );
     }
+    if (minEliteChance > 0) {
+      filtered = filtered.filter(pair => (pair.eliteChance || 0) >= minEliteChance);
+    }
+    if (minExaltedChance > 0) {
+      filtered = filtered.filter(pair => (pair.exaltedChance || 0) >= minExaltedChance);
+    }
     // Use pre-computed efficiency from cache (TTS per native token cost)
     // This avoids re-sorting and maintains cache ordering
     return filtered.sort((a, b) => (b.efficiency || 0) - (a.efficiency || 0));
-  }, [result?.pairs, realmFilter, minRarityFilter]);
+  }, [result?.pairs, realmFilter, minRarityFilter, minEliteChance, minExaltedChance]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -193,7 +203,39 @@ export default function DarkBargainHunter() {
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Min Elite%:</span>
+                <Select value={String(minEliteChance)} onValueChange={(v) => setMinEliteChance(Number(v))}>
+                  <SelectTrigger className="w-24" data-testid="select-elite-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Any</SelectItem>
+                    <SelectItem value="10">10%+</SelectItem>
+                    <SelectItem value="20">20%+</SelectItem>
+                    <SelectItem value="30">30%+</SelectItem>
+                    <SelectItem value="40">40%+</SelectItem>
+                    <SelectItem value="50">50%+</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Min Exalted%:</span>
+                <Select value={String(minExaltedChance)} onValueChange={(v) => setMinExaltedChance(Number(v))}>
+                  <SelectTrigger className="w-24" data-testid="select-exalted-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Any</SelectItem>
+                    <SelectItem value="1">1%+</SelectItem>
+                    <SelectItem value="2">2%+</SelectItem>
+                    <SelectItem value="3">3%+</SelectItem>
+                    <SelectItem value="5">5%+</SelectItem>
+                    <SelectItem value="10">10%+</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Min Rarity:</span>
                 <Select value={String(minRarityFilter)} onValueChange={(v) => setMinRarityFilter(Number(v))}>
@@ -238,10 +280,20 @@ export default function DarkBargainHunter() {
                         </Badge>
                         <span className="font-semibold">TTS Efficiency: {ttsEfficiency.toFixed(4)}</span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="secondary">
                           Expected TTS: {(pair.tts?.expected || 0).toFixed(2)}
                         </Badge>
+                        {(pair.eliteChance || 0) > 0 && (
+                          <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
+                            Elite: {pair.eliteChance?.toFixed(1)}%
+                          </Badge>
+                        )}
+                        {(pair.exaltedChance || 0) > 0 && (
+                          <Badge variant="outline" className="bg-purple-500/10 text-purple-600 border-purple-500/30">
+                            Exalted: {pair.exaltedChance?.toFixed(1)}%
+                          </Badge>
+                        )}
                         <Badge variant="outline" className="text-green-600">
                           ${pair.totalCostUsd?.toFixed(2)}
                         </Badge>

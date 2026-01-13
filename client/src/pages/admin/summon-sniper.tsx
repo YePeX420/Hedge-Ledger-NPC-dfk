@@ -146,6 +146,8 @@ export default function SummonSniper() {
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
   const [targetTTSValue, setTargetTTSValue] = useState("");
   const [minTTSProbability, setMinTTSProbability] = useState("");
+  const [minEliteChance, setMinEliteChance] = useState("");
+  const [minExaltedChance, setMinExaltedChance] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
   
   // New state for search mode and summon type
@@ -177,6 +179,8 @@ export default function SummonSniper() {
         minLevel: parseInt(sniperMinLevel) || 1,
         targetTTSValue: targetTTSValue ? parseInt(targetTTSValue) : null,
         minTTSProbability: minTTSProbability ? parseFloat(minTTSProbability) : null,
+        minEliteChance: minEliteChance ? parseFloat(minEliteChance) : null,
+        minExaltedChance: minExaltedChance ? parseFloat(minExaltedChance) : null,
         summonType,
         searchMode,
         myHeroId: searchMode === "myHero" ? myHeroId : undefined,
@@ -553,7 +557,7 @@ export default function SummonSniper() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="minTTSProbability">Min % Chance</Label>
+              <Label htmlFor="minTTSProbability">Min TTS % Chance</Label>
               <Input
                 id="minTTSProbability"
                 type="number"
@@ -566,12 +570,38 @@ export default function SummonSniper() {
                 data-testid="input-min-tts-probability"
               />
             </div>
-            <div className="flex items-end">
-              <p className="text-xs text-muted-foreground pb-2">
-                Filter pairs with at least X% chance of TTS &ge; target
-              </p>
+            <div className="space-y-2">
+              <Label htmlFor="minEliteChance">Min Elite % Chance</Label>
+              <Input
+                id="minEliteChance"
+                type="number"
+                step="1"
+                min="0"
+                max="100"
+                value={minEliteChance}
+                onChange={(e) => setMinEliteChance(e.target.value)}
+                placeholder="e.g. 20"
+                data-testid="input-min-elite-chance"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="minExaltedChance">Min Exalted % Chance</Label>
+              <Input
+                id="minExaltedChance"
+                type="number"
+                step="1"
+                min="0"
+                max="100"
+                value={minExaltedChance}
+                onChange={(e) => setMinExaltedChance(e.target.value)}
+                placeholder="e.g. 2"
+                data-testid="input-min-exalted-chance"
+              />
             </div>
           </div>
+          <p className="text-xs text-muted-foreground">
+            TTS filters for total tier score. Elite/Exalted filters for chance of at least one elite (Stun, Second Wind, etc.) or exalted (Resurrection, Second Life) skill.
+          </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -880,6 +910,20 @@ export default function SummonSniper() {
                               <span>TTS≥4: <span className="text-green-400">{pair.tts.cumulative["4"]?.toFixed(1) ?? '0'}%</span></span>
                               <span>TTS≥6: <span className="text-yellow-400">{pair.tts.cumulative["6"]?.toFixed(1) ?? '0'}%</span></span>
                               <span>TTS≥8: <span className="text-orange-400">{pair.tts.cumulative["8"]?.toFixed(1) ?? '0'}%</span></span>
+                            </div>
+                          )}
+                          {pair.eliteExaltedChances && (pair.eliteExaltedChances.eliteChance > 0 || pair.eliteExaltedChances.exaltedChance > 0) && (
+                            <div className="flex gap-3 mt-2 text-xs">
+                              {pair.eliteExaltedChances.eliteChance > 0 && (
+                                <Badge variant="outline" className="text-[10px] border-amber-500 text-amber-500">
+                                  Elite: {pair.eliteExaltedChances.eliteChance.toFixed(1)}%
+                                </Badge>
+                              )}
+                              {pair.eliteExaltedChances.exaltedChance > 0 && (
+                                <Badge variant="outline" className="text-[10px] border-purple-500 text-purple-500">
+                                  Exalted: {pair.eliteExaltedChances.exaltedChance.toFixed(2)}%
+                                </Badge>
+                              )}
                             </div>
                           )}
                         </div>
