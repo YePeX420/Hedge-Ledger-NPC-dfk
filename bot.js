@@ -9863,7 +9863,7 @@ async function startAdminWebServer() {
       console.log(`[Sniper] After filtering: ${heroes.length} eligible heroes`);
       
       // Now filter/select heroes for pairing
-      // Prioritize heroes matching target classes AND/OR target professions
+      // Prioritize heroes matching target classes AND/OR target professions AND/OR target skills
       const targetClassHeroes = classArray.length > 0 
         ? heroes.filter(h => classArray.includes(h.main_class))
         : [];
@@ -9874,14 +9874,264 @@ async function startAdminWebServer() {
       console.log(`[Sniper] Found ${targetClassHeroes.length} heroes matching target classes`);
       console.log(`[Sniper] Found ${targetProfessionHeroes.length} heroes matching target professions`);
       
+      // Skill gene ID to name mapping (sparse) - matches gene-decoder.js ACTIVE_GENES
+      // Basic: 0-7, Advanced: 16-19, Elite: 24-25, Exalted: 28
+      const ACTIVE_GENE_MAP_LOCAL = {
+        0: 'Poisoned Blade', 1: 'Blinding Winds', 2: 'Heal', 3: 'Cleanse',
+        4: 'Iron Skin', 5: 'Speed', 6: 'Critical Aim', 7: 'Deathmark',
+        16: 'Exhaust', 17: 'Daze', 18: 'Explosion', 19: 'Hardened Shield',
+        24: 'Stun', 25: 'Second Wind', 28: 'Resurrection'
+      };
+      
+      const PASSIVE_GENE_MAP_LOCAL = {
+        0: 'Duelist', 1: 'Clutch', 2: 'Foresight', 3: 'Headstrong',
+        4: 'Clear Vision', 5: 'Fearless', 6: 'Chatterbox', 7: 'Stalwart',
+        16: 'Leadership', 17: 'Efficient', 18: 'Intimidation', 19: 'Toxic',
+        24: 'Giant Slayer', 25: 'Last Stand', 28: 'Second Life'
+      };
+      
+      // Reverse lookup: skill name → gene ID
+      const ACTIVE_GENE_ID_MAP_LOCAL = Object.fromEntries(
+        Object.entries(ACTIVE_GENE_MAP_LOCAL).map(([id, name]) => [name, parseInt(id)])
+      );
+      const PASSIVE_GENE_ID_MAP_LOCAL = Object.fromEntries(
+        Object.entries(PASSIVE_GENE_MAP_LOCAL).map(([id, name]) => [name, parseInt(id)])
+      );
+      
+      // Mutation precursor lookup: mutated skill → [precursor1, precursor2]
+      // Covers ALL mutation tiers for both active and passive skills
+      const ACTIVE_MUTATION_PRECURSORS_LOCAL = {
+        // Basic → Advanced
+        'Exhaust': ['Poisoned Blade', 'Blinding Winds'],
+        'Daze': ['Heal', 'Cleanse'],
+        'Explosion': ['Iron Skin', 'Speed'],
+        'Hardened Shield': ['Critical Aim', 'Deathmark'],
+        // Advanced → Elite
+        'Stun': ['Exhaust', 'Daze'],
+        'Second Wind': ['Explosion', 'Hardened Shield'],
+        // Elite → Exalted
+        'Resurrection': ['Stun', 'Second Wind']
+      };
+      
+      const PASSIVE_MUTATION_PRECURSORS_LOCAL = {
+        // Basic → Advanced
+        'Leadership': ['Duelist', 'Clutch'],
+        'Efficient': ['Foresight', 'Headstrong'],
+        'Intimidation': ['Clear Vision', 'Fearless'],
+        'Toxic': ['Chatterbox', 'Stalwart'],
+        // Advanced → Elite
+        'Giant Slayer': ['Leadership', 'Efficient'],
+        'Last Stand': ['Intimidation', 'Toxic'],
+        // Elite → Exalted
+        'Second Life': ['Giant Slayer', 'Last Stand']
+      };
+      
+      // Helper: Get all gene IDs that can produce a target skill (direct OR via mutation)
+      function getSkillGeneIdsLocal(skillName, isActive) {
+        const geneIdMap = isActive ? ACTIVE_GENE_ID_MAP_LOCAL : PASSIVE_GENE_ID_MAP_LOCAL;
+        const precursorMap = isActive ? ACTIVE_MUTATION_PRECURSORS_LOCAL : PASSIVE_MUTATION_PRECURSORS_LOCAL;
+        
+        const ids = new Set();
+        
+        // Direct gene ID for this skill
+        if (geneIdMap[skillName] !== undefined) {
+          ids.add(geneIdMap[skillName]);
+        }
+        
+        // Precursor gene IDs (skills that can mutate into this one)
+        const precursors = precursorMap[skillName];
+        if (precursors) {
+          for (const precursor of precursors) {
+            if (geneIdMap[precursor] !== undefined) {
+              ids.add(geneIdMap[precursor]);
+            }
+          }
+        }
+        
+        return ids;
+      }
+      
+      // Helper: Check if a hero has any of the target gene IDs in their active/passive slots
+      // Checks dominant (D) AND recessive (R1, R2, R3) genes
+      function heroHasSkillGenesLocal(hero, targetGeneIds, slotPrefix) {
+        // Parse dominant skill ID from "ability_X" format (e.g., "ability_24" -> 24)
+        const dominant = hero[slotPrefix];
+        let d = null;
+        if (dominant && typeof dominant === 'string') {
+          const match = dominant.match(/ability_(\d+)/);
+          d = match ? parseInt(match[1]) : null;
+        }
+        
+        // Check R1, R2, R3 recessive columns for this slot
+        const r1 = parseInt(hero[`${slotPrefix}_r1`]);
+        const r2 = parseInt(hero[`${slotPrefix}_r2`]);
+        const r3 = parseInt(hero[`${slotPrefix}_r3`]);
+        
+        return (d !== null && targetGeneIds.has(d)) || 
+               targetGeneIds.has(r1) || targetGeneIds.has(r2) || targetGeneIds.has(r3);
+      }
+      
+      // NEW: Skill-based hero filtering for mutation abilities
+      // For mutations like Resurrection, we need COMPLEMENTARY pairs:
+      // - Resurrection requires Stun in slotX from one parent + Second Wind in same slotX from other parent
+      // Strategy: Build precursor buckets by slot and create complementary pairs
+      let targetSkillHeroes = [];
+      let mutationComplementaryPairs = []; // Extra pairs specifically for mutations
+      
+      // Build gene ID sets for active and passive skill targets (including mutation precursors)
+      // Use activeSkillArray and passiveSkillArray which are already parsed from the request
+      const activeGeneIdsNeeded = new Set();
+      const passiveGeneIdsNeeded = new Set();
+      
+      for (const skillName of activeSkillArray) {
+        const geneIds = getSkillGeneIdsLocal(skillName, true);
+        geneIds.forEach(id => activeGeneIdsNeeded.add(id));
+      }
+      for (const skillName of passiveSkillArray) {
+        const geneIds = getSkillGeneIdsLocal(skillName, false);
+        geneIds.forEach(id => passiveGeneIdsNeeded.add(id));
+      }
+      
+      // Helper: Check if hero has specific skill in a slot
+      function heroHasSpecificSkillInSlot(hero, skillGeneId, slotPrefix) {
+        const dominant = hero[slotPrefix];
+        let d = null;
+        if (dominant && typeof dominant === 'string') {
+          const match = dominant.match(/ability_(\d+)/);
+          d = match ? parseInt(match[1]) : null;
+        }
+        const r1 = parseInt(hero[`${slotPrefix}_r1`]);
+        const r2 = parseInt(hero[`${slotPrefix}_r2`]);
+        const r3 = parseInt(hero[`${slotPrefix}_r3`]);
+        return d === skillGeneId || r1 === skillGeneId || r2 === skillGeneId || r3 === skillGeneId;
+      }
+      
+      if (activeGeneIdsNeeded.size > 0 || passiveGeneIdsNeeded.size > 0) {
+        console.log(`[Sniper] Looking for heroes with skill genes - Active: [${[...activeGeneIdsNeeded].join(',')}], Passive: [${[...passiveGeneIdsNeeded].join(',')}]`);
+        
+        // For mutation targets, build complementary precursor buckets by slot
+        // Example: For Resurrection (needs Stun=24 + Second Wind=25), find heroes with each precursor per slot
+        for (const skillName of activeSkillArray) {
+          const precursors = ACTIVE_MUTATION_PRECURSORS_LOCAL[skillName];
+          if (precursors && precursors.length === 2) {
+            const precursor1Id = ACTIVE_GENE_ID_MAP_LOCAL[precursors[0]];
+            const precursor2Id = ACTIVE_GENE_ID_MAP_LOCAL[precursors[1]];
+            const targetSkillId = ACTIVE_GENE_ID_MAP_LOCAL[skillName];
+            
+            console.log(`[Sniper] Building complementary pairs for ${skillName} (needs ${precursors[0]}=${precursor1Id} + ${precursors[1]}=${precursor2Id})`);
+            
+            // For each active slot, find heroes with precursor1 vs precursor2
+            for (const slot of ['active1', 'active2']) {
+              const withPrecursor1 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor1Id, slot));
+              const withPrecursor2 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor2Id, slot));
+              const withTarget = heroes.filter(h => targetSkillId !== undefined && heroHasSpecificSkillInSlot(h, targetSkillId, slot));
+              
+              console.log(`[Sniper]   ${slot}: ${withPrecursor1.length} with ${precursors[0]}, ${withPrecursor2.length} with ${precursors[1]}, ${withTarget.length} with ${skillName}`);
+              
+              // Sort each by price and take top N
+              withPrecursor1.sort((a, b) => a.price_native - b.price_native);
+              withPrecursor2.sort((a, b) => a.price_native - b.price_native);
+              
+              // Create complementary pairs (up to 500 cheapest combinations per slot)
+              const maxPerSlot = 250;
+              const top1 = withPrecursor1.slice(0, 50);
+              const top2 = withPrecursor2.slice(0, 50);
+              
+              let addedCount = 0;
+              for (const h1 of top1) {
+                for (const h2 of top2) {
+                  if (h1.hero_id !== h2.hero_id && addedCount < maxPerSlot) {
+                    mutationComplementaryPairs.push({ hero1: h1, hero2: h2, slot });
+                    addedCount++;
+                  }
+                }
+              }
+              
+              // Also add heroes that already have the target skill
+              for (const h of withTarget.slice(0, 20)) {
+                targetSkillHeroes.push(h);
+              }
+            }
+          }
+        }
+        
+        // Same for passive skills
+        for (const skillName of passiveSkillArray) {
+          const precursors = PASSIVE_MUTATION_PRECURSORS_LOCAL[skillName];
+          if (precursors && precursors.length === 2) {
+            const precursor1Id = PASSIVE_GENE_ID_MAP_LOCAL[precursors[0]];
+            const precursor2Id = PASSIVE_GENE_ID_MAP_LOCAL[precursors[1]];
+            const targetSkillId = PASSIVE_GENE_ID_MAP_LOCAL[skillName];
+            
+            console.log(`[Sniper] Building complementary pairs for ${skillName} (needs ${precursors[0]}=${precursor1Id} + ${precursors[1]}=${precursor2Id})`);
+            
+            for (const slot of ['passive1', 'passive2']) {
+              const withPrecursor1 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor1Id, slot));
+              const withPrecursor2 = heroes.filter(h => heroHasSpecificSkillInSlot(h, precursor2Id, slot));
+              const withTarget = heroes.filter(h => targetSkillId !== undefined && heroHasSpecificSkillInSlot(h, targetSkillId, slot));
+              
+              console.log(`[Sniper]   ${slot}: ${withPrecursor1.length} with ${precursors[0]}, ${withPrecursor2.length} with ${precursors[1]}, ${withTarget.length} with ${skillName}`);
+              
+              withPrecursor1.sort((a, b) => a.price_native - b.price_native);
+              withPrecursor2.sort((a, b) => a.price_native - b.price_native);
+              
+              const maxPerSlot = 250;
+              const top1 = withPrecursor1.slice(0, 50);
+              const top2 = withPrecursor2.slice(0, 50);
+              
+              let addedCount = 0;
+              for (const h1 of top1) {
+                for (const h2 of top2) {
+                  if (h1.hero_id !== h2.hero_id && addedCount < maxPerSlot) {
+                    mutationComplementaryPairs.push({ hero1: h1, hero2: h2, slot });
+                    addedCount++;
+                  }
+                }
+              }
+              
+              for (const h of withTarget.slice(0, 20)) {
+                targetSkillHeroes.push(h);
+              }
+            }
+          }
+        }
+        
+        // Also include heroes with any precursor (fallback)
+        const fallbackHeroes = heroes.filter(h => {
+          if (activeGeneIdsNeeded.size > 0) {
+            const hasActive1 = heroHasSkillGenesLocal(h, activeGeneIdsNeeded, 'active1');
+            const hasActive2 = heroHasSkillGenesLocal(h, activeGeneIdsNeeded, 'active2');
+            if (hasActive1 || hasActive2) return true;
+          }
+          if (passiveGeneIdsNeeded.size > 0) {
+            const hasPassive1 = heroHasSkillGenesLocal(h, passiveGeneIdsNeeded, 'passive1');
+            const hasPassive2 = heroHasSkillGenesLocal(h, passiveGeneIdsNeeded, 'passive2');
+            if (hasPassive1 || hasPassive2) return true;
+          }
+          return false;
+        });
+        
+        // Merge fallback heroes into targetSkillHeroes (dedup)
+        const skillHeroIds = new Set(targetSkillHeroes.map(h => h.hero_id));
+        for (const h of fallbackHeroes) {
+          if (!skillHeroIds.has(h.hero_id)) {
+            targetSkillHeroes.push(h);
+            skillHeroIds.add(h.hero_id);
+          }
+        }
+        
+        console.log(`[Sniper] Found ${targetSkillHeroes.length} heroes with target skill genes or precursors`);
+        console.log(`[Sniper] Built ${mutationComplementaryPairs.length} complementary mutation pairs`);
+      }
+      
       // Sort all by price and take cheapest for pairing pool
       heroes.sort((a, b) => a.price_native - b.price_native);
       const cheapestHeroes = heroes.slice(0, 200);
       
-      // Combine target class heroes + target profession heroes + cheapest, deduplicate
+      // Combine target class heroes + target profession heroes + target skill heroes + cheapest, deduplicate
       const seenIds = new Set();
       const combinedHeroes = [];
-      for (const h of [...targetClassHeroes, ...targetProfessionHeroes, ...cheapestHeroes]) {
+      for (const h of [...targetClassHeroes, ...targetProfessionHeroes, ...targetSkillHeroes, ...cheapestHeroes]) {
         if (!seenIds.has(h.hero_id)) {
           combinedHeroes.push(h);
           seenIds.add(h.hero_id);
@@ -10116,6 +10366,28 @@ async function startAdminWebServer() {
         }
       }
 
+      // Add mutation complementary pairs to candidatePairs
+      // These are specifically matched pairs where one hero has precursor1 and the other has precursor2 in the same slot
+      if (mutationComplementaryPairs.length > 0) {
+        const seenPairKeys = new Set(candidatePairs.map(p => 
+          [p.hero1.hero_id, p.hero2.hero_id].sort().join('-')
+        ));
+        
+        let addedMutationPairs = 0;
+        for (const { hero1, hero2, slot } of mutationComplementaryPairs) {
+          const pairKey = [hero1.hero_id, hero2.hero_id].sort().join('-');
+          if (!seenPairKeys.has(pairKey)) {
+            // Both heroes should be in the same realm, or pick the first one's realm
+            const realm = hero1.realm || hero2.realm || 'cv';
+            const costs = calculatePairFullCost(hero1, hero2, tearPrice, isDarkSummon, bridgeFeeUsd);
+            candidatePairs.push({ hero1, hero2, realm, isMutationPair: true, mutationSlot: slot, ...costs });
+            seenPairKeys.add(pairKey);
+            addedMutationPairs++;
+          }
+        }
+        console.log(`[Sniper] Added ${addedMutationPairs} new mutation complementary pairs`);
+      }
+      
       // Prioritize pairs containing target class/profession heroes when selecting pairs to score
       // This ensures we score pairs that are most likely to produce the target class/profession
       const pairsWithTarget = candidatePairs.filter(p => 
@@ -10158,7 +10430,7 @@ async function startAdminWebServer() {
         16: 'Leadership', 17: 'Efficient', 18: 'Intimidation', 19: 'Toxic',
         24: 'Giant Slayer', 25: 'Last Stand', 28: 'Second Life'
       };
-
+      
       // Build genetics object from indexed hero component columns
       function buildGeneticsFromIndex(hero) {
         const getClassName = (geneId) => CLASS_GENE_MAP[parseInt(geneId)] || `Unknown${geneId}`;
@@ -10343,15 +10615,29 @@ async function startAdminWebServer() {
             }
           }
 
-          // Multiple target active skills: OR logic (sum their probabilities, cap at 1)
-          if (activeSkillArray.length > 0 && probs.active1) {
+          // Multiple target active skills: OR logic across BOTH active slots
+          // Mutations like Resurrection can appear in either active1 or active2 slot
+          // Sum probabilities from both slots for each target skill
+          if (activeSkillArray.length > 0 && (probs.active1 || probs.active2)) {
             let activeSum = 0;
             for (const targetSkill of activeSkillArray) {
-              const skillProb = Object.entries(probs.active1).find(([name]) => 
-                name.toLowerCase() === targetSkill.toLowerCase()
-              );
-              if (skillProb) {
-                activeSum += parseFloat(skillProb[1]) / 100;
+              // Check active1 slot
+              if (probs.active1) {
+                const skillProb1 = Object.entries(probs.active1).find(([name]) => 
+                  name.toLowerCase() === targetSkill.toLowerCase()
+                );
+                if (skillProb1) {
+                  activeSum += parseFloat(skillProb1[1]) / 100;
+                }
+              }
+              // Check active2 slot
+              if (probs.active2) {
+                const skillProb2 = Object.entries(probs.active2).find(([name]) => 
+                  name.toLowerCase() === targetSkill.toLowerCase()
+                );
+                if (skillProb2) {
+                  activeSum += parseFloat(skillProb2[1]) / 100;
+                }
               }
             }
             if (activeSum > 0) {
@@ -10362,15 +10648,28 @@ async function startAdminWebServer() {
             }
           }
 
-          // Multiple target passive skills: OR logic (sum their probabilities, cap at 1)
-          if (passiveSkillArray.length > 0 && probs.passive1) {
+          // Multiple target passive skills: OR logic across BOTH passive slots
+          // Mutations like Second Life can appear in either passive1 or passive2 slot
+          if (passiveSkillArray.length > 0 && (probs.passive1 || probs.passive2)) {
             let passiveSum = 0;
             for (const targetSkill of passiveSkillArray) {
-              const skillProb = Object.entries(probs.passive1).find(([name]) => 
-                name.toLowerCase() === targetSkill.toLowerCase()
-              );
-              if (skillProb) {
-                passiveSum += parseFloat(skillProb[1]) / 100;
+              // Check passive1 slot
+              if (probs.passive1) {
+                const skillProb1 = Object.entries(probs.passive1).find(([name]) => 
+                  name.toLowerCase() === targetSkill.toLowerCase()
+                );
+                if (skillProb1) {
+                  passiveSum += parseFloat(skillProb1[1]) / 100;
+                }
+              }
+              // Check passive2 slot
+              if (probs.passive2) {
+                const skillProb2 = Object.entries(probs.passive2).find(([name]) => 
+                  name.toLowerCase() === targetSkill.toLowerCase()
+                );
+                if (skillProb2) {
+                  passiveSum += parseFloat(skillProb2[1]) / 100;
+                }
               }
             }
             if (passiveSum > 0) {
