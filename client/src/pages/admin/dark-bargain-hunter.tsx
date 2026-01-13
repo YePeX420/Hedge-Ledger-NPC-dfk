@@ -74,6 +74,7 @@ interface SniperResult {
 export default function DarkBargainHunter() {
   const [result, setResult] = useState<SniperResult | null>(null);
   const [realmFilter, setRealmFilter] = useState<string>("all");
+  const [minRarityFilter, setMinRarityFilter] = useState<number>(0);
 
   const ALL_CLASSES = ['Archer', 'Berserker', 'Knight', 'Priest', 'Seer', 'Warrior', 'Wizard', 'Pirate'];
 
@@ -113,12 +114,17 @@ export default function DarkBargainHunter() {
     if (realmFilter !== "all") {
       filtered = filtered.filter(pair => pair.realm === realmFilter);
     }
+    if (minRarityFilter > 0) {
+      filtered = filtered.filter(pair => 
+        pair.hero1.rarity >= minRarityFilter && pair.hero2.rarity >= minRarityFilter
+      );
+    }
     return filtered.sort((a, b) => {
       const aEfficiency = (a.tts?.expected || 0) / (a.totalCostUsd || 1);
       const bEfficiency = (b.tts?.expected || 0) / (b.totalCostUsd || 1);
       return bEfficiency - aEfficiency;
     });
-  }, [result?.pairs, realmFilter]);
+  }, [result?.pairs, realmFilter, minRarityFilter]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -179,18 +185,35 @@ export default function DarkBargainHunter() {
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Realm:</span>
-              <Select value={realmFilter} onValueChange={setRealmFilter}>
-                <SelectTrigger className="w-40" data-testid="select-realm-filter">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Realms</SelectItem>
-                  <SelectItem value="cv">Crystalvale</SelectItem>
-                  <SelectItem value="sd">Sundered Isles</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Min Rarity:</span>
+                <Select value={String(minRarityFilter)} onValueChange={(v) => setMinRarityFilter(Number(v))}>
+                  <SelectTrigger className="w-32" data-testid="select-rarity-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Any</SelectItem>
+                    <SelectItem value="1">Uncommon+</SelectItem>
+                    <SelectItem value="2">Rare+</SelectItem>
+                    <SelectItem value="3">Legendary+</SelectItem>
+                    <SelectItem value="4">Mythic</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Realm:</span>
+                <Select value={realmFilter} onValueChange={setRealmFilter}>
+                  <SelectTrigger className="w-40" data-testid="select-realm-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Realms</SelectItem>
+                    <SelectItem value="cv">Crystalvale</SelectItem>
+                    <SelectItem value="sd">Sundered Isles</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 
