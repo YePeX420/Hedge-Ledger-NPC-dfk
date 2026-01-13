@@ -287,9 +287,40 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   let skippedProbError = 0;
   const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
   
-  // Summon cost formulas
-  const getBaseSummonCost = (gen) => 6 + (gen * 2);
-  const getTearCount = (gen1, gen2) => Math.max(1, Math.floor((gen1 + gen2 + 2) / 4));
+  // Summon cost formulas - matching bot.js for consistency
+  // Each hero pays: baseCost + (perChildIncrease * summonsDone) + (generationIncrease * generation)
+  function calculateSummonTokenCost(generation, totalSummoned, useDarkSummon = false) {
+    const baseCost = 6;
+    const perChildIncrease = 2;
+    const generationIncrease = 10;
+    let cost = baseCost + (perChildIncrease * totalSummoned) + (generationIncrease * generation);
+    if (generation === 0 && cost > 30) cost = 30;
+    if (useDarkSummon) cost = cost / 4;
+    return cost;
+  }
+  
+  // Class tier determines tear requirements - each hero contributes tears based on their class
+  const CLASS_TIERS = {
+    // Basic classes
+    'Warrior': 'basic', 'Knight': 'basic', 'Thief': 'basic', 'Archer': 'basic',
+    'Priest': 'basic', 'Wizard': 'basic', 'Monk': 'basic', 'Pirate': 'basic',
+    // Advanced classes
+    'Paladin': 'advanced', 'DarkKnight': 'advanced', 'Summoner': 'advanced', 'Ninja': 'advanced',
+    'Shapeshifter': 'advanced', 'Bard': 'advanced', 'Seer': 'advanced', 'Berserker': 'advanced',
+    // Elite classes
+    'Legionnaire': 'elite', 'SpellBow': 'elite', 'Scholar': 'elite',
+    // Exalted classes
+    'DreadKnight': 'exalted', 'Dragoon': 'exalted', 'Sage': 'exalted'
+  };
+  const TEAR_BY_TIER = { basic: 10, advanced: 40, elite: 70, exalted: 100 };
+  
+  function getClassTier(className) {
+    return CLASS_TIERS[className] || 'basic';
+  }
+  function getTearCountForClass(className) {
+    const tier = getClassTier(className);
+    return TEAR_BY_TIER[tier] || 10;
+  }
   const tearPriceNative = 0.05;
   
   for (const realm of ['cv', 'sd']) {
@@ -307,13 +338,19 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
         
         const gen1 = hero1.generation || 0;
         const gen2 = hero2.generation || 0;
+        const summons1 = hero1.summons || 0;
+        const summons2 = hero2.summons || 0;
         
-        // Calculate costs
+        // Calculate costs - BOTH heroes pay fees (matching bot.js)
         const purchaseCost = (parseFloat(hero1.price_native) || 0) + (parseFloat(hero2.price_native) || 0);
-        let summonTokenCost = getBaseSummonCost(Math.max(gen1, gen2));
-        if (isDarkSummon) summonTokenCost = summonTokenCost / 4;
+        const summonCost1 = calculateSummonTokenCost(gen1, summons1, isDarkSummon);
+        const summonCost2 = calculateSummonTokenCost(gen2, summons2, isDarkSummon);
+        const summonTokenCost = summonCost1 + summonCost2;
         
-        const tearCount = getTearCount(gen1, gen2);
+        // Tears - BOTH heroes contribute based on their class tier (dark summon = 0 tears)
+        const tearCount1 = isDarkSummon ? 0 : getTearCountForClass(hero1.main_class);
+        const tearCount2 = isDarkSummon ? 0 : getTearCountForClass(hero2.main_class);
+        const tearCount = tearCount1 + tearCount2;
         const tearCost = tearCount * tearPriceNative;
         const totalCost = purchaseCost + summonTokenCost + tearCost;
         const totalCostUsd = totalCost * tokenPrice;
@@ -377,6 +414,13 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
               realm
             },
             realm,
+            // Cost breakdown for display
+            costs: {
+              purchaseCost: Math.round(purchaseCost * 100) / 100,
+              summonTokenCost: Math.round(summonTokenCost * 100) / 100,
+              tearCount,
+              tearCost: Math.round(tearCost * 100) / 100
+            },
             totalCost: Math.round(totalCost * 100) / 100,
             totalCostUsd: Math.round(totalCostUsd * 100) / 100,
             efficiency,
