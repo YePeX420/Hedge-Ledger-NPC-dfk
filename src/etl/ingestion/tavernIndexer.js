@@ -720,38 +720,56 @@ async function runFullIndex() {
 
 let lastSuccessfulRun = null;
 let autoRunAttempts = 0;
+let autoRunSetupInProgress = false; // Prevent concurrent setup
 
 export function startAutoRun(intervalMs = AUTO_RUN_INTERVAL_MS) {
+  // Prevent concurrent setup calls
+  if (autoRunSetupInProgress) {
+    console.log('[TavernIndexer] Auto-run setup already in progress');
+    return { status: 'setup_in_progress' };
+  }
+  
   if (autoRunInterval) {
     console.log('[TavernIndexer] Auto-run already active');
     return { status: 'already_running' };
   }
   
-  console.log(`[TavernIndexer] Starting auto-run (interval: ${intervalMs / 1000}s = ${intervalMs / 60000} mins)`);
+  autoRunSetupInProgress = true;
   
-  // Track interval settings for next run calculation
-  autoRunIntervalMs = intervalMs;
-  autoRunLastTrigger = new Date().toISOString();
-  autoRunAttempts = 0;
-  
-  // Run immediately on start
-  executeScheduledRun('initial');
-  
-  // Schedule recurring runs
-  autoRunInterval = setInterval(() => {
+  try {
+    console.log(`[TavernIndexer] Starting auto-run (interval: ${intervalMs / 1000}s = ${intervalMs / 60000} mins)`);
+    
+    // Track interval settings for next run calculation
+    autoRunIntervalMs = intervalMs;
     autoRunLastTrigger = new Date().toISOString();
-    executeScheduledRun('scheduled');
-  }, intervalMs);
-  
-  console.log(`[TavernIndexer] Auto-run interval set. Next run at: ${new Date(Date.now() + intervalMs).toISOString()}`);
-  
-  return { status: 'started', intervalMs };
+    autoRunAttempts = 0;
+    
+    // Schedule recurring runs FIRST (synchronous - sets autoRunInterval immediately)
+    autoRunInterval = setInterval(() => {
+      autoRunLastTrigger = new Date().toISOString();
+      executeScheduledRun('scheduled');
+    }, intervalMs);
+    
+    console.log(`[TavernIndexer] Auto-run interval set. Next run at: ${new Date(Date.now() + intervalMs).toISOString()}`);
+    
+    // Run immediately on start (async, but interval is already set)
+    executeScheduledRun('initial');
+    
+    return { status: 'started', intervalMs };
+  } finally {
+    autoRunSetupInProgress = false;
+  }
 }
 
 // Wrapper for scheduled runs with better error handling and logging
 async function executeScheduledRun(runType = 'scheduled') {
+  // Guard against overlapping runs
+  if (indexerState.isRunning) {
+    console.log(`[TavernIndexer] Skipping ${runType} run - indexer already running`);
+    return { status: 'skipped', reason: 'already_running' };
+  }
+  
   autoRunAttempts++;
-  const runId = `${runType}-${autoRunAttempts}`;
   
   console.log(`[TavernIndexer] Starting ${runType} run #${autoRunAttempts} at ${new Date().toISOString()}`);
   
@@ -776,6 +794,19 @@ async function executeScheduledRun(runType = 'scheduled') {
 
 // Health check function - can be called to verify and restart auto-run if needed
 export function ensureAutoRunHealthy() {
+  // If setup is in progress, skip
+  if (autoRunSetupInProgress) {
+    console.log('[TavernIndexer] Health check: Setup in progress, no action needed');
+    return { status: 'healthy', setupInProgress: true };
+  }
+  
+  // If currently running, skip - no action needed
+  if (indexerState.isRunning) {
+    console.log('[TavernIndexer] Health check: Indexer currently running, no action needed');
+    return { status: 'healthy', isRunning: true, autoRunActive: !!autoRunInterval };
+  }
+  
+  // If auto-run interval is missing, restart it
   if (!autoRunInterval) {
     console.log('[TavernIndexer] Health check: Auto-run not active, restarting...');
     return startAutoRun(autoRunIntervalMs || AUTO_RUN_INTERVAL_MS);
@@ -787,6 +818,7 @@ export function ensureAutoRunHealthy() {
     const staleDuration = Date.now() - new Date(lastSuccessfulRun).getTime();
     if (staleDuration > maxStaleMs) {
       console.warn(`[TavernIndexer] Health check: Last success was ${Math.round(staleDuration / 60000)} mins ago, triggering fresh run...`);
+      // executeScheduledRun has its own guard against overlapping runs
       executeScheduledRun('health-check');
     }
   }

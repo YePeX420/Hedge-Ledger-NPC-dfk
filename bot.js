@@ -8734,25 +8734,48 @@ async function startAdminWebServer() {
       
       // Run async queries in parallel with overall timeout
       const timeoutMs = 15000;
+      let progressError = null;
+      let statsError = null;
+      let timedOut = false;
+      
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Status fetch timeout')), timeoutMs)
+        setTimeout(() => {
+          timedOut = true;
+          reject(new Error('Status fetch timeout'));
+        }, timeoutMs)
       );
       
       const dataPromise = Promise.all([
         getIndexerProgress().catch(err => {
           console.error('[Tavern Indexer] Progress query error:', err.message);
+          progressError = err.message;
           return [];
         }),
         getTavernStats().catch(err => {
           console.error('[Tavern Indexer] Stats query error:', err.message);
+          statsError = err.message;
           return [];
         })
       ]);
       
       const [progress, stats] = await Promise.race([dataPromise, timeoutPromise])
-        .catch(() => [[], []]); // Return empty arrays on timeout
+        .catch(() => {
+          timedOut = true;
+          return [[], []];
+        });
       
-      res.json({ ok: true, status, progress, stats });
+      // Surface any degraded state
+      const dataStatus = timedOut ? 'timeout' : (progressError || statsError) ? 'partial' : 'ok';
+      
+      // Return ok:false on timeout so frontend knows data is stale
+      res.json({ 
+        ok: !timedOut, 
+        status, 
+        progress, 
+        stats,
+        dataStatus,
+        dataErrors: { progressError, statsError, timedOut }
+      });
     } catch (error) {
       console.error('[Tavern Indexer] Status error:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
@@ -13868,6 +13891,9 @@ async function startAdminWebServer() {
     }
   }
   
+  // Track health check interval to prevent duplicates
+  let tavernHealthCheckInterval = null;
+  
   // Auto-start Tavern indexer on server startup (production only)
   async function autoStartTavernIndexer() {
     try {
@@ -13886,11 +13912,14 @@ async function startAdminWebServer() {
         startAutoRun();
       }
       
-      // Set up periodic health check every 15 minutes to ensure auto-run stays alive
-      setInterval(() => {
-        console.log('[TavernIndexer] Running periodic health check...');
-        ensureAutoRunHealthy();
-      }, 15 * 60 * 1000); // 15 minutes
+      // Set up periodic health check every 15 minutes (only once)
+      if (!tavernHealthCheckInterval) {
+        tavernHealthCheckInterval = setInterval(() => {
+          console.log('[TavernIndexer] Running periodic health check...');
+          ensureAutoRunHealthy();
+        }, 15 * 60 * 1000); // 15 minutes
+        console.log('[TavernIndexer] Health check interval registered');
+      }
       
       console.log('[TavernIndexer] Auto-start complete with health monitoring');
     } catch (err) {
