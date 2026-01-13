@@ -32,6 +32,30 @@ import {
   SKIN_COLOR_MUTATION_MAP
 } from './visual-mutation-maps.js';
 
+/**
+ * Integer-based gene weights for exact probability calculations.
+ * Using integers over a fixed denominator eliminates floating-point drift.
+ * 
+ * Weights as fractions of 64:
+ *   D  = 48/64 = 75%
+ *   R1 = 12/64 = 18.75%
+ *   R2 = 3/64  = 4.6875%
+ *   R3 = 1/64  = 1.5625%
+ *   Total = 64/64 = 100%
+ * 
+ * When combining two positions: weight = (w1 * w2) over (64 * 64 = 4096)
+ * All intermediate calculations use integers; convert to percentage only at output.
+ */
+const GENE_WEIGHTS_INT = {
+  dominant: 48,
+  R1: 12,
+  R2: 3,
+  R3: 1
+};
+const GENE_WEIGHT_DENOMINATOR = 64;
+const COMBINED_DENOMINATOR = 4096; // 64 * 64 for two-position combinations
+
+// Legacy float weights kept for backward compatibility with non-critical paths
 const GENE_WEIGHTS = {
   dominant: 0.75,
   R1: 0.1875,
@@ -355,12 +379,14 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
  * @returns {Object} { probabilities, mutations }
  */
 function calculateTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
-  const outcomes = {};
+  // Use integer math with unified denominator to avoid floating-point drift
+  // Base: 64×64 = 4096 for position combinations
+  // Mutation: ×8 for 1/8 precision (12.5% exalted rate)
+  // 50/50 split: ×2
+  // Unified denominator: 4096 × 8 × 2 = 65536
+  const UNIFIED_DENOM = 65536;
+  const outcomes = {};  // Maps trait -> integer numerator over UNIFIED_DENOM
   const mutations = new Set();
-  
-  // Get dominant traits for marking recessive mutations
-  const parent1Dominant = parent1Trait.dominant;
-  const parent2Dominant = parent2Trait.dominant;
   
   // Iterate through all 16 gene position combinations
   for (const pos1 of GENE_POSITIONS) {
@@ -370,10 +396,11 @@ function calculateTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
       
       if (gene1 === undefined || gene1 === null || gene2 === undefined || gene2 === null) continue;
       
-      // Calculate weight for this position combination
-      const weight1 = GENE_WEIGHTS[pos1];
-      const weight2 = GENE_WEIGHTS[pos2];
-      const combinationWeight = weight1 * weight2;
+      // Integer weight for this position combination
+      // combinationWeight × 16 scales from /4096 to /65536
+      const weight1 = GENE_WEIGHTS_INT[pos1];
+      const weight2 = GENE_WEIGHTS_INT[pos2];
+      const combinationWeight = weight1 * weight2 * 16; // e.g., D×D = 48×48×16 = 36864 over 65536
       
       // Check if this gene pair can mutate
       const mutationKey = `${gene1}+${gene2}`;
@@ -381,33 +408,39 @@ function calculateTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
       
       if (mutatedTrait) {
         // Mutation is possible!
-        // Use lower mutation rate for exalted/transcendent outcomes (12.5%)
-        const mutationChance = EXALTED_SKILLS.has(mutatedTrait) 
-          ? MUTATION_CHANCE_EXALTED 
-          : MUTATION_CHANCE_STANDARD;
+        const isExalted = EXALTED_SKILLS.has(mutatedTrait);
         
-        const mutationProb = combinationWeight * mutationChance * 100;
-        const nonMutationProb = combinationWeight * (1 - mutationChance) * 100;
-        
-        // Add mutation outcome
-        outcomes[mutatedTrait] = (outcomes[mutatedTrait] || 0) + mutationProb;
+        if (isExalted) {
+          // 12.5% = 1/8, non-mutation 7/8, split 50/50 = 7/16 each
+          const mutationProb = combinationWeight / 8;
+          const nonMutationEach = (combinationWeight * 7) / 16;
+          outcomes[mutatedTrait] = (outcomes[mutatedTrait] || 0) + mutationProb;
+          outcomes[gene1] = (outcomes[gene1] || 0) + nonMutationEach;
+          outcomes[gene2] = (outcomes[gene2] || 0) + nonMutationEach;
+        } else {
+          // 25% = 1/4, non-mutation 3/4, split 50/50 = 3/8 each
+          const mutationProb = combinationWeight / 4;
+          const nonMutationEach = (combinationWeight * 3) / 8;
+          outcomes[mutatedTrait] = (outcomes[mutatedTrait] || 0) + mutationProb;
+          outcomes[gene1] = (outcomes[gene1] || 0) + nonMutationEach;
+          outcomes[gene2] = (outcomes[gene2] || 0) + nonMutationEach;
+        }
         mutations.add(mutatedTrait);
-        
-        // Add non-mutation outcomes (50/50 between the two genes)
-        outcomes[gene1] = (outcomes[gene1] || 0) + (nonMutationProb * 0.5);
-        outcomes[gene2] = (outcomes[gene2] || 0) + (nonMutationProb * 0.5);
       } else {
         // No mutation possible - standard 50/50 selection
-        const prob = combinationWeight * 100;
-        outcomes[gene1] = (outcomes[gene1] || 0) + (prob * 0.5);
-        outcomes[gene2] = (outcomes[gene2] || 0) + (prob * 0.5);
+        const probEach = combinationWeight / 2;
+        outcomes[gene1] = (outcomes[gene1] || 0) + probEach;
+        outcomes[gene2] = (outcomes[gene2] || 0) + probEach;
       }
     }
   }
   
-  // Sort by probability and round
+  // Convert integer outcomes to percentages
   const sorted = Object.entries(outcomes)
-    .map(([trait, prob]) => [trait, Math.round(prob * 100) / 100])
+    .map(([trait, numerator]) => {
+      const percentage = (numerator / UNIFIED_DENOM) * 100;
+      return [trait, Math.round(percentage * 100) / 100];
+    })
     .filter(([, prob]) => prob > 0)
     .sort((a, b) => b[1] - a[1]);
   
@@ -419,13 +452,15 @@ function calculateTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
 
 /**
  * Calculate probability distribution for a single trait (non-class traits)
- * Uses standard weighted genetics: D=75%, R1=18.75%, R2=5.5%, R3=0.75%
+ * Uses integer math with unified denominator: 64×64×2 = 8192
  * 
  * @param {Object} parent1Trait - Trait object with { dominant, R1, R2, R3 } genes
  * @param {Object} parent2Trait - Trait object with { dominant, R1, R2, R3 } genes
  * @returns {Object} { probabilities: {...}, mutations: Set }
  */
 export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
+  // Integer math: denominator = 4096 × 2 = 8192 (for 50/50 split)
+  const UNIFIED_DENOM = 8192;
   const outcomes = {};
   
   if (!parent1Trait || !parent2Trait) {
@@ -438,24 +473,27 @@ export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
       const gene1 = parent1Trait[pos1];
       const gene2 = parent2Trait[pos2];
       
-      const weight1 = GENE_WEIGHTS[pos1];
-      const weight2 = GENE_WEIGHTS[pos2];
-      const combinationWeight = weight1 * weight2 * 100;
+      const weight1 = GENE_WEIGHTS_INT[pos1];
+      const weight2 = GENE_WEIGHTS_INT[pos2];
+      const combinationWeight = weight1 * weight2; // over 4096
       
-      // 50/50 chance between the two genes
+      // 50/50 chance between the two genes (combinationWeight/2 each, so over 8192)
       if (gene1 !== undefined && gene1 !== null) {
-        outcomes[gene1] = (outcomes[gene1] || 0) + (combinationWeight * 0.5);
+        outcomes[gene1] = (outcomes[gene1] || 0) + combinationWeight;
       }
       
       if (gene2 !== undefined && gene2 !== null) {
-        outcomes[gene2] = (outcomes[gene2] || 0) + (combinationWeight * 0.5);
+        outcomes[gene2] = (outcomes[gene2] || 0) + combinationWeight;
       }
     }
   }
   
-  // Sort by probability and round
+  // Convert to percentages
   const sorted = Object.entries(outcomes)
-    .map(([trait, prob]) => [trait, Math.round(prob * 100) / 100])
+    .map(([trait, numerator]) => {
+      const percentage = (numerator / UNIFIED_DENOM) * 100;
+      return [trait, Math.round(percentage * 100) / 100];
+    })
     .sort((a, b) => b[1] - a[1]);
   
   // No mutations for traits without mutation maps (stat boosts, elements, visuals)
@@ -467,7 +505,8 @@ export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
 
 /**
  * Calculate probability distribution for visual traits WITH mutation support
- * Uses numeric gene IDs and the visual mutation maps to calculate mutation outcomes
+ * Uses integer math with unified denominator for exact calculations.
+ * Visual traits use 25% mutation rate only (no exalted visual traits).
  * 
  * @param {Object} parent1Trait - Trait object with { dominant, R1, R2, R3 } gene IDs (numbers)
  * @param {Object} parent2Trait - Trait object with { dominant, R1, R2, R3 } gene IDs (numbers)
@@ -475,6 +514,9 @@ export function calculateTraitProbabilities(parent1Trait, parent2Trait) {
  * @returns {Object} { probabilities: {...}, mutations: Set }
  */
 export function calculateVisualTraitWithMutations(parent1Trait, parent2Trait, mutationMap) {
+  // Integer math: unified denominator = 4096 × 8 = 32768
+  // 25% = 1/4, non-mutation = 3/4, split = 3/8 each
+  const UNIFIED_DENOM = 32768;
   const outcomes = {};
   const mutations = new Set();
   
@@ -492,38 +534,39 @@ export function calculateVisualTraitWithMutations(parent1Trait, parent2Trait, mu
         continue;
       }
       
-      const weight1 = GENE_WEIGHTS[pos1];
-      const weight2 = GENE_WEIGHTS[pos2];
-      const combinationWeight = weight1 * weight2;
+      const weight1 = GENE_WEIGHTS_INT[pos1];
+      const weight2 = GENE_WEIGHTS_INT[pos2];
+      const combinationWeight = weight1 * weight2 * 8; // Scale to unified denominator
       
       // Check for mutation - using numeric gene IDs
       const mutationKey = `${gene1}+${gene2}`;
       const mutatedGene = mutationMap[mutationKey];
       
       if (mutatedGene !== undefined && gene1 !== gene2) {
-        // Mutation possible - 25% chance for visual trait mutations (no exalted visual traits)
-        const mutationProb = combinationWeight * MUTATION_CHANCE_STANDARD * 100;
-        const nonMutationProb = combinationWeight * (1 - MUTATION_CHANCE_STANDARD) * 100;
+        // Mutation possible - 25% = 1/4, non-mutation 3/4, split 50/50 = 3/8 each
+        const mutationProb = combinationWeight / 4;
+        const nonMutationEach = (combinationWeight * 3) / 8;
         
-        // Add mutation outcome
         outcomes[mutatedGene] = (outcomes[mutatedGene] || 0) + mutationProb;
         mutations.add(mutatedGene);
         
-        // Add non-mutation outcomes (50/50 between the two genes)
-        outcomes[gene1] = (outcomes[gene1] || 0) + (nonMutationProb * 0.5);
-        outcomes[gene2] = (outcomes[gene2] || 0) + (nonMutationProb * 0.5);
+        outcomes[gene1] = (outcomes[gene1] || 0) + nonMutationEach;
+        outcomes[gene2] = (outcomes[gene2] || 0) + nonMutationEach;
       } else {
         // No mutation possible - standard 50/50 selection
-        const prob = combinationWeight * 100;
-        outcomes[gene1] = (outcomes[gene1] || 0) + (prob * 0.5);
-        outcomes[gene2] = (outcomes[gene2] || 0) + (prob * 0.5);
+        const probEach = combinationWeight / 2;
+        outcomes[gene1] = (outcomes[gene1] || 0) + probEach;
+        outcomes[gene2] = (outcomes[gene2] || 0) + probEach;
       }
     }
   }
   
-  // Sort by probability and round
+  // Convert to percentages
   const sorted = Object.entries(outcomes)
-    .map(([trait, prob]) => [trait, Math.round(prob * 100) / 100])
+    .map(([trait, numerator]) => {
+      const percentage = (numerator / UNIFIED_DENOM) * 100;
+      return [trait, Math.round(percentage * 100) / 100];
+    })
     .filter(([, prob]) => prob > 0)
     .sort((a, b) => b[1] - a[1]);
   
