@@ -10251,19 +10251,19 @@ async function startAdminWebServer() {
       function calculatePairFullCost(hero1, hero2, tearPriceValue, useDarkSummon = false, bridgeFeePerHeroUsd = 0) {
         const purchaseCost = parseFloat(hero1.price_native) + parseFloat(hero2.price_native);
         
-        // Summon token cost - uses the lower generation hero as summoner
+        // Summon token cost - BOTH heroes pay their fee (not just the lower one)
         // Dark summon uses 1/4 of the regular cost
         const summonCost1 = calculateSummonTokenCost(hero1.generation, hero1.summons, useDarkSummon);
         const summonCost2 = calculateSummonTokenCost(hero2.generation, hero2.summons, useDarkSummon);
-        const summonTokenCost = Math.min(summonCost1, summonCost2);
+        const summonTokenCost = summonCost1 + summonCost2;
         
-        // Tear cost - based on higher tier class between the two heroes
+        // Tear cost - BOTH heroes contribute tears based on their class tier
         // Dark summons don't require tears for the basic summon (only for optional rarity boost)
         const tier1 = getClassTier(hero1.main_class);
         const tier2 = getClassTier(hero2.main_class);
-        const tierOrder = { basic: 0, advanced: 1, elite: 2, exalted: 3 };
-        const higherTier = tierOrder[tier1] >= tierOrder[tier2] ? tier1 : tier2;
-        const tearCount = useDarkSummon ? 0 : getMinTears(higherTier);  // No tears for dark summon
+        const tearCount1 = useDarkSummon ? 0 : getMinTears(tier1);
+        const tearCount2 = useDarkSummon ? 0 : getMinTears(tier2);
+        const tearCount = tearCount1 + tearCount2;
         const tearCost = tearCount * (tearPriceValue || 0.05);
         
         // Bridging cost - Metis heroes need to be bridged to CV for summoning
