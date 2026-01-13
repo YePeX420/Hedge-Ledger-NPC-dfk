@@ -61,7 +61,7 @@ interface CacheResult {
   message?: string;
 }
 
-type SortOption = "efficiency" | "lowestCost" | "eliteChance" | "exaltedChance" | "expectedTS";
+type SortOption = "efficiency" | "tsPerToken" | "lowestCost" | "eliteChance" | "exaltedChance" | "expectedTS";
 
 export default function BargainHunter() {
   const [realmFilter, setRealmFilter] = useState<string>("all");
@@ -106,6 +106,10 @@ export default function BargainHunter() {
     // Sort based on selected option
     return filtered.sort((a, b) => {
       switch (sortBy) {
+        case "tsPerToken":
+          const aTsPerToken = (a.ts?.expected || 0) / (a.totalCost || 1);
+          const bTsPerToken = (b.ts?.expected || 0) / (b.totalCost || 1);
+          return bTsPerToken - aTsPerToken;
         case "lowestCost":
           return (a.totalCost || 0) - (b.totalCost || 0);
         case "eliteChance":
@@ -272,6 +276,7 @@ export default function BargainHunter() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="efficiency">TS Efficiency</SelectItem>
+                    <SelectItem value="tsPerToken">TS/Token Cost</SelectItem>
                     <SelectItem value="lowestCost">Lowest Cost</SelectItem>
                     <SelectItem value="expectedTS">Expected TS</SelectItem>
                     <SelectItem value="eliteChance">Elite Chance</SelectItem>
