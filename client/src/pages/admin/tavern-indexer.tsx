@@ -30,7 +30,7 @@ interface RealmProgress {
 interface RealmStats {
   realm: string;
   total_heroes: number;
-  avg_tts: number;
+  avg_ts: number;
   min_price: number;
   max_price: number;
   avg_price: number;

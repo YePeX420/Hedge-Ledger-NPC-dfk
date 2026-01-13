@@ -21,7 +21,7 @@ const REALM_DISPLAY_NAMES: Record<string, string> = {
   sd: 'Sundered Isles Barkeep',
 };
 
-// Ability tier scoring for TTS (Team Trait Score)
+// Ability tier scoring for TS (Team Trait Score)
 // Active: IDs 0-14 → Basic (0-7)=0, Advanced (8-11)=1, Elite (12-13)=2, Exalted (14)=3
 // Passive: IDs 16-30 → Basic (16-23)=0, Advanced (24-27)=1, Elite (28-29)=2, Exalted (30)=3
 function getAbilityTierPoints(abilitySlot: string | number | null | undefined): number {
@@ -253,7 +253,7 @@ interface TavernIndexerStatus {
     errors: string[];
     autoRunActive: boolean;
   };
-  stats: Array<{ realm: string; total_heroes: string; avg_tts: string; min_price: string; max_price: string; avg_price: string }>;
+  stats: Array<{ realm: string; total_heroes: string; avg_ts: string; min_price: string; max_price: string; avg_price: string }>;
   progress: Array<{ realm: string; heroes_indexed: number; status: string; last_success_at: string | null }>;
 }
 
@@ -358,12 +358,12 @@ function formatLevelRange(minLevel: number | null, maxLevel: number | null): str
   return `Lv ${min}-${max}`;
 }
 
-// Format Team Trait Score (TTS) - only show if restricted
-function formatTTS(maxTeamStatScore: number | null): string | null {
+// Format Team Trait Score (TS) - only show if restricted
+function formatTS(maxTeamStatScore: number | null): string | null {
   const max = maxTeamStatScore ?? 9000;
   // Hide if unrestricted (9000 is default)
   if (max >= 9000) return null;
-  return `TTS ≤${max}`;
+  return `TS ≤${max}`;
 }
 
 // Generate readable type name from tournament restrictions
@@ -392,9 +392,9 @@ function generateReadableTypeName(pattern: TournamentPattern): string {
   }
   
   // Team stat score restriction
-  const ttsStr = formatTTS(pattern.max_team_stat_score);
-  if (ttsStr) {
-    parts.push(ttsStr);
+  const tsStr = formatTS(pattern.max_team_stat_score);
+  if (tsStr) {
+    parts.push(tsStr);
   }
   
   // Class restrictions
@@ -449,7 +449,7 @@ export default function BattleReadyAdmin() {
   const [editingConfig, setEditingConfig] = useState<SimilarityConfig | null>(null);
   const [selectedHeroes, setSelectedHeroes] = useState<Set<string>>(new Set());
   const [tavernFilter, setTavernFilter] = useState<'all' | 'cv' | 'sd'>('all');
-  const [ttsFilter, setTtsFilter] = useState<'any' | '3' | '5' | '7' | '9'>('any');
+  const [tsFilter, setTtsFilter] = useState<'any' | '3' | '5' | '7' | '9'>('any');
   const [rarityFilter, setRarityFilter] = useState<'any' | '4' | '3' | '2'>('4'); // Default to Mythic for tournament-ready
   const [combatPowerFilter, setCombatPowerFilter] = useState<'any' | '150' | '220' | '290'>('any'); // Level-aware presets
   const [minLevelFilter, setMinLevelFilter] = useState<'any' | '10' | '20' | '50'>('10'); // Default L10+ for tournaments
@@ -478,7 +478,7 @@ export default function BattleReadyAdmin() {
   // Build query params for tavern listings
   const tavernQueryParams = new URLSearchParams();
   if (tavernFilter !== 'all') tavernQueryParams.set('realm', tavernFilter);
-  if (ttsFilter !== 'any') tavernQueryParams.set('maxTts', ttsFilter);
+  if (tsFilter !== 'any') tavernQueryParams.set('maxTts', tsFilter);
   if (rarityFilter !== 'any') tavernQueryParams.set('minRarity', rarityFilter);
   if (combatPowerFilter !== 'any') tavernQueryParams.set('minCombatPower', combatPowerFilter);
   if (minLevelFilter !== 'any') tavernQueryParams.set('minLevel', minLevelFilter);
@@ -489,7 +489,7 @@ export default function BattleReadyAdmin() {
   const tavernQueryUrl = `/api/admin/tavern-listings${tavernQueryString ? `?${tavernQueryString}` : ''}`;
   
   const { data: tavernData, isLoading: tavernLoading, refetch: refetchTavern } = useQuery<TavernListingsResponse>({
-    queryKey: ['/api/admin/tavern-listings', tavernFilter, ttsFilter, rarityFilter, combatPowerFilter, minLevelFilter, sortBy],
+    queryKey: ['/api/admin/tavern-listings', tavernFilter, tsFilter, rarityFilter, combatPowerFilter, minLevelFilter, sortBy],
     queryFn: async () => {
       const response = await fetch(tavernQueryUrl);
       if (!response.ok) throw new Error('Failed to fetch tavern listings');
@@ -710,22 +710,22 @@ export default function BattleReadyAdmin() {
     else if (tavernFilter === 'sd') heroes = sd;
     else heroes = [...cv, ...sd];
     
-    // Apply TTS filter if set
-    if (ttsFilter !== 'any') {
-      const maxTts = parseInt(ttsFilter, 10);
+    // Apply TS filter if set
+    if (tsFilter !== 'any') {
+      const maxTts = parseInt(tsFilter, 10);
       heroes = heroes.filter(h => {
         const heroTts = calculateHeroTraitScore(h);
         // For team of 3, check if hero could fit within team budget
-        // Individual hero max is 12, so we filter heroes with TTS ≤ maxTts/3 roughly
+        // Individual hero max is 12, so we filter heroes with TS ≤ maxTts/3 roughly
         // But better to just show individual score and let user decide
         return heroTts <= maxTts;
       });
     }
     
     return heroes.sort((a, b) => (a.priceUSD ?? 999999) - (b.priceUSD ?? 999999));
-  }, [tavernData, tavernFilter, ttsFilter]);
+  }, [tavernData, tavernFilter, tsFilter]);
 
-  // Calculate team cost totals and TTS for selected heroes
+  // Calculate team cost totals and TS for selected heroes
   const teamCostTotals = useMemo(() => {
     const selected = allTavernHeroes.filter(h => selectedHeroes.has(h.id));
     const crystalTotal = selected.filter(h => h.nativeToken === 'CRYSTAL').reduce((sum, h) => sum + h.priceNative, 0);
@@ -1430,9 +1430,9 @@ export default function BattleReadyAdmin() {
                               <Badge variant="outline" className="text-xs">
                                 {pattern.party_size}v{pattern.party_size}
                               </Badge>
-                              {formatTTS(pattern.max_team_stat_score) && (
+                              {formatTS(pattern.max_team_stat_score) && (
                                 <Badge variant="default" className="text-xs bg-amber-600">
-                                  {formatTTS(pattern.max_team_stat_score)}
+                                  {formatTS(pattern.max_team_stat_score)}
                                 </Badge>
                               )}
                               {pattern.rarity_min !== null && pattern.rarity_max !== null && (pattern.rarity_min !== 0 || pattern.rarity_max !== 4) && (
@@ -1656,16 +1656,16 @@ export default function BattleReadyAdmin() {
                   <SelectItem value="sd">Sundered Isles</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={ttsFilter} onValueChange={(v) => setTtsFilter(v as 'any' | '3' | '5' | '7' | '9')}>
-                <SelectTrigger className="w-32" data-testid="select-tts-filter">
-                  <SelectValue placeholder="Max TTS" />
+              <Select value={tsFilter} onValueChange={(v) => setTtsFilter(v as 'any' | '3' | '5' | '7' | '9')}>
+                <SelectTrigger className="w-32" data-testid="select-ts-filter">
+                  <SelectValue placeholder="Max TS" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="any">Any TTS</SelectItem>
-                  <SelectItem value="3">TTS ≤3</SelectItem>
-                  <SelectItem value="5">TTS ≤5</SelectItem>
-                  <SelectItem value="7">TTS ≤7</SelectItem>
-                  <SelectItem value="9">TTS ≤9</SelectItem>
+                  <SelectItem value="any">Any TS</SelectItem>
+                  <SelectItem value="3">TS ≤3</SelectItem>
+                  <SelectItem value="5">TS ≤5</SelectItem>
+                  <SelectItem value="7">TS ≤7</SelectItem>
+                  <SelectItem value="9">TS ≤9</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={rarityFilter} onValueChange={(v) => setRarityFilter(v as 'any' | '4' | '3' | '2')}>
@@ -1743,8 +1743,8 @@ export default function BattleReadyAdmin() {
               <Badge className="bg-green-600" data-testid="text-usd-total">
                 ${teamCostTotals.usdTotal.toFixed(2)} USD
               </Badge>
-              <Badge variant="outline" className="text-orange-400" data-testid="text-team-tts">
-                TTS: {teamCostTotals.teamTts}
+              <Badge variant="outline" className="text-orange-400" data-testid="text-team-ts">
+                TS: {teamCostTotals.teamTts}
               </Badge>
             </div>
           )}
@@ -1841,7 +1841,7 @@ export default function BattleReadyAdmin() {
                       <TableHead>Level</TableHead>
                       <TableHead>Rarity</TableHead>
                       <TableHead>CP</TableHead>
-                      <TableHead>TTS</TableHead>
+                      <TableHead>TS</TableHead>
                       <TableHead>Profession</TableHead>
                       <TableHead>Summons</TableHead>
                       <TableHead>Stats</TableHead>
@@ -1904,7 +1904,7 @@ export default function BattleReadyAdmin() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-xs" data-testid={`text-hero-tts-${hero.id}`}>
+                          <Badge variant="outline" className="text-xs" data-testid={`text-hero-ts-${hero.id}`}>
                             {calculateHeroTraitScore(hero)}
                           </Badge>
                         </TableCell>

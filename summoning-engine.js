@@ -621,9 +621,9 @@ export function formatProbabilities(probabilities, maxItems = 10) {
 }
 
 /**
- * Skill Tier Mapping for TTS (Trait Tier Score) Calculation
+ * Skill Tier Mapping for TS (Trait Score) Calculation
  * Basic = 0 points, Advanced = 1 point, Elite = 2 points, Transcendent/Exalted = 3 points
- * Max TTS = 12 (all 4 ability slots at Transcendent)
+ * Max TS = 12 (all 4 ability slots at Transcendent)
  * 
  * Mappings from gene-decoder.js ACTIVE_GENES and PASSIVE_GENES arrays
  */
@@ -705,16 +705,16 @@ export function getSkillTierByName(skill) {
 }
 
 /**
- * Calculate probability distribution of achieving different TTS values
+ * Calculate probability distribution of achieving different TS values
  * for an offspring from two parent heroes.
  * 
- * Each skill slot produces ONE outcome. TTS is the sum of tiers across all 4 slots.
+ * Each skill slot produces ONE outcome. TS is the sum of tiers across all 4 slots.
  * 
  * @param {Object} probs - Summoning probabilities from calculateSummoningProbabilities
  *                         Must have active1, active2, passive1, passive2 probability maps
- * @returns {Object} { ttsProbabilities: {[tts]: probability}, expectedTTS: number }
+ * @returns {Object} { tsProbabilities: {[ts]: probability}, expectedTS: number }
  */
-export function calculateTTSProbabilities(probs) {
+export function calculateTSProbabilities(probs) {
   // Convert skill probabilities to tier probabilities for each slot
   function getSlotTierProbs(skillProbs) {
     const tierProbs = { 0: 0, 1: 0, 2: 0, 3: 0 };
@@ -779,35 +779,35 @@ export function calculateTTSProbabilities(probs) {
   const passive1Tiers = getSlotTierProbs(probs.passive1);
   const passive2Tiers = getSlotTierProbs(probs.passive2);
   
-  // Calculate TTS distribution by iterating all tier combinations
-  const ttsProbabilities = {};
+  // Calculate TS distribution by iterating all tier combinations
+  const tsProbabilities = {};
   for (let t1 = 0; t1 <= 3; t1++) {
     for (let t2 = 0; t2 <= 3; t2++) {
       for (let t3 = 0; t3 <= 3; t3++) {
         for (let t4 = 0; t4 <= 3; t4++) {
-          const tts = t1 + t2 + t3 + t4;
+          const ts = t1 + t2 + t3 + t4;
           const prob = (active1Tiers[t1] / 100) * (active2Tiers[t2] / 100) * 
                        (passive1Tiers[t3] / 100) * (passive2Tiers[t4] / 100) * 100;
           if (prob > 0) {
-            ttsProbabilities[tts] = (ttsProbabilities[tts] || 0) + prob;
+            tsProbabilities[ts] = (tsProbabilities[ts] || 0) + prob;
           }
         }
       }
     }
   }
   
-  // Calculate expected TTS
-  let expectedTTS = 0;
-  for (const [tts, prob] of Object.entries(ttsProbabilities)) {
-    expectedTTS += parseInt(tts) * prob / 100;
+  // Calculate expected TS
+  let expectedTS = 0;
+  for (const [ts, prob] of Object.entries(tsProbabilities)) {
+    expectedTS += parseInt(ts) * prob / 100;
   }
   
-  // Calculate probability of achieving TTS >= targetTTS (cumulative)
+  // Calculate probability of achieving TS >= targetTS (cumulative)
   const cumulativeProbs = {};
   for (let target = 0; target <= 12; target++) {
     let cumProb = 0;
-    for (const [tts, prob] of Object.entries(ttsProbabilities)) {
-      if (parseInt(tts) >= target) {
+    for (const [ts, prob] of Object.entries(tsProbabilities)) {
+      if (parseInt(ts) >= target) {
         cumProb += prob;
       }
     }
@@ -815,13 +815,13 @@ export function calculateTTSProbabilities(probs) {
   }
   
   return {
-    ttsProbabilities: Object.fromEntries(
-      Object.entries(ttsProbabilities)
-        .map(([tts, prob]) => [tts, Math.round(prob * 100) / 100])
+    tsProbabilities: Object.fromEntries(
+      Object.entries(tsProbabilities)
+        .map(([ts, prob]) => [ts, Math.round(prob * 100) / 100])
         .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
     ),
     cumulativeProbs,
-    expectedTTS: Math.round(expectedTTS * 100) / 100,
+    expectedTS: Math.round(expectedTS * 100) / 100,
     slotTierProbs: {
       active1: active1Tiers,
       active2: active2Tiers,
@@ -834,7 +834,7 @@ export function calculateTTSProbabilities(probs) {
 /**
  * Calculate probability of getting at least one Elite or Exalted skill
  * 
- * @param {Object} slotTierProbs - Tier probabilities for each slot from calculateTTSProbabilities
+ * @param {Object} slotTierProbs - Tier probabilities for each slot from calculateTSProbabilities
  *                                  { active1: {0,1,2,3}, active2: {...}, passive1: {...}, passive2: {...} }
  * @returns {Object} { eliteChance: number, exaltedChance: number } - Percentages (0-100)
  */

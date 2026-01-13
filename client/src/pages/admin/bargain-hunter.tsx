@@ -23,9 +23,9 @@ interface SniperHero {
   realm: string;
 }
 
-interface TTSData {
-  distribution: { [tts: string]: number };
-  cumulativeProbs: { [tts: string]: number };
+interface TSData {
+  distribution: { [ts: string]: number };
+  cumulativeProbs: { [ts: string]: number };
   expected: number;
 }
 
@@ -38,7 +38,7 @@ interface SniperPair {
   efficiency: number;
   eliteChance?: number;
   exaltedChance?: number;
-  tts?: TTSData;
+  ts?: TSData;
 }
 
 interface CacheResult {
@@ -92,7 +92,7 @@ export default function BargainHunter() {
     if (minExaltedChance > 0) {
       filtered = filtered.filter(pair => (pair.exaltedChance || 0) >= minExaltedChance);
     }
-    // Use pre-computed efficiency from cache (TTS per native token cost)
+    // Use pre-computed efficiency from cache (TS per native token cost)
     // This avoids re-sorting and maintains cache ordering
     return filtered.sort((a, b) => (b.efficiency || 0) - (a.efficiency || 0));
   }, [result?.pairs, realmFilter, minEliteChance, minExaltedChance]);
@@ -125,7 +125,7 @@ export default function BargainHunter() {
           <div>
             <h1 className="text-2xl font-bold">Summoning Bargain Hunter</h1>
             <p className="text-muted-foreground">
-              Best TTS-to-cost ratio pairs for regular summoning
+              Best TS-to-cost ratio pairs for regular summoning
             </p>
           </div>
         </div>
@@ -245,7 +245,7 @@ export default function BargainHunter() {
 
           <div className="grid gap-4">
             {sortedPairs.slice(0, 100).map((pair, idx) => {
-              const ttsEfficiency = (pair.tts?.expected || 0) / (pair.totalCostUsd || 1);
+              const tsEfficiency = (pair.ts?.expected || 0) / (pair.totalCostUsd || 1);
               return (
                 <Card key={idx} className="overflow-hidden" data-testid={`card-pair-${idx}`}>
                   <CardHeader className="pb-2">
@@ -254,11 +254,11 @@ export default function BargainHunter() {
                         <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
                           #{idx + 1}
                         </Badge>
-                        <span className="font-semibold">TTS Efficiency: {ttsEfficiency.toFixed(4)}</span>
+                        <span className="font-semibold">TS Efficiency: {tsEfficiency.toFixed(4)}</span>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="secondary">
-                          Expected TTS: {(pair.tts?.expected || 0).toFixed(2)}
+                          Expected TS: {(pair.ts?.expected || 0).toFixed(2)}
                         </Badge>
                         {(pair.eliteChance || 0) > 0 && (
                           <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
@@ -325,10 +325,10 @@ export default function BargainHunter() {
                       ))}
                     </div>
                     
-                    {pair.tts && (
+                    {pair.ts && (
                       <div className="mt-4 pt-4 border-t">
                         <div className="flex items-center justify-between mb-2">
-                          <div className="text-sm font-medium">TTS Probability Distribution</div>
+                          <div className="text-sm font-medium">TS Probability Distribution</div>
                           <Link
                             href={`/admin/summoning-calculator?hero1=${pair.hero1.normalizedId}&hero2=${pair.hero2.normalizedId}`}
                             className="text-xs text-cyan-500 hover:text-cyan-400 flex items-center gap-1"
@@ -339,12 +339,12 @@ export default function BargainHunter() {
                           </Link>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {Object.entries(pair.tts.cumulativeProbs || {})
+                          {Object.entries(pair.ts.cumulativeProbs || {})
                             .sort(([a], [b]) => parseInt(b) - parseInt(a))
                             .slice(0, 6)
-                            .map(([tts, prob]) => (
-                              <Badge key={tts} variant="outline" className="text-xs">
-                                TTS≥{tts}: {(Number(prob)).toFixed(1)}%
+                            .map(([ts, prob]) => (
+                              <Badge key={ts} variant="outline" className="text-xs">
+                                TS≥{ts}: {(Number(prob)).toFixed(1)}%
                               </Badge>
                             ))}
                         </div>

@@ -617,7 +617,7 @@ export default function SummoningCalculator() {
   const [sniperMaxPrice, setSniperMaxPrice] = useState("500");
   const [sniperMinSummons, setSniperMinSummons] = useState("1");
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
-  const [sniperMaxTTS, setSniperMaxTTS] = useState("");
+  const [sniperMaxTS, setSniperMaxTS] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
 
   // Fetch sniper filters
@@ -673,7 +673,7 @@ export default function SummoningCalculator() {
         maxPricePerHero: parseFloat(sniperMaxPrice) || 500,
         minSummonsRemaining: parseInt(sniperMinSummons) || 1,
         minLevel: parseInt(sniperMinLevel) || 1,
-        maxTTS: sniperMaxTTS ? parseFloat(sniperMaxTTS) : null,
+        maxTS: sniperMaxTS ? parseFloat(sniperMaxTS) : null,
         limit: 20
       });
       return response.json();
@@ -1162,14 +1162,14 @@ export default function SummoningCalculator() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="maxTTS">Max TTS (leave empty for any)</Label>
+                  <Label htmlFor="maxTS">Max TS (leave empty for any)</Label>
                   <Input
-                    id="maxTTS"
+                    id="maxTS"
                     type="number"
-                    value={sniperMaxTTS}
-                    onChange={(e) => setSniperMaxTTS(e.target.value)}
+                    value={sniperMaxTS}
+                    onChange={(e) => setSniperMaxTS(e.target.value)}
                     placeholder="Any"
-                    data-testid="input-max-tts"
+                    data-testid="input-max-ts"
                   />
                 </div>
               </div>

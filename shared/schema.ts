@@ -2999,7 +2999,7 @@ export type InsertPvpTournamentType = z.infer<typeof insertPvpTournamentTypeSche
 export type PvpTournamentType = typeof pvpTournamentTypes.$inferSelect;
 
 // ============================================================================
-// TAVERN HEROES INDEXER - Cached marketplace listings with TTS
+// TAVERN HEROES INDEXER - Cached marketplace listings with TS
 // ============================================================================
 
 /**
@@ -3037,7 +3037,7 @@ export const tavernHeroes = pgTable("tavern_heroes", {
   mp: integer("mp").default(0),
   stamina: integer("stamina").default(25),
   
-  // Abilities for TTS calculation
+  // Abilities for TS calculation
   active1: text("active1"), // "ability_X" format
   active2: text("active2"),
   passive1: text("passive1"),
@@ -3400,7 +3400,7 @@ export const bargainHunterCache = pgTable("bargain_hunter_cache", {
   totalPairsScored: integer("total_pairs_scored").default(0),
   tokenPrices: json("token_prices"), // { CRYSTAL: number, JEWEL: number }
   
-  // Top pairs by TTS efficiency (JSON array, limited to top 1000 per type)
+  // Top pairs by TS efficiency (JSON array, limited to top 1000 per type)
   topPairs: json("top_pairs").notNull(), // Array of scored pairs with full hero data
   
   // Timestamps

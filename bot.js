@@ -21,7 +21,7 @@ import { initializePricingConfig } from './pricing-engine.js';
 import { getAnalyticsForDiscord } from './analytics.js';
 import { initializePoolCache, stopPoolCache, getCachedPoolAnalytics } from './pool-cache.js';
 import { generateOptimizationMessages } from './report-formatter.js';
-import { calculateSummoningProbabilities, calculateTTSProbabilities } from './summoning-engine.js';
+import { calculateSummoningProbabilities, calculateTSProbabilities } from './summoning-engine.js';
 import { createSummarySummoningEmbed, createStatGenesEmbed, createVisualGenesEmbed } from './summoning-formatter.js';
 import { decodeHeroGenes } from './hero-genetics.js';
 import { getCrystalPrice, getJewelPrice } from './price-feed.js';
@@ -8444,7 +8444,7 @@ async function startAdminWebServer() {
 
   // GET /api/admin/tavern-listings - Fetch heroes from indexed database (fast)
   // Falls back to live DFK API if no indexed data available
-  // Supports tournament-ready filtering: rarity, combat power, level, TTS
+  // Supports tournament-ready filtering: rarity, combat power, level, TS
   app.get("/api/admin/tavern-listings", isAdmin, async (req, res) => {
     try {
       console.log('[Tavern] Starting tavern-listings request...');
@@ -8460,7 +8460,7 @@ async function startAdminWebServer() {
       const minLevel = req.query.minLevel ? parseInt(req.query.minLevel) : undefined;
       const maxLevel = req.query.maxLevel ? parseInt(req.query.maxLevel) : undefined;
       const mainClass = req.query.mainClass || undefined;
-      const sortBy = req.query.sortBy || 'price'; // price, combat_power, value, level, tts
+      const sortBy = req.query.sortBy || 'price'; // price, combat_power, value, level, ts
       const sortOrder = req.query.sortOrder || 'asc';
       const realm = req.query.realm || undefined; // cv, sd, or undefined for both
       
@@ -8644,7 +8644,7 @@ async function startAdminWebServer() {
           hp: hero.hp ?? 0,
           mp: hero.mp ?? 0,
           stamina: hero.stamina ?? 25,
-          // Ability data for trait score calculation (TTS)
+          // Ability data for trait score calculation (TS)
           active1: hero.active1 != null ? `ability_${hero.active1}` : null,
           active2: hero.active2 != null ? `ability_${hero.active2}` : null,
           passive1: hero.passive1 != null ? `ability_${hero.passive1}` : null,
@@ -9529,13 +9529,13 @@ async function startAdminWebServer() {
       const { rawPg } = await import('./server/db.js');
       
       // Get distinct values from tavern_heroes
-      const [classesResult, professionsResult, realmsResult, priceRangeResult, levelRangeResult, ttsRangeResult] = await Promise.all([
+      const [classesResult, professionsResult, realmsResult, priceRangeResult, levelRangeResult, tsRangeResult] = await Promise.all([
         rawPg`SELECT DISTINCT main_class FROM tavern_heroes WHERE main_class IS NOT NULL ORDER BY main_class`,
         rawPg`SELECT DISTINCT profession FROM tavern_heroes WHERE profession IS NOT NULL ORDER BY profession`,
         rawPg`SELECT DISTINCT realm FROM tavern_heroes ORDER BY realm`,
         rawPg`SELECT MIN(price_native) as min_price, MAX(price_native) as max_price FROM tavern_heroes WHERE price_native > 0`,
         rawPg`SELECT MIN(level) as min_level, MAX(level) as max_level FROM tavern_heroes`,
-        rawPg`SELECT MIN(trait_score) as min_tts, MAX(trait_score) as max_tts FROM tavern_heroes`
+        rawPg`SELECT MIN(trait_score) as min_ts, MAX(trait_score) as max_ts FROM tavern_heroes`
       ]);
 
       const classes = classesResult.map(r => r.main_class);
@@ -9543,7 +9543,7 @@ async function startAdminWebServer() {
       const realms = realmsResult.map(r => r.realm);
       const priceRange = priceRangeResult[0] || { min_price: 0, max_price: 10000 };
       const levelRange = levelRangeResult[0] || { min_level: 1, max_level: 100 };
-      const ttsRange = ttsRangeResult[0] || { min_tts: 0, max_tts: 100 };
+      const tsRange = tsRangeResult[0] || { min_ts: 0, max_ts: 100 };
 
       // Static ability lists (active and passive skills from DFK)
       const activeSkills = [
@@ -9583,9 +9583,9 @@ async function startAdminWebServer() {
             min: parseInt(levelRange.min_level) || 1,
             max: parseInt(levelRange.max_level) || 100
           },
-          ttsRange: {
-            min: parseFloat(ttsRange.min_tts) || 0,
-            max: parseFloat(ttsRange.max_tts) || 100
+          tsRange: {
+            min: parseFloat(tsRange.min_ts) || 0,
+            max: parseFloat(tsRange.max_ts) || 100
           },
           rarities: [
             { id: 0, name: 'Common' },
@@ -9622,15 +9622,15 @@ async function startAdminWebServer() {
         minRarity = 0,
         maxGeneration = 10,
         minLevel = 1,
-        maxTTS = null,
+        maxTS = null,
         tearPrice = 0.05,
         summonType = 'regular',  // 'regular' or 'dark'
         searchMode = 'tavern',   // 'tavern' or 'myHero'
         myHeroId = null,         // Hero ID for 'myHero' mode
         bridgeFeeUsd = 0.50,     // Estimated bridging fee per hero in USD (Metis heroes need bridging to CV)
-        minOffspringSkillScore = null,  // Minimum expected offspring skill score (TTS) - null means no filter
-        targetTTSValue = null,   // Target TTS value for cumulative probability filter (e.g., 8 means "TTS >= 8")
-        minTTSProbability = null, // Minimum probability % of achieving targetTTSValue (e.g., 20 means ">= 20% chance")
+        minOffspringSkillScore = null,  // Minimum expected offspring skill score (TS) - null means no filter
+        targetTSValue = null,   // Target TS value for cumulative probability filter (e.g., 8 means "TS >= 8")
+        minTSProbability = null, // Minimum probability % of achieving targetTSValue (e.g., 20 means ">= 20% chance")
         minEliteChance = null,   // Minimum % chance of at least one elite skill (Stun, Second Wind, Giant Slayer, Last Stand)
         minExaltedChance = null, // Minimum % chance of at least one exalted skill (Resurrection, Second Life)
         sortBy = 'efficiency',   // 'efficiency', 'chance', 'price', or 'skillScore'
@@ -9676,7 +9676,7 @@ async function startAdminWebServer() {
       
       console.log('[Sniper] Search request:', { 
         targetClasses: classArray, targetProfessions: professionArray, 
-        realms, minSummonsRemaining: effectiveMinSummons, maxSummonsRemaining, minRarity, minLevel, maxTTS, tearPrice,
+        realms, minSummonsRemaining: effectiveMinSummons, maxSummonsRemaining, minRarity, minLevel, maxTS, tearPrice,
         summonType, searchMode, myHeroId: isMyHeroMode ? myHeroId : null
       });
 
@@ -9716,7 +9716,7 @@ async function startAdminWebServer() {
         return cost;
       }
       
-      // TTS (Trait Score) calculation: sum of tier indices for active1, active2, passive1, passive2
+      // TS (Trait Score) calculation: sum of tier indices for active1, active2, passive1, passive2
       // Skill value ranges map to tiers: 0-15=Basic(0), 16-23=Advanced(1), 24-27=Elite(2), 28-31=Transcendent(3)
       function getSkillTier(skillValue) {
         if (skillValue == null) return 0;
@@ -9727,12 +9727,12 @@ async function startAdminWebServer() {
         return 0; // Basic (0-15)
       }
       
-      function calculateTTS(active1, active2, passive1, passive2) {
+      function calculateTS(active1, active2, passive1, passive2) {
         return getSkillTier(active1) + getSkillTier(active2) + getSkillTier(passive1) + getSkillTier(passive2);
       }
 
       // Fetch heroes from INDEXED DATABASE (heroes with complete gene data)
-      const safeTTS = maxTTS !== null ? parseFloat(maxTTS) : null;
+      const safeTS = maxTS !== null ? parseFloat(maxTS) : null;
       const safeMinLevel = parseInt(minLevel) || 1;
       
       console.log('[Sniper] Fetching heroes from indexed database (genes_status = complete)...');
@@ -9804,8 +9804,8 @@ async function startAdminWebServer() {
         const summonsRemaining = maxSummons - summons;
         const priceInToken = parseFloat(hero.price_native) || 0;
         
-        // Use pre-calculated TTS from index
-        const heroTTS = parseInt(hero.trait_score) || 0;
+        // Use pre-calculated TS from index
+        const heroTS = parseInt(hero.trait_score) || 0;
         
         // Apply filters
         // Dark Summon can use heroes with 0 regular summons remaining, so skip this filter for dark summon
@@ -9814,7 +9814,7 @@ async function startAdminWebServer() {
         if (rarity < minRarity) continue;
         if (generation > maxGeneration) continue;
         if (level < safeMinLevel) continue;
-        if (safeTTS !== null && heroTTS > safeTTS) continue;
+        if (safeTS !== null && heroTS > safeTS) continue;
         
         heroes.push({
           hero_id: String(heroId),
@@ -9830,7 +9830,7 @@ async function startAdminWebServer() {
           max_summons: maxSummons,
           price_native: priceInToken,
           native_token: nativeToken,
-          trait_score: heroTTS,
+          trait_score: heroTS,
           combat_power: parseInt(hero.combat_power) || 0,
           stat_genes: hero.stat_genes,
           visual_genes: hero.visual_genes,
@@ -10130,7 +10130,7 @@ async function startAdminWebServer() {
       pairsWithoutTarget.sort((a, b) => a.totalCost - b.totalCost);
       
       // Score ALL candidate pairs - with indexed gene data this is fast (no API calls needed)
-      // No limit - we need to find all high-TTS pairs regardless of price for Bargain Hunter mode
+      // No limit - we need to find all high-TS pairs regardless of price for Bargain Hunter mode
       const pairsToScore = [...pairsWithTarget, ...pairsWithoutTarget];
       
       console.log(`[Sniper] Generated ${candidatePairs.length} candidate pairs (${pairsWithTarget.length} with target class), scoring ALL ${pairsToScore.length}`);
@@ -10278,13 +10278,13 @@ async function startAdminWebServer() {
       // Score pairs with actual probability calculations
       const pairs = [];
       
-      // Track TTS metadata for user guidance (max probabilities seen across all pairs)
-      let ttsMetadata = { maxExpectedTTS: 0, maxCumulativeByTarget: {} };
-      for (let t = 0; t <= 12; t++) ttsMetadata.maxCumulativeByTarget[t] = 0;
+      // Track TS metadata for user guidance (max probabilities seen across all pairs)
+      let tsMetadata = { maxExpectedTS: 0, maxCumulativeByTarget: {} };
+      for (let t = 0; t <= 12; t++) tsMetadata.maxCumulativeByTarget[t] = 0;
       
       // Debug logging flag - log first scored pair for validation
       let debugLoggedFirstPair = false;
-      const DEBUG_TTS = process.env.DEBUG_SNIPER_TTS === 'true';
+      const DEBUG_TS = process.env.DEBUG_SNIPER_TS === 'true';
       
       for (const { hero1, hero2, realm, purchaseCost, summonTokenCost, tearCost, tearCount, bridgeCostUsd, heroesNeedingBridge, totalCost } of pairsToScore) {
         try {
@@ -10381,32 +10381,32 @@ async function startAdminWebServer() {
             }
           }
 
-          // Calculate offspring TTS probabilities FIRST (before any filtering)
-          // This allows tracking of max TTS values across ALL pairs for user guidance
-          const ttsData = calculateTTSProbabilities(probs);
+          // Calculate offspring TS probabilities FIRST (before any filtering)
+          // This allows tracking of max TS values across ALL pairs for user guidance
+          const tsData = calculateTSProbabilities(probs);
           
-          // Debug logging: log first pair's TTS data for validation (enabled via DEBUG_SNIPER_TTS=true)
-          if (DEBUG_TTS && !debugLoggedFirstPair) {
+          // Debug logging: log first pair's TS data for validation (enabled via DEBUG_SNIPER_TS=true)
+          if (DEBUG_TS && !debugLoggedFirstPair) {
             debugLoggedFirstPair = true;
-            console.log('[Sniper DEBUG] Sample pair TTS data:');
+            console.log('[Sniper DEBUG] Sample pair TS data:');
             console.log('  Hero1:', hero1.hero_id, hero1.main_class);
             console.log('  Hero2:', hero2.hero_id, hero2.main_class);
-            console.log('  expectedTTS:', ttsData?.expectedTTS);
-            console.log('  cumulativeProbs:', JSON.stringify(ttsData?.cumulativeProbs || {}));
-            console.log('  slotTierProbs:', JSON.stringify(ttsData?.slotTierProbs || {}));
+            console.log('  expectedTS:', tsData?.expectedTS);
+            console.log('  cumulativeProbs:', JSON.stringify(tsData?.cumulativeProbs || {}));
+            console.log('  slotTierProbs:', JSON.stringify(tsData?.slotTierProbs || {}));
             console.log('  Input probs.active1:', JSON.stringify(probs?.active1 || {}));
             console.log('  Input probs.passive1:', JSON.stringify(probs?.passive1 || {}));
           }
           
-          // Track max TTS values seen across all pairs (for user guidance when TTS filter is too strict)
-          if (ttsData?.expectedTTS > ttsMetadata.maxExpectedTTS) {
-            ttsMetadata.maxExpectedTTS = ttsData.expectedTTS;
+          // Track max TS values seen across all pairs (for user guidance when TS filter is too strict)
+          if (tsData?.expectedTS > tsMetadata.maxExpectedTS) {
+            tsMetadata.maxExpectedTS = tsData.expectedTS;
           }
-          if (ttsData?.cumulativeProbs) {
+          if (tsData?.cumulativeProbs) {
             for (let t = 0; t <= 12; t++) {
-              const prob = ttsData.cumulativeProbs[t] ?? 0;
-              if (prob > ttsMetadata.maxCumulativeByTarget[t]) {
-                ttsMetadata.maxCumulativeByTarget[t] = prob;
+              const prob = tsData.cumulativeProbs[t] ?? 0;
+              if (prob > tsMetadata.maxCumulativeByTarget[t]) {
+                tsMetadata.maxCumulativeByTarget[t] = prob;
               }
             }
           }
@@ -10416,29 +10416,29 @@ async function startAdminWebServer() {
           
           // Filter by minimum offspring skill score (only if threshold is set)
           if (minOffspringSkillScore !== null && minOffspringSkillScore !== undefined) {
-            const expectedTTS = ttsData?.expectedTTS ?? 0;
-            if (expectedTTS < minOffspringSkillScore) {
+            const expectedTS = tsData?.expectedTS ?? 0;
+            if (expectedTS < minOffspringSkillScore) {
               continue;
             }
           }
           
-          // Filter by target TTS cumulative probability (only if both values are set)
+          // Filter by target TS cumulative probability (only if both values are set)
           // cumulativeProbs uses numeric keys (0-12) and percentage values (0-100)
-          if (targetTTSValue !== null && targetTTSValue !== undefined && 
-              minTTSProbability !== null && minTTSProbability !== undefined) {
-            const targetKey = Math.floor(Number(targetTTSValue));
-            let minProb = Number(minTTSProbability);
+          if (targetTSValue !== null && targetTSValue !== undefined && 
+              minTSProbability !== null && minTSProbability !== undefined) {
+            const targetKey = Math.floor(Number(targetTSValue));
+            let minProb = Number(minTSProbability);
             
             // Normalize: if minProb <= 1, assume it's a fraction and convert to percentage
             if (!isNaN(minProb) && minProb > 0 && minProb <= 1) {
               minProb = minProb * 100;
             }
             
-            // Validate bounds: TTS must be 0-12, probability must be 0-100
+            // Validate bounds: TS must be 0-12, probability must be 0-100
             if (!isNaN(targetKey) && targetKey >= 0 && targetKey <= 12 && 
                 !isNaN(minProb) && minProb >= 0 && minProb <= 100) {
               // Access with both numeric and string key for safety
-              const cumulativeProb = ttsData?.cumulativeProbs?.[targetKey] ?? ttsData?.cumulativeProbs?.[String(targetKey)] ?? 0;
+              const cumulativeProb = tsData?.cumulativeProbs?.[targetKey] ?? tsData?.cumulativeProbs?.[String(targetKey)] ?? 0;
               if (cumulativeProb < minProb) {
                 continue;
               }
@@ -10451,7 +10451,7 @@ async function startAdminWebServer() {
             const minElite = Number(minEliteChance);
             if (!isNaN(minElite) && minElite >= 0 && minElite <= 100) {
               // Calculate P(at least one elite skill) from slot tier probabilities
-              const slots = ttsData?.slotTierProbs || {};
+              const slots = tsData?.slotTierProbs || {};
               let pNoElite = 1.0;
               for (const slot of ['active1', 'active2', 'passive1', 'passive2']) {
                 const slotProbs = slots[slot] || {};
@@ -10471,7 +10471,7 @@ async function startAdminWebServer() {
             const minExalted = Number(minExaltedChance);
             if (!isNaN(minExalted) && minExalted >= 0 && minExalted <= 100) {
               // Calculate P(at least one exalted skill) from slot tier probabilities
-              const slots = ttsData?.slotTierProbs || {};
+              const slots = tsData?.slotTierProbs || {};
               let pNoExalted = 1.0;
               for (const slot of ['active1', 'active2', 'passive1', 'passive2']) {
                 const slotProbs = slots[slot] || {};
@@ -10550,14 +10550,14 @@ async function startAdminWebServer() {
               passive1: probs.passive1 || {},
               passive2: probs.passive2 || {}
             },
-            tts: {
-              distribution: ttsData.ttsProbabilities,
-              cumulative: ttsData.cumulativeProbs,
-              expected: ttsData.expectedTTS,
-              slotTiers: ttsData.slotTierProbs
+            ts: {
+              distribution: tsData.tsProbabilities,
+              cumulative: tsData.cumulativeProbs,
+              expected: tsData.expectedTS,
+              slotTiers: tsData.slotTierProbs
             },
             eliteExaltedChances: (() => {
-              const slots = ttsData?.slotTierProbs || {};
+              const slots = tsData?.slotTierProbs || {};
               let pNoElite = 1.0;
               let pNoExalted = 1.0;
               for (const slot of ['active1', 'active2', 'passive1', 'passive2']) {
@@ -10589,7 +10589,7 @@ async function startAdminWebServer() {
           pairs.sort((a, b) => a.totalCostUsd - b.totalCostUsd);
           break;
         case 'skillScore':
-          pairs.sort((a, b) => (b.tts?.expected ?? 0) - (a.tts?.expected ?? 0));
+          pairs.sort((a, b) => (b.ts?.expected ?? 0) - (a.ts?.expected ?? 0));
           break;
         case 'efficiency':
         default:
@@ -10609,11 +10609,11 @@ async function startAdminWebServer() {
           CRYSTAL: crystalPriceUsd,
           JEWEL: jewelPriceUsd
         },
-        ttsMetadata: {
-          maxExpectedTTS: Math.round(ttsMetadata.maxExpectedTTS * 100) / 100,
-          maxCumulativeByTarget: ttsMetadata.maxCumulativeByTarget,
-          requestedTarget: targetTTSValue ?? null,
-          requestedMinProb: minTTSProbability ?? null
+        tsMetadata: {
+          maxExpectedTS: Math.round(tsMetadata.maxExpectedTS * 100) / 100,
+          maxCumulativeByTarget: tsMetadata.maxCumulativeByTarget,
+          requestedTarget: targetTSValue ?? null,
+          requestedMinProb: minTSProbability ?? null
         },
         searchParams: {
           targetClasses: classArray,

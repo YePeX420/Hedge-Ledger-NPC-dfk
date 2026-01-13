@@ -101,7 +101,7 @@ async function getTokenPrices() {
 async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   const { rawPg } = await import('../../../server/db.js');
   const { decodeStatGenes } = await import('../../../gene-decoder.js');
-  const { calculateSummoningProbabilities, calculateTTSProbabilities, calculateEliteExaltedChances } = await import('../../../summoning-engine.js');
+  const { calculateSummoningProbabilities, calculateTSProbabilities, calculateEliteExaltedChances } = await import('../../../summoning-engine.js');
   
   const isDarkSummon = summonType === 'dark';
   const prices = await getTokenPrices();
@@ -336,14 +336,14 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
           if (!probs) {
             continue;
           }
-          const ttsData = calculateTTSProbabilities(probs);
+          const tsData = calculateTSProbabilities(probs);
           
           // Calculate elite and exalted chances
-          const eliteExalted = calculateEliteExaltedChances(ttsData?.slotTierProbs);
+          const eliteExalted = calculateEliteExaltedChances(tsData?.slotTierProbs);
           
-          const expectedTTS = ttsData?.expectedTTS || 0;
+          const expectedTS = tsData?.expectedTS || 0;
           // Use totalCost as denominator since USD prices may not be available
-          const efficiency = totalCost > 0 ? expectedTTS / totalCost : 0;
+          const efficiency = totalCost > 0 ? expectedTS / totalCost : 0;
           
           allPairs.push({
             hero1: {
@@ -382,10 +382,10 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
             efficiency,
             eliteChance: eliteExalted.eliteChance,
             exaltedChance: eliteExalted.exaltedChance,
-            tts: {
-              expected: expectedTTS,
-              distribution: ttsData?.ttsProbabilities || {},
-              cumulativeProbs: ttsData?.cumulativeProbs || {}
+            ts: {
+              expected: expectedTS,
+              distribution: tsData?.tsProbabilities || {},
+              cumulativeProbs: tsData?.cumulativeProbs || {}
             }
           });
         } catch (err) {

@@ -25,7 +25,7 @@ interface SniperFilters {
   priceRange: { min: number; max: number };
   rarities: { id: number; name: string }[];
   levelRange?: { min: number; max: number };
-  ttsRange?: { min: number; max: number };
+  tsRange?: { min: number; max: number };
 }
 
 interface SniperHero {
@@ -43,9 +43,9 @@ interface SniperHero {
   realm: string;
 }
 
-interface TTSData {
-  distribution: { [tts: string]: number };
-  cumulative: { [tts: string]: number };
+interface TSData {
+  distribution: { [ts: string]: number };
+  cumulative: { [ts: string]: number };
   expected: number;
   slotTiers?: {
     active1: { [tier: string]: number };
@@ -83,7 +83,7 @@ interface SniperPair {
     passive1?: ProbabilityMap;
     passive2?: ProbabilityMap;
   };
-  tts?: TTSData;
+  tts?: TSData;
 }
 
 interface UserHeroInfo {
@@ -119,8 +119,8 @@ interface SniperResult {
     searchMode?: string;
   };
   userHero?: UserHeroInfo | null;
-  ttsMetadata?: {
-    maxExpectedTTS: number;
+  tsMetadata?: {
+    maxExpectedTS: number;
     maxCumulativeByTarget: Record<number, number>;
     requestedTarget: number | null;
     requestedMinProb: number | null;
@@ -144,8 +144,8 @@ export default function SummonSniper() {
   const [minRarity, setMinRarity] = useState(0);
   const [sniperMinSummons, setSniperMinSummons] = useState("0");
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
-  const [targetTTSValue, setTargetTTSValue] = useState("");
-  const [minTTSProbability, setMinTTSProbability] = useState("");
+  const [targetTSValue, setTargetTSValue] = useState("");
+  const [minTSProbability, setMinTSProbability] = useState("");
   const [minEliteChance, setMinEliteChance] = useState("");
   const [minExaltedChance, setMinExaltedChance] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
@@ -177,8 +177,8 @@ export default function SummonSniper() {
         minSummonsRemaining: effectiveMinSummons,
         maxSummonsRemaining: effectiveMaxSummons,
         minLevel: parseInt(sniperMinLevel) || 1,
-        targetTTSValue: targetTTSValue ? parseInt(targetTTSValue) : null,
-        minTTSProbability: minTTSProbability ? parseFloat(minTTSProbability) : null,
+        targetTSValue: targetTSValue ? parseInt(targetTSValue) : null,
+        minTSProbability: minTSProbability ? parseFloat(minTSProbability) : null,
         minEliteChance: minEliteChance ? parseFloat(minEliteChance) : null,
         minExaltedChance: minExaltedChance ? parseFloat(minExaltedChance) : null,
         summonType,
@@ -263,7 +263,7 @@ export default function SummonSniper() {
       case "price":
         return pairs.sort((a, b) => a.totalCostUsd - b.totalCostUsd);
       case "skillScore":
-        return pairs.sort((a, b) => (b.tts?.expected || 0) - (a.tts?.expected || 0));
+        return pairs.sort((a, b) => (b.ts?.expected || 0) - (a.ts?.expected || 0));
       case "efficiency":
       default:
         return pairs.sort((a, b) => b.efficiency - a.efficiency);
@@ -544,28 +544,28 @@ export default function SummonSniper() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="targetTTSValue">Target TTS</Label>
+              <Label htmlFor="targetTSValue">Target TS</Label>
               <Input
-                id="targetTTSValue"
+                id="targetTSValue"
                 type="number"
                 min="0"
                 max="12"
-                value={targetTTSValue}
-                onChange={(e) => setTargetTTSValue(e.target.value)}
+                value={targetTSValue}
+                onChange={(e) => setTargetTSValue(e.target.value)}
                 placeholder="e.g. 8"
                 data-testid="input-target-tts-value"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="minTTSProbability">Min TTS % Chance</Label>
+              <Label htmlFor="minTSProbability">Min TS % Chance</Label>
               <Input
-                id="minTTSProbability"
+                id="minTSProbability"
                 type="number"
                 step="1"
                 min="0"
                 max="100"
-                value={minTTSProbability}
-                onChange={(e) => setMinTTSProbability(e.target.value)}
+                value={minTSProbability}
+                onChange={(e) => setMinTSProbability(e.target.value)}
                 placeholder="e.g. 20"
                 data-testid="input-min-tts-probability"
               />
@@ -600,7 +600,7 @@ export default function SummonSniper() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            TTS filters for total tier score. Elite/Exalted filters for chance of at least one elite (Stun, Second Wind, etc.) or exalted (Resurrection, Second Life) skill.
+            TS filters for total tier score. Elite/Exalted filters for chance of at least one elite (Stun, Second Wind, etc.) or exalted (Resurrection, Second Life) skill.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -741,21 +741,21 @@ export default function SummonSniper() {
                 <p className="text-muted-foreground">
                   No matching hero pairs found. Try adjusting your filters.
                 </p>
-                {/* Show TTS metadata when TTS filter may be too strict */}
-                {sniperResult.ttsMetadata && (sniperResult.ttsMetadata.requestedTarget !== null || (targetTTSValue && minTTSProbability)) && (
+                {/* Show TS metadata when TS filter may be too strict */}
+                {sniperResult.tsMetadata && (sniperResult.tsMetadata.requestedTarget !== null || (targetTSValue && minTSProbability)) && (
                   <div className="text-xs text-amber-500 bg-amber-500/10 rounded-md p-3 max-w-md mx-auto" data-testid="tts-guidance-panel">
-                    <p className="font-medium mb-1">TTS Filter may be too strict</p>
+                    <p className="font-medium mb-1">TS Filter may be too strict</p>
                     <p>
-                      You requested TTS &ge; {sniperResult.ttsMetadata.requestedTarget ?? targetTTSValue} with &ge; {sniperResult.ttsMetadata.requestedMinProb ?? minTTSProbability}% chance.
+                      You requested TS &ge; {sniperResult.tsMetadata.requestedTarget ?? targetTSValue} with &ge; {sniperResult.tsMetadata.requestedMinProb ?? minTSProbability}% chance.
                     </p>
                     <p className="mt-1">
-                      Best available: {sniperResult.ttsMetadata.maxCumulativeByTarget?.[(sniperResult.ttsMetadata.requestedTarget ?? parseInt(targetTTSValue) ?? 0)]?.toFixed(2) || '0'}% chance for TTS &ge; {sniperResult.ttsMetadata.requestedTarget ?? targetTTSValue}
+                      Best available: {sniperResult.tsMetadata.maxCumulativeByTarget?.[(sniperResult.tsMetadata.requestedTarget ?? parseInt(targetTSValue) ?? 0)]?.toFixed(2) || '0'}% chance for TS &ge; {sniperResult.tsMetadata.requestedTarget ?? targetTSValue}
                     </p>
                     <p className="mt-1 text-muted-foreground">
-                      Max expected TTS across all pairs: {Math.round(sniperResult.ttsMetadata.maxExpectedTTS || 0)}
+                      Max expected TS across all pairs: {Math.round(sniperResult.tsMetadata.maxExpectedTS || 0)}
                     </p>
                     <p className="mt-2 text-muted-foreground italic">
-                      Try lowering Target TTS to 1-2 or reducing Min % Chance
+                      Try lowering Target TS to 1-2 or reducing Min % Chance
                     </p>
                   </div>
                 )}
@@ -884,32 +884,32 @@ export default function SummonSniper() {
                         </div>
                       )}
                       
-                      {pair.tts && (
+                      {pair.ts && (
                         <div className="mt-3 pt-3 border-t">
                           <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm font-medium">Offspring TTS Probability</span>
+                            <span className="text-sm font-medium">Offspring TS Probability</span>
                             <Badge variant="secondary" className="text-xs">
-                              Expected: {Math.round(pair.tts.expected || 0)}
+                              Expected: {Math.round(pair.ts.expected || 0)}
                             </Badge>
                           </div>
                           <div className="grid grid-cols-4 gap-1 text-xs">
-                            {Object.entries(pair.tts.distribution || {})
+                            {Object.entries(pair.ts.distribution || {})
                               .filter(([_, prob]) => prob > 0.5)
                               .sort((a, b) => parseInt(b[0]) - parseInt(a[0]))
                               .slice(0, 8)
                               .map(([tts, prob]) => (
                                 <div key={tts} className="flex justify-between bg-muted/50 rounded px-2 py-1">
-                                  <span className="text-muted-foreground">TTS {tts}:</span>
+                                  <span className="text-muted-foreground">TS {tts}:</span>
                                   <span className={parseInt(tts) >= 4 ? 'text-green-400' : ''}>{(prob as number).toFixed(1)}%</span>
                                 </div>
                               ))}
                           </div>
-                          {pair.tts.cumulative && (
+                          {pair.ts.cumulative && (
                             <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
-                              <span>TTS≥2: <span className="text-foreground">{pair.tts.cumulative["2"]?.toFixed(1) ?? '0'}%</span></span>
-                              <span>TTS≥4: <span className="text-green-400">{pair.tts.cumulative["4"]?.toFixed(1) ?? '0'}%</span></span>
-                              <span>TTS≥6: <span className="text-yellow-400">{pair.tts.cumulative["6"]?.toFixed(1) ?? '0'}%</span></span>
-                              <span>TTS≥8: <span className="text-orange-400">{pair.tts.cumulative["8"]?.toFixed(1) ?? '0'}%</span></span>
+                              <span>TS≥2: <span className="text-foreground">{pair.ts.cumulative["2"]?.toFixed(1) ?? '0'}%</span></span>
+                              <span>TS≥4: <span className="text-green-400">{pair.ts.cumulative["4"]?.toFixed(1) ?? '0'}%</span></span>
+                              <span>TS≥6: <span className="text-yellow-400">{pair.ts.cumulative["6"]?.toFixed(1) ?? '0'}%</span></span>
+                              <span>TS≥8: <span className="text-orange-400">{pair.ts.cumulative["8"]?.toFixed(1) ?? '0'}%</span></span>
                             </div>
                           )}
                           {pair.eliteExaltedChances && (pair.eliteExaltedChances.eliteChance > 0 || pair.eliteExaltedChances.exaltedChance > 0) && (

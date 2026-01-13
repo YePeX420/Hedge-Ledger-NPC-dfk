@@ -3,7 +3,7 @@
  * 
  * Indexes heroes for sale from DFK marketplace (Crystalvale + Sundered Isles)
  * Refreshes every 30 minutes with parallel workers
- * Pre-computes Team Trait Scores (TTS) for tournament filtering
+ * Pre-computes Team Trait Scores (TS) for tournament filtering
  */
 
 import { db } from '../../../server/db.js';
@@ -355,7 +355,7 @@ function normalizeHero(apiHero, batchId) {
   const passive1 = apiHero.passive1 != null ? `ability_${apiHero.passive1}` : null;
   const passive2 = apiHero.passive2 != null ? `ability_${apiHero.passive2}` : null;
   
-  // Calculate TTS
+  // Calculate TS
   const traitScore = calculateHeroTraitScore({ active1, active2, passive1, passive2 });
   
   // Calculate Combat Power (sum of 8 primary stats)
@@ -542,7 +542,7 @@ async function runWorker(workerId, offset, limit, batchId) {
     
     indexerState.workers[workerId].status = 'processing';
     
-    // Normalize and calculate TTS
+    // Normalize and calculate TS
     const normalizedHeroes = apiHeroes
       .map(h => normalizeHero(h, batchId))
       .filter(h => h.realm === 'cv' || h.realm === 'sd'); // Skip legacy heroes
@@ -887,7 +887,7 @@ export async function getTavernHeroes(options = {}) {
   
   // Validate string inputs to prevent SQL injection
   const validRealms = ['cv', 'sd'];
-  const validSortBy = ['price', 'combat_power', 'value', 'level', 'tts'];
+  const validSortBy = ['price', 'combat_power', 'value', 'level', 'ts'];
   const validSortOrder = ['asc', 'desc'];
   
   const safeRealm = realm && validRealms.includes(realm) ? realm : null;
@@ -1068,7 +1068,7 @@ export async function getTavernStats() {
       SELECT 
         realm,
         COUNT(*) as total_heroes,
-        AVG(trait_score) as avg_tts,
+        AVG(trait_score) as avg_ts,
         MIN(price_native) as min_price,
         MAX(price_native) as max_price,
         AVG(price_native) as avg_price
