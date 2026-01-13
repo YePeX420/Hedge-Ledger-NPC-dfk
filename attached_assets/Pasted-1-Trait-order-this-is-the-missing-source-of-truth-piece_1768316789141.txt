@@ -1,0 +1,144 @@
+1) Trait order: this is the missing “source-of-truth” piece
+
+Your STAT_TRAITS order is internally consistent and, importantly for the skill scoring:
+
+passive1 = position 3
+
+passive2 = position 4
+
+active1 = position 5
+
+active2 = position 6
+
+That aligns cleanly with your TS (formerly TTS) definition: “sum tiers across 4 skill slots.”
+
+I would recommend you treat this list as a single canonical constant shared by:
+
+decoder
+
+summoning engine
+
+Sniper scoring
+
+Bargain cache computation
+
+frontend display logic (via shared contract/interface), if applicable
+
+Reason: if any subsystem hardcodes indices independently, you’ll eventually get drift.
+
+2) The #1 thing to validate: orientation (most common hidden bug)
+
+Your Kai extraction statement:
+
+Trait 0 = chars 0–3
+
+Trait 1 = chars 4–7
+
+… and within each trait: [R3, R2, R1, D]
+
+is coherent with your earlier description (“R3, R2, R1, D”). The only remaining risk is whether Trait 0 is truly the most significant block vs the least significant block.
+
+You can eliminate this uncertainty quickly with a validation check using data you already have from GraphQL / tavern indexer:
+
+Practical validation assertion (recommended)
+
+For a hero record that includes its resolved class and subClass (or class IDs):
+
+Decode statGenes → trait 0 dominant (class.D) should match the hero’s known class
+
+Decode statGenes → trait 1 dominant (subClass.D) should match known subclass
+
+If either fails, it typically means trait block order is reversed (i.e., trait 0 is actually the last 4 chars), or the slice direction is inverted.
+
+This is the fastest way to prove contract-equivalence without debating it theoretically.
+
+3) Kai decoding function: correct conceptually, but you can make it safer and faster
+
+Your current conversion is standard base conversion with left-padding:
+
+return buf.padStart(48, '1');
+
+
+That’s correct if:
+
+'1' is your zero digit (it is, index 0), and
+
+the chain representation expects left-padding with zeros (very likely).
+
+Two improvements to consider later
+
+Use bit operations instead of division/mod
+Because base-32 is power-of-two, you can decode via:
+
+digit = genes & 31n
+
+genes >>= 5n
+
+This is materially faster if you decode thousands of heroes repeatedly, and it also lets you produce exactly 48 digits in a fixed loop (no padStart needed). It’s also less error-prone operationally.
+
+Fixed-length decode loop (48 iterations)
+A fixed 48-digit loop avoids edge cases and makes the “trait slicing” deterministic.
+
+Not saying change it now—just flagging that this becomes worthwhile once you’re optimizing the indexer or any bulk decode path.
+
+4) Sparse indices and “undefined” handling: decide policy explicitly
+
+You correctly note ranges like:
+
+classes: undefined 12–15, 22–23, 27, 29–31
+
+skills: only certain bands populated
+
+professions/statboost/element/crafting: even indices only
+
+What to decide (and document)
+
+When you decode a Kai digit that maps to an “undefined” index:
+
+Do you treat it as Unknown but valid (still a possible allele)?
+
+Do you treat it as invalid data (log + exclude)?
+
+Do you map it to a placeholder string but keep the numeric index?
+
+My recommendation for robustness:
+
+Always preserve the numeric gene value (0–31) in the engine.
+
+Use the mapping tables only for UI labeling.
+
+If value is unmapped, label as Unknown(<index>), but do not break probability math.
+
+This keeps you future-proof if DFK ever uses those reserved indices later.
+
+5) Skill tier classification should be derived from the numeric index, not the name
+
+For TS scoring and “elite/exalted chance,” you’ll want a single authoritative function:
+
+Tier 3: index == 28
+
+Tier 2: index in {24,25}
+
+Tier 1: index in {16,17,18,19}
+
+Tier 0: index in {0..7}
+
+Otherwise: UnknownTier (I’d treat as tier 0 for TS math but emit a warning counter)
+
+This avoids subtle bugs where display names change or you add localization.
+
+6) Minor but important: keep “decode” and “interpret” separate
+
+Right now STAT_TRAITS includes { name, mapping }. That’s good for interpretation, but don’t let it blur boundaries:
+
+Decode step: returns numeric alleles per trait (0..31), by position (D/R1/R2/R3)
+
+Interpret step: maps numbers to human-readable strings + tier + rarity, etc.
+
+This separation makes it much easier to:
+
+unit test the decoder (pure function)
+
+unit test the genetics engine (pure function)
+
+change UI labels without risking math correctness
