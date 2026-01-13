@@ -12,7 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign, Tag, ChevronDown, ChevronRight, Plus, RotateCcw, Trash2, Edit, Gem } from "lucide-react";
+import { Loader2, Play, RefreshCw, Swords, Target, Trophy, Settings, Star, Square, Users, Clock, Zap, MapPin, ShoppingCart, DollarSign, Tag, ChevronDown, ChevronRight, Plus, RotateCcw, Trash2, Edit, Gem, MessageCircle, Send } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 
 // Realm display names for marketplace locations
@@ -316,6 +318,14 @@ interface PatternHero {
   tournament_name: string;
 }
 
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  data?: any[];
+  query?: string;
+  timestamp: Date;
+}
+
 const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
 const RARITY_COLORS = ['text-gray-500', 'text-green-500', 'text-blue-500', 'text-orange-500', 'text-purple-500'];
 
@@ -456,6 +466,11 @@ export default function BattleReadyAdmin() {
   const [sortBy, setSortBy] = useState<'price' | 'combat_power' | 'value'>('price');
   const [expandedPattern, setExpandedPattern] = useState<string | null>(null);
   const [labelForm, setLabelForm] = useState<{ signature: string; label: string; category: string; color: string } | null>(null);
+  
+  // AI Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatExpanded, setIsChatExpanded] = useState(false);
 
   const { data: statusData, isLoading: statusLoading, refetch: refetchStatus } = useQuery<TournamentStatus>({
     queryKey: ['/api/admin/tournament/status'],
@@ -678,6 +693,49 @@ export default function BattleReadyAdmin() {
     },
   });
 
+  // AI Chat mutation
+  const chatMutation = useMutation({
+    mutationFn: async (question: string) => {
+      const response = await fetch('/api/admin/battle-ready/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ question })
+      });
+      if (!response.ok) throw new Error('Failed to get response');
+      return response.json();
+    },
+    onSuccess: (data: { ok: boolean; answer: string; data?: any[]; query?: string }) => {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.answer,
+        data: data.data,
+        query: data.query,
+        timestamp: new Date()
+      }]);
+    },
+    onError: (error: Error) => {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Sorry, I encountered an error: ${error.message}`,
+        timestamp: new Date()
+      }]);
+    },
+  });
+
+  const handleChatSubmit = () => {
+    if (!chatInput.trim() || chatMutation.isPending) return;
+    
+    const userMessage: ChatMessage = {
+      role: 'user',
+      content: chatInput.trim(),
+      timestamp: new Date()
+    };
+    setChatMessages(prev => [...prev, userMessage]);
+    chatMutation.mutate(chatInput.trim());
+    setChatInput('');
+  };
+
   const config = editingConfig || configData?.config;
   const progress = statusData?.progress;
   const stats = statusData?.stats;
@@ -768,6 +826,115 @@ export default function BattleReadyAdmin() {
           Refresh
         </Button>
       </div>
+
+      {/* AI Chat Assistant */}
+      <Card className="border-purple-500/30">
+        <CardHeader 
+          className="cursor-pointer pb-2" 
+          onClick={() => setIsChatExpanded(!isChatExpanded)}
+          data-testid="card-header-ai-chat"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5 text-purple-500" />
+              <CardTitle className="text-lg">Tournament Data AI</CardTitle>
+              <Badge variant="outline" className="bg-purple-500/10 text-purple-600 border-purple-500/30">
+                Ask Questions
+              </Badge>
+            </div>
+            {isChatExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </div>
+          <CardDescription>
+            Ask questions about winning heroes, stats, builds, and tournament patterns
+          </CardDescription>
+        </CardHeader>
+        {isChatExpanded && (
+          <CardContent className="space-y-4">
+            <ScrollArea className="h-64 border rounded-md p-3 bg-muted/30">
+              {chatMessages.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8">
+                  <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>Ask me about tournament data!</p>
+                  <p className="text-sm mt-2">Examples:</p>
+                  <ul className="text-sm mt-1 space-y-1">
+                    <li>"What stats do winning Priests at level 10 have?"</li>
+                    <li>"Which classes win most often?"</li>
+                    <li>"What skills are common on winning DreadKnights?"</li>
+                  </ul>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {chatMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-lg px-3 py-2 ${
+                          msg.role === 'user'
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted'
+                        }`}
+                      >
+                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                        {msg.query && (
+                          <details className="mt-2 text-xs opacity-70">
+                            <summary className="cursor-pointer">View SQL</summary>
+                            <pre className="mt-1 overflow-x-auto p-2 bg-black/20 rounded">{msg.query}</pre>
+                          </details>
+                        )}
+                        {msg.data && msg.data.length > 0 && (
+                          <details className="mt-2 text-xs opacity-70">
+                            <summary className="cursor-pointer">View Data ({msg.data.length} rows)</summary>
+                            <pre className="mt-1 overflow-x-auto p-2 bg-black/20 rounded max-h-32">
+                              {JSON.stringify(msg.data.slice(0, 10), null, 2)}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {chatMutation.isPending && (
+                    <div className="flex justify-start">
+                      <div className="bg-muted rounded-lg px-3 py-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </ScrollArea>
+            <div className="flex gap-2">
+              <Textarea
+                placeholder="Ask about tournament winners, hero stats, or class performance..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleChatSubmit();
+                  }
+                }}
+                className="resize-none"
+                rows={2}
+                data-testid="input-chat"
+              />
+              <Button
+                onClick={handleChatSubmit}
+                disabled={!chatInput.trim() || chatMutation.isPending}
+                className="self-end"
+                data-testid="button-send-chat"
+              >
+                {chatMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        )}
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>

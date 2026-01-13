@@ -2929,6 +2929,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Note: Tavern listings endpoint is defined in bot.js to avoid duplicate route registration
   
+  // POST /api/admin/battle-ready/chat - AI chat for querying tournament data
+  app.post("/api/admin/battle-ready/chat", isAdmin, async (req: any, res: any) => {
+    try {
+      const { question } = req.body;
+      if (!question || typeof question !== 'string') {
+        return res.status(400).json({ ok: false, error: 'Question is required' });
+      }
+
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+      // Schema context for the AI
+      const schemaContext = `
+You are an AI assistant that answers questions about DeFi Kingdoms PVP tournament data.
+You have access to these PostgreSQL tables:
+
+1. hero_tournament_snapshots - Heroes that participated in PVP tournaments
+   Columns: hero_id, tournament_id, realm, rarity (0-4: Common to Mythic), main_class, sub_class, level, generation,
+   strength, agility, dexterity, vitality, endurance, intelligence, wisdom, luck, hp, mp, stamina,
+   active1, active2, passive1, passive2, combat_power_score
+   
+2. tournament_placements - Hero placements in tournaments  
+   Columns: id, tournament_id, hero_id, wallet_address, team_index, placement (1st, 2nd, 3rd, etc), glory_earned
+
+3. pvp_tournaments - Tournament metadata
+   Columns: tournament_id, realm, name, format, status, party_size, level_min, level_max, rarity_min, rarity_max
+
+Class names: Warrior, Knight, Thief, Archer, Priest, Wizard, Monk, Pirate, Paladin, DarkKnight, Summoner, Ninja, 
+Shapeshifter, Bard, Seer, Berserker, Legionnaire, SpellBow, Scholar, DreadKnight, Dragoon, Sage
+
+Rarity: 0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Mythic
+
+When asked about stats, you should look for patterns in what winning heroes have. 
+For "top stats" or "highest stats", calculate which stats have the highest average values for winning heroes of that class/level.
+Winners are heroes where placement = '1st' in tournament_placements.
+
+Return a JSON object with:
+- "sql": the SQL query to answer the question (use proper JOINs between tables)
+- "explanation": brief explanation of what you're querying
+`;
+
+      // Ask AI to generate SQL query
+      const sqlGeneration = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: schemaContext },
+          { role: 'user', content: `Generate a PostgreSQL query to answer: "${question}"\n\nRespond with JSON only: {"sql": "...", "explanation": "..."}` }
+        ],
+        temperature: 0.1,
+        max_tokens: 500
+      });
+
+      const sqlResponse = sqlGeneration.choices[0]?.message?.content || '';
+      let parsedSql: { sql: string; explanation: string };
+      
+      try {
+        // Try to parse JSON from the response
+        const jsonMatch = sqlResponse.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('No JSON found');
+        parsedSql = JSON.parse(jsonMatch[0]);
+      } catch {
+        return res.json({ 
+          ok: true, 
+          answer: "I couldn't generate a valid query for that question. Try asking about specific hero classes, levels, stats, or tournament winners.",
+          rawResponse: sqlResponse 
+        });
+      }
+
+      // Security check - only allow SELECT queries
+      const sqlLower = parsedSql.sql.toLowerCase().trim();
+      if (!sqlLower.startsWith('select')) {
+        return res.json({ ok: true, answer: "I can only answer questions that read data, not modify it." });
+      }
+      
+      // Block dangerous keywords
+      const dangerousKeywords = ['drop', 'delete', 'update', 'insert', 'alter', 'create', 'truncate', 'exec', '--', ';'];
+      for (const keyword of dangerousKeywords) {
+        if (sqlLower.includes(keyword) && keyword !== '--') {
+          return res.json({ ok: true, answer: "That query contains operations I can't perform." });
+        }
+      }
+
+      // Execute the query
+      const { pool } = await import('../db/index.js');
+      const queryResult = await pool.query(parsedSql.sql);
+      const rows = queryResult.rows;
+
+      // Ask AI to interpret the results
+      const interpretation = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You are a DeFi Kingdoms PVP expert. Interpret SQL query results in a conversational, helpful way. Be specific about what the data shows. If showing stats, mention which are highest/most important. Keep response under 200 words.' },
+          { role: 'user', content: `Question: "${question}"\n\nQuery explanation: ${parsedSql.explanation}\n\nResults (${rows.length} rows):\n${JSON.stringify(rows.slice(0, 20), null, 2)}\n\nProvide a helpful answer based on this data.` }
+        ],
+        temperature: 0.3,
+        max_tokens: 400
+      });
+
+      const answer = interpretation.choices[0]?.message?.content || 'No interpretation available.';
+
+      res.json({
+        ok: true,
+        answer,
+        data: rows.slice(0, 50),
+        rowCount: rows.length,
+        query: parsedSql.sql,
+        explanation: parsedSql.explanation
+      });
+
+    } catch (error: any) {
+      console.error('[Battle-Ready Chat] Error:', error);
+      res.json({ 
+        ok: false, 
+        answer: `I encountered an error: ${error.message}. Try rephrasing your question or being more specific about the class, level, or stat you're interested in.` 
+      });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
