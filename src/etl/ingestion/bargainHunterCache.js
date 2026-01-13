@@ -18,6 +18,49 @@ let cacheState = {
 };
 
 /**
+ * Ensure the cache table exists
+ */
+async function ensureCacheTable() {
+  const { rawPg } = await import('../../../server/db.js');
+  
+  await rawPg`
+    CREATE TABLE IF NOT EXISTS bargain_hunter_cache (
+      summon_type TEXT PRIMARY KEY,
+      total_heroes INTEGER NOT NULL DEFAULT 0,
+      total_pairs_scored INTEGER NOT NULL DEFAULT 0,
+      token_prices JSON,
+      top_pairs JSON,
+      computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `;
+}
+
+/**
+ * Check if tavern_heroes table exists and has data
+ */
+async function checkTavernHeroesTable() {
+  const { rawPg } = await import('../../../server/db.js');
+  
+  try {
+    const result = await rawPg`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'tavern_heroes'
+      ) as exists
+    `;
+    if (!result[0]?.exists) {
+      return { exists: false, count: 0 };
+    }
+    
+    const countResult = await rawPg`SELECT COUNT(*) as cnt FROM tavern_heroes`;
+    return { exists: true, count: parseInt(countResult[0]?.cnt || 0) };
+  } catch (e) {
+    return { exists: false, count: 0 };
+  }
+}
+
+/**
  * Fetch current token prices from the DEX price graph
  */
 async function getTokenPrices() {
@@ -58,7 +101,7 @@ async function getTokenPrices() {
 async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   const { rawPg } = await import('../../../server/db.js');
   const { decodeStatGenes } = await import('../../../gene-decoder.js');
-  const { calculateSummoningProbabilities, calculateTTSProbabilities } = await import('../../../bot.js');
+  const { calculateSummoningProbabilities, calculateTTSProbabilities } = await import('../../../summoning-engine.js');
   
   const isDarkSummon = summonType === 'dark';
   const prices = await getTokenPrices();
@@ -88,37 +131,144 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   
   console.log(`[BargainCache] ${eligibleHeroes.length} eligible heroes for ${summonType} summoning`);
   
-  // Build genetics from indexed data
+  // Sort by price and limit to top 600 cheapest heroes to keep pair scoring manageable
+  // 600 heroes = ~180k pairs which takes ~2-3 minutes to score
+  eligibleHeroes.sort((a, b) => (parseFloat(a.price_native) || 0) - (parseFloat(b.price_native) || 0));
+  const MAX_HEROES = 600;
+  if (eligibleHeroes.length > MAX_HEROES) {
+    console.log(`[BargainCache] Limiting to ${MAX_HEROES} cheapest heroes (from ${eligibleHeroes.length})`);
+    eligibleHeroes = eligibleHeroes.slice(0, MAX_HEROES);
+  }
+  
+  // Skill ID to name mappings (same as gene-decoder.js)
+  const ACTIVE_GENES = {
+    0: 'Poisoned Blade', 1: 'Blinding Winds', 2: 'Heal', 3: 'Cleanse',
+    4: 'Iron Skin', 5: 'Speed', 6: 'Critical Aim', 7: 'Deathmark',
+    16: 'Exhaust', 17: 'Daze', 18: 'Explosion', 19: 'Hardened Shield',
+    24: 'Stun', 25: 'Second Wind', 28: 'Resurrection'
+  };
+  const PASSIVE_GENES = {
+    0: 'Duelist', 1: 'Clutch', 2: 'Foresight', 3: 'Headstrong',
+    4: 'Clear Vision', 5: 'Fearless', 6: 'Chatterbox', 7: 'Stalwart',
+    16: 'Leadership', 17: 'Efficient', 18: 'Intimidation', 19: 'Toxic',
+    24: 'Giant Slayer', 25: 'Last Stand', 28: 'Second Life'
+  };
+  
+  // All known active skill names for validation
+  const ACTIVE_SKILL_NAMES = new Set(Object.values(ACTIVE_GENES));
+  const PASSIVE_SKILL_NAMES = new Set(Object.values(PASSIVE_GENES));
+  
+  // Convert ability_X format, raw ID, or pass through valid skill name
+  function getActiveSkillName(val) {
+    if (!val) return 'Poisoned Blade';
+    // If already a valid skill name string, pass through
+    if (typeof val === 'string' && ACTIVE_SKILL_NAMES.has(val)) {
+      return val;
+    }
+    // Handle ability_X format
+    if (typeof val === 'string' && val.startsWith('ability_')) {
+      const id = parseInt(val.replace('ability_', ''));
+      return ACTIVE_GENES[id] || 'Poisoned Blade';
+    }
+    // Handle numeric ID
+    const id = parseInt(val);
+    if (isNaN(id)) return 'Poisoned Blade';
+    return ACTIVE_GENES[id] || 'Poisoned Blade';
+  }
+  function getPassiveSkillName(val) {
+    if (!val) return 'Duelist';
+    // If already a valid skill name string, pass through
+    if (typeof val === 'string' && PASSIVE_SKILL_NAMES.has(val)) {
+      return val;
+    }
+    // Handle ability_X format
+    if (typeof val === 'string' && val.startsWith('ability_')) {
+      const id = parseInt(val.replace('ability_', ''));
+      return PASSIVE_GENES[id] || 'Duelist';
+    }
+    // Handle numeric ID
+    const id = parseInt(val);
+    if (isNaN(id)) return 'Duelist';
+    return PASSIVE_GENES[id] || 'Duelist';
+  }
+  
+  // Build genetics from indexed data - must match structure expected by calculateSummoningProbabilities
   function buildGeneticsFromIndex(h) {
     return {
-      statGenes: {
-        class: { dominant: h.main_class, R1: h.main_class_r1, R2: h.main_class_r2, R3: h.main_class_r3 },
-        subClass: { dominant: h.sub_class, R1: h.sub_class_r1, R2: h.sub_class_r2, R3: h.sub_class_r3 },
-        profession: { dominant: h.profession, R1: h.profession, R2: h.profession, R3: h.profession },
-        active1: { dominant: h.active1, R1: h.active1_r1, R2: h.active1_r2, R3: h.active1_r3 },
-        active2: { dominant: h.active2, R1: h.active2_r1, R2: h.active2_r2, R3: h.active2_r3 },
-        passive1: { dominant: h.passive1, R1: h.passive1_r1, R2: h.passive1_r2, R3: h.passive1_r3 },
-        passive2: { dominant: h.passive2, R1: h.passive2_r1, R2: h.passive2_r2, R3: h.passive2_r3 }
-      }
+      mainClass: { dominant: h.main_class, R1: h.main_class_r1, R2: h.main_class_r2, R3: h.main_class_r3 },
+      subClass: { dominant: h.sub_class, R1: h.sub_class_r1, R2: h.sub_class_r2, R3: h.sub_class_r3 },
+      profession: { dominant: h.profession, R1: h.profession, R2: h.profession, R3: h.profession },
+      active1: { 
+        dominant: getActiveSkillName(h.active1), 
+        R1: getActiveSkillName(h.active1_r1), 
+        R2: getActiveSkillName(h.active1_r2), 
+        R3: getActiveSkillName(h.active1_r3) 
+      },
+      active2: { 
+        dominant: getActiveSkillName(h.active2), 
+        R1: getActiveSkillName(h.active2_r1), 
+        R2: getActiveSkillName(h.active2_r2), 
+        R3: getActiveSkillName(h.active2_r3) 
+      },
+      passive1: { 
+        dominant: getPassiveSkillName(h.passive1), 
+        R1: getPassiveSkillName(h.passive1_r1), 
+        R2: getPassiveSkillName(h.passive1_r2), 
+        R3: getPassiveSkillName(h.passive1_r3) 
+      },
+      passive2: { 
+        dominant: getPassiveSkillName(h.passive2), 
+        R1: getPassiveSkillName(h.passive2_r1), 
+        R2: getPassiveSkillName(h.passive2_r2), 
+        R3: getPassiveSkillName(h.passive2_r3) 
+      },
+      // Visual genes required by summoning engine - use placeholder values since we don't need visual results
+      visual: {
+        gender: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        headAppendage: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        backAppendage: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        background: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        hairStyle: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        hairColor: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        eyeColor: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        skinColor: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        appendageColor: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        backAppendageColor: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        visualUnknown1: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+        visualUnknown2: { dominant: 0, R1: 0, R2: 0, R3: 0 }
+      },
+      // Stat boost and element genes - use placeholders
+      statBoost1: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+      statBoost2: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+      element: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+      // Crafting genes - use placeholders
+      crafting1: { dominant: 0, R1: 0, R2: 0, R3: 0 },
+      crafting2: { dominant: 0, R1: 0, R2: 0, R3: 0 }
     };
   }
   
   // Pre-build genetics cache
   const geneticsCache = new Map();
+  let genesBuilt = 0;
   for (const h of eligibleHeroes) {
     if (h.main_class_r1 !== null) {
       geneticsCache.set(String(h.hero_id), buildGeneticsFromIndex(h));
+      genesBuilt++;
     }
   }
+  console.log(`[BargainCache] Built genetics for ${genesBuilt} heroes (${eligibleHeroes.length - genesBuilt} missing r1 genes)`);
   
   // Group heroes by realm
   const byRealm = { cv: [], sd: [] };
   for (const h of eligibleHeroes) {
     if (byRealm[h.realm]) byRealm[h.realm].push(h);
   }
+  console.log(`[BargainCache] Realm breakdown: CV=${byRealm.cv.length}, SD=${byRealm.sd.length}`);
   
   // Generate all same-realm pairs and score them
   const allPairs = [];
+  let skippedNoGenetics = 0;
+  let skippedProbError = 0;
   const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
   
   // Summon cost formulas
@@ -156,7 +306,10 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
         const genetics1 = geneticsCache.get(String(hero1.hero_id));
         const genetics2 = geneticsCache.get(String(hero2.hero_id));
         
-        if (!genetics1 || !genetics2) continue;
+        if (!genetics1 || !genetics2) {
+          skippedNoGenetics++;
+          continue;
+        }
         
         // Calculate probabilities
         const rarity1 = RARITY_NAMES[hero1.rarity] || 'Common';
@@ -164,10 +317,14 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
         
         try {
           const probs = calculateSummoningProbabilities(genetics1, genetics2, rarity1, rarity2);
+          if (!probs) {
+            continue;
+          }
           const ttsData = calculateTTSProbabilities(probs);
           
           const expectedTTS = ttsData?.expectedTTS || 0;
-          const efficiency = totalCostUsd > 0 ? expectedTTS / totalCostUsd : 0;
+          // Use totalCost as denominator since USD prices may not be available
+          const efficiency = totalCost > 0 ? expectedTTS / totalCost : 0;
           
           allPairs.push({
             hero1: {
@@ -206,18 +363,19 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
             efficiency,
             tts: {
               expected: expectedTTS,
-              distribution: ttsData?.distribution || {},
+              distribution: ttsData?.ttsProbabilities || {},
               cumulativeProbs: ttsData?.cumulativeProbs || {}
             }
           });
         } catch (err) {
+          skippedProbError++;
           // Skip pairs that fail probability calculation
         }
       }
     }
   }
   
-  console.log(`[BargainCache] Scored ${allPairs.length} pairs for ${summonType} summoning`);
+  console.log(`[BargainCache] Scored ${allPairs.length} pairs for ${summonType} summoning (skipped: ${skippedNoGenetics} no-genetics, ${skippedProbError} prob-errors)`);
   
   // Sort by TTS efficiency (TTS per dollar) and take top N
   allPairs.sort((a, b) => b.efficiency - a.efficiency);
@@ -248,6 +406,26 @@ export async function refreshBargainHunterCache() {
     const { rawPg } = await import('../../../server/db.js');
     
     console.log('[BargainCache] Starting cache refresh...');
+    
+    // Ensure cache table exists
+    await ensureCacheTable();
+    
+    // Check if tavern_heroes table exists and has data
+    const tavernStatus = await checkTavernHeroesTable();
+    if (!tavernStatus.exists) {
+      console.log('[BargainCache] tavern_heroes table does not exist. Run Tavern Indexer first.');
+      cacheState.isRunning = false;
+      cacheState.error = 'tavern_heroes table missing';
+      return { status: 'error', error: 'Run the Tavern Indexer first to populate hero data' };
+    }
+    if (tavernStatus.count === 0) {
+      console.log('[BargainCache] tavern_heroes table is empty. Run Tavern Indexer first.');
+      cacheState.isRunning = false;
+      cacheState.error = 'No heroes indexed';
+      return { status: 'error', error: 'No heroes indexed. Run the Tavern Indexer first.' };
+    }
+    
+    console.log(`[BargainCache] Found ${tavernStatus.count} heroes in tavern_heroes table`);
     
     // Score regular summoning pairs
     console.log('[BargainCache] Scoring regular summoning pairs...');

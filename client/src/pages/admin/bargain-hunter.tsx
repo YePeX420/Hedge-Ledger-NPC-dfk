@@ -1,16 +1,12 @@
-import { useState, useEffect, useMemo } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Zap, ExternalLink, Loader2, TrendingUp, RefreshCw, Calculator } from "lucide-react";
+import { Zap, ExternalLink, Loader2, RefreshCw, Calculator, Clock } from "lucide-react";
 import { Link } from "wouter";
-import { apiRequest } from "@/lib/queryClient";
-
-interface ProbabilityMap {
-  [key: string]: number;
-}
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface SniperHero {
   id: string;
@@ -29,7 +25,7 @@ interface SniperHero {
 
 interface TTSData {
   distribution: { [tts: string]: number };
-  cumulative: { [tts: string]: number };
+  cumulativeProbs: { [tts: string]: number };
   expected: number;
 }
 
@@ -37,75 +33,48 @@ interface SniperPair {
   hero1: SniperHero;
   hero2: SniperHero;
   realm: string;
-  targetProbability: number;
   totalCost: number;
   totalCostUsd: number;
   efficiency: number;
-  costs?: {
-    purchaseCost: number;
-    summonTokenCost: number;
-    tearCost: number;
-    tearCount: number;
-    bridgeCostUsd: number;
-    heroesNeedingBridge: number;
-    totalCost: number;
-    totalCostUsd: number;
-    tokenPriceUsd: number;
-  };
-  probabilities: {
-    class: ProbabilityMap;
-    subClass: ProbabilityMap;
-    profession: ProbabilityMap;
-  };
   tts?: TTSData;
 }
 
-interface SniperResult {
+interface CacheResult {
   ok: boolean;
+  cached: boolean;
+  isRefreshing?: boolean;
   pairs: SniperPair[];
   totalHeroes: number;
   totalPairsScored: number;
-  tokenPrices?: {
-    CRYSTAL: number;
-    JEWEL: number;
-  };
+  tokenPrices?: { CRYSTAL: number; JEWEL: number };
+  computedAt?: string;
+  message?: string;
 }
 
 export default function BargainHunter() {
-  const [result, setResult] = useState<SniperResult | null>(null);
   const [realmFilter, setRealmFilter] = useState<string>("all");
 
-  const ALL_CLASSES = ['Archer', 'Berserker', 'Knight', 'Priest', 'Seer', 'Warrior', 'Wizard', 'Pirate'];
-
-  const searchMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/admin/sniper/search", {
-        targetClasses: ALL_CLASSES,
-        targetProfessions: [],
-        targetActiveSkills: [],
-        targetPassiveSkills: [],
-        realms: ["cv", "sd"],
-        minRarity: 0,
-        minSummonsRemaining: 1,
-        minLevel: 1,
-        summonType: "regular",
-        searchMode: "tavern",
-        bridgeFeeUsd: 0.5,
-        sortBy: "skillScore",
-        limit: 0
-      });
+  const { data: result, isLoading, refetch } = useQuery<CacheResult>({
+    queryKey: ['/api/admin/bargain-cache', 'regular'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/bargain-cache?type=regular', { credentials: 'include' });
       return response.json();
     },
-    onSuccess: (data) => {
-      if (data.ok) {
-        setResult(data);
-      }
-    }
+    refetchInterval: 60000,
+    staleTime: 30000
   });
 
-  useEffect(() => {
-    searchMutation.mutate();
-  }, []);
+  const refreshMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/admin/bargain-cache/refresh");
+      return response.json();
+    },
+    onSuccess: () => {
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['/api/admin/bargain-cache'] });
+      }, 5000);
+    }
+  });
 
   const sortedPairs = useMemo(() => {
     if (!result?.pairs) return [];
@@ -113,11 +82,9 @@ export default function BargainHunter() {
     if (realmFilter !== "all") {
       filtered = filtered.filter(pair => pair.realm === realmFilter);
     }
-    return filtered.sort((a, b) => {
-      const aEfficiency = (a.tts?.expected || 0) / (a.totalCostUsd || 1);
-      const bEfficiency = (b.tts?.expected || 0) / (b.totalCostUsd || 1);
-      return bEfficiency - aEfficiency;
-    });
+    // Use pre-computed efficiency from cache (TTS per native token cost)
+    // This avoids re-sorting and maintains cache ordering
+    return filtered.sort((a, b) => (b.efficiency || 0) - (a.efficiency || 0));
   }, [result?.pairs, realmFilter]);
 
   const getRarityName = (rarity: number) => 
@@ -126,6 +93,18 @@ export default function BargainHunter() {
   const getRarityColor = (rarity: number) => {
     const colors = ['text-gray-400', 'text-green-400', 'text-blue-400', 'text-orange-400', 'text-purple-400'];
     return colors[rarity] || 'text-gray-400';
+  };
+
+  const formatCacheTime = (dateStr?: string) => {
+    if (!dateStr) return 'Unknown';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    return `${diffHours}h ${diffMins % 60}m ago`;
   };
 
   return (
@@ -140,36 +119,65 @@ export default function BargainHunter() {
             </p>
           </div>
         </div>
-        <Button
-          onClick={() => searchMutation.mutate()}
-          disabled={searchMutation.isPending}
-          variant="outline"
-          data-testid="button-refresh"
-        >
-          {searchMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => refetch()}
+            disabled={isLoading}
+            variant="outline"
+            size="sm"
+            data-testid="button-reload"
+          >
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </Button>
+          <Button
+            onClick={() => refreshMutation.mutate()}
+            disabled={refreshMutation.isPending || result?.isRefreshing}
+            variant="outline"
+            data-testid="button-refresh-cache"
+          >
+            {refreshMutation.isPending || result?.isRefreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Rebuild Cache
+          </Button>
+        </div>
       </div>
 
-      {searchMutation.isPending && !result && (
+      {isLoading && (
         <Card>
           <CardContent className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin mr-3" />
-            <span>Finding best bargains...</span>
+            <span>Loading cached bargains...</span>
           </CardContent>
         </Card>
       )}
 
-      {result && (
+      {!isLoading && !result?.cached && (
+        <Card>
+          <CardContent className="text-center py-12">
+            <p className="text-muted-foreground mb-4">
+              {result?.message || 'Cache not available. Click "Rebuild Cache" to compute bargain pairs.'}
+            </p>
+            <Button onClick={() => refreshMutation.mutate()} disabled={refreshMutation.isPending}>
+              {refreshMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Build Cache Now
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {result?.cached && (
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <span>Scored {result.totalPairsScored?.toLocaleString()} pairs</span>
               <span>from {result.totalHeroes?.toLocaleString()} heroes</span>
+              <Badge variant="outline" className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {formatCacheTime(result.computedAt)}
+              </Badge>
               {realmFilter !== "all" && (
                 <Badge variant="outline">
                   Showing {sortedPairs.length} {realmFilter === "cv" ? "Crystalvale" : "Sundered Isles"} pairs
@@ -192,7 +200,7 @@ export default function BargainHunter() {
           </div>
 
           <div className="grid gap-4">
-            {sortedPairs.map((pair, idx) => {
+            {sortedPairs.slice(0, 100).map((pair, idx) => {
               const ttsEfficiency = (pair.tts?.expected || 0) / (pair.totalCostUsd || 1);
               return (
                 <Card key={idx} className="overflow-hidden" data-testid={`card-pair-${idx}`}>
@@ -206,7 +214,7 @@ export default function BargainHunter() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary">
-                          Expected TTS: {Math.round(pair.tts?.expected || 0)}
+                          Expected TTS: {(pair.tts?.expected || 0).toFixed(2)}
                         </Badge>
                         <Badge variant="outline" className="text-green-600">
                           ${pair.totalCostUsd?.toFixed(2)}
@@ -277,12 +285,12 @@ export default function BargainHunter() {
                           </Link>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {Object.entries(pair.tts.cumulative || {})
+                          {Object.entries(pair.tts.cumulativeProbs || {})
                             .sort(([a], [b]) => parseInt(b) - parseInt(a))
                             .slice(0, 6)
                             .map(([tts, prob]) => (
                               <Badge key={tts} variant="outline" className="text-xs">
-                                TTS≥{tts}: {(prob * 100).toFixed(1)}%
+                                TTS≥{tts}: {(Number(prob)).toFixed(1)}%
                               </Badge>
                             ))}
                         </div>
@@ -300,6 +308,12 @@ export default function BargainHunter() {
                 No pairs found. Try refreshing or check if the tavern indexer has data.
               </CardContent>
             </Card>
+          )}
+
+          {sortedPairs.length > 100 && (
+            <p className="text-center text-sm text-muted-foreground">
+              Showing top 100 of {sortedPairs.length} pairs
+            </p>
           )}
         </div>
       )}
