@@ -148,7 +148,7 @@ export default function SummonSniper() {
   const [selectedPassiveSkills, setSelectedPassiveSkills] = useState<string[]>([]);
   const [sniperRealms, setSniperRealms] = useState<string[]>(["cv", "sd"]);
   const [minRarity, setMinRarity] = useState(0);
-  const [sniperMinSummons, setSniperMinSummons] = useState("0");
+  const [sniperMinSummons, setSniperMinSummons] = useState("1");
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
   const [targetTSValue, setTargetTSValue] = useState("");
   const [minTSProbability, setMinTSProbability] = useState("");
@@ -550,7 +550,7 @@ export default function SummonSniper() {
                   type="number"
                   value={sniperMinSummons}
                   onChange={(e) => setSniperMinSummons(e.target.value)}
-                  placeholder="0"
+                  placeholder="1"
                   data-testid="input-min-summons"
                 />
               )}
