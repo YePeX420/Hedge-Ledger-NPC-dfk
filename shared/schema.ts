@@ -3385,3 +3385,32 @@ export const summonConversionMetrics = pgTable("summon_conversion_metrics", {
 export const insertSummonConversionMetricsSchema = createInsertSchema(summonConversionMetrics).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertSummonConversionMetrics = z.infer<typeof insertSummonConversionMetricsSchema>;
 export type SummonConversionMetrics = typeof summonConversionMetrics.$inferSelect;
+
+// ============================================================================
+// BARGAIN HUNTER CACHE TABLE
+// Stores pre-computed hero pair scores for fast Bargain Hunter page loads
+// ============================================================================
+
+export const bargainHunterCache = pgTable("bargain_hunter_cache", {
+  id: serial("id").primaryKey(),
+  summonType: text("summon_type").notNull(), // 'regular' or 'dark'
+  
+  // Metadata
+  totalHeroes: integer("total_heroes").default(0),
+  totalPairsScored: integer("total_pairs_scored").default(0),
+  tokenPrices: json("token_prices"), // { CRYSTAL: number, JEWEL: number }
+  
+  // Top pairs by TTS efficiency (JSON array, limited to top 1000 per type)
+  topPairs: json("top_pairs").notNull(), // Array of scored pairs with full hero data
+  
+  // Timestamps
+  computedAt: timestamp("computed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  summonTypeIdx: uniqueIndex("bargain_hunter_cache_summon_type_idx").on(table.summonType),
+  computedAtIdx: index("bargain_hunter_cache_computed_at_idx").on(table.computedAt),
+}));
+
+export const insertBargainHunterCacheSchema = createInsertSchema(bargainHunterCache).omit({ id: true, createdAt: true });
+export type InsertBargainHunterCache = z.infer<typeof insertBargainHunterCacheSchema>;
+export type BargainHunterCache = typeof bargainHunterCache.$inferSelect;
