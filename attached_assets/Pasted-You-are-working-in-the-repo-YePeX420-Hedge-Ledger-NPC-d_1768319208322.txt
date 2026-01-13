@@ -1,0 +1,74 @@
+You are working in the repo YePeX420/Hedge-Ledger-NPC-dfk.
+
+Goal: Fix Summon Sniper so TS/TTS filtering works correctly. Specifically, searches like targetTTSValue=6 and minTTSProbability=20 (meaning P(TTS >= 6) >= 20%) must return valid pairs when elite-skill parents exist.
+
+Context / known issues:
+1) tavernIndexer.js gene backfill decoding has a CRITICAL bug: Kai trait blocks are [R3,R2,R1,D] but decodeStatGenesLocal currently extracts as if [D,R1,R2,R3]. This likely corrupts *_r1/_r2/_r3 columns in tavern_heroes, and Sniper builds genetics objects from those indexed columns.
+2) calculateTTSProbabilities() returns expectedTTS but expectedTTS is not defined in the function (ReferenceError risk).
+3) calculateTTSProbabilities() treats missing slot probs as tier0=100, but if slot probs are {} (empty object) it returns all tiers 0, which causes TTS distribution to be empty and cumulativeProbs to be 0 => everything fails TS filter.
+4) bot.js elite/exalted filtering uses slotTierProbs keys ['active1','active2','passive1','passive2'], but calculateTTSProbabilities() currently returns {active1Tiers,active2Tiers,passive1Tiers,passive2Tiers}. This mismatch can force elite/exalted to compute 0 and/or crash.
+5) Ensure probability unit consistency: determine whether calculateSummoningProbabilities() outputs per-trait probs in 0-100 or 0-1. Make calculateTTSProbabilities robust to either form. Also make minTTSProbability robust to either 20 or 0.20.
+
+Tasks:
+A) Fix genetics backfill decoding so DB recessives are correct going forward
+- Locate the gene backfill decoder in src/etl/ingestion/tavernIndexer.js (or wherever decodeStatGenesLocal exists).
+- Correct extractGeneSet so the 4-char block order is:
+  r3 = kaiString[start]
+  r2 = kaiString[start+1]
+  r1 = kaiString[start+2]
+  d  = kaiString[start+3]
+- Ensure the correct StatTraitIndex offsets are used for at least: class(0), subClass(1), profession(2), passive1(3), passive2(4), active1(5), active2(6).
+- Preferably remove duplicate decoding logic by importing and using the canonical gene decoder (gene-decoder.js) if feasible.
+
+B) Add a one-time repair/backfill script to fix existing rows already corrupted
+- Create a script (e.g., scripts/repair-tavern-recessives.js or src/etl/ingestion/repairGenes.js).
+- It should:
+  1) SELECT tavern_heroes rows with genes_status='complete' (optionally in batches).
+  2) Re-decode stat_genes using the corrected decoder.
+  3) UPDATE the *_r1/_r2/_r3 columns for class/subclass/active1/active2/passive1/passive2 (and other fields if stored).
+  4) Log progress counters and mismatches.
+- Include instructions on how to run it safely and in batches.
+
+C) Fix TTS/TS distribution computation so it cannot produce empty distributions incorrectly
+- In summoning-engine.js (or wherever calculateTTSProbabilities lives):
+  1) Define and compute expectedTTS correctly:
+     expectedTTS = Σ(tts * P(tts))/100.
+  2) Treat both null/undefined AND {} (empty object) as “no info => tier0=100”.
+  3) Normalize input probs:
+     - If slot probs sum to ~1, treat as fractions and convert to percent.
+     - If slot probs sum to ~100, treat as percent.
+  4) Make slotTierProbs keys match consumers: return
+     slotTierProbs: { active1: active1Tiers, active2: active2Tiers, passive1: passive1Tiers, passive2: passive2Tiers }.
+
+D) Fix Sniper filtering logic for TS/TTS + elite/exalted
+- In bot.js sniper endpoint filtering block:
+  1) Compute ttsData once per pair when any of these are used:
+     - targetTTSValue/minTTSProbability
+     - minEliteChance
+     - minExaltedChance
+     - sorting by skillScore/expectedTTS
+  2) Fix elite/exalted logic to reference slotTierProbs.active1 etc (not active1Tiers).
+  3) Normalize minTTSProbability:
+     - If <= 1, assume fraction and multiply by 100.
+     - If > 1, assume percent.
+  4) Add minimal debug logging (guarded by a flag) that prints:
+     - cumulativeProbs[targetTTSValue]
+     - expectedTTS
+     - slotTierProbs per slot
+     for one sampled pair, so we can validate.
+
+E) Tier mapping robustness
+- Verify getSkillTierByName() matches the keys used in probs maps.
+- If probs keys are numeric IDs (e.g., "24") instead of names ("Stun"), update tier mapping to handle both:
+  - numeric -> tier by index bands
+  - string name -> tier by lookup map
+
+Acceptance criteria:
+1) Running the sniper search with targetTTSValue=6 and minTTSProbability=20 returns non-empty results when the tavern contains heroes with elite/exalted skills.
+2) Setting minEliteChance and/or minExaltedChance > 0 does not force zero results incorrectly.
+3) The repair script updates rows and can be run in batches without crashing.
+
+Deliverables:
+- Commit-ready code changes for A–E.
+- A short README section or comments describing how to run the repair/backfill script.
+- A brief summary of the exact root cause(s) found and the fixes applied.
