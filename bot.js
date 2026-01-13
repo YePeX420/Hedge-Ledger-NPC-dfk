@@ -9606,7 +9606,8 @@ async function startAdminWebServer() {
   app.post("/api/admin/sniper/search", isAdmin, async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
-      const { getHeroById } = await import('./onchain-data.js');
+      const { getHeroById, getAllHeroesByOwner } = await import('./onchain-data.js');
+      const { decodeStatGenes } = await import('./gene-decoder.js');
       
       // Check if minSummonsRemaining was explicitly provided
       const minSummonsExplicit = req.body.minSummonsRemaining !== undefined;
@@ -9625,8 +9626,9 @@ async function startAdminWebServer() {
         maxTS = null,
         tearPrice = 0.05,
         summonType = 'regular',  // 'regular' or 'dark'
-        searchMode = 'tavern',   // 'tavern' or 'myHero'
+        searchMode = 'tavern',   // 'tavern', 'myHero', or 'wallet'
         myHeroId = null,         // Hero ID for 'myHero' mode
+        walletAddress = null,    // Wallet address for 'wallet' mode
         bridgeFeeUsd = 0.50,     // Estimated bridging fee per hero in USD (Metis heroes need bridging to CV)
         minOffspringSkillScore = null,  // Minimum expected offspring skill score (TS) - null means no filter
         targetTSValue = null,   // Target TS value for cumulative probability filter (e.g., 8 means "TS >= 8")
@@ -9668,6 +9670,7 @@ async function startAdminWebServer() {
 
       const isDarkSummon = summonType === 'dark';
       const isMyHeroMode = searchMode === 'myHero' && myHeroId;
+      const isWalletMode = searchMode === 'wallet' && walletAddress;
       
       // For regular summons, default to requiring at least 1 summon remaining
       // Only apply this default if minSummonsRemaining was NOT explicitly set by the client
@@ -9736,17 +9739,127 @@ async function startAdminWebServer() {
       const safeTS = maxTS !== null ? parseFloat(maxTS) : null;
       const safeMinLevel = parseInt(minLevel) || 1;
       
+      // ===========================================================
+      // WALLET MODE: Fetch heroes from wallet and decode their genes
+      // ===========================================================
+      let walletHeroes = [];
+      if (isWalletMode) {
+        console.log(`[Sniper] Wallet mode - fetching heroes for ${walletAddress}...`);
+        try {
+          const rawWalletHeroes = await getAllHeroesByOwner(walletAddress);
+          console.log(`[Sniper] Found ${rawWalletHeroes.length} heroes in wallet`);
+          
+          // Process each wallet hero with gene decoding
+          for (const hero of rawWalletHeroes) {
+            // Decode statGenes if available
+            let decodedGenes = null;
+            if (hero.statGenes) {
+              try {
+                decodedGenes = decodeStatGenes(hero.statGenes);
+              } catch (decodeErr) {
+                console.warn(`[Sniper] Failed to decode genes for hero ${hero.id}:`, decodeErr.message);
+              }
+            }
+            
+            // Determine realm from network
+            const network = hero.network || 'dfk';
+            const realm = network === 'met' ? 'sd' : 'cv';
+            const nativeToken = realm === 'cv' ? 'CRYSTAL' : 'JEWEL';
+            
+            // Extract skill gene IDs from decoded genes
+            let active1 = null, active2 = null, passive1 = null, passive2 = null;
+            let active1_r1 = 0, active1_r2 = 0, active1_r3 = 0;
+            let active2_r1 = 0, active2_r2 = 0, active2_r3 = 0;
+            let passive1_r1 = 0, passive1_r2 = 0, passive1_r3 = 0;
+            let passive2_r1 = 0, passive2_r2 = 0, passive2_r3 = 0;
+            
+            if (decodedGenes) {
+              // Get skill slots from decoded genes
+              // Note: decoded genes use 'class' not 'mainClass', and each slot has d/r1/r2/r3 with value/name properties
+              if (decodedGenes.active1) {
+                active1 = `ability_${decodedGenes.active1.d.value}`;
+                active1_r1 = decodedGenes.active1.r1?.value || 0;
+                active1_r2 = decodedGenes.active1.r2?.value || 0;
+                active1_r3 = decodedGenes.active1.r3?.value || 0;
+              }
+              if (decodedGenes.active2) {
+                active2 = `ability_${decodedGenes.active2.d.value}`;
+                active2_r1 = decodedGenes.active2.r1?.value || 0;
+                active2_r2 = decodedGenes.active2.r2?.value || 0;
+                active2_r3 = decodedGenes.active2.r3?.value || 0;
+              }
+              if (decodedGenes.passive1) {
+                passive1 = `ability_${decodedGenes.passive1.d.value}`;
+                passive1_r1 = decodedGenes.passive1.r1?.value || 0;
+                passive1_r2 = decodedGenes.passive1.r2?.value || 0;
+                passive1_r3 = decodedGenes.passive1.r3?.value || 0;
+              }
+              if (decodedGenes.passive2) {
+                passive2 = `ability_${decodedGenes.passive2.d.value}`;
+                passive2_r1 = decodedGenes.passive2.r1?.value || 0;
+                passive2_r2 = decodedGenes.passive2.r2?.value || 0;
+                passive2_r3 = decodedGenes.passive2.r3?.value || 0;
+              }
+            }
+            
+            walletHeroes.push({
+              hero_id: String(hero.id),
+              normalized_id: parseInt(hero.normalizedId) || 0,
+              realm,
+              main_class: hero.mainClassStr || 'Unknown',
+              sub_class: hero.subClassStr || null,
+              profession: (hero.professionStr || 'mining').toLowerCase(),
+              rarity: parseInt(hero.rarity) || 0,
+              level: parseInt(hero.level) || 1,
+              generation: parseInt(hero.generation) || 0,
+              summons: parseInt(hero.summons) || 0,
+              max_summons: parseInt(hero.maxSummons) || 0,
+              price_native: 0, // User already owns these
+              native_token: nativeToken,
+              trait_score: 0,
+              combat_power: 0,
+              stat_genes: hero.statGenes,
+              visual_genes: hero.visualGenes,
+              genes_status: hero.statGenes ? 'complete' : 'pending',
+              main_class_r1: decodedGenes?.class?.r1?.value,
+              main_class_r2: decodedGenes?.class?.r2?.value,
+              main_class_r3: decodedGenes?.class?.r3?.value,
+              sub_class_r1: decodedGenes?.subClass?.r1?.value,
+              sub_class_r2: decodedGenes?.subClass?.r2?.value,
+              sub_class_r3: decodedGenes?.subClass?.r3?.value,
+              active1, active2, passive1, passive2,
+              active1_r1, active1_r2, active1_r3,
+              active2_r1, active2_r2, active2_r3,
+              passive1_r1, passive1_r2, passive1_r3,
+              passive2_r1, passive2_r2, passive2_r3,
+              is_wallet_hero: true
+            });
+          }
+          console.log(`[Sniper] Processed ${walletHeroes.length} wallet heroes with gene data`);
+        } catch (walletErr) {
+          console.error('[Sniper] Error fetching wallet heroes:', walletErr);
+          return res.status(500).json({ 
+            ok: false, 
+            error: `Failed to fetch wallet heroes: ${walletErr.message}` 
+          });
+        }
+      }
+      
       console.log('[Sniper] Fetching heroes from indexed database (genes_status = complete)...');
       
       // Query indexed tavern heroes with complete gene data (no limit - search all)
-      const indexedResult = await rawPg`
-        SELECT * FROM tavern_heroes 
-        WHERE genes_status = 'complete'
-        ORDER BY price_native ASC NULLS LAST
-      `;
+      // Skip tavern fetch if in wallet mode
+      let indexedResult = [];
+      if (!isWalletMode) {
+        indexedResult = await rawPg`
+          SELECT * FROM tavern_heroes 
+          WHERE genes_status = 'complete'
+          ORDER BY price_native ASC NULLS LAST
+        `;
+      }
       
-      const apiResponse = indexedResult || [];
-      console.log('[Sniper] Indexed database returned', apiResponse.length, 'heroes with complete genes');
+      const apiResponse = isWalletMode ? walletHeroes : (indexedResult || []);
+      console.log('[Sniper] Database returned', apiResponse.length, 'heroes with complete genes');
       
       
       // Helper to convert wei to token amount

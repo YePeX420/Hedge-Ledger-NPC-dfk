@@ -468,6 +468,12 @@ export async function getAllHeroesByOwner(ownerAddress) {
         maxSummons
         staminaFullAt
         currentQuest
+        statGenes
+        visualGenes
+        passive1
+        passive2
+        active1
+        active2
       }
     }
   `;

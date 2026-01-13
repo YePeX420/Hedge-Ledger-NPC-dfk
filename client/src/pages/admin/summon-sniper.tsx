@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users, Link } from "lucide-react";
+import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users, Link, Wallet } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 
-type SearchMode = "tavern" | "myHero";
+type SearchMode = "tavern" | "myHero" | "wallet";
 type SummonType = "regular" | "dark";
 
 interface ProbabilityMap {
@@ -160,6 +160,7 @@ export default function SummonSniper() {
   const [searchMode, setSearchMode] = useState<SearchMode>("tavern");
   const [summonType, setSummonType] = useState<SummonType>("regular");
   const [myHeroId, setMyHeroId] = useState("");
+  const [walletAddress, setWalletAddress] = useState("");
   const [bridgeFeeUsd, setBridgeFeeUsd] = useState("0.50"); // Estimated bridge fee per hero in USD
   const [sortBy, setSortBy] = useState<"efficiency" | "chance" | "price" | "skillScore">("efficiency");
   const [requireAllSkills, setRequireAllSkills] = useState(false); // AND mode for skills
@@ -191,6 +192,7 @@ export default function SummonSniper() {
         summonType,
         searchMode,
         myHeroId: searchMode === "myHero" ? myHeroId : undefined,
+        walletAddress: searchMode === "wallet" ? walletAddress : undefined,
         bridgeFeeUsd: parseFloat(bridgeFeeUsd) || 0,
         sortBy,
         requireAllSkills,
@@ -210,6 +212,8 @@ export default function SummonSniper() {
     if (selectedClasses.length === 0 && selectedProfessions.length === 0 && selectedActiveSkills.length === 0 && selectedPassiveSkills.length === 0) return;
     // In myHero mode, need a hero ID
     if (searchMode === "myHero" && !myHeroId.trim()) return;
+    // In wallet mode, need a wallet address
+    if (searchMode === "wallet" && !walletAddress.trim()) return;
     sniperMutation.mutate();
   };
 
@@ -332,6 +336,19 @@ export default function SummonSniper() {
                 <User className="h-3.5 w-3.5 mr-1.5" />
                 Pair for My Hero
               </Badge>
+              <Badge
+                variant={searchMode === "wallet" ? "default" : "outline"}
+                className={`cursor-pointer text-sm py-1.5 px-4 transition-colors ${
+                  searchMode === "wallet" 
+                    ? "bg-green-600 text-white ring-2 ring-green-500 ring-offset-1 ring-offset-background" 
+                    : "hover:bg-muted"
+                }`}
+                onClick={() => setSearchMode("wallet")}
+                data-testid="badge-mode-wallet"
+              >
+                <Wallet className="h-3.5 w-3.5 mr-1.5" />
+                My Wallet Heroes
+              </Badge>
             </div>
             {searchMode === "myHero" && (
               <div className="mt-2">
@@ -347,6 +364,23 @@ export default function SummonSniper() {
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   Find the best tavern hero to pair with your existing hero
+                </p>
+              </div>
+            )}
+            {searchMode === "wallet" && (
+              <div className="mt-2">
+                <Label htmlFor="walletAddress">Wallet Address</Label>
+                <Input
+                  id="walletAddress"
+                  type="text"
+                  value={walletAddress}
+                  onChange={(e) => setWalletAddress(e.target.value)}
+                  placeholder="Enter wallet address (0x...)"
+                  className="mt-1 max-w-md"
+                  data-testid="input-wallet-address"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Find the best breeding pairs among heroes you already own
                 </p>
               </div>
             )}
