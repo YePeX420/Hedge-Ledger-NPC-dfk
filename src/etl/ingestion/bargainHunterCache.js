@@ -521,7 +521,7 @@ export async function refreshBargainHunterCache() {
   const startTime = Date.now();
   
   try {
-    const { rawPg } = await import('../../../server/db.js');
+    const { rawTextPg } = await import('../../../server/db.js');
     
     console.log('[BargainCache] Starting cache refresh...');
     
@@ -545,28 +545,31 @@ export async function refreshBargainHunterCache() {
     
     console.log(`[BargainCache] Found ${tavernStatus.count} heroes in tavern_heroes table`);
     
+    // Use rawTextPg (direct connection) for all cache mutations to avoid pooler metadata caching
     // Mark cache as building (keep old 'ready' cache visible during build)
-    await rawPg`DELETE FROM bargain_hunter_cache WHERE status = 'building'`;
+    await rawTextPg.unsafe(`DELETE FROM bargain_hunter_cache WHERE status = 'building'`);
     
     // Score regular summoning pairs
     console.log('[BargainCache] Scoring regular summoning pairs...');
     const regularResult = await scorePairsForCache('regular', 1000);
     
     // Insert new 'building' cache for regular (atomic swap step 1)
-    await rawPg`
+    const regularTokenPrices = JSON.stringify(regularResult.tokenPrices).replace(/'/g, "''");
+    const regularPairs = JSON.stringify(regularResult.pairs).replace(/'/g, "''");
+    await rawTextPg.unsafe(`
       INSERT INTO bargain_hunter_cache (summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, build_progress, build_started_at, computed_at)
       VALUES (
         'regular',
         'building',
         ${regularResult.totalHeroes},
         ${regularResult.totalPairsScored},
-        ${JSON.stringify(regularResult.tokenPrices)}::json,
-        ${JSON.stringify(regularResult.pairs)}::json,
+        '${regularTokenPrices}'::json,
+        '${regularPairs}'::json,
         50,
-        ${new Date().toISOString()},
+        '${new Date().toISOString()}',
         CURRENT_TIMESTAMP
       )
-    `;
+    `);
     cacheState.regularPairs = regularResult.totalPairsScored;
     
     // Score dark summoning pairs
@@ -574,26 +577,28 @@ export async function refreshBargainHunterCache() {
     const darkResult = await scorePairsForCache('dark', 1000);
     
     // Insert new 'building' cache for dark
-    await rawPg`
+    const darkTokenPrices = JSON.stringify(darkResult.tokenPrices).replace(/'/g, "''");
+    const darkPairs = JSON.stringify(darkResult.pairs).replace(/'/g, "''");
+    await rawTextPg.unsafe(`
       INSERT INTO bargain_hunter_cache (summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, build_progress, build_started_at, computed_at)
       VALUES (
         'dark',
         'building',
         ${darkResult.totalHeroes},
         ${darkResult.totalPairsScored},
-        ${JSON.stringify(darkResult.tokenPrices)}::json,
-        ${JSON.stringify(darkResult.pairs)}::json,
+        '${darkTokenPrices}'::json,
+        '${darkPairs}'::json,
         100,
-        ${new Date().toISOString()},
+        '${new Date().toISOString()}',
         CURRENT_TIMESTAMP
       )
-    `;
+    `);
     cacheState.darkPairs = darkResult.totalPairsScored;
     
     // Atomic swap: delete old 'ready' rows and promote 'building' to 'ready'
     console.log('[BargainCache] Performing atomic swap...');
-    await rawPg`DELETE FROM bargain_hunter_cache WHERE status = 'ready'`;
-    await rawPg`UPDATE bargain_hunter_cache SET status = 'ready', build_progress = 100 WHERE status = 'building'`;
+    await rawTextPg.unsafe(`DELETE FROM bargain_hunter_cache WHERE status = 'ready'`);
+    await rawTextPg.unsafe(`UPDATE bargain_hunter_cache SET status = 'ready', build_progress = 100 WHERE status = 'building'`);
     
     const duration = Date.now() - startTime;
     cacheState.lastRun = new Date().toISOString();
@@ -618,19 +623,39 @@ export async function refreshBargainHunterCache() {
   }
 }
 
+// One-time migration to add status tracking columns (idempotent with IF NOT EXISTS)
+async function ensureStatusColumns() {
+  const { rawTextPg } = await import('../../../server/db.js');
+  try {
+    // Use IF NOT EXISTS for all columns to handle concurrent processes safely
+    console.log('[BargainCache] Ensuring status tracking columns exist...');
+    await rawTextPg.unsafe(`ALTER TABLE bargain_hunter_cache ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ready'`);
+    await rawTextPg.unsafe(`ALTER TABLE bargain_hunter_cache ADD COLUMN IF NOT EXISTS build_progress INTEGER DEFAULT 0`);
+    await rawTextPg.unsafe(`ALTER TABLE bargain_hunter_cache ADD COLUMN IF NOT EXISTS build_started_at TIMESTAMP`);
+  } catch (err) {
+    // Only log if it's not a "column already exists" type error
+    if (!err.message.includes('already exists')) {
+      console.error('[BargainCache] Error ensuring status columns:', err.message);
+    }
+  }
+}
+
 /**
  * Get cache status for UI display
  */
 export async function getCacheStatus() {
   try {
-    const { rawPg } = await import('../../../server/db.js');
+    const { rawTextPg } = await import('../../../server/db.js');
     
-    // Get both ready and building caches
-    const result = await rawPg`
+    // Ensure the new columns exist (one-time migration)
+    await ensureStatusColumns();
+    
+    // Use rawTextPg.unsafe with raw SQL to bypass all metadata caching (direct connection)
+    const result = await rawTextPg.unsafe(`
       SELECT summon_type, status, total_heroes, total_pairs_scored, build_progress, build_started_at, computed_at
       FROM bargain_hunter_cache
       ORDER BY summon_type, status
-    `;
+    `);
     
     const status = {
       regular: { ready: null, building: null },
@@ -642,9 +667,9 @@ export async function getCacheStatus() {
     
     for (const row of (result || [])) {
       const data = {
-        totalHeroes: row.total_heroes,
-        totalPairsScored: row.total_pairs_scored,
-        buildProgress: row.build_progress,
+        totalHeroes: parseInt(row.total_heroes) || 0,
+        totalPairsScored: parseInt(row.total_pairs_scored) || 0,
+        buildProgress: parseInt(row.build_progress) || 0,
         buildStartedAt: row.build_started_at,
         computedAt: row.computed_at
       };
@@ -673,24 +698,36 @@ export async function getCacheStatus() {
  */
 export async function getCachedBargainPairs(summonType = 'regular') {
   try {
-    const { rawPg } = await import('../../../server/db.js');
+    const { rawTextPg } = await import('../../../server/db.js');
     
     // Only get 'ready' cache - 'building' is kept separate until swap
-    const result = await rawPg`
-      SELECT * FROM bargain_hunter_cache 
-      WHERE summon_type = ${summonType} AND status = 'ready'
-    `;
+    // Use rawTextPg.unsafe with raw SQL to bypass all metadata caching (direct connection)
+    const result = await rawTextPg.unsafe(`
+      SELECT id, summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, computed_at
+      FROM bargain_hunter_cache 
+      WHERE summon_type = '${summonType}' AND status = 'ready'
+    `);
     
     if (!result || result.length === 0) {
       return null;
     }
     
     const cache = result[0];
+    // Parse top_pairs if it's a string (from raw SQL)
+    let topPairs = cache.top_pairs;
+    if (typeof topPairs === 'string') {
+      try { topPairs = JSON.parse(topPairs); } catch (e) { topPairs = []; }
+    }
+    let tokenPrices = cache.token_prices;
+    if (typeof tokenPrices === 'string') {
+      try { tokenPrices = JSON.parse(tokenPrices); } catch (e) { tokenPrices = {}; }
+    }
+    
     return {
-      pairs: cache.top_pairs || [],
-      totalHeroes: cache.total_heroes || 0,
-      totalPairsScored: cache.total_pairs_scored || 0,
-      tokenPrices: cache.token_prices || {},
+      pairs: topPairs || [],
+      totalHeroes: parseInt(cache.total_heroes) || 0,
+      totalPairsScored: parseInt(cache.total_pairs_scored) || 0,
+      tokenPrices: tokenPrices || {},
       computedAt: cache.computed_at,
       status: cache.status
     };
@@ -701,9 +738,3 @@ export async function getCachedBargainPairs(summonType = 'regular') {
   }
 }
 
-/**
- * Get cache status
- */
-export function getCacheStatus() {
-  return { ...cacheState };
-}
