@@ -9985,7 +9985,7 @@ async function startAdminWebServer() {
         if (!isDarkSummon && summonsRemaining < effectiveMinSummons) continue;
         if (!isDarkSummon && maxSummonsRemaining !== undefined && summonsRemaining > maxSummonsRemaining) continue;
         if (rarity < minRarity) continue;
-        if (generation > maxGeneration) continue;
+        if (maxGeneration !== null && maxGeneration !== undefined && generation > maxGeneration) continue;
         if (level < safeMinLevel) continue;
         if (safeTS !== null && heroTS > safeTS) continue;
         
