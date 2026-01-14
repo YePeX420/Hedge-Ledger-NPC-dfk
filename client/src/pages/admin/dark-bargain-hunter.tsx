@@ -411,7 +411,6 @@ export default function DarkBargainHunter() {
 
           <div className="grid gap-4">
             {sortedPairs.slice(0, 100).map((pair, idx) => {
-              const tsEfficiency = (pair.ts?.expected || 0) / (pair.totalCostUsd || 1);
               return (
                 <Card key={idx} className="overflow-hidden" data-testid={`card-pair-${idx}`}>
                   <CardHeader className="pb-2">
@@ -420,7 +419,7 @@ export default function DarkBargainHunter() {
                         <Badge variant="outline" className="bg-purple-500/10 text-purple-600 border-purple-500/30">
                           #{idx + 1}
                         </Badge>
-                        <span className="font-semibold">TS Efficiency: {tsEfficiency.toFixed(4)}</span>
+                        <span className="font-semibold">TS/JEWEL: {((pair.efficiency || 0) * 100).toFixed(2)}</span>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="secondary">
