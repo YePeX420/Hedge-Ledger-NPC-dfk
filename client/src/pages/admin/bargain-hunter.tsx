@@ -54,13 +54,22 @@ interface SniperPair {
 interface CacheResult {
   ok: boolean;
   cached: boolean;
-  isRefreshing?: boolean;
+  isBuilding?: boolean;
   pairs: SniperPair[];
   totalHeroes: number;
   totalPairsScored: number;
   tokenPrices?: { CRYSTAL: number; JEWEL: number };
   computedAt?: string;
   message?: string;
+}
+
+interface CacheStatus {
+  ok: boolean;
+  isBuilding: boolean;
+  lastRun: string | null;
+  error: string | null;
+  regular: { ready: { totalHeroes: number; totalPairsScored: number; computedAt: string } | null };
+  dark: { ready: { totalHeroes: number; totalPairsScored: number; computedAt: string } | null };
 }
 
 type SortOption = "efficiency" | "tsPerToken" | "lowestCost" | "eliteChance" | "exaltedChance" | "maxSlotExalted" | "expectedTS";
@@ -82,6 +91,18 @@ export default function BargainHunter() {
     refetchInterval: 60000,
     staleTime: 30000
   });
+  
+  const { data: cacheStatus } = useQuery<CacheStatus>({
+    queryKey: ['/api/admin/bargain-cache/status'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/bargain-cache/status', { credentials: 'include' });
+      return response.json();
+    },
+    refetchInterval: (query) => query.state.data?.isBuilding ? 3000 : 30000,
+    staleTime: 2000
+  });
+  
+  const isBuilding = cacheStatus?.isBuilding || result?.isBuilding;
 
   const refreshMutation = useMutation({
     mutationFn: async () => {
@@ -173,6 +194,12 @@ export default function BargainHunter() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {isBuilding && (
+            <Badge variant="secondary" className="flex items-center gap-1 bg-amber-500/20 text-amber-400 border-amber-500/30">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Rebuilding...
+            </Badge>
+          )}
           <Button
             onClick={() => refetch()}
             disabled={isLoading}
@@ -184,11 +211,11 @@ export default function BargainHunter() {
           </Button>
           <Button
             onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending || result?.isRefreshing}
+            disabled={refreshMutation.isPending || isBuilding}
             variant="outline"
             data-testid="button-refresh-cache"
           >
-            {refreshMutation.isPending || result?.isRefreshing ? (
+            {refreshMutation.isPending || isBuilding ? (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
             ) : (
               <RefreshCw className="h-4 w-4 mr-2" />
