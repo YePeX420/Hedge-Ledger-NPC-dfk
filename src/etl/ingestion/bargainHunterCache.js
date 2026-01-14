@@ -131,61 +131,147 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   
   console.log(`[BargainCache] ${eligibleHeroes.length} eligible heroes for ${summonType} summoning`);
   
-  // Group heroes by rarity and take cheapest from each rarity tier
-  // This ensures we have heroes from all rarity levels for fair comparisons
-  const HEROES_PER_RARITY = 300; // 300 per rarity x 5 rarities = up to 1500 heroes
-  const HIGH_LEVEL_PER_RARITY = 150; // Additional 150 heroes level 10+ per rarity
+  // ========================================
+  // MULTI-TRAIT HERO SELECTION STRATEGY
+  // ========================================
+  // 1. 300 cheapest per rarity (covers price-based bargains)
+  // 2. 150 high-level (10+) per rarity (covers leveled heroes)
+  // 3. 100 cheapest per main class (covers class diversity)
+  // 4. 100 cheapest per profession (covers profession-focused summoning)
+  // 5. 50 cheapest per elite/exalted skill × rarity × level bracket (covers skill builds)
+  
+  const HEROES_PER_RARITY = 300;
+  const HIGH_LEVEL_PER_RARITY = 150;
   const HIGH_LEVEL_THRESHOLD = 10;
+  const HEROES_PER_CLASS = 100;
+  const HEROES_PER_PROFESSION = 100;
+  const HEROES_PER_SKILL_COMBO = 50; // per skill × rarity × level bracket
   
+  const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+  const LEVEL_BRACKETS = [
+    { label: '1-5', min: 1, max: 5 },
+    { label: '6-10', min: 6, max: 10 },
+    { label: '11+', min: 11, max: 999 }
+  ];
+  
+  // Elite/Exalted skills to prioritize (most valuable for summoning)
+  const ELITE_SKILLS = ['Stun', 'Second Wind', 'Giant Slayer', 'Last Stand'];
+  const EXALTED_SKILLS = ['Resurrection', 'Second Life'];
+  const PRIORITY_SKILLS = [...ELITE_SKILLS, ...EXALTED_SKILLS];
+  
+  // Sort all heroes by price once for efficiency
+  eligibleHeroes.sort((a, b) => (parseFloat(a.price_native) || 0) - (parseFloat(b.price_native) || 0));
+  
+  const selectedHeroIds = new Set();
+  const selectedHeroes = [];
+  
+  // Helper to add heroes to selection (deduped)
+  function addHeroes(heroes, limit, context) {
+    let added = 0;
+    for (const h of heroes) {
+      if (!selectedHeroIds.has(h.hero_id)) {
+        selectedHeroIds.add(h.hero_id);
+        selectedHeroes.push(h);
+        added++;
+        if (added >= limit) break;
+      }
+    }
+    return added;
+  }
+  
+  // 1. Group by rarity and select cheapest
+  console.log('[BargainCache] Selecting by RARITY...');
   const heroesByRarity = { 0: [], 1: [], 2: [], 3: [], 4: [] };
-  const highLevelByRarity = { 0: [], 1: [], 2: [], 3: [], 4: [] };
-  
   for (const h of eligibleHeroes) {
     const rarity = h.rarity || 0;
     if (rarity >= 0 && rarity <= 4) {
       heroesByRarity[rarity].push(h);
-      // Also track high-level heroes separately
-      if ((h.level || 1) >= HIGH_LEVEL_THRESHOLD) {
-        highLevelByRarity[rarity].push(h);
-      }
     }
   }
-  
-  // Sort each rarity by price and take cheapest
-  const selectedHeroIds = new Set();
-  const selectedHeroes = [];
-  const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
   
   for (let r = 0; r <= 4; r++) {
-    // Take cheapest 300 from each rarity
-    heroesByRarity[r].sort((a, b) => (parseFloat(a.price_native) || 0) - (parseFloat(b.price_native) || 0));
-    const cheapest = heroesByRarity[r].slice(0, HEROES_PER_RARITY);
-    for (const h of cheapest) {
-      if (!selectedHeroIds.has(h.hero_id)) {
-        selectedHeroIds.add(h.hero_id);
-        selectedHeroes.push(h);
-      }
-    }
-    
-    // Also take up to 150 high-level heroes (level 10+) per rarity, sorted by price
-    // This ensures level filters work across all rarities
-    highLevelByRarity[r].sort((a, b) => (parseFloat(a.price_native) || 0) - (parseFloat(b.price_native) || 0));
-    let highLevelAdded = 0;
-    for (const h of highLevelByRarity[r]) {
-      if (!selectedHeroIds.has(h.hero_id)) {
-        selectedHeroIds.add(h.hero_id);
-        selectedHeroes.push(h);
-        highLevelAdded++;
-        if (highLevelAdded >= HIGH_LEVEL_PER_RARITY) break;
-      }
-    }
-    
-    const totalForRarity = cheapest.length + highLevelAdded;
-    console.log(`[BargainCache] ${RARITY_LABELS[r]}: ${heroesByRarity[r].length} available, ${cheapest.length} cheapest + ${highLevelAdded} high-level = ${totalForRarity} selected`);
+    const added = addHeroes(heroesByRarity[r], HEROES_PER_RARITY, `${RARITY_LABELS[r]} rarity`);
+    console.log(`[BargainCache]   ${RARITY_LABELS[r]}: ${heroesByRarity[r].length} available, ${added} selected`);
   }
   
+  // 2. High-level heroes (level 10+) per rarity
+  console.log('[BargainCache] Selecting HIGH-LEVEL heroes...');
+  for (let r = 0; r <= 4; r++) {
+    const highLevel = heroesByRarity[r].filter(h => (h.level || 1) >= HIGH_LEVEL_THRESHOLD);
+    const added = addHeroes(highLevel, HIGH_LEVEL_PER_RARITY, `${RARITY_LABELS[r]} high-level`);
+    if (added > 0) {
+      console.log(`[BargainCache]   ${RARITY_LABELS[r]} lvl 10+: ${highLevel.length} available, ${added} added`);
+    }
+  }
+  
+  // 3. Cheapest per main class
+  console.log('[BargainCache] Selecting by MAIN CLASS...');
+  const heroesByClass = {};
+  for (const h of eligibleHeroes) {
+    const cls = h.main_class;
+    if (cls) {
+      if (!heroesByClass[cls]) heroesByClass[cls] = [];
+      heroesByClass[cls].push(h);
+    }
+  }
+  
+  for (const [cls, heroes] of Object.entries(heroesByClass)) {
+    const added = addHeroes(heroes, HEROES_PER_CLASS, `class ${cls}`);
+    if (added > 0) {
+      console.log(`[BargainCache]   ${cls}: ${heroes.length} available, ${added} added`);
+    }
+  }
+  
+  // 4. Cheapest per profession
+  console.log('[BargainCache] Selecting by PROFESSION...');
+  const heroesByProfession = {};
+  for (const h of eligibleHeroes) {
+    const prof = h.profession;
+    if (prof) {
+      if (!heroesByProfession[prof]) heroesByProfession[prof] = [];
+      heroesByProfession[prof].push(h);
+    }
+  }
+  
+  for (const [prof, heroes] of Object.entries(heroesByProfession)) {
+    const added = addHeroes(heroes, HEROES_PER_PROFESSION, `profession ${prof}`);
+    if (added > 0) {
+      console.log(`[BargainCache]   ${prof}: ${heroes.length} available, ${added} added`);
+    }
+  }
+  
+  // 5. Cheapest per elite/exalted skill × rarity × level bracket
+  console.log('[BargainCache] Selecting by ELITE/EXALTED SKILLS...');
+  
+  // Build skill index: for each hero, check all 4 skill slots (dominant genes only)
+  const heroesBySkillRarityLevel = {};
+  
+  for (const h of eligibleHeroes) {
+    const skills = [h.active1, h.active2, h.passive1, h.passive2].filter(s => s && PRIORITY_SKILLS.includes(s));
+    const rarity = h.rarity || 0;
+    const level = h.level || 1;
+    const levelBracket = LEVEL_BRACKETS.find(b => level >= b.min && level <= b.max)?.label || '1-5';
+    
+    for (const skill of skills) {
+      const key = `${skill}|${rarity}|${levelBracket}`;
+      if (!heroesBySkillRarityLevel[key]) heroesBySkillRarityLevel[key] = [];
+      heroesBySkillRarityLevel[key].push(h);
+    }
+  }
+  
+  let skillCombosProcessed = 0;
+  let skillHeroesAdded = 0;
+  
+  for (const [key, heroes] of Object.entries(heroesBySkillRarityLevel)) {
+    const added = addHeroes(heroes, HEROES_PER_SKILL_COMBO, `skill combo ${key}`);
+    skillHeroesAdded += added;
+    skillCombosProcessed++;
+  }
+  
+  console.log(`[BargainCache]   Processed ${skillCombosProcessed} skill×rarity×level combos, added ${skillHeroesAdded} heroes`);
+  
   eligibleHeroes = selectedHeroes;
-  console.log(`[BargainCache] Selected ${eligibleHeroes.length} heroes across all rarities (including high-level heroes)`);
+  console.log(`[BargainCache] TOTAL selected: ${eligibleHeroes.length} unique heroes for ${summonType} summoning`);
   
   // Skill ID to name mappings (same as gene-decoder.js)
   const ACTIVE_GENES = {
