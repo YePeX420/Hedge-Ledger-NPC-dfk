@@ -840,7 +840,7 @@ export function calculateTSProbabilities(probs) {
  */
 export function calculateEliteExaltedChances(slotTierProbs) {
   if (!slotTierProbs) {
-    return { eliteChance: 0, exaltedChance: 0 };
+    return { eliteChance: 0, exaltedChance: 0, maxSlotElite: 0, maxSlotExalted: 0 };
   }
   
   const slots = ['active1', 'active2', 'passive1', 'passive2'];
@@ -849,6 +849,8 @@ export function calculateEliteExaltedChances(slotTierProbs) {
   // P(at least 1 elite) = 1 - product of P(no elite) for all slots
   let probNoEliteAll = 1;
   let probNoExaltedAll = 1;
+  let maxSlotElite = 0;
+  let maxSlotExalted = 0;
   
   for (const slot of slots) {
     const tiers = slotTierProbs[slot];
@@ -867,6 +869,10 @@ export function calculateEliteExaltedChances(slotTierProbs) {
     
     probNoEliteAll *= probNoEliteSlot;
     probNoExaltedAll *= probNoExaltedSlot;
+    
+    // Track max single-slot probabilities (convert back to %)
+    if (t2 * 100 > maxSlotElite) maxSlotElite = t2 * 100;
+    if (t3 * 100 > maxSlotExalted) maxSlotExalted = t3 * 100;
   }
   
   // Convert back to percentages
@@ -875,7 +881,9 @@ export function calculateEliteExaltedChances(slotTierProbs) {
   
   return {
     eliteChance: Math.round(eliteChance * 100) / 100,
-    exaltedChance: Math.round(exaltedChance * 100) / 100
+    exaltedChance: Math.round(exaltedChance * 100) / 100,
+    maxSlotElite: Math.round(maxSlotElite * 100) / 100,
+    maxSlotExalted: Math.round(maxSlotExalted * 100) / 100
   };
 }
 

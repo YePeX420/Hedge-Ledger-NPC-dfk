@@ -9694,6 +9694,7 @@ async function startAdminWebServer() {
         minTSProbability = null, // Minimum probability % of achieving targetTSValue (e.g., 20 means ">= 20% chance")
         minEliteChance = null,   // Minimum % chance of at least one elite skill (Stun, Second Wind, Giant Slayer, Last Stand)
         minExaltedChance = null, // Minimum % chance of at least one exalted skill (Resurrection, Second Life)
+        minMaxSlotExalted = null, // Minimum % chance in any single slot for exalted skill (max is 12.5% for perfect elite alignment)
         sortBy = 'efficiency',   // 'efficiency', 'chance', 'price', or 'skillScore'
         requireAllSkills = false, // When true, require pairs that can produce ALL selected skills (AND mode)
         limit = 20
@@ -10994,6 +10995,23 @@ async function startAdminWebServer() {
               }
             }
           }
+          
+          // Filter by max single-slot exalted chance (best slot)
+          if (minMaxSlotExalted !== null && minMaxSlotExalted !== undefined) {
+            const minBestSlot = Number(minMaxSlotExalted);
+            if (!isNaN(minBestSlot) && minBestSlot >= 0 && minBestSlot <= 100) {
+              const slots = tsData?.slotTierProbs || {};
+              let maxSlotExalted = 0;
+              for (const slot of ['active1', 'active2', 'passive1', 'passive2']) {
+                const slotProbs = slots[slot] || {};
+                const pExaltedInSlot = slotProbs['3'] ?? slotProbs[3] ?? 0;
+                if (pExaltedInSlot > maxSlotExalted) maxSlotExalted = pExaltedInSlot;
+              }
+              if (maxSlotExalted < minBestSlot) {
+                continue;
+              }
+            }
+          }
 
           // Calculate USD total cost (including bridging fees)
           const tokenPriceUsd = realm === 'cv' ? crystalPriceUsd : jewelPriceUsd;
@@ -11069,15 +11087,22 @@ async function startAdminWebServer() {
               const slots = tsData?.slotTierProbs || {};
               let pNoElite = 1.0;
               let pNoExalted = 1.0;
+              let maxSlotElite = 0;
+              let maxSlotExalted = 0;
               for (const slot of ['active1', 'active2', 'passive1', 'passive2']) {
                 const slotProbs = slots[slot] || {};
-                // Try both string and numeric keys for compatibility
-                pNoElite *= (1 - (slotProbs['2'] ?? slotProbs[2] ?? 0) / 100);
-                pNoExalted *= (1 - (slotProbs['3'] ?? slotProbs[3] ?? 0) / 100);
+                const t2 = slotProbs['2'] ?? slotProbs[2] ?? 0;
+                const t3 = slotProbs['3'] ?? slotProbs[3] ?? 0;
+                pNoElite *= (1 - t2 / 100);
+                pNoExalted *= (1 - t3 / 100);
+                if (t2 > maxSlotElite) maxSlotElite = t2;
+                if (t3 > maxSlotExalted) maxSlotExalted = t3;
               }
               return {
-                eliteChance: Math.round((1 - pNoElite) * 10000) / 100,  // 2 decimal places
-                exaltedChance: Math.round((1 - pNoExalted) * 10000) / 100
+                eliteChance: Math.round((1 - pNoElite) * 10000) / 100,
+                exaltedChance: Math.round((1 - pNoExalted) * 10000) / 100,
+                maxSlotElite: Math.round(maxSlotElite * 100) / 100,
+                maxSlotExalted: Math.round(maxSlotExalted * 100) / 100
               };
             })()
           });

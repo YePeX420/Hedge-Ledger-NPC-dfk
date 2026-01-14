@@ -426,6 +426,8 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
             efficiency,
             eliteChance: eliteExalted.eliteChance,
             exaltedChance: eliteExalted.exaltedChance,
+            maxSlotElite: eliteExalted.maxSlotElite || 0,
+            maxSlotExalted: eliteExalted.maxSlotExalted || 0,
             ts: {
               expected: expectedTS,
               distribution: tsData?.tsProbabilities || {},

@@ -89,6 +89,8 @@ interface SniperPair {
   eliteExaltedChances?: {
     eliteChance: number;
     exaltedChance: number;
+    maxSlotElite?: number;
+    maxSlotExalted?: number;
   };
 }
 
@@ -155,6 +157,7 @@ export default function SummonSniper() {
   const [minTSProbability, setMinTSProbability] = useState("");
   const [minEliteChance, setMinEliteChance] = useState("");
   const [minExaltedChance, setMinExaltedChance] = useState("");
+  const [minMaxSlotExalted, setMinMaxSlotExalted] = useState("");
   const [sniperResult, setSniperResult] = useState<SniperResult | null>(null);
   
   // New state for search mode and summon type
@@ -191,6 +194,7 @@ export default function SummonSniper() {
         minTSProbability: minTSProbability ? parseFloat(minTSProbability) : null,
         minEliteChance: minEliteChance ? parseFloat(minEliteChance) : null,
         minExaltedChance: minExaltedChance ? parseFloat(minExaltedChance) : null,
+        minMaxSlotExalted: minMaxSlotExalted ? parseFloat(minMaxSlotExalted) : null,
         summonType,
         searchMode,
         myHeroId: searchMode === "myHero" ? myHeroId : undefined,
@@ -663,18 +667,32 @@ export default function SummonSniper() {
               <Input
                 id="minExaltedChance"
                 type="number"
-                step="1"
+                step="0.1"
                 min="0"
                 max="100"
                 value={minExaltedChance}
                 onChange={(e) => setMinExaltedChance(e.target.value)}
-                placeholder="e.g. 2"
+                placeholder="e.g. 0.5"
                 data-testid="input-min-exalted-chance"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="minMaxSlotExalted">Best Slot Exalted %</Label>
+              <Input
+                id="minMaxSlotExalted"
+                type="number"
+                step="1"
+                min="0"
+                max="13"
+                value={minMaxSlotExalted}
+                onChange={(e) => setMinMaxSlotExalted(e.target.value)}
+                placeholder="e.g. 12"
+                data-testid="input-min-max-slot-exalted"
               />
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            TS filters for total tier score. Elite/Exalted filters for chance of at least one elite (Stun, Second Wind, etc.) or exalted (Resurrection, Second Life) skill.
+            TS filters for total tier score. Elite/Exalted filters for combined chance across all slots. Best Slot% shows pairs where at least one slot has that exalted chance (max is 12.5% when elite skills perfectly align).
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -986,7 +1004,7 @@ export default function SummonSniper() {
                               <span>TS≥8: <span className="text-orange-400">{pair.ts.cumulative["8"]?.toFixed(1) ?? '0'}%</span></span>
                             </div>
                           )}
-                          {pair.eliteExaltedChances && (pair.eliteExaltedChances.eliteChance > 0 || pair.eliteExaltedChances.exaltedChance > 0) && (
+                          {pair.eliteExaltedChances && (pair.eliteExaltedChances.eliteChance > 0 || pair.eliteExaltedChances.exaltedChance > 0 || (pair.eliteExaltedChances.maxSlotExalted || 0) > 0) && (
                             <div className="flex gap-3 mt-2 text-xs">
                               {pair.eliteExaltedChances.eliteChance > 0 && (
                                 <Badge variant="outline" className="text-[10px] border-amber-500 text-amber-500">
@@ -996,6 +1014,11 @@ export default function SummonSniper() {
                               {pair.eliteExaltedChances.exaltedChance > 0 && (
                                 <Badge variant="outline" className="text-[10px] border-purple-500 text-purple-500">
                                   Exalted: {pair.eliteExaltedChances.exaltedChance.toFixed(2)}%
+                                </Badge>
+                              )}
+                              {(pair.eliteExaltedChances.maxSlotExalted || 0) > 0 && (
+                                <Badge variant="outline" className="text-[10px] border-pink-500 text-pink-500">
+                                  Best Slot: {pair.eliteExaltedChances.maxSlotExalted?.toFixed(1)}%
                                 </Badge>
                               )}
                             </div>

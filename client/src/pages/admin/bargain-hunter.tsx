@@ -46,6 +46,8 @@ interface SniperPair {
   efficiency: number;
   eliteChance?: number;
   exaltedChance?: number;
+  maxSlotElite?: number;
+  maxSlotExalted?: number;
   ts?: TSData;
 }
 
@@ -61,13 +63,14 @@ interface CacheResult {
   message?: string;
 }
 
-type SortOption = "efficiency" | "tsPerToken" | "lowestCost" | "eliteChance" | "exaltedChance" | "expectedTS";
+type SortOption = "efficiency" | "tsPerToken" | "lowestCost" | "eliteChance" | "exaltedChance" | "maxSlotExalted" | "expectedTS";
 
 export default function BargainHunter() {
   const [realmFilter, setRealmFilter] = useState<string>("all");
   const [minSummonsRemaining, setMinSummonsRemaining] = useState<number>(0);
   const [minEliteChance, setMinEliteChance] = useState<number>(0);
   const [minExaltedChance, setMinExaltedChance] = useState<number>(0);
+  const [minMaxSlotExalted, setMinMaxSlotExalted] = useState<number>(0);
   const [sortBy, setSortBy] = useState<SortOption>("efficiency");
 
   const { data: result, isLoading, refetch } = useQuery<CacheResult>({
@@ -110,6 +113,9 @@ export default function BargainHunter() {
     if (minExaltedChance > 0) {
       filtered = filtered.filter(pair => (pair.exaltedChance || 0) >= minExaltedChance);
     }
+    if (minMaxSlotExalted > 0) {
+      filtered = filtered.filter(pair => (pair.maxSlotExalted || 0) >= minMaxSlotExalted);
+    }
     // Sort based on selected option
     return filtered.sort((a, b) => {
       switch (sortBy) {
@@ -123,6 +129,8 @@ export default function BargainHunter() {
           return (b.eliteChance || 0) - (a.eliteChance || 0);
         case "exaltedChance":
           return (b.exaltedChance || 0) - (a.exaltedChance || 0);
+        case "maxSlotExalted":
+          return (b.maxSlotExalted || 0) - (a.maxSlotExalted || 0);
         case "expectedTS":
           return (b.ts?.expected || 0) - (a.ts?.expected || 0);
         case "efficiency":
@@ -130,7 +138,7 @@ export default function BargainHunter() {
           return (b.efficiency || 0) - (a.efficiency || 0);
       }
     });
-  }, [result?.pairs, realmFilter, minSummonsRemaining, minEliteChance, minExaltedChance, sortBy]);
+  }, [result?.pairs, realmFilter, minSummonsRemaining, minEliteChance, minExaltedChance, minMaxSlotExalted, sortBy]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -279,6 +287,22 @@ export default function BargainHunter() {
                 </Select>
               </div>
               <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Best Slot%:</span>
+                <Select value={String(minMaxSlotExalted)} onValueChange={(v) => setMinMaxSlotExalted(Number(v))}>
+                  <SelectTrigger className="w-24" data-testid="select-max-slot-exalted-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Any</SelectItem>
+                    <SelectItem value="1">1%+</SelectItem>
+                    <SelectItem value="3">3%+</SelectItem>
+                    <SelectItem value="5">5%+</SelectItem>
+                    <SelectItem value="10">10%+</SelectItem>
+                    <SelectItem value="12">12%+</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Realm:</span>
                 <Select value={realmFilter} onValueChange={setRealmFilter}>
                   <SelectTrigger className="w-40" data-testid="select-realm-filter">
@@ -304,6 +328,7 @@ export default function BargainHunter() {
                     <SelectItem value="expectedTS">Expected TS</SelectItem>
                     <SelectItem value="eliteChance">Elite Chance</SelectItem>
                     <SelectItem value="exaltedChance">Exalted Chance</SelectItem>
+                    <SelectItem value="maxSlotExalted">Best Slot Exalted</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -335,6 +360,11 @@ export default function BargainHunter() {
                         {(pair.exaltedChance || 0) > 0 && (
                           <Badge variant="outline" className="bg-purple-500/10 text-purple-600 border-purple-500/30">
                             Exalted: {pair.exaltedChance?.toFixed(1)}%
+                          </Badge>
+                        )}
+                        {(pair.maxSlotExalted || 0) > 0 && (
+                          <Badge variant="outline" className="bg-pink-500/10 text-pink-600 border-pink-500/30">
+                            Best Slot: {pair.maxSlotExalted?.toFixed(1)}%
                           </Badge>
                         )}
                         <Badge variant="outline" className="text-green-600">
