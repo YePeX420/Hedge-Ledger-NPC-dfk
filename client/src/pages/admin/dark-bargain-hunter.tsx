@@ -67,6 +67,7 @@ export default function DarkBargainHunter() {
   const [realmFilter, setRealmFilter] = useState<string>("all");
   const [minRarityFilter, setMinRarityFilter] = useState<number>(0);
   const [minLevelFilter, setMinLevelFilter] = useState<number>(1);
+  const [minSummonsRemaining, setMinSummonsRemaining] = useState<number>(0);
   const [minEliteChance, setMinEliteChance] = useState<number>(0);
   const [minExaltedChance, setMinExaltedChance] = useState<number>(0);
   const [sortBy, setSortBy] = useState<SortOption>("efficiency");
@@ -109,6 +110,12 @@ export default function DarkBargainHunter() {
         pair.hero1.level >= minLevelFilter && pair.hero2.level >= minLevelFilter
       );
     }
+    if (minSummonsRemaining > 0) {
+      filtered = filtered.filter(pair => 
+        pair.hero1.summonsRemaining >= minSummonsRemaining && 
+        pair.hero2.summonsRemaining >= minSummonsRemaining
+      );
+    }
     if (minEliteChance > 0) {
       filtered = filtered.filter(pair => (pair.eliteChance || 0) >= minEliteChance);
     }
@@ -135,7 +142,7 @@ export default function DarkBargainHunter() {
           return (b.efficiency || 0) - (a.efficiency || 0);
       }
     });
-  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minEliteChance, minExaltedChance, sortBy]);
+  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minSummonsRemaining, minEliteChance, minExaltedChance, sortBy]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -299,6 +306,22 @@ export default function DarkBargainHunter() {
                     <SelectItem value="20">20+</SelectItem>
                     <SelectItem value="30">30+</SelectItem>
                     <SelectItem value="50">50+</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Min Summons:</span>
+                <Select value={String(minSummonsRemaining)} onValueChange={(v) => setMinSummonsRemaining(Number(v))}>
+                  <SelectTrigger className="w-24" data-testid="select-summons-filter-dark">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Any</SelectItem>
+                    <SelectItem value="1">1+</SelectItem>
+                    <SelectItem value="2">2+</SelectItem>
+                    <SelectItem value="3">3+</SelectItem>
+                    <SelectItem value="5">5+</SelectItem>
+                    <SelectItem value="10">10+</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

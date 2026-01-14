@@ -65,6 +65,7 @@ type SortOption = "efficiency" | "tsPerToken" | "lowestCost" | "eliteChance" | "
 
 export default function BargainHunter() {
   const [realmFilter, setRealmFilter] = useState<string>("all");
+  const [minSummonsRemaining, setMinSummonsRemaining] = useState<number>(0);
   const [minEliteChance, setMinEliteChance] = useState<number>(0);
   const [minExaltedChance, setMinExaltedChance] = useState<number>(0);
   const [sortBy, setSortBy] = useState<SortOption>("efficiency");
@@ -97,6 +98,12 @@ export default function BargainHunter() {
     if (realmFilter !== "all") {
       filtered = filtered.filter(pair => pair.realm === realmFilter);
     }
+    if (minSummonsRemaining > 0) {
+      filtered = filtered.filter(pair => 
+        pair.hero1.summonsRemaining >= minSummonsRemaining && 
+        pair.hero2.summonsRemaining >= minSummonsRemaining
+      );
+    }
     if (minEliteChance > 0) {
       filtered = filtered.filter(pair => (pair.eliteChance || 0) >= minEliteChance);
     }
@@ -123,7 +130,7 @@ export default function BargainHunter() {
           return (b.efficiency || 0) - (a.efficiency || 0);
       }
     });
-  }, [result?.pairs, realmFilter, minEliteChance, minExaltedChance, sortBy]);
+  }, [result?.pairs, realmFilter, minSummonsRemaining, minEliteChance, minExaltedChance, sortBy]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -223,6 +230,22 @@ export default function BargainHunter() {
               )}
             </div>
             <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Min Summons:</span>
+                <Select value={String(minSummonsRemaining)} onValueChange={(v) => setMinSummonsRemaining(Number(v))}>
+                  <SelectTrigger className="w-24" data-testid="select-summons-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Any</SelectItem>
+                    <SelectItem value="1">1+</SelectItem>
+                    <SelectItem value="2">2+</SelectItem>
+                    <SelectItem value="3">3+</SelectItem>
+                    <SelectItem value="5">5+</SelectItem>
+                    <SelectItem value="10">10+</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Min Elite%:</span>
                 <Select value={String(minEliteChance)} onValueChange={(v) => setMinEliteChance(Number(v))}>
