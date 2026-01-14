@@ -150,6 +150,7 @@ export default function SummonSniper() {
   const [minRarity, setMinRarity] = useState(0);
   const [sniperMinSummons, setSniperMinSummons] = useState("1");
   const [sniperMinLevel, setSniperMinLevel] = useState("1");
+  const [maxGeneration, setMaxGeneration] = useState("");
   const [targetTSValue, setTargetTSValue] = useState("");
   const [minTSProbability, setMinTSProbability] = useState("");
   const [minEliteChance, setMinEliteChance] = useState("");
@@ -185,6 +186,7 @@ export default function SummonSniper() {
         minSummonsRemaining: effectiveMinSummons,
         maxSummonsRemaining: effectiveMaxSummons,
         minLevel: parseInt(sniperMinLevel) || 1,
+        maxGeneration: maxGeneration ? parseInt(maxGeneration) : null,
         targetTSValue: targetTSValue ? parseInt(targetTSValue) : null,
         minTSProbability: minTSProbability ? parseFloat(minTSProbability) : null,
         minEliteChance: minEliteChance ? parseFloat(minEliteChance) : null,
@@ -599,6 +601,19 @@ export default function SummonSniper() {
                 onChange={(e) => setSniperMinLevel(e.target.value)}
                 placeholder="1"
                 data-testid="input-min-level"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="maxGeneration">Max Generation</Label>
+              <Input
+                id="maxGeneration"
+                type="number"
+                min="0"
+                value={maxGeneration}
+                onChange={(e) => setMaxGeneration(e.target.value)}
+                placeholder="Any"
+                data-testid="input-max-generation"
               />
             </div>
 
