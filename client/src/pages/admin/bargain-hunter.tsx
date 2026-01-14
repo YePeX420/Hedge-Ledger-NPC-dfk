@@ -270,11 +270,11 @@ export default function BargainHunter() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="0">Any</SelectItem>
+                    <SelectItem value="0.1">0.1%+</SelectItem>
+                    <SelectItem value="0.25">0.25%+</SelectItem>
+                    <SelectItem value="0.5">0.5%+</SelectItem>
                     <SelectItem value="1">1%+</SelectItem>
                     <SelectItem value="2">2%+</SelectItem>
-                    <SelectItem value="3">3%+</SelectItem>
-                    <SelectItem value="5">5%+</SelectItem>
-                    <SelectItem value="10">10%+</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
