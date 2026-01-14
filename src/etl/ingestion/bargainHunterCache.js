@@ -140,12 +140,14 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   // 4. 100 cheapest per profession (covers profession-focused summoning)
   // 5. 50 cheapest per elite/exalted skill × rarity × level bracket (covers skill builds)
   
-  const HEROES_PER_RARITY = 300;
-  const HIGH_LEVEL_PER_RARITY = 150;
+  // Reduced limits to prevent out-of-memory and timeout issues
+  // Target: ~1,000 heroes max (~500k pairs) for ~90s cache build
+  const HEROES_PER_RARITY = 50;
+  const HIGH_LEVEL_PER_RARITY = 15;
   const HIGH_LEVEL_THRESHOLD = 10;
-  const HEROES_PER_CLASS = 100;
-  const HEROES_PER_PROFESSION = 100;
-  const HEROES_PER_SKILL_COMBO = 50; // per skill × rarity × level bracket
+  const HEROES_PER_CLASS = 20;
+  const HEROES_PER_PROFESSION = 25;
+  const HEROES_PER_SKILL_COMBO = 10; // per skill × rarity × level bracket
   
   const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
   const LEVEL_BRACKETS = [
@@ -153,6 +155,36 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
     { label: '6-10', min: 6, max: 10 },
     { label: '11+', min: 11, max: 999 }
   ];
+  
+  // Skill ID to name mappings (same as gene-decoder.js) - needed for skill selection
+  const ACTIVE_GENES_MAP = {
+    0: 'Poisoned Blade', 1: 'Blinding Winds', 2: 'Heal', 3: 'Cleanse',
+    4: 'Iron Skin', 5: 'Speed', 6: 'Critical Aim', 7: 'Deathmark',
+    16: 'Exhaust', 17: 'Daze', 18: 'Explosion', 19: 'Hardened Shield',
+    24: 'Stun', 25: 'Second Wind', 28: 'Resurrection'
+  };
+  const PASSIVE_GENES_MAP = {
+    0: 'Duelist', 1: 'Clutch', 2: 'Foresight', 3: 'Headstrong',
+    4: 'Clear Vision', 5: 'Fearless', 6: 'Chatterbox', 7: 'Stalwart',
+    16: 'Leadership', 17: 'Efficient', 18: 'Intimidation', 19: 'Toxic',
+    24: 'Giant Slayer', 25: 'Last Stand', 28: 'Second Life'
+  };
+  
+  // Convert ability_X format to skill name for comparison
+  function parseSkillName(val, isActive = true) {
+    if (!val) return null;
+    const map = isActive ? ACTIVE_GENES_MAP : PASSIVE_GENES_MAP;
+    // If already a valid skill name string, pass through
+    if (typeof val === 'string' && Object.values(map).includes(val)) {
+      return val;
+    }
+    // Handle ability_X format
+    if (typeof val === 'string' && val.startsWith('ability_')) {
+      const id = parseInt(val.replace('ability_', ''));
+      return map[id] || null;
+    }
+    return null;
+  }
   
   // Elite/Exalted skills to prioritize (most valuable for summoning)
   const ELITE_SKILLS = ['Stun', 'Second Wind', 'Giant Slayer', 'Last Stand'];
@@ -244,10 +276,22 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   console.log('[BargainCache] Selecting by ELITE/EXALTED SKILLS...');
   
   // Build skill index: for each hero, check all 4 skill slots (dominant genes only)
+  // Need to convert ability_X format to skill names for matching
   const heroesBySkillRarityLevel = {};
   
   for (const h of eligibleHeroes) {
-    const skills = [h.active1, h.active2, h.passive1, h.passive2].filter(s => s && PRIORITY_SKILLS.includes(s));
+    // Parse skill names from ability_X format
+    const skillsRaw = [
+      { val: h.active1, isActive: true },
+      { val: h.active2, isActive: true },
+      { val: h.passive1, isActive: false },
+      { val: h.passive2, isActive: false }
+    ];
+    
+    const skills = skillsRaw
+      .map(s => parseSkillName(s.val, s.isActive))
+      .filter(s => s && PRIORITY_SKILLS.includes(s));
+    
     const rarity = h.rarity || 0;
     const level = h.level || 1;
     const levelBracket = LEVEL_BRACKETS.find(b => level >= b.min && level <= b.max)?.label || '1-5';
@@ -399,7 +443,27 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   console.log(`[BargainCache] Realm breakdown: CV=${byRealm.cv.length}, SD=${byRealm.sd.length}`);
   
   // Generate all same-realm pairs and score them
-  const allPairs = [];
+  // MEMORY OPTIMIZATION: Use bounded heaps per rarity to avoid storing all pairs
+  const PAIRS_PER_RARITY = 200; // Keep only top 200 per rarity tier
+  const pairsByMinRarity = { 0: [], 1: [], 2: [], 3: [], 4: [] };
+  
+  // Helper to maintain bounded sorted list (keeps top N by efficiency)
+  function insertBounded(arr, pair, maxSize) {
+    // Find insertion point (sorted descending by efficiency)
+    let insertAt = arr.length;
+    for (let k = 0; k < arr.length; k++) {
+      if (pair.efficiency > arr[k].efficiency) {
+        insertAt = k;
+        break;
+      }
+    }
+    if (insertAt < maxSize) {
+      arr.splice(insertAt, 0, pair);
+      if (arr.length > maxSize) arr.pop();
+    }
+  }
+  
+  let pairsScored = 0;
   let skippedNoGenetics = 0;
   let skippedProbError = 0;
   const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
@@ -499,7 +563,7 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
           // Use totalCost as denominator since USD prices may not be available
           const efficiency = totalCost > 0 ? expectedTS / totalCost : 0;
           
-          allPairs.push({
+          const pairData = {
             hero1: {
               id: String(hero1.hero_id),
               normalizedId: hero1.normalized_id || 0,
@@ -550,7 +614,12 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
               distribution: tsData?.tsProbabilities || {},
               cumulativeProbs: tsData?.cumulativeProbs || {}
             }
-          });
+          };
+          
+          // Insert into bounded list for this rarity tier (memory-efficient)
+          const minRarity = Math.min(hero1.rarity, hero2.rarity);
+          insertBounded(pairsByMinRarity[minRarity], pairData, PAIRS_PER_RARITY);
+          pairsScored++;
         } catch (err) {
           skippedProbError++;
           // Skip pairs that fail probability calculation
@@ -559,27 +628,15 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
     }
   }
   
-  console.log(`[BargainCache] Scored ${allPairs.length} pairs for ${summonType} summoning (skipped: ${skippedNoGenetics} no-genetics, ${skippedProbError} prob-errors)`);
+  console.log(`[BargainCache] Scored ${pairsScored} pairs for ${summonType} summoning (skipped: ${skippedNoGenetics} no-genetics, ${skippedProbError} prob-errors)`);
   
-  // Group pairs by minimum rarity of the pair (the lower rarity determines pair tier)
-  // This ensures we have top pairs for each rarity level
-  const pairsByMinRarity = { 0: [], 1: [], 2: [], 3: [], 4: [] }; // Common(0) to Mythic(4)
-  
-  for (const pair of allPairs) {
-    const minRarity = Math.min(pair.hero1.rarity, pair.hero2.rarity);
-    pairsByMinRarity[minRarity].push(pair);
-  }
-  
-  // Sort each rarity group by efficiency and take top N per group
-  const PAIRS_PER_RARITY = 200; // 200 pairs per rarity = up to 1000 total
+  // Collect top pairs from each rarity (already sorted and bounded)
   const topPairs = [];
   
   for (let rarity = 0; rarity <= 4; rarity++) {
     const rarityPairs = pairsByMinRarity[rarity];
-    rarityPairs.sort((a, b) => b.efficiency - a.efficiency);
-    const topForRarity = rarityPairs.slice(0, PAIRS_PER_RARITY);
-    topPairs.push(...topForRarity);
-    console.log(`[BargainCache] Rarity ${RARITY_NAMES[rarity]}: ${rarityPairs.length} pairs, keeping top ${topForRarity.length}`);
+    topPairs.push(...rarityPairs);
+    console.log(`[BargainCache] Rarity ${RARITY_NAMES[rarity]}: kept top ${rarityPairs.length} pairs`);
   }
   
   // Final sort by efficiency for overall display
@@ -588,7 +645,7 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   return {
     pairs: topPairs,
     totalHeroes: eligibleHeroes.length,
-    totalPairsScored: allPairs.length,
+    totalPairsScored: pairsScored,
     tokenPrices: prices
   };
 }
@@ -607,8 +664,6 @@ export async function refreshBargainHunterCache() {
   const startTime = Date.now();
   
   try {
-    const { rawTextPg } = await import('../../../server/db.js');
-    
     console.log('[BargainCache] Starting cache refresh...');
     
     // Ensure cache table exists
@@ -631,60 +686,88 @@ export async function refreshBargainHunterCache() {
     
     console.log(`[BargainCache] Found ${tavernStatus.count} heroes in tavern_heroes table`);
     
-    // Use rawTextPg (direct connection) for all cache mutations to avoid pooler metadata caching
-    // Mark cache as building (keep old 'ready' cache visible during build)
-    await rawTextPg.unsafe(`DELETE FROM bargain_hunter_cache WHERE status = 'building'`);
+    // Note: Using rawPg (pooler) for all operations - rawTextPg (direct) writes to different Neon endpoint
     
     // Score regular summoning pairs
     console.log('[BargainCache] Scoring regular summoning pairs...');
     const regularResult = await scorePairsForCache('regular', 1000);
     
-    // Insert new 'building' cache for regular (atomic swap step 1)
+    // Upsert regular cache using rawPg (pooler connection)
+    const { rawPg } = await import('../../../server/db.js');
     const regularTokenPrices = JSON.stringify(regularResult.tokenPrices).replace(/'/g, "''");
     const regularPairs = JSON.stringify(regularResult.pairs).replace(/'/g, "''");
-    await rawTextPg.unsafe(`
-      INSERT INTO bargain_hunter_cache (summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, build_progress, build_started_at, computed_at)
-      VALUES (
-        'regular',
-        'building',
-        ${regularResult.totalHeroes},
-        ${regularResult.totalPairsScored},
-        '${regularTokenPrices}'::json,
-        '${regularPairs}'::json,
-        50,
-        '${new Date().toISOString()}',
-        CURRENT_TIMESTAMP
-      )
-    `);
+    console.log(`[BargainCache] Inserting regular cache: ${regularResult.pairs.length} pairs, JSON size: ${regularPairs.length} chars`);
+    try {
+      const insertResult = await rawPg.unsafe(`
+        INSERT INTO bargain_hunter_cache (summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, build_progress, build_started_at, computed_at)
+        VALUES (
+          'regular',
+          'ready',
+          ${regularResult.totalHeroes},
+          ${regularResult.totalPairsScored},
+          '${regularTokenPrices}'::json,
+          '${regularPairs}'::json,
+          100,
+          NULL,
+          CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (summon_type) DO UPDATE SET
+          status = 'ready',
+          total_heroes = EXCLUDED.total_heroes,
+          total_pairs_scored = EXCLUDED.total_pairs_scored,
+          token_prices = EXCLUDED.token_prices,
+          top_pairs = EXCLUDED.top_pairs,
+          build_progress = 100,
+          build_started_at = NULL,
+          computed_at = CURRENT_TIMESTAMP
+        RETURNING summon_type, status, total_heroes
+      `);
+      console.log(`[BargainCache] Regular cache insert result:`, JSON.stringify(insertResult));
+    } catch (insertErr) {
+      console.error(`[BargainCache] Regular cache insert FAILED:`, insertErr.message);
+      throw insertErr;
+    }
     cacheState.regularPairs = regularResult.totalPairsScored;
     
     // Score dark summoning pairs
     console.log('[BargainCache] Scoring dark summoning pairs...');
     const darkResult = await scorePairsForCache('dark', 1000);
     
-    // Insert new 'building' cache for dark
+    // Upsert dark cache using rawPg (pooler connection)
     const darkTokenPrices = JSON.stringify(darkResult.tokenPrices).replace(/'/g, "''");
     const darkPairs = JSON.stringify(darkResult.pairs).replace(/'/g, "''");
-    await rawTextPg.unsafe(`
-      INSERT INTO bargain_hunter_cache (summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, build_progress, build_started_at, computed_at)
-      VALUES (
-        'dark',
-        'building',
-        ${darkResult.totalHeroes},
-        ${darkResult.totalPairsScored},
-        '${darkTokenPrices}'::json,
-        '${darkPairs}'::json,
-        100,
-        '${new Date().toISOString()}',
-        CURRENT_TIMESTAMP
-      )
-    `);
+    console.log(`[BargainCache] Inserting dark cache: ${darkResult.pairs.length} pairs, JSON size: ${darkPairs.length} chars`);
+    try {
+      const darkInsertResult = await rawPg.unsafe(`
+        INSERT INTO bargain_hunter_cache (summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, build_progress, build_started_at, computed_at)
+        VALUES (
+          'dark',
+          'ready',
+          ${darkResult.totalHeroes},
+          ${darkResult.totalPairsScored},
+          '${darkTokenPrices}'::json,
+          '${darkPairs}'::json,
+          100,
+          NULL,
+          CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (summon_type) DO UPDATE SET
+          status = 'ready',
+          total_heroes = EXCLUDED.total_heroes,
+          total_pairs_scored = EXCLUDED.total_pairs_scored,
+          token_prices = EXCLUDED.token_prices,
+          top_pairs = EXCLUDED.top_pairs,
+          build_progress = 100,
+          build_started_at = NULL,
+          computed_at = CURRENT_TIMESTAMP
+        RETURNING summon_type, status, total_heroes
+      `);
+      console.log(`[BargainCache] Dark cache insert result:`, JSON.stringify(darkInsertResult));
+    } catch (insertErr) {
+      console.error(`[BargainCache] Dark cache insert FAILED:`, insertErr.message);
+      throw insertErr;
+    }
     cacheState.darkPairs = darkResult.totalPairsScored;
-    
-    // Atomic swap: delete old 'ready' rows and promote 'building' to 'ready'
-    console.log('[BargainCache] Performing atomic swap...');
-    await rawTextPg.unsafe(`DELETE FROM bargain_hunter_cache WHERE status = 'ready'`);
-    await rawTextPg.unsafe(`UPDATE bargain_hunter_cache SET status = 'ready', build_progress = 100 WHERE status = 'building'`);
     
     const duration = Date.now() - startTime;
     cacheState.lastRun = new Date().toISOString();
@@ -710,16 +793,15 @@ export async function refreshBargainHunterCache() {
 }
 
 // One-time migration to add status tracking columns (idempotent with IF NOT EXISTS)
+// Note: Using rawPg (pooler connection) for consistency - direct connection writes to different Neon endpoint
 async function ensureStatusColumns() {
-  const { rawTextPg } = await import('../../../server/db.js');
+  const { rawPg } = await import('../../../server/db.js');
   try {
-    // Use IF NOT EXISTS for all columns to handle concurrent processes safely
     console.log('[BargainCache] Ensuring status tracking columns exist...');
-    await rawTextPg.unsafe(`ALTER TABLE bargain_hunter_cache ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ready'`);
-    await rawTextPg.unsafe(`ALTER TABLE bargain_hunter_cache ADD COLUMN IF NOT EXISTS build_progress INTEGER DEFAULT 0`);
-    await rawTextPg.unsafe(`ALTER TABLE bargain_hunter_cache ADD COLUMN IF NOT EXISTS build_started_at TIMESTAMP`);
+    await rawPg.unsafe(`ALTER TABLE bargain_hunter_cache ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ready'`);
+    await rawPg.unsafe(`ALTER TABLE bargain_hunter_cache ADD COLUMN IF NOT EXISTS build_progress INTEGER DEFAULT 0`);
+    await rawPg.unsafe(`ALTER TABLE bargain_hunter_cache ADD COLUMN IF NOT EXISTS build_started_at TIMESTAMP`);
   } catch (err) {
-    // Only log if it's not a "column already exists" type error
     if (!err.message.includes('already exists')) {
       console.error('[BargainCache] Error ensuring status columns:', err.message);
     }
@@ -731,13 +813,13 @@ async function ensureStatusColumns() {
  */
 export async function getCacheStatus() {
   try {
-    const { rawTextPg } = await import('../../../server/db.js');
+    const { rawPg } = await import('../../../server/db.js');
     
     // Ensure the new columns exist (one-time migration)
     await ensureStatusColumns();
     
-    // Use rawTextPg.unsafe with raw SQL to bypass all metadata caching (direct connection)
-    const result = await rawTextPg.unsafe(`
+    // Use rawPg (pooler connection) for consistency with inserts
+    const result = await rawPg.unsafe(`
       SELECT summon_type, status, total_heroes, total_pairs_scored, build_progress, build_started_at, computed_at
       FROM bargain_hunter_cache
       ORDER BY summon_type, status
@@ -784,12 +866,11 @@ export async function getCacheStatus() {
  */
 export async function getCachedBargainPairs(summonType = 'regular') {
   try {
-    const { rawTextPg } = await import('../../../server/db.js');
+    const { rawPg } = await import('../../../server/db.js');
     
-    // Only get 'ready' cache - 'building' is kept separate until swap
-    // Use rawTextPg.unsafe with raw SQL to bypass all metadata caching (direct connection)
-    const result = await rawTextPg.unsafe(`
-      SELECT id, summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, computed_at
+    // Only get 'ready' cache - use rawPg (pooler) for consistency with inserts
+    const result = await rawPg.unsafe(`
+      SELECT summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, computed_at
       FROM bargain_hunter_cache 
       WHERE summon_type = '${summonType}' AND status = 'ready'
     `);
