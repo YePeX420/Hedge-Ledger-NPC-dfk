@@ -3394,6 +3394,7 @@ export type SummonConversionMetrics = typeof summonConversionMetrics.$inferSelec
 export const bargainHunterCache = pgTable("bargain_hunter_cache", {
   id: serial("id").primaryKey(),
   summonType: text("summon_type").notNull(), // 'regular' or 'dark'
+  status: text("status").default('ready').notNull(), // 'ready' or 'building' for atomic swap
   
   // Metadata
   totalHeroes: integer("total_heroes").default(0),
@@ -3403,11 +3404,15 @@ export const bargainHunterCache = pgTable("bargain_hunter_cache", {
   // Top pairs by TS efficiency (JSON array, limited to top 1000 per type)
   topPairs: json("top_pairs").notNull(), // Array of scored pairs with full hero data
   
+  // Build progress tracking
+  buildProgress: integer("build_progress").default(0), // 0-100 percentage
+  buildStartedAt: timestamp("build_started_at", { withTimezone: true }),
+  
   // Timestamps
   computedAt: timestamp("computed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => ({
-  summonTypeIdx: uniqueIndex("bargain_hunter_cache_summon_type_idx").on(table.summonType),
+  summonTypeStatusIdx: uniqueIndex("bargain_hunter_cache_summon_type_status_idx").on(table.summonType, table.status),
   computedAtIdx: index("bargain_hunter_cache_computed_at_idx").on(table.computedAt),
 }));
 

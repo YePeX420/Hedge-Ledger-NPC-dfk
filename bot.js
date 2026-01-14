@@ -9531,15 +9531,15 @@ async function startAdminWebServer() {
       
       // If no cache exists, return empty with status
       if (!cached) {
-        const status = getCacheStatus();
+        const status = await getCacheStatus();
         return res.json({
           ok: true,
           cached: false,
-          isRefreshing: status.isRunning,
+          isBuilding: status.isBuilding,
           pairs: [],
           totalHeroes: 0,
           totalPairsScored: 0,
-          message: status.isRunning ? 'Cache is being computed, please wait...' : 'Cache not yet available. Trigger a refresh.'
+          message: status.isBuilding ? 'Cache is being computed, please wait...' : 'Cache not yet available. Trigger a refresh.'
         });
       }
       
@@ -9564,8 +9564,8 @@ async function startAdminWebServer() {
     try {
       const { refreshBargainHunterCache, getCacheStatus } = await import('./src/etl/ingestion/bargainHunterCache.js');
       
-      const status = getCacheStatus();
-      if (status.isRunning) {
+      const status = await getCacheStatus();
+      if (status.isBuilding) {
         return res.json({ ok: true, status: 'already_running', message: 'Cache refresh already in progress' });
       }
       
@@ -9578,6 +9578,18 @@ async function startAdminWebServer() {
       
     } catch (error) {
       console.error('[BargainCache API] Error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+  
+  // GET /api/admin/bargain-cache/status - Get cache status (is building, last run, etc)
+  app.get("/api/admin/bargain-cache/status", isAdmin, async (req, res) => {
+    try {
+      const { getCacheStatus } = await import('./src/etl/ingestion/bargainHunterCache.js');
+      const status = await getCacheStatus();
+      res.json({ ok: true, ...status });
+    } catch (error) {
+      console.error('[BargainCache API] Status error:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });

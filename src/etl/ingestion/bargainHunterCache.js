@@ -133,28 +133,59 @@ async function scorePairsForCache(summonType = 'regular', limit = 1000) {
   
   // Group heroes by rarity and take cheapest from each rarity tier
   // This ensures we have heroes from all rarity levels for fair comparisons
-  const HEROES_PER_RARITY = 150; // 150 per rarity x 5 rarities = up to 750 heroes
+  const HEROES_PER_RARITY = 300; // 300 per rarity x 5 rarities = up to 1500 heroes
+  const HIGH_LEVEL_PER_RARITY = 150; // Additional 150 heroes level 10+ per rarity
+  const HIGH_LEVEL_THRESHOLD = 10;
+  
   const heroesByRarity = { 0: [], 1: [], 2: [], 3: [], 4: [] };
+  const highLevelByRarity = { 0: [], 1: [], 2: [], 3: [], 4: [] };
   
   for (const h of eligibleHeroes) {
     const rarity = h.rarity || 0;
     if (rarity >= 0 && rarity <= 4) {
       heroesByRarity[rarity].push(h);
+      // Also track high-level heroes separately
+      if ((h.level || 1) >= HIGH_LEVEL_THRESHOLD) {
+        highLevelByRarity[rarity].push(h);
+      }
     }
   }
   
   // Sort each rarity by price and take cheapest
+  const selectedHeroIds = new Set();
   const selectedHeroes = [];
   const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+  
   for (let r = 0; r <= 4; r++) {
+    // Take cheapest 300 from each rarity
     heroesByRarity[r].sort((a, b) => (parseFloat(a.price_native) || 0) - (parseFloat(b.price_native) || 0));
-    const taken = heroesByRarity[r].slice(0, HEROES_PER_RARITY);
-    selectedHeroes.push(...taken);
-    console.log(`[BargainCache] ${RARITY_LABELS[r]}: ${heroesByRarity[r].length} available, taking ${taken.length} cheapest`);
+    const cheapest = heroesByRarity[r].slice(0, HEROES_PER_RARITY);
+    for (const h of cheapest) {
+      if (!selectedHeroIds.has(h.hero_id)) {
+        selectedHeroIds.add(h.hero_id);
+        selectedHeroes.push(h);
+      }
+    }
+    
+    // Also take up to 150 high-level heroes (level 10+) per rarity, sorted by price
+    // This ensures level filters work across all rarities
+    highLevelByRarity[r].sort((a, b) => (parseFloat(a.price_native) || 0) - (parseFloat(b.price_native) || 0));
+    let highLevelAdded = 0;
+    for (const h of highLevelByRarity[r]) {
+      if (!selectedHeroIds.has(h.hero_id)) {
+        selectedHeroIds.add(h.hero_id);
+        selectedHeroes.push(h);
+        highLevelAdded++;
+        if (highLevelAdded >= HIGH_LEVEL_PER_RARITY) break;
+      }
+    }
+    
+    const totalForRarity = cheapest.length + highLevelAdded;
+    console.log(`[BargainCache] ${RARITY_LABELS[r]}: ${heroesByRarity[r].length} available, ${cheapest.length} cheapest + ${highLevelAdded} high-level = ${totalForRarity} selected`);
   }
   
   eligibleHeroes = selectedHeroes;
-  console.log(`[BargainCache] Selected ${eligibleHeroes.length} heroes across all rarities`);
+  console.log(`[BargainCache] Selected ${eligibleHeroes.length} heroes across all rarities (including high-level heroes)`);
   
   // Skill ID to name mappings (same as gene-decoder.js)
   const ACTIVE_GENES = {
@@ -514,27 +545,27 @@ export async function refreshBargainHunterCache() {
     
     console.log(`[BargainCache] Found ${tavernStatus.count} heroes in tavern_heroes table`);
     
+    // Mark cache as building (keep old 'ready' cache visible during build)
+    await rawPg`DELETE FROM bargain_hunter_cache WHERE status = 'building'`;
+    
     // Score regular summoning pairs
     console.log('[BargainCache] Scoring regular summoning pairs...');
     const regularResult = await scorePairsForCache('regular', 1000);
     
-    // Store regular cache
+    // Insert new 'building' cache for regular (atomic swap step 1)
     await rawPg`
-      INSERT INTO bargain_hunter_cache (summon_type, total_heroes, total_pairs_scored, token_prices, top_pairs, computed_at)
+      INSERT INTO bargain_hunter_cache (summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, build_progress, build_started_at, computed_at)
       VALUES (
         'regular',
+        'building',
         ${regularResult.totalHeroes},
         ${regularResult.totalPairsScored},
         ${JSON.stringify(regularResult.tokenPrices)}::json,
         ${JSON.stringify(regularResult.pairs)}::json,
+        50,
+        ${new Date().toISOString()},
         CURRENT_TIMESTAMP
       )
-      ON CONFLICT (summon_type) DO UPDATE SET
-        total_heroes = EXCLUDED.total_heroes,
-        total_pairs_scored = EXCLUDED.total_pairs_scored,
-        token_prices = EXCLUDED.token_prices,
-        top_pairs = EXCLUDED.top_pairs,
-        computed_at = EXCLUDED.computed_at
     `;
     cacheState.regularPairs = regularResult.totalPairsScored;
     
@@ -542,25 +573,27 @@ export async function refreshBargainHunterCache() {
     console.log('[BargainCache] Scoring dark summoning pairs...');
     const darkResult = await scorePairsForCache('dark', 1000);
     
-    // Store dark cache
+    // Insert new 'building' cache for dark
     await rawPg`
-      INSERT INTO bargain_hunter_cache (summon_type, total_heroes, total_pairs_scored, token_prices, top_pairs, computed_at)
+      INSERT INTO bargain_hunter_cache (summon_type, status, total_heroes, total_pairs_scored, token_prices, top_pairs, build_progress, build_started_at, computed_at)
       VALUES (
         'dark',
+        'building',
         ${darkResult.totalHeroes},
         ${darkResult.totalPairsScored},
         ${JSON.stringify(darkResult.tokenPrices)}::json,
         ${JSON.stringify(darkResult.pairs)}::json,
+        100,
+        ${new Date().toISOString()},
         CURRENT_TIMESTAMP
       )
-      ON CONFLICT (summon_type) DO UPDATE SET
-        total_heroes = EXCLUDED.total_heroes,
-        total_pairs_scored = EXCLUDED.total_pairs_scored,
-        token_prices = EXCLUDED.token_prices,
-        top_pairs = EXCLUDED.top_pairs,
-        computed_at = EXCLUDED.computed_at
     `;
     cacheState.darkPairs = darkResult.totalPairsScored;
+    
+    // Atomic swap: delete old 'ready' rows and promote 'building' to 'ready'
+    console.log('[BargainCache] Performing atomic swap...');
+    await rawPg`DELETE FROM bargain_hunter_cache WHERE status = 'ready'`;
+    await rawPg`UPDATE bargain_hunter_cache SET status = 'ready', build_progress = 100 WHERE status = 'building'`;
     
     const duration = Date.now() - startTime;
     cacheState.lastRun = new Date().toISOString();
@@ -586,14 +619,66 @@ export async function refreshBargainHunterCache() {
 }
 
 /**
- * Get cached bargain pairs
+ * Get cache status for UI display
+ */
+export async function getCacheStatus() {
+  try {
+    const { rawPg } = await import('../../../server/db.js');
+    
+    // Get both ready and building caches
+    const result = await rawPg`
+      SELECT summon_type, status, total_heroes, total_pairs_scored, build_progress, build_started_at, computed_at
+      FROM bargain_hunter_cache
+      ORDER BY summon_type, status
+    `;
+    
+    const status = {
+      regular: { ready: null, building: null },
+      dark: { ready: null, building: null },
+      isBuilding: cacheState.isRunning,
+      lastRun: cacheState.lastRun,
+      error: cacheState.error
+    };
+    
+    for (const row of (result || [])) {
+      const data = {
+        totalHeroes: row.total_heroes,
+        totalPairsScored: row.total_pairs_scored,
+        buildProgress: row.build_progress,
+        buildStartedAt: row.build_started_at,
+        computedAt: row.computed_at
+      };
+      if (row.summon_type === 'regular') {
+        status.regular[row.status] = data;
+      } else if (row.summon_type === 'dark') {
+        status.dark[row.status] = data;
+      }
+    }
+    
+    return status;
+  } catch (error) {
+    console.error('[BargainCache] Error getting cache status:', error.message);
+    return {
+      regular: { ready: null, building: null },
+      dark: { ready: null, building: null },
+      isBuilding: cacheState.isRunning,
+      lastRun: cacheState.lastRun,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Get cached bargain pairs (only returns 'ready' status cache)
  */
 export async function getCachedBargainPairs(summonType = 'regular') {
   try {
     const { rawPg } = await import('../../../server/db.js');
     
+    // Only get 'ready' cache - 'building' is kept separate until swap
     const result = await rawPg`
-      SELECT * FROM bargain_hunter_cache WHERE summon_type = ${summonType}
+      SELECT * FROM bargain_hunter_cache 
+      WHERE summon_type = ${summonType} AND status = 'ready'
     `;
     
     if (!result || result.length === 0) {
@@ -606,7 +691,8 @@ export async function getCachedBargainPairs(summonType = 'regular') {
       totalHeroes: cache.total_heroes || 0,
       totalPairsScored: cache.total_pairs_scored || 0,
       tokenPrices: cache.token_prices || {},
-      computedAt: cache.computed_at
+      computedAt: cache.computed_at,
+      status: cache.status
     };
     
   } catch (error) {
