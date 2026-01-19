@@ -5640,7 +5640,7 @@ async function startAdminWebServer() {
       
       // Get equipment variants (grouped by display_id + rarity_tier)
       // Join with dimension tables to get proper item names
-      // Match on chain_id (exact match or shared chain_id=0)
+      // Match priority: (chain_id, activity_id) > (chain_id, activity_id=0) > (chain_id=0, activity_id=0)
       const equipmentVariants = await db.execute(sql`
         SELECT 
           l.id as item_id,
@@ -5652,23 +5652,28 @@ async function startAdminWebServer() {
           COUNT(r.id) as drop_count,
           AVG(r.party_luck) as avg_party_luck,
           COALESCE(
-            w_chain.weapon_name, w_shared.weapon_name,
-            a_chain.armor_name, a_shared.armor_name,
-            acc_chain.accessory_name, acc_shared.accessory_name
+            w_activity.weapon_name, w_chain.weapon_name, w_shared.weapon_name,
+            a_activity.armor_name, a_chain.armor_name, a_shared.armor_name,
+            acc_activity.accessory_name, acc_chain.accessory_name, acc_shared.accessory_name
           ) as variant_name
         FROM pve_reward_events r
         JOIN pve_loot_items l ON r.item_id = l.id
-        LEFT JOIN dim_weapon_details w_chain ON r.equipment_type = w_chain.weapon_type_id AND r.display_id = w_chain.display_id AND r.chain_id = w_chain.chain_id
-        LEFT JOIN dim_weapon_details w_shared ON r.equipment_type = w_shared.weapon_type_id AND r.display_id = w_shared.display_id AND w_shared.chain_id = 0
-        LEFT JOIN dim_armor_details a_chain ON r.equipment_type = a_chain.armor_type_id AND r.display_id = a_chain.display_id AND r.chain_id = a_chain.chain_id
-        LEFT JOIN dim_armor_details a_shared ON r.equipment_type = a_shared.armor_type_id AND r.display_id = a_shared.display_id AND a_shared.chain_id = 0
-        LEFT JOIN dim_accessory_details acc_chain ON r.equipment_type = acc_chain.accessory_type_id AND r.display_id = acc_chain.display_id AND r.chain_id = acc_chain.chain_id
-        LEFT JOIN dim_accessory_details acc_shared ON r.equipment_type = acc_shared.accessory_type_id AND r.display_id = acc_shared.display_id AND acc_shared.chain_id = 0
+        LEFT JOIN dim_weapon_details w_activity ON r.equipment_type = w_activity.weapon_type_id AND r.display_id = w_activity.display_id AND r.chain_id = w_activity.chain_id AND r.activity_id = w_activity.activity_id
+        LEFT JOIN dim_weapon_details w_chain ON r.equipment_type = w_chain.weapon_type_id AND r.display_id = w_chain.display_id AND r.chain_id = w_chain.chain_id AND w_chain.activity_id = 0
+        LEFT JOIN dim_weapon_details w_shared ON r.equipment_type = w_shared.weapon_type_id AND r.display_id = w_shared.display_id AND w_shared.chain_id = 0 AND w_shared.activity_id = 0
+        LEFT JOIN dim_armor_details a_activity ON r.equipment_type = a_activity.armor_type_id AND r.display_id = a_activity.display_id AND r.chain_id = a_activity.chain_id AND r.activity_id = a_activity.activity_id
+        LEFT JOIN dim_armor_details a_chain ON r.equipment_type = a_chain.armor_type_id AND r.display_id = a_chain.display_id AND r.chain_id = a_chain.chain_id AND a_chain.activity_id = 0
+        LEFT JOIN dim_armor_details a_shared ON r.equipment_type = a_shared.armor_type_id AND r.display_id = a_shared.display_id AND a_shared.chain_id = 0 AND a_shared.activity_id = 0
+        LEFT JOIN dim_accessory_details acc_activity ON r.equipment_type = acc_activity.accessory_type_id AND r.display_id = acc_activity.display_id AND r.chain_id = acc_activity.chain_id AND r.activity_id = acc_activity.activity_id
+        LEFT JOIN dim_accessory_details acc_chain ON r.equipment_type = acc_chain.accessory_type_id AND r.display_id = acc_chain.display_id AND r.chain_id = acc_chain.chain_id AND acc_chain.activity_id = 0
+        LEFT JOIN dim_accessory_details acc_shared ON r.equipment_type = acc_shared.accessory_type_id AND r.display_id = acc_shared.display_id AND acc_shared.chain_id = 0 AND acc_shared.activity_id = 0
         WHERE r.activity_id = ${activityIdInt} 
           AND r.is_equipment = TRUE
           AND (l.item_type = 'equipment' OR l.item_type IS NULL)
         GROUP BY l.id, l.item_address, r.display_id, r.rarity_tier, r.equipment_type, r.chain_id,
-          w_chain.weapon_name, w_shared.weapon_name, a_chain.armor_name, a_shared.armor_name, acc_chain.accessory_name, acc_shared.accessory_name
+          w_activity.weapon_name, w_chain.weapon_name, w_shared.weapon_name, 
+          a_activity.armor_name, a_chain.armor_name, a_shared.armor_name, 
+          acc_activity.accessory_name, acc_chain.accessory_name, acc_shared.accessory_name
         ORDER BY l.item_address, r.rarity_tier DESC, drop_count DESC
       `);
       
