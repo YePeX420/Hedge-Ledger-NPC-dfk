@@ -3419,3 +3419,78 @@ export const bargainHunterCache = pgTable("bargain_hunter_cache", {
 export const insertBargainHunterCacheSchema = createInsertSchema(bargainHunterCache).omit({ id: true, createdAt: true });
 export type InsertBargainHunterCache = z.infer<typeof insertBargainHunterCacheSchema>;
 export type BargainHunterCache = typeof bargainHunterCache.$inferSelect;
+
+// ============================================================================
+// EQUIPMENT DIMENSION TABLES
+// Maps equipment_type + display_id from PVE drops to human-readable names
+// ============================================================================
+
+/**
+ * Weapon dimension table - maps weapon_type_id + display_id to names
+ * weapon_type_id values: 2=2H Axe, 3=Bow, 4=Dagger, 5=Gloves, 6=Mace, 8=1H Spear, 9=2H Spear, 10=Staff, 11=1H Sword, 12=2H Sword, 13=Wand
+ */
+export const dimWeaponDetails = pgTable("dim_weapon_details", {
+  id: serial("id").primaryKey(),
+  weaponTypeId: integer("weapon_type_id").notNull(),
+  displayId: integer("display_id").notNull(),
+  weaponName: text("weapon_name").notNull(),
+  description: text("description"),
+}, (table) => ({
+  typeDisplayIdx: uniqueIndex("dim_weapon_type_display_idx").on(table.weaponTypeId, table.displayId),
+}));
+
+export const insertDimWeaponDetailsSchema = createInsertSchema(dimWeaponDetails).omit({ id: true });
+export type InsertDimWeaponDetails = z.infer<typeof insertDimWeaponDetailsSchema>;
+export type DimWeaponDetails = typeof dimWeaponDetails.$inferSelect;
+
+/**
+ * Armor dimension table - maps armor_type_id + display_id to names
+ * armor_type_id values: 1=Light, 2=Medium, 3=Heavy
+ */
+export const dimArmorDetails = pgTable("dim_armor_details", {
+  id: serial("id").primaryKey(),
+  armorTypeId: integer("armor_type_id").notNull(),
+  displayId: integer("display_id").notNull(),
+  armorName: text("armor_name").notNull(),
+  description: text("description"),
+}, (table) => ({
+  typeDisplayIdx: uniqueIndex("dim_armor_type_display_idx").on(table.armorTypeId, table.displayId),
+}));
+
+export const insertDimArmorDetailsSchema = createInsertSchema(dimArmorDetails).omit({ id: true });
+export type InsertDimArmorDetails = z.infer<typeof insertDimArmorDetailsSchema>;
+export type DimArmorDetails = typeof dimArmorDetails.$inferSelect;
+
+/**
+ * Accessory dimension table - maps accessory_type_id + display_id to names
+ * accessory_type_id values: 1=Accessory/Helm, 2=Offhand/Shield
+ */
+export const dimAccessoryDetails = pgTable("dim_accessory_details", {
+  id: serial("id").primaryKey(),
+  accessoryTypeId: integer("accessory_type_id").notNull(),
+  displayId: integer("display_id").notNull(),
+  accessoryName: text("accessory_name").notNull(),
+  description: text("description"),
+}, (table) => ({
+  typeDisplayIdx: uniqueIndex("dim_accessory_type_display_idx").on(table.accessoryTypeId, table.displayId),
+}));
+
+export const insertDimAccessoryDetailsSchema = createInsertSchema(dimAccessoryDetails).omit({ id: true });
+export type InsertDimAccessoryDetails = z.infer<typeof insertDimAccessoryDetailsSchema>;
+export type DimAccessoryDetails = typeof dimAccessoryDetails.$inferSelect;
+
+/**
+ * Equipment category mapping - maps contract addresses to equipment categories
+ */
+export const equipmentCategories = pgTable("equipment_categories", {
+  id: serial("id").primaryKey(),
+  contractAddress: text("contract_address").notNull().unique(),
+  category: text("category").notNull(), // 'weapon', 'armor', 'accessory'
+  categoryName: text("category_name").notNull(), // Human readable name
+}, (table) => ({
+  contractIdx: uniqueIndex("equipment_categories_contract_idx").on(table.contractAddress),
+}));
+
+export const insertEquipmentCategoriesSchema = createInsertSchema(equipmentCategories).omit({ id: true });
+export type InsertEquipmentCategories = z.infer<typeof insertEquipmentCategoriesSchema>;
+export type EquipmentCategories = typeof equipmentCategories.$inferSelect;
