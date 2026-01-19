@@ -77,39 +77,54 @@ function parseCSVLine(line) {
   return values;
 }
 
+// Chain IDs for equipment sources
+const CHAIN_IDS = {
+  DFK: 53935,    // DFK Chain (Crystalvale) - Hunts
+  METIS: 1088,   // METIS - Patrols
+  SHARED: 0,     // Items available on both chains (cosmetics, etc.)
+};
+
 async function createTables() {
-  console.log('Creating equipment dimension tables...');
+  console.log('Creating equipment dimension tables with chain_id support...');
+  
+  // Drop existing tables and recreate with chain_id
+  await rawPg`DROP TABLE IF EXISTS dim_weapon_details CASCADE`;
+  await rawPg`DROP TABLE IF EXISTS dim_armor_details CASCADE`;
+  await rawPg`DROP TABLE IF EXISTS dim_accessory_details CASCADE`;
   
   await rawPg`
     CREATE TABLE IF NOT EXISTS dim_weapon_details (
       id SERIAL PRIMARY KEY,
+      chain_id INTEGER NOT NULL DEFAULT 0,
       weapon_type_id INTEGER NOT NULL,
       display_id INTEGER NOT NULL,
       weapon_name TEXT NOT NULL,
       description TEXT,
-      UNIQUE(weapon_type_id, display_id)
+      UNIQUE(chain_id, weapon_type_id, display_id)
     )
   `;
   
   await rawPg`
     CREATE TABLE IF NOT EXISTS dim_armor_details (
       id SERIAL PRIMARY KEY,
+      chain_id INTEGER NOT NULL DEFAULT 0,
       armor_type_id INTEGER NOT NULL,
       display_id INTEGER NOT NULL,
       armor_name TEXT NOT NULL,
       description TEXT,
-      UNIQUE(armor_type_id, display_id)
+      UNIQUE(chain_id, armor_type_id, display_id)
     )
   `;
   
   await rawPg`
     CREATE TABLE IF NOT EXISTS dim_accessory_details (
       id SERIAL PRIMARY KEY,
+      chain_id INTEGER NOT NULL DEFAULT 0,
       accessory_type_id INTEGER NOT NULL,
       display_id INTEGER NOT NULL,
       accessory_name TEXT NOT NULL,
       description TEXT,
-      UNIQUE(accessory_type_id, display_id)
+      UNIQUE(chain_id, accessory_type_id, display_id)
     )
   `;
   
@@ -122,7 +137,60 @@ async function createTables() {
     )
   `;
   
-  console.log('Tables created.');
+  console.log('Tables created with chain_id support.');
+}
+
+// Determine chain_id based on display_id and item characteristics
+// Hunt items (DFK Chain): display_id 1-4 for core items
+// Patrol items (METIS): display_id 5-6 for Submersia patrol items
+// Cosmetic/promotional: display_id >= 50000 are shared
+function getChainIdForEquipment(displayId, itemName) {
+  const displayIdNum = parseInt(displayId);
+  
+  // Cosmetic/promotional items (display_id >= 50000) are shared
+  if (displayIdNum >= 50000) {
+    return CHAIN_IDS.SHARED;
+  }
+  
+  // Hunt-specific items (based on known hunt equipment names)
+  const huntItems = [
+    'Feather Duster', 'Wishbone Breastplate', 'Boc-Knight Mail',
+    'Gore Blade', 'Wishbone Shield', 'Rocboc Claw'
+  ];
+  if (huntItems.some(name => itemName?.includes(name) || itemName?.toLowerCase().includes('boc') || itemName?.toLowerCase().includes('rocboc'))) {
+    return CHAIN_IDS.DFK;
+  }
+  
+  // Patrol-specific items (Submersia themed)
+  const patrolItems = [
+    'Rags of the Nameless', 'Seawarden', 'Abyssal', 'Submersian', 'Coral',
+    'Drowned', 'Nameless', 'Submersia'
+  ];
+  if (patrolItems.some(name => itemName?.includes(name))) {
+    return CHAIN_IDS.METIS;
+  }
+  
+  // For display_id 1-4, check if it's hunt or shared based on item name
+  if (displayIdNum >= 1 && displayIdNum <= 4) {
+    // Basic starter equipment appears on both chains
+    if (itemName?.includes('Hempen') || itemName?.includes('Leather') || 
+        itemName?.includes('Tin') || itemName?.includes('Bronze') ||
+        itemName?.includes("Squire's")) {
+      return CHAIN_IDS.SHARED;
+    }
+    // Hunt-specific for display_id 1
+    if (displayIdNum === 1) {
+      return CHAIN_IDS.DFK;
+    }
+  }
+  
+  // Display_id 5-6 are typically patrol items
+  if (displayIdNum >= 5 && displayIdNum <= 6) {
+    return CHAIN_IDS.METIS;
+  }
+  
+  // Default to shared for unknown items
+  return CHAIN_IDS.SHARED;
 }
 
 async function importWeapons() {
@@ -135,15 +203,16 @@ async function importWeapons() {
   const content = fs.readFileSync(filePath, 'utf-8');
   const rows = parseCSV(content);
   
-  console.log(`Importing ${rows.length} weapons...`);
+  console.log(`Importing ${rows.length} weapons with chain_id...`);
   
   let imported = 0;
   for (const row of rows) {
     try {
+      const chainId = getChainIdForEquipment(row.display_id, row.weapon_name);
       await rawPg`
-        INSERT INTO dim_weapon_details (weapon_type_id, display_id, weapon_name, description)
-        VALUES (${parseInt(row.weapon_type_id)}, ${parseInt(row.display_id)}, ${row.weapon_name}, ${row.description})
-        ON CONFLICT (weapon_type_id, display_id) DO UPDATE SET
+        INSERT INTO dim_weapon_details (chain_id, weapon_type_id, display_id, weapon_name, description)
+        VALUES (${chainId}, ${parseInt(row.weapon_type_id)}, ${parseInt(row.display_id)}, ${row.weapon_name}, ${row.description})
+        ON CONFLICT (chain_id, weapon_type_id, display_id) DO UPDATE SET
           weapon_name = EXCLUDED.weapon_name,
           description = EXCLUDED.description
       `;
@@ -167,15 +236,16 @@ async function importArmor() {
   const content = fs.readFileSync(filePath, 'utf-8');
   const rows = parseCSV(content);
   
-  console.log(`Importing ${rows.length} armors...`);
+  console.log(`Importing ${rows.length} armors with chain_id...`);
   
   let imported = 0;
   for (const row of rows) {
     try {
+      const chainId = getChainIdForEquipment(row.display_id, row.armor_name);
       await rawPg`
-        INSERT INTO dim_armor_details (armor_type_id, display_id, armor_name, description)
-        VALUES (${parseInt(row.armor_type_id)}, ${parseInt(row.display_id)}, ${row.armor_name}, ${row.description})
-        ON CONFLICT (armor_type_id, display_id) DO UPDATE SET
+        INSERT INTO dim_armor_details (chain_id, armor_type_id, display_id, armor_name, description)
+        VALUES (${chainId}, ${parseInt(row.armor_type_id)}, ${parseInt(row.display_id)}, ${row.armor_name}, ${row.description})
+        ON CONFLICT (chain_id, armor_type_id, display_id) DO UPDATE SET
           armor_name = EXCLUDED.armor_name,
           description = EXCLUDED.description
       `;
@@ -199,15 +269,16 @@ async function importAccessories() {
   const content = fs.readFileSync(filePath, 'utf-8');
   const rows = parseCSV(content);
   
-  console.log(`Importing ${rows.length} accessories...`);
+  console.log(`Importing ${rows.length} accessories with chain_id...`);
   
   let imported = 0;
   for (const row of rows) {
     try {
+      const chainId = getChainIdForEquipment(row.display_id, row.accessory_name);
       await rawPg`
-        INSERT INTO dim_accessory_details (accessory_type_id, display_id, accessory_name, description)
-        VALUES (${parseInt(row.accessory_type_id)}, ${parseInt(row.display_id)}, ${row.accessory_name}, ${row.description})
-        ON CONFLICT (accessory_type_id, display_id) DO UPDATE SET
+        INSERT INTO dim_accessory_details (chain_id, accessory_type_id, display_id, accessory_name, description)
+        VALUES (${chainId}, ${parseInt(row.accessory_type_id)}, ${parseInt(row.display_id)}, ${row.accessory_name}, ${row.description})
+        ON CONFLICT (chain_id, accessory_type_id, display_id) DO UPDATE SET
           accessory_name = EXCLUDED.accessory_name,
           description = EXCLUDED.description
       `;
