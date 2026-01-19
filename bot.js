@@ -5664,7 +5664,11 @@ async function startAdminWebServer() {
       
       // Map rarity tiers to names
       const rarityNames = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
-      const equipmentTypeNames = { 0: 'Weapon', 1: 'Armor', 2: 'Shield', 3: 'Accessory' };
+      // Equipment type names - includes hunting-specific weapon types (6, 10-13)
+      const equipmentTypeNames = { 
+        0: 'Weapon', 1: 'Armor', 2: 'Shield', 3: 'Accessory',
+        6: 'Staff', 10: 'Staff', 11: 'Sword', 12: 'Dagger', 13: 'Bow'
+      };
       
       // Build hierarchical structure
       const hierarchicalEquipment = equipmentParents.map(parent => {

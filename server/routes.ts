@@ -2610,31 +2610,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       `);
       const totalCompletions = parseInt(completionsResult.rows[0]?.total || '0');
 
-      // Get regular loot items (non-equipment)
-      const regularLoot = await db.execute(sql`
+      // Get regular loot items (non-equipment, non-seasonal)
+      const regularLootResult = await db.execute(sql`
         SELECT 
           l.id as item_id,
+          l.item_address,
           l.name as item_name,
           l.item_type,
           l.rarity,
           COUNT(r.id) as drop_count,
-          AVG(r.party_luck) as avg_party_luck,
-          NULL as equipment_type,
-          NULL as display_id,
-          NULL as rarity_tier,
-          NULL as variant_name
+          AVG(r.party_luck) as avg_party_luck
         FROM pve_reward_events r
         JOIN pve_loot_items l ON r.item_id = l.id
         WHERE r.activity_id = ${parseInt(activityId)}
           AND (r.is_equipment IS NULL OR r.is_equipment = false)
-        GROUP BY l.id, l.name, l.item_type, l.rarity
+          AND l.item_type NOT IN ('seasonal', 'event')
+        GROUP BY l.id, l.item_address, l.name, l.item_type, l.rarity
+        ORDER BY drop_count DESC
+      `);
+
+      // Get seasonal loot items  
+      const seasonalLootResult = await db.execute(sql`
+        SELECT 
+          l.id as item_id,
+          l.item_address,
+          l.name as item_name,
+          l.item_type,
+          l.rarity,
+          COUNT(r.id) as drop_count,
+          AVG(r.party_luck) as avg_party_luck
+        FROM pve_reward_events r
+        JOIN pve_loot_items l ON r.item_id = l.id
+        WHERE r.activity_id = ${parseInt(activityId)}
+          AND (r.is_equipment IS NULL OR r.is_equipment = false)
+          AND l.item_type IN ('seasonal', 'event')
+        GROUP BY l.id, l.item_address, l.name, l.item_type, l.rarity
         ORDER BY drop_count DESC
       `);
 
       // Get equipment loot with variant names from dimension tables
-      const equipmentLoot = await db.execute(sql`
+      const equipmentVariantsResult = await db.execute(sql`
         SELECT 
           l.id as item_id,
+          l.item_address,
           'Equipment' as item_name,
           'equipment' as item_type,
           l.rarity,
@@ -2644,9 +2662,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           r.display_id,
           r.rarity_tier,
           COALESCE(
-            w.name,
-            a.name,
-            acc.name,
+            w.weapon_name,
+            a.armor_name,
+            acc.accessory_name,
             'Unknown Item'
           ) as variant_name
         FROM pve_reward_events r
@@ -2656,26 +2674,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
         LEFT JOIN dim_accessory_details acc ON acc.accessory_type_id = r.equipment_type AND acc.display_id = r.display_id
         WHERE r.activity_id = ${parseInt(activityId)}
           AND r.is_equipment = true
-        GROUP BY l.id, l.rarity, r.equipment_type, r.display_id, r.rarity_tier, w.name, a.name, acc.name
+        GROUP BY l.id, l.item_address, l.rarity, r.equipment_type, r.display_id, r.rarity_tier, w.weapon_name, a.armor_name, acc.accessory_name
         ORDER BY drop_count DESC
       `);
 
-      // Merge results and add computed fields
-      const allLoot = [...regularLoot.rows, ...equipmentLoot.rows].map((item: any) => ({
-        ...item,
-        drop_count: parseInt(item.drop_count),
-        avg_party_luck: item.avg_party_luck ? parseFloat(item.avg_party_luck) : null,
-        drop_rate: totalCompletions > 0 ? parseInt(item.drop_count) / totalCompletions : 0,
+      // Equipment type names - DFK hunting equipment uses different type IDs
+      // Types 1-3 are standard equipment categories
+      // Types 6, 10-13 are hunting-specific weapon types
+      const equipmentTypeNames: Record<number, string> = {
+        0: 'Weapon', 1: 'Armor', 2: 'Shield', 3: 'Accessory',
+        6: 'Staff', 10: 'Staff', 11: 'Sword', 12: 'Dagger', 13: 'Bow'
+      };
+
+      // Rarity tier names
+      const rarityTierNames: Record<number, string> = {
+        0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary', 4: 'Mythic'
+      };
+
+      // Process regular loot
+      const regularLoot = regularLootResult.rows.map((item: any) => ({
+        item_id: item.item_id,
+        item_address: item.item_address,
+        item_name: item.item_name,
+        item_type: item.item_type,
+        rarity: item.rarity,
+        dropCount: parseInt(item.drop_count),
+        totalCompletions,
+        observedRate: totalCompletions > 0 ? parseInt(item.drop_count) / totalCompletions : 0,
+        avgPartyLuck: item.avg_party_luck ? parseFloat(item.avg_party_luck) : 0,
+        is_equipment: false,
       }));
 
-      // Sort by drop count descending
-      allLoot.sort((a, b) => b.drop_count - a.drop_count);
+      // Process seasonal loot
+      const seasonalLoot = seasonalLootResult.rows.map((item: any) => ({
+        item_id: item.item_id,
+        item_address: item.item_address,
+        item_name: item.item_name,
+        item_type: item.item_type,
+        rarity: item.rarity,
+        dropCount: parseInt(item.drop_count),
+        totalCompletions,
+        observedRate: totalCompletions > 0 ? parseInt(item.drop_count) / totalCompletions : 0,
+        avgPartyLuck: item.avg_party_luck ? parseFloat(item.avg_party_luck) : 0,
+        is_equipment: false,
+      }));
+
+      // Group equipment variants by parent item
+      const equipmentMap = new Map<number, any>();
+      for (const row of equipmentVariantsResult.rows) {
+        const itemId = row.item_id;
+        if (!equipmentMap.has(itemId)) {
+          equipmentMap.set(itemId, {
+            item_id: itemId,
+            item_address: row.item_address,
+            item_name: 'Equipment',
+            item_type: 'equipment',
+            dropCount: 0,
+            variantCount: 0,
+            observedRate: 0,
+            totalLuckSum: 0, // Track weighted sum for proper averaging
+            is_equipment: true,
+            variants: [],
+            rarityDistribution: {} as Record<string, number>,
+          });
+        }
+        
+        const parent = equipmentMap.get(itemId)!;
+        const dropCount = parseInt(row.drop_count);
+        const avgLuck = row.avg_party_luck ? parseFloat(row.avg_party_luck) : 0;
+        const rarityName = rarityTierNames[row.rarity_tier] || 'Unknown';
+        
+        // Update parent totals with correct weighted averaging
+        parent.dropCount += dropCount;
+        parent.variantCount++;
+        parent.totalLuckSum += avgLuck * dropCount; // Weight by dropCount for proper averaging
+        parent.rarityDistribution[rarityName] = (parent.rarityDistribution[rarityName] || 0) + dropCount;
+        
+        // Add variant
+        parent.variants.push({
+          displayId: row.display_id,
+          rarityTier: row.rarity_tier,
+          rarityName,
+          equipmentType: row.equipment_type,
+          equipmentTypeName: equipmentTypeNames[Number(row.equipment_type)] || 'Unknown',
+          variantName: row.variant_name,
+          dropCount,
+          observedRate: totalCompletions > 0 ? dropCount / totalCompletions : 0,
+          avgPartyLuck: avgLuck,
+        });
+      }
+
+      // Finalize equipment parent stats
+      const equipment = Array.from(equipmentMap.values()).map(eq => {
+        const { totalLuckSum, ...rest } = eq;
+        return {
+          ...rest,
+          avgPartyLuck: eq.dropCount > 0 ? totalLuckSum / eq.dropCount : 0,
+          observedRate: totalCompletions > 0 ? eq.dropCount / totalCompletions : 0,
+        };
+      });
 
       res.json({ 
         ok: true, 
         activityId: parseInt(activityId), 
         totalCompletions,
-        loot: allLoot 
+        regularLoot,
+        seasonalLoot,
+        equipment,
       });
     } catch (error: any) {
       console.error('[PVE API] Error fetching hierarchical loot:', error);
