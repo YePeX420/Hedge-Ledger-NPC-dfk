@@ -535,6 +535,40 @@ async function getOrCreateLootItem(chainId, itemAddress) {
   return inserted[0].id;
 }
 
+// Equipment parent item addresses by chain (canonical equipment NFT contracts)
+const EQUIPMENT_CONTRACT_ADDRESSES = {
+  53935: '0xe60480b4083ca9f4d07034eb30bc7894114adac1', // DFK Chain Equipment contract
+  1088: '0xe60480b4083ca9f4d07034eb30bc7894114adac1',  // Metis Equipment contract (same)
+};
+
+// Get or create equipment parent item for a chain
+// Equipment events should link to this parent item, with variants determined by equipment_type + display_id
+async function getOrCreateEquipmentItem(chainId) {
+  const equipmentAddress = EQUIPMENT_CONTRACT_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000001';
+  
+  const existing = await db.execute(sql`
+    SELECT id FROM pve_loot_items 
+    WHERE chain_id = ${chainId} AND item_type = 'equipment'
+    LIMIT 1
+  `);
+  
+  if (existing[0]) {
+    return existing[0].id;
+  }
+  
+  // Create equipment parent item
+  const inserted = await db.execute(sql`
+    INSERT INTO pve_loot_items (item_address, chain_id, name, item_type, rarity) 
+    VALUES (${equipmentAddress}, ${chainId}, 'Equipment', 'equipment', 'varies')
+    ON CONFLICT (chain_id, item_address) DO UPDATE SET 
+      name = 'Equipment',
+      item_type = 'equipment'
+    RETURNING id
+  `);
+  
+  return inserted[0].id;
+}
+
 // Fetch hero stats at a specific block for luck calculation
 async function getHeroStatsAtBlock(chain, heroId, blockNumber) {
   try {
@@ -801,8 +835,9 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
             });
             if (!parsed) continue;
             
-            const itemAddress = (parsed.args.item || parsed.args[1]).toLowerCase();
-            const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
+            // Use the canonical equipment item for this chain instead of the event's item address
+            // The event's item address may be wrong; variants are identified by equipment_type + display_id
+            const itemId = await getOrCreateEquipmentItem(config.chainId);
             
             // Extract equipment metadata from event
             // HuntEquipmentMinted(huntId, item, player, equipmentType, displayId, rarity, nftId)
@@ -1019,8 +1054,9 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
             const eParsed = iface.parseLog({ topics: eLog.topics, data: eLog.data });
             if (!eParsed) continue;
             
-            const itemAddress = (eParsed.args.item || eParsed.args[1]).toLowerCase();
-            const itemId = await getOrCreateLootItem(config.chainId, itemAddress);
+            // Use the canonical equipment item for this chain instead of the event's item address
+            // The event's item address may be wrong; variants are identified by equipment_type + display_id
+            const itemId = await getOrCreateEquipmentItem(config.chainId);
             
             // Extract equipment metadata from event
             // HuntEquipmentMinted(huntId, item, player, equipmentType, displayId, rarity, nftId)
