@@ -32,20 +32,25 @@ const EQUIPMENT_CONTRACTS = {
 
 // Parse CSV content - handles quoted strings with commas and NULL values
 function parseCSV(content) {
-  const lines = content.trim().split('\n');
+  // Normalize line endings (Windows \r\n to \n)
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '');
+  const lines = normalized.trim().split('\n');
   const headers = parseCSVLine(lines[0]);
   const rows = [];
   
   for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue; // Skip empty lines
     const values = parseCSVLine(lines[i]);
     const row = {};
     headers.forEach((header, idx) => {
       let val = values[idx];
       // Handle NULL values
-      if (val === 'NULL' || val === undefined) {
+      if (val === 'NULL' || val === undefined || val === '') {
         val = null;
       }
-      row[header.replace(/"/g, '')] = val;
+      // Clean header name (remove quotes and any remaining whitespace)
+      const cleanHeader = header.replace(/"/g, '').trim();
+      row[cleanHeader] = val;
     });
     rows.push(row);
   }
