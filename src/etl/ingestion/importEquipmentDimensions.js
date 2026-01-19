@@ -85,12 +85,14 @@ const CHAIN_IDS = {
 };
 
 // Activity IDs for hunt/patrol-specific equipment
+// These match the 'id' column in pve_activities table
 const ACTIVITY_IDS = {
-  MAD_BOAR: 1,       // Mad Boar hunt - Gore items
-  MOTHERCLUCKER: 2,  // Bad Motherclucker hunt - Boc-Knight/Egg items
-  NIGHT_RAID: 3,     // Night Raid patrol - Submersia items
-  DARK_WATER: 4,     // Dark Water patrol
-  SHARED: 0,         // Shared across all activities (cosmetics, base items)
+  MAD_BOAR: 1,         // Mad Boar hunt (id=1) - Gore items
+  MOTHERCLUCKER: 2,    // Bad Motherclucker hunt (id=2) - Boc-Knight/Egg items
+  NIGHT_RAID: 3,       // Night Raid patrol (id=3) - Shvas Rune, Smoke Bomb, Drunkard's Bandana, Corrupted Staff
+  DARK_WATER: 4,       // Dark Water patrol (id=4) - Claw Cudgel, Octohood, Armor of the Drowned
+  BLOOD_MOON: 5,       // Blood Moon Rising patrol (id=5) - Living Blade, Cowl of Eternal Hunger, Rags of the Nameless
+  SHARED: 0,           // Shared across all activities (cosmetics, base items)
 };
 
 async function createTables() {
@@ -183,13 +185,47 @@ function getEquipmentMapping(displayId, itemName) {
     return { chainId: CHAIN_IDS.DFK, activityId: ACTIVITY_IDS.MOTHERCLUCKER };
   }
   
-  // Patrol-specific items (Submersia themed) - METIS chain
-  const patrolItems = [
-    'rags of the nameless', 'seawarden', 'abyssal', 'submersian', 'coral',
-    'drowned', 'nameless', 'submersia'
+  // ===== METIS PATROLS =====
+  
+  // Night Raid (Activity 3) - Stage 1 patrol items
+  // Enemies: Grifter, Pickpocket, Drunkard, Corrupted Citizen
+  const nightRaidItems = [
+    'shvas rune',            // Grifter drop
+    'smoke bomb',            // Pickpocket drop
+    'drunkard\'s bandana',   // Drunkard drop
+    'drunkards bandana',
+    'corrupted staff'        // Corrupted Citizen drop
   ];
-  if (patrolItems.some(pattern => name.includes(pattern))) {
+  if (nightRaidItems.some(pattern => name.includes(pattern))) {
     return { chainId: CHAIN_IDS.METIS, activityId: ACTIVITY_IDS.NIGHT_RAID };
+  }
+  
+  // Dark Water (Activity 4) - Stage 2 patrol items
+  // Enemies: Sea Hag, Crusted Crab, Octobot, Drowned Hero
+  const darkWaterItems = [
+    'claw cudgel',           // Crusted Crab drop
+    'octohood',              // Octobot drop
+    'armor of the drowned',  // Drowned Hero drop
+    'seawarden'              // Sea-themed items
+  ];
+  if (darkWaterItems.some(pattern => name.includes(pattern))) {
+    return { chainId: CHAIN_IDS.METIS, activityId: ACTIVITY_IDS.DARK_WATER };
+  }
+  
+  // Blood Moon Rising (Activity 5) - Stage 3 patrol items
+  // Enemies: Harpy, Living Armor, Lost Soul, Nameless Apostle
+  const bloodMoonItems = [
+    'living blade',          // Living Armor drop
+    'cowl of eternal hunger', // Lost Soul drop
+    'cowl of the eternal',
+    'rags of the nameless',  // Nameless Apostle drop
+    'abyssal',               // Blood Moon themed
+    'coral',                 // METIS themed
+    'submersia',             // Crown of Submersia
+    'submersian'
+  ];
+  if (bloodMoonItems.some(pattern => name.includes(pattern))) {
+    return { chainId: CHAIN_IDS.METIS, activityId: ACTIVITY_IDS.BLOOD_MOON };
   }
   
   // Basic starter equipment (Squire's, Hempen, Leather, etc.) - shared across all

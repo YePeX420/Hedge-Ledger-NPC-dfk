@@ -5640,7 +5640,8 @@ async function startAdminWebServer() {
       
       // Get equipment variants (grouped by display_id + rarity_tier)
       // Join with dimension tables to get proper item names
-      // Match priority: (chain_id, activity_id) > (chain_id, activity_id=0) > (chain_id=0, activity_id=0)
+      // Match priority: (chain_id, activity_id) > (chain_id, activity_id=0) > (DFK chain only: chain_id=0, activity_id=0)
+      // NOTE: Shared items (chain_id=0) are only used for DFK chain (53935), NOT for METIS (1088) patrols
       const equipmentVariants = await db.execute(sql`
         SELECT 
           l.id as item_id,
@@ -5652,9 +5653,10 @@ async function startAdminWebServer() {
           COUNT(r.id) as drop_count,
           AVG(r.party_luck) as avg_party_luck,
           COALESCE(
-            w_activity.weapon_name, w_chain.weapon_name, w_shared.weapon_name,
-            a_activity.armor_name, a_chain.armor_name, a_shared.armor_name,
-            acc_activity.accessory_name, acc_chain.accessory_name, acc_shared.accessory_name
+            w_activity.weapon_name, a_activity.armor_name, acc_activity.accessory_name,
+            w_chain.weapon_name, a_chain.armor_name, acc_chain.accessory_name,
+            CASE WHEN r.chain_id = 53935 THEN COALESCE(w_shared.weapon_name, a_shared.armor_name, acc_shared.accessory_name) END,
+            'Type ' || r.equipment_type || ' #' || r.display_id
           ) as variant_name
         FROM pve_reward_events r
         JOIN pve_loot_items l ON r.item_id = l.id
