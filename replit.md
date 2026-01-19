@@ -63,6 +63,8 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Gene Decoding Fix**: Fixed critical bug in `gene-decoder.js` where active/passive skill genes were returning undefined values. Raw Kai-decoded values for 16-element lookup tables (ACTIVE_GENES, PASSIVE_GENES) now use `value % 16` normalization to extract skill IDs correctly.
 *   **Hero ID Format Fix**: Updated `getHeroById` in `onchain-data.js` to try multiple ID formats (raw, CV prefix 1T+, SD prefix 2T+) when fetching heroes from the DFK GraphQL API.
 *   **Elite Skill Mutations**: Summoning Calculator now correctly displays elite/exalted skill probabilities (Stun, Second Wind, Resurrection) in offspring predictions.
+*   **Equipment Dimension Tables**: Added dimension tables (`dim_weapon_details`, `dim_armor_details`, `dim_accessory_details`) to map equipment_type + display_id to human-readable item names. Imported 146 items (55 weapons, 40 armors, 51 accessories) from DFK game data CSV files. PVE drop rate display now shows proper item names like "Bronze Spatha" instead of generic "Weapon #3".
+*   **Bargain Hunter Efficiency Display Fix**: Fixed display of TS/JEWEL efficiency to use the actual stored efficiency value (×100 for readability) instead of a broken USD-based calculation.
 
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2 authentication.

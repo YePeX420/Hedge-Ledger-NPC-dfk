@@ -94,6 +94,7 @@ interface EquipmentVariant {
   rarityName: string;
   equipmentType: number;
   equipmentTypeName: string;
+  variantName: string;
   dropCount: number;
   observedRate: number;
   avgPartyLuck: number;
@@ -640,7 +641,8 @@ function ActivityTable({ activities, type }: { activities: ActivityStats[]; type
                                   {eq.variants.map((variant, vIdx) => (
                                     <TableRow key={vIdx} data-testid={`variant-${eq.item_id}-${vIdx}`}>
                                       <TableCell className="font-mono text-xs">
-                                        {variant.equipmentTypeName} #{variant.displayId}
+                                        <span className="font-medium">{variant.variantName}</span>
+                                        <span className="text-muted-foreground ml-1">({variant.equipmentTypeName})</span>
                                       </TableCell>
                                       <TableCell>
                                         <Badge 

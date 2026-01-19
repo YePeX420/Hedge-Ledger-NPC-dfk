@@ -5639,6 +5639,7 @@ async function startAdminWebServer() {
       `);
       
       // Get equipment variants (grouped by display_id + rarity_tier)
+      // Join with dimension tables to get proper item names
       const equipmentVariants = await db.execute(sql`
         SELECT 
           l.id as item_id,
@@ -5647,13 +5648,17 @@ async function startAdminWebServer() {
           r.rarity_tier,
           r.equipment_type,
           COUNT(r.id) as drop_count,
-          AVG(r.party_luck) as avg_party_luck
+          AVG(r.party_luck) as avg_party_luck,
+          COALESCE(w.weapon_name, a.armor_name, acc.accessory_name) as variant_name
         FROM pve_reward_events r
         JOIN pve_loot_items l ON r.item_id = l.id
+        LEFT JOIN dim_weapon_details w ON r.equipment_type = w.weapon_type_id AND r.display_id = w.display_id
+        LEFT JOIN dim_armor_details a ON r.equipment_type = a.armor_type_id AND r.display_id = a.display_id
+        LEFT JOIN dim_accessory_details acc ON r.equipment_type = acc.accessory_type_id AND r.display_id = acc.display_id
         WHERE r.activity_id = ${activityIdInt} 
           AND r.is_equipment = TRUE
           AND (l.item_type = 'equipment' OR l.item_type IS NULL)
-        GROUP BY l.id, l.item_address, r.display_id, r.rarity_tier, r.equipment_type
+        GROUP BY l.id, l.item_address, r.display_id, r.rarity_tier, r.equipment_type, w.weapon_name, a.armor_name, acc.accessory_name
         ORDER BY l.item_address, r.rarity_tier DESC, drop_count DESC
       `);
       
@@ -5671,6 +5676,7 @@ async function startAdminWebServer() {
             rarityName: rarityNames[v.rarity_tier] || 'Unknown',
             equipmentType: v.equipment_type,
             equipmentTypeName: equipmentTypeNames[v.equipment_type] || 'Unknown',
+            variantName: v.variant_name || `Type ${v.equipment_type} #${v.display_id}`,
             dropCount: parseInt(v.drop_count),
             observedRate: totalCompletions > 0 ? parseInt(v.drop_count) / totalCompletions : 0,
             avgPartyLuck: parseFloat(v.avg_party_luck) || 0,
