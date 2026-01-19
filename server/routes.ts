@@ -2599,6 +2599,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/pve/loot-hierarchical/:activityId - Get hierarchical loot drops with equipment variants
+  app.get("/api/pve/loot-hierarchical/:activityId", async (req: any, res: any) => {
+    try {
+      const { activityId } = req.params;
+      
+      // Get total completions for drop rate calculation
+      const completionsResult = await db.execute(sql`
+        SELECT COUNT(*) as total FROM pve_completions c WHERE c.activity_id = ${parseInt(activityId)}
+      `);
+      const totalCompletions = parseInt(completionsResult.rows[0]?.total || '0');
+
+      // Get regular loot items (non-equipment)
+      const regularLoot = await db.execute(sql`
+        SELECT 
+          l.id as item_id,
+          l.name as item_name,
+          l.item_type,
+          l.rarity,
+          COUNT(r.id) as drop_count,
+          AVG(r.party_luck) as avg_party_luck,
+          NULL as equipment_type,
+          NULL as display_id,
+          NULL as rarity_tier,
+          NULL as variant_name
+        FROM pve_reward_events r
+        JOIN pve_loot_items l ON r.item_id = l.id
+        WHERE r.activity_id = ${parseInt(activityId)}
+          AND (r.is_equipment IS NULL OR r.is_equipment = false)
+        GROUP BY l.id, l.name, l.item_type, l.rarity
+        ORDER BY drop_count DESC
+      `);
+
+      // Get equipment loot with variant names from dimension tables
+      const equipmentLoot = await db.execute(sql`
+        SELECT 
+          l.id as item_id,
+          'Equipment' as item_name,
+          'equipment' as item_type,
+          l.rarity,
+          COUNT(r.id) as drop_count,
+          AVG(r.party_luck) as avg_party_luck,
+          r.equipment_type,
+          r.display_id,
+          r.rarity_tier,
+          COALESCE(
+            w.name,
+            a.name,
+            acc.name,
+            'Unknown Item'
+          ) as variant_name
+        FROM pve_reward_events r
+        JOIN pve_loot_items l ON r.item_id = l.id
+        LEFT JOIN dim_weapon_details w ON w.weapon_type_id = r.equipment_type AND w.display_id = r.display_id
+        LEFT JOIN dim_armor_details a ON a.armor_type_id = r.equipment_type AND a.display_id = r.display_id
+        LEFT JOIN dim_accessory_details acc ON acc.accessory_type_id = r.equipment_type AND acc.display_id = r.display_id
+        WHERE r.activity_id = ${parseInt(activityId)}
+          AND r.is_equipment = true
+        GROUP BY l.id, l.rarity, r.equipment_type, r.display_id, r.rarity_tier, w.name, a.name, acc.name
+        ORDER BY drop_count DESC
+      `);
+
+      // Merge results and add computed fields
+      const allLoot = [...regularLoot.rows, ...equipmentLoot.rows].map((item: any) => ({
+        ...item,
+        drop_count: parseInt(item.drop_count),
+        avg_party_luck: item.avg_party_luck ? parseFloat(item.avg_party_luck) : null,
+        drop_rate: totalCompletions > 0 ? parseInt(item.drop_count) / totalCompletions : 0,
+      }));
+
+      // Sort by drop count descending
+      allLoot.sort((a, b) => b.drop_count - a.drop_count);
+
+      res.json({ 
+        ok: true, 
+        activityId: parseInt(activityId), 
+        totalCompletions,
+        loot: allLoot 
+      });
+    } catch (error: any) {
+      console.error('[PVE API] Error fetching hierarchical loot:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/pve/estimate - Estimate drop rate for an item
   app.get("/api/pve/estimate", async (req: any, res: any) => {
     try {
