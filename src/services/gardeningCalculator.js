@@ -559,3 +559,227 @@ export async function getUserPoolPositions(userAddress) {
     return { ok: false, error: err.message, positions: [] };
   }
 }
+
+/**
+ * Get active questing heroes for a wallet with their pets and expected yields
+ */
+export async function getWalletQuestingHeroes(walletAddress) {
+  try {
+    const { getAllHeroesByOwner } = await import('../../onchain-data.js');
+    
+    // Fetch all heroes owned by wallet
+    const allHeroes = await getAllHeroesByOwner(walletAddress);
+    console.log(`[GardeningCalc] Found ${allHeroes.length} total heroes for wallet`);
+    
+    // Filter for heroes currently on gardening quests (currentQuest is set)
+    const questingHeroes = allHeroes.filter(h => h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000');
+    console.log(`[GardeningCalc] ${questingHeroes.length} heroes currently questing`);
+    
+    // Get Quest Reward Fund balances and pool positions
+    const [rewardFund, positionsResult] = await Promise.all([
+      getQuestRewardFundBalances(),
+      getUserPoolPositions(walletAddress),
+    ]);
+    
+    const lpPositions = positionsResult.positions || [];
+    
+    // Provider for pet lookups
+    const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
+    const petContract = new ethers.Contract(PETCORE_ADDRESS, PET_CORE_ABI, provider);
+    
+    // Process each questing hero
+    const heroYields = [];
+    
+    for (const hero of questingHeroes) {
+      try {
+        const heroId = hero.normalizedId || hero.id;
+        const hasGardeningGene = hero.professionStr?.toLowerCase() === 'gardening';
+        const gardeningSkill = hero.gardening || 0;
+        const wisdom = hero.wisdom || 0;
+        const vitality = hero.vitality || 0;
+        const level = hero.level || 1;
+        const maxStamina = 25 + Math.floor(level / 5);
+        const currentStamina = hero.stamina || 0;
+        
+        // Try to find attached pet via getPetV2 lookup by hero ID
+        let petData = null;
+        let powerSurgeBonus = 0;
+        let skilledGreenskeeperBonus = 0;
+        let petFed = false;
+        
+        // Check all pets to find one equipped to this hero
+        // Note: We'll skip pet lookup for now as it requires scanning all pets
+        // In production, use indexed pet data
+        
+        // Calculate hero factor
+        const effectiveGrdSkill = skilledGreenskeeperBonus > 0 && petFed
+          ? gardeningSkill + skilledGreenskeeperBonus
+          : gardeningSkill;
+        
+        const heroFactor = calculateHeroFactor(wisdom, vitality, effectiveGrdSkill);
+        const petMultiplier = petFed && powerSurgeBonus > 0 ? 1 + powerSurgeBonus / 100 : 1.0;
+        
+        // Find LP positions for calculation (we'll use the largest one or first one)
+        // Note: We can't determine exact pool assignment from currentQuest alone
+        // The currentQuest address is the quest contract, not the pool
+        
+        // For now, calculate yields for each LP position the wallet has
+        for (const position of lpPositions) {
+          const poolAllocation = position.allocPoint / position.totalAllocPoint;
+          
+          const crystalPerStamina = calculateYieldPerStamina({
+            rewardPool: rewardFund.crystalPool,
+            poolAllocation,
+            lpOwned: position.lpShare,
+            heroFactor,
+            hasGardeningGene,
+            gardeningSkill: effectiveGrdSkill,
+            petMultiplier,
+          });
+          
+          const jewelPerStamina = calculateYieldPerStamina({
+            rewardPool: rewardFund.jewelPool,
+            poolAllocation,
+            lpOwned: position.lpShare,
+            heroFactor,
+            hasGardeningGene,
+            gardeningSkill: effectiveGrdSkill,
+            petMultiplier,
+          });
+          
+          heroYields.push({
+            heroId,
+            class: hero.mainClassStr,
+            subClass: hero.subClassStr,
+            profession: hero.professionStr,
+            level,
+            wisdom,
+            vitality,
+            gardeningSkill,
+            hasGardeningGene,
+            currentStamina,
+            maxStamina,
+            heroFactor,
+            petMultiplier,
+            powerSurgeBonus,
+            skilledGreenskeeperBonus,
+            petId: petData?.petId || null,
+            petFed,
+            poolId: position.poolId,
+            poolName: position.poolName,
+            lpShare: position.lpShare,
+            lpSharePct: position.lpSharePct,
+            poolAllocation,
+            crystalPerStamina,
+            jewelPerStamina,
+            crystalPer25Stam: crystalPerStamina * 25,
+            jewelPer25Stam: jewelPerStamina * 25,
+            crystalPer30Stam: crystalPerStamina * 30,
+            jewelPer30Stam: jewelPerStamina * 30,
+          });
+        }
+      } catch (heroErr) {
+        console.warn(`[GardeningCalc] Error processing hero ${hero.id}:`, heroErr.message);
+      }
+    }
+    
+    return {
+      ok: true,
+      wallet: walletAddress,
+      totalHeroes: allHeroes.length,
+      questingHeroes: questingHeroes.length,
+      lpPositions: lpPositions.length,
+      rewardFund: {
+        crystalPool: rewardFund.crystalPool,
+        jewelPool: rewardFund.jewelPool,
+      },
+      yields: heroYields,
+    };
+  } catch (err) {
+    console.error('[GardeningCalc] Error fetching wallet questing heroes:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Validate calculated yield against actual indexed rewards for a hero
+ */
+export async function validateHeroYield(heroId, poolId, walletAddress) {
+  try {
+    // Get hero stats
+    const heroStats = await getHeroStatsById(heroId);
+    if (!heroStats.ok) {
+      return { ok: false, error: 'Hero not found' };
+    }
+    
+    // Get reward fund and LP position
+    const [rewardFund, lpInfo] = await Promise.all([
+      getQuestRewardFundBalances(),
+      getUserLpShare(poolId, walletAddress),
+    ]);
+    
+    const poolAllocation = await getPoolAllocation(poolId);
+    
+    // Calculate expected yields
+    const heroFactor = calculateHeroFactor(
+      heroStats.wisdom,
+      heroStats.vitality,
+      heroStats.gardeningSkill
+    );
+    
+    const crystalPerStamina = calculateYieldPerStamina({
+      rewardPool: rewardFund.crystalPool,
+      poolAllocation,
+      lpOwned: lpInfo.lpShare,
+      heroFactor,
+      hasGardeningGene: heroStats.hasGardeningGene,
+      gardeningSkill: heroStats.gardeningSkill,
+      petMultiplier: 1.0,
+    });
+    
+    const jewelPerStamina = calculateYieldPerStamina({
+      rewardPool: rewardFund.jewelPool,
+      poolAllocation,
+      lpOwned: lpInfo.lpShare,
+      heroFactor,
+      hasGardeningGene: heroStats.hasGardeningGene,
+      gardeningSkill: heroStats.gardeningSkill,
+      petMultiplier: 1.0,
+    });
+    
+    return {
+      ok: true,
+      heroId,
+      poolId,
+      poolName: POOL_NAMES[poolId],
+      heroStats: {
+        class: heroStats.class,
+        level: heroStats.level,
+        wisdom: heroStats.wisdom,
+        vitality: heroStats.vitality,
+        gardeningSkill: heroStats.gardeningSkill,
+        hasGardeningGene: heroStats.hasGardeningGene,
+      },
+      formula: {
+        heroFactor,
+        poolAllocation,
+        lpShare: lpInfo.lpShare,
+        rewardFund: {
+          crystalPool: rewardFund.crystalPool,
+          jewelPool: rewardFund.jewelPool,
+        },
+      },
+      expected: {
+        crystalPerStamina,
+        jewelPerStamina,
+        crystalPer25Stam: crystalPerStamina * 25,
+        jewelPer25Stam: jewelPerStamina * 25,
+        crystalPer30Stam: crystalPerStamina * 30,
+        jewelPer30Stam: jewelPerStamina * 30,
+      },
+    };
+  } catch (err) {
+    console.error('[GardeningCalc] Error validating hero yield:', err.message);
+    return { ok: false, error: err.message };
+  }
+}

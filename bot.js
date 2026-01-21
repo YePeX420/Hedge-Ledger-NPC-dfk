@@ -7885,6 +7885,30 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/gardening-calc/wallet/:address/questing-heroes - Get active questing heroes with expected yields
+  app.get('/api/admin/gardening-calc/wallet/:address/questing-heroes', isAdmin, async (req, res) => {
+    try {
+      const { getWalletQuestingHeroes } = await import('./src/services/gardeningCalculator.js');
+      const result = await getWalletQuestingHeroes(req.params.address);
+      res.json(result);
+    } catch (error) {
+      console.error('[GardeningCalc] Questing heroes error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // GET /api/admin/gardening-calc/validate/:heroId/:poolId/:wallet - Validate expected yield for a hero
+  app.get('/api/admin/gardening-calc/validate/:heroId/:poolId/:wallet', isAdmin, async (req, res) => {
+    try {
+      const { validateHeroYield } = await import('./src/services/gardeningCalculator.js');
+      const result = await validateHeroYield(req.params.heroId, parseInt(req.params.poolId), req.params.wallet);
+      res.json(result);
+    } catch (error) {
+      console.error('[GardeningCalc] Validate hero yield error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   // POST /api/admin/gardening-calc/yield-projection - Calculate expected yields across all pools for a given investment
   app.post('/api/admin/gardening-calc/yield-projection', isAdmin, async (req, res) => {
     try {
