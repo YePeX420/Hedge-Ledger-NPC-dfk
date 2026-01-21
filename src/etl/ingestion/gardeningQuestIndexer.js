@@ -533,6 +533,8 @@ async function initWorkerProgress(workerId, rangeStart, rangeEnd) {
   const indexerName = getWorkerIndexerName(workerId);
   const existing = await getIndexerProgress(indexerName);
   
+  console.log(`[GardeningQuest] initWorkerProgress(${workerId}): rangeStart=${rangeStart?.toLocaleString()}, rangeEnd=${rangeEnd?.toLocaleString()}, existing=${!!existing}`);
+  
   if (existing) {
     await db.update(gardeningQuestIndexerProgress)
       .set({
@@ -1041,6 +1043,9 @@ async function runGardeningWorkerBatch(workerId) {
   const workerInfo = autoRunIntervals.get(getWorkerKey(workerId));
   const workerTargetBlock = workerInfo?.rangeEnd || progress.rangeEnd || await getLatestBlock();
   
+  // Log DB values for debugging range issues
+  console.log(`[GardeningQuest W${workerId}] DB progress: rangeStart=${progress.rangeStart ?? 'null'} (${typeof progress.rangeStart}), rangeEnd=${progress.rangeEnd ?? 'null'}, lastIndexed=${progress.lastIndexedBlock?.toLocaleString()}, genesis=${progress.genesisBlock ?? 'null'}`);
+  
   // Use the greater of lastIndexedBlock+1 or rangeStart to ensure we don't go backwards
   // when workers are reassigned new ranges after restart
   const rawStartBlock = progress.lastIndexedBlock + 1;
@@ -1058,11 +1063,14 @@ async function runGardeningWorkerBatch(workerId) {
   
   await updateIndexerProgress(indexerName, { status: 'running' });
   
+  // Use nullish coalescing (??) to handle 0 correctly (0 is a valid rangeStart)
+  const effectiveRangeStart = progress.rangeStart ?? progress.genesisBlock ?? 0;
+  
   updateWorkerLiveProgress(workerId, {
     isRunning: true,
     currentBlock: startBlock,
     targetBlock: workerTargetBlock,
-    rangeStart: progress.rangeStart || progress.genesisBlock,
+    rangeStart: effectiveRangeStart,
     rangeEnd: workerTargetBlock,
     startedAt: new Date().toISOString(),
   });
@@ -1372,6 +1380,8 @@ export async function startGardeningWorkersAutoRun(intervalMs = AUTO_RUN_INTERVA
       rangeStart = w * blocksPerWorker;
       rangeEnd = (w === workerCount - 1) ? null : (w + 1) * blocksPerWorker;
     }
+    
+    console.log(`[GardeningQuest] Worker ${w} range assignment: ${rangeStart?.toLocaleString()} - ${rangeEnd?.toLocaleString() || 'latest'} (hasDbRanges=${hasDbRanges})`);
     
     await new Promise(r => setTimeout(r, 500));
     
