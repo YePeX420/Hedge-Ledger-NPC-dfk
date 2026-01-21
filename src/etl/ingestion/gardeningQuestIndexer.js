@@ -1041,7 +1041,13 @@ async function runGardeningWorkerBatch(workerId) {
   const workerInfo = autoRunIntervals.get(getWorkerKey(workerId));
   const workerTargetBlock = workerInfo?.rangeEnd || progress.rangeEnd || await getLatestBlock();
   
-  const startBlock = progress.lastIndexedBlock + 1;
+  // Use the greater of lastIndexedBlock+1 or rangeStart to ensure we don't go backwards
+  // when workers are reassigned new ranges after restart
+  const rawStartBlock = progress.lastIndexedBlock + 1;
+  const startBlock = Math.max(rawStartBlock, progress.rangeStart || 0);
+  if (startBlock > rawStartBlock) {
+    console.log(`[GardeningQuest W${workerId}] Adjusting start block from ${rawStartBlock.toLocaleString()} to ${startBlock.toLocaleString()} (rangeStart: ${progress.rangeStart?.toLocaleString()})`);
+  }
   const endBlock = Math.min(startBlock + INCREMENTAL_BATCH_SIZE - 1, workerTargetBlock);
   
   if (startBlock > workerTargetBlock) {
