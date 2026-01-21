@@ -7925,20 +7925,16 @@ async function startAdminWebServer() {
         const poolTVL = pool.totalTVL || 0;
         
         // Calculate user's LP share based on investment
-        const lpShare = poolTVL > 0 ? investmentUSD / poolTVL : 0;
+        // IMPORTANT: New investment adds to pool TVL, so use (TVL + investment) as denominator
+        const newPoolTVL = poolTVL + investmentUSD;
+        const lpShare = newPoolTVL > 0 ? investmentUSD / newPoolTVL : 0;
         
         // Get pool allocation
         const poolAllocation = await getPoolAllocation(poolId);
         
-        // Determine reward token based on pool name
-        const pairName = pool.pairName || '';
-        const hasCrystal = pairName.includes('CRYSTAL');
-        const rewardToken = hasCrystal ? 'CRYSTAL' : 'JEWEL';
-        const rewardPool = hasCrystal ? rewardFund.crystalPool : rewardFund.jewelPool;
-        
-        // Calculate per-stamina yield using the official formula
-        const perStaminaYield = calculateYieldPerStamina({
-          rewardPool,
+        // Calculate BOTH CRYSTAL and JEWEL rewards (dual-hero gardening)
+        const crystalPerStamina = calculateYieldPerStamina({
+          rewardPool: rewardFund.crystalPool,
           poolAllocation,
           lpOwned: lpShare,
           heroFactor,
@@ -7947,25 +7943,31 @@ async function startAdminWebServer() {
           petMultiplier,
         });
         
-        // Calculate daily yield (72 stamina per day baseline)
-        const staminaPerDay = 72;
-        const dailyYield = perStaminaYield * staminaPerDay;
-        const perQuestYield = perStaminaYield * stamina;
+        const jewelPerStamina = calculateYieldPerStamina({
+          rewardPool: rewardFund.jewelPool,
+          poolAllocation,
+          lpOwned: lpShare,
+          heroFactor,
+          hasGardeningGene,
+          gardeningSkill,
+          petMultiplier,
+        });
+        
+        // Calculate per-quest rewards (stamina parameter, typically 30)
+        const crystalPerQuest = crystalPerStamina * stamina;
+        const jewelPerQuest = jewelPerStamina * stamina;
         
         return {
           pid: poolId,
           pairName: pool.pairName,
           tvl: poolTVL,
-          rewardToken,
+          newTvl: newPoolTVL,
           lpShare: lpShare,
-          lpSharePct: (lpShare * 100).toFixed(6),
+          lpSharePct: (lpShare * 100).toFixed(4),
           poolAllocation: poolAllocation,
           poolAllocationPct: (poolAllocation * 100).toFixed(2),
-          perStamina: perStaminaYield,
-          perQuest: perQuestYield,
-          daily: dailyYield,
-          weekly: dailyYield * 7,
-          monthly: dailyYield * 30,
+          crystalPerQuest,
+          jewelPerQuest,
         };
       }));
       

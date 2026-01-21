@@ -47,16 +47,13 @@ interface PoolProjection {
   pid: number;
   pairName: string;
   tvl: number;
-  rewardToken: "CRYSTAL" | "JEWEL";
+  newTvl: number;
   lpShare: number;
   lpSharePct: string;
   poolAllocation: number;
   poolAllocationPct: string;
-  perStamina: number;
-  perQuest: number;
-  daily: number;
-  weekly: number;
-  monthly: number;
+  crystalPerQuest: number;
+  jewelPerQuest: number;
 }
 
 interface YieldProjectionResponse {
@@ -80,7 +77,7 @@ interface YieldProjectionResponse {
   projections: PoolProjection[];
 }
 
-type SortField = "pairName" | "tvl" | "lpSharePct" | "perQuest" | "daily" | "monthly";
+type SortField = "pairName" | "tvl" | "lpSharePct" | "crystalPerQuest" | "jewelPerQuest";
 type SortDirection = "asc" | "desc";
 
 const EXAMPLE_HERO = {
@@ -97,7 +94,7 @@ export default function YieldCalculator() {
   const [customHeroId, setCustomHeroId] = useState<string>("");
   const [heroData, setHeroData] = useState<HeroData | null>(null);
   const [petBonusPct, setPetBonusPct] = useState<string>("0");
-  const [sortField, setSortField] = useState<SortField>("monthly");
+  const [sortField, setSortField] = useState<SortField>("crystalPerQuest");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
   const getActiveHeroStats = () => {
@@ -170,21 +167,17 @@ export default function YieldCalculator() {
         aVal = parseFloat(a.lpSharePct);
         bVal = parseFloat(b.lpSharePct);
         break;
-      case "perQuest":
-        aVal = a.perQuest;
-        bVal = b.perQuest;
+      case "crystalPerQuest":
+        aVal = a.crystalPerQuest;
+        bVal = b.crystalPerQuest;
         break;
-      case "daily":
-        aVal = a.daily;
-        bVal = b.daily;
-        break;
-      case "monthly":
-        aVal = a.monthly;
-        bVal = b.monthly;
+      case "jewelPerQuest":
+        aVal = a.jewelPerQuest;
+        bVal = b.jewelPerQuest;
         break;
       default:
-        aVal = a.monthly;
-        bVal = b.monthly;
+        aVal = a.crystalPerQuest;
+        bVal = b.crystalPerQuest;
     }
 
     if (typeof aVal === "string" && typeof bVal === "string") {
@@ -226,7 +219,6 @@ export default function YieldCalculator() {
     return value.toFixed(decimals);
   };
 
-  const activeHero = getActiveHeroStats();
   const responseData = yieldMutation.data;
 
   const SortHeader = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
@@ -247,7 +239,7 @@ export default function YieldCalculator() {
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-page-title">Yield Calculator</h1>
         <p className="text-muted-foreground">
-          Calculate expected CRYSTAL/JEWEL rewards based on your investment and hero stats
+          Calculate expected CRYSTAL + JEWEL rewards per {staminaPerQuest} stamina quest
         </p>
       </div>
 
@@ -455,10 +447,10 @@ export default function YieldCalculator() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              Projected Token Rewards
+              Expected Rewards per {staminaPerQuest} Stamina Quest
             </CardTitle>
             <CardDescription>
-              Expected rewards for ${parseFloat(investmentAmount).toLocaleString()} investment with {staminaPerQuest} stamina per quest. Click headers to sort.
+              Both CRYSTAL and JEWEL rewards for ${parseFloat(investmentAmount).toLocaleString()} investment. Click headers to sort.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -466,8 +458,8 @@ export default function YieldCalculator() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-muted-foreground">
                 <div>Hero Factor: <span className="font-mono">{responseData.inputs.heroFactor.toFixed(4)}</span></div>
                 <div>Pet Multiplier: <span className="font-mono">{responseData.inputs.petMultiplier.toFixed(2)}x</span></div>
-                <div>CRYSTAL Fund: <span className="font-mono">{responseData.rewardFund.crystalPool.toLocaleString()}</span></div>
-                <div>JEWEL Fund: <span className="font-mono">{responseData.rewardFund.jewelPool.toLocaleString()}</span></div>
+                <div>CRYSTAL Fund: <span className="font-mono">{(responseData.rewardFund.crystalPool / 1000000).toFixed(2)}M</span></div>
+                <div>JEWEL Fund: <span className="font-mono">{(responseData.rewardFund.jewelPool / 1000).toFixed(0)}K</span></div>
               </div>
             </div>
 
@@ -476,40 +468,33 @@ export default function YieldCalculator() {
                 <TableHeader>
                   <TableRow>
                     <SortHeader field="pairName">Pool</SortHeader>
-                    <SortHeader field="tvl">TVL</SortHeader>
+                    <SortHeader field="tvl">Current TVL</SortHeader>
                     <SortHeader field="lpSharePct">Your Share</SortHeader>
-                    <TableHead>Token</TableHead>
-                    <SortHeader field="perQuest">Per {staminaPerQuest} Stam</SortHeader>
-                    <SortHeader field="daily">Daily</SortHeader>
-                    <SortHeader field="monthly">Monthly</SortHeader>
+                    <SortHeader field="crystalPerQuest">CRYSTAL / Quest</SortHeader>
+                    <SortHeader field="jewelPerQuest">JEWEL / Quest</SortHeader>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {sortedProjections.map((proj) => (
                     <TableRow key={proj.pid} data-testid={`row-pool-${proj.pid}`}>
                       <TableCell className="font-medium">{proj.pairName}</TableCell>
-                      <TableCell>{formatCurrency(proj.tvl)}</TableCell>
+                      <TableCell>
+                        <div>{formatCurrency(proj.tvl)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          → {formatCurrency(proj.newTvl)}
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <span className="font-mono text-sm">{proj.lpSharePct}%</span>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={proj.rewardToken === "CRYSTAL" ? "default" : "secondary"}>
-                          {proj.rewardToken}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-mono text-sm font-semibold">
-                          {formatToken(proj.perQuest)}
+                        <div className="font-mono text-sm font-semibold text-cyan-600 dark:text-cyan-400">
+                          {formatToken(proj.crystalPerQuest, 2)}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="font-mono text-sm">
-                          {formatToken(proj.daily, 2)}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-mono text-sm font-semibold text-green-600 dark:text-green-400">
-                          {formatToken(proj.monthly, 2)}
+                        <div className="font-mono text-sm font-semibold text-purple-600 dark:text-purple-400">
+                          {formatToken(proj.jewelPerQuest, 4)}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -525,8 +510,8 @@ export default function YieldCalculator() {
         <Alert>
           <Info className="h-4 w-4" />
           <AlertDescription>
-            Enter your investment amount and click <strong>Calculate Yields</strong> to see projected rewards for each pool.
-            The calculation uses the official DFK gardening formula with Quest Reward Fund balances, pool allocations, and your LP share.
+            Enter your investment amount and click <strong>Calculate Yields</strong> to see expected CRYSTAL + JEWEL rewards per quest for each pool.
+            Your LP share is calculated as: investment / (current TVL + your investment).
           </AlertDescription>
         </Alert>
       )}
@@ -537,7 +522,7 @@ export default function YieldCalculator() {
           <AlertDescription>
             <strong>Formula:</strong> earnRate = rewardPool × poolAllocation × lpShare × heroFactor / ((300 - 50×geneBonus) × rewardModBase)
             <span className="block mt-1 text-muted-foreground">
-              Your LP Share = Investment / Pool TVL. Daily rewards assume 72 stamina/day baseline.
+              LP Share = Investment / (Current TVL + Investment). Assumes dual-hero gardening (one hero earns CRYSTAL, one earns JEWEL).
             </span>
           </AlertDescription>
         </Alert>
