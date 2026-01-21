@@ -567,13 +567,22 @@ export async function getWalletQuestingHeroes(walletAddress) {
   try {
     const { getAllHeroesByOwner } = await import('../../onchain-data.js');
     
+    // Gardening Quest V3 contract address on DFK Chain
+    const GARDENING_QUEST_ADDRESS = '0x6FF019415Ee105aCF2Ac52483A33F5B43eaDB8d0'.toLowerCase();
+    
     // Fetch all heroes owned by wallet
     const allHeroes = await getAllHeroesByOwner(walletAddress);
     console.log(`[GardeningCalc] Found ${allHeroes.length} total heroes for wallet`);
     
-    // Filter for heroes currently on gardening quests (currentQuest is set)
-    const questingHeroes = allHeroes.filter(h => h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000');
-    console.log(`[GardeningCalc] ${questingHeroes.length} heroes currently questing`);
+    // Filter for heroes currently on GARDENING quests specifically (not foraging, fishing, etc.)
+    const questingHeroes = allHeroes.filter(h => {
+      if (!h.currentQuest || h.currentQuest === '0x0000000000000000000000000000000000000000') {
+        return false;
+      }
+      // Only include heroes on gardening quests
+      return h.currentQuest.toLowerCase() === GARDENING_QUEST_ADDRESS;
+    });
+    console.log(`[GardeningCalc] ${questingHeroes.length} heroes on GARDENING quests (filtered from other quest types)`);
     
     // Get Quest Reward Fund balances and pool positions
     const [rewardFund, positionsResult] = await Promise.all([
@@ -619,18 +628,40 @@ export async function getWalletQuestingHeroes(walletAddress) {
         const heroFactor = calculateHeroFactor(wisdom, vitality, effectiveGrdSkill);
         const petMultiplier = petFed && powerSurgeBonus > 0 ? 1 + powerSurgeBonus / 100 : 1.0;
         
-        // Find LP positions for calculation (we'll use the largest one or first one)
-        // Note: We can't determine exact pool assignment from currentQuest alone
-        // The currentQuest address is the quest contract, not the pool
+        // Use the first/largest LP position for yield estimates
+        // Note: We can't determine exact pool from quest data, using largest LP for estimates
+        const bestPosition = lpPositions.length > 0 
+          ? lpPositions.reduce((best, p) => p.lpShare > best.lpShare ? p : best, lpPositions[0])
+          : null;
         
-        // For now, calculate yields for each LP position the wallet has
-        for (const position of lpPositions) {
-          const poolAllocation = position.allocPoint / position.totalAllocPoint;
+        // Always add the hero, even without LP positions (for hero stats display)
+        const baseHeroData = {
+          heroId,
+          class: hero.mainClassStr,
+          subClass: hero.subClassStr,
+          profession: hero.professionStr,
+          level,
+          wisdom,
+          vitality,
+          gardeningSkill,
+          hasGardeningGene,
+          currentStamina,
+          maxStamina,
+          heroFactor,
+          petMultiplier,
+          powerSurgeBonus,
+          skilledGreenskeeperBonus,
+          petId: petData?.petId || null,
+          petFed,
+        };
+        
+        if (bestPosition) {
+          const poolAllocation = bestPosition.allocPoint / bestPosition.totalAllocPoint;
           
           const crystalPerStamina = calculateYieldPerStamina({
             rewardPool: rewardFund.crystalPool,
             poolAllocation,
-            lpOwned: position.lpShare,
+            lpOwned: bestPosition.lpShare,
             heroFactor,
             hasGardeningGene,
             gardeningSkill: effectiveGrdSkill,
@@ -640,7 +671,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
           const jewelPerStamina = calculateYieldPerStamina({
             rewardPool: rewardFund.jewelPool,
             poolAllocation,
-            lpOwned: position.lpShare,
+            lpOwned: bestPosition.lpShare,
             heroFactor,
             hasGardeningGene,
             gardeningSkill: effectiveGrdSkill,
@@ -648,27 +679,11 @@ export async function getWalletQuestingHeroes(walletAddress) {
           });
           
           heroYields.push({
-            heroId,
-            class: hero.mainClassStr,
-            subClass: hero.subClassStr,
-            profession: hero.professionStr,
-            level,
-            wisdom,
-            vitality,
-            gardeningSkill,
-            hasGardeningGene,
-            currentStamina,
-            maxStamina,
-            heroFactor,
-            petMultiplier,
-            powerSurgeBonus,
-            skilledGreenskeeperBonus,
-            petId: petData?.petId || null,
-            petFed,
-            poolId: position.poolId,
-            poolName: position.poolName,
-            lpShare: position.lpShare,
-            lpSharePct: position.lpSharePct,
+            ...baseHeroData,
+            poolId: bestPosition.poolId,
+            poolName: bestPosition.poolName,
+            lpShare: bestPosition.lpShare,
+            lpSharePct: bestPosition.lpSharePct,
             poolAllocation,
             crystalPerStamina,
             jewelPerStamina,
@@ -676,6 +691,24 @@ export async function getWalletQuestingHeroes(walletAddress) {
             jewelPer25Stam: jewelPerStamina * 25,
             crystalPer30Stam: crystalPerStamina * 30,
             jewelPer30Stam: jewelPerStamina * 30,
+            poolEstimated: true, // Flag that pool is estimated, not from quest data
+          });
+        } else {
+          // Hero on gardening quest but no LP positions detected
+          heroYields.push({
+            ...baseHeroData,
+            poolId: null,
+            poolName: 'No LP detected',
+            lpShare: 0,
+            lpSharePct: '0',
+            poolAllocation: 0,
+            crystalPerStamina: 0,
+            jewelPerStamina: 0,
+            crystalPer25Stam: 0,
+            jewelPer25Stam: 0,
+            crystalPer30Stam: 0,
+            jewelPer30Stam: 0,
+            poolEstimated: true,
           });
         }
       } catch (heroErr) {
