@@ -30,6 +30,7 @@ import AdminPoolIndexerHarmony from "@/pages/admin/pool-indexer-harmony";
 import AdminJeweler from "@/pages/admin/jeweler";
 import AdminGardeningQuest from "@/pages/admin/gardening-quest";
 import AdminGardeningCalc from "@/pages/admin/gardening-calc";
+import AdminYieldCalculator from "@/pages/admin/yield-calculator";
 import AdminBattleReady from "@/pages/admin/battle-ready";
 import AdminSummoningCalculator from "@/pages/admin/summoning-calculator";
 import AdminSummonSniper from "@/pages/admin/summon-sniper";
@@ -243,6 +244,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminGardeningCalc />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/yield-calculator">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminYieldCalculator />
           </ProtectedAdminPage>
         )}
       </Route>

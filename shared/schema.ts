@@ -1937,6 +1937,42 @@ export type InsertPoolStakerIndexerProgress = z.infer<typeof insertPoolStakerInd
 export type PoolStakerIndexerProgress = typeof poolStakerIndexerProgress.$inferSelect;
 
 // ============================================================================
+// POOL ANALYTICS CACHE
+// Persistent storage for pool TVL/APR data so startup shows real values
+// ============================================================================
+
+/**
+ * Pool analytics cache - stores computed pool analytics (TVL, APR) for fast startup
+ * Updated by background refresh, loaded on startup to show real values immediately
+ */
+export const poolAnalyticsCache = pgTable("pool_analytics_cache", {
+  id: serial("id").primaryKey(),
+  pid: integer("pid").notNull().unique(), // pool ID
+  pairName: text("pair_name").notNull(),
+  lpToken: text("lp_token").notNull(),
+  totalTVL: numeric("total_tvl", { precision: 38, scale: 2 }).default("0"),
+  v1TVL: numeric("v1_tvl", { precision: 38, scale: 2 }).default("0"),
+  v2TVL: numeric("v2_tvl", { precision: 38, scale: 2 }).default("0"),
+  totalStaked: text("total_staked").default("0"), // LP tokens staked
+  volume24hUSD: numeric("volume_24h_usd", { precision: 38, scale: 2 }).default("0"),
+  fees24hUSD: numeric("fees_24h_usd", { precision: 38, scale: 2 }).default("0"),
+  fee24hAPR: text("fee_24h_apr").default("0%"),
+  harvesting24hAPR: text("harvesting_24h_apr").default("0%"),
+  gardeningQuestAPRWorst: text("gardening_quest_apr_worst").default("0%"),
+  gardeningQuestAPRBest: text("gardening_quest_apr_best").default("0%"),
+  totalAPR: text("total_apr").default("0%"),
+  token0: text("token0"),
+  token1: text("token1"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  pidIdx: uniqueIndex("pool_analytics_cache_pid_idx").on(table.pid),
+}));
+
+export const insertPoolAnalyticsCacheSchema = createInsertSchema(poolAnalyticsCache).omit({ id: true, updatedAt: true });
+export type InsertPoolAnalyticsCache = z.infer<typeof insertPoolAnalyticsCacheSchema>;
+export type PoolAnalyticsCache = typeof poolAnalyticsCache.$inferSelect;
+
+// ============================================================================
 // POOL SWAP & REWARD EVENTS FOR APR CALCULATIONS
 // Indexed swap and reward events from LP pairs and MasterGardener
 // ============================================================================

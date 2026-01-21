@@ -57,6 +57,7 @@ const navItems = [
   { href: '/admin/jeweler', label: 'Jeweler', icon: Gem },
   { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
   { href: '/admin/gardening-calc', label: 'Gardening Calculator', icon: Calculator },
+  { href: '/admin/yield-calculator', label: 'Yield Calculator', icon: TrendingUp },
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Swords },
   { href: '/admin/summoning-calculator', label: 'Summoning Calculator', icon: Dna },
   { href: '/admin/summon-sniper', label: 'Summon Sniper', icon: Target },

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
@@ -17,7 +18,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Droplets, TrendingUp, ChevronRight } from "lucide-react";
+import { RefreshCw, Droplets, TrendingUp, ChevronRight, ArrowUpDown } from "lucide-react";
+
+type SortField = "pid" | "pairName" | "tvl" | "passiveAPR" | "totalAPRMax";
+type SortDirection = "asc" | "desc";
 
 interface Pool {
   pid: number;
@@ -41,11 +45,76 @@ interface PoolsResponse {
 
 export default function AdminPools() {
   const [, setLocation] = useLocation();
+  const [sortField, setSortField] = useState<SortField>("tvl");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   
   const { data, isLoading, refetch } = useQuery<PoolsResponse>({
     queryKey: ["/api/admin/pools"],
     refetchInterval: 30000, // Auto-refresh every 30 seconds to get updated cache
   });
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDirection("desc");
+    }
+  };
+
+  const sortedPools = [...(data?.pools || [])].sort((a, b) => {
+    let aVal: number | string;
+    let bVal: number | string;
+
+    switch (sortField) {
+      case "pid":
+        aVal = a.pid;
+        bVal = b.pid;
+        break;
+      case "pairName":
+        aVal = a.pairName;
+        bVal = b.pairName;
+        break;
+      case "tvl":
+        aVal = a.tvl;
+        bVal = b.tvl;
+        break;
+      case "passiveAPR":
+        aVal = a.passiveAPR;
+        bVal = b.passiveAPR;
+        break;
+      case "totalAPRMax":
+        aVal = a.totalAPRMax;
+        bVal = b.totalAPRMax;
+        break;
+      default:
+        aVal = a.tvl;
+        bVal = b.tvl;
+    }
+
+    if (typeof aVal === "string" && typeof bVal === "string") {
+      return sortDirection === "asc" 
+        ? aVal.localeCompare(bVal) 
+        : bVal.localeCompare(aVal);
+    }
+
+    return sortDirection === "asc" 
+      ? (aVal as number) - (bVal as number) 
+      : (bVal as number) - (aVal as number);
+  });
+
+  const SortHeader = ({ field, children, className = "" }: { field: SortField; children: React.ReactNode; className?: string }) => (
+    <TableHead 
+      className={`cursor-pointer hover-elevate select-none ${className}`}
+      onClick={() => handleSort(field)}
+      data-testid={`header-${field}`}
+    >
+      <div className="flex items-center gap-1">
+        {children}
+        <ArrowUpDown className={`h-3 w-3 ${sortField === field ? "opacity-100" : "opacity-40"}`} />
+      </div>
+    </TableHead>
+  );
 
   const formatCurrency = (value: number | undefined | null) => {
     if (value === undefined || value === null || isNaN(value)) {
@@ -109,19 +178,19 @@ export default function AdminPools() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>PID</TableHead>
-                  <TableHead>Pair</TableHead>
+                  <SortHeader field="pid">PID</SortHeader>
+                  <SortHeader field="pairName">Pair</SortHeader>
                   <TableHead className="text-right">V1 TVL</TableHead>
                   <TableHead className="text-right">V2 TVL</TableHead>
-                  <TableHead className="text-right">Total TVL</TableHead>
-                  <TableHead className="text-right">Passive APR</TableHead>
+                  <SortHeader field="tvl" className="text-right">Total TVL</SortHeader>
+                  <SortHeader field="passiveAPR" className="text-right">Passive APR</SortHeader>
                   <TableHead className="text-right">Active APR</TableHead>
-                  <TableHead className="text-right">Total APR</TableHead>
+                  <SortHeader field="totalAPRMax" className="text-right">Total APR</SortHeader>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.pools.map((pool) => (
+                {sortedPools.map((pool) => (
                   <TableRow 
                     key={pool.pid} 
                     className="cursor-pointer hover-elevate"
