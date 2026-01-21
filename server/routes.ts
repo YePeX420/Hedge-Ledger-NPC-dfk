@@ -31,6 +31,10 @@ import {
   resetPVEIndexer,
   calculateDropStats 
 } from "../src/etl/ingestion/huntsPatrolIndexer.js";
+import { 
+  getGardeningQuestStatus,
+  getLatestBlock as getGardeningLatestBlock,
+} from "../src/etl/ingestion/gardeningQuestIndexer.js";
 
 // Debug: Verify bridge indexer imports
 console.log('[BridgeIndexer] Import check - runFullIndex type:', typeof runFullIndex);
@@ -3253,6 +3257,39 @@ Return a JSON object with:
         ok: false, 
         answer: `I encountered an error: ${error.message}. Try rephrasing your question or being more specific about the class, level, or stat you're interested in.` 
       });
+    }
+  });
+
+  // GET /api/admin/gardening-indexer/status - Get gardening quest indexer status
+  app.get("/api/admin/gardening-indexer/status", isAdmin, async (_req: any, res: any) => {
+    try {
+      const status = await getGardeningQuestStatus();
+      const latestBlock = await getGardeningLatestBlock();
+      
+      // Calculate blocks behind for each worker
+      const workersWithLag = status.workers?.map((w: any) => ({
+        ...w,
+        latestBlock,
+        blocksBehind: latestBlock - (w.lastIndexedBlock || 0),
+      })) || [];
+      
+      // Find the highest indexed block across all workers
+      const highestIndexed = workersWithLag.reduce((max: number, w: any) => 
+        Math.max(max, w.lastIndexedBlock || 0), 0);
+      
+      res.json({
+        ok: true,
+        isAutoRunning: status.isAutoRunning,
+        latestBlock,
+        highestIndexedBlock: highestIndexed,
+        blocksBehind: latestBlock - highestIndexed,
+        stats: status.stats,
+        workers: workersWithLag,
+        lastUpdated: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error('[GardeningIndexer] Status error:', error);
+      res.status(500).json({ ok: false, error: error.message });
     }
   });
 

@@ -356,6 +356,27 @@ export default function GardeningCalcAdmin() {
     queryKey: ["/api/admin/gardening-validate/summary"],
   });
 
+  interface IndexerStatus {
+    ok: boolean;
+    isAutoRunning: boolean;
+    latestBlock: number;
+    highestIndexedBlock: number;
+    blocksBehind: number;
+    stats: {
+      totalRewards: number;
+      uniqueHeroes: number;
+      uniquePlayers: number;
+      totalCrystal: number;
+      totalJewel: number;
+    };
+    lastUpdated: string;
+  }
+
+  const { data: indexerStatus, isLoading: indexerLoading } = useQuery<IndexerStatus>({
+    queryKey: ["/api/admin/gardening-indexer/status"],
+    refetchInterval: 30000,
+  });
+
   // JEWEL Hero fetch mutations
   const fetchJewelHeroMutation = useMutation({
     mutationFn: async () => {
@@ -598,6 +619,69 @@ export default function GardeningCalcAdmin() {
           </p>
         </div>
       </div>
+
+      {/* Indexer Status Card */}
+      <Card className="border-l-4 border-l-primary">
+        <CardContent className="py-3">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Indexer:</span>
+              {indexerLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" data-testid="loader-indexer" />
+              ) : indexerStatus?.isAutoRunning ? (
+                <Badge variant="default" className="bg-green-600" data-testid="badge-indexer-running">
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Running
+                </Badge>
+              ) : (
+                <Badge variant="secondary" data-testid="badge-indexer-stopped">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Stopped
+                </Badge>
+              )}
+            </div>
+            
+            {indexerStatus && (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Records:</span>
+                  <span className="font-medium" data-testid="text-total-records">
+                    {indexerStatus.stats?.totalRewards?.toLocaleString() || 0}
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Heroes:</span>
+                  <span className="font-medium" data-testid="text-unique-heroes">
+                    {indexerStatus.stats?.uniqueHeroes?.toLocaleString() || 0}
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Blocks Behind:</span>
+                  {indexerStatus.blocksBehind > 100000 ? (
+                    <Badge variant="destructive" data-testid="badge-blocks-behind">
+                      {(indexerStatus.blocksBehind / 1000000).toFixed(1)}M
+                    </Badge>
+                  ) : indexerStatus.blocksBehind > 1000 ? (
+                    <Badge variant="secondary" data-testid="badge-blocks-behind">
+                      {(indexerStatus.blocksBehind / 1000).toFixed(1)}K
+                    </Badge>
+                  ) : (
+                    <Badge variant="default" className="bg-green-600" data-testid="badge-blocks-behind">
+                      {indexerStatus.blocksBehind}
+                    </Badge>
+                  )}
+                </div>
+                
+                <div className="text-sm text-muted-foreground ml-auto">
+                  Updated: {new Date(indexerStatus.lastUpdated).toLocaleTimeString()}
+                </div>
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="calculator" className="space-y-4">
         <TabsList>
