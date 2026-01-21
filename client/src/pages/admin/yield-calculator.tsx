@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Calculator, DollarSign, Sparkles, TrendingUp, Loader2, Search, Info, ArrowUpDown, RefreshCw } from "lucide-react";
+import { Calculator, DollarSign, Sparkles, TrendingUp, Loader2, Search, Info, ArrowUpDown, RefreshCw, Wallet, User } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 interface HeroData {
@@ -80,6 +80,40 @@ interface YieldProjectionResponse {
 type SortField = "pairName" | "tvl" | "lpSharePct" | "crystalPerQuest" | "jewelPerQuest";
 type SortDirection = "asc" | "desc";
 
+interface YieldEntry {
+  heroId: string;
+  level: number;
+  class: string;
+  subClass: string;
+  profession: string;
+  poolId: number;
+  poolName: string;
+  wisdom: number;
+  vitality: number;
+  gardeningSkill: number;
+  hasGardeningGene: boolean;
+  heroFactor: number;
+  petMultiplier: number;
+  lpShare: number;
+  lpSharePct: string;
+  poolAllocation: number;
+  crystalPerStamina: number;
+  jewelPerStamina: number;
+  crystalPer25Stam: number;
+  jewelPer25Stam: number;
+  crystalPer30Stam: number;
+  jewelPer30Stam: number;
+}
+
+interface QuestingHeroesResponse {
+  ok: boolean;
+  wallet: string;
+  totalHeroes: number;
+  questingHeroes: number;
+  lpPositions: number;
+  yields: YieldEntry[];
+}
+
 const EXAMPLE_HERO = {
   wisdom: 45,
   vitality: 43,
@@ -96,6 +130,24 @@ export default function YieldCalculator() {
   const [petBonusPct, setPetBonusPct] = useState<string>("0");
   const [sortField, setSortField] = useState<SortField>("crystalPerQuest");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [walletAddress, setWalletAddress] = useState<string>("");
+  const [questingHeroes, setQuestingHeroes] = useState<QuestingHeroesResponse | null>(null);
+
+  const walletMutation = useMutation({
+    mutationFn: async (address: string) => {
+      const response = await fetch(`/api/admin/gardening-calc/wallet/${address.toLowerCase()}/questing-heroes`);
+      return response.json() as Promise<QuestingHeroesResponse>;
+    },
+    onSuccess: (data) => {
+      setQuestingHeroes(data);
+    },
+  });
+
+  const handleWalletLookup = () => {
+    if (walletAddress && walletAddress.length >= 40) {
+      walletMutation.mutate(walletAddress);
+    }
+  };
 
   const getActiveHeroStats = () => {
     if (heroSource === "custom" && heroData?.ok) {
@@ -515,6 +567,123 @@ export default function YieldCalculator() {
           </AlertDescription>
         </Alert>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            Wallet Lookup
+          </CardTitle>
+          <CardDescription>
+            Enter a wallet address to see active questing heroes with expected yields
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2 mb-4">
+            <Input
+              placeholder="0x..."
+              value={walletAddress}
+              onChange={(e) => setWalletAddress(e.target.value)}
+              data-testid="input-wallet-address"
+              className="font-mono"
+            />
+            <Button
+              onClick={handleWalletLookup}
+              disabled={walletMutation.isPending || !walletAddress || walletAddress.length < 40}
+              data-testid="button-wallet-lookup"
+            >
+              {walletMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+
+          {questingHeroes?.ok && questingHeroes.yields.length === 0 && (
+            <div className="text-center text-muted-foreground py-4">
+              No active questing heroes found for this wallet
+            </div>
+          )}
+
+          {questingHeroes?.ok && questingHeroes.yields.length > 0 && (
+            <div className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                {questingHeroes.questingHeroes} hero(es) questing across {questingHeroes.lpPositions} LP position(s) = {questingHeroes.yields.length} yield entries
+                {questingHeroes.yields.length > 50 && (
+                  <span className="block mt-1 text-orange-600 dark:text-orange-400">
+                    Showing first 50 results. Use a wallet with fewer heroes for full details.
+                  </span>
+                )}
+              </div>
+              
+              <Alert className="text-xs">
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  Pet bonuses not yet included. Actual yields may be higher with fed pets.
+                </AlertDescription>
+              </Alert>
+              
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Hero</TableHead>
+                      <TableHead>Pool</TableHead>
+                      <TableHead>Hero Factor</TableHead>
+                      <TableHead>LP Share</TableHead>
+                      <TableHead>CRYSTAL/30 stam</TableHead>
+                      <TableHead>JEWEL/30 stam</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {questingHeroes.yields.slice(0, 50).map((entry, idx) => (
+                      <TableRow key={`${entry.heroId}-${entry.poolId}-${idx}`} data-testid={`row-yield-${idx}`}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <div className="font-medium">#{entry.heroId}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Lv{entry.level} {entry.class}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {entry.hasGardeningGene ? "Gardener" : entry.profession} | Grd: {entry.gardeningSkill / 10}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{entry.poolName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Pool {entry.poolId}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-mono text-sm">{entry.heroFactor.toFixed(4)}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-mono text-sm">{entry.lpSharePct}%</span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-mono text-sm font-semibold text-cyan-600 dark:text-cyan-400">
+                            {formatToken(entry.crystalPer30Stam, 2)}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-mono text-sm font-semibold text-purple-600 dark:text-purple-400">
+                            {formatToken(entry.jewelPer30Stam, 4)}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {responseData && (
         <Alert>
