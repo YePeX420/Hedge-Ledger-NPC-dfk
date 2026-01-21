@@ -35,6 +35,7 @@ import {
   getGardeningQuestStatus,
   getLatestBlock as getGardeningLatestBlock,
 } from "../src/etl/ingestion/gardeningQuestIndexer.js";
+import { getWalletQuestingHeroes } from "../src/services/gardeningCalculator.js";
 
 // Debug: Verify bridge indexer imports
 console.log('[BridgeIndexer] Import check - runFullIndex type:', typeof runFullIndex);
@@ -3257,6 +3258,28 @@ Return a JSON object with:
         ok: false, 
         answer: `I encountered an error: ${error.message}. Try rephrasing your question or being more specific about the class, level, or stat you're interested in.` 
       });
+    }
+  });
+
+  // GET /api/admin/gardening-calc/wallet/:address/questing-heroes - Get active questing heroes for wallet
+  app.get("/api/admin/gardening-calc/wallet/:address/questing-heroes", isAdmin, async (req: any, res: any) => {
+    try {
+      const { address } = req.params;
+      if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+      }
+      
+      console.log(`[GardeningCalc] Fetching questing heroes for wallet: ${address}`);
+      const result = await getWalletQuestingHeroes(address);
+      
+      if (!result.ok) {
+        return res.status(500).json({ ok: false, error: result.error });
+      }
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error('[GardeningCalc] Error fetching wallet questing heroes:', error);
+      res.status(500).json({ ok: false, error: error.message });
     }
   });
 

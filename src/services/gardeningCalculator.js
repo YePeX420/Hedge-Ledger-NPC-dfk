@@ -570,19 +570,33 @@ export async function getWalletQuestingHeroes(walletAddress) {
     // Gardening Quest V3 contract address on DFK Chain
     const GARDENING_QUEST_ADDRESS = '0x6FF019415Ee105aCF2Ac52483A33F5B43eaDB8d0'.toLowerCase();
     
+    // Gardening quest type prefix from DFK encoded quest IDs
+    // Format: 0x010601XX... where XX is the pool ID (00-07+)
+    const GARDENING_QUEST_PREFIX = '0x010601';
+    
     // Fetch all heroes owned by wallet
     const allHeroes = await getAllHeroesByOwner(walletAddress);
     console.log(`[GardeningCalc] Found ${allHeroes.length} total heroes for wallet`);
     
     // Filter for heroes currently on GARDENING quests specifically (not foraging, fishing, etc.)
-    const questingHeroes = allHeroes.filter(h => {
-      if (!h.currentQuest || h.currentQuest === '0x0000000000000000000000000000000000000000') {
-        return false;
-      }
-      // Only include heroes on gardening quests
-      return h.currentQuest.toLowerCase() === GARDENING_QUEST_ADDRESS;
+    const heroesWithQuests = allHeroes.filter(h => 
+      h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000'
+    );
+    
+    // Debug: Log unique quest addresses
+    const uniqueQuestAddresses = [...new Set(heroesWithQuests.map(h => h.currentQuest?.toLowerCase()))];
+    console.log(`[GardeningCalc] ${heroesWithQuests.length} heroes on ANY quest. Unique quest types: ${uniqueQuestAddresses.length}`);
+    
+    // Filter for gardening quests - check both contract address and encoded quest type prefix
+    const questingHeroes = heroesWithQuests.filter(h => {
+      const quest = h.currentQuest.toLowerCase();
+      // Match contract address OR encoded gardening quest prefix (0x010601XX...)
+      return quest === GARDENING_QUEST_ADDRESS || quest.startsWith(GARDENING_QUEST_PREFIX.toLowerCase());
     });
-    console.log(`[GardeningCalc] ${questingHeroes.length} heroes on GARDENING quests (filtered from other quest types)`);
+    
+    // Log gardening pool distribution
+    const gardeningPools = [...new Set(questingHeroes.map(h => h.currentQuest?.toLowerCase()))];
+    console.log(`[GardeningCalc] ${questingHeroes.length} heroes on GARDENING quests. Pools: ${gardeningPools.length}`);
     
     // Get Quest Reward Fund balances and pool positions
     const [rewardFund, positionsResult] = await Promise.all([
