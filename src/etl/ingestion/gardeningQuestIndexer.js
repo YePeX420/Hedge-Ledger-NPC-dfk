@@ -1,7 +1,35 @@
 import { ethers } from 'ethers';
 import { db } from '../../../server/db.js';
 import { gardeningQuestRewards, gardeningQuestIndexerProgress } from '../../../shared/schema.js';
-import { eq, sql, desc } from 'drizzle-orm';
+import { eq, sql, desc, inArray } from 'drizzle-orm';
+
+// Hero ID format constants - DFK uses realm prefixes
+const CV_PREFIX = 1000000000000n; // Crystalvale: 1 trillion
+const SD_PREFIX = 2000000000000n; // Serendale: 2 trillion
+
+// Convert a raw hero ID to all possible prefixed formats for search
+// Returns BigInt values to match BIGINT column type
+function getHeroIdVariants(heroId) {
+  const rawId = BigInt(heroId);
+  // If the ID is already prefixed (> 1 trillion), extract raw and return all variants
+  if (rawId >= CV_PREFIX) {
+    // Already prefixed - extract raw ID and return all variants
+    const rawIdExtracted = rawId >= SD_PREFIX 
+      ? rawId - SD_PREFIX 
+      : rawId - CV_PREFIX;
+    return [
+      rawIdExtracted,
+      rawIdExtracted + CV_PREFIX,
+      rawIdExtracted + SD_PREFIX,
+    ];
+  }
+  // Raw ID provided - return all possible prefixed versions
+  return [
+    rawId,
+    rawId + CV_PREFIX,
+    rawId + SD_PREFIX,
+  ];
+}
 
 // Primary and fallback DFK Chain RPC endpoints
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
@@ -1558,9 +1586,12 @@ export async function getGardeningQuestStatus() {
 }
 
 export async function getHeroRewards(heroId, limit = 100) {
+  // Search for all possible hero ID formats (raw, CV prefix, SD prefix)
+  const heroIdVariants = getHeroIdVariants(heroId);
+  
   const rewards = await db.select()
     .from(gardeningQuestRewards)
-    .where(eq(gardeningQuestRewards.heroId, heroId))
+    .where(inArray(gardeningQuestRewards.heroId, heroIdVariants))
     .orderBy(desc(gardeningQuestRewards.timestamp))
     .limit(limit);
   
@@ -1588,6 +1619,9 @@ export async function getRewardsByPool(poolId, limit = 100) {
 }
 
 export async function getHeroStats(heroId) {
+  // Search for all possible hero ID formats (raw, CV prefix, SD prefix)
+  const heroIdVariants = getHeroIdVariants(heroId);
+  
   const [stats] = await db.select({
     totalQuests: sql`COUNT(DISTINCT ${gardeningQuestRewards.questId})`,
     totalCrystal: sql`COALESCE(SUM(CASE WHEN ${gardeningQuestRewards.rewardSymbol} = 'CRYSTAL' THEN ${gardeningQuestRewards.rewardAmount}::numeric ELSE 0 END), 0)`,
@@ -1598,7 +1632,7 @@ export async function getHeroStats(heroId) {
     lastQuest: sql`MAX(${gardeningQuestRewards.timestamp})`,
   })
     .from(gardeningQuestRewards)
-    .where(eq(gardeningQuestRewards.heroId, heroId));
+    .where(inArray(gardeningQuestRewards.heroId, heroIdVariants));
   
   return {
     heroId,
