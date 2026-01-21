@@ -65,6 +65,9 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Elite Skill Mutations**: Summoning Calculator now correctly displays elite/exalted skill probabilities (Stun, Second Wind, Resurrection) in offspring predictions.
 *   **Equipment Dimension Tables**: Added dimension tables (`dim_weapon_details`, `dim_armor_details`, `dim_accessory_details`) to map equipment_type + display_id to human-readable item names. Imported 146 items (55 weapons, 40 armors, 51 accessories) from DFK game data CSV files. PVE drop rate display now shows proper item names like "Bronze Spatha" instead of generic "Weapon #3".
 *   **Bargain Hunter Efficiency Display Fix**: Fixed display of TS/JEWEL efficiency to use the actual stored efficiency value (×100 for readability) instead of a broken USD-based calculation.
+*   **Pool Analytics Cache**: Created `pool_analytics_cache` database table to persist pool TVL/APR data. Pool cache now loads from database on startup (real values immediately available) instead of showing zeros during background refresh. Background analytics refresh saves to database for next startup.
+*   **Yield Calculator Page**: Added `/admin/yield-calculator` page to simulate investment returns across all garden pools. Features dollar amount input with preset buttons ($100-$10,000), hero source selector (default: Example Hero #123456 + Pet #789), and sortable table showing projected daily/weekly/monthly rewards per pool based on current APRs.
+*   **Pools Page Sorting**: Added sortable columns to Pools page: PID, Pair name, Total TVL, Passive APR, Total APR. Click column headers to toggle sort direction.
 
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2 authentication.
