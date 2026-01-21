@@ -570,9 +570,11 @@ export async function getWalletQuestingHeroes(walletAddress) {
     // Gardening Quest V3 contract address on DFK Chain
     const GARDENING_QUEST_ADDRESS = '0x6FF019415Ee105aCF2Ac52483A33F5B43eaDB8d0'.toLowerCase();
     
-    // Gardening quest type prefix from DFK encoded quest IDs
-    // Format: 0x010601XX... where XX is the pool ID (00-07+)
+    // Gardening quest type prefixes from DFK encoded quest IDs
+    // Regular gardening: 0x010601XX... where XX is the pool ID (00-07+)
+    // Expedition gardening: 0x01050aXX... where XX is the pool ID
     const GARDENING_QUEST_PREFIX = '0x010601';
+    const EXPEDITION_GARDENING_PREFIX = '0x01050a';
     
     // Fetch all heroes owned by wallet
     const allHeroes = await getAllHeroesByOwner(walletAddress);
@@ -587,16 +589,27 @@ export async function getWalletQuestingHeroes(walletAddress) {
     const uniqueQuestAddresses = [...new Set(heroesWithQuests.map(h => h.currentQuest?.toLowerCase()))];
     console.log(`[GardeningCalc] ${heroesWithQuests.length} heroes on ANY quest. Unique quest types: ${uniqueQuestAddresses.length}`);
     
-    // Filter for gardening quests - check both contract address and encoded quest type prefix
+    // Filter for gardening quests - check contract address and encoded quest type prefixes
+    // This is based on hero ACTIVITY (currentQuest field), not genetic profession
     const questingHeroes = heroesWithQuests.filter(h => {
       const quest = h.currentQuest.toLowerCase();
-      // Match contract address OR encoded gardening quest prefix (0x010601XX...)
-      return quest === GARDENING_QUEST_ADDRESS || quest.startsWith(GARDENING_QUEST_PREFIX.toLowerCase());
+      // Match contract address OR regular gardening prefix OR expedition gardening prefix
+      return quest === GARDENING_QUEST_ADDRESS || 
+             quest.startsWith(GARDENING_QUEST_PREFIX.toLowerCase()) ||
+             quest.startsWith(EXPEDITION_GARDENING_PREFIX.toLowerCase());
     });
     
-    // Log gardening pool distribution
+    // Count regular vs expedition gardening heroes
+    const regularGardening = questingHeroes.filter(h => 
+      h.currentQuest.toLowerCase().startsWith(GARDENING_QUEST_PREFIX.toLowerCase())
+    );
+    const expeditionGardening = questingHeroes.filter(h => 
+      h.currentQuest.toLowerCase().startsWith(EXPEDITION_GARDENING_PREFIX.toLowerCase())
+    );
+    
+    // Log gardening breakdown
     const gardeningPools = [...new Set(questingHeroes.map(h => h.currentQuest?.toLowerCase()))];
-    console.log(`[GardeningCalc] ${questingHeroes.length} heroes on GARDENING quests. Pools: ${gardeningPools.length}`);
+    console.log(`[GardeningCalc] ${questingHeroes.length} heroes on GARDENING quests (${regularGardening.length} regular, ${expeditionGardening.length} expedition). Pools: ${gardeningPools.length}`);
     
     // Get Quest Reward Fund balances and pool positions
     const [rewardFund, positionsResult] = await Promise.all([
