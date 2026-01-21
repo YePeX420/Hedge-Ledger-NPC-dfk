@@ -75,6 +75,35 @@ interface WalletPositions {
   error?: string;
 }
 
+interface QuestingHero {
+  heroId: string;
+  class: string;
+  subClass: string;
+  level: number;
+  profession: string;
+  hasGardeningGene: boolean;
+  wisdom: number;
+  vitality: number;
+  gardeningSkill: number;
+  heroFactor: number;
+}
+
+interface WalletHeroesResponse {
+  ok: boolean;
+  wallet: string;
+  totalHeroes: number;
+  questingHeroes: number;
+  lpPositions: number;
+  yields: Array<QuestingHero & {
+    poolId: number;
+    poolName: string;
+    lpShare: number;
+    lpSharePct: string;
+    crystalPer30Stam: number;
+    jewelPer30Stam: number;
+  }>;
+}
+
 interface DualHeroResult {
   ok: boolean;
   poolId: number;
@@ -316,6 +345,7 @@ export default function GardeningCalcAdmin() {
   const [poolId, setPoolId] = useState("2");
   const [lpSharePct, setLpSharePct] = useState("0.1");
   const [walletPositions, setWalletPositions] = useState<WalletPositions | null>(null);
+  const [walletHeroes, setWalletHeroes] = useState<WalletHeroesResponse | null>(null);
 
   const { data: rewardFund, isLoading: rewardFundLoading } = useQuery<{ ok: boolean; crystalPool: number; jewelPool: number }>({
     queryKey: ["/api/admin/gardening-calc/reward-fund"],
@@ -433,6 +463,56 @@ export default function GardeningCalcAdmin() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  const fetchWalletHeroesMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/admin/gardening-calc/wallet/${walletAddress.toLowerCase()}/questing-heroes`);
+      return response.json();
+    },
+    onSuccess: (data: WalletHeroesResponse) => {
+      if (data.ok) {
+        setWalletHeroes(data);
+        const uniqueHeroes = new Set(data.yields.map(y => y.heroId)).size;
+        toast({ title: "Heroes loaded", description: `Found ${uniqueHeroes} questing hero(es)` });
+      } else {
+        toast({ title: "Error", description: "Failed to fetch heroes", variant: "destructive" });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleFetchWalletAll = () => {
+    fetchWalletMutation.mutate();
+    fetchWalletHeroesMutation.mutate();
+  };
+
+  const selectHeroForJewel = (heroId: string) => {
+    setJewelHeroId(heroId);
+    // Auto-fetch the hero data
+    fetch(`/api/admin/gardening-calc/hero/${heroId}`)
+      .then(r => r.json())
+      .then((data: HeroData) => {
+        if (data.ok) {
+          setJewelHeroData(data);
+          setJewelStamina([data.stamina]);
+        }
+      });
+  };
+
+  const selectHeroForCrystal = (heroId: string) => {
+    setCrystalHeroId(heroId);
+    // Auto-fetch the hero data
+    fetch(`/api/admin/gardening-calc/hero/${heroId}`)
+      .then(r => r.json())
+      .then((data: HeroData) => {
+        if (data.ok) {
+          setCrystalHeroData(data);
+          setCrystalStamina([data.stamina]);
+        }
+      });
+  };
 
   const calculateMutation = useMutation<DualHeroResult>({
     mutationFn: async () => {
@@ -581,17 +661,18 @@ export default function GardeningCalcAdmin() {
                         id="walletAddress"
                         value={walletAddress}
                         onChange={(e) => setWalletAddress(e.target.value)}
-                        placeholder="0x... to auto-detect LP positions"
+                        placeholder="0x... to auto-detect LP + questing heroes"
                         data-testid="input-wallet-address"
                       />
                       <Button 
-                        onClick={() => fetchWalletMutation.mutate()} 
-                        disabled={fetchWalletMutation.isPending || !walletAddress}
+                        onClick={handleFetchWalletAll} 
+                        disabled={fetchWalletMutation.isPending || fetchWalletHeroesMutation.isPending || !walletAddress}
                         data-testid="button-fetch-wallet"
                       >
-                        {fetchWalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        {(fetchWalletMutation.isPending || fetchWalletHeroesMutation.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                       </Button>
                     </div>
+                    
                     {walletPositions?.ok && walletPositions.positions.length > 0 && (
                       <div className="text-sm p-2 bg-muted rounded-md">
                         <div className="font-medium mb-2">Staked LP Positions:</div>
@@ -607,6 +688,67 @@ export default function GardeningCalcAdmin() {
                         ))}
                       </div>
                     )}
+
+                    {walletHeroes?.ok && walletHeroes.yields.length > 0 && (() => {
+                      // Get unique heroes (not per-pool entries)
+                      const uniqueHeroMap = new Map<string, typeof walletHeroes.yields[0]>();
+                      walletHeroes.yields.forEach(y => {
+                        if (!uniqueHeroMap.has(y.heroId)) {
+                          uniqueHeroMap.set(y.heroId, y);
+                        }
+                      });
+                      const uniqueHeroes = Array.from(uniqueHeroMap.values()).slice(0, 20);
+                      
+                      return (
+                        <div className="text-sm p-2 bg-muted rounded-md">
+                          <div className="font-medium mb-2">
+                            Questing Heroes ({walletHeroes.questingHeroes} total, showing {uniqueHeroes.length}):
+                          </div>
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {uniqueHeroes.map((hero) => (
+                              <div 
+                                key={hero.heroId}
+                                className="flex items-center justify-between gap-2 p-1 rounded bg-background/50"
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <span className="font-mono text-xs truncate">#{hero.heroId}</span>
+                                  <Badge variant="outline" className="text-xs">Lv{hero.level}</Badge>
+                                  <span className="text-xs truncate">{hero.class}</span>
+                                  {hero.hasGardeningGene && (
+                                    <Badge variant="default" className="text-xs">Grd</Badge>
+                                  )}
+                                </div>
+                                <div className="flex gap-1 flex-shrink-0">
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline" 
+                                    className="h-6 px-2 text-xs text-purple-500"
+                                    onClick={() => selectHeroForJewel(hero.heroId)}
+                                    data-testid={`button-select-jewel-${hero.heroId}`}
+                                  >
+                                    JEWEL
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline" 
+                                    className="h-6 px-2 text-xs text-blue-500"
+                                    onClick={() => selectHeroForCrystal(hero.heroId)}
+                                    data-testid={`button-select-crystal-${hero.heroId}`}
+                                  >
+                                    CRYSTAL
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {walletHeroes.questingHeroes > 20 && (
+                            <div className="text-xs text-muted-foreground mt-2">
+                              Showing top 20. {walletHeroes.questingHeroes - 20} more heroes available.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
