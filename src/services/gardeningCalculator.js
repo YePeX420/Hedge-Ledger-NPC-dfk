@@ -570,10 +570,12 @@ export async function getWalletQuestingHeroes(walletAddress) {
     // Gardening Quest V3 contract address on DFK Chain
     const GARDENING_QUEST_ADDRESS = '0x6FF019415Ee105aCF2Ac52483A33F5B43eaDB8d0'.toLowerCase();
     
-    // Gardening quest type prefixes from DFK encoded quest IDs
-    // Regular gardening: 0x010601XX... where XX is the pool ID (00-07+)
-    // Expedition gardening: 0x01050aXX... where XX is the pool ID
-    const GARDENING_QUEST_PREFIX = '0x010601';
+    // DFK encoded quest type prefixes (based on hero currentQuest field):
+    // 0x010601 = TRAINING quests (NOT gardening!)
+    // 0x01050a = EXPEDITION GARDENING quests
+    // 0x010300 = Foraging/Fishing profession quests
+    // 0x01020a, 0x010200 = Mining quests
+    // 0x01010a, 0x010100 = Fishing quests
     const EXPEDITION_GARDENING_PREFIX = '0x01050a';
     
     // Fetch all heroes owned by wallet
@@ -585,31 +587,31 @@ export async function getWalletQuestingHeroes(walletAddress) {
       h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000'
     );
     
-    // Debug: Log unique quest addresses
-    const uniqueQuestAddresses = [...new Set(heroesWithQuests.map(h => h.currentQuest?.toLowerCase()))];
-    console.log(`[GardeningCalc] ${heroesWithQuests.length} heroes on ANY quest. Unique quest types: ${uniqueQuestAddresses.length}`);
+    // Debug: Log unique quest prefixes with counts to identify quest types
+    const questCounts = {};
+    heroesWithQuests.forEach(h => {
+      const quest = h.currentQuest?.toLowerCase() || '';
+      const prefix = quest.substring(0, 8); // First 8 chars = 0x + 6 hex chars
+      questCounts[prefix] = (questCounts[prefix] || 0) + 1;
+    });
+    console.log(`[GardeningCalc] ${heroesWithQuests.length} heroes on ANY quest. Quest type breakdown:`);
+    Object.entries(questCounts).sort((a, b) => b[1] - a[1]).forEach(([prefix, count]) => {
+      console.log(`  ${prefix}... = ${count} heroes`);
+    });
     
-    // Filter for gardening quests - check contract address and encoded quest type prefixes
+    // Filter for gardening quests - check contract address and expedition gardening prefix
     // This is based on hero ACTIVITY (currentQuest field), not genetic profession
+    // Note: 0x010601 is TRAINING quests, not gardening!
     const questingHeroes = heroesWithQuests.filter(h => {
       const quest = h.currentQuest.toLowerCase();
-      // Match contract address OR regular gardening prefix OR expedition gardening prefix
+      // Match contract address OR expedition gardening prefix
       return quest === GARDENING_QUEST_ADDRESS || 
-             quest.startsWith(GARDENING_QUEST_PREFIX.toLowerCase()) ||
              quest.startsWith(EXPEDITION_GARDENING_PREFIX.toLowerCase());
     });
     
-    // Count regular vs expedition gardening heroes
-    const regularGardening = questingHeroes.filter(h => 
-      h.currentQuest.toLowerCase().startsWith(GARDENING_QUEST_PREFIX.toLowerCase())
-    );
-    const expeditionGardening = questingHeroes.filter(h => 
-      h.currentQuest.toLowerCase().startsWith(EXPEDITION_GARDENING_PREFIX.toLowerCase())
-    );
-    
-    // Log gardening breakdown
+    // Log gardening heroes found
     const gardeningPools = [...new Set(questingHeroes.map(h => h.currentQuest?.toLowerCase()))];
-    console.log(`[GardeningCalc] ${questingHeroes.length} heroes on GARDENING quests (${regularGardening.length} regular, ${expeditionGardening.length} expedition). Pools: ${gardeningPools.length}`);
+    console.log(`[GardeningCalc] ${questingHeroes.length} heroes on GARDENING quests (expedition). Pools: ${gardeningPools.length}`);
     
     // Get Quest Reward Fund balances and pool positions
     const [rewardFund, positionsResult] = await Promise.all([
