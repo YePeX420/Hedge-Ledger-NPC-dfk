@@ -1321,24 +1321,51 @@ export async function startGardeningWorkersAutoRun(intervalMs = AUTO_RUN_INTERVA
       existingWorkerRanges.set(w, {
         rangeStart: workerProgress[0].rangeStart,
         rangeEnd: workerProgress[0].rangeEnd,
+        lastIndexedBlock: workerProgress[0].lastIndexedBlock,
       });
     }
   }
   
   const hasDbRanges = existingWorkerRanges.size > 0;
-  const blocksPerWorker = hasDbRanges ? 0 : Math.ceil(latestBlock / workerCount);
   
-  console.log(`[GardeningQuest] Starting ${workerCount} workers (${hasDbRanges ? 'using DB ranges' : blocksPerWorker.toLocaleString() + ' blocks each'}, latest: ${latestBlock.toLocaleString()})`);
+  // When using DB ranges, ALL workers should scan from the highest indexed point to latest
+  // This ensures no gaps - workers start from a common point and divide remaining work
+  let globalStart, blocksPerWorker;
+  if (hasDbRanges) {
+    // All workers should start from the highest point any worker has reached
+    // This avoids gaps between divergent worker positions
+    globalStart = Math.max(...Array.from(existingWorkerRanges.values()).map(r => r.lastIndexedBlock || r.rangeStart));
+    const blocksToScan = latestBlock - globalStart;
+    blocksPerWorker = blocksToScan > 0 ? Math.ceil(blocksToScan / workerCount) : 0;
+    console.log(`[GardeningQuest] Workers catching up from ${globalStart.toLocaleString()} to ${latestBlock.toLocaleString()} (${blocksToScan.toLocaleString()} blocks, ${blocksPerWorker.toLocaleString()} each)`);
+  } else {
+    globalStart = 0;
+    blocksPerWorker = Math.ceil(latestBlock / workerCount);
+  }
+  
+  console.log(`[GardeningQuest] Starting ${workerCount} workers (${hasDbRanges ? 'catching up to latest' : blocksPerWorker.toLocaleString() + ' blocks each'}, latest: ${latestBlock.toLocaleString()})`);
   
   const results = [];
   let consecutiveFailures = 0;
   const MAX_CONSECUTIVE_FAILURES = 2;
   
   for (let w = 0; w < workerCount; w++) {
-    // Use database ranges if available, otherwise calculate from block 0
-    const dbRange = existingWorkerRanges.get(w);
-    const rangeStart = dbRange ? dbRange.rangeStart : w * blocksPerWorker;
-    const rangeEnd = dbRange ? dbRange.rangeEnd : ((w === workerCount - 1) ? null : (w + 1) * blocksPerWorker);
+    let rangeStart, rangeEnd;
+    
+    if (hasDbRanges) {
+      // All workers start from global highest point and divide the remaining work
+      rangeStart = globalStart + (w * blocksPerWorker);
+      // Last worker scans to latest (null), others get their fair share
+      rangeEnd = (w === workerCount - 1) ? null : globalStart + ((w + 1) * blocksPerWorker);
+      // Ensure rangeStart doesn't exceed latest block
+      if (rangeStart > latestBlock) {
+        rangeStart = latestBlock;
+        rangeEnd = null;
+      }
+    } else {
+      rangeStart = w * blocksPerWorker;
+      rangeEnd = (w === workerCount - 1) ? null : (w + 1) * blocksPerWorker;
+    }
     
     await new Promise(r => setTimeout(r, 500));
     
@@ -1589,9 +1616,10 @@ export async function getHeroRewards(heroId, limit = 100) {
   // Search for all possible hero ID formats (raw, CV prefix, SD prefix)
   const heroIdVariants = getHeroIdVariants(heroId);
   
+  // Use raw SQL with explicit BIGINT cast for proper type matching
   const rewards = await db.select()
     .from(gardeningQuestRewards)
-    .where(inArray(gardeningQuestRewards.heroId, heroIdVariants))
+    .where(sql`${gardeningQuestRewards.heroId} IN (${sql.join(heroIdVariants.map(id => sql`${id.toString()}::bigint`), sql`, `)})`)
     .orderBy(desc(gardeningQuestRewards.timestamp))
     .limit(limit);
   
@@ -1622,6 +1650,9 @@ export async function getHeroStats(heroId) {
   // Search for all possible hero ID formats (raw, CV prefix, SD prefix)
   const heroIdVariants = getHeroIdVariants(heroId);
   
+  // Use raw SQL with explicit BIGINT cast for proper type matching
+  const heroIdCondition = sql`${gardeningQuestRewards.heroId} IN (${sql.join(heroIdVariants.map(id => sql`${id.toString()}::bigint`), sql`, `)})`;
+  
   const [stats] = await db.select({
     totalQuests: sql`COUNT(DISTINCT ${gardeningQuestRewards.questId})`,
     totalCrystal: sql`COALESCE(SUM(CASE WHEN ${gardeningQuestRewards.rewardSymbol} = 'CRYSTAL' THEN ${gardeningQuestRewards.rewardAmount}::numeric ELSE 0 END), 0)`,
@@ -1632,7 +1663,7 @@ export async function getHeroStats(heroId) {
     lastQuest: sql`MAX(${gardeningQuestRewards.timestamp})`,
   })
     .from(gardeningQuestRewards)
-    .where(inArray(gardeningQuestRewards.heroId, heroIdVariants));
+    .where(heroIdCondition);
   
   return {
     heroId,
