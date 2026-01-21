@@ -609,9 +609,18 @@ export async function getWalletQuestingHeroes(walletAddress) {
              quest.startsWith(EXPEDITION_GARDENING_PREFIX.toLowerCase());
     });
     
-    // Log gardening heroes found
-    const gardeningPools = [...new Set(questingHeroes.map(h => h.currentQuest?.toLowerCase()))];
-    console.log(`[GardeningCalc] ${questingHeroes.length} heroes on GARDENING quests (expedition). Pools: ${gardeningPools.length}`);
+    // Log gardening heroes found with quest ID breakdown
+    const gardeningQuests = [...new Set(questingHeroes.map(h => h.currentQuest?.toLowerCase()))];
+    console.log(`[GardeningCalc] ${questingHeroes.length} heroes on GARDENING quests (expedition). Unique quest IDs: ${gardeningQuests.length}`);
+    // Extract pool IDs from quest IDs - format: 0x01050aXX... where XX is pool ID in hex
+    gardeningQuests.forEach(q => {
+      if (q && q.startsWith('0x01050a')) {
+        const poolIdHex = q.substring(8, 10); // Characters 8-9 are pool ID
+        const poolId = parseInt(poolIdHex, 16);
+        const heroCount = questingHeroes.filter(h => h.currentQuest?.toLowerCase() === q).length;
+        console.log(`  Quest ${q.substring(0, 12)}... Pool ID: ${poolId} (0x${poolIdHex}) - ${heroCount} heroes`);
+      }
+    });
     
     // Get Quest Reward Fund balances and pool positions
     const [rewardFund, positionsResult] = await Promise.all([
@@ -657,8 +666,12 @@ export async function getWalletQuestingHeroes(walletAddress) {
         const heroFactor = calculateHeroFactor(wisdom, vitality, effectiveGrdSkill);
         const petMultiplier = petFed && powerSurgeBonus > 0 ? 1 + powerSurgeBonus / 100 : 1.0;
         
-        // Use the first/largest LP position for yield estimates
-        // Note: We can't determine exact pool from quest data, using largest LP for estimates
+        // Check if this is an expedition gardening hero (Pool 255)
+        const questId = hero.currentQuest?.toLowerCase() || '';
+        const isExpedition = questId.startsWith(EXPEDITION_GARDENING_PREFIX.toLowerCase());
+        
+        // For expeditions (Pool 255), aggregate rewards across ALL LP pools
+        // For manual gardening, use the largest LP position as estimate
         const bestPosition = lpPositions.length > 0 
           ? lpPositions.reduce((best, p) => p.lpShare > best.lpShare ? p : best, lpPositions[0])
           : null;
@@ -684,7 +697,64 @@ export async function getWalletQuestingHeroes(walletAddress) {
           petFed,
         };
         
-        if (bestPosition) {
+        if (isExpedition && lpPositions.length > 0) {
+          // EXPEDITION: Extract pool ID from quest ID
+          // Format: 0x01050aXX... where XX is pool ID in hex at positions 8-9
+          let expeditionPoolId = null;
+          if (questId.length >= 10) {
+            const poolIdHex = questId.substring(8, 10);
+            expeditionPoolId = parseInt(poolIdHex, 16);
+          }
+          
+          // Find the matching LP position for this expedition's pool
+          let matchedPosition = lpPositions.find(p => p.poolId === expeditionPoolId);
+          
+          // If no match, fall back to best position
+          if (!matchedPosition) {
+            matchedPosition = bestPosition;
+          }
+          
+          const poolAllocation = matchedPosition.allocPoint / matchedPosition.totalAllocPoint;
+          
+          const crystalPerStamina = calculateYieldPerStamina({
+            rewardPool: rewardFund.crystalPool,
+            poolAllocation,
+            lpOwned: matchedPosition.lpShare,
+            heroFactor,
+            hasGardeningGene,
+            gardeningSkill: effectiveGrdSkill,
+            petMultiplier,
+          });
+          
+          const jewelPerStamina = calculateYieldPerStamina({
+            rewardPool: rewardFund.jewelPool,
+            poolAllocation,
+            lpOwned: matchedPosition.lpShare,
+            heroFactor,
+            hasGardeningGene,
+            gardeningSkill: effectiveGrdSkill,
+            petMultiplier,
+          });
+          
+          heroYields.push({
+            ...baseHeroData,
+            poolId: expeditionPoolId !== null ? expeditionPoolId : matchedPosition.poolId,
+            poolName: matchedPosition.poolName + ' (Expedition)',
+            lpShare: matchedPosition.lpShare,
+            lpSharePct: matchedPosition.lpSharePct,
+            poolAllocation,
+            crystalPerStamina,
+            jewelPerStamina,
+            crystalPer25Stam: crystalPerStamina * 25,
+            jewelPer25Stam: jewelPerStamina * 25,
+            crystalPer30Stam: crystalPerStamina * 30,
+            jewelPer30Stam: jewelPerStamina * 30,
+            poolEstimated: true,
+            isExpedition: true,
+            expeditionPoolId,
+          });
+        } else if (bestPosition) {
+          // MANUAL GARDENING: Use single best LP position
           const poolAllocation = bestPosition.allocPoint / bestPosition.totalAllocPoint;
           
           const crystalPerStamina = calculateYieldPerStamina({
@@ -720,7 +790,8 @@ export async function getWalletQuestingHeroes(walletAddress) {
             jewelPer25Stam: jewelPerStamina * 25,
             crystalPer30Stam: crystalPerStamina * 30,
             jewelPer30Stam: jewelPerStamina * 30,
-            poolEstimated: true, // Flag that pool is estimated, not from quest data
+            poolEstimated: true,
+            isExpedition: false,
           });
         } else {
           // Hero on gardening quest but no LP positions detected
