@@ -483,35 +483,53 @@ export default function GardeningCalcAdmin() {
     },
   });
 
+  const [selectingHeroFor, setSelectingHeroFor] = useState<"jewel" | "crystal" | null>(null);
+  
+  const selectHeroMutation = useMutation({
+    mutationFn: async ({ heroId, target }: { heroId: string; target: "jewel" | "crystal" }) => {
+      setSelectingHeroFor(target);
+      const response = await fetch(`/api/admin/gardening-calc/hero/${heroId}`);
+      const data = await response.json();
+      return { data, heroId, target };
+    },
+    onSuccess: ({ data, heroId, target }: { data: HeroData; heroId: string; target: "jewel" | "crystal" }) => {
+      setSelectingHeroFor(null);
+      if (data.ok) {
+        if (target === "jewel") {
+          setJewelHeroId(heroId);
+          setJewelHeroData(data);
+          setJewelStamina([data.stamina]);
+        } else {
+          setCrystalHeroId(heroId);
+          setCrystalHeroData(data);
+          setCrystalStamina([data.stamina]);
+        }
+        toast({ title: `${target.toUpperCase()} Hero selected`, description: `${data.class} Lv${data.level}` });
+      } else {
+        toast({ title: "Error", description: data.error || "Failed to load hero", variant: "destructive" });
+      }
+    },
+    onError: (error: Error) => {
+      setSelectingHeroFor(null);
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleFetchWalletAll = () => {
+    // Clear stale data first
+    setWalletPositions(null);
+    setWalletHeroes(null);
+    // Fetch both in parallel
     fetchWalletMutation.mutate();
     fetchWalletHeroesMutation.mutate();
   };
 
   const selectHeroForJewel = (heroId: string) => {
-    setJewelHeroId(heroId);
-    // Auto-fetch the hero data
-    fetch(`/api/admin/gardening-calc/hero/${heroId}`)
-      .then(r => r.json())
-      .then((data: HeroData) => {
-        if (data.ok) {
-          setJewelHeroData(data);
-          setJewelStamina([data.stamina]);
-        }
-      });
+    selectHeroMutation.mutate({ heroId, target: "jewel" });
   };
 
   const selectHeroForCrystal = (heroId: string) => {
-    setCrystalHeroId(heroId);
-    // Auto-fetch the hero data
-    fetch(`/api/admin/gardening-calc/hero/${heroId}`)
-      .then(r => r.json())
-      .then((data: HeroData) => {
-        if (data.ok) {
-          setCrystalHeroData(data);
-          setCrystalStamina([data.stamina]);
-        }
-      });
+    selectHeroMutation.mutate({ heroId, target: "crystal" });
   };
 
   const calculateMutation = useMutation<DualHeroResult>({
@@ -709,8 +727,9 @@ export default function GardeningCalcAdmin() {
                               <div 
                                 key={hero.heroId}
                                 className="flex items-center justify-between gap-2 p-1 rounded bg-background/50"
+                                data-testid={`row-hero-${hero.heroId}`}
                               >
-                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
                                   <span className="font-mono text-xs truncate">#{hero.heroId}</span>
                                   <Badge variant="outline" className="text-xs">Lv{hero.level}</Badge>
                                   <span className="text-xs truncate">{hero.class}</span>
@@ -722,20 +741,22 @@ export default function GardeningCalcAdmin() {
                                   <Button 
                                     size="sm" 
                                     variant="outline" 
-                                    className="h-6 px-2 text-xs text-purple-500"
+                                    className="text-purple-500"
                                     onClick={() => selectHeroForJewel(hero.heroId)}
+                                    disabled={selectHeroMutation.isPending && selectingHeroFor === "jewel"}
                                     data-testid={`button-select-jewel-${hero.heroId}`}
                                   >
-                                    JEWEL
+                                    {selectHeroMutation.isPending && selectingHeroFor === "jewel" ? <Loader2 className="h-3 w-3 animate-spin" /> : "JEWEL"}
                                   </Button>
                                   <Button 
                                     size="sm" 
                                     variant="outline" 
-                                    className="h-6 px-2 text-xs text-blue-500"
+                                    className="text-blue-500"
                                     onClick={() => selectHeroForCrystal(hero.heroId)}
+                                    disabled={selectHeroMutation.isPending && selectingHeroFor === "crystal"}
                                     data-testid={`button-select-crystal-${hero.heroId}`}
                                   >
-                                    CRYSTAL
+                                    {selectHeroMutation.isPending && selectingHeroFor === "crystal" ? <Loader2 className="h-3 w-3 animate-spin" /> : "CRYSTAL"}
                                   </Button>
                                 </div>
                               </div>
