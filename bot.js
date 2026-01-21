@@ -7885,6 +7885,116 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/gardening-calc/yield-projection - Calculate expected yields across all pools for a given investment
+  app.post('/api/admin/gardening-calc/yield-projection', isAdmin, async (req, res) => {
+    try {
+      const { 
+        getQuestRewardFundBalances, 
+        getPoolAllocation, 
+        calculateYieldPerStamina,
+        calculateHeroFactor,
+        POOL_NAMES
+      } = await import('./src/services/gardeningCalculator.js');
+      const { getCachedPoolAnalytics } = await import('./pool-cache.js');
+      
+      const {
+        investmentUSD = 1000,
+        wisdom = 45,
+        vitality = 43,
+        gardeningSkill = 31,
+        hasGardeningGene = true,
+        stamina = 30,
+        petBonusPct = 0,
+        petFed = true,
+      } = req.body;
+      
+      // Get reward fund balances
+      const rewardFund = await getQuestRewardFundBalances(false);
+      
+      // Get pool cache for TVL data
+      const poolCache = getCachedPoolAnalytics();
+      const pools = poolCache.data || [];
+      
+      // Calculate hero factor
+      const heroFactor = calculateHeroFactor(wisdom, vitality, gardeningSkill);
+      const petMultiplier = petFed && petBonusPct > 0 ? 1 + petBonusPct / 100 : 1.0;
+      
+      // Calculate yields for each pool
+      const projections = await Promise.all(pools.map(async (pool) => {
+        const poolId = pool.pid;
+        const poolTVL = pool.totalTVL || 0;
+        
+        // Calculate user's LP share based on investment
+        const lpShare = poolTVL > 0 ? investmentUSD / poolTVL : 0;
+        
+        // Get pool allocation
+        const poolAllocation = await getPoolAllocation(poolId);
+        
+        // Determine reward token based on pool name
+        const pairName = pool.pairName || '';
+        const hasCrystal = pairName.includes('CRYSTAL');
+        const rewardToken = hasCrystal ? 'CRYSTAL' : 'JEWEL';
+        const rewardPool = hasCrystal ? rewardFund.crystalPool : rewardFund.jewelPool;
+        
+        // Calculate per-stamina yield using the official formula
+        const perStaminaYield = calculateYieldPerStamina({
+          rewardPool,
+          poolAllocation,
+          lpOwned: lpShare,
+          heroFactor,
+          hasGardeningGene,
+          gardeningSkill,
+          petMultiplier,
+        });
+        
+        // Calculate daily yield (72 stamina per day baseline)
+        const staminaPerDay = 72;
+        const dailyYield = perStaminaYield * staminaPerDay;
+        const perQuestYield = perStaminaYield * stamina;
+        
+        return {
+          pid: poolId,
+          pairName: pool.pairName,
+          tvl: poolTVL,
+          rewardToken,
+          lpShare: lpShare,
+          lpSharePct: (lpShare * 100).toFixed(6),
+          poolAllocation: poolAllocation,
+          poolAllocationPct: (poolAllocation * 100).toFixed(2),
+          perStamina: perStaminaYield,
+          perQuest: perQuestYield,
+          daily: dailyYield,
+          weekly: dailyYield * 7,
+          monthly: dailyYield * 30,
+        };
+      }));
+      
+      res.json({
+        ok: true,
+        inputs: {
+          investmentUSD,
+          wisdom,
+          vitality,
+          gardeningSkill,
+          hasGardeningGene,
+          stamina,
+          petBonusPct,
+          petFed,
+          heroFactor,
+          petMultiplier,
+        },
+        rewardFund: {
+          crystalPool: rewardFund.crystalPool,
+          jewelPool: rewardFund.jewelPool,
+        },
+        projections,
+      });
+    } catch (error) {
+      console.error('[GardeningCalc] Yield projection error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   // ===========================================
   // TOURNAMENT/BATTLE-READY HEROES ADMIN ROUTES
   // ===========================================
