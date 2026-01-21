@@ -27,13 +27,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Calculator, DollarSign, TrendingUp, Loader2, Search, Info, ArrowUpDown } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { Calculator, Sparkles, TrendingUp, Loader2, Search, Info, ArrowUpDown } from "lucide-react";
 
 interface Pool {
   pid: number;
   pairName: string;
   lpToken: string;
+  tokens: Array<{ symbol: string; address: string }>;
   tvl: number;
   passiveAPR: number;
   activeAPRMin: number;
@@ -64,33 +64,67 @@ interface ProjectedReward {
   pid: number;
   pairName: string;
   tvl: number;
-  passiveAPR: number;
-  activeAPRMin: number;
-  activeAPRMax: number;
-  dailyPassive: number;
-  dailyActiveMin: number;
-  dailyActiveMax: number;
-  weeklyPassive: number;
-  weeklyActiveMin: number;
-  weeklyActiveMax: number;
-  monthlyPassive: number;
-  monthlyActiveMin: number;
-  monthlyActiveMax: number;
+  rewardToken: "CRYSTAL" | "JEWEL";
+  per30Stamina: number;
+  dailyReward: number;
+  weeklyReward: number;
+  monthlyReward: number;
 }
 
-type SortField = "pairName" | "tvl" | "passiveAPR" | "dailyActiveMax" | "monthlyActiveMax";
+type SortField = "pairName" | "tvl" | "per30Stamina" | "dailyReward" | "monthlyReward";
 type SortDirection = "asc" | "desc";
 
-const EXAMPLE_HERO_ID = "123456";
-const EXAMPLE_PET_ID = "789";
+const CRYSTAL_BASE_PER_ATTEMPT = 1.82;
+const JEWEL_BASE_PER_ATTEMPT = 0.14;
+
+const EXAMPLE_HERO = {
+  level: 10,
+  wisdom: 45,
+  vitality: 43,
+  gardening: 310,
+  hasGardeningGene: true,
+};
+
+function computeHeroGardeningFactor(hero: { wisdom: number; vitality: number; gardening: number }) {
+  const wis = hero.wisdom ?? 0;
+  const vit = hero.vitality ?? 0;
+  const gardeningSkill = (hero.gardening ?? 0) / 10;
+  return 0.1 + (wis + vit) / 1222.22 + gardeningSkill / 244.44;
+}
+
+function computeStaminaPerDay(level: number, hasRapidRenewal: boolean = false) {
+  const baseTickSeconds = 20 * 60;
+  let tickSeconds = baseTickSeconds;
+  if (hasRapidRenewal) {
+    const reduction = level * 3;
+    tickSeconds = Math.max(baseTickSeconds - reduction, 5 * 60);
+  }
+  return (24 * 60 * 60) / tickSeconds;
+}
+
+function getRewardToken(pool: Pool): "CRYSTAL" | "JEWEL" {
+  const tokens = pool.tokens || [];
+  const tokenSymbols = tokens.map(t => (t.symbol || '').toUpperCase());
+  
+  if (tokenSymbols.includes("CRYSTAL")) {
+    return "CRYSTAL";
+  }
+  if (tokenSymbols.includes("WJEWEL") || tokenSymbols.includes("JEWEL")) {
+    return "JEWEL";
+  }
+  if (pool.pairName.toUpperCase().includes("CRYSTAL")) {
+    return "CRYSTAL";
+  }
+  return "JEWEL";
+}
 
 export default function YieldCalculator() {
-  const [investmentAmount, setInvestmentAmount] = useState<string>("1000");
   const [heroSource, setHeroSource] = useState<"example" | "custom">("example");
   const [customHeroId, setCustomHeroId] = useState<string>("");
-  const [customPetId, setCustomPetId] = useState<string>("");
   const [heroData, setHeroData] = useState<HeroData | null>(null);
-  const [sortField, setSortField] = useState<SortField>("monthlyActiveMax");
+  const [hasRapidRenewal, setHasRapidRenewal] = useState<boolean>(false);
+  const [petBonusPct, setPetBonusPct] = useState<string>("0");
+  const [sortField, setSortField] = useState<SortField>("monthlyReward");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
   const { data: poolsData, isLoading: poolsLoading } = useQuery<PoolsResponse>({
@@ -115,36 +149,44 @@ export default function YieldCalculator() {
     }
   };
 
-  const investment = parseFloat(investmentAmount) || 0;
+  const getActiveHero = () => {
+    if (heroSource === "custom" && heroData?.ok) {
+      return {
+        level: heroData.level,
+        wisdom: heroData.wisdom,
+        vitality: heroData.vitality,
+        gardening: heroData.gardeningSkill * 10,
+        hasGardeningGene: heroData.hasGardeningGene,
+      };
+    }
+    return EXAMPLE_HERO;
+  };
 
   const calculateProjectedRewards = (): ProjectedReward[] => {
-    if (!poolsData?.pools || investment <= 0) return [];
+    if (!poolsData?.pools) return [];
+
+    const hero = getActiveHero();
+    const factor = computeHeroGardeningFactor(hero);
+    const staminaPerDay = computeStaminaPerDay(hero.level, hasRapidRenewal);
+    const petMultiplier = 1 + (parseFloat(petBonusPct) || 0) / 100;
 
     return poolsData.pools.map((pool) => {
-      const passiveAPR = pool.passiveAPR || 0;
-      const activeAPRMin = pool.activeAPRMin || 0;
-      const activeAPRMax = pool.activeAPRMax || 0;
-
-      const dailyPassive = (investment * passiveAPR) / 365;
-      const dailyActiveMin = (investment * activeAPRMin) / 365;
-      const dailyActiveMax = (investment * activeAPRMax) / 365;
+      const rewardToken = getRewardToken(pool);
+      const basePerAttempt = rewardToken === "CRYSTAL" ? CRYSTAL_BASE_PER_ATTEMPT : JEWEL_BASE_PER_ATTEMPT;
+      
+      const perStamina = basePerAttempt * factor * petMultiplier;
+      const per30Stamina = perStamina * 30;
+      const dailyReward = perStamina * staminaPerDay;
 
       return {
         pid: pool.pid,
         pairName: pool.pairName,
         tvl: pool.tvl,
-        passiveAPR,
-        activeAPRMin,
-        activeAPRMax,
-        dailyPassive,
-        dailyActiveMin,
-        dailyActiveMax,
-        weeklyPassive: dailyPassive * 7,
-        weeklyActiveMin: dailyActiveMin * 7,
-        weeklyActiveMax: dailyActiveMax * 7,
-        monthlyPassive: dailyPassive * 30,
-        monthlyActiveMin: dailyActiveMin * 30,
-        monthlyActiveMax: dailyActiveMax * 30,
+        rewardToken,
+        per30Stamina,
+        dailyReward,
+        weeklyReward: dailyReward * 7,
+        monthlyReward: dailyReward * 30,
       };
     });
   };
@@ -164,21 +206,21 @@ export default function YieldCalculator() {
         aVal = a.tvl;
         bVal = b.tvl;
         break;
-      case "passiveAPR":
-        aVal = a.passiveAPR;
-        bVal = b.passiveAPR;
+      case "per30Stamina":
+        aVal = a.per30Stamina;
+        bVal = b.per30Stamina;
         break;
-      case "dailyActiveMax":
-        aVal = a.dailyActiveMax;
-        bVal = b.dailyActiveMax;
+      case "dailyReward":
+        aVal = a.dailyReward;
+        bVal = b.dailyReward;
         break;
-      case "monthlyActiveMax":
-        aVal = a.monthlyActiveMax;
-        bVal = b.monthlyActiveMax;
+      case "monthlyReward":
+        aVal = a.monthlyReward;
+        bVal = b.monthlyReward;
         break;
       default:
-        aVal = a.monthlyActiveMax;
-        bVal = b.monthlyActiveMax;
+        aVal = a.monthlyReward;
+        bVal = b.monthlyReward;
     }
 
     if (typeof aVal === "string" && typeof bVal === "string") {
@@ -210,9 +252,16 @@ export default function YieldCalculator() {
     return `$${value.toFixed(2)}`;
   };
 
-  const formatAPR = (value: number) => {
-    return `${(value * 100).toFixed(2)}%`;
+  const formatToken = (value: number, decimals: number = 4) => {
+    if (value >= 1000) {
+      return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return value.toFixed(decimals);
   };
+
+  const activeHero = getActiveHero();
+  const heroFactor = computeHeroGardeningFactor(activeHero);
+  const staminaPerDay = computeStaminaPerDay(activeHero.level, hasRapidRenewal);
 
   const SortHeader = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
     <TableHead 
@@ -232,53 +281,11 @@ export default function YieldCalculator() {
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-page-title">Yield Calculator</h1>
         <p className="text-muted-foreground">
-          Calculate expected gardening rewards for any investment amount across all pools
+          Calculate expected CRYSTAL/JEWEL rewards per 30 stamina gardening quest
         </p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5" />
-              Investment Amount
-            </CardTitle>
-            <CardDescription>
-              Enter the dollar amount you want to simulate investing
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="investment">Investment (USD)</Label>
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    id="investment"
-                    type="number"
-                    placeholder="1000"
-                    value={investmentAmount}
-                    onChange={(e) => setInvestmentAmount(e.target.value)}
-                    data-testid="input-investment"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                {[100, 500, 1000, 5000, 10000].map((amt) => (
-                  <Button
-                    key={amt}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setInvestmentAmount(amt.toString())}
-                    data-testid={`button-preset-${amt}`}
-                  >
-                    ${amt.toLocaleString()}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -301,7 +308,7 @@ export default function YieldCalculator() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="example">Example Hero #{EXAMPLE_HERO_ID}</SelectItem>
+                    <SelectItem value="example">Example Hero (Lv10 Gardener)</SelectItem>
                     <SelectItem value="custom">Custom Hero ID</SelectItem>
                   </SelectContent>
                 </Select>
@@ -334,16 +341,6 @@ export default function YieldCalculator() {
                       </Button>
                     </div>
                   </div>
-                  <div>
-                    <Label htmlFor="customPetId">Pet ID (optional)</Label>
-                    <Input
-                      id="customPetId"
-                      placeholder="e.g. 789"
-                      value={customPetId}
-                      onChange={(e) => setCustomPetId(e.target.value)}
-                      data-testid="input-custom-pet-id"
-                    />
-                  </div>
                   {heroData?.ok && (
                     <div className="p-3 rounded-md bg-muted text-sm space-y-1">
                       <div className="flex gap-2 flex-wrap">
@@ -362,14 +359,84 @@ export default function YieldCalculator() {
               )}
 
               {heroSource === "example" && (
-                <Alert>
-                  <Info className="h-4 w-4" />
-                  <AlertDescription>
-                    Calculations use example Hero #{EXAMPLE_HERO_ID} with Pet #{EXAMPLE_PET_ID}. 
-                    Active APR estimates assume a typical Level 10 gardener with the gardening gene.
-                  </AlertDescription>
-                </Alert>
+                <div className="p-3 rounded-md bg-muted text-sm">
+                  <div className="flex gap-2 flex-wrap mb-1">
+                    <Badge variant="outline">Lv 10</Badge>
+                    <Badge variant="default">Gardener</Badge>
+                  </div>
+                  <div className="text-muted-foreground">
+                    WIS/VIT: 45/43 | Gardening: 31 | Factor: {heroFactor.toFixed(3)}
+                  </div>
+                </div>
               )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5" />
+              Bonuses & Modifiers
+            </CardTitle>
+            <CardDescription>
+              Configure pet bonuses and power-ups
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="petBonus">Pet Power Surge Bonus (%)</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    id="petBonus"
+                    type="number"
+                    placeholder="0"
+                    value={petBonusPct}
+                    onChange={(e) => setPetBonusPct(e.target.value)}
+                    data-testid="input-pet-bonus"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Enter pet's Power Surge % (e.g., 20 for +20% boost)
+                </p>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {[0, 10, 15, 20, 25].map((pct) => (
+                  <Button
+                    key={pct}
+                    variant={petBonusPct === pct.toString() ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setPetBonusPct(pct.toString())}
+                    data-testid={`button-pet-${pct}`}
+                  >
+                    {pct === 0 ? "No Pet" : `+${pct}%`}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="rapidRenewal"
+                  checked={hasRapidRenewal}
+                  onChange={(e) => setHasRapidRenewal(e.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                  data-testid="checkbox-rapid-renewal"
+                />
+                <Label htmlFor="rapidRenewal" className="cursor-pointer">
+                  Has Rapid Renewal (faster stamina regen)
+                </Label>
+              </div>
+
+              <div className="p-3 rounded-md bg-muted text-sm">
+                <div className="grid grid-cols-2 gap-2 text-muted-foreground">
+                  <div>Stamina/Day:</div>
+                  <div className="font-mono">{staminaPerDay.toFixed(1)}</div>
+                  <div>30-Stam Quests/Day:</div>
+                  <div className="font-mono">{(staminaPerDay / 30).toFixed(2)}</div>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -379,10 +446,10 @@ export default function YieldCalculator() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <TrendingUp className="h-5 w-5" />
-            Projected Rewards by Pool
+            Projected Token Rewards by Pool
           </CardTitle>
           <CardDescription>
-            Expected returns for ${investment.toLocaleString()} investment. Click column headers to sort.
+            Expected CRYSTAL/JEWEL rewards per 30 stamina quest. Click column headers to sort.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -397,11 +464,11 @@ export default function YieldCalculator() {
                   <TableRow>
                     <SortHeader field="pairName">Pool</SortHeader>
                     <SortHeader field="tvl">TVL</SortHeader>
-                    <SortHeader field="passiveAPR">Passive APR</SortHeader>
-                    <TableHead>Active APR</TableHead>
-                    <SortHeader field="dailyActiveMax">Daily Est.</SortHeader>
-                    <TableHead>Weekly Est.</TableHead>
-                    <SortHeader field="monthlyActiveMax">Monthly Est.</SortHeader>
+                    <TableHead>Token</TableHead>
+                    <SortHeader field="per30Stamina">Per 30 Stamina</SortHeader>
+                    <SortHeader field="dailyReward">Daily</SortHeader>
+                    <TableHead>Weekly</TableHead>
+                    <SortHeader field="monthlyReward">Monthly</SortHeader>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -409,27 +476,29 @@ export default function YieldCalculator() {
                     <TableRow key={reward.pid} data-testid={`row-pool-${reward.pid}`}>
                       <TableCell className="font-medium">{reward.pairName}</TableCell>
                       <TableCell>{formatCurrency(reward.tvl)}</TableCell>
-                      <TableCell>{formatAPR(reward.passiveAPR)}</TableCell>
                       <TableCell>
-                        <span className="text-muted-foreground">
-                          {formatAPR(reward.activeAPRMin)} - {formatAPR(reward.activeAPRMax)}
-                        </span>
+                        <Badge variant={reward.rewardToken === "CRYSTAL" ? "default" : "secondary"}>
+                          {reward.rewardToken}
+                        </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-0.5">
-                          <div className="font-mono text-sm">
-                            ${reward.dailyPassive.toFixed(2)} - ${(reward.dailyPassive + reward.dailyActiveMax).toFixed(2)}
-                          </div>
+                        <div className="font-mono text-sm font-semibold">
+                          {formatToken(reward.per30Stamina)}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="font-mono text-sm">
-                          ${reward.weeklyPassive.toFixed(2)} - ${(reward.weeklyPassive + reward.weeklyActiveMax).toFixed(2)}
+                          {formatToken(reward.dailyReward, 2)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-mono text-sm">
+                          {formatToken(reward.weeklyReward, 2)}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="font-mono text-sm font-semibold text-green-600 dark:text-green-400">
-                          ${reward.monthlyPassive.toFixed(2)} - ${(reward.monthlyPassive + reward.monthlyActiveMax).toFixed(2)}
+                          {formatToken(reward.monthlyReward, 2)}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -444,13 +513,12 @@ export default function YieldCalculator() {
       <Alert>
         <Info className="h-4 w-4" />
         <AlertDescription>
-          <strong>Note:</strong> These projections are estimates based on current APR rates and assume consistent pool conditions. 
-          Actual rewards depend on hero stats, pet bonuses, pool share, market conditions, and CRYSTAL/JEWEL prices.
-          {heroSource === "example" && (
-            <span className="block mt-1">
-              Using example Hero #{EXAMPLE_HERO_ID} with Pet #{EXAMPLE_PET_ID} for calculations.
-            </span>
-          )}
+          <strong>Note:</strong> Token rewards are calculated using the base yield formula: 
+          <code className="mx-1 px-1 bg-muted rounded text-xs">baseRate × heroFactor × petMultiplier × stamina</code>.
+          Base rates are {CRYSTAL_BASE_PER_ATTEMPT} CRYSTAL and {JEWEL_BASE_PER_ATTEMPT} JEWEL per stamina for factor-1.0 heroes.
+          <span className="block mt-1">
+            Hero Factor: {heroFactor.toFixed(3)} | Stamina/Day: {staminaPerDay.toFixed(1)}
+          </span>
         </AlertDescription>
       </Alert>
     </div>
