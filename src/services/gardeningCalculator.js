@@ -731,7 +731,8 @@ export async function getWalletQuestingHeroes(walletAddress) {
         const petData = heroPetMap.get(heroId.toString());
         // questBonusPct is the gardening pet's bonus percentage (e.g., 10 = +10%)
         const questBonusPct = petData?.isGardeningPet ? (petData.questBonusPct || 0) : 0;
-        const petFed = petData?.isFed || false;
+        // Assume pets are always fed for yield calculator (user preference)
+        const petFed = petData?.isGardeningPet ? true : false;
         
         // Get assigned token for this hero (CRYSTAL or JEWEL)
         const assignedToken = heroTokenMap.get(heroId.toString()) || 'CRYSTAL';
@@ -739,9 +740,9 @@ export async function getWalletQuestingHeroes(walletAddress) {
         // Calculate hero factor
         const heroFactor = calculateHeroFactor(wisdom, vitality, gardeningSkill);
         
-        // Pet multiplier: gardening pets provide a % bonus to quest rewards when fed
-        // Only gardening pets (eggType 2) provide gardening quest bonuses
-        const petMultiplier = petFed && questBonusPct > 0 ? 1 + questBonusPct / 100 : 1.0;
+        // Pet multiplier: gardening pets provide a % bonus to quest rewards
+        // Assume pets are always fed for this tool
+        const petMultiplier = questBonusPct > 0 ? 1 + questBonusPct / 100 : 1.0;
         
         // Check if this is an expedition gardening hero (Pool 255)
         const questId = hero.currentQuest?.toLowerCase() || '';
@@ -806,11 +807,6 @@ export async function getWalletQuestingHeroes(walletAddress) {
             ? `${matchedPosition.poolName} (Expedition)`
             : `Pool ${expeditionPoolId} (Expedition)`;
           
-          // Expedition efficiency modifier - empirically derived from observed yields
-          // NOTE: This was based on incorrect total LP calculation; may need recalibration
-          // with pool-specific LP share approach
-          const EXPEDITION_EFFICIENCY = 0.78;
-          
           const crystalPerStamina = calculateYieldPerStamina({
             rewardPool: rewardFund.crystalPool,
             poolAllocation,
@@ -819,7 +815,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
             hasGardeningGene,
             gardeningSkill,
             petMultiplier,
-          }) * EXPEDITION_EFFICIENCY;
+          });
           
           const jewelPerStamina = calculateYieldPerStamina({
             rewardPool: rewardFund.jewelPool,
@@ -829,7 +825,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
             hasGardeningGene,
             gardeningSkill,
             petMultiplier,
-          }) * EXPEDITION_EFFICIENCY;
+          });
           
           // Determine yield based on assigned token (CRYSTAL or JEWEL)
           const yieldPerStamina = assignedToken === 'CRYSTAL' ? crystalPerStamina : jewelPerStamina;
