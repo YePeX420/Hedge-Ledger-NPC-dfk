@@ -890,7 +890,31 @@ export function getPetForHero(heroId, allPets) {
   if (!allPets || !heroId) return null;
   
   const heroIdStr = String(heroId);
-  return allPets.find(p => p.equippedTo === heroIdStr) || null;
+  const heroIdNum = Number(heroId);
+  
+  // Hero IDs can be in different formats:
+  // - Normalized: "272739" 
+  // - CV prefix: "1000000272739" (1 trillion + id)
+  // - SD prefix: "2000000272739" (2 trillion + id)
+  // Pet's equippedTo is stored in raw format (with prefix)
+  
+  // Generate all possible hero ID formats to match against pet's equippedTo
+  const possibleHeroIds = new Set([heroIdStr]);
+  
+  // If normalized (< 1 billion), add prefixed versions
+  if (heroIdNum > 0 && heroIdNum < 1000000000) {
+    possibleHeroIds.add(String(1000000000000 + heroIdNum)); // CV prefix
+    possibleHeroIds.add(String(2000000000000 + heroIdNum)); // SD prefix
+  }
+  
+  // If prefixed, add normalized version
+  if (heroIdNum >= 1000000000000 && heroIdNum < 2000000000000) {
+    possibleHeroIds.add(String(heroIdNum - 1000000000000)); // Remove CV prefix
+  } else if (heroIdNum >= 2000000000000 && heroIdNum < 3000000000000) {
+    possibleHeroIds.add(String(heroIdNum - 2000000000000)); // Remove SD prefix
+  }
+  
+  return allPets.find(p => possibleHeroIds.has(p.equippedTo)) || null;
 }
 
 /**
