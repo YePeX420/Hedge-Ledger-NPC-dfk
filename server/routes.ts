@@ -3285,6 +3285,31 @@ Return a JSON object with:
     }
   });
 
+  // POST /api/admin/gardening-calc/optimize - Optimize pool allocation for maximum yield
+  app.post("/api/admin/gardening-calc/optimize", isAdmin, async (req: any, res: any) => {
+    try {
+      const { walletAddress, selectedPoolIds, heroCount = 6, stamina = 30 } = req.body;
+      
+      if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+        return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+      }
+      
+      if (!selectedPoolIds || !Array.isArray(selectedPoolIds) || selectedPoolIds.length === 0) {
+        return res.status(400).json({ ok: false, error: 'Must select at least one pool' });
+      }
+      
+      console.log(`[GardeningOptimizer] Optimizing for wallet ${walletAddress} with pools: [${selectedPoolIds.join(', ')}]`);
+      
+      const { optimizeGardenAllocation } = await import("../src/services/gardeningCalculator.js");
+      const result = await optimizeGardenAllocation(walletAddress, selectedPoolIds, heroCount, stamina);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error('[GardeningOptimizer] Error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   // GET /api/admin/gardening-indexer/status - Get gardening quest indexer status
   app.get("/api/admin/gardening-indexer/status", isAdmin, async (_req: any, res: any) => {
     try {

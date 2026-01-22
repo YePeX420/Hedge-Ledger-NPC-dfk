@@ -1026,3 +1026,219 @@ export async function validateHeroYield(heroId, poolId, walletAddress) {
     return { ok: false, error: err.message };
   }
 }
+
+/**
+ * Optimize garden allocation - calculate yields for each pool and rank them
+ * 
+ * @param {string} walletAddress - Player wallet address
+ * @param {number[]} selectedPoolIds - Pool IDs to consider for optimization
+ * @param {number} heroCount - Number of heroes to deploy (default 6 = 3 pairs)
+ * @param {number} stamina - Stamina per quest run (default 30)
+ * @returns {Promise<Object>} Optimization results with ranked pools and projected yields
+ */
+export async function optimizeGardenAllocation(walletAddress, selectedPoolIds, heroCount = 6, stamina = 30) {
+  try {
+    console.log(`[GardeningOptimizer] Starting optimization for ${walletAddress}`);
+    console.log(`[GardeningOptimizer] Selected pools: [${selectedPoolIds.join(', ')}], heroes: ${heroCount}, stamina: ${stamina}`);
+    
+    const { getAllHeroesByOwner } = await import('../../onchain-data.js');
+    
+    // Get all pool positions, reward fund, heroes, and pets in parallel
+    const [positionsResult, rewardFund, allHeroes, allPets] = await Promise.all([
+      getUserPoolPositions(walletAddress),
+      getQuestRewardFundBalances(),
+      getAllHeroesByOwner(walletAddress),
+      fetchPetsForWallet(walletAddress).catch(err => {
+        console.warn(`[GardeningOptimizer] Pet fetch failed: ${err.message}`);
+        return [];
+      }),
+    ]);
+    
+    const lpPositions = positionsResult.positions || [];
+    const positionsByPoolId = new Map(lpPositions.map(p => [p.poolId, p]));
+    
+    // Get best gardening pet bonus (assume all fed)
+    const gardeningPets = allPets.filter(p => p.eggType === 2 || p.gatheringType === 'Gardening');
+    const bestPetBonus = gardeningPets.reduce((best, p) => 
+      Math.max(best, p.gatheringBonusScalar || 0), 0);
+    const petMultiplier = bestPetBonus > 0 ? 1 + bestPetBonus / 100 : 1.0;
+    
+    console.log(`[GardeningOptimizer] Best pet bonus: ${bestPetBonus}% (${petMultiplier}x multiplier)`);
+    
+    // Find best gardening hero from wallet using actual yield formula for ranking
+    let bestHero = null;
+    let bestYieldScore = 0;
+    
+    for (const hero of allHeroes) {
+      const wisdom = hero.wisdom || 0;
+      const vitality = hero.vitality || 0;
+      const gardeningSkill = hero.gardening || 0;
+      const hasGardeningGene = hero.professionStr?.toLowerCase() === 'gardening';
+      
+      const factor = calculateHeroFactor(wisdom, vitality, gardeningSkill);
+      
+      // Calculate actual effective yield using the formula divisor
+      // This accounts for both heroFactor AND the divisor reduction from gardening gene/skill
+      const geneBonus = hasGardeningGene ? 1 : 0;
+      const grdSkillForFormula = gardeningSkill / 10;
+      const rewardModBase = grdSkillForFormula >= 10 ? 72 : 144;
+      const divisor = (300 - (50 * geneBonus)) * rewardModBase;
+      
+      // yieldScore = factor / divisor (higher is better) - we can ignore rewardPool/allocation since they're constant
+      const yieldScore = factor / divisor;
+      
+      if (yieldScore > bestYieldScore) {
+        bestYieldScore = yieldScore;
+        bestHero = {
+          id: hero.normalizedId || hero.id,
+          level: hero.level || 1,
+          class: hero.mainClassStr || 'Unknown',
+          wisdom,
+          vitality,
+          gardeningSkill,
+          hasGardeningGene,
+          factor,
+        };
+      }
+    }
+    
+    // Fallback to example hero if no heroes found
+    if (!bestHero) {
+      console.log(`[GardeningOptimizer] No heroes found, using example hero`);
+      bestHero = {
+        id: 'example',
+        level: 10,
+        class: 'Gardener',
+        wisdom: 45,
+        vitality: 43,
+        gardeningSkill: 100,
+        hasGardeningGene: true,
+        factor: calculateHeroFactor(45, 43, 100),
+      };
+    }
+    
+    const heroFactor = bestHero.factor;
+    const hasGardeningGene = bestHero.hasGardeningGene;
+    const gardeningSkill = bestHero.gardeningSkill;
+    
+    console.log(`[GardeningOptimizer] Best hero: #${bestHero.id} Lv${bestHero.level} ${bestHero.class} (factor: ${heroFactor.toFixed(4)}, gene: ${hasGardeningGene})`);
+    console.log(`[GardeningOptimizer] Found ${allHeroes.length} heroes, ${lpPositions.length} LP positions`);
+    
+    // Calculate yields for each selected pool
+    const poolResults = [];
+    
+    for (const poolId of selectedPoolIds) {
+      try {
+        const poolName = POOL_NAMES[poolId] || `Pool ${poolId}`;
+        const position = positionsByPoolId.get(poolId);
+        
+        // Get pool allocation
+        const poolAllocation = await getPoolAllocation(poolId);
+        
+        // Get LP share from position or 0 if no position
+        const lpShare = position?.lpShare || 0;
+        const lpValueUSD = position?.valueUSD || 0;
+        
+        // Calculate CRYSTAL yield
+        const crystalPerStamina = calculateYieldPerStamina({
+          rewardPool: rewardFund.crystalPool,
+          poolAllocation,
+          lpOwned: lpShare,
+          heroFactor,
+          hasGardeningGene,
+          gardeningSkill,
+          petMultiplier,
+        });
+        
+        // Calculate JEWEL yield
+        const jewelPerStamina = calculateYieldPerStamina({
+          rewardPool: rewardFund.jewelPool,
+          poolAllocation,
+          lpOwned: lpShare,
+          heroFactor,
+          hasGardeningGene,
+          gardeningSkill,
+          petMultiplier,
+        });
+        
+        // Calculate per-quest yields
+        const crystalPerQuest = crystalPerStamina * stamina;
+        const jewelPerQuest = jewelPerStamina * stamina;
+        
+        // Calculate daily yields (assuming 3 pairs = 6 heroes, 24 runs/day per pool)
+        // Cycle time: 30 stam × (10 min quest + 20 min regen) = 15 hours = ~1.6 runs/hero/day
+        // With 6 heroes that's ~9.6 runs per pool per day
+        const runsPerDay = 9.6;
+        const crystalPerDay = crystalPerQuest * runsPerDay * (heroCount / 6);
+        const jewelPerDay = jewelPerQuest * runsPerDay * (heroCount / 6);
+        
+        poolResults.push({
+          poolId,
+          poolName,
+          hasPosition: !!position,
+          lpShare,
+          lpSharePct: (lpShare * 100).toFixed(4),
+          lpValueUSD,
+          poolAllocation,
+          poolAllocationPct: (poolAllocation * 100).toFixed(2),
+          crystalPerQuest,
+          jewelPerQuest,
+          crystalPerDay,
+          jewelPerDay,
+          // Combined score for ranking - simple sum (reward pool sizes already weight appropriately)
+          combinedYield: crystalPerQuest + jewelPerQuest,
+        });
+      } catch (poolErr) {
+        console.warn(`[GardeningOptimizer] Error calculating pool ${poolId}: ${poolErr.message}`);
+      }
+    }
+    
+    // Sort by combined yield (highest first)
+    poolResults.sort((a, b) => b.combinedYield - a.combinedYield);
+    
+    // Calculate totals across all pools if user split heroes evenly
+    const poolsWithPositions = poolResults.filter(p => p.hasPosition);
+    const totalCrystalPerQuest = poolResults.reduce((sum, p) => sum + p.crystalPerQuest, 0);
+    const totalJewelPerQuest = poolResults.reduce((sum, p) => sum + p.jewelPerQuest, 0);
+    
+    // Recommendation: focus on top pool(s) with existing LP
+    const recommendation = poolResults.length > 0 && poolsWithPositions.length > 0
+      ? `Focus ${heroCount} heroes on ${poolResults[0].poolName} for maximum yield. Your best pool yields ${poolResults[0].crystalPerQuest.toFixed(2)} CRYSTAL per quest.`
+      : poolResults.length > 0
+        ? `You have no LP positions in selected pools. Deposit LP in ${poolResults[0].poolName} for best yield potential.`
+        : 'No pools selected for optimization.';
+    
+    return {
+      ok: true,
+      wallet: walletAddress,
+      heroCount,
+      stamina,
+      heroFactor,
+      petMultiplier,
+      bestPetBonus,
+      bestHero: {
+        id: bestHero.id,
+        level: bestHero.level,
+        class: bestHero.class,
+        hasGardeningGene: bestHero.hasGardeningGene,
+        gardeningSkill: bestHero.gardeningSkill,
+      },
+      rewardFund: {
+        crystalPool: rewardFund.crystalPool,
+        jewelPool: rewardFund.jewelPool,
+      },
+      pools: poolResults,
+      summary: {
+        poolsAnalyzed: poolResults.length,
+        poolsWithLP: poolsWithPositions.length,
+        totalCrystalPerQuest,
+        totalJewelPerQuest,
+        recommendation,
+        totalHeroes: allHeroes.length,
+      },
+    };
+  } catch (err) {
+    console.error('[GardeningOptimizer] Error:', err.message);
+    return { ok: false, error: err.message };
+  }
+}

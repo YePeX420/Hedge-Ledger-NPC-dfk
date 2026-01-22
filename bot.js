@@ -8021,6 +8021,31 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/gardening-calc/optimize - Optimize pool allocation for maximum yield
+  app.post('/api/admin/gardening-calc/optimize', isAdmin, async (req, res) => {
+    try {
+      const { optimizeGardenAllocation } = await import('./src/services/gardeningCalculator.js');
+      
+      const { walletAddress, selectedPoolIds, heroCount = 6, stamina = 30 } = req.body;
+      
+      if (!walletAddress) {
+        return res.status(400).json({ ok: false, error: 'walletAddress is required' });
+      }
+      if (!selectedPoolIds || !Array.isArray(selectedPoolIds) || selectedPoolIds.length === 0) {
+        return res.status(400).json({ ok: false, error: 'selectedPoolIds array is required' });
+      }
+      
+      console.log(`[GardeningOptimizer] Optimizing for wallet ${walletAddress} with ${selectedPoolIds.length} pools`);
+      
+      const result = await optimizeGardenAllocation(walletAddress, selectedPoolIds, heroCount, stamina);
+      
+      res.json(result);
+    } catch (error) {
+      console.error('[GardeningOptimizer] Optimization error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   // ===========================================
   // TOURNAMENT/BATTLE-READY HEROES ADMIN ROUTES
   // ===========================================

@@ -27,8 +27,72 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Calculator, DollarSign, Sparkles, TrendingUp, Loader2, Search, Info, ArrowUpDown, RefreshCw, Wallet, User } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Calculator, DollarSign, Sparkles, TrendingUp, Loader2, Search, Info, ArrowUpDown, RefreshCw, Wallet, User, Target, CheckSquare, Square } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+
+const GARDEN_POOLS = [
+  { pid: 0, name: 'wJEWEL-xJEWEL' },
+  { pid: 1, name: 'CRYSTAL-AVAX' },
+  { pid: 2, name: 'CRYSTAL-wJEWEL' },
+  { pid: 3, name: 'CRYSTAL-USDC' },
+  { pid: 4, name: 'ETH-USDC' },
+  { pid: 5, name: 'wJEWEL-USDC' },
+  { pid: 6, name: 'CRYSTAL-ETH' },
+  { pid: 7, name: 'CRYSTAL-BTC.b' },
+  { pid: 8, name: 'CRYSTAL-KLAY' },
+  { pid: 9, name: 'wJEWEL-KLAY' },
+  { pid: 10, name: 'wJEWEL-AVAX' },
+  { pid: 11, name: 'wJEWEL-BTC.b' },
+  { pid: 12, name: 'wJEWEL-ETH' },
+  { pid: 13, name: 'BTC.b-USDC' },
+];
+
+interface OptimizationPool {
+  poolId: number;
+  poolName: string;
+  hasPosition: boolean;
+  lpShare: number;
+  lpSharePct: string;
+  lpValueUSD: number;
+  poolAllocation: number;
+  poolAllocationPct: string;
+  crystalPerQuest: number;
+  jewelPerQuest: number;
+  crystalPerDay: number;
+  jewelPerDay: number;
+  combinedYield: number;
+}
+
+interface OptimizationResponse {
+  ok: boolean;
+  wallet: string;
+  heroCount: number;
+  stamina: number;
+  heroFactor: number;
+  petMultiplier: number;
+  bestPetBonus: number;
+  bestHero: {
+    id: string | number;
+    level: number;
+    class: string;
+    hasGardeningGene: boolean;
+    gardeningSkill: number;
+  };
+  rewardFund: {
+    crystalPool: number;
+    jewelPool: number;
+  };
+  pools: OptimizationPool[];
+  summary: {
+    poolsAnalyzed: number;
+    poolsWithLP: number;
+    totalCrystalPerQuest: number;
+    totalJewelPerQuest: number;
+    recommendation: string;
+    totalHeroes: number;
+  };
+}
 
 interface HeroData {
   ok: boolean;
@@ -132,6 +196,8 @@ export default function YieldCalculator() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [walletAddress, setWalletAddress] = useState<string>("");
   const [questingHeroes, setQuestingHeroes] = useState<QuestingHeroesResponse | null>(null);
+  const [selectedPools, setSelectedPools] = useState<Set<number>>(new Set());
+  const [optimizationResult, setOptimizationResult] = useState<OptimizationResponse | null>(null);
 
   const walletMutation = useMutation({
     mutationFn: async (address: string) => {
@@ -140,8 +206,53 @@ export default function YieldCalculator() {
     },
     onSuccess: (data) => {
       setQuestingHeroes(data);
+      setOptimizationResult(null);
     },
   });
+
+  const optimizeMutation = useMutation({
+    mutationFn: async ({ wallet, poolIds }: { wallet: string; poolIds: number[] }) => {
+      const response = await apiRequest("POST", "/api/admin/gardening-calc/optimize", {
+        walletAddress: wallet.toLowerCase(),
+        selectedPoolIds: poolIds,
+        heroCount: 6,
+        stamina: parseInt(staminaPerQuest) || 30,
+      });
+      return response.json() as Promise<OptimizationResponse>;
+    },
+    onSuccess: (data) => {
+      setOptimizationResult(data);
+    },
+    onError: () => {
+      setOptimizationResult(null);
+    },
+  });
+
+  const handleOptimize = () => {
+    if (walletAddress && selectedPools.size > 0) {
+      optimizeMutation.mutate({ wallet: walletAddress, poolIds: Array.from(selectedPools) });
+    }
+  };
+
+  const togglePool = (poolId: number) => {
+    setSelectedPools(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(poolId)) {
+        newSet.delete(poolId);
+      } else {
+        newSet.add(poolId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllPools = () => {
+    setSelectedPools(new Set(GARDEN_POOLS.map(p => p.pid)));
+  };
+
+  const clearAllPools = () => {
+    setSelectedPools(new Set());
+  };
 
   const handleWalletLookup = () => {
     if (walletAddress && walletAddress.length >= 40) {
@@ -698,6 +809,184 @@ export default function YieldCalculator() {
           })()}
         </CardContent>
       </Card>
+
+      {questingHeroes?.ok && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5" />
+              Yield Optimizer
+            </CardTitle>
+            <CardDescription>
+              Select pools to consider, then run the optimizer to find the best allocation for maximum yield
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={selectAllPools}
+                data-testid="button-select-all-pools"
+              >
+                <CheckSquare className="h-4 w-4 mr-1" />
+                Select All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearAllPools}
+                data-testid="button-clear-pools"
+              >
+                <Square className="h-4 w-4 mr-1" />
+                Clear All
+              </Button>
+              <span className="text-sm text-muted-foreground ml-2">
+                {selectedPools.size} pool(s) selected
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+              {GARDEN_POOLS.map((pool) => (
+                <label
+                  key={pool.pid}
+                  className={`flex items-center gap-2 p-2 rounded-md border cursor-pointer transition-colors ${
+                    selectedPools.has(pool.pid)
+                      ? "bg-primary/10 border-primary"
+                      : "hover:bg-muted"
+                  }`}
+                  data-testid={`pool-checkbox-${pool.pid}`}
+                >
+                  <Checkbox
+                    checked={selectedPools.has(pool.pid)}
+                    onCheckedChange={() => togglePool(pool.pid)}
+                  />
+                  <div className="text-sm">
+                    <div className="font-medium">{pool.name}</div>
+                    <div className="text-xs text-muted-foreground">Pool {pool.pid}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <Button
+              onClick={handleOptimize}
+              disabled={optimizeMutation.isPending || selectedPools.size === 0}
+              className="w-full"
+              data-testid="button-optimize"
+            >
+              {optimizeMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Optimizing...
+                </>
+              ) : (
+                <>
+                  <Target className="h-4 w-4 mr-2" />
+                  Optimize Yield ({selectedPools.size} pools)
+                </>
+              )}
+            </Button>
+
+            {optimizeMutation.isError && (
+              <Alert variant="destructive">
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to optimize: {(optimizeMutation.error as Error)?.message || 'Unknown error'}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {optimizationResult?.ok && (
+              <div className="space-y-4 mt-4">
+                <Alert>
+                  <Target className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Recommendation:</strong> {optimizationResult.summary.recommendation}
+                  </AlertDescription>
+                </Alert>
+
+                <div className="flex flex-wrap gap-4 p-3 bg-muted/50 rounded-md">
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Best Hero:</span>{" "}
+                    <span className="font-mono font-bold">
+                      #{optimizationResult.bestHero.id} Lv{optimizationResult.bestHero.level} {optimizationResult.bestHero.class}
+                      {optimizationResult.bestHero.hasGardeningGene && <Badge variant="outline" className="ml-1">Gardener</Badge>}
+                    </span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Hero Factor:</span>{" "}
+                    <span className="font-mono font-bold">{optimizationResult.heroFactor.toFixed(4)}</span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Pet Bonus:</span>{" "}
+                    <span className="font-mono font-bold">{optimizationResult.bestPetBonus}% ({optimizationResult.petMultiplier.toFixed(2)}x)</span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Pools with LP:</span>{" "}
+                    <span className="font-mono font-bold">{optimizationResult.summary.poolsWithLP}/{optimizationResult.summary.poolsAnalyzed}</span>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Rank</TableHead>
+                        <TableHead>Pool</TableHead>
+                        <TableHead>LP Position</TableHead>
+                        <TableHead>Pool Alloc</TableHead>
+                        <TableHead>CRYSTAL/Quest</TableHead>
+                        <TableHead>JEWEL/Quest</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {optimizationResult.pools.map((pool, idx) => (
+                        <TableRow key={pool.poolId} data-testid={`row-opt-pool-${pool.poolId}`}>
+                          <TableCell>
+                            <Badge variant={idx === 0 ? "default" : "secondary"}>
+                              #{idx + 1}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">{pool.poolName}</div>
+                            <div className="text-xs text-muted-foreground">Pool {pool.poolId}</div>
+                          </TableCell>
+                          <TableCell>
+                            {pool.hasPosition ? (
+                              <div>
+                                <div className="font-mono text-sm">{pool.lpSharePct}%</div>
+                                <div className="text-xs text-muted-foreground">
+                                  ${pool.lpValueUSD.toFixed(0)}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-sm">{pool.poolAllocationPct}%</span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-mono text-sm font-semibold text-cyan-600 dark:text-cyan-400">
+                              {formatToken(pool.crystalPerQuest, 2)}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-mono text-sm font-semibold text-purple-600 dark:text-purple-400">
+                              {formatToken(pool.jewelPerQuest, 4)}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {responseData && (
         <Alert>
