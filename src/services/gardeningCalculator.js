@@ -13,6 +13,7 @@
 
 import { ethers } from 'ethers';
 import { GraphQLClient, gql } from 'graphql-request';
+import { fetchPetsForWallet, getPetForHero, calculatePetGardenBonus } from '../../pet-data.js';
 
 const DFK_CHAIN_RPC = 'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc';
 const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
@@ -637,19 +638,44 @@ export async function getWalletQuestingHeroes(walletAddress) {
     
     const lpPositions = positionsResult.positions || [];
     
-    // Provider for pet lookups
-    const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
-    const petContract = new ethers.Contract(PETCORE_ADDRESS, PET_CORE_ABI, provider);
+    // Fetch all pets for wallet using the existing pet-data.js infrastructure
+    // This uses getUserPetsV2 which is a single RPC call (not per-hero)
+    let allPets = [];
+    try {
+      allPets = await fetchPetsForWallet(walletAddress);
+      console.log(`[GardeningCalc] Fetched ${allPets.length} pets for wallet`);
+    } catch (petErr) {
+      console.warn(`[GardeningCalc] Pet fetch failed (will continue without pets): ${petErr.message}`);
+    }
     
-    // Build hero->pet map 
-    // NOTE: Pet scanning is disabled due to RPC rate limiting issues
-    // Pet bonuses require indexed pet data for efficient lookup
-    const heroIds = new Set(questingHeroes.map(h => BigInt(h.normalizedId || h.id)));
+    // Build hero->pet bonus map
     const heroPetMap = new Map();
-    
-    // TODO: Implement pet lookup via indexed pet data or GraphQL
-    // For now, skip pet scanning to avoid RPC rate limiting
-    console.log(`[GardeningCalc] Pet lookup disabled - would need indexed pet data for ${heroIds.size} heroes`);
+    for (const hero of questingHeroes) {
+      const heroId = (hero.normalizedId || hero.id).toString();
+      const pet = getPetForHero(heroId, allPets);
+      if (pet) {
+        const isGardeningPet = pet.gatheringType === 'Gardening' || pet.eggType === 2;
+        // Use the pet's isFed property which is computed correctly from hungryAt timestamp
+        const isFed = pet.isFed === true;
+        // gatheringBonusScalar is the pet's bonus percentage (e.g., 44 = +44% to quest rewards)
+        const questBonusPct = isGardeningPet ? (pet.gatheringBonusScalar || 0) : 0;
+        
+        heroPetMap.set(heroId, {
+          petId: pet.id,
+          petName: pet.name,
+          gatheringType: pet.gatheringType,
+          gatheringSkillName: pet.gatheringSkillName || null,
+          isGardeningPet,
+          questBonusPct,
+          isFed,
+          hungryAt: pet.hungryAt,
+          description: isGardeningPet && questBonusPct > 0 
+            ? `+${questBonusPct}% gardening rewards` 
+            : (pet.gatheringType ? `${pet.gatheringType} pet (no garden bonus)` : 'Unknown pet type')
+        });
+      }
+    }
+    console.log(`[GardeningCalc] ${heroPetMap.size}/${questingHeroes.length} heroes have pets equipped`);
     
     // Group heroes by quest ID to determine token assignment (CRYSTAL vs JEWEL)
     // In expedition gardening: first hero gets CRYSTAL, second hero gets JEWEL
@@ -698,20 +724,19 @@ export async function getWalletQuestingHeroes(walletAddress) {
         
         // Look up equipped pet for this hero
         const petData = heroPetMap.get(heroId.toString());
-        const powerSurgeBonus = petData?.powerSurgeBonus || 0;
-        const skilledGreenskeeperBonus = petData?.skilledGreenskeeperBonus || 0;
+        // questBonusPct is the gardening pet's bonus percentage (e.g., 10 = +10%)
+        const questBonusPct = petData?.isGardeningPet ? (petData.questBonusPct || 0) : 0;
         const petFed = petData?.isFed || false;
         
         // Get assigned token for this hero (CRYSTAL or JEWEL)
         const assignedToken = heroTokenMap.get(heroId.toString()) || 'CRYSTAL';
         
         // Calculate hero factor
-        const effectiveGrdSkill = skilledGreenskeeperBonus > 0 && petFed
-          ? gardeningSkill + skilledGreenskeeperBonus
-          : gardeningSkill;
+        const heroFactor = calculateHeroFactor(wisdom, vitality, gardeningSkill);
         
-        const heroFactor = calculateHeroFactor(wisdom, vitality, effectiveGrdSkill);
-        const petMultiplier = petFed && powerSurgeBonus > 0 ? 1 + powerSurgeBonus / 100 : 1.0;
+        // Pet multiplier: gardening pets provide a % bonus to quest rewards when fed
+        // Only gardening pets (eggType 2) provide gardening quest bonuses
+        const petMultiplier = petFed && questBonusPct > 0 ? 1 + questBonusPct / 100 : 1.0;
         
         // Check if this is an expedition gardening hero (Pool 255)
         const questId = hero.currentQuest?.toLowerCase() || '';
@@ -738,10 +763,15 @@ export async function getWalletQuestingHeroes(walletAddress) {
           maxStamina,
           heroFactor,
           petMultiplier,
-          powerSurgeBonus,
-          skilledGreenskeeperBonus,
+          petBonusPct: questBonusPct,
           petId: petData?.petId || null,
+          petName: petData?.petName || null,
+          petGatheringType: petData?.gatheringType || null,
+          petGatheringSkill: petData?.gatheringSkillName || null,
+          isGardeningPet: petData?.isGardeningPet || false,
           petFed,
+          petHungryAt: petData?.hungryAt || null,
+          petDescription: petData?.description || null,
         };
         
         if (isExpedition && lpPositions.length > 0) {

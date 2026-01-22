@@ -593,9 +593,16 @@ function parsePetData(petTuple) {
  */
 export async function fetchPetsForWallet(walletAddress) {
   try {
-    console.log(`[PetData] Fetching pets for wallet ${walletAddress}...`);
+    // Normalize address to proper checksum format
+    let normalizedAddress;
+    try {
+      normalizedAddress = ethers.getAddress(walletAddress);
+    } catch {
+      normalizedAddress = ethers.getAddress(walletAddress.toLowerCase());
+    }
+    console.log(`[PetData] Fetching pets for wallet ${normalizedAddress}...`);
     
-    const petTuples = await petContract.getUserPetsV2(walletAddress);
+    const petTuples = await petContract.getUserPetsV2(normalizedAddress);
     const pets = petTuples.map(parsePetData);
     
     console.log(`[PetData] Found ${pets.length} pets for wallet ${walletAddress}`);
