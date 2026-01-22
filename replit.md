@@ -70,6 +70,12 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Yield Calculator Wallet Lookup**: Added wallet lookup feature to Yield Calculator. Enter a wallet address to see all active questing heroes with expected yields per pool. Shows heroFactor, lpShare%, CRYSTAL/30stam, JEWEL/30stam. Uses official DFK gardening formula. Pet bonuses not yet implemented.
 *   **Gardening Calculator APIs**: Added backend endpoints for yield calculations: `/api/admin/gardening-calc/wallet/:address/questing-heroes` (fetch all questing heroes with yields), `/api/admin/gardening-calc/validate/:heroId/:poolId/:wallet` (validate expected yield for specific hero). Uses Quest Reward Fund balances (7.5M CRYSTAL, 560K JEWEL) with pool allocation and LP share.
 *   **Pools Page Sorting**: Added sortable columns to Pools page: PID, Pair name, Total TVL, Passive APR, Total APR. Click column headers to toggle sort direction.
+*   **Expedition Gardening Formula**: Identified and implemented correct expedition gardening mechanics. Key findings:
+    *   Quest ID format: 0x01050aXX where XX encodes pool ID in hex (e.g., 0x02 = Pool 2)
+    *   LP Share = User's TOTAL LP across all V2 pools / TOTAL V2 TVL (not individual pool TVL)
+    *   Pool Allocation = Weighted average based on user's LP distribution across pools
+    *   Expedition Efficiency = 0.78x multiplier (expeditions yield ~78% of manual gardening formula)
+    *   Quest type prefixes: 0x01050a (Expedition Gardening), 0x010601 (Training), 0x010300 (Foraging/Fishing), 0x01020a (Mining)
 
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2 authentication.
