@@ -637,6 +637,10 @@ export async function getWalletQuestingHeroes(walletAddress) {
     ]);
     
     const lpPositions = positionsResult.positions || [];
+    console.log(`[GardeningCalc] Found ${lpPositions.length} LP positions for wallet`);
+    if (lpPositions.length === 0) {
+      console.log(`[GardeningCalc] ⚠ No LP positions - heroes won't have yield calculations`);
+    }
     
     // Fetch all pets for wallet using the existing pet-data.js infrastructure
     // This uses getUserPetsV2 which is a single RPC call (not per-hero)
@@ -710,6 +714,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
     
     // Process each questing hero
     const heroYields = [];
+    console.log(`[GardeningCalc] Processing ${questingHeroes.length} heroes. LP positions in pools: [${lpPositions.map(p => p.poolId).join(', ')}]`);
     
     for (const hero of questingHeroes) {
       try {
@@ -812,7 +817,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
             lpOwned: poolLpShare,
             heroFactor,
             hasGardeningGene,
-            gardeningSkill: effectiveGrdSkill,
+            gardeningSkill,
             petMultiplier,
           }) * EXPEDITION_EFFICIENCY;
           
@@ -822,7 +827,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
             lpOwned: poolLpShare,
             heroFactor,
             hasGardeningGene,
-            gardeningSkill: effectiveGrdSkill,
+            gardeningSkill,
             petMultiplier,
           }) * EXPEDITION_EFFICIENCY;
           
@@ -861,7 +866,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
             lpOwned: bestPosition.lpShare,
             heroFactor,
             hasGardeningGene,
-            gardeningSkill: effectiveGrdSkill,
+            gardeningSkill,
             petMultiplier,
           });
           
@@ -871,7 +876,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
             lpOwned: bestPosition.lpShare,
             heroFactor,
             hasGardeningGene,
-            gardeningSkill: effectiveGrdSkill,
+            gardeningSkill,
             petMultiplier,
           });
           
