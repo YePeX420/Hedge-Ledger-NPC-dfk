@@ -96,14 +96,26 @@ function getGardenerContract() {
 
 const ERC20_ABI = ['function balanceOf(address owner) view returns (uint256)'];
 
-const POOL_SNAPSHOT_MAX_HISTORICAL_BLOCKS = 50000;
+// Increase to 500k blocks (~12 days on DFK Chain) - archive node may limit historical state queries
+const POOL_SNAPSHOT_MAX_HISTORICAL_BLOCKS = 500000;
 let latestKnownBlock = 0;
 
+// POOL_ID_UNLIMITED (255) is the expedition pool - doesn't exist in Master Gardener contract
+// Valid LP pools are 0-14
+const VALID_LP_POOL_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+
 async function getPoolValueSnapshot(poolId, playerAddress, blockNumber = 'latest') {
+  // Skip LP capture for expedition pool (255) - it doesn't exist in Master Gardener
+  // Expeditions work differently and don't require LP in a specific pool
+  if (poolId === 255 || !VALID_LP_POOL_IDS.includes(poolId)) {
+    return { heroLpStake: null, poolTotalLp: null, lpTokenPrice: null, skipped: 'invalid_pool' };
+  }
+  
   if (blockNumber !== 'latest' && latestKnownBlock > 0) {
     const blocksBehind = latestKnownBlock - blockNumber;
     if (blocksBehind > POOL_SNAPSHOT_MAX_HISTORICAL_BLOCKS) {
-      return { heroLpStake: null, poolTotalLp: null, lpTokenPrice: null };
+      console.log(`[LPSnapshot] Skipping pool ${poolId} - block ${blockNumber} is ${blocksBehind} blocks behind (max: ${POOL_SNAPSHOT_MAX_HISTORICAL_BLOCKS})`);
+      return { heroLpStake: null, poolTotalLp: null, lpTokenPrice: null, skipped: 'too_old' };
     }
   }
   
@@ -124,13 +136,16 @@ async function getPoolValueSnapshot(poolId, playerAddress, blockNumber = 'latest
     const poolTotalLpRaw = await lpTokenContract.balanceOf(MASTER_GARDENER_V2, options);
     const poolTotalLp = ethers.formatEther(poolTotalLpRaw);
     
+    console.log(`[LPSnapshot] ✓ Pool ${poolId} @ block ${blockNumber}: user=${heroLpStake}, total=${poolTotalLp}`);
+    
     return {
       heroLpStake,
       poolTotalLp,
       lpTokenPrice: null,
     };
   } catch (error) {
-    return { heroLpStake: null, poolTotalLp: null, lpTokenPrice: null };
+    console.warn(`[LPSnapshot] Failed pool ${poolId}, player ${playerAddress}, block ${blockNumber}: ${error.message}`);
+    return { heroLpStake: null, poolTotalLp: null, lpTokenPrice: null, skipped: 'error' };
   }
 }
 

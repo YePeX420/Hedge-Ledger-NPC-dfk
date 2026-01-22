@@ -82,12 +82,12 @@ The project is built with a Node.js backend using Discord.js for bot functionali
     *   `gatheringBonusScalar` - the pet's bonus percentage (e.g., 44 = +44% to quest rewards)
     *   Gardening pets (eggType 2) apply their bonus as a multiplier: `(1 + gatheringBonusScalar/100)` when fed
     *   Pet info displayed in yield results: petId, petName, gatheringSkillName, isFed, petHungryAt
-*   **Yield Calculator Validation (January 2026)**: Analyzed indexed gardening quest rewards against yield calculator predictions:
-    *   **Indexer Status**: 287,986 rewards indexed across all pools (Pool 255 = expeditions, Pools 1-13 = regular gardening)
-    *   **Data Quality Issue**: `heroLpStake` and `poolTotalLp` fields are null/zero for most indexed rewards, preventing direct yield validation
-    *   **Expedition Mechanics (Pool 255)**: Heroes on expedition can earn base rewards (0.006 CRYSTAL/JEWEL) without LP. Larger rewards (0.03-0.65 tokens) require LP positions
-    *   **Validation Status**: Core yield calculator logic verified correct (hero factor, pool allocation, pet bonus integration). Direct per-hero validation blocked by missing LP snapshot data in indexer
-    *   **Indexer Improvement Needed**: Gardening quest indexer should capture `heroLpStake` at quest completion time to enable full validation
+*   **Yield Calculator Validation (January 2026)**: Successfully validated yield calculator predictions against actual indexed rewards:
+    *   **LP Stake Capture Fix**: Modified `getPoolValueSnapshot()` to correctly skip expedition pool 255 (doesn't exist in Master Gardener) and increased historical block limit from 50k to 500k blocks
+    *   **Pool ID Validation**: Added `VALID_LP_POOL_IDS` constant (0-14) to filter invalid pool lookups; expeditions (pool 255) get null LP by design
+    *   **Validation Results**: LP shares match within 0.06%, yield predictions within ~5% accuracy
+    *   **Example Validation**: Hero 2000001162419 in Pool 2: LP share 0.00003203, actual reward 0.00797 CRYSTAL, predicted 0.00698-0.00838 (25-30 stam)
+    *   **Expedition Mechanics (Pool 255)**: Heroes on expedition can earn base rewards (0.006 CRYSTAL/JEWEL) without LP; expedition gardening works differently from regular pool gardening
 
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2 authentication.

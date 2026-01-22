@@ -35,6 +35,7 @@ import {
   getGardeningQuestStatus,
   getLatestBlock as getGardeningLatestBlock,
   runGardeningQuestIndexer,
+  resetGardeningQuestToBlock,
 } from "../src/etl/ingestion/gardeningQuestIndexer.js";
 import { getWalletQuestingHeroes } from "../src/services/gardeningCalculator.js";
 
@@ -3347,6 +3348,29 @@ Return a JSON object with:
     } catch (error: any) {
       gardeningIndexerRunning = false;
       console.error('[GardeningIndexer] Trigger error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // POST /api/admin/gardening-indexer/reset - Reset indexer to re-index from a specific block
+  app.post("/api/admin/gardening-indexer/reset", isAdmin, async (req: any, res: any) => {
+    try {
+      const { startBlock, clearRewards = false } = req.body;
+      
+      if (!startBlock || typeof startBlock !== 'number') {
+        return res.status(400).json({ ok: false, error: 'startBlock (number) is required' });
+      }
+      
+      console.log(`[GardeningIndexer] Resetting to block ${startBlock}, clearRewards=${clearRewards}`);
+      const result = await resetGardeningQuestToBlock(startBlock, clearRewards);
+      
+      res.json({ 
+        ok: true, 
+        message: `Gardening indexer reset to block ${startBlock}`,
+        ...result
+      });
+    } catch (error: any) {
+      console.error('[GardeningIndexer] Reset error:', error);
       res.status(500).json({ ok: false, error: error.message });
     }
   });
