@@ -72,10 +72,12 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Pools Page Sorting**: Added sortable columns to Pools page: PID, Pair name, Total TVL, Passive APR, Total APR. Click column headers to toggle sort direction.
 *   **Expedition Gardening Formula**: Identified and implemented correct expedition gardening mechanics. Key findings:
     *   Quest ID format: 0x01050aXX where XX encodes pool ID in hex (e.g., 0x02 = Pool 2)
-    *   LP Share = User's TOTAL LP across all V2 pools / TOTAL V2 TVL (not individual pool TVL)
-    *   Pool Allocation = Weighted average based on user's LP distribution across pools
+    *   LP Share = User's pool-specific LP / Pool's total staked LP (per-pool calculation, NOT global TVL)
+    *   Pool Allocation = Pool-specific allocation (e.g., Pool 2 = 0.080, Pool 4 = 0.023)
     *   Expedition Efficiency = 0.78x multiplier (expeditions yield ~78% of manual gardening formula)
     *   Quest type prefixes: 0x01050a (Expedition Gardening), 0x010601 (Training), 0x010300 (Foraging/Fishing), 0x01020a (Mining)
+*   **Expedition Token Assignment**: Each pool sends 6 heroes on expedition (3 pairs). Heroes are sorted by hero ID within each quest; index 0 earns CRYSTAL, index 1 earns JEWEL. This deterministic assignment ensures 50/50 token distribution across heroes.
+*   **Pet Bonuses**: Currently disabled for yield calculation due to RPC rate limiting. Future implementation requires indexed pet ownership data or GraphQL pet queries.
 
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2 authentication.

@@ -517,6 +517,13 @@ export async function getPetBonusesById(petId) {
  */
 export async function getUserPoolPositions(userAddress) {
   try {
+    // Normalize address to proper checksum format - use lowercase if checksum is invalid
+    let normalizedAddress;
+    try {
+      normalizedAddress = ethers.getAddress(userAddress);
+    } catch {
+      normalizedAddress = ethers.getAddress(userAddress.toLowerCase());
+    }
     const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
     const gardener = new ethers.Contract(MASTER_GARDENER_V2, MASTER_GARDENER_ABI, provider);
     
@@ -526,7 +533,7 @@ export async function getUserPoolPositions(userAddress) {
       try {
         const [poolInfo, userInfo, totalAlloc] = await Promise.all([
           gardener.poolInfo(poolId),
-          gardener.userInfo(poolId, userAddress),
+          gardener.userInfo(poolId, normalizedAddress),
           gardener.totalAllocPoint(),
         ]);
         
