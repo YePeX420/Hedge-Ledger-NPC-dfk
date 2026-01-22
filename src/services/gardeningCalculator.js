@@ -634,6 +634,47 @@ export async function getWalletQuestingHeroes(walletAddress) {
     const provider = new ethers.JsonRpcProvider(DFK_CHAIN_RPC);
     const petContract = new ethers.Contract(PETCORE_ADDRESS, PET_CORE_ABI, provider);
     
+    // Build hero->pet map 
+    // NOTE: Pet scanning is disabled due to RPC rate limiting issues
+    // Pet bonuses require indexed pet data for efficient lookup
+    const heroIds = new Set(questingHeroes.map(h => BigInt(h.normalizedId || h.id)));
+    const heroPetMap = new Map();
+    
+    // TODO: Implement pet lookup via indexed pet data or GraphQL
+    // For now, skip pet scanning to avoid RPC rate limiting
+    console.log(`[GardeningCalc] Pet lookup disabled - would need indexed pet data for ${heroIds.size} heroes`);
+    
+    // Group heroes by quest ID to determine token assignment (CRYSTAL vs JEWEL)
+    // In expedition gardening: first hero gets CRYSTAL, second hero gets JEWEL
+    const herosByQuest = new Map();
+    for (const hero of questingHeroes) {
+      const questId = hero.currentQuest?.toLowerCase() || '';
+      if (!herosByQuest.has(questId)) {
+        herosByQuest.set(questId, []);
+      }
+      herosByQuest.get(questId).push(hero);
+    }
+    
+    // Build hero->token assignment map
+    const heroTokenMap = new Map();
+    for (const [questId, heroes] of herosByQuest) {
+      // Sort by hero ID to ensure consistent ordering
+      heroes.sort((a, b) => {
+        const idA = BigInt(a.normalizedId || a.id);
+        const idB = BigInt(b.normalizedId || b.id);
+        return idA < idB ? -1 : (idA > idB ? 1 : 0);
+      });
+      
+      // First hero gets CRYSTAL, second gets JEWEL
+      for (let i = 0; i < heroes.length; i++) {
+        const heroId = heroes[i].normalizedId || heroes[i].id;
+        // In a pair: index 0 = CRYSTAL, index 1 = JEWEL
+        // If odd number of heroes, last one gets both (edge case)
+        const pairIndex = i % 2;
+        heroTokenMap.set(heroId.toString(), pairIndex === 0 ? 'CRYSTAL' : 'JEWEL');
+      }
+    }
+    
     // Process each questing hero
     const heroYields = [];
     
@@ -648,15 +689,14 @@ export async function getWalletQuestingHeroes(walletAddress) {
         const maxStamina = 25 + Math.floor(level / 5);
         const currentStamina = hero.stamina || 0;
         
-        // Try to find attached pet via getPetV2 lookup by hero ID
-        let petData = null;
-        let powerSurgeBonus = 0;
-        let skilledGreenskeeperBonus = 0;
-        let petFed = false;
+        // Look up equipped pet for this hero
+        const petData = heroPetMap.get(heroId.toString());
+        const powerSurgeBonus = petData?.powerSurgeBonus || 0;
+        const skilledGreenskeeperBonus = petData?.skilledGreenskeeperBonus || 0;
+        const petFed = petData?.isFed || false;
         
-        // Check all pets to find one equipped to this hero
-        // Note: We'll skip pet lookup for now as it requires scanning all pets
-        // In production, use indexed pet data
+        // Get assigned token for this hero (CRYSTAL or JEWEL)
+        const assignedToken = heroTokenMap.get(heroId.toString()) || 'CRYSTAL';
         
         // Calculate hero factor
         const effectiveGrdSkill = skilledGreenskeeperBonus > 0 && petFed
@@ -749,6 +789,9 @@ export async function getWalletQuestingHeroes(walletAddress) {
             petMultiplier,
           }) * EXPEDITION_EFFICIENCY;
           
+          // Determine yield based on assigned token (CRYSTAL or JEWEL)
+          const yieldPerStamina = assignedToken === 'CRYSTAL' ? crystalPerStamina : jewelPerStamina;
+          
           heroYields.push({
             ...baseHeroData,
             poolId: expeditionPoolId || 255,
@@ -756,12 +799,16 @@ export async function getWalletQuestingHeroes(walletAddress) {
             lpShare: poolLpShare,
             lpSharePct: (poolLpShare * 100).toFixed(4),
             poolAllocation,
-            crystalPerStamina,
-            jewelPerStamina,
-            crystalPer25Stam: crystalPerStamina * 25,
-            jewelPer25Stam: jewelPerStamina * 25,
-            crystalPer30Stam: crystalPerStamina * 30,
-            jewelPer30Stam: jewelPerStamina * 30,
+            assignedToken,
+            yieldPerStamina,
+            yieldPer25Stam: yieldPerStamina * 25,
+            yieldPer30Stam: yieldPerStamina * 30,
+            crystalPerStamina: assignedToken === 'CRYSTAL' ? crystalPerStamina : 0,
+            jewelPerStamina: assignedToken === 'JEWEL' ? jewelPerStamina : 0,
+            crystalPer25Stam: assignedToken === 'CRYSTAL' ? crystalPerStamina * 25 : 0,
+            jewelPer25Stam: assignedToken === 'JEWEL' ? jewelPerStamina * 25 : 0,
+            crystalPer30Stam: assignedToken === 'CRYSTAL' ? crystalPerStamina * 30 : 0,
+            jewelPer30Stam: assignedToken === 'JEWEL' ? jewelPerStamina * 30 : 0,
             poolEstimated: true,
             isExpedition: true,
             userPoolLp,
@@ -791,6 +838,9 @@ export async function getWalletQuestingHeroes(walletAddress) {
             petMultiplier,
           });
           
+          // Determine yield based on assigned token (CRYSTAL or JEWEL)
+          const yieldPerStamina = assignedToken === 'CRYSTAL' ? crystalPerStamina : jewelPerStamina;
+          
           heroYields.push({
             ...baseHeroData,
             poolId: bestPosition.poolId,
@@ -798,12 +848,16 @@ export async function getWalletQuestingHeroes(walletAddress) {
             lpShare: bestPosition.lpShare,
             lpSharePct: bestPosition.lpSharePct,
             poolAllocation,
-            crystalPerStamina,
-            jewelPerStamina,
-            crystalPer25Stam: crystalPerStamina * 25,
-            jewelPer25Stam: jewelPerStamina * 25,
-            crystalPer30Stam: crystalPerStamina * 30,
-            jewelPer30Stam: jewelPerStamina * 30,
+            assignedToken,
+            yieldPerStamina,
+            yieldPer25Stam: yieldPerStamina * 25,
+            yieldPer30Stam: yieldPerStamina * 30,
+            crystalPerStamina: assignedToken === 'CRYSTAL' ? crystalPerStamina : 0,
+            jewelPerStamina: assignedToken === 'JEWEL' ? jewelPerStamina : 0,
+            crystalPer25Stam: assignedToken === 'CRYSTAL' ? crystalPerStamina * 25 : 0,
+            jewelPer25Stam: assignedToken === 'JEWEL' ? jewelPerStamina * 25 : 0,
+            crystalPer30Stam: assignedToken === 'CRYSTAL' ? crystalPerStamina * 30 : 0,
+            jewelPer30Stam: assignedToken === 'JEWEL' ? jewelPerStamina * 30 : 0,
             poolEstimated: true,
             isExpedition: false,
           });
@@ -816,6 +870,10 @@ export async function getWalletQuestingHeroes(walletAddress) {
             lpShare: 0,
             lpSharePct: '0',
             poolAllocation: 0,
+            assignedToken,
+            yieldPerStamina: 0,
+            yieldPer25Stam: 0,
+            yieldPer30Stam: 0,
             crystalPerStamina: 0,
             jewelPerStamina: 0,
             crystalPer25Stam: 0,
