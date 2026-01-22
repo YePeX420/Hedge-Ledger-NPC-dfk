@@ -77,7 +77,11 @@ The project is built with a Node.js backend using Discord.js for bot functionali
     *   Expedition Efficiency = 0.78x multiplier (expeditions yield ~78% of manual gardening formula)
     *   Quest type prefixes: 0x01050a (Expedition Gardening), 0x010601 (Training), 0x010300 (Foraging/Fishing), 0x01020a (Mining)
 *   **Expedition Token Assignment**: Each pool sends 6 heroes on expedition (3 pairs). Heroes are sorted by hero ID within each quest; index 0 earns CRYSTAL, index 1 earns JEWEL. This deterministic assignment ensures 50/50 token distribution across heroes.
-*   **Pet Bonuses**: Currently disabled for yield calculation due to RPC rate limiting. Future implementation requires indexed pet ownership data or GraphQL pet queries.
+*   **Pet Bonuses**: Implemented pet bonus integration for gardening yield calculations. Uses `fetchPetsForWallet()` for a single RPC call that fetches all pets for a wallet. Pet data includes:
+    *   `isFed` derived from `hungryAt` timestamp (fed if hungryAt > now)
+    *   `gatheringBonusScalar` - the pet's bonus percentage (e.g., 44 = +44% to quest rewards)
+    *   Gardening pets (eggType 2) apply their bonus as a multiplier: `(1 + gatheringBonusScalar/100)` when fed
+    *   Pet info displayed in yield results: petId, petName, gatheringSkillName, isFed, petHungryAt
 
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2 authentication.
