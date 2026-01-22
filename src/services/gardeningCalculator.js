@@ -698,7 +698,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
         };
         
         if (isExpedition && lpPositions.length > 0) {
-          // EXPEDITION: Uses pool-specific LP / TOTAL V2 TVL for LP share
+          // EXPEDITION: Uses pool-specific LP share (user's pool LP / pool's total staked LP)
           // Extract pool ID from quest ID (format: 0x01050aXX where XX is pool ID in hex)
           let expeditionPoolId = null;
           if (questId.length >= 10) {
@@ -706,18 +706,13 @@ export async function getWalletQuestingHeroes(walletAddress) {
             expeditionPoolId = parseInt(poolIdHex, 16);
           }
           
-          // Calculate total V2 TVL across all pools
-          let totalV2TvlValue = 0;
-          for (const pos of lpPositions) {
-            totalV2TvlValue += pos.poolTotalLp || 0;
-          }
-          
           // Find the matching LP position for this expedition's pool
           const matchedPosition = lpPositions.find(p => p.poolId === expeditionPoolId) || bestPosition;
           
-          // LP share = user's LP in THIS pool / TOTAL V2 TVL (not pool TVL)
+          // LP share = user's LP in THIS pool / pool's total staked LP (matches DFK interface %)
           const userPoolLp = matchedPosition?.userLp || 0;
-          const poolLpShare = totalV2TvlValue > 0 ? userPoolLp / totalV2TvlValue : 0;
+          const poolTotalLp = matchedPosition?.poolTotalLp || 0;
+          const poolLpShare = matchedPosition?.lpShare || 0;
           
           // Use the specific pool's allocation
           const poolAllocation = matchedPosition 
@@ -770,7 +765,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
             poolEstimated: true,
             isExpedition: true,
             userPoolLp,
-            totalV2TvlValue,
+            poolTotalLp,
           });
         } else if (bestPosition) {
           // MANUAL GARDENING: Use single best LP position
