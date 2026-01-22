@@ -262,11 +262,11 @@ export default function YieldCalculator() {
   };
 
   const formatToken = (value: number, decimals: number = 4) => {
+    if (value === 0 || value < 0.0001) {
+      return "-";
+    }
     if (value >= 1000) {
       return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
-    if (value < 0.0001) {
-      return value.toExponential(2);
     }
     return value.toFixed(decimals);
   };
@@ -606,7 +606,16 @@ export default function YieldCalculator() {
             </div>
           )}
 
-          {questingHeroes?.ok && questingHeroes.yields.length > 0 && (
+          {questingHeroes?.ok && questingHeroes.yields.length > 0 && (() => {
+            const sortedYields = [...questingHeroes.yields].sort((a, b) => {
+              const aYield = Math.max(a.crystalPer30Stam || 0, a.jewelPer30Stam || 0);
+              const bYield = Math.max(b.crystalPer30Stam || 0, b.jewelPer30Stam || 0);
+              return bYield - aYield;
+            });
+            const totalCrystal = questingHeroes.yields.reduce((sum, e) => sum + (e.crystalPer30Stam || 0), 0);
+            const totalJewel = questingHeroes.yields.reduce((sum, e) => sum + (e.jewelPer30Stam || 0), 0);
+            
+            return (
             <div className="space-y-4">
               <div className="text-sm text-muted-foreground">
                 {questingHeroes.questingHeroes} hero(es) questing across {questingHeroes.lpPositions} LP position(s) = {questingHeroes.yields.length} yield entries
@@ -617,12 +626,16 @@ export default function YieldCalculator() {
                 )}
               </div>
               
-              <Alert className="text-xs">
-                <Info className="h-4 w-4" />
-                <AlertDescription>
-                  Pet bonuses not yet included. Actual yields may be higher with fed pets.
-                </AlertDescription>
-              </Alert>
+              <div className="flex flex-wrap gap-4 p-3 bg-muted/50 rounded-md">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Total CRYSTAL/30 stam:</span>
+                  <span className="font-mono font-bold text-cyan-600 dark:text-cyan-400">{totalCrystal.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Total JEWEL/30 stam:</span>
+                  <span className="font-mono font-bold text-purple-600 dark:text-purple-400">{totalJewel.toFixed(4)}</span>
+                </div>
+              </div>
               
               <div className="overflow-x-auto">
                 <Table>
@@ -637,7 +650,7 @@ export default function YieldCalculator() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {questingHeroes.yields.slice(0, 50).map((entry, idx) => (
+                    {sortedYields.slice(0, 50).map((entry, idx) => (
                       <TableRow key={`${entry.heroId}-${entry.poolId}-${idx}`} data-testid={`row-yield-${idx}`}>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -681,7 +694,8 @@ export default function YieldCalculator() {
                 </Table>
               </div>
             </div>
-          )}
+          );
+          })()}
         </CardContent>
       </Card>
 
