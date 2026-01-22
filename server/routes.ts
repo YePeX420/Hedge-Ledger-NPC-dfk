@@ -34,6 +34,7 @@ import {
 import { 
   getGardeningQuestStatus,
   getLatestBlock as getGardeningLatestBlock,
+  runGardeningQuestIndexer,
 } from "../src/etl/ingestion/gardeningQuestIndexer.js";
 import { getWalletQuestingHeroes } from "../src/services/gardeningCalculator.js";
 
@@ -3312,6 +3313,40 @@ Return a JSON object with:
       });
     } catch (error: any) {
       console.error('[GardeningIndexer] Status error:', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // POST /api/admin/gardening-indexer/trigger - Trigger gardening quest indexer batch
+  let gardeningIndexerRunning = false;
+  app.post("/api/admin/gardening-indexer/trigger", isAdmin, async (_req: any, res: any) => {
+    if (gardeningIndexerRunning) {
+      return res.status(409).json({ ok: false, error: 'Gardening indexer already running' });
+    }
+    
+    try {
+      gardeningIndexerRunning = true;
+      console.log('[GardeningIndexer] Triggering manual batch run...');
+      
+      // Run in background
+      runGardeningQuestIndexer()
+        .then((result: any) => {
+          console.log('[GardeningIndexer] Manual batch complete:', result);
+          gardeningIndexerRunning = false;
+        })
+        .catch((error: any) => {
+          console.error('[GardeningIndexer] Manual batch error:', error);
+          gardeningIndexerRunning = false;
+        });
+      
+      res.json({ 
+        ok: true, 
+        message: 'Gardening indexer triggered - running in background',
+        running: true
+      });
+    } catch (error: any) {
+      gardeningIndexerRunning = false;
+      console.error('[GardeningIndexer] Trigger error:', error);
       res.status(500).json({ ok: false, error: error.message });
     }
   });
