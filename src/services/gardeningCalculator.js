@@ -698,47 +698,46 @@ export async function getWalletQuestingHeroes(walletAddress) {
         };
         
         if (isExpedition && lpPositions.length > 0) {
-          // EXPEDITION: Uses total user LP / TOTAL V2 TVL for LP share
-          // Extract pool ID from quest ID
+          // EXPEDITION: Uses pool-specific LP / TOTAL V2 TVL for LP share
+          // Extract pool ID from quest ID (format: 0x01050aXX where XX is pool ID in hex)
           let expeditionPoolId = null;
           if (questId.length >= 10) {
             const poolIdHex = questId.substring(8, 10);
             expeditionPoolId = parseInt(poolIdHex, 16);
           }
           
-          // Calculate total V2 TVL and user's total LP across all pools
+          // Calculate total V2 TVL across all pools
           let totalV2TvlValue = 0;
-          let totalUserLpValue = 0;
-          let weightedAllocSum = 0;
-          
           for (const pos of lpPositions) {
-            const userLp = pos.userLp || 0;
-            totalUserLpValue += userLp;
             totalV2TvlValue += pos.poolTotalLp || 0;
-            // Weight allocation by user's LP in each pool
-            const poolAlloc = pos.allocPoint / pos.totalAllocPoint;
-            weightedAllocSum += userLp * poolAlloc;
           }
           
-          // LP share = user's TOTAL LP / TOTAL V2 TVL
-          const totalLpShare = totalV2TvlValue > 0 ? totalUserLpValue / totalV2TvlValue : 0;
+          // Find the matching LP position for this expedition's pool
+          const matchedPosition = lpPositions.find(p => p.poolId === expeditionPoolId) || bestPosition;
           
-          // Weighted average pool allocation based on user's LP distribution
-          const expeditionPoolAllocation = totalUserLpValue > 0 ? weightedAllocSum / totalUserLpValue : 0.1;
+          // LP share = user's LP in THIS pool / TOTAL V2 TVL (not pool TVL)
+          const userPoolLp = matchedPosition?.userLp || 0;
+          const poolLpShare = totalV2TvlValue > 0 ? userPoolLp / totalV2TvlValue : 0;
+          
+          // Use the specific pool's allocation
+          const poolAllocation = matchedPosition 
+            ? matchedPosition.allocPoint / matchedPosition.totalAllocPoint 
+            : 0.1;
+          
+          // Build pool name from matched position or POOL_NAMES
+          const poolName = matchedPosition?.poolName 
+            ? `${matchedPosition.poolName} (Expedition)`
+            : `Pool ${expeditionPoolId} (Expedition)`;
           
           // Expedition efficiency modifier - empirically derived from observed yields
-          // Observed: 40.45 CRYSTAL, Formula: 51.78 CRYSTAL → Ratio: 0.78
-          // NOTE: This is based on a single wallet observation and may need recalibration
-          // with more data points. Possible causes for the difference:
-          // - Expeditions may have inherent efficiency reduction vs manual gardening
-          // - Time-based mechanics may differ from per-stamina calculation
-          // - The V2 contract may apply additional modifiers
+          // NOTE: This was based on incorrect total LP calculation; may need recalibration
+          // with pool-specific LP share approach
           const EXPEDITION_EFFICIENCY = 0.78;
           
           const crystalPerStamina = calculateYieldPerStamina({
             rewardPool: rewardFund.crystalPool,
-            poolAllocation: expeditionPoolAllocation,
-            lpOwned: totalLpShare,
+            poolAllocation,
+            lpOwned: poolLpShare,
             heroFactor,
             hasGardeningGene,
             gardeningSkill: effectiveGrdSkill,
@@ -747,8 +746,8 @@ export async function getWalletQuestingHeroes(walletAddress) {
           
           const jewelPerStamina = calculateYieldPerStamina({
             rewardPool: rewardFund.jewelPool,
-            poolAllocation: expeditionPoolAllocation,
-            lpOwned: totalLpShare,
+            poolAllocation,
+            lpOwned: poolLpShare,
             heroFactor,
             hasGardeningGene,
             gardeningSkill: effectiveGrdSkill,
@@ -758,10 +757,10 @@ export async function getWalletQuestingHeroes(walletAddress) {
           heroYields.push({
             ...baseHeroData,
             poolId: expeditionPoolId || 255,
-            poolName: 'V2 Total TVL (Expedition)',
-            lpShare: totalLpShare,
-            lpSharePct: (totalLpShare * 100).toFixed(4),
-            poolAllocation: expeditionPoolAllocation,
+            poolName,
+            lpShare: poolLpShare,
+            lpSharePct: (poolLpShare * 100).toFixed(4),
+            poolAllocation,
             crystalPerStamina,
             jewelPerStamina,
             crystalPer25Stam: crystalPerStamina * 25,
@@ -770,7 +769,7 @@ export async function getWalletQuestingHeroes(walletAddress) {
             jewelPer30Stam: jewelPerStamina * 30,
             poolEstimated: true,
             isExpedition: true,
-            totalUserLpValue,
+            userPoolLp,
             totalV2TvlValue,
           });
         } else if (bestPosition) {
