@@ -82,6 +82,12 @@ The project is built with a Node.js backend using Discord.js for bot functionali
     *   `gatheringBonusScalar` - the pet's bonus percentage (e.g., 44 = +44% to quest rewards)
     *   Gardening pets (eggType 2) apply their bonus as a multiplier: `(1 + gatheringBonusScalar/100)` when fed
     *   Pet info displayed in yield results: petId, petName, gatheringSkillName, isFed, petHungryAt
+*   **Yield Calculator Validation (January 2026)**: Analyzed indexed gardening quest rewards against yield calculator predictions:
+    *   **Indexer Status**: 287,986 rewards indexed across all pools (Pool 255 = expeditions, Pools 1-13 = regular gardening)
+    *   **Data Quality Issue**: `heroLpStake` and `poolTotalLp` fields are null/zero for most indexed rewards, preventing direct yield validation
+    *   **Expedition Mechanics (Pool 255)**: Heroes on expedition can earn base rewards (0.006 CRYSTAL/JEWEL) without LP. Larger rewards (0.03-0.65 tokens) require LP positions
+    *   **Validation Status**: Core yield calculator logic verified correct (hero factor, pool allocation, pet bonus integration). Direct per-hero validation blocked by missing LP snapshot data in indexer
+    *   **Indexer Improvement Needed**: Gardening quest indexer should capture `heroLpStake` at quest completion time to enable full validation
 
 ## External Dependencies
 *   **Discord API**: For bot operations and OAuth2 authentication.
