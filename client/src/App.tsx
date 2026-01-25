@@ -34,6 +34,7 @@ import AdminYieldCalculator from "@/pages/admin/yield-calculator";
 import AdminBattleReady from "@/pages/admin/battle-ready";
 import AdminSummoningCalculator from "@/pages/admin/summoning-calculator";
 import AdminSummonSniper from "@/pages/admin/summon-sniper";
+import AdminTavernSniper from "@/pages/admin/tavern-sniper";
 import AdminBargainHunter from "@/pages/admin/bargain-hunter";
 import AdminDarkBargainHunter from "@/pages/admin/dark-bargain-hunter";
 import AdminTavernIndexer from "@/pages/admin/tavern-indexer";
@@ -276,6 +277,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminSummonSniper />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/tavern-sniper">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminTavernSniper />
           </ProtectedAdminPage>
         )}
       </Route>

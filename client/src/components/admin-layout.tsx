@@ -32,7 +32,8 @@ import {
   Menu,
   X,
   Zap,
-  Sparkles
+  Sparkles,
+  Beer
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -61,6 +62,7 @@ const navItems = [
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Swords },
   { href: '/admin/summoning-calculator', label: 'Summoning Calculator', icon: Dna },
   { href: '/admin/summon-sniper', label: 'Summon Sniper', icon: Target },
+  { href: '/admin/tavern-sniper', label: 'Tavern Sniper', icon: Beer },
   { href: '/admin/bargain-hunter', label: 'Bargain Hunter', icon: Zap },
   { href: '/admin/dark-bargain-hunter', label: 'Dark Bargain Hunter', icon: Sparkles },
   { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
