@@ -367,7 +367,7 @@ function normalizeHero(apiHero, batchId) {
   // Price handling
   const priceField = apiHero.startingPrice || apiHero.salePrice || apiHero.price;
   const priceNative = weiToToken(priceField);
-  const nativeToken = realm === 'cv' ? 'CRYSTAL' : 'JEWEL';
+  const nativeToken = realm === 'cv' ? 'CRYSTAL' : 'JADE';
   
   // Enhancement Stone tracking - null address means no stone used
   const NULL_ADDRESS = '0x0000000000000000000000000000000000000000';
