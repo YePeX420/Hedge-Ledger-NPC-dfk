@@ -166,7 +166,7 @@ export default function SummonSniper() {
   const [myHeroId, setMyHeroId] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [bridgeFeeUsd, setBridgeFeeUsd] = useState("0.50"); // Estimated bridge fee per hero in USD
-  const [sortBy, setSortBy] = useState<"efficiency" | "chance" | "price" | "skillScore">("efficiency");
+  const [sortBy, setSortBy] = useState<"efficiency" | "chance" | "price" | "skillScore" | "levelValue">("efficiency");
   const [requireAllSkills, setRequireAllSkills] = useState(false); // AND mode for skills
 
   const { data: sniperFilters } = useQuery<{ ok: boolean; filters: SniperFilters }>({
@@ -282,6 +282,13 @@ export default function SummonSniper() {
         return pairs.sort((a, b) => a.totalCostUsd - b.totalCostUsd);
       case "skillScore":
         return pairs.sort((a, b) => (b.ts?.expected || 0) - (a.ts?.expected || 0));
+      case "levelValue":
+        // Sort by combined level / cost ratio (higher level per dollar = better)
+        return pairs.sort((a, b) => {
+          const aLevelValue = (a.hero1.level + a.hero2.level) / (a.totalCostUsd || 1);
+          const bLevelValue = (b.hero1.level + b.hero2.level) / (b.totalCostUsd || 1);
+          return bLevelValue - aLevelValue;
+        });
       case "efficiency":
       default:
         return pairs.sort((a, b) => b.efficiency - a.efficiency);
@@ -797,7 +804,7 @@ export default function SummonSniper() {
             <div className="text-sm text-muted-foreground space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span>Sort by:</span>
-                <Select value={sortBy} onValueChange={(v) => setSortBy(v as "efficiency" | "chance" | "price" | "skillScore")}>
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as "efficiency" | "chance" | "price" | "skillScore" | "levelValue")}>
                   <SelectTrigger className="w-[180px] h-8" data-testid="select-sort-by">
                     <SelectValue />
                   </SelectTrigger>
@@ -806,6 +813,7 @@ export default function SummonSniper() {
                     <SelectItem value="chance">Highest Chance</SelectItem>
                     <SelectItem value="price">Lowest Price</SelectItem>
                     <SelectItem value="skillScore">Offspring Skill Score</SelectItem>
+                    <SelectItem value="levelValue">Level/Cost</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
