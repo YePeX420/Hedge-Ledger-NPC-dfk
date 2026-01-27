@@ -33,8 +33,10 @@ interface HeroData {
   staminaCost: number;
   bestTrainingStat?: string;
   trainingStatValue?: number;
+  trainableStats?: string;
   successRate?: string;
   xpPerStamina?: string;
+  isAlsoProfessionQuester?: boolean;
 }
 
 interface QuestOptimizerResponse {
@@ -292,7 +294,8 @@ export default function QuestOptimizer() {
                       Best Training Questers
                     </CardTitle>
                     <CardDescription>
-                      Heroes with a stat between 40-50 (61-68% success rate). Sorted by XP efficiency.
+                      Heroes with stats between 40-50 (trainable range). Stats above 50 cannot do training quests.
+                      Success rates: 40=53%, 45=60%, 50=68%. Sorted by XP efficiency.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -305,6 +308,7 @@ export default function QuestOptimizer() {
                             <TableHead>Level</TableHead>
                             <TableHead>Best Stat</TableHead>
                             <TableHead>Value</TableHead>
+                            <TableHead>All Trainable Stats</TableHead>
                             <TableHead>Success Rate</TableHead>
                             <TableHead>XP/Stamina</TableHead>
                           </TableRow>
@@ -317,12 +321,18 @@ export default function QuestOptimizer() {
                                 <span className={RARITY_COLORS[hero.rarity]}>
                                   {hero.class}
                                 </span>
+                                {hero.isAlsoProfessionQuester && (
+                                  <Badge variant="outline" className="ml-1 text-xs">Prof</Badge>
+                                )}
                               </TableCell>
                               <TableCell>{hero.level}</TableCell>
                               <TableCell>
                                 <Badge variant="secondary">{hero.bestTrainingStat}</Badge>
                               </TableCell>
                               <TableCell className="font-bold">{hero.trainingStatValue}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">
+                                {hero.trainableStats || '-'}
+                              </TableCell>
                               <TableCell className="text-green-500">{hero.successRate}</TableCell>
                               <TableCell className="font-bold text-blue-500">{hero.xpPerStamina}</TableCell>
                             </TableRow>

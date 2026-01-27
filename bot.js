@@ -12160,9 +12160,12 @@ ${professionQuesters.fishing.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.le
 Best Foraging Heroes (${professionQuesters.foraging.length} total):
 ${professionQuesters.foraging.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
 
-**TRAINING QUEST RECOMMENDATIONS (stat 40-50 = 61-68% success rate):**
-Training Candidates (${trainingQuesters.length} total):
-${trainingQuesters.slice(0,20).map(h => `- #${h.id} ${h.class} L${h.level} - Train ${h.bestStat.stat} (${h.bestStat.val})`).join('\n') || 'No heroes with stats in 40-50 range'}
+**TRAINING QUEST RECOMMENDATIONS:**
+IMPORTANT RULE: Heroes can ONLY do training quests for stats between 40-50. Stats ABOVE 50 are NOT eligible for training quests for that stat.
+Success rates: stat 40 = 53%, stat 45 = 60%, stat 50 = 68% (max)
+
+Training Candidates (${trainingQuesters.length} total with at least one stat in 40-50 range):
+${trainingQuesters.slice(0,20).map(h => `- #${h.id} ${h.class} L${h.level} - Best: ${h.bestStat.stat} (${h.bestStat.val}) ${h.trainableStats ? `| All trainable: ${h.trainableStats}` : ''}`).join('\n') || 'No heroes with any stats in 40-50 range (stats above 50 cannot do training quests)'}
 
 Use this data to provide specific hero recommendations when the user asks about questing, leveling, or hero optimization.
 `;
@@ -12348,28 +12351,34 @@ Use this data to provide specific hero recommendations when the user asks about 
           professionQuesters.push(heroData);
         }
 
-        // Check for training questers (single stat 40-50)
+        // Check for training questers (any stat between 40-50 is trainable)
+        // Note: Stats ABOVE 50 cannot do training quests for that stat
+        // But heroes can train OTHER stats that are in the 40-50 range
         const statValues = [
           { stat: 'STR', value: hero.strength || 0 },
-          { stat: 'DEX', value: hero.stamina || 0 }, // Approximate
-          { stat: 'AGI', value: hero.stamina || 0 },
-          { stat: 'END', value: hero.stamina || 0 },
+          { stat: 'DEX', value: hero.dexterity || hero.stamina || 0 },
+          { stat: 'AGI', value: hero.agility || hero.stamina || 0 },
+          { stat: 'END', value: hero.endurance || hero.stamina || 0 },
           { stat: 'VIT', value: hero.vitality || 0 },
           { stat: 'INT', value: hero.intelligence || 0 },
           { stat: 'WIS', value: hero.wisdom || 0 },
-          { stat: 'LCK', value: hero.mining || 0 } // Approximate
+          { stat: 'LCK', value: hero.luck || hero.mining || 0 }
         ];
 
-        const highStats = statValues.filter(s => s.value >= 40 && s.value <= 50);
+        // Only include stats that are 40-50 (above 50 = cannot train that stat)
+        const trainableStats = statValues.filter(s => s.value >= 40 && s.value <= 50);
         
-        if (highStats.length > 0 && !isProfessionQuester) {
-          const bestTrainingStat = highStats.sort((a, b) => b.value - a.value)[0];
+        // Heroes can be both profession questers AND training questers
+        if (trainableStats.length > 0) {
+          const bestTrainingStat = trainableStats.sort((a, b) => b.value - a.value)[0];
           trainingQuesters.push({
             ...heroData,
             bestTrainingStat: bestTrainingStat.stat,
             trainingStatValue: bestTrainingStat.value,
+            trainableStats: trainableStats.map(s => `${s.stat}:${s.value}`).join(', '),
             successRate: (getSuccessRate(bestTrainingStat.value) * 100).toFixed(1) + '%',
-            xpPerStamina: (calcTrainingXP(bestTrainingStat.value) / 5).toFixed(2)
+            xpPerStamina: (calcTrainingXP(bestTrainingStat.value) / 5).toFixed(2),
+            isAlsoProfessionQuester: isProfessionQuester
           });
         }
       }
