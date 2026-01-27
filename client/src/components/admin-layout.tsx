@@ -33,7 +33,8 @@ import {
   X,
   Zap,
   Sparkles,
-  Beer
+  Beer,
+  Bot
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -48,6 +49,7 @@ interface AdminLayoutProps {
 
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/ai-consultant', label: 'AI Consultant', icon: Bot },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/value-allocation', label: 'Value Allocation', icon: PieChart },
   { href: '/admin/tokens', label: 'Token Registry', icon: Coins },

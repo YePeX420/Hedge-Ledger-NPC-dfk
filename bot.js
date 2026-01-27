@@ -12008,6 +12008,90 @@ async function startAdminWebServer() {
   });
 
   // ============================================================================
+  // AI CONSULTANT API
+  // ============================================================================
+  // Admin-only AI chat with deep project knowledge for DeFi Kingdoms consultation
+  // ============================================================================
+
+  const AI_CONSULTANT_PROMPT = `You are the AI Consultant for Hedge Ledger, a comprehensive DeFi Kingdoms analytics platform. You have deep expertise in:
+
+**DeFi Kingdoms Game Mechanics:**
+- Hero Stats: STR, DEX, AGI, VIT, END, INT, WIS, LCK affect quest rewards and combat
+- Breeding/Summoning: Genes, stat boosting, class inheritance, trait scoring
+- Professions: Mining, Gardening, Foraging, Fishing - bonuses based on profession stat match
+- Combat: PVP/PVE mechanics, combat power calculations, stat contributions
+- Quests: Stamina usage, reward formulas, profession bonuses
+- Gardens: LP yield farming, pool mechanics, CRYSTAL/JADE rewards
+- Realms: Crystalvale (DFK Chain, CRYSTAL), Serendale (Klaytn, JADE), Sundered Isles (Metis, JEWEL)
+
+**Hedge Ledger Project Features:**
+- Yield Calculator: Pool APR calculations with locked/unlocked rewards
+- Yield Optimizer: Recommends optimal pool allocation based on wallet holdings
+- Summon Sniper: Finds optimal hero pairs for breeding, calculates summoning probabilities
+- Tavern Sniper: Searches marketplace heroes by filters, Level/Cost sorting for bargain hunting
+- Tavern Indexer: Tracks hero listings across realms with combat stats, trait scores
+- PVE Drop Rates: Tracks quest drops, calculates expected values
+- Battle-Ready Heroes: Indexes tournament-ready heroes for PVP leagues
+- Gardening Quest Indexer: Tracks LP staking rewards and quest efficiency
+- Bridge Analytics: Monitors cross-chain token flows
+- Combat Ingestion: Parses on-chain combat logs for analytics
+
+**Technical Context:**
+- Built with Node.js, Discord.js, Express, React, PostgreSQL (Drizzle ORM)
+- Uses DeFi Kingdoms GraphQL API for game data
+- Direct blockchain RPC access for on-chain data
+- AI-powered Discord bot with character personality
+
+You can answer questions about:
+1. DeFi Kingdoms game mechanics and strategies
+2. How features in this project work
+3. Ideas for new features or improvements
+4. Technical implementation suggestions
+5. Hero optimization strategies
+
+Be helpful, accurate, and conversational. When discussing game mechanics, cite specific formulas or stats when relevant. For project features, explain how they work and how users can benefit from them.`;
+
+  app.post('/api/admin/ai-consultant/chat', isAdmin, async (req, res) => {
+    try {
+      const { message, history = [] } = req.body;
+      
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: 'Message is required' });
+      }
+
+      const messages = [
+        { role: 'system', content: AI_CONSULTANT_PROMPT },
+        { role: 'system', content: HEDGE_PROMPT } // Include full Hedge knowledge
+      ];
+
+      // Add conversation history
+      for (const turn of history) {
+        if (turn.role && turn.content) {
+          messages.push({ role: turn.role, content: turn.content });
+        }
+      }
+      
+      // Add current message
+      messages.push({ role: 'user', content: message });
+
+      const completion = await openai.chat.completions.create({
+        model: OPENAI_MODEL,
+        temperature: 0.7,
+        max_tokens: 2000,
+        messages
+      });
+
+      const response = completion.choices?.[0]?.message?.content?.trim() || 
+        "I couldn't generate a response. Please try again.";
+
+      res.json({ response });
+    } catch (err) {
+      console.error('[AI Consultant] Error:', err);
+      res.status(500).json({ error: 'Failed to generate response' });
+    }
+  });
+
+  // ============================================================================
   // LEAGUE SIGNUP API
   // ============================================================================
   // Challenge league signup endpoints with smurf detection integration
