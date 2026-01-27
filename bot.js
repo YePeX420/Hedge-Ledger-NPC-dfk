@@ -12267,6 +12267,21 @@ Use this data to provide specific hero recommendations when the user asks about 
     foraging: { stats: ['intelligence', 'stamina'], label: 'DEX + INT' }
   };
 
+  // XP estimates per stamina for profession quests
+  // Based on DFK mechanics:
+  // - Mining/Gardening: ~10 XP per attempt (time-based quests)
+  // - Fishing/Foraging: ~15 XP per attempt (instant quests)
+  // Profession gene reduces stamina cost from 7 to 5
+  function calcProfessionXP(professionName, hasProfessionGene) {
+    // Base XP depends on quest type
+    // Fishing/Foraging are instant quests with ~15 XP base
+    // Mining/Gardening are time-based with ~10 XP base
+    const isInstantQuest = professionName === 'fishing' || professionName === 'foraging';
+    const baseXP = isInstantQuest ? 15 : 10;
+    const staminaCost = hasProfessionGene ? 5 : 7;
+    return baseXP / staminaCost;
+  }
+
   app.get('/api/admin/quest-optimizer', isAdmin, async (req, res) => {
     const { wallet } = req.query;
 
@@ -12283,47 +12298,67 @@ Use this data to provide specific hero recommendations when the user asks about 
         return res.json({ 
           wallet, 
           totalHeroes: 0, 
-          professionQuesters: [], 
-          trainingQuesters: [],
-          summary: { byProfession: {}, byClass: {} }
+          optimizedHeroes: [],
+          summary: { byProfession: {}, byClass: {}, byBestQuest: {} }
         });
       }
 
       console.log('[Quest Optimizer] Got', heroes.length, 'heroes, analyzing...');
 
-      // Calculate averages for "above average" determination
-      const avgStats = {
-        strength: heroes.reduce((a, h) => a + (h.strength || 0), 0) / heroes.length,
-        intelligence: heroes.reduce((a, h) => a + (h.intelligence || 0), 0) / heroes.length,
-        wisdom: heroes.reduce((a, h) => a + (h.wisdom || 0), 0) / heroes.length,
-        vitality: heroes.reduce((a, h) => a + (h.vitality || 0), 0) / heroes.length,
-        stamina: heroes.reduce((a, h) => a + (h.stamina || 0), 0) / heroes.length,
-        mining: heroes.reduce((a, h) => a + (h.mining || 0), 0) / heroes.length,
-        gardening: heroes.reduce((a, h) => a + (h.gardening || 0), 0) / heroes.length,
-        foraging: heroes.reduce((a, h) => a + (h.foraging || 0), 0) / heroes.length,
-        fishing: heroes.reduce((a, h) => a + (h.fishing || 0), 0) / heroes.length
-      };
-
-      const professionQuesters = [];
-      const trainingQuesters = [];
+      const optimizedHeroes = [];
 
       for (const hero of heroes) {
-        // Check profession quest suitability (2 stats above average)
+        // Calculate profession quest scores based on official DFK stat requirements
+        // Mining: STR + END (gold mining) or WIS + VIT (token mining) - we use STR + END
+        // Gardening: WIS + VIT
+        // Fishing: AGI + LCK
+        // Foraging: DEX + INT
         const professionScores = {
-          mining: (hero.strength || 0) + (hero.stamina || 0),
-          gardening: (hero.wisdom || 0) + (hero.vitality || 0),
-          fishing: (hero.stamina || 0) + (hero.mining || 0), // Using mining as proxy for LCK
-          foraging: (hero.stamina || 0) + (hero.intelligence || 0)
+          mining: (hero.strength || 0) + (hero.endurance || hero.stamina || 0), // STR + END
+          gardening: (hero.wisdom || 0) + (hero.vitality || 0), // WIS + VIT
+          fishing: (hero.agility || hero.stamina || 0) + (hero.luck || hero.mining || 0), // AGI + LCK
+          foraging: (hero.dexterity || hero.stamina || 0) + (hero.intelligence || 0) // DEX + INT
         };
 
         // Find best profession quest
         const bestProfession = Object.entries(professionScores)
           .sort((a, b) => b[1] - a[1])[0];
-
-        // Check if hero has matching profession gene
         const hasProfessionGene = hero.professionStr?.toLowerCase() === bestProfession[0];
+        const professionXpPerStamina = calcProfessionXP(bestProfession[0], hasProfessionGene);
 
-        // Determine stat values for best profession
+        // Calculate training quest options (stats between 40-50 only)
+        const statValues = [
+          { stat: 'STR', value: hero.strength || 0, quest: 'Arm Wrestling' },
+          { stat: 'DEX', value: hero.dexterity || hero.stamina || 0, quest: 'Darts' },
+          { stat: 'AGI', value: hero.agility || hero.stamina || 0, quest: 'Game of Ball' },
+          { stat: 'END', value: hero.endurance || hero.stamina || 0, quest: 'Dancing' },
+          { stat: 'VIT', value: hero.vitality || 0, quest: 'Helping the Farm' },
+          { stat: 'INT', value: hero.intelligence || 0, quest: 'Alchemist Assistance' },
+          { stat: 'WIS', value: hero.wisdom || 0, quest: 'Puzzle Solving' },
+          { stat: 'LCK', value: hero.luck || hero.mining || 0, quest: 'Card Game' }
+        ];
+
+        // Only stats 40-50 are trainable (above 50 = cannot train)
+        const trainableStats = statValues.filter(s => s.value >= 40 && s.value <= 50);
+        let bestTrainingOption = null;
+        let trainingXpPerStamina = 0;
+
+        if (trainableStats.length > 0) {
+          const bestStat = trainableStats.sort((a, b) => b.value - a.value)[0];
+          trainingXpPerStamina = calcTrainingXP(bestStat.value) / 5;
+          bestTrainingOption = {
+            stat: bestStat.stat,
+            value: bestStat.value,
+            quest: bestStat.quest,
+            successRate: (getSuccessRate(bestStat.value) * 100).toFixed(1) + '%',
+            xpPerStamina: trainingXpPerStamina.toFixed(2),
+            allTrainable: trainableStats.map(s => `${s.stat}:${s.value}`).join(', ')
+          };
+        }
+
+        // Determine which quest type gives better XP/stamina
+        const recommendTraining = bestTrainingOption && trainingXpPerStamina > professionXpPerStamina;
+
         const heroData = {
           id: hero.normalizedId,
           class: hero.mainClassStr,
@@ -12332,76 +12367,53 @@ Use this data to provide specific hero recommendations when the user asks about 
           level: hero.level,
           rarity: hero.rarity,
           generation: hero.generation,
-          stats: {
-            str: hero.strength, int: hero.intelligence, wis: hero.wisdom,
-            vit: hero.vitality, end: hero.stamina,
-            mining: hero.mining, gardening: hero.gardening,
-            foraging: hero.foraging, fishing: hero.fishing
-          },
-          bestProfessionQuest: bestProfession[0],
+          // Best quest recommendation
+          bestQuestType: recommendTraining ? 'training' : 'profession',
+          bestQuest: recommendTraining 
+            ? bestTrainingOption.quest 
+            : bestProfession[0].charAt(0).toUpperCase() + bestProfession[0].slice(1),
+          xpPerStamina: recommendTraining 
+            ? trainingXpPerStamina.toFixed(2) 
+            : professionXpPerStamina.toFixed(2),
+          // Profession quest details
+          professionQuest: bestProfession[0],
           professionScore: bestProfession[1],
+          professionXpPerStamina: professionXpPerStamina.toFixed(2),
           hasProfessionGene,
-          staminaCost: hasProfessionGene ? 5 : 7
+          professionStaminaCost: hasProfessionGene ? 5 : 7,
+          // Training quest details (if available)
+          trainingOption: bestTrainingOption,
+          canTrain: !!bestTrainingOption,
+          // Stats summary
+          stats: {
+            str: hero.strength, dex: hero.dexterity || hero.stamina,
+            agi: hero.agility || hero.stamina, end: hero.endurance || hero.stamina,
+            vit: hero.vitality, int: hero.intelligence, 
+            wis: hero.wisdom, lck: hero.luck || hero.mining
+          }
         };
 
-        // Check for profession questers (high 2-stat combos)
-        const isProfessionQuester = bestProfession[1] >= (avgStats.strength + avgStats.stamina); // Above average combo
-        
-        if (isProfessionQuester) {
-          professionQuesters.push(heroData);
-        }
-
-        // Check for training questers (any stat between 40-50 is trainable)
-        // Note: Stats ABOVE 50 cannot do training quests for that stat
-        // But heroes can train OTHER stats that are in the 40-50 range
-        const statValues = [
-          { stat: 'STR', value: hero.strength || 0 },
-          { stat: 'DEX', value: hero.dexterity || hero.stamina || 0 },
-          { stat: 'AGI', value: hero.agility || hero.stamina || 0 },
-          { stat: 'END', value: hero.endurance || hero.stamina || 0 },
-          { stat: 'VIT', value: hero.vitality || 0 },
-          { stat: 'INT', value: hero.intelligence || 0 },
-          { stat: 'WIS', value: hero.wisdom || 0 },
-          { stat: 'LCK', value: hero.luck || hero.mining || 0 }
-        ];
-
-        // Only include stats that are 40-50 (above 50 = cannot train that stat)
-        const trainableStats = statValues.filter(s => s.value >= 40 && s.value <= 50);
-        
-        // Heroes can be both profession questers AND training questers
-        if (trainableStats.length > 0) {
-          const bestTrainingStat = trainableStats.sort((a, b) => b.value - a.value)[0];
-          trainingQuesters.push({
-            ...heroData,
-            bestTrainingStat: bestTrainingStat.stat,
-            trainingStatValue: bestTrainingStat.value,
-            trainableStats: trainableStats.map(s => `${s.stat}:${s.value}`).join(', '),
-            successRate: (getSuccessRate(bestTrainingStat.value) * 100).toFixed(1) + '%',
-            xpPerStamina: (calcTrainingXP(bestTrainingStat.value) / 5).toFixed(2),
-            isAlsoProfessionQuester: isProfessionQuester
-          });
-        }
+        optimizedHeroes.push(heroData);
       }
 
-      // Sort by effectiveness
-      professionQuesters.sort((a, b) => b.professionScore - a.professionScore);
-      trainingQuesters.sort((a, b) => parseFloat(b.xpPerStamina) - parseFloat(a.xpPerStamina));
+      // Sort by XP efficiency (best quests first)
+      optimizedHeroes.sort((a, b) => parseFloat(b.xpPerStamina) - parseFloat(a.xpPerStamina));
 
       // Generate summary
       const byProfession = {};
       const byClass = {};
-      for (const h of heroes) {
-        byProfession[h.professionStr] = (byProfession[h.professionStr] || 0) + 1;
-        byClass[h.mainClassStr] = (byClass[h.mainClassStr] || 0) + 1;
+      const byBestQuest = {};
+      for (const h of optimizedHeroes) {
+        byProfession[h.profession] = (byProfession[h.profession] || 0) + 1;
+        byClass[h.class] = (byClass[h.class] || 0) + 1;
+        byBestQuest[h.bestQuest] = (byBestQuest[h.bestQuest] || 0) + 1;
       }
 
       res.json({
         wallet,
         totalHeroes: heroes.length,
-        averageStats: avgStats,
-        professionQuesters: professionQuesters.slice(0, 200), // Top 200
-        trainingQuesters: trainingQuesters.slice(0, 200),
-        summary: { byProfession, byClass }
+        optimizedHeroes: optimizedHeroes.slice(0, 500), // Top 500
+        summary: { byProfession, byClass, byBestQuest }
       });
 
     } catch (err) {
