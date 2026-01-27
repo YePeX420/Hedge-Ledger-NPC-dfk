@@ -12059,10 +12059,82 @@ Be helpful, accurate, and conversational. When discussing game mechanics, cite s
         return res.status(400).json({ error: 'Message is required' });
       }
 
+      // Detect wallet addresses in the message (0x followed by 40 hex chars)
+      const walletRegex = /0x[a-fA-F0-9]{40}/g;
+      const allText = [message, ...history.map(h => h.content)].join(' ');
+      const walletMatches = allText.match(walletRegex);
+      const walletAddress = walletMatches ? walletMatches[0] : null;
+
+      let walletContext = '';
+      
+      if (walletAddress) {
+        console.log('[AI Consultant] Detected wallet address:', walletAddress);
+        try {
+          const { getHeroesByOwner } = await import('./onchain-data.js');
+          const heroes = await getHeroesByOwner(walletAddress, 100);
+          
+          if (heroes && heroes.length > 0) {
+            // Summarize heroes for context
+            const heroSummary = heroes.map(h => ({
+              id: h.normalizedId,
+              class: h.mainClassStr,
+              profession: h.professionStr,
+              level: h.level,
+              rarity: h.rarity,
+              gen: h.generation,
+              stats: {
+                str: h.strength, int: h.intelligence, wis: h.wisdom,
+                vit: h.vitality, end: h.stamina,
+                mining: h.mining, gardening: h.gardening,
+                foraging: h.foraging, fishing: h.fishing
+              },
+              summons: `${h.summons}/${h.maxSummons}`,
+              questing: h.currentQuest ? 'Yes' : 'No'
+            }));
+            
+            // Group by class
+            const classCounts = {};
+            const professionCounts = {};
+            heroes.forEach(h => {
+              classCounts[h.mainClassStr] = (classCounts[h.mainClassStr] || 0) + 1;
+              professionCounts[h.professionStr] = (professionCounts[h.professionStr] || 0) + 1;
+            });
+
+            walletContext = `
+**WALLET ANALYSIS DATA for ${walletAddress}:**
+Total Heroes: ${heroes.length}
+Average Level: ${(heroes.reduce((a, h) => a + h.level, 0) / heroes.length).toFixed(1)}
+
+Class Distribution:
+${Object.entries(classCounts).sort((a,b) => b[1] - a[1]).map(([c, n]) => `- ${c}: ${n}`).join('\n')}
+
+Profession Distribution:
+${Object.entries(professionCounts).sort((a,b) => b[1] - a[1]).map(([p, n]) => `- ${p}: ${n}`).join('\n')}
+
+Top 20 Heroes (by level):
+${JSON.stringify(heroSummary.slice(0, 20), null, 2)}
+
+Use this data to provide personalized analysis and recommendations based on the user's actual hero roster.
+`;
+            console.log('[AI Consultant] Fetched', heroes.length, 'heroes for wallet analysis');
+          } else {
+            walletContext = `\n**WALLET DATA:** No heroes found for wallet ${walletAddress}. The wallet may be empty or on a different realm.\n`;
+          }
+        } catch (walletErr) {
+          console.error('[AI Consultant] Error fetching wallet data:', walletErr);
+          walletContext = `\n**WALLET DATA:** Could not fetch data for ${walletAddress}. Error: ${walletErr.message}\n`;
+        }
+      }
+
       const messages = [
         { role: 'system', content: AI_CONSULTANT_PROMPT },
         { role: 'system', content: HEDGE_PROMPT } // Include full Hedge knowledge
       ];
+
+      // Inject wallet context if available
+      if (walletContext) {
+        messages.push({ role: 'system', content: walletContext });
+      }
 
       // Add conversation history
       for (const turn of history) {
@@ -12084,7 +12156,7 @@ Be helpful, accurate, and conversational. When discussing game mechanics, cite s
       const response = completion.choices?.[0]?.message?.content?.trim() || 
         "I couldn't generate a response. Please try again.";
 
-      res.json({ response });
+      res.json({ response, walletDetected: !!walletAddress });
     } catch (err) {
       console.error('[AI Consultant] Error:', err);
       res.status(500).json({ error: 'Failed to generate response' });
