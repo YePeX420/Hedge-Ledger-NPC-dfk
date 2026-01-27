@@ -36,6 +36,7 @@ import AdminSummoningCalculator from "@/pages/admin/summoning-calculator";
 import AdminSummonSniper from "@/pages/admin/summon-sniper";
 import AdminTavernSniper from "@/pages/admin/tavern-sniper";
 import AdminAIConsultant from "@/pages/admin/ai-consultant";
+import AdminQuestOptimizer from "@/pages/admin/quest-optimizer";
 import AdminBargainHunter from "@/pages/admin/bargain-hunter";
 import AdminDarkBargainHunter from "@/pages/admin/dark-bargain-hunter";
 import AdminTavernIndexer from "@/pages/admin/tavern-indexer";
@@ -294,6 +295,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminAIConsultant />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/quest-optimizer">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminQuestOptimizer />
           </ProtectedAdminPage>
         )}
       </Route>

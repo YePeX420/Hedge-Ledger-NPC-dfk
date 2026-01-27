@@ -12070,29 +12070,64 @@ Be helpful, accurate, and conversational. When discussing game mechanics, cite s
       if (walletAddress) {
         console.log('[AI Consultant] Detected wallet address:', walletAddress);
         try {
-          const { getHeroesByOwner } = await import('./onchain-data.js');
-          const heroes = await getHeroesByOwner(walletAddress, 100);
+          const { getAllHeroesByOwner } = await import('./onchain-data.js');
+          const heroes = await getAllHeroesByOwner(walletAddress);
           
           if (heroes && heroes.length > 0) {
-            // Summarize heroes for context
-            const heroSummary = heroes.map(h => ({
-              id: h.normalizedId,
-              class: h.mainClassStr,
-              profession: h.professionStr,
-              level: h.level,
-              rarity: h.rarity,
-              gen: h.generation,
-              stats: {
-                str: h.strength, int: h.intelligence, wis: h.wisdom,
-                vit: h.vitality, end: h.stamina,
-                mining: h.mining, gardening: h.gardening,
-                foraging: h.foraging, fishing: h.fishing
-              },
-              summons: `${h.summons}/${h.maxSummons}`,
-              questing: h.currentQuest ? 'Yes' : 'No'
-            }));
-            
-            // Group by class
+            // Calculate average stats for "above average" determination
+            const avgStats = {
+              strength: heroes.reduce((a, h) => a + (h.strength || 0), 0) / heroes.length,
+              wisdom: heroes.reduce((a, h) => a + (h.wisdom || 0), 0) / heroes.length,
+              vitality: heroes.reduce((a, h) => a + (h.vitality || 0), 0) / heroes.length,
+              stamina: heroes.reduce((a, h) => a + (h.stamina || 0), 0) / heroes.length,
+              intelligence: heroes.reduce((a, h) => a + (h.intelligence || 0), 0) / heroes.length
+            };
+
+            // Categorize heroes by quest type
+            const professionQuesters = { mining: [], gardening: [], fishing: [], foraging: [] };
+            const trainingQuesters = [];
+
+            for (const h of heroes) {
+              const scores = {
+                mining: (h.strength || 0) + (h.stamina || 0),
+                gardening: (h.wisdom || 0) + (h.vitality || 0),
+                fishing: (h.stamina || 0) + (h.mining || 0),
+                foraging: (h.stamina || 0) + (h.intelligence || 0)
+              };
+              const best = Object.entries(scores).sort((a,b) => b[1] - a[1])[0];
+              const hasProfGene = h.professionStr?.toLowerCase() === best[0];
+              
+              // Check if above average for profession quest
+              if (best[1] > avgStats.strength + avgStats.stamina) {
+                professionQuesters[best[0]].push({
+                  id: h.normalizedId,
+                  class: h.mainClassStr,
+                  level: h.level,
+                  score: best[1],
+                  hasProfGene
+                });
+              }
+              
+              // Check for training quest candidates (stat 40-50)
+              const statVals = [
+                { stat: 'STR', val: h.strength || 0 },
+                { stat: 'VIT', val: h.vitality || 0 },
+                { stat: 'WIS', val: h.wisdom || 0 },
+                { stat: 'INT', val: h.intelligence || 0 },
+                { stat: 'END', val: h.stamina || 0 }
+              ];
+              const trainable = statVals.filter(s => s.val >= 40 && s.val <= 50);
+              if (trainable.length > 0 && best[1] <= avgStats.strength + avgStats.stamina) {
+                trainingQuesters.push({
+                  id: h.normalizedId,
+                  class: h.mainClassStr,
+                  level: h.level,
+                  bestStat: trainable.sort((a,b) => b.val - a.val)[0]
+                });
+              }
+            }
+
+            // Group by class/profession
             const classCounts = {};
             const professionCounts = {};
             heroes.forEach(h => {
@@ -12100,23 +12135,38 @@ Be helpful, accurate, and conversational. When discussing game mechanics, cite s
               professionCounts[h.professionStr] = (professionCounts[h.professionStr] || 0) + 1;
             });
 
+            // Build context with quest recommendations
             walletContext = `
 **WALLET ANALYSIS DATA for ${walletAddress}:**
 Total Heroes: ${heroes.length}
 Average Level: ${(heroes.reduce((a, h) => a + h.level, 0) / heroes.length).toFixed(1)}
 
-Class Distribution:
-${Object.entries(classCounts).sort((a,b) => b[1] - a[1]).map(([c, n]) => `- ${c}: ${n}`).join('\n')}
+**Class Distribution:**
+${Object.entries(classCounts).sort((a,b) => b[1] - a[1]).slice(0,10).map(([c, n]) => `- ${c}: ${n}`).join('\n')}
 
-Profession Distribution:
+**Profession Gene Distribution:**
 ${Object.entries(professionCounts).sort((a,b) => b[1] - a[1]).map(([p, n]) => `- ${p}: ${n}`).join('\n')}
 
-Top 20 Heroes (by level):
-${JSON.stringify(heroSummary.slice(0, 20), null, 2)}
+**PROFESSION QUEST RECOMMENDATIONS:**
+Best Mining Heroes (${professionQuesters.mining.length} total):
+${professionQuesters.mining.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
 
-Use this data to provide personalized analysis and recommendations based on the user's actual hero roster.
+Best Gardening Heroes (${professionQuesters.gardening.length} total):
+${professionQuesters.gardening.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
+
+Best Fishing Heroes (${professionQuesters.fishing.length} total):
+${professionQuesters.fishing.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
+
+Best Foraging Heroes (${professionQuesters.foraging.length} total):
+${professionQuesters.foraging.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
+
+**TRAINING QUEST RECOMMENDATIONS (stat 40-50 = 61-68% success rate):**
+Training Candidates (${trainingQuesters.length} total):
+${trainingQuesters.slice(0,20).map(h => `- #${h.id} ${h.class} L${h.level} - Train ${h.bestStat.stat} (${h.bestStat.val})`).join('\n') || 'No heroes with stats in 40-50 range'}
+
+Use this data to provide specific hero recommendations when the user asks about questing, leveling, or hero optimization.
 `;
-            console.log('[AI Consultant] Fetched', heroes.length, 'heroes for wallet analysis');
+            console.log('[AI Consultant] Fetched', heroes.length, 'heroes with quest analysis');
           } else {
             walletContext = `\n**WALLET DATA:** No heroes found for wallet ${walletAddress}. The wallet may be empty or on a different realm.\n`;
           }
@@ -12160,6 +12210,194 @@ Use this data to provide personalized analysis and recommendations based on the 
     } catch (err) {
       console.error('[AI Consultant] Error:', err);
       res.status(500).json({ error: 'Failed to generate response' });
+    }
+  });
+
+  // ============================================================================
+  // QUEST OPTIMIZER API
+  // ============================================================================
+  // Analyzes wallet heroes for optimal quest assignments based on stats
+  // ============================================================================
+
+  // Training quest success rates by stat level
+  const TRAINING_SUCCESS_RATES = {
+    5: 0.15, 10: 0.20, 11: 0.21, 15: 0.25, 16: 0.26, 20: 0.32,
+    21: 0.33, 25: 0.40, 26: 0.41, 30: 0.47, 31: 0.48, 35: 0.50,
+    36: 0.51, 40: 0.53, 41: 0.54, 45: 0.60, 46: 0.61, 50: 0.68
+  };
+
+  function getSuccessRate(statValue) {
+    const capped = Math.min(statValue, 50);
+    const keys = Object.keys(TRAINING_SUCCESS_RATES).map(Number).sort((a, b) => a - b);
+    let rate = 0.15;
+    for (const k of keys) {
+      if (capped >= k) rate = TRAINING_SUCCESS_RATES[k];
+    }
+    return rate;
+  }
+
+  // Calculate expected XP per 5 stamina for training quests
+  function calcTrainingXP(statValue) {
+    const successRate = getSuccessRate(statValue);
+    const baseXP = 15;
+    const successBonus = 30 * successRate;
+    const shvasXP = 50 * 0.01 * successRate;
+    const loreXP = 125 * 0.0075 * successRate;
+    const crystalXP = 150 * 0.005 * successRate;
+    return baseXP + successBonus + shvasXP + loreXP + crystalXP;
+  }
+
+  // Profession quest stat combos
+  const PROFESSION_STATS = {
+    mining: ['strength', 'stamina'], // STR + END
+    gardening: ['wisdom', 'vitality'],
+    fishing: ['stamina', 'stamina'], // AGI + LCK (using stamina field for endurance)
+    foraging: ['stamina', 'intelligence'] // DEX + INT
+  };
+
+  // Corrected stat mappings for profession quests
+  const STAT_COMBOS = {
+    mining: { stats: ['strength', 'vitality'], label: 'STR + VIT' }, // Gold mining
+    miningToken: { stats: ['wisdom', 'vitality'], label: 'WIS + VIT' }, // Token mining
+    gardening: { stats: ['wisdom', 'vitality'], label: 'WIS + VIT' },
+    fishing: { stats: ['stamina', 'mining'], label: 'AGI + LCK' }, // Using available fields
+    foraging: { stats: ['intelligence', 'stamina'], label: 'DEX + INT' }
+  };
+
+  app.get('/api/admin/quest-optimizer', isAdmin, async (req, res) => {
+    const { wallet } = req.query;
+
+    if (!wallet || typeof wallet !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+      return res.status(400).json({ error: 'Valid wallet address required' });
+    }
+
+    try {
+      console.log('[Quest Optimizer] Fetching ALL heroes for wallet:', wallet);
+      const { getAllHeroesByOwner } = await import('./onchain-data.js');
+      const heroes = await getAllHeroesByOwner(wallet);
+
+      if (!heroes || heroes.length === 0) {
+        return res.json({ 
+          wallet, 
+          totalHeroes: 0, 
+          professionQuesters: [], 
+          trainingQuesters: [],
+          summary: { byProfession: {}, byClass: {} }
+        });
+      }
+
+      console.log('[Quest Optimizer] Got', heroes.length, 'heroes, analyzing...');
+
+      // Calculate averages for "above average" determination
+      const avgStats = {
+        strength: heroes.reduce((a, h) => a + (h.strength || 0), 0) / heroes.length,
+        intelligence: heroes.reduce((a, h) => a + (h.intelligence || 0), 0) / heroes.length,
+        wisdom: heroes.reduce((a, h) => a + (h.wisdom || 0), 0) / heroes.length,
+        vitality: heroes.reduce((a, h) => a + (h.vitality || 0), 0) / heroes.length,
+        stamina: heroes.reduce((a, h) => a + (h.stamina || 0), 0) / heroes.length,
+        mining: heroes.reduce((a, h) => a + (h.mining || 0), 0) / heroes.length,
+        gardening: heroes.reduce((a, h) => a + (h.gardening || 0), 0) / heroes.length,
+        foraging: heroes.reduce((a, h) => a + (h.foraging || 0), 0) / heroes.length,
+        fishing: heroes.reduce((a, h) => a + (h.fishing || 0), 0) / heroes.length
+      };
+
+      const professionQuesters = [];
+      const trainingQuesters = [];
+
+      for (const hero of heroes) {
+        // Check profession quest suitability (2 stats above average)
+        const professionScores = {
+          mining: (hero.strength || 0) + (hero.stamina || 0),
+          gardening: (hero.wisdom || 0) + (hero.vitality || 0),
+          fishing: (hero.stamina || 0) + (hero.mining || 0), // Using mining as proxy for LCK
+          foraging: (hero.stamina || 0) + (hero.intelligence || 0)
+        };
+
+        // Find best profession quest
+        const bestProfession = Object.entries(professionScores)
+          .sort((a, b) => b[1] - a[1])[0];
+
+        // Check if hero has matching profession gene
+        const hasProfessionGene = hero.professionStr?.toLowerCase() === bestProfession[0];
+
+        // Determine stat values for best profession
+        const heroData = {
+          id: hero.normalizedId,
+          class: hero.mainClassStr,
+          subClass: hero.subClassStr,
+          profession: hero.professionStr,
+          level: hero.level,
+          rarity: hero.rarity,
+          generation: hero.generation,
+          stats: {
+            str: hero.strength, int: hero.intelligence, wis: hero.wisdom,
+            vit: hero.vitality, end: hero.stamina,
+            mining: hero.mining, gardening: hero.gardening,
+            foraging: hero.foraging, fishing: hero.fishing
+          },
+          bestProfessionQuest: bestProfession[0],
+          professionScore: bestProfession[1],
+          hasProfessionGene,
+          staminaCost: hasProfessionGene ? 5 : 7
+        };
+
+        // Check for profession questers (high 2-stat combos)
+        const isProfessionQuester = bestProfession[1] >= (avgStats.strength + avgStats.stamina); // Above average combo
+        
+        if (isProfessionQuester) {
+          professionQuesters.push(heroData);
+        }
+
+        // Check for training questers (single stat 40-50)
+        const statValues = [
+          { stat: 'STR', value: hero.strength || 0 },
+          { stat: 'DEX', value: hero.stamina || 0 }, // Approximate
+          { stat: 'AGI', value: hero.stamina || 0 },
+          { stat: 'END', value: hero.stamina || 0 },
+          { stat: 'VIT', value: hero.vitality || 0 },
+          { stat: 'INT', value: hero.intelligence || 0 },
+          { stat: 'WIS', value: hero.wisdom || 0 },
+          { stat: 'LCK', value: hero.mining || 0 } // Approximate
+        ];
+
+        const highStats = statValues.filter(s => s.value >= 40 && s.value <= 50);
+        
+        if (highStats.length > 0 && !isProfessionQuester) {
+          const bestTrainingStat = highStats.sort((a, b) => b.value - a.value)[0];
+          trainingQuesters.push({
+            ...heroData,
+            bestTrainingStat: bestTrainingStat.stat,
+            trainingStatValue: bestTrainingStat.value,
+            successRate: (getSuccessRate(bestTrainingStat.value) * 100).toFixed(1) + '%',
+            xpPerStamina: (calcTrainingXP(bestTrainingStat.value) / 5).toFixed(2)
+          });
+        }
+      }
+
+      // Sort by effectiveness
+      professionQuesters.sort((a, b) => b.professionScore - a.professionScore);
+      trainingQuesters.sort((a, b) => parseFloat(b.xpPerStamina) - parseFloat(a.xpPerStamina));
+
+      // Generate summary
+      const byProfession = {};
+      const byClass = {};
+      for (const h of heroes) {
+        byProfession[h.professionStr] = (byProfession[h.professionStr] || 0) + 1;
+        byClass[h.mainClassStr] = (byClass[h.mainClassStr] || 0) + 1;
+      }
+
+      res.json({
+        wallet,
+        totalHeroes: heroes.length,
+        averageStats: avgStats,
+        professionQuesters: professionQuesters.slice(0, 200), // Top 200
+        trainingQuesters: trainingQuesters.slice(0, 200),
+        summary: { byProfession, byClass }
+      });
+
+    } catch (err) {
+      console.error('[Quest Optimizer] Error:', err);
+      res.status(500).json({ error: 'Failed to analyze wallet: ' + err.message });
     }
   });
 

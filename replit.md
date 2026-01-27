@@ -20,6 +20,8 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Financial & Market Analytics**: Includes Bridge Flow Tracker, Extractor Analysis Dashboard, Bridge Pricing Reconciliation System, Value Allocation/TVL Dashboard, Token Registry System, Unified Pool Indexer, Jeweler Indexer, and Gardening Quest Rewards Indexer.
 *   **PvP & Gaming Systems**: Features Battle-Ready Heroes (PVP Tournament Indexer), Level Racer - Class Arena Edition, Leaderboard System, and Season Engine.
 *   **Yield Optimization**: Provides a Yield Calculator page with wallet lookup, and a Yield Calculator Optimizer for recommending optimal pool allocations.
+*   **Quest Optimizer**: Analyzes wallet heroes to identify optimal quest assignments. Categorizes heroes into Profession Questers (high 2-stat combos for mining, gardening, fishing, foraging) and Training Questers (stat 40-50 with 61-68% success rate). Shows profession gene matching, XP/stamina efficiency, and success rate calculations.
+*   **AI Consultant with Wallet Analysis**: AI-powered chat interface that detects wallet addresses and fetches ALL heroes (paginated) to provide personalized quest recommendations, hero analysis, and game strategy advice.
 
 **Design Decisions:**
 *   **Database**: PostgreSQL with Drizzle ORM, hosted on Neon serverless. All application database operations must consistently use `rawPg` (pooler connection) for both reads and writes to ensure data persistence and visibility.

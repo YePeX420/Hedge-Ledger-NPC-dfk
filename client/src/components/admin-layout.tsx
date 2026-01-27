@@ -34,7 +34,8 @@ import {
   Zap,
   Sparkles,
   Beer,
-  Bot
+  Bot,
+  Dumbbell
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -50,6 +51,7 @@ interface AdminLayoutProps {
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/ai-consultant', label: 'AI Consultant', icon: Bot },
+  { href: '/admin/quest-optimizer', label: 'Quest Optimizer', icon: Dumbbell },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/value-allocation', label: 'Value Allocation', icon: PieChart },
   { href: '/admin/tokens', label: 'Token Registry', icon: Coins },
