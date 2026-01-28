@@ -3530,3 +3530,70 @@ export const equipmentCategories = pgTable("equipment_categories", {
 export const insertEquipmentCategoriesSchema = createInsertSchema(equipmentCategories).omit({ id: true });
 export type InsertEquipmentCategories = z.infer<typeof insertEquipmentCategoriesSchema>;
 export type EquipmentCategories = typeof equipmentCategories.$inferSelect;
+
+// ============================================================================
+// DASHBOARD USER ACCESS MANAGEMENT
+// ============================================================================
+
+/**
+ * Dashboard users - Password-based access for regular users (separate from admin Discord OAuth)
+ * Admins can create user accounts with:
+ * - Username/password authentication
+ * - Access expiration date
+ * - Tab-level permissions (which pages they can view)
+ */
+export const dashboardUsers = pgTable("dashboard_users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  displayName: text("display_name"),
+  
+  // Access control
+  isActive: boolean("is_active").default(true).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }), // null = never expires
+  
+  // Tab permissions (array of allowed page slugs)
+  // e.g., ['quest-optimizer', 'ai-consultant', 'yield-calculator', 'summon-sniper']
+  allowedTabs: json("allowed_tabs").$type<string[]>().default(sql`'[]'::json`).notNull(),
+  
+  // Metadata
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdBy: text("created_by"), // Discord ID of admin who created
+}, (table) => ({
+  usernameIdx: uniqueIndex("dashboard_users_username_idx").on(table.username),
+  isActiveIdx: index("dashboard_users_is_active_idx").on(table.isActive),
+  expiresAtIdx: index("dashboard_users_expires_at_idx").on(table.expiresAt),
+}));
+
+export const insertDashboardUserSchema = createInsertSchema(dashboardUsers).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true,
+  lastLoginAt: true 
+});
+export type InsertDashboardUser = z.infer<typeof insertDashboardUserSchema>;
+export type DashboardUser = typeof dashboardUsers.$inferSelect;
+
+/**
+ * Dashboard user sessions - Track active user sessions
+ */
+export const dashboardUserSessions = pgTable("dashboard_user_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => dashboardUsers.id),
+  sessionToken: varchar("session_token").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  userIdIdx: index("dashboard_user_sessions_user_id_idx").on(table.userId),
+  sessionTokenIdx: uniqueIndex("dashboard_user_sessions_token_idx").on(table.sessionToken),
+  expiresAtIdx: index("dashboard_user_sessions_expires_at_idx").on(table.expiresAt),
+}));
+
+export const insertDashboardUserSessionSchema = createInsertSchema(dashboardUserSessions).omit({ 
+  id: true, 
+  createdAt: true 
+});
+export type InsertDashboardUserSession = z.infer<typeof insertDashboardUserSessionSchema>;
+export type DashboardUserSession = typeof dashboardUserSessions.$inferSelect;

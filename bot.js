@@ -81,7 +81,7 @@ import { fetchCurrentPrices as fetchBridgePrices } from './bridge-tracker/price-
 import { getValueBreakdown } from './src/analytics/valueBreakdown.ts';
 import { getCexLiquidity } from './src/analytics/cexLiquidity.ts';
 import { syncTokenRegistry, getAllTokens, getTokenAddressMap } from './src/services/tokenRegistryService.ts';
-import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeProgressWindowed, challengeValidation, challengeAuditLog, challengeMetricStats, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES } from './shared/schema.ts';
+import { bridgeEvents, walletBridgeMetrics, challengeCategories, challenges, challengeTiers, playerChallengeProgress, challengeProgressWindowed, challengeValidation, challengeAuditLog, challengeMetricStats, CHALLENGE_STATES, CHALLENGE_TYPES, METRIC_AGGREGATIONS, TIERING_MODES, dashboardUsers, dashboardUserSessions } from './shared/schema.ts';
 import { computeBaseTierFromMetrics, createEmptySnapshot } from './src/services/classification/TierService.ts';
 import { TIER_CODE_TO_LEAGUE } from './src/api/contracts/leagues.ts';
 import levelRacerRoutes from './src/modules/levelRacer/levelRacer.routes.ts';
@@ -3535,6 +3535,43 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 // === Initialize Economic System (BEFORE Discord client logs in) ===
 async function initializeEconomicSystem() {
+  // Ensure dashboard users tables exist (using rawPg to match app's connection)
+  try {
+    const { rawPg } = await import('./server/db.js');
+    
+    // Create dashboard_users table first
+    await rawPg`
+      CREATE TABLE IF NOT EXISTS dashboard_users (
+        id SERIAL PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        display_name TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        expires_at TIMESTAMP WITH TIME ZONE,
+        allowed_tabs JSON NOT NULL DEFAULT '[]'::json,
+        last_login_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_by TEXT
+      )
+    `;
+    
+    // Create dashboard_user_sessions table (depends on dashboard_users)
+    await rawPg`
+      CREATE TABLE IF NOT EXISTS dashboard_user_sessions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES dashboard_users(id),
+        session_token VARCHAR NOT NULL UNIQUE,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    
+    console.log('✅ Dashboard users tables verified');
+  } catch (err) {
+    console.warn('⚠️ Dashboard users table check failed:', err.message);
+  }
+  
   console.log('💰 Initializing pricing config...');
   await initializePricingConfig();
   
@@ -4759,6 +4796,344 @@ async function startAdminWebServer() {
     } catch (err) {
       console.error('❌ Error updating tier:', err);
       res.status(500).json({ error: 'Failed to update tier' });
+    }
+  });
+
+  // ============================================================================
+  // DASHBOARD USER ACCESS MANAGEMENT API
+  // ============================================================================
+
+  // GET /api/admin/dashboard-users - List all dashboard users
+  app.get('/api/admin/dashboard-users', isAdmin, async (req, res) => {
+    try {
+      const users = await db
+        .select({
+          id: dashboardUsers.id,
+          username: dashboardUsers.username,
+          displayName: dashboardUsers.displayName,
+          isActive: dashboardUsers.isActive,
+          expiresAt: dashboardUsers.expiresAt,
+          allowedTabs: dashboardUsers.allowedTabs,
+          lastLoginAt: dashboardUsers.lastLoginAt,
+          createdAt: dashboardUsers.createdAt,
+        })
+        .from(dashboardUsers)
+        .orderBy(dashboardUsers.createdAt);
+
+      res.json({ success: true, users });
+    } catch (err) {
+      console.error('❌ Error fetching dashboard users:', err);
+      res.status(500).json({ error: 'Failed to fetch users' });
+    }
+  });
+
+  // POST /api/admin/dashboard-users - Create new dashboard user
+  app.post('/api/admin/dashboard-users', isAdmin, async (req, res) => {
+    try {
+      const { username, password, displayName, expiresAt, allowedTabs } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+      }
+
+      // Check if username already exists
+      const existing = await db
+        .select()
+        .from(dashboardUsers)
+        .where(eq(dashboardUsers.username, username))
+        .limit(1);
+
+      if (existing.length > 0) {
+        return res.status(400).json({ error: 'Username already exists' });
+      }
+
+      // Hash password with crypto
+      const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+
+      const [newUser] = await db
+        .insert(dashboardUsers)
+        .values({
+          username,
+          passwordHash,
+          displayName: displayName || null,
+          expiresAt: expiresAt ? new Date(expiresAt) : null,
+          allowedTabs: allowedTabs || [],
+          createdBy: req.session?.discordId || null,
+        })
+        .returning();
+
+      res.json({ success: true, user: newUser });
+    } catch (err) {
+      console.error('❌ Error creating dashboard user:', err);
+      res.status(500).json({ error: 'Failed to create user' });
+    }
+  });
+
+  // PATCH /api/admin/dashboard-users/:id - Update dashboard user
+  app.patch('/api/admin/dashboard-users/:id', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { username, password, displayName, expiresAt, allowedTabs } = req.body;
+
+      const userId = parseInt(id, 10);
+      
+      // Build update object
+      const updateData = {
+        updatedAt: new Date(),
+      };
+
+      if (username) updateData.username = username;
+      if (displayName !== undefined) updateData.displayName = displayName || null;
+      if (expiresAt !== undefined) updateData.expiresAt = expiresAt ? new Date(expiresAt) : null;
+      if (allowedTabs) updateData.allowedTabs = allowedTabs;
+      
+      // Only update password if provided
+      if (password) {
+        updateData.passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+      }
+
+      const [updatedUser] = await db
+        .update(dashboardUsers)
+        .set(updateData)
+        .where(eq(dashboardUsers.id, userId))
+        .returning();
+
+      if (!updatedUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.json({ success: true, user: updatedUser });
+    } catch (err) {
+      console.error('❌ Error updating dashboard user:', err);
+      res.status(500).json({ error: 'Failed to update user' });
+    }
+  });
+
+  // PATCH /api/admin/dashboard-users/:id/toggle - Toggle user active status
+  app.patch('/api/admin/dashboard-users/:id/toggle', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { isActive } = req.body;
+
+      const userId = parseInt(id, 10);
+
+      const [updatedUser] = await db
+        .update(dashboardUsers)
+        .set({ 
+          isActive: isActive,
+          updatedAt: new Date(),
+        })
+        .where(eq(dashboardUsers.id, userId))
+        .returning();
+
+      if (!updatedUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.json({ success: true, user: updatedUser });
+    } catch (err) {
+      console.error('❌ Error toggling dashboard user:', err);
+      res.status(500).json({ error: 'Failed to toggle user status' });
+    }
+  });
+
+  // DELETE /api/admin/dashboard-users/:id - Delete dashboard user
+  app.delete('/api/admin/dashboard-users/:id', isAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = parseInt(id, 10);
+
+      // Delete user sessions first
+      await db
+        .delete(dashboardUserSessions)
+        .where(eq(dashboardUserSessions.userId, userId));
+
+      // Delete user
+      const [deletedUser] = await db
+        .delete(dashboardUsers)
+        .where(eq(dashboardUsers.id, userId))
+        .returning();
+
+      if (!deletedUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.json({ success: true, message: 'User deleted' });
+    } catch (err) {
+      console.error('❌ Error deleting dashboard user:', err);
+      res.status(500).json({ error: 'Failed to delete user' });
+    }
+  });
+
+  // ============================================================================
+  // USER AUTHENTICATION (Password-based, separate from Discord OAuth)
+  // ============================================================================
+
+  // POST /api/user/login - User password login
+  app.post('/api/user/login', async (req, res) => {
+    try {
+      const { username, password } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+      }
+
+      // Find user
+      const [user] = await db
+        .select()
+        .from(dashboardUsers)
+        .where(eq(dashboardUsers.username, username))
+        .limit(1);
+
+      if (!user) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+
+      // Check password
+      const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+      if (user.passwordHash !== passwordHash) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+
+      // Check if active
+      if (!user.isActive) {
+        return res.status(403).json({ error: 'Account is disabled' });
+      }
+
+      // Check expiration
+      if (user.expiresAt && new Date(user.expiresAt) < new Date()) {
+        return res.status(403).json({ error: 'Account has expired' });
+      }
+
+      // Create session token
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+      // Save session
+      await db
+        .insert(dashboardUserSessions)
+        .values({
+          userId: user.id,
+          sessionToken,
+          expiresAt: sessionExpiresAt,
+        });
+
+      // Update last login
+      await db
+        .update(dashboardUsers)
+        .set({ lastLoginAt: new Date() })
+        .where(eq(dashboardUsers.id, user.id));
+
+      // Set session cookie
+      res.cookie('user_session', sessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          allowedTabs: user.allowedTabs,
+          expiresAt: user.expiresAt,
+        },
+      });
+    } catch (err) {
+      console.error('❌ Error during user login:', err);
+      res.status(500).json({ error: 'Login failed' });
+    }
+  });
+
+  // GET /api/user/session - Check current user session
+  app.get('/api/user/session', async (req, res) => {
+    try {
+      const sessionToken = req.cookies?.user_session;
+
+      if (!sessionToken) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Find session
+      const [session] = await db
+        .select()
+        .from(dashboardUserSessions)
+        .where(eq(dashboardUserSessions.sessionToken, sessionToken))
+        .limit(1);
+
+      if (!session) {
+        res.clearCookie('user_session');
+        return res.status(401).json({ error: 'Invalid session' });
+      }
+
+      // Check session expiration
+      if (new Date(session.expiresAt) < new Date()) {
+        await db
+          .delete(dashboardUserSessions)
+          .where(eq(dashboardUserSessions.sessionToken, sessionToken));
+        res.clearCookie('user_session');
+        return res.status(401).json({ error: 'Session expired' });
+      }
+
+      // Find user
+      const [user] = await db
+        .select()
+        .from(dashboardUsers)
+        .where(eq(dashboardUsers.id, session.userId))
+        .limit(1);
+
+      if (!user) {
+        res.clearCookie('user_session');
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      // Check if user is still active
+      if (!user.isActive) {
+        res.clearCookie('user_session');
+        return res.status(403).json({ error: 'Account is disabled' });
+      }
+
+      // Check account expiration
+      if (user.expiresAt && new Date(user.expiresAt) < new Date()) {
+        res.clearCookie('user_session');
+        return res.status(403).json({ error: 'Account has expired' });
+      }
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          allowedTabs: user.allowedTabs,
+          expiresAt: user.expiresAt,
+        },
+      });
+    } catch (err) {
+      console.error('❌ Error checking user session:', err);
+      res.status(500).json({ error: 'Failed to check session' });
+    }
+  });
+
+  // POST /api/user/logout - Logout user
+  app.post('/api/user/logout', async (req, res) => {
+    try {
+      const sessionToken = req.cookies?.user_session;
+
+      if (sessionToken) {
+        await db
+          .delete(dashboardUserSessions)
+          .where(eq(dashboardUserSessions.sessionToken, sessionToken));
+      }
+
+      res.clearCookie('user_session');
+      res.json({ success: true });
+    } catch (err) {
+      console.error('❌ Error during user logout:', err);
+      res.status(500).json({ error: 'Logout failed' });
     }
   });
 

@@ -35,7 +35,8 @@ import {
   Sparkles,
   Beer,
   Bot,
-  Dumbbell
+  Dumbbell,
+  UserCog
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -80,6 +81,7 @@ const navItems = [
   { href: '/admin/expenses', label: 'Expenses', icon: Receipt },
   { href: '/admin/bridge', label: 'Bridge', icon: ArrowLeftRight },
   { href: '/admin/extractors', label: 'Extractors', icon: TrendingDown },
+  { href: '/admin/user-access', label: 'User Access', icon: UserCog },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 

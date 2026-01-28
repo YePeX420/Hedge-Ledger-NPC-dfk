@@ -27,7 +27,8 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **Database**: PostgreSQL with Drizzle ORM, hosted on Neon serverless. All application database operations must consistently use `rawPg` (pooler connection) for both reads and writes to ensure data persistence and visibility.
 *   **Deployment**: Unified Express server integrated with the bot.
 *   **UI/UX**: Responsive React admin dashboard with theming and environment indicators.
-*   **Authentication**: Discord OAuth2.
+*   **Authentication**: Discord OAuth2 for admin access, plus password-based User Access Management for regular dashboard users.
+*   **User Access Management**: Admins can create dashboard user accounts with username/password credentials, set expiration dates, and grant granular tab permissions (quest-optimizer, ai-consultant, yield-calculator, yield-optimizer, summon-sniper, tavern-sniper, gardening-calculator). Users log in at /user/login and see only their permitted tools at /user/dashboard.
 *   **Payment Automation**: Blockchain monitoring for JEWEL payment verification.
 *   **Wallet Tracking**: Daily snapshots of key token balances.
 *   **Environment-Aware Indexers**: Indexers auto-start only in production, with manual trigger in development.

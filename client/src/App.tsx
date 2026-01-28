@@ -46,6 +46,9 @@ import AdminPVEDropRates from "@/pages/admin/pve-droprates";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
 import CombatClasses from "@/pages/admin/combat-classes";
 import HedgePlansAccess from "@/pages/admin/hedge-plans-access";
+import UserAccessManagement from "@/pages/admin/user-access";
+import UserLogin from "@/pages/user-login";
+import UserDashboardPage from "@/pages/user/dashboard";
 import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
 import ChallengesPage from "@/pages/challenges";
@@ -118,6 +121,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminSettings />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/user-access">
+        {() => (
+          <ProtectedAdminPage>
+            <UserAccessManagement />
           </ProtectedAdminPage>
         )}
       </Route>
@@ -405,6 +416,14 @@ function Router() {
             </ProtectedAdminPage>
           );
         }}
+      </Route>
+      
+      {/* User login (public) */}
+      <Route path="/user/login" component={UserLogin} />
+      
+      {/* User dashboard (protected by user session) */}
+      <Route path="/user/dashboard">
+        {() => <UserDashboardPage />}
       </Route>
       
       {/* Public leaderboards page */}
