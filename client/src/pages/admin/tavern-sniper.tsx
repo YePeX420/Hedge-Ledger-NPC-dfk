@@ -1,12 +1,16 @@
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Beer, Filter, TrendingUp, ExternalLink, Loader2, Search, RefreshCw } from "lucide-react";
+import { Beer, Filter, TrendingUp, ExternalLink, Loader2, Search, RefreshCw, X, Database } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+
+const HIDDEN_HEROES_KEY = "tavern-sniper-hidden-heroes";
 
 type SortOption = "levelValue" | "price" | "level" | "combatPower" | "value";
 
@@ -101,6 +105,28 @@ export default function TavernSniper() {
   
   const [sortBy, setSortBy] = useState<SortOption>("levelValue");
   const [searchTriggered, setSearchTriggered] = useState(false);
+  const [hiddenHeroes, setHiddenHeroes] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(HIDDEN_HEROES_KEY);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [isReindexing, setIsReindexing] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    localStorage.setItem(HIDDEN_HEROES_KEY, JSON.stringify(Array.from(hiddenHeroes)));
+  }, [hiddenHeroes]);
+
+  const hideHero = useCallback((heroId: string) => {
+    setHiddenHeroes(prev => new Set(Array.from(prev).concat([heroId])));
+  }, []);
+
+  const clearHiddenHeroes = useCallback(() => {
+    setHiddenHeroes(new Set());
+  }, []);
 
   const buildQueryUrl = useMemo(() => {
     const params = new URLSearchParams();
@@ -125,6 +151,7 @@ export default function TavernSniper() {
     const heroes = [...(data.crystalvale || []), ...(data.serendale || [])];
     
     let filtered = heroes.filter(h => {
+      if (hiddenHeroes.has(h.id)) return false;
       if (filters.profession !== "All" && h.professionStr !== filters.profession) return false;
       if (h.priceNative > filters.maxPrice) return false;
       return true;
@@ -152,12 +179,68 @@ export default function TavernSniper() {
       default:
         return filtered;
     }
-  }, [data, filters.profession, filters.maxPrice, sortBy]);
+  }, [data, filters.profession, filters.maxPrice, sortBy, hiddenHeroes]);
 
   const handleSearch = () => {
     setSearchTriggered(true);
     if (searchTriggered) {
       refetch();
+    }
+  };
+
+  const handleReindex = async () => {
+    setIsReindexing(true);
+    try {
+      const response = await apiRequest("POST", "/api/admin/tavern-indexer/trigger");
+      const result = await response.json();
+      if (result.ok) {
+        toast({
+          title: "Re-indexing Started",
+          description: "Fetching fresh listings from blockchain..."
+        });
+        
+        const pollStatus = async () => {
+          for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+              const statusRes = await fetch("/api/admin/tavern-indexer/status", { credentials: "include" });
+              const status = await statusRes.json();
+              if (!status.isRunning) {
+                clearHiddenHeroes();
+                toast({
+                  title: "Re-indexing Complete",
+                  description: `Indexed ${status.crystalvaleCount || 0} CV + ${status.serendaleCount || 0} SD heroes. Hidden list cleared.`
+                });
+                refetch();
+                return;
+              }
+            } catch {
+              break;
+            }
+          }
+          toast({
+            title: "Re-indexing Timeout",
+            description: "Indexing is still running. Refresh manually when complete.",
+            variant: "destructive"
+          });
+        };
+        
+        await pollStatus();
+      } else {
+        toast({
+          title: "Re-indexing Failed",
+          description: result.error || "Unknown error",
+          variant: "destructive"
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Re-indexing Failed",
+        description: "Could not connect to indexer",
+        variant: "destructive"
+      });
+    } finally {
+      setIsReindexing(false);
     }
   };
 
@@ -273,10 +356,26 @@ export default function TavernSniper() {
             </Button>
 
             {searchTriggered && (
-              <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading} data-testid="button-refresh">
-                <RefreshCw className="h-4 w-4 mr-1" />
-                Refresh
-              </Button>
+              <>
+                <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading} data-testid="button-refresh">
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  Refresh
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleReindex} disabled={isLoading || isReindexing} data-testid="button-reindex">
+                  {isReindexing ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Database className="h-4 w-4 mr-1" />
+                  )}
+                  Re-index
+                </Button>
+                {hiddenHeroes.size > 0 && (
+                  <Button variant="ghost" size="sm" onClick={clearHiddenHeroes} data-testid="button-clear-hidden">
+                    <X className="h-4 w-4 mr-1" />
+                    Clear {hiddenHeroes.size} Hidden
+                  </Button>
+                )}
+              </>
             )}
 
             <div className="flex items-center gap-2 ml-auto">
@@ -338,7 +437,7 @@ export default function TavernSniper() {
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
               {allHeroes.slice(0, 50).map((hero, idx) => (
-                <HeroCard key={hero.id} hero={hero} rank={idx + 1} sortBy={sortBy} />
+                <HeroCard key={hero.id} hero={hero} rank={idx + 1} sortBy={sortBy} onHide={hideHero} />
               ))}
             </div>
           )}
@@ -354,7 +453,7 @@ export default function TavernSniper() {
   );
 }
 
-function HeroCard({ hero, rank, sortBy }: { hero: TavernHero; rank: number; sortBy: SortOption }) {
+function HeroCard({ hero, rank, sortBy, onHide }: { hero: TavernHero; rank: number; sortBy: SortOption; onHide: (id: string) => void }) {
   const levelValue = hero.level / (hero.priceNative || 1);
   const powerValue = hero.combatPower / (hero.priceNative || 1);
   
@@ -373,8 +472,18 @@ function HeroCard({ hero, rank, sortBy }: { hero: TavernHero; rank: number; sort
                   <span className="text-xs text-muted-foreground">/ {hero.subClassStr}</span>
                 )}
               </div>
-              <div className="text-xs text-muted-foreground">
-                #{hero.normalizedId} | {hero.tavern === "cv" ? "CV" : "SD"}
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span>#{hero.normalizedId} | {hero.tavern === "cv" ? "CV" : "SD"}</span>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-5 w-5 ml-1 text-muted-foreground hover:text-destructive" 
+                  onClick={() => onHide(hero.id)}
+                  title="Hide hero (mark as bought)"
+                  data-testid={`button-hide-${hero.id}`}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
               </div>
             </div>
           </div>
