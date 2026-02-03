@@ -10163,8 +10163,9 @@ async function startAdminWebServer() {
       const { rawPg } = await import('./server/db.js');
       
       // Get distinct values from tavern_heroes
-      const [classesResult, professionsResult, realmsResult, priceRangeResult, levelRangeResult, tsRangeResult] = await Promise.all([
+      const [classesResult, subClassesResult, professionsResult, realmsResult, priceRangeResult, levelRangeResult, tsRangeResult] = await Promise.all([
         rawPg`SELECT DISTINCT main_class FROM tavern_heroes WHERE main_class IS NOT NULL ORDER BY main_class`,
+        rawPg`SELECT DISTINCT sub_class FROM tavern_heroes WHERE sub_class IS NOT NULL ORDER BY sub_class`,
         rawPg`SELECT DISTINCT profession FROM tavern_heroes WHERE profession IS NOT NULL ORDER BY profession`,
         rawPg`SELECT DISTINCT realm FROM tavern_heroes ORDER BY realm`,
         rawPg`SELECT MIN(price_native) as min_price, MAX(price_native) as max_price FROM tavern_heroes WHERE price_native > 0`,
@@ -10173,6 +10174,7 @@ async function startAdminWebServer() {
       ]);
 
       const classes = classesResult.map(r => r.main_class);
+      const subClasses = subClassesResult.map(r => r.sub_class);
       const professions = professionsResult.map(r => r.profession);
       const realms = realmsResult.map(r => r.realm);
       const priceRange = priceRangeResult[0] || { min_price: 0, max_price: 10000 };
@@ -10205,6 +10207,7 @@ async function startAdminWebServer() {
         ok: true,
         filters: {
           classes,
+          subClasses,
           professions,
           realms,
           activeSkills,
@@ -10248,6 +10251,7 @@ async function startAdminWebServer() {
       
       const {
         targetClasses = [],
+        targetSubClasses = [],
         targetProfessions = [],
         targetActiveSkills = [],
         targetPassiveSkills = [],
@@ -10277,14 +10281,15 @@ async function startAdminWebServer() {
 
       // Normalize inputs to arrays
       const classArray = Array.isArray(targetClasses) ? targetClasses : (targetClasses ? [targetClasses] : []);
+      const subClassArray = Array.isArray(targetSubClasses) ? targetSubClasses : (targetSubClasses ? [targetSubClasses] : []);
       const professionArray = Array.isArray(targetProfessions) ? targetProfessions : (targetProfessions ? [targetProfessions] : []);
       const activeSkillArray = Array.isArray(targetActiveSkills) ? targetActiveSkills : (targetActiveSkills ? [targetActiveSkills] : []);
       const passiveSkillArray = Array.isArray(targetPassiveSkills) ? targetPassiveSkills : (targetPassiveSkills ? [targetPassiveSkills] : []);
 
-      if (classArray.length === 0 && professionArray.length === 0 && activeSkillArray.length === 0 && passiveSkillArray.length === 0) {
+      if (classArray.length === 0 && subClassArray.length === 0 && professionArray.length === 0 && activeSkillArray.length === 0 && passiveSkillArray.length === 0) {
         return res.status(400).json({ 
           ok: false, 
-          error: 'At least one class, profession, or ability must be selected' 
+          error: 'At least one class, subclass, profession, or ability must be selected' 
         });
       }
 
@@ -11354,6 +11359,25 @@ async function startAdminWebServer() {
             }
           }
 
+          // Multiple target subclasses: OR logic (sum their probabilities, cap at 1)
+          if (subClassArray.length > 0 && probs.subClass) {
+            let subClassSum = 0;
+            for (const targetSubClass of subClassArray) {
+              const subClassProb = Object.entries(probs.subClass).find(([name]) => 
+                name.toLowerCase() === targetSubClass.toLowerCase()
+              );
+              if (subClassProb) {
+                subClassSum += parseFloat(subClassProb[1]) / 100;
+              }
+            }
+            if (subClassSum > 0) {
+              jointProbability *= Math.min(subClassSum, 1.0);
+              hasAnyTarget = true;
+            } else {
+              jointProbability = 0;
+            }
+          }
+
           // Multiple target professions: OR logic (sum their probabilities, cap at 1)
           if (professionArray.length > 0 && probs.profession) {
             let profSum = 0;
@@ -11726,6 +11750,7 @@ async function startAdminWebServer() {
         },
         searchParams: {
           targetClasses: classArray,
+          targetSubClasses: subClassArray,
           targetProfessions: professionArray,
           targetActiveSkills: activeSkillArray,
           targetPassiveSkills: passiveSkillArray,

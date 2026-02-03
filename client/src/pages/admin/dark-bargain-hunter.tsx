@@ -134,6 +134,8 @@ export default function DarkBargainHunter() {
   const [minMaxSlotExalted, setMinMaxSlotExalted] = useState<number>(0);
   const [sortBy, setSortBy] = useState<SortOption>("efficiency");
   const [showMutationsOnly, setShowMutationsOnly] = useState(false); // Filter for mutation potential
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  const [selectedSubClasses, setSelectedSubClasses] = useState<string[]>([]);
   
   // Hidden heroes state - store hero IDs that have been hidden (purchased)
   const [hiddenHeroIds, setHiddenHeroIds] = useState<Set<string>>(() => {
@@ -230,6 +232,20 @@ export default function DarkBargainHunter() {
         return mutation.class || mutation.subClass;
       });
     }
+    // Filter by selected classes (at least one hero must have the class)
+    if (selectedClasses.length > 0) {
+      filtered = filtered.filter(pair => 
+        selectedClasses.includes(pair.hero1.mainClass) || 
+        selectedClasses.includes(pair.hero2.mainClass)
+      );
+    }
+    // Filter by selected subclasses (at least one hero must have the subclass)
+    if (selectedSubClasses.length > 0) {
+      filtered = filtered.filter(pair => 
+        (pair.hero1.subClass && selectedSubClasses.includes(pair.hero1.subClass)) || 
+        (pair.hero2.subClass && selectedSubClasses.includes(pair.hero2.subClass))
+      );
+    }
     // Sort based on selected option
     return filtered.sort((a, b) => {
       switch (sortBy) {
@@ -252,7 +268,7 @@ export default function DarkBargainHunter() {
           return (b.efficiency || 0) - (a.efficiency || 0);
       }
     });
-  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minSummonsRemaining, minEliteChance, minExaltedChance, minMaxSlotExalted, sortBy, hiddenHeroIds, showMutationsOnly]);
+  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minSummonsRemaining, minEliteChance, minExaltedChance, minMaxSlotExalted, sortBy, hiddenHeroIds, showMutationsOnly, selectedClasses, selectedSubClasses]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -272,6 +288,39 @@ export default function DarkBargainHunter() {
     if (diffMins < 60) return `${diffMins}m ago`;
     const diffHours = Math.floor(diffMins / 60);
     return `${diffHours}h ${diffMins % 60}m ago`;
+  };
+  
+  // Get unique classes and subclasses from results for filtering
+  const availableClasses = useMemo(() => {
+    if (!result?.pairs) return [];
+    const classes = new Set<string>();
+    result.pairs.forEach(pair => {
+      if (pair.hero1.mainClass) classes.add(pair.hero1.mainClass);
+      if (pair.hero2.mainClass) classes.add(pair.hero2.mainClass);
+    });
+    return Array.from(classes).sort();
+  }, [result?.pairs]);
+  
+  const availableSubClasses = useMemo(() => {
+    if (!result?.pairs) return [];
+    const subClasses = new Set<string>();
+    result.pairs.forEach(pair => {
+      if (pair.hero1.subClass) subClasses.add(pair.hero1.subClass);
+      if (pair.hero2.subClass) subClasses.add(pair.hero2.subClass);
+    });
+    return Array.from(subClasses).sort();
+  }, [result?.pairs]);
+  
+  const toggleClass = (cls: string) => {
+    setSelectedClasses(prev => 
+      prev.includes(cls) ? prev.filter(c => c !== cls) : [...prev, cls]
+    );
+  };
+  
+  const toggleSubClass = (cls: string) => {
+    setSelectedSubClasses(prev => 
+      prev.includes(cls) ? prev.filter(c => c !== cls) : [...prev, cls]
+    );
   };
 
   return (
@@ -513,6 +562,72 @@ export default function DarkBargainHunter() {
               </div>
             </div>
           </div>
+          
+          {/* Class and Subclass Filters */}
+          {availableClasses.length > 0 && (
+            <div className="flex flex-col gap-4 p-4 border rounded-lg bg-muted/30">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Filter by Class</Label>
+                <div className="flex flex-wrap gap-2">
+                  {availableClasses.map(cls => (
+                    <Badge
+                      key={cls}
+                      variant={selectedClasses.includes(cls) ? "default" : "outline"}
+                      className={`cursor-pointer text-sm py-1 px-3 transition-colors ${
+                        selectedClasses.includes(cls) 
+                          ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background" 
+                          : "hover:bg-muted"
+                      }`}
+                      onClick={() => toggleClass(cls)}
+                      data-testid={`badge-dark-class-${cls.toLowerCase()}`}
+                    >
+                      {cls}
+                    </Badge>
+                  ))}
+                  {selectedClasses.length > 0 && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setSelectedClasses([])}
+                      className="h-7"
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Filter by Subclass</Label>
+                <div className="flex flex-wrap gap-2">
+                  {availableSubClasses.map(cls => (
+                    <Badge
+                      key={cls}
+                      variant={selectedSubClasses.includes(cls) ? "default" : "outline"}
+                      className={`cursor-pointer text-sm py-1 px-3 transition-colors ${
+                        selectedSubClasses.includes(cls) 
+                          ? "bg-purple-600 text-white ring-2 ring-purple-500 ring-offset-1 ring-offset-background" 
+                          : "hover:bg-muted"
+                      }`}
+                      onClick={() => toggleSubClass(cls)}
+                      data-testid={`badge-dark-subclass-${cls.toLowerCase()}`}
+                    >
+                      {cls}
+                    </Badge>
+                  ))}
+                  {selectedSubClasses.length > 0 && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setSelectedSubClasses([])}
+                      className="h-7"
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid gap-4">
             {sortedPairs.slice(0, 100).map((pair, idx) => {

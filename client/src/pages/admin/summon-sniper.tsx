@@ -19,6 +19,7 @@ interface ProbabilityMap {
 
 interface SniperFilters {
   classes: string[];
+  subClasses: string[];
   professions: string[];
   activeSkills: string[];
   passiveSkills: string[];
@@ -193,6 +194,7 @@ function getTierName(tier: number): string {
 
 export default function SummonSniper() {
   const [selectedClasses, setSelectedClasses] = useState<string[]>(['Archer', 'Berserker', 'Knight', 'Priest', 'Seer', 'Warrior', 'Wizard', 'Pirate']);
+  const [selectedSubClasses, setSelectedSubClasses] = useState<string[]>([]);
   const [selectedProfessions, setSelectedProfessions] = useState<string[]>([]);
   const [selectedActiveSkills, setSelectedActiveSkills] = useState<string[]>([]);
   const [selectedPassiveSkills, setSelectedPassiveSkills] = useState<string[]>([]);
@@ -250,6 +252,7 @@ export default function SummonSniper() {
       
       const response = await apiRequest("POST", "/api/admin/sniper/search", {
         targetClasses: selectedClasses,
+        targetSubClasses: selectedSubClasses,
         targetProfessions: selectedProfessions,
         targetActiveSkills: selectedActiveSkills,
         targetPassiveSkills: selectedPassiveSkills,
@@ -294,6 +297,14 @@ export default function SummonSniper() {
 
   const toggleClass = (cls: string) => {
     setSelectedClasses(prev => 
+      prev.includes(cls) 
+        ? prev.filter(c => c !== cls)
+        : [...prev, cls]
+    );
+  };
+
+  const toggleSubClass = (cls: string) => {
+    setSelectedSubClasses(prev => 
       prev.includes(cls) 
         ? prev.filter(c => c !== cls)
         : [...prev, cls]
@@ -557,6 +568,32 @@ export default function SummonSniper() {
             {selectedClasses.length > 0 && (
               <p className="text-xs text-muted-foreground">
                 Selected: {selectedClasses.join(", ")}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <Label>Target Subclasses (select one or more - optional)</Label>
+            <div className="flex flex-wrap gap-2">
+              {sniperFilters?.filters?.subClasses?.map(cls => (
+                <Badge
+                  key={cls}
+                  variant={selectedSubClasses.includes(cls) ? "default" : "outline"}
+                  className={`cursor-pointer text-sm py-1 px-3 transition-colors ${
+                    selectedSubClasses.includes(cls) 
+                      ? "bg-purple-600 text-white ring-2 ring-purple-500 ring-offset-1 ring-offset-background" 
+                      : "hover:bg-muted"
+                  }`}
+                  onClick={() => toggleSubClass(cls)}
+                  data-testid={`badge-subclass-${cls.toLowerCase()}`}
+                >
+                  {cls}
+                </Badge>
+              ))}
+            </div>
+            {selectedSubClasses.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Selected: {selectedSubClasses.join(", ")}
               </p>
             )}
           </div>
