@@ -5,8 +5,58 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sparkles, ExternalLink, Loader2, RefreshCw, Calculator, Clock, X, Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+
+// Class tiers for mutation detection
+const CLASS_TIERS: { [key: string]: number } = {
+  // Basic classes (tier 0)
+  'Warrior': 0, 'Knight': 0, 'Thief': 0, 'Archer': 0,
+  'Priest': 0, 'Wizard': 0, 'Monk': 0, 'Pirate': 0,
+  // Advanced classes (tier 1)
+  'Paladin': 1, 'DarkKnight': 1, 'Summoner': 1, 'Ninja': 1,
+  'Shapeshifter': 1, 'Bard': 1, 'Seer': 1, 'Berserker': 1,
+  // Elite classes (tier 2)
+  'Dragoon': 2, 'Sage': 2, 'SpellBow': 2,
+  // Exalted classes (tier 3)
+  'DreadKnight': 3,
+};
+
+function getClassTier(className: string | null): number {
+  if (!className) return -1;
+  return CLASS_TIERS[className] ?? -1;
+}
+
+// Check if a pair has mutation potential (can produce higher tier offspring)
+function hasMutationPotential(hero1: SniperHero, hero2: SniperHero): { class: boolean; subClass: boolean } {
+  const h1ClassTier = getClassTier(hero1.mainClass);
+  const h2ClassTier = getClassTier(hero2.mainClass);
+  const h1SubClassTier = getClassTier(hero1.subClass);
+  const h2SubClassTier = getClassTier(hero2.subClass);
+  
+  // Check main class mutation potential (both parents same tier can mutate up)
+  const classMutation = h1ClassTier >= 0 && h2ClassTier >= 0 && 
+    h1ClassTier === h2ClassTier && h1ClassTier < 3;
+  
+  // Check subclass mutation potential
+  const subClassMutation = h1SubClassTier >= 0 && h2SubClassTier >= 0 && 
+    h1SubClassTier === h2SubClassTier && h1SubClassTier < 3;
+  
+  return { class: classMutation, subClass: subClassMutation };
+}
+
+// Get tier name for display
+function getTierName(tier: number): string {
+  switch (tier) {
+    case 0: return 'Basic';
+    case 1: return 'Advanced';
+    case 2: return 'Elite';
+    case 3: return 'Exalted';
+    default: return 'Unknown';
+  }
+}
 
 interface SniperHero {
   id: string;
@@ -83,6 +133,7 @@ export default function DarkBargainHunter() {
   const [minExaltedChance, setMinExaltedChance] = useState<number>(0);
   const [minMaxSlotExalted, setMinMaxSlotExalted] = useState<number>(0);
   const [sortBy, setSortBy] = useState<SortOption>("efficiency");
+  const [showMutationsOnly, setShowMutationsOnly] = useState(false); // Filter for mutation potential
   
   // Hidden heroes state - store hero IDs that have been hidden (purchased)
   const [hiddenHeroIds, setHiddenHeroIds] = useState<Set<string>>(() => {
@@ -172,6 +223,13 @@ export default function DarkBargainHunter() {
     if (minMaxSlotExalted > 0) {
       filtered = filtered.filter(pair => (pair.maxSlotExalted || 0) >= minMaxSlotExalted);
     }
+    // Filter for mutation potential if enabled
+    if (showMutationsOnly) {
+      filtered = filtered.filter(pair => {
+        const mutation = hasMutationPotential(pair.hero1, pair.hero2);
+        return mutation.class || mutation.subClass;
+      });
+    }
     // Sort based on selected option
     return filtered.sort((a, b) => {
       switch (sortBy) {
@@ -194,7 +252,7 @@ export default function DarkBargainHunter() {
           return (b.efficiency || 0) - (a.efficiency || 0);
       }
     });
-  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minSummonsRemaining, minEliteChance, minExaltedChance, minMaxSlotExalted, sortBy, hiddenHeroIds]);
+  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minSummonsRemaining, minEliteChance, minExaltedChance, minMaxSlotExalted, sortBy, hiddenHeroIds, showMutationsOnly]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -440,6 +498,19 @@ export default function DarkBargainHunter() {
                   </SelectContent>
                 </Select>
               </div>
+              {/* Mutation Filter Toggle */}
+              <div className="flex items-center gap-2 p-2 rounded-md border bg-muted/30">
+                <Switch
+                  id="show-mutations-only-dark"
+                  checked={showMutationsOnly}
+                  onCheckedChange={setShowMutationsOnly}
+                  data-testid="switch-mutations-only"
+                />
+                <Label htmlFor="show-mutations-only-dark" className="flex items-center gap-1.5 cursor-pointer text-sm">
+                  <Sparkles className="h-4 w-4 text-orange-400" />
+                  Mutation Potential Only
+                </Label>
+              </div>
             </div>
           </div>
 
@@ -474,6 +545,30 @@ export default function DarkBargainHunter() {
                             Best Slot: {pair.maxSlotExalted?.toFixed(1)}%
                           </Badge>
                         )}
+                        {(() => {
+                          const mutation = hasMutationPotential(pair.hero1, pair.hero2);
+                          if (mutation.class || mutation.subClass) {
+                            const h1Tier = getClassTier(pair.hero1.mainClass);
+                            const h1SubTier = getClassTier(pair.hero1.subClass);
+                            return (
+                              <>
+                                {mutation.class && (
+                                  <Badge variant="outline" className="bg-orange-500/20 text-orange-400 border-orange-500/50" data-testid={`badge-mutation-class-${idx}`}>
+                                    <Sparkles className="h-3 w-3 mr-1" />
+                                    Class: {getTierName(h1Tier)} → {getTierName(h1Tier + 1)}
+                                  </Badge>
+                                )}
+                                {mutation.subClass && (
+                                  <Badge variant="outline" className="bg-purple-500/20 text-purple-400 border-purple-500/50" data-testid={`badge-mutation-subclass-${idx}`}>
+                                    <Sparkles className="h-3 w-3 mr-1" />
+                                    Sub: {getTierName(h1SubTier)} → {getTierName(h1SubTier + 1)}
+                                  </Badge>
+                                )}
+                              </>
+                            );
+                          }
+                          return null;
+                        })()}
                         <Badge variant="outline" className="text-green-600">
                           ${pair.totalCostUsd?.toFixed(2)}
                         </Badge>

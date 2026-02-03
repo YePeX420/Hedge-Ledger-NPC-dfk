@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users, Link, Wallet, X, Trash2 } from "lucide-react";
+import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users, Link, Wallet, X, Trash2, Sparkles } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
@@ -143,6 +143,54 @@ const RARITIES = [
   { id: 4, name: 'Mythic' }
 ];
 
+// Class tiers for mutation detection
+const CLASS_TIERS: { [key: string]: number } = {
+  // Basic classes (tier 0)
+  'Warrior': 0, 'Knight': 0, 'Thief': 0, 'Archer': 0,
+  'Priest': 0, 'Wizard': 0, 'Monk': 0, 'Pirate': 0,
+  // Advanced classes (tier 1)
+  'Paladin': 1, 'DarkKnight': 1, 'Summoner': 1, 'Ninja': 1,
+  'Shapeshifter': 1, 'Bard': 1, 'Seer': 1, 'Berserker': 1,
+  // Elite classes (tier 2)
+  'Dragoon': 2, 'Sage': 2, 'SpellBow': 2,
+  // Exalted classes (tier 3)
+  'DreadKnight': 3,
+};
+
+function getClassTier(className: string | null): number {
+  if (!className) return -1;
+  return CLASS_TIERS[className] ?? -1;
+}
+
+// Check if a pair has mutation potential (can produce higher tier offspring)
+function hasMutationPotential(hero1: SniperHero, hero2: SniperHero): { class: boolean; subClass: boolean } {
+  const h1ClassTier = getClassTier(hero1.mainClass);
+  const h2ClassTier = getClassTier(hero2.mainClass);
+  const h1SubClassTier = getClassTier(hero1.subClass);
+  const h2SubClassTier = getClassTier(hero2.subClass);
+  
+  // Check main class mutation potential (both parents same tier can mutate up)
+  const classMutation = h1ClassTier >= 0 && h2ClassTier >= 0 && 
+    h1ClassTier === h2ClassTier && h1ClassTier < 3;
+  
+  // Check subclass mutation potential
+  const subClassMutation = h1SubClassTier >= 0 && h2SubClassTier >= 0 && 
+    h1SubClassTier === h2SubClassTier && h1SubClassTier < 3;
+  
+  return { class: classMutation, subClass: subClassMutation };
+}
+
+// Get tier name for display
+function getTierName(tier: number): string {
+  switch (tier) {
+    case 0: return 'Basic';
+    case 1: return 'Advanced';
+    case 2: return 'Elite';
+    case 3: return 'Exalted';
+    default: return 'Unknown';
+  }
+}
+
 export default function SummonSniper() {
   const [selectedClasses, setSelectedClasses] = useState<string[]>(['Archer', 'Berserker', 'Knight', 'Priest', 'Seer', 'Warrior', 'Wizard', 'Pirate']);
   const [selectedProfessions, setSelectedProfessions] = useState<string[]>([]);
@@ -168,6 +216,7 @@ export default function SummonSniper() {
   const [bridgeFeeUsd, setBridgeFeeUsd] = useState("0.50"); // Estimated bridge fee per hero in USD
   const [sortBy, setSortBy] = useState<"efficiency" | "chance" | "price" | "skillScore" | "levelValue">("efficiency");
   const [requireAllSkills, setRequireAllSkills] = useState(false); // AND mode for skills
+  const [showMutationsOnly, setShowMutationsOnly] = useState(false); // Filter for mutation potential
   
   // Hidden heroes state - store hero IDs that have been hidden (purchased)
   const [hiddenHeroIds, setHiddenHeroIds] = useState<Set<string>>(() => {
@@ -295,9 +344,18 @@ export default function SummonSniper() {
   const sortedPairs = useMemo(() => {
     if (!sniperResult?.pairs) return [];
     // Filter out pairs containing hidden heroes
-    const pairs = sniperResult.pairs.filter(pair => 
+    let pairs = sniperResult.pairs.filter(pair => 
       !hiddenHeroIds.has(pair.hero1.id) && !hiddenHeroIds.has(pair.hero2.id)
     );
+    
+    // Filter for mutation potential if enabled
+    if (showMutationsOnly) {
+      pairs = pairs.filter(pair => {
+        const mutation = hasMutationPotential(pair.hero1, pair.hero2);
+        return mutation.class || mutation.subClass;
+      });
+    }
+    
     switch (sortBy) {
       case "chance":
         return pairs.sort((a, b) => b.targetProbability - a.targetProbability);
@@ -316,7 +374,7 @@ export default function SummonSniper() {
       default:
         return pairs.sort((a, b) => b.efficiency - a.efficiency);
     }
-  }, [sniperResult?.pairs, sortBy, hiddenHeroIds]);
+  }, [sniperResult?.pairs, sortBy, hiddenHeroIds, showMutationsOnly]);
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -456,6 +514,25 @@ export default function SummonSniper() {
                 ? "Standard summoning with full token cost. Heroes must have summons remaining."
                 : "Dark summoning burns both heroes (1/4 cost). More summons = higher rarity chance."}
             </p>
+          </div>
+
+          {/* Mutation Filter Toggle */}
+          <div className="flex items-center gap-3 p-3 rounded-md border bg-muted/30">
+            <Switch
+              id="show-mutations-only"
+              checked={showMutationsOnly}
+              onCheckedChange={setShowMutationsOnly}
+              data-testid="switch-mutations-only"
+            />
+            <div className="flex-1">
+              <Label htmlFor="show-mutations-only" className="flex items-center gap-2 cursor-pointer">
+                <Sparkles className="h-4 w-4 text-orange-400" />
+                Show Mutation Potential Only
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Filter for pairs where both parents have matching class/subclass tiers that can mutate to a higher tier (Basic → Advanced → Elite → Exalted)
+              </p>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -902,9 +979,33 @@ export default function SummonSniper() {
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-4 flex-wrap">
                         <div className="flex-1 min-w-[200px]">
-                          <div className="flex items-center gap-2 mb-2">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
                             <Badge variant="secondary">#{idx + 1}</Badge>
                             <Badge variant="outline">{pair.realm === 'cv' ? 'Crystalvale' : 'Sundered Isles'}</Badge>
+                            {(() => {
+                              const mutation = hasMutationPotential(pair.hero1, pair.hero2);
+                              if (mutation.class || mutation.subClass) {
+                                const h1Tier = getClassTier(pair.hero1.mainClass);
+                                const h1SubTier = getClassTier(pair.hero1.subClass);
+                                return (
+                                  <>
+                                    {mutation.class && (
+                                      <Badge variant="outline" className="bg-orange-500/20 text-orange-400 border-orange-500/50" data-testid={`badge-mutation-class-${idx}`}>
+                                        <Sparkles className="h-3 w-3 mr-1" />
+                                        Class: {getTierName(h1Tier)} → {getTierName(h1Tier + 1)}
+                                      </Badge>
+                                    )}
+                                    {mutation.subClass && (
+                                      <Badge variant="outline" className="bg-purple-500/20 text-purple-400 border-purple-500/50" data-testid={`badge-mutation-subclass-${idx}`}>
+                                        <Sparkles className="h-3 w-3 mr-1" />
+                                        Sub: {getTierName(h1SubTier)} → {getTierName(h1SubTier + 1)}
+                                      </Badge>
+                                    )}
+                                  </>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                           
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
