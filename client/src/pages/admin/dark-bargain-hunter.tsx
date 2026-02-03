@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sparkles, ExternalLink, Loader2, RefreshCw, Calculator, Clock } from "lucide-react";
+import { Sparkles, ExternalLink, Loader2, RefreshCw, Calculator, Clock, X, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -83,6 +83,26 @@ export default function DarkBargainHunter() {
   const [minExaltedChance, setMinExaltedChance] = useState<number>(0);
   const [minMaxSlotExalted, setMinMaxSlotExalted] = useState<number>(0);
   const [sortBy, setSortBy] = useState<SortOption>("efficiency");
+  
+  // Hidden heroes state - store hero IDs that have been hidden (purchased)
+  const [hiddenHeroIds, setHiddenHeroIds] = useState<Set<string>>(() => {
+    const stored = localStorage.getItem('dark-bargain-hidden-heroes');
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  });
+  
+  const hideHero = (heroId: string) => {
+    setHiddenHeroIds(prev => {
+      const updated = new Set(prev);
+      updated.add(heroId);
+      localStorage.setItem('dark-bargain-hidden-heroes', JSON.stringify(Array.from(updated)));
+      return updated;
+    });
+  };
+  
+  const clearHiddenHeroes = () => {
+    setHiddenHeroIds(new Set());
+    localStorage.removeItem('dark-bargain-hidden-heroes');
+  };
 
   const { data: result, isLoading, refetch } = useQuery<CacheResult>({
     queryKey: ['/api/admin/bargain-cache', 'dark'],
@@ -120,7 +140,10 @@ export default function DarkBargainHunter() {
 
   const sortedPairs = useMemo(() => {
     if (!result?.pairs) return [];
-    let filtered = [...result.pairs];
+    // Filter out pairs containing hidden heroes
+    let filtered = result.pairs.filter(pair => 
+      !hiddenHeroIds.has(pair.hero1.id) && !hiddenHeroIds.has(pair.hero2.id)
+    );
     if (realmFilter !== "all") {
       filtered = filtered.filter(pair => pair.realm === realmFilter);
     }
@@ -171,7 +194,7 @@ export default function DarkBargainHunter() {
           return (b.efficiency || 0) - (a.efficiency || 0);
       }
     });
-  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minSummonsRemaining, minEliteChance, minExaltedChance, minMaxSlotExalted, sortBy]);
+  }, [result?.pairs, realmFilter, minRarityFilter, minLevelFilter, minSummonsRemaining, minEliteChance, minExaltedChance, minMaxSlotExalted, sortBy, hiddenHeroIds]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -234,6 +257,17 @@ export default function DarkBargainHunter() {
             )}
             Rebuild Cache
           </Button>
+          {hiddenHeroIds.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearHiddenHeroes}
+              data-testid="button-clear-hidden"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+              Clear {hiddenHeroIds.size} Hidden
+            </Button>
+          )}
         </div>
       </div>
 
@@ -451,16 +485,28 @@ export default function DarkBargainHunter() {
                       {[pair.hero1, pair.hero2].map((hero, i) => (
                         <div key={i} className="p-3 rounded-lg bg-muted/50">
                           <div className="flex items-center justify-between mb-2">
-                            <a
-                              href={`https://game.defikingdoms.com/marketplace/hero/${hero.id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="font-mono text-sm hover:underline flex items-center gap-1"
-                              data-testid={`link-hero-${hero.id}`}
-                            >
-                              #{hero.normalizedId}
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
+                            <div className="flex items-center gap-1">
+                              <a
+                                href={`https://game.defikingdoms.com/marketplace/hero/${hero.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-mono text-sm hover:underline flex items-center gap-1"
+                                data-testid={`link-hero-${hero.id}`}
+                              >
+                                #{hero.normalizedId}
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 text-muted-foreground hover:text-destructive"
+                                onClick={() => hideHero(hero.id)}
+                                title="Hide this hero (already purchased)"
+                                data-testid={`button-hide-${hero.id}`}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
                             <Badge variant="outline" className={getRarityColor(hero.rarity)}>
                               {getRarityName(hero.rarity)}
                             </Badge>

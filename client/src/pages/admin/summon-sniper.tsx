@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users, Link, Wallet } from "lucide-react";
+import { Target, Filter, TrendingUp, ExternalLink, Loader2, Info, User, Users, Link, Wallet, X, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
@@ -168,6 +168,26 @@ export default function SummonSniper() {
   const [bridgeFeeUsd, setBridgeFeeUsd] = useState("0.50"); // Estimated bridge fee per hero in USD
   const [sortBy, setSortBy] = useState<"efficiency" | "chance" | "price" | "skillScore" | "levelValue">("efficiency");
   const [requireAllSkills, setRequireAllSkills] = useState(false); // AND mode for skills
+  
+  // Hidden heroes state - store hero IDs that have been hidden (purchased)
+  const [hiddenHeroIds, setHiddenHeroIds] = useState<Set<string>>(() => {
+    const stored = localStorage.getItem('summon-sniper-hidden-heroes');
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  });
+  
+  const hideHero = (heroId: string) => {
+    setHiddenHeroIds(prev => {
+      const updated = new Set(prev);
+      updated.add(heroId);
+      localStorage.setItem('summon-sniper-hidden-heroes', JSON.stringify(Array.from(updated)));
+      return updated;
+    });
+  };
+  
+  const clearHiddenHeroes = () => {
+    setHiddenHeroIds(new Set());
+    localStorage.removeItem('summon-sniper-hidden-heroes');
+  };
 
   const { data: sniperFilters } = useQuery<{ ok: boolean; filters: SniperFilters }>({
     queryKey: ['/api/admin/sniper/filters']
@@ -271,10 +291,13 @@ export default function SummonSniper() {
     return colors[rarity] || 'text-gray-400';
   };
 
-  // Sort pairs based on selected sort option
+  // Sort pairs based on selected sort option and filter out hidden heroes
   const sortedPairs = useMemo(() => {
     if (!sniperResult?.pairs) return [];
-    const pairs = [...sniperResult.pairs];
+    // Filter out pairs containing hidden heroes
+    const pairs = sniperResult.pairs.filter(pair => 
+      !hiddenHeroIds.has(pair.hero1.id) && !hiddenHeroIds.has(pair.hero2.id)
+    );
     switch (sortBy) {
       case "chance":
         return pairs.sort((a, b) => b.targetProbability - a.targetProbability);
@@ -293,7 +316,7 @@ export default function SummonSniper() {
       default:
         return pairs.sort((a, b) => b.efficiency - a.efficiency);
     }
-  }, [sniperResult?.pairs, sortBy]);
+  }, [sniperResult?.pairs, sortBy, hiddenHeroIds]);
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -778,10 +801,22 @@ export default function SummonSniper() {
               <TrendingUp className="h-5 w-5" />
               {sniperResult.userHero ? 'Best Tavern Matches' : 'Best Hero Pairs'}
               <Badge variant="outline" className="ml-2">
-                {sniperResult.pairs.length} {sniperResult.userHero ? 'matches' : 'pairs'} from {sniperResult.totalHeroes} heroes
+                {sortedPairs.length} {sniperResult.userHero ? 'matches' : 'pairs'} from {sniperResult.totalHeroes} heroes
               </Badge>
               {sniperResult.searchParams?.summonType === 'dark' && (
                 <Badge className="bg-purple-600 text-white">Dark Summon</Badge>
+              )}
+              {hiddenHeroIds.size > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearHiddenHeroes}
+                  className="ml-auto"
+                  data-testid="button-clear-hidden"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Clear {hiddenHeroIds.size} Hidden
+                </Button>
               )}
             </CardTitle>
             
@@ -896,6 +931,16 @@ export default function SummonSniper() {
                                   <Badge variant="outline" className="text-[10px] px-1 py-0">
                                     {pair.hero1.realm === 'cv' ? 'CV' : 'SD'}
                                   </Badge>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5 ml-1 text-muted-foreground hover:text-destructive"
+                                    onClick={() => hideHero(pair.hero1.id)}
+                                    title="Hide this hero (already purchased)"
+                                    data-testid={`button-hide-hero1-${pair.hero1.id}`}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
                                 </div>
                                 <div className={getRarityColor(pair.hero1.rarity)}>
                                   {getRarityName(pair.hero1.rarity)} {pair.hero1.mainClass}
@@ -923,6 +968,16 @@ export default function SummonSniper() {
                                 <Badge variant="outline" className="text-[10px] px-1 py-0">
                                   {pair.hero2.realm === 'cv' ? 'CV' : 'SD'}
                                 </Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 ml-1 text-muted-foreground hover:text-destructive"
+                                  onClick={() => hideHero(pair.hero2.id)}
+                                  title="Hide this hero (already purchased)"
+                                  data-testid={`button-hide-hero2-${pair.hero2.id}`}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
                               </div>
                               <div className={getRarityColor(pair.hero2.rarity)}>
                                 {getRarityName(pair.hero2.rarity)} {pair.hero2.mainClass}
