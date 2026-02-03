@@ -10161,11 +10161,16 @@ async function startAdminWebServer() {
   app.get("/api/admin/sniper/filters", isAdmin, async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
+      const { CLASSES } = await import('./src/data/summoningGenetics.js');
       
-      // Get distinct values from tavern_heroes
-      const [classesResult, subClassesResult, professionsResult, realmsResult, priceRangeResult, levelRangeResult, tsRangeResult] = await Promise.all([
-        rawPg`SELECT DISTINCT main_class FROM tavern_heroes WHERE main_class IS NOT NULL ORDER BY main_class`,
-        rawPg`SELECT DISTINCT sub_class FROM tavern_heroes WHERE sub_class IS NOT NULL ORDER BY sub_class`,
+      // Get canonical class list from summoningGenetics.js (ensures Sage, Dragoon, DreadKnight always available)
+      const canonicalClasses = Object.values(CLASSES);
+      
+      // Get dynamic values from tavern_heroes for professions, realms, and ranges
+      // Also get any classes from DB in case there are variants not in canonical list
+      const [dbClassesResult, dbSubClassesResult, professionsResult, realmsResult, priceRangeResult, levelRangeResult, tsRangeResult] = await Promise.all([
+        rawPg`SELECT DISTINCT main_class FROM tavern_heroes WHERE main_class IS NOT NULL`,
+        rawPg`SELECT DISTINCT sub_class FROM tavern_heroes WHERE sub_class IS NOT NULL`,
         rawPg`SELECT DISTINCT profession FROM tavern_heroes WHERE profession IS NOT NULL ORDER BY profession`,
         rawPg`SELECT DISTINCT realm FROM tavern_heroes ORDER BY realm`,
         rawPg`SELECT MIN(price_native) as min_price, MAX(price_native) as max_price FROM tavern_heroes WHERE price_native > 0`,
@@ -10173,8 +10178,11 @@ async function startAdminWebServer() {
         rawPg`SELECT MIN(trait_score) as min_ts, MAX(trait_score) as max_ts FROM tavern_heroes`
       ]);
 
-      const classes = classesResult.map(r => r.main_class);
-      const subClasses = subClassesResult.map(r => r.sub_class);
+      // Union canonical classes with any DB classes to ensure all are included
+      const dbClasses = dbClassesResult.map(r => r.main_class);
+      const dbSubClasses = dbSubClassesResult.map(r => r.sub_class);
+      const classes = [...new Set([...canonicalClasses, ...dbClasses])].sort();
+      const subClasses = [...new Set([...canonicalClasses, ...dbSubClasses])].sort(); // Same classes can be subclasses
       const professions = professionsResult.map(r => r.profession);
       const realms = realmsResult.map(r => r.realm);
       const priceRange = priceRangeResult[0] || { min_price: 0, max_price: 10000 };
