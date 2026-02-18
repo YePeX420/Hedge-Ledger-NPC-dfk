@@ -44,6 +44,7 @@ interface CombatPet {
   totalStars: number;
   salePriceRaw: string;
   salePriceJewel: number;
+  priceCurrency: string;
   topRollPercent: number | null;
   topRollMaxValue: number | null;
   ownerName: string;
@@ -511,7 +512,7 @@ export default function CombatPetsShop() {
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs">Min Price (JEWEL)</Label>
+                <Label className="text-xs">Min Price</Label>
                 <Input
                   type="number"
                   min="0"
@@ -524,7 +525,7 @@ export default function CombatPetsShop() {
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs">Max Price (JEWEL)</Label>
+                <Label className="text-xs">Max Price</Label>
                 <Input
                   type="number"
                   min="0"
@@ -612,7 +613,7 @@ function PetCard({ pet }: { pet: CombatPet }) {
           </div>
           <div className="text-right flex-shrink-0">
             <div className="font-bold text-sm" data-testid={`text-price-${pet.id}`}>
-              {formatJewel(pet.salePriceJewel)} J
+              {formatJewel(pet.salePriceJewel)} {pet.priceCurrency === 'CRYSTAL' ? 'C' : 'J'}
             </div>
             <div className="text-xs text-muted-foreground">
               <StarDisplay count={pet.totalStars} max={9} />
@@ -757,7 +758,7 @@ function PetTable({ pets }: { pets: CombatPet[] }) {
               <td className="p-2">{pet.profBonusName} ({pet.profBonusScalar}%)</td>
               <td className="p-2 text-center"><StarDisplay count={pet.profBonusStars} /></td>
               <td className="p-2">{pet.craftBonusName}</td>
-              <td className="p-2 text-right font-medium">{formatJewel(pet.salePriceJewel)}</td>
+              <td className="p-2 text-right font-medium">{formatJewel(pet.salePriceJewel)} {pet.priceCurrency === 'CRYSTAL' ? 'C' : 'J'}</td>
               <td className="p-2 text-center">{pet.shiny ? "Yes" : ""}</td>
               <td className="p-2 text-center">
                 <a

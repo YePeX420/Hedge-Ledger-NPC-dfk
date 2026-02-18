@@ -9960,18 +9960,20 @@ async function startAdminWebServer() {
         const tierData = combatBonusRef[combatBonusName][String(combatBonusStars)];
         if (tierData && tierData.maxValue) {
           topRollMaxValue = tierData.maxValue;
-          topRollPercent = Math.round((combatBonusScalar / topRollMaxValue) * 10000) / 100;
+          topRollPercent = Math.min(100, Math.round((combatBonusScalar / topRollMaxValue) * 10000) / 100);
         }
       }
 
       const salePriceWei = pet.salePrice || '0';
       const salePriceJewel = Number(BigInt(salePriceWei)) / 1e18;
+      const currentRealm = pet.currentRealm;
+      const priceCurrency = currentRealm === 'CRY' ? 'CRYSTAL' : 'JEWEL';
 
       return {
         id: pet.id,
         normalizedId: pet.normalizedId,
         originRealm: pet.originRealm,
-        currentRealm: pet.currentRealm,
+        currentRealm,
         rarity,
         rarityName: RARITY_MAP[rarity] || 'Unknown',
         element,
@@ -10001,6 +10003,7 @@ async function startAdminWebServer() {
         totalStars,
         salePriceRaw: salePriceWei,
         salePriceJewel,
+        priceCurrency,
         topRollPercent,
         topRollMaxValue,
         ownerName: pet.owner?.name || null,

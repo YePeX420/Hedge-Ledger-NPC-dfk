@@ -115,11 +115,11 @@
   },
   "Cleansing Aura": {
     "2": {
-      "maxValue": 8,
+      "maxValue": 11,
       "description": "Every [] turns, Cleanse a random debuffed party member."
     },
     "3": {
-      "maxValue": 4,
+      "maxValue": 6,
       "description": "Every [] turns, Cleanse a random debuffed party member."
     }
   },
@@ -533,7 +533,7 @@
   },
   "Purifying Aura": {
     "3": {
-      "maxValue": 8,
+      "maxValue": 12,
       "description": "Every [] turns, Purify a random debuffed party member."
     }
   },
@@ -545,7 +545,7 @@
   },
   "Rebalance": {
     "3": {
-      "maxValue": 1.2,
+      "maxValue": 12,
       "description": "Channel 600 Initiative.\\nDeal ([]*POWER) damage to each target enemy.\\nHeal each party member for ([]*POWER).\\nLose 600 Initiative."
     }
   },
@@ -729,7 +729,7 @@
   },
   "Thwack": {
     "3": {
-      "maxValue": 1.2,
+      "maxValue": 12,
       "description": "Deal ([]*POWER) damage to target enemy.\\n50% chance to Stun target."
     }
   },
