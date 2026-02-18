@@ -131,6 +131,7 @@ export default function CombatPetsShop() {
   const [filterMinPrice, setFilterMinPrice] = useState<string>("");
   const [filterCombatOnly, setFilterCombatOnly] = useState<boolean>(false);
   const [filterRealm, setFilterRealm] = useState<string>("all");
+  const [filterCombatStarTier, setFilterCombatStarTier] = useState<string>("all");
 
   const { data: petsResponse, isLoading, error, isFetching } = useQuery<{ ok: boolean; pets: CombatPet[]; count: number }>({
     queryKey: ["/api/admin/combat-pets"],
@@ -159,6 +160,7 @@ export default function CombatPetsShop() {
     if (filterSeason !== "all") result = result.filter(p => p.seasonName === filterSeason);
     if (filterBackground !== "all") result = result.filter(p => p.background === parseInt(filterBackground));
     if (filterCombatBonusName !== "all") result = result.filter(p => p.combatBonusName === filterCombatBonusName);
+    if (filterCombatStarTier !== "all") result = result.filter(p => p.combatBonusStars === parseInt(filterCombatStarTier));
     if (filterProfBonusName !== "all") result = result.filter(p => p.profBonusName === filterProfBonusName);
     if (filterCraftBonusName !== "all") result = result.filter(p => p.craftBonusName === filterCraftBonusName);
     if (filterRealm !== "all") result = result.filter(p => p.currentRealm === filterRealm);
@@ -196,7 +198,7 @@ export default function CombatPetsShop() {
     });
 
     return result;
-  }, [pets, filterRarity, filterShiny, filterEggType, filterElement, filterSeason, filterBackground, filterCombatBonusName, filterProfBonusName, filterCraftBonusName, filterMinCombatStars, filterMinProfStars, filterMinCraftStars, filterMinTotalStars, filterMinTopRoll, filterMaxPrice, filterMinPrice, filterCombatOnly, filterRealm, sortBy]);
+  }, [pets, filterRarity, filterShiny, filterEggType, filterElement, filterSeason, filterBackground, filterCombatBonusName, filterCombatStarTier, filterProfBonusName, filterCraftBonusName, filterMinCombatStars, filterMinProfStars, filterMinCraftStars, filterMinTotalStars, filterMinTopRoll, filterMaxPrice, filterMinPrice, filterCombatOnly, filterRealm, sortBy]);
 
   const resetFilters = () => {
     setSortBy("price-asc");
@@ -207,6 +209,7 @@ export default function CombatPetsShop() {
     setFilterSeason("all");
     setFilterBackground("all");
     setFilterCombatBonusName("all");
+    setFilterCombatStarTier("all");
     setFilterProfBonusName("all");
     setFilterCraftBonusName("all");
     setFilterMinCombatStars("0");
@@ -228,6 +231,7 @@ export default function CombatPetsShop() {
     filterSeason !== "all",
     filterBackground !== "all",
     filterCombatBonusName !== "all",
+    filterCombatStarTier !== "all",
     filterProfBonusName !== "all",
     filterCraftBonusName !== "all",
     parseInt(filterMinCombatStars) > 0,
@@ -402,6 +406,19 @@ export default function CombatPetsShop() {
                     {uniqueValues.combatNames.map(n => (
                       <SelectItem key={n} value={n}>{n}</SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Combat Stars</Label>
+                <Select value={filterCombatStarTier} onValueChange={setFilterCombatStarTier}>
+                  <SelectTrigger data-testid="select-combat-star-tier"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any</SelectItem>
+                    <SelectItem value="1">1 Star</SelectItem>
+                    <SelectItem value="2">2 Stars</SelectItem>
+                    <SelectItem value="3">3 Stars</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
