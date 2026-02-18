@@ -9763,7 +9763,7 @@ async function startAdminWebServer() {
   // ============================================================================
 
   let combatPetsCache = { data: null, timestamp: 0 };
-  const COMBAT_PETS_CACHE_TTL = 120000;
+  const COMBAT_PETS_CACHE_TTL = 300000;
 
   async function fetchCombatPetsForSale() {
     if (combatPetsCache.data && (Date.now() - combatPetsCache.timestamp) < COMBAT_PETS_CACHE_TTL) {
@@ -9871,42 +9871,64 @@ async function startAdminWebServer() {
       return (skills && skills[bonusId]) || 'Unknown';
     }
 
-    const query = gql`{
-      pets(
-        first: 1000,
-        orderBy: salePrice,
-        orderDirection: asc,
-        where: {
-          salePrice_not: null
-        }
-      ) {
-        id
-        normalizedId
-        originRealm
-        currentRealm
-        rarity
-        element
-        season
-        eggType
-        appearance
-        background
-        shiny
-        bonusCount
-        profBonus
-        profBonusScalar
-        craftBonus
-        craftBonusScalar
-        combatBonus
-        combatBonusScalar
-        salePrice
-        owner {
-          name
+    const PAGE_SIZE = 1000;
+    let allRawPets = [];
+    let skip = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const query = gql`{
+        pets(
+          first: ${PAGE_SIZE},
+          skip: ${skip},
+          orderBy: salePrice,
+          orderDirection: asc,
+          where: {
+            salePrice_not: null
+          }
+        ) {
           id
+          normalizedId
+          originRealm
+          currentRealm
+          rarity
+          element
+          season
+          eggType
+          appearance
+          background
+          shiny
+          bonusCount
+          profBonus
+          profBonusScalar
+          craftBonus
+          craftBonusScalar
+          combatBonus
+          combatBonusScalar
+          salePrice
+          owner {
+            name
+            id
+          }
+        }
+      }`;
+
+      const pageResult = await dfkClient.request(query);
+      const batch = pageResult.pets || [];
+      allRawPets = allRawPets.concat(batch);
+      console.log(`[Combat Pets] Fetched page ${Math.floor(skip / PAGE_SIZE) + 1}: ${batch.length} pets (total: ${allRawPets.length})`);
+
+      if (batch.length < PAGE_SIZE) {
+        hasMore = false;
+      } else {
+        skip += PAGE_SIZE;
+        if (skip >= 5000) {
+          hasMore = false;
         }
       }
-    }`;
+    }
 
-    const result = await dfkClient.request(query);
+    const result = { pets: allRawPets };
     const pets = (result.pets || []).map(pet => {
       const rarity = Number(pet.rarity);
       const element = Number(pet.element);
