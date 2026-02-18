@@ -1,0 +1,788 @@
+{
+  "Amplify": {
+    "2": {
+      "maxValue": 10,
+      "description": "All party Delay effects gain +[]% resistance to Negate."
+    },
+    "3": {
+      "maxValue": 25,
+      "description": "All party Delay effects gain +[]% resistance to Negate."
+    }
+  },
+  "Arcane Shell": {
+    "1": {
+      "maxValue": 2,
+      "description": "Increase Spell Block by +[]%."
+    },
+    "2": {
+      "maxValue": 5,
+      "description": "Increase Spell Block by +[]%."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "Increase Spell Block by +[]%."
+    }
+  },
+  "Attuned": {
+    "1": {
+      "maxValue": 2,
+      "description": "Increase SPELL by []%."
+    },
+    "2": {
+      "maxValue": 5,
+      "description": "Increase SPELL by []%."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "Increase SPELL by []%."
+    }
+  },
+  "Beastly Roar": {
+    "3": {
+      "maxValue": 60,
+      "description": "Channel 600 Initiative.\\nTarget each enemy. On hit:\\n[]% chance to inflict Daze to each target.\\n80% chance to Intimidate each target by 15% for 2 turns."
+    }
+  },
+  "Befuddle": {
+    "2": {
+      "maxValue": 2,
+      "description": "On hit, []% chance to Confuse target."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to Confuse target."
+    }
+  },
+  "Blur": {
+    "2": {
+      "maxValue": 2,
+      "description": "Increase Speed by []%."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "Increase Speed by []%."
+    }
+  },
+  "Bop": {
+    "2": {
+      "maxValue": 2,
+      "description": "On hit, []% chance to Daze target."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to Daze target."
+    }
+  },
+  "Brave": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Fear by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Fear by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Fear by +[]%."
+    }
+  },
+  "Brick Wall": {
+    "3": {
+      "maxValue": 10,
+      "description": "Increase P.RED by +[]%."
+    }
+  },
+  "Bruise": {
+    "2": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to reduce target's P.DEF by 20% for 15 ticks."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "On hit, []% chance to reduce target's P.DEF by 20% for 15 ticks."
+    }
+  },
+  "Char": {
+    "2": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to Burn target."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "On hit, []% chance to Burn target."
+    }
+  },
+  "Cleansing Aura": {
+    "2": {
+      "maxValue": 8,
+      "description": "Every [] turns, Cleanse a random debuffed party member."
+    },
+    "3": {
+      "maxValue": 4,
+      "description": "Every [] turns, Cleanse a random debuffed party member."
+    }
+  },
+  "Confident": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Intimidate by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Intimidate by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Intimidate by +[]%."
+    }
+  },
+  "Conservative": {
+    "2": {
+      "maxValue": 8,
+      "description": "[]% chance to reduce cost of current skill by 40% (rounded down)."
+    },
+    "3": {
+      "maxValue": 20,
+      "description": "[]% chance to reduce cost of current skill by 40% (rounded down)."
+    }
+  },
+  "Diamond Hands": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Disarm by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Disarm by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Disarm by +[]%."
+    }
+  },
+  "Divine Intervention": {
+    "2": {
+      "maxValue": 2,
+      "description": "Increase Critical Heal chance by +[]%."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "Increase Critical Heal chance by +[]%."
+    }
+  },
+  "Expose": {
+    "2": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to reduce target's M.DEF by 20% for 15 ticks."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "On hit, []% chance to reduce target's M.DEF by 20% for 15 ticks."
+    }
+  },
+  "Flash": {
+    "2": {
+      "maxValue": 3,
+      "description": "On hit, []% chance to reduce target's P.ACC by 10% for 15 ticks."
+    },
+    "3": {
+      "maxValue": 6,
+      "description": "On hit, []% chance to reduce target's P.ACC by 10% for 15 ticks."
+    }
+  },
+  "Flow State": {
+    "2": {
+      "maxValue": 5,
+      "description": "While Channeling, this Hero gains []% EVA. "
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "While Channeling, this Hero gains []% EVA. "
+    }
+  },
+  "Foil": {
+    "3": {
+      "maxValue": 85,
+      "description": "Target enemy. On hit:\\n90% chance to Dispel target.\\n90% chance to Dispel target.\\n[]% chance to Negate a single random Delayed action previously cast by target."
+    }
+  },
+  "Freeze": {
+    "2": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to Chill target."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "On hit, []% chance to Chill target."
+    }
+  },
+  "Gash": {
+    "2": {
+      "maxValue": 3,
+      "description": "On hit, []% chance to inflict target with Bleed."
+    },
+    "3": {
+      "maxValue": 6,
+      "description": "On hit, []% chance to inflict target with Bleed."
+    }
+  },
+  "Good Eye": {
+    "2": {
+      "maxValue": 2,
+      "description": "Increase P.ACC by +[]%."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "Increase P.ACC by +[]%."
+    }
+  },
+  "Gouge": {
+    "2": {
+      "maxValue": 2,
+      "description": "On hit, []% chance to inflict target with Blind."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to inflict target with Blind."
+    }
+  },
+  "Graceful": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Push and Pull by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Push and Pull by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Push and Pull by +[]%."
+    }
+  },
+  "Guardian Shell": {
+    "3": {
+      "maxValue": 15,
+      "description": "Each Party Member gains a Barrier equal to []% of target's max HP."
+    }
+  },
+  "Harder Head": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Stun by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Stun by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Stun by +[]%."
+    }
+  },
+  "Hard Head": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Daze by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Daze by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Daze by +[]%."
+    }
+  },
+  "Hardy Constitution": {
+    "2": {
+      "maxValue": 8,
+      "description": "Increase SER by +[]%."
+    },
+    "3": {
+      "maxValue": 15,
+      "description": "Increase SER by +[]%."
+    }
+  },
+  "Healing Bond": {
+    "3": {
+      "maxValue": 15,
+      "description": "Target Party Member gains:\\nAt the start of the next 3 turns, heal for []% of max HP.\\nStack Limit 1."
+    }
+  },
+  "Heavy Hide": {
+    "1": {
+      "maxValue": 8,
+      "description": "Increase P.DEF by []%."
+    },
+    "2": {
+      "maxValue": 15,
+      "description": "Increase P.DEF by []%."
+    },
+    "3": {
+      "maxValue": 30,
+      "description": "Increase P.DEF by []%."
+    }
+  },
+  "Hobble": {
+    "2": {
+      "maxValue": 2,
+      "description": "On hit, []% chance to Slow target by 25% for 30 ticks."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to Slow target by 25% for 30 ticks."
+    }
+  },
+  "Hush": {
+    "2": {
+      "maxValue": 3,
+      "description": "On hit, []% chance to Silence target for 1 turn."
+    },
+    "3": {
+      "maxValue": 6,
+      "description": "On hit, []% chance to Silence target for 1 turn."
+    }
+  },
+  "Impenetrable": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Bleed by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Bleed by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Bleed by +[]%."
+    }
+  },
+  "Infect": {
+    "2": {
+      "maxValue": 2,
+      "description": "On hit, []% chance to inflict target with Poison."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to inflict target with Poison."
+    }
+  },
+  "Inner Lids": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Blind by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Blind by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Blind by +[]%."
+    }
+  },
+  "Insulated": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Chill by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Chill by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Chill by +[]%."
+    }
+  },
+  "Intercept": {
+    "2": {
+      "maxValue": 3,
+      "description": "[]% chance to Negate enemy Delay actions at the moment they are cast."
+    },
+    "3": {
+      "maxValue": 8,
+      "description": "[]% chance to Negate enemy Delay actions at the moment they are cast."
+    }
+  },
+  "Lick Wounds": {
+    "2": {
+      "maxValue": 5,
+      "description": "[]% chance to Heal for 10% of missing HP each turn."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "[]% chance to Heal for 10% of missing HP each turn."
+    }
+  },
+  "Lucid": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Confuse by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Confuse by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Confuse by +[]%."
+    }
+  },
+  "Magical Shell": {
+    "1": {
+      "maxValue": 8,
+      "description": "Increase M.DEF by []%."
+    },
+    "2": {
+      "maxValue": 15,
+      "description": "Increase M.DEF by []%."
+    },
+    "3": {
+      "maxValue": 30,
+      "description": "Increase M.DEF by []%."
+    }
+  },
+  "Maul": {
+    "3": {
+      "maxValue": 12,
+      "description": "Deal ([]*POWER) damage to target enemy.\\n60% chance to inflict target with Bleed.\\n60% chance to inflict target with Bleed.\\n60% chance to inflict target with Bleed.\\n60% chance to inflict target with Bleed.\\n60% chance to inflict target with Bleed. "
+    }
+  },
+  "Meat Shield": {
+    "2": {
+      "maxValue": 12,
+      "description": "On this Hero's 5th turn and every 10 turns thereafter, gain a Barrier with HP up to []% of this Hero's current HP or the amount needed to reach a final Barrier HP of 30% of this Hero's max HP, whichever is lower."
+    },
+    "3": {
+      "maxValue": 30,
+      "description": "On this Hero's 5th turn and every 10 turns thereafter, gain a Barrier with HP up to []% of this Hero's current HP or the amount needed to reach a final Barrier HP of 30% of this Hero's max HP, whichever is lower."
+    }
+  },
+  "Moist": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Burn by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Burn by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Burn by +[]%."
+    }
+  },
+  "Mystify": {
+    "2": {
+      "maxValue": 3,
+      "description": "On hit, []% chance to reduce target's M.ACC by 10% for 15 ticks."
+    },
+    "3": {
+      "maxValue": 6,
+      "description": "On hit, []% chance to reduce target's M.ACC by 10% for 15 ticks."
+    }
+  },
+  "Null Field": {
+    "3": {
+      "maxValue": 10,
+      "description": "Increase M.RED by +[]%."
+    }
+  },
+  "Omni Shell": {
+    "2": {
+      "maxValue": 15,
+      "description": "Increase P.DEF and M.DEF by []%."
+    },
+    "3": {
+      "maxValue": 30,
+      "description": "Increase P.DEF and M.DEF by []%."
+    }
+  },
+  "Outspoken": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Silence by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Silence by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Silence by +[]%."
+    }
+  },
+  "Petrify": {
+    "2": {
+      "maxValue": 2,
+      "description": "On hit, []% chance to Fear target for 1 turn."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to Fear target for 1 turn."
+    }
+  },
+  "Protective Coat": {
+    "3": {
+      "maxValue": 10,
+      "description": "Decrease durability loss chance by []% on the first roll."
+    }
+  },
+  "Purifying Aura": {
+    "3": {
+      "maxValue": 8,
+      "description": "Every [] turns, Purify a random debuffed party member."
+    }
+  },
+  "Quicksand": {
+    "3": {
+      "maxValue": 70,
+      "description": "Channel 600 Initiative.\\nDeal (0.5*POWER) damage to each enemy.\\n[]% chance to Slow each target by 20% for 25 ticks."
+    }
+  },
+  "Rebalance": {
+    "3": {
+      "maxValue": 1.2,
+      "description": "Channel 600 Initiative.\\nDeal ([]*POWER) damage to each target enemy.\\nHeal each party member for ([]*POWER).\\nLose 600 Initiative."
+    }
+  },
+  "Recuperate": {
+    "1": {
+      "maxValue": 2,
+      "description": "Increase Recovery by +[]%."
+    },
+    "2": {
+      "maxValue": 5,
+      "description": "Increase Recovery by +[]%."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "Increase Recovery by +[]%."
+    }
+  },
+  "Reflector": {
+    "3": {
+      "maxValue": 10,
+      "description": "[]% chance to Reflect 30% of damage received."
+    }
+  },
+  "Relentless": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Slow by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Slow by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Slow by +[]%."
+    }
+  },
+  "Rescuer": {
+    "2": {
+      "maxValue": 5,
+      "description": "[]% chance to Heal the ally with the lowest HP ratio for 10% of target's missing HP each turn."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "[]% chance to Heal the ally with the lowest HP ratio for 10% of target's missing HP each turn."
+    }
+  },
+  "Resilient": {
+    "1": {
+      "maxValue": 10,
+      "description": "Increase resistence to Poison by +[]%."
+    },
+    "2": {
+      "maxValue": 20,
+      "description": "Increase resistence to Poison by +[]%."
+    },
+    "3": {
+      "maxValue": 40,
+      "description": "Increase resistence to Poison by +[]%."
+    }
+  },
+  "Rune Sniffer": {
+    "2": {
+      "maxValue": 10,
+      "description": "Increase chance of receiving runes from combat (when available) by X%."
+    },
+    "3": {
+      "maxValue": 25,
+      "description": "Increase chance of receiving runes from combat (when available) by X%."
+    }
+  },
+  "Scavenger": {
+    "3": {
+      "maxValue": 25,
+      "description": "Increase chance of receiving rare loot from combat (when available) by X%."
+    }
+  },
+  "Sharpened Claws": {
+    "1": {
+      "maxValue": 2,
+      "description": "Increase ATTACK by []%."
+    },
+    "2": {
+      "maxValue": 5,
+      "description": "Increase ATTACK by []%."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "Increase ATTACK by []%."
+    }
+  },
+  "Shock": {
+    "2": {
+      "maxValue": 1,
+      "description": "On hit, []% chance to Stun target 1 turn."
+    },
+    "3": {
+      "maxValue": 3,
+      "description": "On hit, []% chance to Stun target 1 turn."
+    }
+  },
+  "Skin of Teeth": {
+    "3": {
+      "maxValue": 1,
+      "description": "The first time this Hero's HP would be reduced below 1, set this Hero's HP to 1 instead."
+    }
+  },
+  "Slippery": {
+    "2": {
+      "maxValue": 2,
+      "description": "Increase EVA by +[]%."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "Increase EVA by +[]%."
+    }
+  },
+  "Stone Hide": {
+    "1": {
+      "maxValue": 2,
+      "description": "Increase Block by +[]%."
+    },
+    "2": {
+      "maxValue": 5,
+      "description": "Increase Block by +[]%."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "Increase Block by +[]%."
+    }
+  },
+  "Studious": {
+    "1": {
+      "maxValue": 8,
+      "description": "Increase XP gained from combat by []%."
+    },
+    "2": {
+      "maxValue": 15,
+      "description": "Increase XP gained from combat by []%."
+    },
+    "3": {
+      "maxValue": 30,
+      "description": "Increase XP gained from combat by []%."
+    }
+  },
+  "Super Meat Shield": {
+    "2": {
+      "maxValue": 5,
+      "description": "On this Hero's 5th turn and every 10 turns thereafter, party members gain a Barrier with HP equal to []% of this Hero's current HP or the amount needed to reach a final Barrier HP of 30% of target's max HP, whichever is lower."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "On this Hero's 5th turn and every 10 turns thereafter, party members gain a Barrier with HP equal to []% of this Hero's current HP or the amount needed to reach a final Barrier HP of 30% of target's max HP, whichever is lower."
+    }
+  },
+  "Swift Cast": {
+    "3": {
+      "maxValue": 20,
+      "description": "[]% chance to reduce Channeling time by 30%."
+    }
+  },
+  "Third Eye": {
+    "2": {
+      "maxValue": 2,
+      "description": "Increase M.ACC by +[]%."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "Increase M.ACC by +[]%."
+    }
+  },
+  "Threaten": {
+    "2": {
+      "maxValue": 2,
+      "description": "On hit, []% chance to Intimidate target by 10% for 2 turns."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to Intimidate target by 10% for 2 turns."
+    }
+  },
+  "Thwack": {
+    "3": {
+      "maxValue": 1.2,
+      "description": "Deal ([]*POWER) damage to target enemy.\\n50% chance to Stun target."
+    }
+  },
+  "Total Recall": {
+    "3": {
+      "maxValue": 30,
+      "description": "[]% chance to reduce Amnesia from each skill used by 1."
+    }
+  },
+  "Tug": {
+    "2": {
+      "maxValue": 5,
+      "description": "On hit, []% chance to Pull target 1."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "On hit, []% chance to Pull target 1."
+    }
+  },
+  "Ultra Conservative": {
+    "3": {
+      "maxValue": 10,
+      "description": "[]% chance to reduce cost of current skill by 80% (rounded down)."
+    }
+  },
+  "Vampiric": {
+    "2": {
+      "maxValue": 4,
+      "description": "Gain +[]% Lifesteal."
+    },
+    "3": {
+      "maxValue": 10,
+      "description": "Gain +[]% Lifesteal."
+    }
+  },
+  "Vorpal Soul": {
+    "1": {
+      "maxValue": 1,
+      "description": "Increase CSC by +[]%."
+    },
+    "2": {
+      "maxValue": 3,
+      "description": "Increase CSC by +[]%."
+    },
+    "3": {
+      "maxValue": 5,
+      "description": "Increase CSC by +[]%."
+    }
+  },
+  "Zoomy": {
+    "3": {
+      "maxValue": 15,
+      "description": "[]% chance to gain 200 Initiative after each turn."
+    }
+  }
+}
