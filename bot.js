@@ -9873,19 +9873,22 @@ async function startAdminWebServer() {
 
     const PAGE_SIZE = 1000;
     let allRawPets = [];
-    let skip = 0;
+    let lastId = '';
+    let pageNum = 0;
     let hasMore = true;
 
     while (hasMore) {
+      pageNum++;
+      const whereClause = lastId
+        ? `{ salePrice_not: null, id_gt: "${lastId}" }`
+        : `{ salePrice_not: null }`;
+
       const query = gql`{
         pets(
           first: ${PAGE_SIZE},
-          skip: ${skip},
-          orderBy: salePrice,
+          orderBy: id,
           orderDirection: asc,
-          where: {
-            salePrice_not: null
-          }
+          where: ${whereClause}
         ) {
           id
           normalizedId
@@ -9916,18 +9919,16 @@ async function startAdminWebServer() {
       const pageResult = await dfkClient.request(query);
       const batch = pageResult.pets || [];
       allRawPets = allRawPets.concat(batch);
-      console.log(`[Combat Pets] Fetched page ${Math.floor(skip / PAGE_SIZE) + 1}: ${batch.length} pets (total: ${allRawPets.length})`);
+      console.log(`[Combat Pets] Fetched page ${pageNum}: ${batch.length} pets (total: ${allRawPets.length})`);
 
       if (batch.length < PAGE_SIZE) {
         hasMore = false;
       } else {
-        skip += PAGE_SIZE;
-        if (skip >= 5000) {
-          hasMore = false;
-        }
+        lastId = batch[batch.length - 1].id;
       }
     }
 
+    console.log(`[Combat Pets] Complete: ${allRawPets.length} total pets for sale`);
     const result = { pets: allRawPets };
     const pets = (result.pets || []).map(pet => {
       const rarity = Number(pet.rarity);
