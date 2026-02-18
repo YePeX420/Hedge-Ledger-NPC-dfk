@@ -46,6 +46,7 @@ import AdminPVEDropRates from "@/pages/admin/pve-droprates";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
 import CombatClasses from "@/pages/admin/combat-classes";
 import HedgePlansAccess from "@/pages/admin/hedge-plans-access";
+import AdminCombatPets from "@/pages/admin/combat-pets";
 import UserAccessManagement from "@/pages/admin/user-access";
 import UserLogin from "@/pages/user-login";
 import UserDashboardPage from "@/pages/user/dashboard";
@@ -354,6 +355,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminProfitTracker />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/combat-pets">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminCombatPets />
           </ProtectedAdminPage>
         )}
       </Route>

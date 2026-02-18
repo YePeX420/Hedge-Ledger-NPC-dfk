@@ -52,6 +52,7 @@ const AVAILABLE_TABS = [
   { id: 'summon-sniper', label: 'Summon Sniper', description: 'Breeding pair finder' },
   { id: 'tavern-sniper', label: 'Tavern Sniper', description: 'Hero marketplace search' },
   { id: 'gardening-calculator', label: 'Gardening Calculator', description: 'Garden rewards estimator' },
+  { id: 'combat-pets', label: 'Combat Pets Shop', description: 'Pet marketplace with top roll analysis' },
 ];
 
 export default function UserAccessManagement() {

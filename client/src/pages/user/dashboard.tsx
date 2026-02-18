@@ -15,6 +15,7 @@ import {
   Calculator, 
   Target, 
   Beer,
+  Swords,
   Clock,
   AlertTriangle,
   User
@@ -75,6 +76,12 @@ const TAB_CONFIG: Record<string, { label: string; icon: any; href: string; descr
     icon: Calculator, 
     href: '/user/gardening-calculator',
     description: 'Estimate gardening rewards'
+  },
+  'combat-pets': { 
+    label: 'Combat Pets Shop', 
+    icon: Swords, 
+    href: '/user/combat-pets',
+    description: 'Find top combat pets for sale'
   },
 };
 

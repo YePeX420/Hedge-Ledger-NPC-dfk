@@ -9759,6 +9759,257 @@ async function startAdminWebServer() {
   });
 
   // ============================================================================
+  // COMBAT PETS FOR SALE ENDPOINTS
+  // ============================================================================
+
+  let combatPetsCache = { data: null, timestamp: 0 };
+  const COMBAT_PETS_CACHE_TTL = 120000;
+
+  async function fetchCombatPetsForSale() {
+    if (combatPetsCache.data && (Date.now() - combatPetsCache.timestamp) < COMBAT_PETS_CACHE_TTL) {
+      return combatPetsCache.data;
+    }
+
+    const { GraphQLClient, gql } = await import('graphql-request');
+    const dfkClient = new GraphQLClient('https://api.defikingdoms.com/graphql');
+
+    const combatBonusRef = JSON.parse(fs.readFileSync('src/data/combatPetBonusReference.json', 'utf8'));
+
+    const RARITY_MAP = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary', 4: 'Mythic' };
+    const ELEMENT_MAP = { 0: 'Fire', 1: 'Water', 2: 'Earth', 3: 'Wind', 4: 'Lightning', 5: 'Ice', 6: 'Light', 7: 'Dark' };
+    const SEASON_MAP = { 0: 'Genesis', 1: 'Season 1', 2: 'Season 2', 3: 'Season 3', 4: 'Season 4' };
+    const EGG_TYPE_NAMES = { 0: 'Blue Egg', 1: 'Grey Egg', 2: 'Green Egg', 3: 'Mining Egg' };
+    const EGG_GATHERING = { 0: 'Fishing', 1: 'Foraging', 2: 'Gardening', 3: 'Mining' };
+
+    const COMBAT_BASE = {
+      0: 'None', 1: '[Unused]', 2: 'Stone Hide', 3: 'Arcane Shell', 4: 'Recuperate',
+      5: 'Magical Shell', 6: 'Heavy Hide', 7: 'Vorpal Soul', 8: 'Sharpened Claws',
+      9: 'Attuned', 10: 'Hard Head', 11: 'Harder Head', 12: 'Graceful', 13: 'Diamond Hands',
+      14: 'Impenetrable', 15: 'Resilient', 16: 'Relentless', 17: 'Outspoken', 18: 'Lucid',
+      19: 'Brave', 20: 'Confident', 21: 'Inner Lids', 22: 'Insulated', 23: 'Moist', 24: 'Studious',
+      25: 'Slippery', 26: 'Blur', 27: 'Divine Intervention', 28: 'Rune Sniffer', 29: 'Threaten',
+      30: 'Hobble', 31: 'Shock', 32: 'Bop', 33: 'Hush', 34: 'Befuddle', 35: 'Petrify',
+      36: 'Tug', 37: 'Gash', 38: 'Infect', 39: 'Gouge', 40: 'Bruise', 41: 'Expose',
+      42: 'Flash', 43: 'Mystify', 44: 'Freeze', 45: 'Char', 46: 'Good Eye', 47: 'Third Eye',
+      48: 'Omni Shell', 49: 'Hardy Constitution', 50: 'Vampiric', 51: 'Meat Shield',
+      52: 'Super Meat Shield', 53: 'Flow State', 54: 'Cleansing Aura', 55: 'Lick Wounds',
+      56: 'Rescuer', 57: 'Amplify', 58: 'Intercept', 59: 'Conservative',
+      60: 'Scavenger', 61: 'Ultra Conservative', 62: 'Reflector', 63: 'Null Field',
+      64: 'Brick Wall', 65: 'Purifying Aura', 66: 'Swift Cast', 67: 'Total Recall',
+      68: 'Zoomy', 69: 'Skin of Teeth', 70: 'Rebalance', 71: 'Guardian Shell',
+      72: 'Healing Bond', 73: 'Foil', 74: 'Quicksand', 75: 'Beastly Roar',
+      76: 'Maul', 77: 'Thwack', 78: 'Protective Coat'
+    };
+
+    const COMBAT_DESCS = {
+      'None': 'No combat skill', '[Unused]': 'Unused skill slot',
+      'Stone Hide': 'Increase Physical Block by +{bonus}%', 'Arcane Shell': 'Increase Spell Block by +{bonus}%',
+      'Recuperate': 'Restore {bonus}% HP at end of each turn', 'Magical Shell': 'Reduce magic damage taken by {bonus}%',
+      'Heavy Hide': 'Reduce physical damage taken by {bonus}%', 'Vorpal Soul': 'Increase critical hit damage by {bonus}%',
+      'Sharpened Claws': 'Increase physical attack by {bonus}%', 'Attuned': 'Increase magic attack by {bonus}%',
+      'Hard Head': 'Reduce stun duration by {bonus}%', 'Harder Head': 'Immune to stun {bonus}% of the time',
+      'Graceful': 'Increase evasion by {bonus}%', 'Diamond Hands': 'Reduce fumble chance by {bonus}%',
+      'Impenetrable': 'Reduce critical hits received by {bonus}%', 'Resilient': 'Reduce debuff duration by {bonus}%',
+      'Relentless': 'Increase attack speed by {bonus}%', 'Outspoken': 'Increase taunt effectiveness by {bonus}%',
+      'Lucid': 'Reduce confusion duration by {bonus}%', 'Brave': 'Reduce fear effects by {bonus}%',
+      'Confident': 'Increase hit chance by {bonus}%', 'Inner Lids': 'Reduce blind duration by {bonus}%',
+      'Insulated': 'Reduce lightning damage taken by {bonus}%', 'Moist': 'Reduce fire damage taken by {bonus}%',
+      'Studious': 'Increase XP gained by {bonus}%',
+      'Slippery': 'Chance to avoid status effects by {bonus}%', 'Blur': 'Increase dodge chance by {bonus}%',
+      'Divine Intervention': '{bonus}% chance to survive fatal blow', 'Rune Sniffer': 'Increase rune discovery by {bonus}%',
+      'Threaten': 'Reduce enemy attack by {bonus}%', 'Hobble': 'Reduce enemy speed by {bonus}%',
+      'Shock': '{bonus}% chance to stun on hit', 'Bop': '{bonus}% chance to daze on hit',
+      'Hush': '{bonus}% chance to silence on hit', 'Befuddle': '{bonus}% chance to confuse on hit',
+      'Petrify': '{bonus}% chance to petrify on hit', 'Tug': '{bonus}% chance to pull target on hit',
+      'Gash': '{bonus}% chance to bleed on hit', 'Infect': '{bonus}% chance to poison on hit',
+      'Gouge': '{bonus}% chance to blind on hit', 'Bruise': '{bonus}% chance to weaken on hit',
+      'Expose': '{bonus}% chance to reduce armor on hit', 'Flash': '{bonus}% chance to flash on hit',
+      'Mystify': '{bonus}% chance to mystify on hit', 'Freeze': '{bonus}% chance to freeze on hit',
+      'Char': '{bonus}% chance to burn on hit', 'Good Eye': 'Increase accuracy by {bonus}%',
+      'Third Eye': 'Increase magic accuracy by {bonus}%', 'Omni Shell': 'Increase all damage resistance by {bonus}%',
+      'Hardy Constitution': 'Increase max HP by {bonus}%', 'Vampiric': 'Heal {bonus}% of damage dealt',
+      'Meat Shield': 'Redirect {bonus}% of ally damage to self', 'Super Meat Shield': 'Redirect {bonus}% of all ally damage to self',
+      'Flow State': 'Increase energy regeneration by {bonus}%', 'Cleansing Aura': '{bonus}% chance to remove debuffs each turn',
+      'Lick Wounds': 'Heal {bonus}% HP when below 25% HP', 'Rescuer': '{bonus}% chance to protect low HP allies',
+      'Amplify': 'Increase buff effectiveness by {bonus}%', 'Intercept': '{bonus}% chance to intercept attacks on allies',
+      'Conservative': 'Reduce ability costs by {bonus}%',
+      'Scavenger': 'Increase loot drop chance by {bonus}%', 'Ultra Conservative': 'Reduce all ability costs by {bonus}%',
+      'Reflector': 'Reflect {bonus}% of damage taken', 'Null Field': 'Reduce enemy buff effectiveness by {bonus}%',
+      'Brick Wall': 'Reduce knockback taken by {bonus}%', 'Purifying Aura': 'Remove {bonus}% of debuffs from allies each turn',
+      'Swift Cast': 'Reduce cast time by {bonus}%', 'Total Recall': 'Reduce ability cooldowns by {bonus}%',
+      'Zoomy': 'Increase movement speed by {bonus}%', 'Skin of Teeth': '{bonus}% chance to survive with 1 HP',
+      'Rebalance': 'Equalize party HP by {bonus}%', 'Guardian Shell': 'Shield allies for {bonus}% of max HP',
+      'Healing Bond': 'Share {bonus}% of healing received with allies', 'Foil': '{bonus}% chance to counter attack',
+      'Quicksand': 'Slow enemies by {bonus}%', 'Beastly Roar': 'Increase party attack by {bonus}%',
+      'Maul': '{bonus}% chance to deal double damage', 'Thwack': '{bonus}% chance to knockback on hit',
+      'Protective Coat': 'Reduce all damage taken by {bonus}%'
+    };
+
+    const GATHER_SKILLS = {
+      0: { 1: 'Unrevealed', 2: 'Efficient Angler', 3: 'Bountiful Catch', 4: 'Keen Eye', 5: 'Fortune Seeker', 6: 'Clutch Collector', 7: 'Runic Discoveries', 8: 'Skilled Angler', 9: 'Astute Angler', 10: 'Bonus Bounty', 11: "Gaia's Chosen", 80: 'Unrevealed', 81: 'Efficient Angler', 82: 'Bountiful Catch', 83: 'Keen Eye', 84: 'Fortune Seeker', 85: 'Clutch Collector', 86: 'Runic Discoveries', 87: 'Skilled Angler', 88: 'Astute Angler', 89: 'Bonus Bounty', 90: "Gaia's Chosen", 160: 'Unrevealed', 161: 'Efficient Angler', 162: 'Bountiful Catch', 163: 'Keen Eye', 164: 'Fortune Seeker', 165: 'Clutch Collector', 166: 'Runic Discoveries', 167: 'Skilled Angler', 168: 'Astute Angler', 169: 'Bonus Bounty', 170: "Gaia's Chosen", 171: 'Innate Angler' },
+      1: { 1: 'Unrevealed', 2: 'Efficient Scavenger', 3: 'Bountiful Haul', 4: 'Keen Eye', 5: 'Fortune Seeker', 6: 'Clutch Collector', 7: 'Runic Discoveries', 8: 'Skilled Scavenger', 9: 'Astute Scavenger', 10: 'Bonus Bounty', 11: "Gaia's Chosen", 80: 'Unrevealed', 81: 'Efficient Scavenger', 82: 'Bountiful Haul', 83: 'Keen Eye', 84: 'Fortune Seeker', 85: 'Clutch Collector', 86: 'Runic Discoveries', 87: 'Skilled Scavenger', 88: 'Astute Scavenger', 89: 'Bonus Bounty', 90: "Gaia's Chosen", 160: 'Unrevealed', 161: 'Efficient Scavenger', 162: 'Bountiful Haul', 163: 'Keen Eye', 164: 'Fortune Seeker', 165: 'Clutch Collector', 166: 'Runic Discoveries', 167: 'Skilled Scavenger', 168: 'Astute Scavenger', 169: 'Bonus Bounty', 170: "Gaia's Chosen", 171: 'Innate Scavenger' },
+      2: { 1: 'Unrevealed', 2: 'Efficient Greenskeeper', 3: 'Bountiful Harvest', 4: 'Second Chance', 5: 'Clutch Collector', 6: 'Runic Discoveries', 7: 'Skilled Greenskeeper', 8: 'Astute Greenskeeper', 9: 'Bonus Bounty', 10: "Gaia's Chosen", 80: 'Unrevealed', 81: 'Efficient Greenskeeper', 82: 'Bountiful Harvest', 83: 'Second Chance', 84: 'Clutch Collector', 85: 'Runic Discoveries', 86: 'Skilled Greenskeeper', 87: 'Astute Greenskeeper', 88: 'Bonus Bounty', 89: "Gaia's Chosen", 90: 'Power Surge', 160: 'Unrevealed', 161: 'Efficient Greenskeeper', 162: 'Bountiful Harvest', 163: 'Second Chance', 164: 'Clutch Collector', 165: 'Runic Discoveries', 166: 'Skilled Greenskeeper', 167: 'Astute Greenskeeper', 168: 'Bonus Bounty', 169: "Gaia's Chosen", 170: 'Power Surge', 171: 'Innate Greenskeeper' }
+    };
+
+    const CRAFT_NAMES = { 0: 'None', 1: 'Blacksmith', 2: 'Jeweler', 3: 'Alchemist', 4: 'Leatherworker', 5: 'Tailor', 6: 'Enchanter', 7: 'Stone Mason', 8: 'Woodworker' };
+
+    function getCombatName(rawId) {
+      if (rawId >= 160) return COMBAT_BASE[rawId - 159] || `Unknown (${rawId})`;
+      if (rawId >= 80) return COMBAT_BASE[rawId - 79] || `Unknown (${rawId})`;
+      return COMBAT_BASE[rawId] || `Unknown (${rawId})`;
+    }
+
+    function getStars(rawId) {
+      if (rawId >= 160) return 3;
+      if (rawId >= 80) return 2;
+      if (rawId >= 1) return 1;
+      return 0;
+    }
+
+    function getGatherName(eggType, bonusId) {
+      const skills = GATHER_SKILLS[eggType];
+      return (skills && skills[bonusId]) || 'Unknown';
+    }
+
+    const query = gql`{
+      pets(
+        first: 1000,
+        orderBy: salePrice,
+        orderDirection: asc,
+        where: {
+          salePrice_not: null
+        }
+      ) {
+        id
+        normalizedId
+        originRealm
+        currentRealm
+        rarity
+        element
+        season
+        eggType
+        appearance
+        background
+        shiny
+        bonusCount
+        profBonus
+        profBonusScalar
+        craftBonus
+        craftBonusScalar
+        combatBonus
+        combatBonusScalar
+        salePrice
+        owner {
+          name
+          id
+        }
+      }
+    }`;
+
+    const result = await dfkClient.request(query);
+    const pets = (result.pets || []).map(pet => {
+      const rarity = Number(pet.rarity);
+      const element = Number(pet.element);
+      const season = Number(pet.season);
+      const eggType = Number(pet.eggType);
+      const profBonusRaw = Number(pet.profBonus);
+      const profBonusScalar = Number(pet.profBonusScalar);
+      const craftBonusRaw = Number(pet.craftBonus);
+      const craftBonusScalar = Number(pet.craftBonusScalar);
+      const combatBonus = Number(pet.combatBonus);
+      const combatBonusScalar = Number(pet.combatBonusScalar);
+
+      const profBonus = profBonusRaw % 10000;
+      const craftBonus = craftBonusRaw % 10000;
+
+      const profBonusStars = getStars(profBonus);
+      const craftBonusStars = getStars(craftBonus);
+      const combatBonusStars = getStars(combatBonus);
+      const totalStars = profBonusStars + craftBonusStars + combatBonusStars;
+
+      const combatBonusName = getCombatName(combatBonus);
+      const descTemplate = COMBAT_DESCS[combatBonusName] || null;
+      const combatBonusDescription = descTemplate ? descTemplate.replace('{bonus}', String(combatBonusScalar)) : null;
+
+      let topRollPercent = null;
+      let topRollMaxValue = null;
+      if (combatBonusStars > 0 && combatBonusRef[combatBonusName]) {
+        const tierData = combatBonusRef[combatBonusName][String(combatBonusStars)];
+        if (tierData && tierData.maxValue) {
+          topRollMaxValue = tierData.maxValue;
+          topRollPercent = Math.round((combatBonusScalar / topRollMaxValue) * 10000) / 100;
+        }
+      }
+
+      const salePriceWei = pet.salePrice || '0';
+      const salePriceJewel = Number(BigInt(salePriceWei)) / 1e18;
+
+      return {
+        id: pet.id,
+        normalizedId: pet.normalizedId,
+        originRealm: pet.originRealm,
+        currentRealm: pet.currentRealm,
+        rarity,
+        rarityName: RARITY_MAP[rarity] || 'Unknown',
+        element,
+        elementName: ELEMENT_MAP[element] || 'Unknown',
+        season,
+        seasonName: SEASON_MAP[season] || 'Unknown',
+        eggType,
+        eggTypeName: EGG_TYPE_NAMES[eggType] || 'Unknown',
+        gatheringType: EGG_GATHERING[eggType] || 'Unknown',
+        appearance: Number(pet.appearance),
+        background: Number(pet.background),
+        shiny: Boolean(pet.shiny),
+        bonusCount: Number(pet.bonusCount),
+        profBonus,
+        profBonusScalar,
+        profBonusStars,
+        profBonusName: getGatherName(eggType, profBonus),
+        craftBonus,
+        craftBonusScalar,
+        craftBonusStars,
+        craftBonusName: CRAFT_NAMES[craftBonus] || CRAFT_NAMES[craftBonus % 80] || 'Unknown',
+        combatBonus,
+        combatBonusScalar,
+        combatBonusStars,
+        combatBonusName,
+        combatBonusDescription,
+        totalStars,
+        salePriceRaw: salePriceWei,
+        salePriceJewel,
+        topRollPercent,
+        topRollMaxValue,
+        ownerName: pet.owner?.name || null,
+        ownerId: pet.owner?.id || null
+      };
+    });
+
+    combatPetsCache = { data: pets, timestamp: Date.now() };
+    return pets;
+  }
+
+  app.get('/api/admin/combat-pets', isAdmin, async (req, res) => {
+    try {
+      const pets = await fetchCombatPetsForSale();
+      res.json({ ok: true, pets, count: pets.length });
+    } catch (error) {
+      console.error('[Combat Pets] Fetch error:', error.message);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.get('/api/user/combat-pets', isUser, async (req, res) => {
+    try {
+      const pets = await fetchCombatPetsForSale();
+      res.json({ ok: true, pets, count: pets.length });
+    } catch (error) {
+      console.error('[Combat Pets] Fetch error:', error.message);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // ============================================================================
   // SUMMON PROFIT TRACKER ENDPOINTS
   // ============================================================================
 

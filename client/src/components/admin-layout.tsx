@@ -70,6 +70,7 @@ const navItems = [
   { href: '/admin/tavern-sniper', label: 'Tavern Sniper', icon: Beer },
   { href: '/admin/bargain-hunter', label: 'Bargain Hunter', icon: Zap },
   { href: '/admin/dark-bargain-hunter', label: 'Dark Bargain Hunter', icon: Sparkles },
+  { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: Swords },
   { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
   { href: '/admin/market-intel', label: 'Market Intel', icon: TrendingUp },
   { href: '/admin/profit-tracker', label: 'Profit Tracker', icon: DollarSign },
