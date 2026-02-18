@@ -401,7 +401,7 @@ export default function CombatPetsShop() {
                 <Label className="text-xs">Combat Bonus</Label>
                 <Select value={filterCombatBonusName} onValueChange={setFilterCombatBonusName}>
                   <SelectTrigger data-testid="select-combat-bonus"><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-60">
                     <SelectItem value="all">All</SelectItem>
                     {uniqueValues.combatNames.map(n => (
                       <SelectItem key={n} value={n}>{n}</SelectItem>
@@ -427,7 +427,7 @@ export default function CombatPetsShop() {
                 <Label className="text-xs">Prof. Bonus</Label>
                 <Select value={filterProfBonusName} onValueChange={setFilterProfBonusName}>
                   <SelectTrigger data-testid="select-prof-bonus"><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-60">
                     <SelectItem value="all">All</SelectItem>
                     {uniqueValues.profNames.map(n => (
                       <SelectItem key={n} value={n}>{n}</SelectItem>
@@ -440,7 +440,7 @@ export default function CombatPetsShop() {
                 <Label className="text-xs">Craft Bonus</Label>
                 <Select value={filterCraftBonusName} onValueChange={setFilterCraftBonusName}>
                   <SelectTrigger data-testid="select-craft-bonus"><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-60">
                     <SelectItem value="all">All</SelectItem>
                     {uniqueValues.craftNames.map(n => (
                       <SelectItem key={n} value={n}>{n}</SelectItem>
