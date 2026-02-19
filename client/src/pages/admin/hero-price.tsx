@@ -56,18 +56,22 @@ interface HeroData {
 }
 
 interface EstimatedValue {
-  fairValue: number;
-  buyBelow: number;
-  sellAbove: number;
-  premiumPrice: number;
-  bargainPrice: number;
+  fairValue: number | null;
+  askMedian: number | null;
+  buyBelow: number | null;
+  sellAbove: number | null;
+  premiumPrice: number | null;
+  bargainPrice: number | null;
   token: string;
   confidence: string;
   matchTier: string;
   matchTierLabel?: string;
   dataSource?: string;
+  estimateType?: 'SOLD' | 'ASK' | 'NONE';
   sampleSize: number;
   priceVariation: number;
+  warnings?: string[];
+  warning?: string;
 }
 
 interface FlipOpportunity {
@@ -102,11 +106,13 @@ interface HeroPriceResult {
   ok: boolean;
   hero?: HeroData;
   estimatedValue?: EstimatedValue | null;
+  estimateType?: 'SOLD' | 'ASK' | 'NONE';
   flipOpportunity?: FlipOpportunity | null;
   comparableSales?: ComparableSale[];
   matchTier?: string;
   matchTierLabel?: string;
   dataSource?: string;
+  warnings?: string[];
   error?: string;
 }
 
@@ -336,17 +342,23 @@ export default function HeroPricePage() {
                   <div className="rounded-md border border-green-500/30 bg-green-500/5 p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <ShoppingCart className="h-4 w-4 text-green-500" />
-                      <span className="text-sm font-medium">Buy Prices</span>
+                      <span className="text-sm font-medium">
+                        {estimate.estimateType === 'ASK' ? 'Low Asks' : 'Buy Prices'}
+                      </span>
                     </div>
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Bargain</span>
+                        <span className="text-sm text-muted-foreground">
+                          {estimate.estimateType === 'ASK' ? 'Lowest Ask' : 'Bargain'}
+                        </span>
                         <span className="font-bold text-green-500" data-testid="text-bargain-price">
                           {formatPrice(estimate.bargainPrice)} {estimate.token}
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Buy Below</span>
+                        <span className="text-sm text-muted-foreground">
+                          {estimate.estimateType === 'ASK' ? 'Lower Range' : 'Buy Below'}
+                        </span>
                         <span className="font-medium" data-testid="text-buy-below">
                           {formatPrice(estimate.buyBelow)} {estimate.token}
                         </span>
@@ -354,16 +366,20 @@ export default function HeroPricePage() {
                     </div>
                   </div>
 
-                  <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-4">
+                  <div className={`rounded-md border p-4 ${estimate.estimateType === 'ASK' ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-blue-500/30 bg-blue-500/5'}`}>
                     <div className="flex items-center gap-2 mb-3">
-                      <BarChart3 className="h-4 w-4 text-blue-500" />
-                      <span className="text-sm font-medium">Fair Value</span>
+                      <BarChart3 className={`h-4 w-4 ${estimate.estimateType === 'ASK' ? 'text-yellow-500' : 'text-blue-500'}`} />
+                      <span className="text-sm font-medium">
+                        {estimate.estimateType === 'ASK' ? 'Ask-Based Estimate' : 'Fair Value'}
+                      </span>
                     </div>
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Estimated</span>
-                        <span className="font-bold text-blue-500 text-lg" data-testid="text-fair-value">
-                          {formatPrice(estimate.fairValue)} {estimate.token}
+                        <span className="text-sm text-muted-foreground">
+                          {estimate.estimateType === 'ASK' ? 'Median Ask' : 'Estimated'}
+                        </span>
+                        <span className={`font-bold text-lg ${estimate.estimateType === 'ASK' ? 'text-yellow-500' : 'text-blue-500'}`} data-testid="text-fair-value">
+                          {formatPrice(estimate.estimateType === 'ASK' ? estimate.askMedian : estimate.fairValue)} {estimate.token}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
@@ -375,8 +391,8 @@ export default function HeroPricePage() {
                         </Badge>
                         <span>{estimate.sampleSize} comps</span>
                         <span>{estimate.matchTierLabel || estimate.matchTier}</span>
-                        {estimate.dataSource === 'listings' && (
-                          <Badge variant="outline" className="text-xs">listing-based</Badge>
+                        {estimate.estimateType === 'ASK' && (
+                          <Badge variant="outline" className="text-xs border-yellow-500/50 text-yellow-600 dark:text-yellow-400">Ask-side only</Badge>
                         )}
                       </div>
                     </div>
@@ -385,17 +401,23 @@ export default function HeroPricePage() {
                   <div className="rounded-md border border-orange-500/30 bg-orange-500/5 p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <Tag className="h-4 w-4 text-orange-500" />
-                      <span className="text-sm font-medium">Sell Prices</span>
+                      <span className="text-sm font-medium">
+                        {estimate.estimateType === 'ASK' ? 'High Asks' : 'Sell Prices'}
+                      </span>
                     </div>
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Sell Above</span>
+                        <span className="text-sm text-muted-foreground">
+                          {estimate.estimateType === 'ASK' ? 'Upper Range' : 'Sell Above'}
+                        </span>
                         <span className="font-medium" data-testid="text-sell-above">
                           {formatPrice(estimate.sellAbove)} {estimate.token}
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Premium</span>
+                        <span className="text-sm text-muted-foreground">
+                          {estimate.estimateType === 'ASK' ? 'Highest Ask' : 'Premium'}
+                        </span>
                         <span className="font-bold text-orange-500" data-testid="text-premium-price">
                           {formatPrice(estimate.premiumPrice)} {estimate.token}
                         </span>
@@ -405,7 +427,34 @@ export default function HeroPricePage() {
                 </div>
               )}
 
-              {flip && (
+              {!estimate && priceResult?.estimateType === 'NONE' && (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="rounded-md border border-muted/30 bg-muted/5 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium text-muted-foreground">Buy Prices</span>
+                    </div>
+                    <div className="text-center py-2 text-lg font-medium text-muted-foreground" data-testid="text-buy-na">N/A</div>
+                  </div>
+                  <div className="rounded-md border border-muted/30 bg-muted/5 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium text-muted-foreground">Fair Value</span>
+                    </div>
+                    <div className="text-center py-2 text-lg font-medium text-muted-foreground" data-testid="text-fair-value-na">N/A</div>
+                    <div className="text-center text-xs text-muted-foreground">No comparable data available</div>
+                  </div>
+                  <div className="rounded-md border border-muted/30 bg-muted/5 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Tag className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium text-muted-foreground">Sell Prices</span>
+                    </div>
+                    <div className="text-center py-2 text-lg font-medium text-muted-foreground" data-testid="text-sell-na">N/A</div>
+                  </div>
+                </div>
+              )}
+
+              {flip && priceResult?.estimateType === 'SOLD' && (
                 <Card className={flip.isUnderpriced ? 'border-green-500/50' : ''}>
                   <CardContent className="pt-4">
                     <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -449,12 +498,22 @@ export default function HeroPricePage() {
                 </div>
               )}
 
-              {estimate?.dataSource === 'listings' && (
-                <div className="rounded-md border border-orange-500/40 bg-orange-500/10 p-3 flex items-start gap-2" data-testid="warning-data-source">
-                  <BarChart3 className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+              {priceResult?.estimateType === 'ASK' && (
+                <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 flex items-start gap-2" data-testid="warning-ask-side">
+                  <BarChart3 className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
                   <div className="text-sm">
-                    <span className="font-medium text-orange-600 dark:text-orange-400">Listing-Based Estimate</span>
-                    <span className="text-muted-foreground"> — No recent sales data available. Price is based on current tavern listings, which may not reflect actual market value. Confidence has been downgraded accordingly.</span>
+                    <span className="font-medium text-yellow-600 dark:text-yellow-400">Ask-Side Only</span>
+                    <span className="text-muted-foreground"> — No confirmed sales data available. This estimate is based on current tavern listing prices (what sellers are asking), not actual trade prices. Confidence has been downgraded. Do not use for flip profit calculations.</span>
+                  </div>
+                </div>
+              )}
+
+              {priceResult?.estimateType === 'NONE' && (
+                <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 flex items-start gap-2" data-testid="warning-no-data">
+                  <BarChart3 className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <span className="font-medium text-red-600 dark:text-red-400">Insufficient Data</span>
+                    <span className="text-muted-foreground"> — No comparable sales or active listings found for this hero type. Run the auction pipeline and tavern indexer to build more pricing data.</span>
                   </div>
                 </div>
               )}
@@ -504,7 +563,7 @@ export default function HeroPricePage() {
                 </Card>
               )}
 
-              {!estimate && (
+              {!estimate && !priceResult?.estimateType && (
                 <div className="text-center py-4 text-muted-foreground">
                   No comparable data found. Run the tavern indexer and ingestion cycles to build pricing data.
                 </div>
@@ -513,7 +572,7 @@ export default function HeroPricePage() {
               {comps.length > 0 && (
                 <div>
                   <h4 className="text-sm font-medium mb-2">
-                    {priceResult?.dataSource === 'listings' ? 'Comparable Listings' : 'Comparable Sales'} ({comps.length})
+                    {priceResult?.estimateType === 'ASK' ? 'Comparable Listings' : 'Comparable Sales'} ({comps.length})
                   </h4>
                   <Table>
                     <TableHeader>
@@ -525,7 +584,7 @@ export default function HeroPricePage() {
                         <TableHead>Gen</TableHead>
                         <TableHead>Genes</TableHead>
                         <TableHead>Price</TableHead>
-                        <TableHead>{priceResult?.dataSource === 'listings' ? 'Source' : 'When'}</TableHead>
+                        <TableHead>{priceResult?.estimateType === 'ASK' ? 'Source' : 'When'}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -559,7 +618,7 @@ export default function HeroPricePage() {
                             {sale.price.toFixed(2)} {sale.token}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
-                            {sale.saleDate ? new Date(sale.saleDate).toLocaleDateString() : priceResult?.dataSource === 'listings' ? 'Listed' : '-'}
+                            {sale.saleDate ? new Date(sale.saleDate).toLocaleDateString() : priceResult?.estimateType === 'ASK' ? 'Listed' : '-'}
                           </TableCell>
                         </TableRow>
                       ))}

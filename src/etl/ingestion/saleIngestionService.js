@@ -1339,31 +1339,40 @@ export async function getHeroPriceByHeroId(heroId) {
     let matchTier = 'none';
     let priceStats = null;
     let dataSource = 'none';
+    let estimateType = 'NONE';
+    let warnings = [];
 
     const salesMatch = await findComparables(hero, 'sales');
-    if (salesMatch && salesMatch.priceStats) {
+    if (salesMatch && salesMatch.priceStats && salesMatch.priceStats.sampleSize > 0 && salesMatch.priceStats.confidence !== 'insufficient') {
       salesData = salesMatch.results;
       matchTier = salesMatch.tier.id;
       priceStats = salesMatch.priceStats;
       dataSource = 'sales';
+      estimateType = 'SOLD';
     }
 
-    if (!priceStats || priceStats.confidence === 'insufficient') {
+    if (estimateType !== 'SOLD') {
       try {
         const listingMatch = await findComparables(hero, 'listings');
-        if (listingMatch && listingMatch.priceStats && listingMatch.priceStats.sampleSize > 0) {
+        if (listingMatch && listingMatch.priceStats && listingMatch.priceStats.sampleSize > 0 && listingMatch.priceStats.confidence !== 'insufficient') {
           salesData = listingMatch.results;
           matchTier = listingMatch.tier.id;
           priceStats = listingMatch.priceStats;
           dataSource = 'listings';
+          estimateType = 'ASK';
           if (priceStats.confidence === 'high') priceStats.confidence = 'medium';
           else if (priceStats.confidence === 'medium') priceStats.confidence = 'medium-low';
-          priceStats.warning = (priceStats.warning || '') + ' Based on active listings (asking prices), not confirmed sales.';
-          priceStats.warning = priceStats.warning.trim();
+          else if (priceStats.confidence === 'medium-low') priceStats.confidence = 'low';
+          warnings.push('ASK_SIDE_ONLY');
         }
       } catch (err) {
         console.log(`[HeroPriceTool] Listing-based fallback error: ${err.message}`);
       }
+    }
+
+    if (estimateType === 'NONE') {
+      warnings.push('INSUFFICIENT_DATA');
+      if (hero.generation === 0) warnings.push('GEN0_NO_COMPS');
     }
 
     const tierInfo = PROGRESSIVE_TIERS.find(t => t.id === matchTier);
@@ -1372,10 +1381,11 @@ export async function getHeroPriceByHeroId(heroId) {
     let estimatedValue = null;
     let flipOpportunity = null;
     
-    if (priceStats) {
+    if (priceStats && estimateType !== 'NONE') {
       const fairValue = priceStats.fairValue != null ? priceStats.fairValue : priceStats.median;
       estimatedValue = {
-        fairValue,
+        fairValue: estimateType === 'ASK' ? null : fairValue,
+        askMedian: estimateType === 'ASK' ? fairValue : null,
         buyBelow: priceStats.p35 ?? priceStats.range?.low ?? priceStats.min,
         sellAbove: priceStats.p75 ?? priceStats.range?.high ?? priceStats.max,
         premiumPrice: priceStats.p90 ?? priceStats.max,
@@ -1385,18 +1395,20 @@ export async function getHeroPriceByHeroId(heroId) {
         matchTier,
         matchTierLabel: tierLabel,
         dataSource,
+        estimateType,
         sampleSize: priceStats.sampleSize,
         priceVariation: priceStats.cv,
+        warnings,
         ...(priceStats.warning ? { warning: priceStats.warning } : {})
       };
       
-      if (hero.isForSale && hero.currentListingPrice > 0) {
-        const discount = ((estimatedValue.fairValue - hero.currentListingPrice) / estimatedValue.fairValue) * 100;
-        const potentialProfit = estimatedValue.fairValue - hero.currentListingPrice;
+      if (estimateType === 'SOLD' && hero.isForSale && hero.currentListingPrice > 0 && fairValue > 0) {
+        const discount = ((fairValue - hero.currentListingPrice) / fairValue) * 100;
+        const potentialProfit = fairValue - hero.currentListingPrice;
         
         flipOpportunity = {
           currentPrice: hero.currentListingPrice,
-          estimatedValue: estimatedValue.fairValue,
+          estimatedValue: fairValue,
           discount: Math.round(discount * 10) / 10,
           potentialProfit: Math.round(potentialProfit * 100) / 100,
           isUnderpriced: discount > 15,
@@ -1409,7 +1421,9 @@ export async function getHeroPriceByHeroId(heroId) {
       ok: true,
       hero,
       estimatedValue,
+      estimateType,
       flipOpportunity,
+      warnings,
       comparableSales: (salesData || []).slice(0, 15).map(s => ({
         heroId: s.hero_id,
         price: parseFloat(s.price_amount),
