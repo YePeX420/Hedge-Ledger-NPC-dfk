@@ -64,6 +64,8 @@ interface EstimatedValue {
   token: string;
   confidence: string;
   matchTier: string;
+  matchTierLabel?: string;
+  dataSource?: string;
   sampleSize: number;
   priceVariation: number;
 }
@@ -86,6 +88,7 @@ interface ComparableSale {
   subClass: string;
   rarity: number;
   level: number;
+  generation?: number;
   profession: string;
   realm: string;
   professionMatch?: boolean;
@@ -102,6 +105,8 @@ interface HeroPriceResult {
   flipOpportunity?: FlipOpportunity | null;
   comparableSales?: ComparableSale[];
   matchTier?: string;
+  matchTierLabel?: string;
+  dataSource?: string;
   error?: string;
 }
 
@@ -334,7 +339,7 @@ export default function HeroPricePage() {
                           {formatPrice(estimate.fairValue)} {estimate.token}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                         <Badge variant={
                           estimate.confidence === 'high' ? 'default' :
                           estimate.confidence === 'medium' ? 'secondary' : 'outline'
@@ -342,7 +347,10 @@ export default function HeroPricePage() {
                           {estimate.confidence.toUpperCase()}
                         </Badge>
                         <span>{estimate.sampleSize} comps</span>
-                        <span>{estimate.matchTier} match</span>
+                        <span>{estimate.matchTierLabel || estimate.matchTier}</span>
+                        {estimate.dataSource === 'listings' && (
+                          <Badge variant="outline" className="text-xs">listing-based</Badge>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -406,13 +414,15 @@ export default function HeroPricePage() {
 
               {!estimate && (
                 <div className="text-center py-4 text-muted-foreground">
-                  No comparable sales data found. Run ingestion cycles to build sales history.
+                  No comparable data found. Run the tavern indexer and ingestion cycles to build pricing data.
                 </div>
               )}
 
               {comps.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-medium mb-2">Comparable Sales ({comps.length})</h4>
+                  <h4 className="text-sm font-medium mb-2">
+                    {priceResult?.dataSource === 'listings' ? 'Comparable Listings' : 'Comparable Sales'} ({comps.length})
+                  </h4>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -420,9 +430,10 @@ export default function HeroPricePage() {
                         <TableHead>Class</TableHead>
                         <TableHead>Rarity</TableHead>
                         <TableHead>Level</TableHead>
+                        <TableHead>Gen</TableHead>
                         <TableHead>Genes</TableHead>
                         <TableHead>Price</TableHead>
-                        <TableHead>When</TableHead>
+                        <TableHead>{priceResult?.dataSource === 'listings' ? 'Source' : 'When'}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -438,6 +449,7 @@ export default function HeroPricePage() {
                             )}
                           </TableCell>
                           <TableCell>{sale.level || '-'}</TableCell>
+                          <TableCell>{sale.generation ?? '-'}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1 text-xs">
                               {sale.professionMatch && (
@@ -455,7 +467,7 @@ export default function HeroPricePage() {
                             {sale.price.toFixed(2)} {sale.token}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
-                            {new Date(sale.saleDate).toLocaleDateString()}
+                            {sale.saleDate ? new Date(sale.saleDate).toLocaleDateString() : priceResult?.dataSource === 'listings' ? 'Listed' : '-'}
                           </TableCell>
                         </TableRow>
                       ))}

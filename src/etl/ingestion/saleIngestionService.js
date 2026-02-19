@@ -890,6 +890,238 @@ function computePriceStats(prices) {
   };
 }
 
+const PROGRESSIVE_TIERS = [
+  { id: 'class_rarity_gen_level_traits', label: 'Class + Rarity + Gen + Level + Traits', confidence: 'high' },
+  { id: 'class_rarity_gen_traits', label: 'Class + Rarity + Gen + Traits', confidence: 'high' },
+  { id: 'class_rarity_gen', label: 'Class + Rarity + Gen', confidence: 'medium' },
+  { id: 'class_rarity', label: 'Class + Rarity', confidence: 'medium' },
+  { id: 'rarity_gen', label: 'Rarity + Gen', confidence: 'medium-low' },
+  { id: 'rarity_only', label: 'Rarity Only', confidence: 'low' },
+  { id: 'floor', label: 'Floor Estimate', confidence: 'low' },
+];
+
+async function queryProgressiveTier(hero, tierId, source) {
+  const realm = hero.realm;
+  const mainClass = hero.mainClass;
+  const rarity = hero.rarity != null ? hero.rarity : 0;
+  const level = hero.level || 1;
+  const generation = hero.generation != null ? hero.generation : 0;
+  const traitScore = hero.traitScore || 0;
+  const traitBand = getTraitScoreBand(traitScore);
+
+  if (source === 'sales') {
+    const cols = `id, hero_id, realm, sale_timestamp as data_date, token_symbol, price_amount,
+      main_class, sub_class, profession, rarity, level,
+      generation, summons, max_summons, trait_score,
+      profession_match, stat_boost_1, stat_boost_2, trait_score_band`;
+
+    switch (tierId) {
+      case 'class_rarity_gen_level_traits':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_sales
+          WHERE main_class = ${mainClass}
+            AND rarity = ${rarity}
+            AND generation = ${generation}
+            AND level BETWEEN ${Math.max(1, level - 3)} AND ${level + 3}
+            AND (trait_score_band = ${traitBand} OR trait_score_band IS NULL)
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+          ORDER BY ABS(level - ${level}), sale_timestamp DESC
+          LIMIT 100
+        `;
+      case 'class_rarity_gen_traits':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_sales
+          WHERE main_class = ${mainClass}
+            AND rarity = ${rarity}
+            AND generation = ${generation}
+            AND (trait_score_band = ${traitBand} OR trait_score_band IS NULL)
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+          ORDER BY ABS(COALESCE(level, 1) - ${level}), sale_timestamp DESC
+          LIMIT 150
+        `;
+      case 'class_rarity_gen':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_sales
+          WHERE main_class = ${mainClass}
+            AND rarity = ${rarity}
+            AND generation = ${generation}
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+          ORDER BY ABS(COALESCE(level, 1) - ${level}), sale_timestamp DESC
+          LIMIT 200
+        `;
+      case 'class_rarity':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_sales
+          WHERE main_class = ${mainClass}
+            AND rarity = ${rarity}
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+          ORDER BY ABS(COALESCE(generation, 0) - ${generation}), ABS(COALESCE(level, 1) - ${level}), sale_timestamp DESC
+          LIMIT 200
+        `;
+      case 'rarity_gen':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_sales
+          WHERE rarity = ${rarity}
+            AND generation = ${generation}
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+          ORDER BY sale_timestamp DESC
+          LIMIT 300
+        `;
+      case 'rarity_only':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_sales
+          WHERE rarity = ${rarity}
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+          ORDER BY sale_timestamp DESC
+          LIMIT 300
+        `;
+      case 'floor':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_sales
+          WHERE rarity <= ${rarity}
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+          ORDER BY price_amount ASC
+          LIMIT 300
+        `;
+      default:
+        return [];
+    }
+  }
+
+  if (source === 'listings') {
+    const cols = `hero_id, realm, main_class, sub_class, profession, rarity, level,
+      generation, summons, max_summons, trait_score,
+      price_native as price_amount, native_token as token_symbol`;
+
+    switch (tierId) {
+      case 'class_rarity_gen_level_traits':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_heroes
+          WHERE main_class = ${mainClass}
+            AND rarity = ${rarity}
+            AND generation = ${generation}
+            AND level BETWEEN ${Math.max(1, level - 3)} AND ${level + 3}
+            AND price_native > 0
+            AND hero_id != ${hero.heroId || ''}
+          ORDER BY ABS(level - ${level}), ABS(COALESCE(trait_score, 0) - ${traitScore})
+          LIMIT 100
+        `;
+      case 'class_rarity_gen_traits':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_heroes
+          WHERE main_class = ${mainClass}
+            AND rarity = ${rarity}
+            AND generation = ${generation}
+            AND price_native > 0
+            AND hero_id != ${hero.heroId || ''}
+          ORDER BY ABS(COALESCE(trait_score, 0) - ${traitScore}), ABS(COALESCE(level, 1) - ${level})
+          LIMIT 150
+        `;
+      case 'class_rarity_gen':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_heroes
+          WHERE main_class = ${mainClass}
+            AND rarity = ${rarity}
+            AND generation = ${generation}
+            AND price_native > 0
+            AND hero_id != ${hero.heroId || ''}
+          ORDER BY ABS(COALESCE(level, 1) - ${level})
+          LIMIT 200
+        `;
+      case 'class_rarity':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_heroes
+          WHERE main_class = ${mainClass}
+            AND rarity = ${rarity}
+            AND price_native > 0
+            AND hero_id != ${hero.heroId || ''}
+          ORDER BY ABS(COALESCE(generation, 0) - ${generation}), ABS(COALESCE(level, 1) - ${level})
+          LIMIT 200
+        `;
+      case 'rarity_gen':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_heroes
+          WHERE rarity = ${rarity}
+            AND generation = ${generation}
+            AND price_native > 0
+            AND hero_id != ${hero.heroId || ''}
+          ORDER BY price_native ASC
+          LIMIT 300
+        `;
+      case 'rarity_only':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_heroes
+          WHERE rarity = ${rarity}
+            AND price_native > 0
+            AND hero_id != ${hero.heroId || ''}
+          ORDER BY price_native ASC
+          LIMIT 300
+        `;
+      case 'floor':
+        return rawPg`
+          SELECT ${rawPg.unsafe(cols)}
+          FROM tavern_heroes
+          WHERE rarity <= ${rarity}
+            AND price_native > 0
+            AND hero_id != ${hero.heroId || ''}
+          ORDER BY price_native ASC
+          LIMIT 300
+        `;
+      default:
+        return [];
+    }
+  }
+
+  return [];
+}
+
+async function findComparables(hero, source) {
+  for (const tier of PROGRESSIVE_TIERS) {
+    try {
+      const results = await queryProgressiveTier(hero, tier.id, source);
+      const prices = (results || [])
+        .map(s => parseFloat(s.price_amount))
+        .filter(p => !isNaN(p) && p > 0);
+      
+      if (prices.length >= 3) {
+        const stats = computePriceStats(prices);
+        if (stats) {
+          stats.confidence = tier.confidence === 'high' && stats.sampleSize < 10 ? 'medium' : tier.confidence;
+        }
+        return { results, prices, tier, priceStats: stats };
+      }
+      if (prices.length >= 1 && tier.id === 'floor') {
+        const stats = computePriceStats(prices);
+        if (stats) stats.confidence = 'low';
+        return { results, prices, tier, priceStats: stats };
+      }
+    } catch (err) {
+      console.log(`[HeroPriceTool] Tier ${tier.id} (${source}) query error: ${err.message}`);
+    }
+  }
+  return null;
+}
+
 export async function getHeroPriceByHeroId(heroId) {
   try {
     await ensureSaleTablesExist();
@@ -900,12 +1132,14 @@ export async function getHeroPriceByHeroId(heroId) {
     }
     
     let hero = null;
+    let hasTavernTable = false;
 
     try {
       const tavernHeroCheck = await rawPg`
         SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tavern_heroes') as exists
       `;
-      if (tavernHeroCheck[0]?.exists) {
+      hasTavernTable = !!tavernHeroCheck[0]?.exists;
+      if (hasTavernTable) {
         const tavernHero = await rawPg`
           SELECT 
             hero_id, normalized_id, realm, main_class, sub_class, profession,
@@ -994,35 +1228,37 @@ export async function getHeroPriceByHeroId(heroId) {
     if (!hero) {
       return { ok: false, error: `Hero ${heroId} not found in tavern index or blockchain` };
     }
-    
-    const tiers = [
-      { label: 'exact', where: buildSalesFilter(hero, 'exact') },
-      { label: 'tight', where: buildSalesFilter(hero, 'tight') },
-      { label: 'broad', where: buildSalesFilter(hero, 'broad') },
-    ];
-    
+
     let salesData = [];
     let matchTier = 'none';
     let priceStats = null;
-    
-    for (const tier of tiers) {
-      const results = await tier.where;
-      const prices = results
-        .map(s => parseFloat(s.price_amount))
-        .filter(p => !isNaN(p) && p > 0);
-      
-      if (prices.length >= 3) {
-        salesData = results;
-        matchTier = tier.label;
-        priceStats = computePriceStats(prices);
-        break;
-      }
-      if (prices.length > 0 && !salesData.length) {
-        salesData = results;
-        matchTier = tier.label;
-        priceStats = computePriceStats(prices);
+    let dataSource = 'none';
+
+    const salesMatch = await findComparables(hero, 'sales');
+    if (salesMatch && salesMatch.priceStats) {
+      salesData = salesMatch.results;
+      matchTier = salesMatch.tier.id;
+      priceStats = salesMatch.priceStats;
+      dataSource = 'sales';
+    }
+
+    if (!priceStats && hasTavernTable) {
+      try {
+        const listingMatch = await findComparables(hero, 'listings');
+        if (listingMatch && listingMatch.priceStats) {
+          salesData = listingMatch.results;
+          matchTier = listingMatch.tier.id;
+          priceStats = listingMatch.priceStats;
+          dataSource = 'listings';
+          if (priceStats.confidence === 'high') priceStats.confidence = 'medium';
+        }
+      } catch (err) {
+        console.log(`[HeroPriceTool] Listing-based fallback error: ${err.message}`);
       }
     }
+
+    const tierInfo = PROGRESSIVE_TIERS.find(t => t.id === matchTier);
+    const tierLabel = tierInfo ? tierInfo.label : matchTier;
     
     let estimatedValue = null;
     let flipOpportunity = null;
@@ -1037,6 +1273,8 @@ export async function getHeroPriceByHeroId(heroId) {
         token: hero.nativeToken || (hero.realm === 'cv' ? 'CRYSTAL' : 'JEWEL'),
         confidence: priceStats.confidence,
         matchTier,
+        matchTierLabel: tierLabel,
+        dataSource,
         sampleSize: priceStats.sampleSize,
         priceVariation: priceStats.cv
       };
@@ -1061,15 +1299,16 @@ export async function getHeroPriceByHeroId(heroId) {
       hero,
       estimatedValue,
       flipOpportunity,
-      comparableSales: salesData.slice(0, 15).map(s => ({
+      comparableSales: (salesData || []).slice(0, 15).map(s => ({
         heroId: s.hero_id,
         price: parseFloat(s.price_amount),
         token: s.token_symbol,
-        saleDate: s.sale_timestamp,
+        saleDate: s.sale_timestamp || s.data_date || null,
         mainClass: s.main_class,
         subClass: s.sub_class,
         rarity: s.rarity,
         level: s.level,
+        generation: s.generation,
         profession: s.profession,
         realm: s.realm,
         professionMatch: s.profession_match || false,
@@ -1078,76 +1317,13 @@ export async function getHeroPriceByHeroId(heroId) {
         statBoost1: s.stat_boost_1 || null,
         statBoost2: s.stat_boost_2 || null
       })),
-      matchTier
+      matchTier,
+      matchTierLabel: tierLabel,
+      dataSource
     };
   } catch (err) {
     console.error('[HeroPriceTool] Error:', err.message);
     return { ok: false, error: err.message };
-  }
-}
-
-async function buildSalesFilter(hero, tier) {
-  const realm = hero.realm;
-  const mainClass = hero.mainClass;
-  const rarity = hero.rarity;
-  const level = hero.level || 1;
-  const subClass = hero.subClass;
-  
-  const cols = `id, hero_id, realm, sale_timestamp, token_symbol, price_amount,
-    main_class, sub_class, profession, rarity, level,
-    generation, summons, max_summons, trait_score,
-    profession_match, stat_boost_1, stat_boost_2, trait_score_band`;
-  
-  switch (tier) {
-    case 'exact':
-      return rawPg`
-        SELECT ${rawPg.unsafe(cols)},
-          COALESCE(trait_score, 0) as ts
-        FROM tavern_sales
-        WHERE realm = ${realm}
-          AND main_class = ${mainClass}
-          AND rarity = ${rarity}
-          AND level BETWEEN ${Math.max(1, level - 2)} AND ${level + 2}
-          AND (sub_class = ${subClass} OR sub_class IS NULL)
-          AND sale_timestamp > NOW() - INTERVAL '30 days'
-          AND price_amount > 0
-        ORDER BY 
-          CASE WHEN profession_match = true THEN 0 ELSE 1 END,
-          ABS(COALESCE(trait_score, 0) - ${hero.traitScore || 0}),
-          sale_timestamp DESC
-        LIMIT 100
-      `;
-    case 'tight':
-      return rawPg`
-        SELECT ${rawPg.unsafe(cols)},
-          COALESCE(trait_score, 0) as ts
-        FROM tavern_sales
-        WHERE realm = ${realm}
-          AND main_class = ${mainClass}
-          AND rarity = ${rarity}
-          AND level BETWEEN ${Math.max(1, level - 5)} AND ${level + 5}
-          AND sale_timestamp > NOW() - INTERVAL '60 days'
-          AND price_amount > 0
-        ORDER BY 
-          ABS(COALESCE(trait_score, 0) - ${hero.traitScore || 0}),
-          sale_timestamp DESC
-        LIMIT 200
-      `;
-    case 'broad':
-      return rawPg`
-        SELECT ${rawPg.unsafe(cols)},
-          COALESCE(trait_score, 0) as ts
-        FROM tavern_sales
-        WHERE realm = ${realm}
-          AND main_class = ${mainClass}
-          AND (rarity = ${rarity} OR rarity BETWEEN ${Math.max(0, rarity - 1)} AND ${rarity + 1})
-          AND sale_timestamp > NOW() - INTERVAL '90 days'
-          AND price_amount > 0
-        ORDER BY sale_timestamp DESC
-        LIMIT 300
-      `;
-    default:
-      return [];
   }
 }
 
