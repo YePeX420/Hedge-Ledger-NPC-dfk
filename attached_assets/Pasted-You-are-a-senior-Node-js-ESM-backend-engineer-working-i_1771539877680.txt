@@ -1,0 +1,166 @@
+You are a senior Node.js (ESM) backend engineer working in an existing Express + Postgres webapp.
+We use `pg` for SQL, and Drizzle ORM for schema/migrations.
+
+FEATURE REQUEST:
+Add LISTING-based pricing fallback to the Hero Price Tool.
+Currently, when there are no SOLD comps (e.g., Gen0), the engine returns 0 with an “INSUFFICIENT” warning.
+We want to use active tavern listing data as a fallback so the UI can show an ask-based range instead of 0.
+
+NON-NEGOTIABLE RULES:
+1) SOLD comps (canonical) always take priority when available.
+   - SOLD comps must be confirmed via auction `purchasePrice` (status='SOLD') and never inferred.
+2) LISTING comps (ask-side) are fallback only.
+   - Never silently blend listing asks into SOLD “fair value”.
+3) Gen0 hard constraint remains:
+   - If hero.generation == 0, never drop generation filter in tiers for either SOLD or LISTING comps.
+4) If the estimate is listing-based, confidence is downgraded one level AND UI must label it “Ask-side only”.
+5) If estimateType is NONE, UI must show “N/A” (not 0.00).
+
+KEEP EXISTING UX:
+- The 6-tier progressive fallback sequence stays identical.
+- Existing warnings (Gen0, listing-based, low confidence) remain.
+- Existing route structure remains; update internals only.
+
+--------------------------------------------------------------------
+A) DATA REQUIREMENTS / TABLE ASSUMPTIONS
+--------------------------------------------------------------------
+We already have:
+- tavern_sales: sales/closure table (must support status='SOLD' and a price field for sold price)
+- tavern_heroes: active listing snapshots, containing:
+  - realm, hero_id, main_class, rarity, generation, level, trait_score
+  - price_native, native_token
+  - last_seen_at (and/or is_active if available)
+If `tavern_sales` still contains inferred delta rows, they must NOT be used for SOLD comps.
+
+If needed, add/ensure these columns exist:
+- tavern_sales.status (SOLD / DELISTED / INFERRED_DELTA)
+- tavern_sales.ended_at timestamp
+- tavern_sales.purchase_price_native numeric (or purchase_price_wei + conversion)
+- tavern_heroes.is_active boolean (optional but recommended)
+If not adding is_active, define “active listing” as last_seen_at >= now() - interval '90 minutes'
+
+--------------------------------------------------------------------
+B) PRICING ENGINE CHANGE: ADD LISTING COMPARABLE POOL
+--------------------------------------------------------------------
+Implement a second comparable pool: ACTIVE LISTINGS from tavern_heroes.
+
+Create a unified function:
+  getComparables({ hero, tier, source })
+Where:
+- source = 'SOLD' queries tavern_sales with status='SOLD'
+- source = 'LISTING' queries tavern_heroes for active listings
+
+The tier filters must be identical between SOLD and LISTING sources:
+
+Tier 1: class + rarity + gen + level range (±3) + trait band (+ summonsRemaining band if we already added it)
+Tier 2: drop level
+Tier 3: drop traits
+Tier 4: drop class (rarity + gen)
+Tier 5: drop gen (class + rarity)  <-- BUT NEVER for Gen0
+Tier 6: rarity only              <-- BUT NEVER for Gen0
+
+HARD CONSTRAINTS for both sources:
+- realm must match
+- native_token must match
+- if hero.generation == 0, generation filter is NEVER dropped (do not allow tier 5/6 to remove gen=0)
+
+Comparable time window:
+- SOLD: ended_at >= now() - interval '90 days'
+- LISTING: last_seen_at within recent window (e.g., 90 minutes) OR is_active=true
+
+--------------------------------------------------------------------
+C) SELECTION LOGIC: SOLD FIRST, THEN LISTING
+--------------------------------------------------------------------
+Update the price estimator flow:
+
+1) Iterate tiers 1→6 using SOLD source.
+   - If >= MIN_COMPS (3) found, compute SOLD-based price bands and return:
+     estimateType = 'SOLD'
+     warnings = []
+     confidence = tier confidence (existing mapping)
+2) If SOLD comps insufficient in all tiers:
+   - Iterate tiers 1→6 using LISTING source (active asks).
+   - If >= MIN_COMPS found, compute LISTING-based bands and return:
+     estimateType = 'ASK'
+     warnings includes "ASK_SIDE_ONLY"
+     confidence downgraded one level from the tier label (existing rule)
+3) If still insufficient:
+   return estimateType = 'NONE'
+   warnings includes "INSUFFICIENT_DATA"
+   price fields should be null (NOT ZERO)
+
+IMPORTANT:
+- When estimateType='ASK', DO NOT run “flip profit” logic as if it’s a real fair value.
+  Either disable flip verdict or label it "Relative-to-asks only" (no profit claim).
+- When estimateType='SOLD', flip logic remains unchanged.
+
+--------------------------------------------------------------------
+D) PRICE BAND COMPUTATION (REUSE EXISTING, ADD GATING)
+--------------------------------------------------------------------
+Use existing IQR-based outlier removal (do not use 2σ).
+
+Add sample-size gating:
+- comps < 8:
+  - only return median + range (min/max or IQR)
+  - cap confidence to at most 'medium'
+- comps 8–19:
+  - return 35/50/75
+- comps >= 20:
+  - return 20/35/50/75/90
+
+Return structure should support the UI showing either SOLD bands or ASK bands.
+
+--------------------------------------------------------------------
+E) API RESPONSE + UI UPDATE (NO ROUTE CHANGES)
+--------------------------------------------------------------------
+Do NOT change existing routes.
+But modify the response payload (or internal viewmodel) to include:
+
+- estimateType: 'SOLD' | 'ASK' | 'NONE'
+- fairValue: number|null (for SOLD only; for ASK either omit or set to askMedian with label)
+- bands: { bargain, buyBelow, fair, sellAbove, premium } where values may be null if gated
+- comparableCount
+- tierUsed
+- confidence
+- warnings: array of strings
+
+UI behavior:
+- If estimateType='NONE': display “N/A” and show the insufficiency warning (not 0.00)
+- If estimateType='ASK': display “Ask-based estimate” label and warning banner
+- If estimateType='SOLD': display normal “Fair Value”
+
+--------------------------------------------------------------------
+F) SQL DETAILS (IMPORTANT)
+--------------------------------------------------------------------
+SOLD comps query must be:
+SELECT ... FROM tavern_sales
+WHERE status='SOLD'
+  AND realm=$realm
+  AND token_symbol/native_token=$nativeToken
+  AND ended_at >= now() - interval '90 days'
+  AND ... tier filters ...
+
+LISTING comps query must be:
+SELECT ... FROM tavern_heroes
+WHERE realm=$realm
+  AND native_token=$nativeToken
+  AND (is_active=true OR last_seen_at >= now() - interval '90 minutes')
+  AND ... tier filters ...
+
+Do not include Gen0 in tier 5/6 logic that drops generation.
+
+--------------------------------------------------------------------
+G) DELIVERABLES
+--------------------------------------------------------------------
+1) Updated pricing engine code implementing SOLD-first then LISTING fallback.
+2) Updated SQL query builder(s) for both sources.
+3) Updated response payload + UI rendering:
+   - show N/A instead of 0
+   - show ask-side labeling when estimateType='ASK'
+4) Tests / sanity checks (at least basic):
+   - a hero with SOLD comps returns estimateType='SOLD'
+   - a hero with no SOLD comps but active listing comps returns estimateType='ASK'
+   - Gen0 with no Gen0 SOLD comps but Gen0 listings returns ASK, never mixes gen>0
+   - no comps at all returns NONE and UI shows N/A
+
+Implement this now with minimal changes to existing routes and UI layout.
