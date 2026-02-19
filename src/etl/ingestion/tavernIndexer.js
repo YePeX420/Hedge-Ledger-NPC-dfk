@@ -194,6 +194,15 @@ async function ensureTablesExist() {
       }
     }
     
+    // Add dark_summoned column for burn value calculations
+    try {
+      await db.execute(sql`ALTER TABLE tavern_heroes ADD COLUMN IF NOT EXISTS dark_summoned BOOLEAN NOT NULL DEFAULT false`);
+    } catch (err) {
+      if (!err.message?.includes('already exists') && !err.message?.includes('duplicate column')) {
+        console.log('[TavernIndexer] Note: dark_summoned column check:', err.message);
+      }
+    }
+    
     // Now create indexes that depend on combat_power
     await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_combat_power_idx ON tavern_heroes(combat_power DESC)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS tavern_heroes_tournament_ready_idx ON tavern_heroes(rarity, combat_power DESC, price_native ASC)`);
@@ -384,6 +393,9 @@ function normalizeHero(apiHero, batchId) {
   const statGenes = apiHero.statGenes || null;
   const visualGenes = apiHero.visualGenes || null;
   
+  // Dark summoned flag for burn value calculations
+  const darkSummoned = apiHero.darkSummoned === true;
+  
   return {
     heroId,
     normalizedId,
@@ -396,6 +408,7 @@ function normalizeHero(apiHero, batchId) {
     generation: apiHero.generation ?? 0,
     summons: 0,
     maxSummons: apiHero.summonsRemaining ?? 0,
+    darkSummoned,
     strength: apiHero.strength ?? 0,
     agility: apiHero.agility ?? 0,
     intelligence: apiHero.intelligence ?? 0,
@@ -437,14 +450,14 @@ async function upsertHeroes(heroes) {
       await db.execute(sql`
         INSERT INTO tavern_heroes (
           hero_id, normalized_id, realm, main_class, sub_class, profession,
-          rarity, level, generation, summons, max_summons,
+          rarity, level, generation, summons, max_summons, dark_summoned,
           strength, agility, intelligence, wisdom, luck, dexterity, vitality, endurance, hp, mp, stamina,
           active1, active2, passive1, passive2, trait_score, combat_power, summon_stone, stone_tier, stone_type,
           stat_genes, visual_genes,
           sale_price, price_native, native_token, batch_id, indexed_at
         ) VALUES (
           ${hero.heroId}, ${hero.normalizedId}, ${hero.realm}, ${hero.mainClass}, ${hero.subClass}, ${hero.profession},
-          ${hero.rarity}, ${hero.level}, ${hero.generation}, ${hero.summons}, ${hero.maxSummons},
+          ${hero.rarity}, ${hero.level}, ${hero.generation}, ${hero.summons}, ${hero.maxSummons}, ${hero.darkSummoned},
           ${hero.strength}, ${hero.agility}, ${hero.intelligence}, ${hero.wisdom}, ${hero.luck}, ${hero.dexterity}, ${hero.vitality}, ${hero.endurance}, ${hero.hp}, ${hero.mp}, ${hero.stamina},
           ${hero.active1}, ${hero.active2}, ${hero.passive1}, ${hero.passive2}, ${hero.traitScore}, ${hero.combatPower}, ${hero.summonStone}, ${hero.stoneTier}, ${hero.stoneType},
           ${hero.statGenes}, ${hero.visualGenes},
@@ -461,6 +474,7 @@ async function upsertHeroes(heroes) {
           generation = EXCLUDED.generation,
           summons = EXCLUDED.summons,
           max_summons = EXCLUDED.max_summons,
+          dark_summoned = EXCLUDED.dark_summoned,
           strength = EXCLUDED.strength,
           agility = EXCLUDED.agility,
           intelligence = EXCLUDED.intelligence,

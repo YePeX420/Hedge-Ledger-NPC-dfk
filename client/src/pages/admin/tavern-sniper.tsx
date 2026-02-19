@@ -1,18 +1,18 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Beer, Filter, TrendingUp, ExternalLink, Loader2, Search, RefreshCw, X, Database } from "lucide-react";
+import { Beer, Filter, TrendingUp, ExternalLink, Loader2, Search, RefreshCw, X, Database, Flame } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 const HIDDEN_HEROES_KEY = "tavern-sniper-hidden-heroes";
 
-type SortOption = "levelValue" | "price" | "level" | "combatPower" | "value";
+type SortOption = "levelValue" | "price" | "level" | "combatPower" | "value" | "burnProfit";
 
 interface TavernHero {
   id: string;
@@ -25,6 +25,7 @@ interface TavernHero {
   generation: number;
   summons: number;
   maxSummons: number;
+  darkSummoned?: boolean;
   priceNative: number;
   nativeToken: string;
   tavern: string;
@@ -52,6 +53,16 @@ interface TavernListingsResponse {
   lastIndexed?: string;
 }
 
+interface BurnResult {
+  heroScore: number;
+  deReward: number;
+  gdeReward: number;
+  voidShards: number;
+  isDarkSummoned: boolean;
+  totalValueCrystal: number;
+  profitCrystal: number;
+}
+
 const CLASSES = [
   "All", "Warrior", "Knight", "Thief", "Archer", "Priest", "Wizard", "Monk", "Pirate",
   "Berserker", "Seer", "Legionnaire", "Scholar", "Paladin", "DarkKnight", "Summoner",
@@ -70,6 +81,69 @@ const RARITIES = [
 ];
 
 const REALMS = ["All", "cv", "sd"];
+
+const CLASS_RANK: Record<string, number> = {
+  Warrior: 1, Knight: 1, Thief: 1, Archer: 1, Priest: 1, Wizard: 1, Monk: 1, Pirate: 1,
+  Berserker: 1, Seer: 1, Legionnaire: 1, Scholar: 1,
+  Paladin: 2, DarkKnight: 2, Summoner: 2, Ninja: 2, Shapeshifter: 2, Bard: 2,
+  Dragoon: 3, Sage: 3, SpellBow: 3,
+  DreadKnight: 4
+};
+
+const CBASE: Record<number, number> = { 1: 80, 2: 160, 3: 280, 4: 540 };
+const SBASE: Record<number, number> = { 1: 20, 2: 40, 3: 60, 4: 100 };
+const RBASE: Record<number, number> = { 0: 0, 1: 25, 2: 75, 3: 175, 4: 350 };
+
+function calculateBurnValue(
+  hero: TavernHero,
+  dePrice: number,
+  gdePrice: number,
+  categoryMultiplier: number
+): BurnResult {
+  const isDarkSummoned = hero.darkSummoned === true;
+  const rank = CLASS_RANK[hero.mainClassStr] || 1;
+  const subRank = CLASS_RANK[hero.subClassStr] || 0;
+  const cbase = CBASE[rank] || 80;
+  const sbase = SBASE[rank] || 20;
+  const rbase = RBASE[hero.rarity] || 0;
+  const subBonus = subRank > rank ? (subRank - rank) * 20 : 0;
+  const levelBonus = (hero.level - 1) * 10;
+  const summonBonus = (hero.maxSummons || 0) * 15;
+
+  const heroScore = cbase + subBonus + rbase + levelBonus + summonBonus;
+
+  const d20Avg = 10.5;
+  const deReward = (heroScore * d20Avg * categoryMultiplier) / 100;
+
+  let gdeReward = 0;
+  let voidShards = 0;
+
+  if (isDarkSummoned) {
+    gdeReward = 0;
+    voidShards = Math.floor(deReward * 0.5);
+  } else {
+    gdeReward = (sbase * d20Avg * categoryMultiplier) / 100;
+  }
+
+  const actualDE = isDarkSummoned ? deReward * 0.5 : deReward;
+
+  const totalValueCrystal =
+    actualDE * dePrice +
+    gdeReward * gdePrice +
+    voidShards * 0;
+
+  const profitCrystal = totalValueCrystal - hero.priceNative;
+
+  return {
+    heroScore,
+    deReward: actualDE,
+    gdeReward,
+    voidShards,
+    isDarkSummoned,
+    totalValueCrystal,
+    profitCrystal
+  };
+}
 
 function getRarityColor(rarity: number): string {
   const colors: Record<number, string> = {
@@ -92,6 +166,11 @@ function formatPrice(price: number): string {
   return price.toFixed(3);
 }
 
+function formatDec(n: number, decimals = 1): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return n.toFixed(decimals);
+}
+
 export default function TavernSniper() {
   const [filters, setFilters] = useState({
     mainClass: "All",
@@ -101,6 +180,13 @@ export default function TavernSniper() {
     minLevel: 1,
     maxLevel: 100,
     maxPrice: 1000
+  });
+
+  const [burnSettings, setBurnSettings] = useState({
+    dePrice: 0.05,
+    gdePrice: 5.0,
+    categoryMultiplier: 1.0,
+    showBurnValue: true
   });
   
   const [sortBy, setSortBy] = useState<SortOption>("levelValue");
@@ -157,29 +243,44 @@ export default function TavernSniper() {
       return true;
     });
 
+    const withBurn = filtered.map(h => ({
+      hero: h,
+      burn: burnSettings.showBurnValue
+        ? calculateBurnValue(h, burnSettings.dePrice, burnSettings.gdePrice, burnSettings.categoryMultiplier)
+        : null
+    }));
+
     switch (sortBy) {
       case "levelValue":
-        return filtered.sort((a, b) => {
-          const aValue = a.level / (a.priceNative || 1);
-          const bValue = b.level / (b.priceNative || 1);
+        withBurn.sort((a, b) => {
+          const aValue = a.hero.level / (a.hero.priceNative || 1);
+          const bValue = b.hero.level / (b.hero.priceNative || 1);
           return bValue - aValue;
         });
+        break;
       case "price":
-        return filtered.sort((a, b) => a.priceNative - b.priceNative);
+        withBurn.sort((a, b) => a.hero.priceNative - b.hero.priceNative);
+        break;
       case "level":
-        return filtered.sort((a, b) => b.level - a.level);
+        withBurn.sort((a, b) => b.hero.level - a.hero.level);
+        break;
       case "combatPower":
-        return filtered.sort((a, b) => b.combatPower - a.combatPower);
+        withBurn.sort((a, b) => b.hero.combatPower - a.hero.combatPower);
+        break;
       case "value":
-        return filtered.sort((a, b) => {
-          const aValue = a.combatPower / (a.priceNative || 1);
-          const bValue = b.combatPower / (b.priceNative || 1);
+        withBurn.sort((a, b) => {
+          const aValue = a.hero.combatPower / (a.hero.priceNative || 1);
+          const bValue = b.hero.combatPower / (b.hero.priceNative || 1);
           return bValue - aValue;
         });
-      default:
-        return filtered;
+        break;
+      case "burnProfit":
+        withBurn.sort((a, b) => (b.burn?.profitCrystal ?? -Infinity) - (a.burn?.profitCrystal ?? -Infinity));
+        break;
     }
-  }, [data, filters.profession, filters.maxPrice, sortBy, hiddenHeroes]);
+
+    return withBurn;
+  }, [data, filters.profession, filters.maxPrice, sortBy, hiddenHeroes, burnSettings]);
 
   const handleSearch = () => {
     setSearchTriggered(true);
@@ -244,6 +345,8 @@ export default function TavernSniper() {
     }
   };
 
+  const profitableCount = allHeroes.filter(h => h.burn && h.burn.profitCrystal > 0).length;
+
   return (
     <div className="container mx-auto p-4 space-y-4" data-testid="tavern-sniper-page">
       <div className="flex items-center gap-3">
@@ -266,7 +369,7 @@ export default function TavernSniper() {
             <div className="space-y-1">
               <Label className="text-xs">Class</Label>
               <Select value={filters.mainClass} onValueChange={(v) => setFilters(f => ({ ...f, mainClass: v }))}>
-                <SelectTrigger className="h-9" data-testid="select-class">
+                <SelectTrigger data-testid="select-class">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -280,7 +383,7 @@ export default function TavernSniper() {
             <div className="space-y-1">
               <Label className="text-xs">Profession</Label>
               <Select value={filters.profession} onValueChange={(v) => setFilters(f => ({ ...f, profession: v }))}>
-                <SelectTrigger className="h-9" data-testid="select-profession">
+                <SelectTrigger data-testid="select-profession">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -294,7 +397,7 @@ export default function TavernSniper() {
             <div className="space-y-1">
               <Label className="text-xs">Realm</Label>
               <Select value={filters.realm} onValueChange={(v) => setFilters(f => ({ ...f, realm: v }))}>
-                <SelectTrigger className="h-9" data-testid="select-realm">
+                <SelectTrigger data-testid="select-realm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -308,7 +411,7 @@ export default function TavernSniper() {
             <div className="space-y-1">
               <Label className="text-xs">Min Rarity</Label>
               <Select value={filters.minRarity.toString()} onValueChange={(v) => setFilters(f => ({ ...f, minRarity: parseInt(v) }))}>
-                <SelectTrigger className="h-9" data-testid="select-rarity">
+                <SelectTrigger data-testid="select-rarity">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -327,7 +430,6 @@ export default function TavernSniper() {
                 max={100}
                 value={filters.minLevel}
                 onChange={(e) => setFilters(f => ({ ...f, minLevel: parseInt(e.target.value) || 1 }))}
-                className="h-9"
                 data-testid="input-min-level"
               />
             </div>
@@ -339,10 +441,63 @@ export default function TavernSniper() {
                 min={0}
                 value={filters.maxPrice}
                 onChange={(e) => setFilters(f => ({ ...f, maxPrice: parseFloat(e.target.value) || 1000 }))}
-                className="h-9"
                 data-testid="input-max-price"
               />
             </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Flame className="h-4 w-4 text-orange-500" />
+              <span className="text-sm font-medium">Burn Value Calculator</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setBurnSettings(s => ({ ...s, showBurnValue: !s.showBurnValue }))}
+                data-testid="button-toggle-burn"
+              >
+                {burnSettings.showBurnValue ? "Hide" : "Show"}
+              </Button>
+            </div>
+
+            {burnSettings.showBurnValue && (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-xs">DE Price (CRYSTAL)</Label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    min={0}
+                    value={burnSettings.dePrice}
+                    onChange={(e) => setBurnSettings(s => ({ ...s, dePrice: parseFloat(e.target.value) || 0 }))}
+                    data-testid="input-de-price"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">GDE Price (CRYSTAL)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={burnSettings.gdePrice}
+                    onChange={(e) => setBurnSettings(s => ({ ...s, gdePrice: parseFloat(e.target.value) || 0 }))}
+                    data-testid="input-gde-price"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Category Multiplier</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={0.1}
+                    max={10}
+                    value={burnSettings.categoryMultiplier}
+                    onChange={(e) => setBurnSettings(s => ({ ...s, categoryMultiplier: parseFloat(e.target.value) || 1 }))}
+                    data-testid="input-category-multiplier"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
@@ -381,7 +536,7 @@ export default function TavernSniper() {
             <div className="flex items-center gap-2 ml-auto">
               <span className="text-sm text-muted-foreground">Sort by:</span>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
-                <SelectTrigger className="w-[150px] h-8" data-testid="select-sort">
+                <SelectTrigger className="w-[160px]" data-testid="select-sort">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -390,6 +545,9 @@ export default function TavernSniper() {
                   <SelectItem value="level">Highest Level</SelectItem>
                   <SelectItem value="combatPower">Combat Power</SelectItem>
                   <SelectItem value="value">Power/Cost</SelectItem>
+                  {burnSettings.showBurnValue && (
+                    <SelectItem value="burnProfit">Burn Profit</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -417,7 +575,7 @@ export default function TavernSniper() {
 
       {searchTriggered && !isLoading && data && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">
               Found {allHeroes.length} heroes
               {data.lastIndexed && (
@@ -426,6 +584,12 @@ export default function TavernSniper() {
                 </span>
               )}
             </p>
+            {burnSettings.showBurnValue && profitableCount > 0 && (
+              <Badge className="bg-green-500/20 text-green-700 dark:text-green-300">
+                <Flame className="h-3 w-3 mr-1" />
+                {profitableCount} profitable burn{profitableCount !== 1 ? "s" : ""}
+              </Badge>
+            )}
           </div>
 
           {allHeroes.length === 0 ? (
@@ -436,8 +600,16 @@ export default function TavernSniper() {
             </Card>
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {allHeroes.slice(0, 50).map((hero, idx) => (
-                <HeroCard key={hero.id} hero={hero} rank={idx + 1} sortBy={sortBy} onHide={hideHero} />
+              {allHeroes.slice(0, 50).map((item, idx) => (
+                <HeroCard
+                  key={item.hero.id}
+                  hero={item.hero}
+                  burn={item.burn}
+                  rank={idx + 1}
+                  sortBy={sortBy}
+                  onHide={hideHero}
+                  showBurn={burnSettings.showBurnValue}
+                />
               ))}
             </div>
           )}
@@ -453,11 +625,27 @@ export default function TavernSniper() {
   );
 }
 
-function HeroCard({ hero, rank, sortBy, onHide }: { hero: TavernHero; rank: number; sortBy: SortOption; onHide: (id: string) => void }) {
+function HeroCard({
+  hero,
+  burn,
+  rank,
+  sortBy,
+  onHide,
+  showBurn
+}: {
+  hero: TavernHero;
+  burn: BurnResult | null;
+  rank: number;
+  sortBy: SortOption;
+  onHide: (id: string) => void;
+  showBurn: boolean;
+}) {
   const levelValue = hero.level / (hero.priceNative || 1);
   const powerValue = hero.combatPower / (hero.priceNative || 1);
   
   const viewHeroUrl = `https://app.defikingdoms.com/heroes/${hero.id}`;
+  
+  const isProfitable = burn && burn.profitCrystal > 0;
   
   return (
     <Card className="hover-elevate" data-testid={`hero-card-${hero.id}`}>
@@ -474,10 +662,15 @@ function HeroCard({ hero, rank, sortBy, onHide }: { hero: TavernHero; rank: numb
               </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <span>#{hero.normalizedId} | {hero.tavern === "cv" ? "CV" : "SD"}</span>
+                {hero.darkSummoned && (
+                  <Badge variant="outline" className="text-[10px] px-1 py-0 bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-300 dark:border-violet-700">
+                    Dark
+                  </Badge>
+                )}
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  className="h-5 w-5 ml-1 text-muted-foreground hover:text-destructive" 
+                  className="h-5 w-5 ml-1 text-muted-foreground" 
                   onClick={() => onHide(hero.id)}
                   title="Hide hero (mark as bought)"
                   data-testid={`button-hide-${hero.id}`}
@@ -530,6 +723,45 @@ function HeroCard({ hero, rank, sortBy, onHide }: { hero: TavernHero; rank: numb
             </Badge>
           )}
         </div>
+
+        {showBurn && burn && (
+          <div
+            className={`p-2 rounded mb-3 border ${
+              isProfitable
+                ? "bg-green-500/10 border-green-500/30"
+                : "bg-red-500/10 border-red-500/30"
+            }`}
+            data-testid={`burn-value-${hero.id}`}
+          >
+            <div className="flex items-center gap-1 mb-1">
+              <Flame className={`h-3 w-3 ${isProfitable ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`} />
+              <span className="text-xs font-medium">
+                Burn Est.
+              </span>
+              <span className={`text-xs font-bold ml-auto ${
+                isProfitable ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"
+              }`}>
+                {burn.profitCrystal >= 0 ? "+" : ""}{formatDec(burn.profitCrystal)} CRYSTAL
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1 text-[11px] text-muted-foreground">
+              <div>
+                <span className="block">DE</span>
+                <span className="font-medium text-foreground">{formatDec(burn.deReward)}</span>
+              </div>
+              <div>
+                <span className="block">{burn.isDarkSummoned ? "Void" : "GDE"}</span>
+                <span className="font-medium text-foreground">
+                  {burn.isDarkSummoned ? burn.voidShards : formatDec(burn.gdeReward)}
+                </span>
+              </div>
+              <div>
+                <span className="block">Value</span>
+                <span className="font-medium text-foreground">{formatDec(burn.totalValueCrystal)}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-2">
           <Button

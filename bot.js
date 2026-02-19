@@ -9071,6 +9071,7 @@ async function startAdminWebServer() {
             generation: h.generation || 0,
             summons: h.summons || 0,
             maxSummons: h.max_summons || 0,
+            darkSummoned: h.dark_summoned || false,
             salePrice: h.sale_price || '0',
             strength: h.strength || 0,
             agility: h.agility || 0,
@@ -9207,6 +9208,7 @@ async function startAdminWebServer() {
           hp: hero.hp ?? 0,
           mp: hero.mp ?? 0,
           stamina: hero.stamina ?? 25,
+          darkSummoned: hero.darkSummoned === true,
           // Ability data for trait score calculation (TS)
           active1: hero.active1 != null ? `ability_${hero.active1}` : null,
           active2: hero.active2 != null ? `ability_${hero.active2}` : null,
