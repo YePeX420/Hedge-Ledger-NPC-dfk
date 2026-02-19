@@ -15285,6 +15285,9 @@ Use this data to provide specific hero recommendations when the user asks about 
       
       // Auto-start Sale ingestion (market intel / demand heatmap)
       await autoStartSaleIngestion();
+      
+      // Auto-start Auction Pipeline (listing indexer, finalizer, backfill)
+      await autoStartAuctionPipeline();
     } else {
       console.log('[AutoStart] Development environment - indexers will only run when manually triggered from admin panel');
     }
@@ -15455,6 +15458,71 @@ Use this data to provide specific hero recommendations when the user asks about 
       console.log('[SaleIngestion] Auto-start complete - running every 1 hour');
     } catch (err) {
       console.error('[SaleIngestion] Auto-start error:', err.message);
+    }
+  }
+  
+  let auctionPipelineIntervals = {};
+  
+  async function autoStartAuctionPipeline() {
+    try {
+      await new Promise(r => setTimeout(r, 35000));
+      
+      console.log('[AuctionPipeline] Auto-starting auction pipeline scheduler...');
+      const { runListingIndexer, runAuctionFinalizer, runSalesBackfill, getPipelineStatus } = await import('./src/etl/ingestion/auctionPipeline.js');
+      
+      const realms = ['cv', 'sd'];
+      
+      const runIndexerCycle = async () => {
+        for (const realm of realms) {
+          try {
+            console.log(`[AuctionPipeline] Running listing indexer for ${realm}...`);
+            const result = await runListingIndexer(realm);
+            console.log(`[AuctionPipeline] Listing indexer ${realm}: ${result.upserted || 0} upserted, ${result.markedInactive || 0} marked inactive`);
+          } catch (err) {
+            console.error(`[AuctionPipeline] Listing indexer error (${realm}):`, err.message);
+          }
+        }
+      };
+      
+      const runFinalizerCycle = async () => {
+        for (const realm of realms) {
+          try {
+            console.log(`[AuctionPipeline] Running auction finalizer for ${realm}...`);
+            const result = await runAuctionFinalizer(realm);
+            console.log(`[AuctionPipeline] Finalizer ${realm}: ${result.sold || 0} sold, ${result.delisted || 0} delisted`);
+          } catch (err) {
+            console.error(`[AuctionPipeline] Finalizer error (${realm}):`, err.message);
+          }
+        }
+      };
+      
+      const runBackfillCycle = async () => {
+        for (const realm of realms) {
+          try {
+            console.log(`[AuctionPipeline] Running backfill for ${realm}...`);
+            const result = await runSalesBackfill(realm);
+            console.log(`[AuctionPipeline] Backfill ${realm}: ${result.upserted || 0} upserted`);
+          } catch (err) {
+            console.error(`[AuctionPipeline] Backfill error (${realm}):`, err.message);
+          }
+        }
+      };
+      
+      await runIndexerCycle();
+      
+      auctionPipelineIntervals.indexer = setInterval(runIndexerCycle, 10 * 60 * 1000);
+      auctionPipelineIntervals.finalizer = setInterval(runFinalizerCycle, 15 * 60 * 1000);
+      auctionPipelineIntervals.backfill = setInterval(runBackfillCycle, 24 * 60 * 60 * 1000);
+      
+      setTimeout(runFinalizerCycle, 2 * 60 * 1000);
+      setTimeout(runBackfillCycle, 5 * 60 * 1000);
+      
+      console.log('[AuctionPipeline] Auto-start complete:');
+      console.log('  - Listing Indexer: every 10 minutes');
+      console.log('  - Auction Finalizer: every 15 minutes');
+      console.log('  - Sales Backfill: every 24 hours');
+    } catch (err) {
+      console.error('[AuctionPipeline] Auto-start error:', err.message);
     }
   }
   
