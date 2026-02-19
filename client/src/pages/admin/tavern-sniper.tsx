@@ -190,6 +190,7 @@ export default function TavernSniper() {
   });
   
   const [sortBy, setSortBy] = useState<SortOption>("levelValue");
+  const [profitableOnly, setProfitableOnly] = useState(false);
   const [searchTriggered, setSearchTriggered] = useState(false);
   const [hiddenHeroes, setHiddenHeroes] = useState<Set<string>>(() => {
     try {
@@ -243,12 +244,16 @@ export default function TavernSniper() {
       return true;
     });
 
-    const withBurn = filtered.map(h => ({
+    let withBurn = filtered.map(h => ({
       hero: h,
       burn: burnSettings.showBurnValue
         ? calculateBurnValue(h, burnSettings.dePrice, burnSettings.gdePrice, burnSettings.categoryMultiplier)
         : null
     }));
+
+    if (profitableOnly && burnSettings.showBurnValue) {
+      withBurn = withBurn.filter(h => h.burn && h.burn.profitCrystal > 0);
+    }
 
     switch (sortBy) {
       case "levelValue":
@@ -280,7 +285,7 @@ export default function TavernSniper() {
     }
 
     return withBurn;
-  }, [data, filters.profession, filters.maxPrice, sortBy, hiddenHeroes, burnSettings]);
+  }, [data, filters.profession, filters.maxPrice, sortBy, hiddenHeroes, burnSettings, profitableOnly]);
 
   const handleSearch = () => {
     setSearchTriggered(true);
@@ -508,6 +513,25 @@ export default function TavernSniper() {
                 <Search className="h-4 w-4 mr-2" />
               )}
               Search Tavern
+            </Button>
+
+            <Button
+              variant={profitableOnly ? "default" : "outline"}
+              onClick={() => {
+                setProfitableOnly(p => !p);
+                setBurnSettings(s => ({ ...s, showBurnValue: true }));
+                setSortBy("burnProfit");
+                if (!searchTriggered) {
+                  setSearchTriggered(true);
+                } else {
+                  refetch();
+                }
+              }}
+              disabled={isLoading}
+              data-testid="button-profitable-burns"
+            >
+              <Flame className="h-4 w-4 mr-2" />
+              {profitableOnly ? "Showing Profitable" : "Profitable Burns"}
             </Button>
 
             {searchTriggered && (
