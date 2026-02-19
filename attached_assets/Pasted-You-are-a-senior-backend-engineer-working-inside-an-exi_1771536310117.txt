@@ -1,0 +1,214 @@
+You are a senior backend engineer working inside an existing Node.js (ESM) webapp codebase that uses:
+- Express (web server + REST endpoints)
+- Postgres via `pg` for SQL execution
+- Drizzle ORM for schema definitions + migrations
+
+Goal: Fix the Hero Price Tool so “sales” are canonical, reliable, and scalable.
+Right now `tavern_sales` is polluted because it treats “disappeared listing” as a sale and uses last ask price.
+Implement a production-grade pipeline that:
+1) Tracks open tavern auctions reliably
+2) Finalizes closed auctions by querying `purchasePrice` (true paid price)
+3) Distinguishes SOLD vs DELISTED
+4) Makes pricing comps use only SOLD rows (canonical), with listing-only fallback clearly labeled
+
+IMPORTANT DFK GRAPHQL RULES (MUST FOLLOW):
+- Do NOT use `where: { open: true }` to represent “currently open” listings. Some auctions can be stuck open even when completed.
+  Use: `where: { endedAt: null, winner: null }` (also excludes private auctions).
+- A sale is only confirmed if `purchasePrice` is non-null on the auction.
+- Use `endedAt` as the sale timestamp when SOLD.
+- Avoid N+1 hero fetches: pull hero fields through `tokenId { ... }` in the same auctions query.
+
+--------------------------------------------------------------------
+A) DATABASE / SCHEMA CHANGES (DRIZZLE MIGRATION)
+--------------------------------------------------------------------
+1) Modify `tavern_heroes` (live listings table):
+   Add columns:
+   - auction_id TEXT NOT NULL
+   - hero_id_padded TEXT NULL (tokenId.id)
+   - hero_id_normalized TEXT NOT NULL (tokenId.normalizedId)  <-- keep current hero_id but also store normalized explicitly
+   - network TEXT NULL (tokenId.network)
+   - origin_realm TEXT NULL (tokenId.originRealm)
+   - shiny BOOLEAN NULL
+   - stat_genes TEXT NULL
+   - visual_genes TEXT NULL
+   - started_at TIMESTAMPTZ NULL
+   - is_active BOOLEAN NOT NULL DEFAULT true
+   - last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+
+   Indexes/constraints:
+   - UNIQUE(realm, auction_id)
+   - INDEX(realm, hero_id_normalized)
+   - INDEX(realm, is_active)
+   - INDEX(realm, last_seen_at)
+
+   Notes:
+   - Keep existing columns (price_native, native_token, etc.) but ensure auction_id is stored for each listing.
+
+2) Modify `tavern_sales` (you may rename optional; if keeping name, upgrade semantics):
+   Add columns:
+   - auction_id TEXT NOT NULL
+   - status TEXT NOT NULL CHECK (status in ('SOLD','DELISTED','INFERRED_DELTA','BACKFILL'))
+   - ended_at TIMESTAMPTZ NULL
+   - purchase_price_wei NUMERIC(78,0) NULL   -- store exact wei; no floating rounding
+   - purchase_price_native NUMERIC NULL      -- computed readable amount if you want
+   - source TEXT NOT NULL DEFAULT 'FINALIZED_AUCTION'
+
+   Indexes/constraints:
+   - UNIQUE(realm, auction_id)
+   - INDEX(realm, status, ended_at)
+   - INDEX(realm, hero_id)
+
+   Data migration:
+   - For existing rows already in tavern_sales, set:
+     status = 'INFERRED_DELTA'
+     source = 'INFERRED_DELTA'
+     purchase_price_wei = NULL (since those aren’t guaranteed)
+     ended_at = sale_timestamp (best effort)
+
+3) Add `ingestion_state` table for idempotency/cursors:
+   - job_name TEXT NOT NULL
+   - realm TEXT NOT NULL
+   - last_run_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   - PRIMARY KEY(job_name, realm)
+
+--------------------------------------------------------------------
+B) GRAPHQL QUERIES (REPLACE N+1 HERO FETCH)
+--------------------------------------------------------------------
+Update the listing indexer query to fetch hero fields via tokenId in the same query.
+
+Use:
+saleAuctions(where: { endedAt: null, winner: null })
+
+Fetch:
+- auction.id, startedAt, startingPrice, endingPrice, seller.id
+- tokenId { id, normalizedId, network, originRealm, mainClassStr, subClassStr, professionStr, rarity, shiny,
+           generation, level, summons, maxSummons, summonsRemaining, statBoost1, statBoost2,
+           statGenes, visualGenes, salePrice }
+
+Also implement a finalizer query:
+saleAuction(id: $auctionId) { id, endedAt, purchasePrice, seller {id}, winner {id}, tokenId { normalizedId id } }
+
+Important:
+- startedAt/endedAt are likely epoch seconds; convert to timestamptz.
+- purchasePrice is only needed in finalizer/backfill.
+
+--------------------------------------------------------------------
+C) INGESTION PIPELINE (WEBAPP-SAFE + HORIZONTALLY SCALABLE)
+--------------------------------------------------------------------
+Do NOT rely on in-memory state between runs (webapps scale horizontally).
+Persist job state in DB and use Postgres advisory locks so only one worker runs a job per realm at a time.
+
+Implement the ingestion as a separate “worker” module that can be run in one of these modes:
+- Mode 1 (Recommended): separate Node process (e.g., `node worker.js`) started by the platform scheduler/cron
+- Mode 2: in-app scheduler (setInterval) BUT still safe under horizontal scaling because advisory locks prevent overlap
+
+Use advisory lock keys like:
+hashtext('dfk:indexer:' + realm) and hashtext('dfk:finalizer:' + realm)
+
+JOB 1: LISTING INDEXER (every ~10–30 min)
+Steps:
+1) Acquire advisory lock.
+2) Read previous open auction IDs from DB:
+   SELECT auction_id FROM tavern_heroes WHERE realm=$1 AND is_active=true;
+3) Query GraphQL for current open auctions with pagination (first=1000, skip increments).
+4) Build a Set currentOpenAuctionIds.
+5) In a DB transaction:
+   a) Mark all existing listings inactive for this realm:
+      UPDATE tavern_heroes SET is_active=false WHERE realm=$1;
+   b) Upsert current open auctions into tavern_heroes:
+      - key: (realm, auction_id)
+      - set is_active=true, last_seen_at=now(), last_indexed_at=now()
+      - update hero fields, price fields, etc.
+      - store hero_id_normalized from tokenId.normalizedId
+      - store hero_id_padded from tokenId.id
+      - store stat_genes/visual_genes/shiny
+      - keep listed_at stable: if row exists, do not overwrite listed_at unless null.
+6) Persist the current open auction IDs snapshot reference:
+   Option A: store a “last_seen_index_run_at” timestamp and use tavern_heroes rows to infer prev vs current next time
+   Option B: store open auctions into a small `open_auctions_snapshot` table keyed by (realm, run_id)
+   Choose the simplest that stays DB-backed and idempotent.
+7) Release lock.
+
+JOB 2: AUCTION FINALIZER (every ~10–30 min, or triggered after indexer)
+Purpose: finalize auctions that closed since last run.
+
+Steps:
+1) Acquire advisory lock.
+2) Determine closedAuctionIds as:
+   prevOpenAuctionIds - currentOpenAuctionIds
+   IMPORTANT: because webapps cannot depend on memory, compute prev/current using DB-backed snapshots (from step C6).
+3) For each closed auction_id:
+   - Query GraphQL: saleAuction(id)
+   - If purchasePrice != null:
+       status='SOLD'
+       purchase_price_wei = purchasePrice
+       ended_at = endedAt
+     else:
+       status='DELISTED'
+       purchase_price_wei = null
+       ended_at = endedAt (if exists) else now()
+   - Insert into tavern_sales with UPSERT on (realm, auction_id).
+4) Snapshot hero traits “as-of listing time”:
+   Copy hero fields into tavern_sales from the latest tavern_heroes row that had that auction_id
+   (avoid relying on tokenId fields from saleAuction, which can reflect current hero state).
+5) Release lock.
+
+JOB 3: BACKFILL SOLD AUCTIONS (daily or on-demand)
+This catches fast sales between snapshots.
+- Query saleAuctions where purchasePrice_not: null and endedAt within last 90 days (or configurable).
+- For each result, UPSERT into tavern_sales with status='SOLD', purchase_price_wei, ended_at, seller/winner.
+- If hero snapshot fields are missing, fill best-effort from hero query.
+
+--------------------------------------------------------------------
+D) PRICING ENGINE CHANGES (STOP USING INFERRED “SALES”)
+--------------------------------------------------------------------
+1) Comparable pool must come from:
+   tavern_sales WHERE status='SOLD'
+   AND ended_at >= now() - interval '90 days'
+   AND realm/native_token match the hero’s realm/native_token
+2) Listing-only fallback can use tavern_heroes WHERE is_active=true,
+   BUT confidence MUST drop one level and warnings should say “ASK-SIDE ONLY (NOT CONFIRMED SALES)”.
+3) HARD CONSTRAINTS (NEVER RELAX IN TIERS):
+   - realm (and/or origin_realm/network if available)
+   - native_token
+   - if generation == 0, never drop generation; if insufficient comps, return “insufficient Gen0 comparables” with no fake price.
+4) Add summonsRemaining band into Tier 1 and Tier 2 matching.
+5) Replace outlier removal method:
+   - Remove 2σ rule
+   - Implement robust outlier removal using IQR (Q1-1.5*IQR, Q3+1.5*IQR)
+6) Percentile gating:
+   - If comps < 8: only show median + range and cap confidence at medium
+   - If comps 8–19: show 35/50/75
+   - If comps >= 20: show 20/35/50/75/90
+
+--------------------------------------------------------------------
+E) WEBAPP INTEGRATION (ENDPOINTS + CACHE)
+--------------------------------------------------------------------
+Expose endpoints:
+- GET /api/hero/:id/price  -> returns { bands, fairValue, tier, confidence, warnings, comps }
+- (optional) GET /api/admin/ingest/run?realm=cv -> triggers a single ingestion run (protected)
+Implement caching:
+- Cache price responses for ~1–5 minutes (in-memory or Redis if available)
+- Do NOT cache ingestion results beyond the DB
+
+--------------------------------------------------------------------
+F) ACCEPTANCE CRITERIA (MUST PASS)
+--------------------------------------------------------------------
+1) When an auction disappears, tool correctly classifies:
+   - SOLD if purchasePrice exists, uses purchasePrice as the comp price
+   - DELISTED otherwise, and DELISTED rows are never used as comps
+2) “Open listings” query uses endedAt:null and winner:null (not open:true)
+3) Pricing for Gen0 heroes never mixes non-Gen0 comparables; returns “insufficient Gen0 comparables” if needed
+4) Pricing engine uses only status='SOLD' sales for primary estimates
+5) Existing inferred rows remain but are marked INFERRED_DELTA and excluded from primary comps
+6) Jobs are safe under horizontal scaling (no reliance on memory; advisory locks prevent overlap)
+
+--------------------------------------------------------------------
+DELIVERABLES
+--------------------------------------------------------------------
+- Drizzle migration + updated schema definitions
+- Worker/job modules for indexer/finalizer/backfill (DB-backed snapshots)
+- Updated GraphQL queries (tokenId expanded to avoid N+1)
+- Updated pricing SQL queries (SOLD-only comps)
+- Logging/metrics per run: open listings, closed auctions, sold, delisted
+- A small “dry-run” mode to validate SOLD vs DELISTED without writing
