@@ -15178,6 +15178,9 @@ Use this data to provide specific hero recommendations when the user asks about 
       
       // Auto-start Tavern indexer (marketplace heroes)
       await autoStartTavernIndexer();
+      
+      // Auto-start Sale ingestion (market intel / demand heatmap)
+      await autoStartSaleIngestion();
     } else {
       console.log('[AutoStart] Development environment - indexers will only run when manually triggered from admin panel');
     }
@@ -15327,6 +15330,27 @@ Use this data to provide specific hero recommendations when the user asks about 
       console.log('[TavernIndexer] Auto-start complete with health monitoring');
     } catch (err) {
       console.error('[TavernIndexer] Auto-start error:', err.message);
+    }
+  }
+  
+  // Auto-start Sale ingestion on server startup (production only)
+  async function autoStartSaleIngestion() {
+    try {
+      await new Promise(r => setTimeout(r, 30000));
+      
+      console.log('[SaleIngestion] Auto-starting sale ingestion (hourly)...');
+      const { startAutoIngestion, getSaleIngestionStatus } = await import('./src/etl/ingestion/saleIngestionService.js');
+      
+      const status = getSaleIngestionStatus();
+      if (status.autoRunActive) {
+        console.log('[SaleIngestion] Already running, skipping auto-start');
+        return;
+      }
+      
+      startAutoIngestion(60 * 60 * 1000);
+      console.log('[SaleIngestion] Auto-start complete - running every 1 hour');
+    } catch (err) {
+      console.error('[SaleIngestion] Auto-start error:', err.message);
     }
   }
   
