@@ -9460,6 +9460,78 @@ async function startAdminWebServer() {
     }
   });
 
+  // ============================================================================
+  // AUCTION PIPELINE ADMIN ENDPOINTS
+  // ============================================================================
+
+  app.get("/api/admin/auction-pipeline/status", isAdmin, async (req, res) => {
+    try {
+      const { getPipelineStatus } = await import("./src/etl/ingestion/auctionPipeline.js");
+      const result = await getPipelineStatus();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.post("/api/admin/auction-pipeline/run", isAdmin, async (req, res) => {
+    try {
+      const { runFullPipeline } = await import("./src/etl/ingestion/auctionPipeline.js");
+      const realm = req.body?.realm || 'cv';
+      const dryRun = req.body?.dryRun === true;
+      console.log(`[AuctionPipeline] Admin triggered full pipeline for ${realm} (dryRun=${dryRun})`);
+      runFullPipeline(realm, { dryRun }).catch(err => {
+        console.error('[AuctionPipeline] Background run error:', err);
+      });
+      res.json({ ok: true, message: `Pipeline started for ${realm}`, dryRun });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.post("/api/admin/auction-pipeline/indexer", isAdmin, async (req, res) => {
+    try {
+      const { runListingIndexer } = await import("./src/etl/ingestion/auctionPipeline.js");
+      const realm = req.body?.realm || 'cv';
+      const dryRun = req.body?.dryRun === true;
+      console.log(`[AuctionPipeline] Admin triggered listing indexer for ${realm}`);
+      const result = await runListingIndexer(realm, { dryRun });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.post("/api/admin/auction-pipeline/finalizer", isAdmin, async (req, res) => {
+    try {
+      const { runAuctionFinalizer } = await import("./src/etl/ingestion/auctionPipeline.js");
+      const realm = req.body?.realm || 'cv';
+      const dryRun = req.body?.dryRun === true;
+      const gracePeriodMinutes = req.body?.gracePeriodMinutes || 15;
+      console.log(`[AuctionPipeline] Admin triggered auction finalizer for ${realm}`);
+      const result = await runAuctionFinalizer(realm, { dryRun, gracePeriodMinutes });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.post("/api/admin/auction-pipeline/backfill", isAdmin, async (req, res) => {
+    try {
+      const { runSalesBackfill } = await import("./src/etl/ingestion/auctionPipeline.js");
+      const realm = req.body?.realm || 'cv';
+      const dryRun = req.body?.dryRun === true;
+      const days = req.body?.days || 90;
+      console.log(`[AuctionPipeline] Admin triggered sales backfill for ${realm} (${days} days)`);
+      runSalesBackfill(realm, { dryRun, days }).catch(err => {
+        console.error('[AuctionPipeline] Backfill error:', err);
+      });
+      res.json({ ok: true, message: `Backfill started for ${realm} (${days} days)`, dryRun });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/tavern-indexer/heroes - Get indexed heroes with filters
   app.get("/api/admin/tavern-indexer/heroes", isAdmin, async (req, res) => {
     try {

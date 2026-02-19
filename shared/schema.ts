@@ -69,24 +69,43 @@ export type PricingConfig = typeof pricingConfig.$inferSelect;
 export const tavernSales = pgTable("tavern_sales", {
   id: serial("id").primaryKey(),
   heroId: bigint("hero_id", { mode: "number" }).notNull(),
-  realm: text("realm").notNull(), // 'cv' (Crystalvale), 'sd' (Serendale), 'metis'
+  realm: text("realm").notNull(),
   saleTimestamp: timestamp("sale_timestamp", { withTimezone: true }).notNull(),
   tokenAddress: text("token_address").notNull(),
   tokenSymbol: text("token_symbol").notNull(),
   priceAmount: numeric("price_amount", { precision: 30, scale: 18 }).notNull(),
-  priceUsd: numeric("price_usd", { precision: 15, scale: 2 }), // nullable until price feed available
+  priceUsd: numeric("price_usd", { precision: 15, scale: 2 }),
   buyerAddress: text("buyer_address"),
   sellerAddress: text("seller_address"),
   isFloorHero: boolean("is_floor_hero").default(false).notNull(),
-  floorExclusionReason: text("floor_exclusion_reason"), // why it was marked as floor
-  asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(), // UTC day it was processed
+  floorExclusionReason: text("floor_exclusion_reason"),
+  asOfDate: timestamp("as_of_date", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+
+  auctionId: text("auction_id"),
+  status: text("status").notNull().default('INFERRED_DELTA'),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  purchasePriceWei: numeric("purchase_price_wei", { precision: 78, scale: 0 }),
+  purchasePriceNative: numeric("purchase_price_native", { precision: 30, scale: 8 }),
+  source: text("source").notNull().default('INFERRED_DELTA'),
+
+  mainClass: text("main_class"),
+  subClass: text("sub_class"),
+  profession: text("profession"),
+  rarity: integer("rarity"),
+  level: integer("level"),
+  generation: integer("generation"),
+  summons: integer("summons"),
+  maxSummons: integer("max_summons"),
+  traitScore: integer("trait_score"),
 }, (table) => ({
   heroIdIdx: index("tavern_sales_hero_id_idx").on(table.heroId),
   realmIdx: index("tavern_sales_realm_idx").on(table.realm),
   saleTimestampIdx: index("tavern_sales_sale_timestamp_idx").on(table.saleTimestamp),
   asOfDateIdx: index("tavern_sales_as_of_date_idx").on(table.asOfDate),
   uniqueSale: uniqueIndex("tavern_sales_unique_sale").on(table.heroId, table.saleTimestamp),
+  realmAuctionIdx: uniqueIndex("tavern_sales_realm_auction_idx").on(table.realm, table.auctionId),
+  statusEndedIdx: index("tavern_sales_status_ended_idx").on(table.realm, table.status, table.endedAt),
 }));
 
 /**
@@ -3102,6 +3121,72 @@ export const tavernHeroes = pgTable("tavern_heroes", {
 export const insertTavernHeroSchema = createInsertSchema(tavernHeroes).omit({ id: true, indexedAt: true });
 export type InsertTavernHero = z.infer<typeof insertTavernHeroSchema>;
 export type TavernHero = typeof tavernHeroes.$inferSelect;
+
+/**
+ * Tavern Listings - Auction-scoped live listings keyed by (realm, auction_id)
+ * Source of truth for auction lifecycle. tavern_heroes is derived from this for UI.
+ */
+export const tavernListings = pgTable("tavern_listings", {
+  id: serial("id").primaryKey(),
+  auctionId: text("auction_id").notNull(),
+  realm: text("realm").notNull(),
+
+  heroId: text("hero_id").notNull(),
+  heroIdNormalized: bigint("hero_id_normalized", { mode: "number" }).notNull(),
+  network: text("network"),
+  originRealm: text("origin_realm"),
+
+  mainClass: text("main_class").notNull(),
+  subClass: text("sub_class"),
+  profession: text("profession"),
+  rarity: integer("rarity").notNull().default(0),
+  level: integer("level").notNull().default(1),
+  generation: integer("generation").notNull().default(0),
+  summons: integer("summons").notNull().default(0),
+  maxSummons: integer("max_summons").notNull().default(0),
+  shiny: boolean("shiny").default(false),
+  statGenes: text("stat_genes"),
+  visualGenes: text("visual_genes"),
+
+  statBoost1: text("stat_boost_1"),
+  statBoost2: text("stat_boost_2"),
+  traitScore: integer("trait_score").notNull().default(0),
+
+  sellerAddress: text("seller_address"),
+  startingPrice: text("starting_price"),
+  priceNative: numeric("price_native", { precision: 30, scale: 8 }),
+  nativeToken: text("native_token"),
+
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  isActive: boolean("is_active").notNull().default(true),
+  inactiveSince: timestamp("inactive_since", { withTimezone: true }),
+  closedProcessedAt: timestamp("closed_processed_at", { withTimezone: true }),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  realmAuctionUnique: uniqueIndex("tavern_listings_realm_auction_idx").on(table.realm, table.auctionId),
+  realmHeroIdx: index("tavern_listings_realm_hero_idx").on(table.realm, table.heroIdNormalized),
+  realmActiveIdx: index("tavern_listings_realm_active_idx").on(table.realm, table.isActive),
+  realmLastSeenIdx: index("tavern_listings_realm_last_seen_idx").on(table.realm, table.lastSeenAt),
+  inactiveSinceIdx: index("tavern_listings_inactive_since_idx").on(table.isActive, table.inactiveSince, table.closedProcessedAt),
+}));
+
+export const insertTavernListingSchema = createInsertSchema(tavernListings).omit({ id: true, createdAt: true });
+export type InsertTavernListing = z.infer<typeof insertTavernListingSchema>;
+export type TavernListing = typeof tavernListings.$inferSelect;
+
+/**
+ * Tavern Ingestion Jobs - Track job cursors for idempotent auction pipeline runs
+ */
+export const tavernIngestionJobs = pgTable("tavern_ingestion_jobs", {
+  jobName: text("job_name").notNull(),
+  realm: text("realm").notNull(),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  metadata: json("metadata"),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.jobName, table.realm] }),
+}));
 
 /**
  * Tavern Indexer Progress - Track indexing state

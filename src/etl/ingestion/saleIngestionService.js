@@ -851,7 +851,20 @@ const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
 function computePriceStats(prices) {
   if (!prices || prices.length === 0) return null;
   
-  const sorted = [...prices].sort((a, b) => a - b);
+  let sorted = [...prices].sort((a, b) => a - b);
+
+  if (sorted.length >= 4) {
+    const q1Idx = Math.floor(sorted.length * 0.25);
+    const q3Idx = Math.floor(sorted.length * 0.75);
+    const q1 = sorted[q1Idx];
+    const q3 = sorted[q3Idx];
+    const iqr = q3 - q1;
+    const lowerFence = q1 - 1.5 * iqr;
+    const upperFence = q3 + 1.5 * iqr;
+    sorted = sorted.filter(p => p >= lowerFence && p <= upperFence);
+    if (sorted.length === 0) sorted = [...prices].sort((a, b) => a - b);
+  }
+
   const sum = sorted.reduce((a, b) => a + b, 0);
   const avg = sum / sorted.length;
   const median = sorted.length % 2 === 0
@@ -860,37 +873,53 @@ function computePriceStats(prices) {
   const min = sorted[0];
   const max = sorted[sorted.length - 1];
   
-  const p10 = sorted[Math.floor(sorted.length * 0.1)] || min;
-  const p25 = sorted[Math.floor(sorted.length * 0.25)] || min;
+  const p20 = sorted[Math.floor(sorted.length * 0.2)] || min;
+  const p35 = sorted[Math.floor(sorted.length * 0.35)] || min;
   const p75 = sorted[Math.floor(sorted.length * 0.75)] || max;
   const p90 = sorted[Math.floor(sorted.length * 0.9)] || max;
   
   const variance = sorted.reduce((acc, p) => acc + Math.pow(p - avg, 2), 0) / sorted.length;
   const stdDev = Math.sqrt(variance);
-  const cv = (stdDev / avg) * 100;
+  const cv = avg > 0 ? (stdDev / avg) * 100 : 0;
   
   let confidence = 'low';
   if (sorted.length >= 20 && cv < 50) confidence = 'high';
-  else if (sorted.length >= 10 && cv < 75) confidence = 'medium';
-  else if (sorted.length >= 5 && cv < 100) confidence = 'medium-low';
-  
-  return {
+  else if (sorted.length >= 8 && cv < 75) confidence = 'medium';
+  else if (sorted.length >= 3 && cv < 100) confidence = 'medium-low';
+
+  if (sorted.length < 8) {
+    if (confidence === 'high') confidence = 'medium';
+  }
+
+  const result = {
     avg: Math.round(avg * 100) / 100,
     median: Math.round(median * 100) / 100,
     min: Math.round(min * 100) / 100,
     max: Math.round(max * 100) / 100,
-    p10: Math.round(p10 * 100) / 100,
-    p25: Math.round(p25 * 100) / 100,
-    p75: Math.round(p75 * 100) / 100,
-    p90: Math.round(p90 * 100) / 100,
     stdDev: Math.round(stdDev * 100) / 100,
     cv: Math.round(cv),
     confidence,
     sampleSize: sorted.length
   };
+
+  if (sorted.length < 8) {
+    result.fairValue = result.median;
+    result.range = { low: result.min, high: result.max };
+  } else if (sorted.length < 20) {
+    result.p35 = Math.round(p35 * 100) / 100;
+    result.p75 = Math.round(p75 * 100) / 100;
+  } else {
+    result.p20 = Math.round(p20 * 100) / 100;
+    result.p35 = Math.round(p35 * 100) / 100;
+    result.p75 = Math.round(p75 * 100) / 100;
+    result.p90 = Math.round(p90 * 100) / 100;
+  }
+
+  return result;
 }
 
 const PROGRESSIVE_TIERS = [
+  { id: 'class_rarity_gen_level_summons_traits', label: 'Class + Rarity + Gen + Level + Summons + Traits', confidence: 'high' },
   { id: 'class_rarity_gen_level_traits', label: 'Class + Rarity + Gen + Level + Traits', confidence: 'high' },
   { id: 'class_rarity_gen_traits', label: 'Class + Rarity + Gen + Traits', confidence: 'high' },
   { id: 'class_rarity_gen', label: 'Class + Rarity + Gen', confidence: 'medium' },
@@ -900,6 +929,14 @@ const PROGRESSIVE_TIERS = [
   { id: 'floor', label: 'Floor Estimate', confidence: 'low' },
 ];
 
+function getSummonsRemainingBand(summons, maxSummons) {
+  const remaining = Math.max(0, (maxSummons || 0) - (summons || 0));
+  if (remaining === 0) return 'spent';
+  if (remaining <= 2) return 'low';
+  if (remaining <= 5) return 'mid';
+  return 'high';
+}
+
 async function queryProgressiveTier(hero, tierId, source) {
   const realm = hero.realm;
   const mainClass = hero.mainClass;
@@ -908,6 +945,8 @@ async function queryProgressiveTier(hero, tierId, source) {
   const generation = hero.generation != null ? hero.generation : 0;
   const traitScore = hero.traitScore || 0;
   const traitBand = getTraitScoreBand(traitScore);
+  const summonsBand = getSummonsRemainingBand(hero.summons, hero.maxSummons);
+  const summonsRemaining = Math.max(0, (hero.maxSummons || 0) - (hero.summons || 0));
 
   if (source === 'sales') {
     const cols = `id, hero_id, realm, sale_timestamp as data_date, token_symbol, price_amount,
@@ -915,178 +954,215 @@ async function queryProgressiveTier(hero, tierId, source) {
       generation, summons, max_summons, trait_score,
       profession_match, stat_boost_1, stat_boost_2, trait_score_band`;
 
+    const statusFilter = `AND (status IS NULL OR status NOT IN ('DELISTED'))`;
+
     switch (tierId) {
-      case 'class_rarity_gen_level_traits':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
+      case 'class_rarity_gen_level_summons_traits':
+        return rawPg.unsafe(`
+          SELECT ${cols}
           FROM tavern_sales
-          WHERE main_class = ${mainClass}
-            AND rarity = ${rarity}
-            AND generation = ${generation}
-            AND level BETWEEN ${Math.max(1, level - 3)} AND ${level + 3}
-            AND (trait_score_band = ${traitBand} OR trait_score_band IS NULL)
+          WHERE main_class = $1
+            AND rarity = $2
+            AND generation = $3
+            AND level BETWEEN $4 AND $5
+            AND (GREATEST(COALESCE(max_summons,0) - COALESCE(summons,0), 0) BETWEEN $6 AND $7)
+            AND (trait_score_band = $8 OR trait_score_band IS NULL)
             AND price_amount > 0
             AND sale_timestamp > NOW() - INTERVAL '90 days'
-          ORDER BY ABS(level - ${level}), sale_timestamp DESC
+            ${statusFilter}
+          ORDER BY ABS(level - $9), sale_timestamp DESC
           LIMIT 100
-        `;
+        `, [mainClass, rarity, generation, Math.max(1, level - 3), level + 3,
+            Math.max(0, summonsRemaining - 2), summonsRemaining + 2,
+            traitBand, level]);
+      case 'class_rarity_gen_level_traits':
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_sales
+          WHERE main_class = $1
+            AND rarity = $2
+            AND generation = $3
+            AND level BETWEEN $4 AND $5
+            AND (trait_score_band = $6 OR trait_score_band IS NULL)
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+            ${statusFilter}
+          ORDER BY ABS(level - $7), sale_timestamp DESC
+          LIMIT 100
+        `, [mainClass, rarity, generation, Math.max(1, level - 3), level + 3, traitBand, level]);
       case 'class_rarity_gen_traits':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
+        return rawPg.unsafe(`
+          SELECT ${cols}
           FROM tavern_sales
-          WHERE main_class = ${mainClass}
-            AND rarity = ${rarity}
-            AND generation = ${generation}
-            AND (trait_score_band = ${traitBand} OR trait_score_band IS NULL)
+          WHERE main_class = $1
+            AND rarity = $2
+            AND generation = $3
+            AND (trait_score_band = $4 OR trait_score_band IS NULL)
             AND price_amount > 0
             AND sale_timestamp > NOW() - INTERVAL '90 days'
-          ORDER BY ABS(COALESCE(level, 1) - ${level}), sale_timestamp DESC
+            ${statusFilter}
+          ORDER BY ABS(COALESCE(level, 1) - $5), sale_timestamp DESC
           LIMIT 150
-        `;
+        `, [mainClass, rarity, generation, traitBand, level]);
       case 'class_rarity_gen':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
+        return rawPg.unsafe(`
+          SELECT ${cols}
           FROM tavern_sales
-          WHERE main_class = ${mainClass}
-            AND rarity = ${rarity}
-            AND generation = ${generation}
+          WHERE main_class = $1
+            AND rarity = $2
+            AND generation = $3
             AND price_amount > 0
             AND sale_timestamp > NOW() - INTERVAL '90 days'
-          ORDER BY ABS(COALESCE(level, 1) - ${level}), sale_timestamp DESC
+            ${statusFilter}
+          ORDER BY ABS(COALESCE(level, 1) - $4), sale_timestamp DESC
           LIMIT 200
-        `;
+        `, [mainClass, rarity, generation, level]);
       case 'class_rarity':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
+        return rawPg.unsafe(`
+          SELECT ${cols}
           FROM tavern_sales
-          WHERE main_class = ${mainClass}
-            AND rarity = ${rarity}
+          WHERE main_class = $1
+            AND rarity = $2
             AND price_amount > 0
             AND sale_timestamp > NOW() - INTERVAL '90 days'
-          ORDER BY ABS(COALESCE(generation, 0) - ${generation}), ABS(COALESCE(level, 1) - ${level}), sale_timestamp DESC
+            ${statusFilter}
+          ORDER BY ABS(COALESCE(generation, 0) - $3), ABS(COALESCE(level, 1) - $4), sale_timestamp DESC
           LIMIT 200
-        `;
+        `, [mainClass, rarity, generation, level]);
       case 'rarity_gen':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
+        return rawPg.unsafe(`
+          SELECT ${cols}
           FROM tavern_sales
-          WHERE rarity = ${rarity}
-            AND generation = ${generation}
+          WHERE rarity = $1
+            AND generation = $2
             AND price_amount > 0
             AND sale_timestamp > NOW() - INTERVAL '90 days'
+            ${statusFilter}
           ORDER BY sale_timestamp DESC
           LIMIT 300
-        `;
+        `, [rarity, generation]);
       case 'rarity_only':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
+        return rawPg.unsafe(`
+          SELECT ${cols}
           FROM tavern_sales
-          WHERE rarity = ${rarity}
+          WHERE rarity = $1
             AND price_amount > 0
             AND sale_timestamp > NOW() - INTERVAL '90 days'
+            ${statusFilter}
           ORDER BY sale_timestamp DESC
           LIMIT 300
-        `;
+        `, [rarity]);
       case 'floor':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
+        return rawPg.unsafe(`
+          SELECT ${cols}
           FROM tavern_sales
-          WHERE rarity <= ${rarity}
+          WHERE rarity <= $1
             AND price_amount > 0
             AND sale_timestamp > NOW() - INTERVAL '90 days'
+            ${statusFilter}
           ORDER BY price_amount ASC
           LIMIT 300
-        `;
+        `, [rarity]);
       default:
         return [];
     }
   }
 
   if (source === 'listings') {
-    const cols = `hero_id, realm, main_class, sub_class, profession, rarity, level,
+    const cols = `hero_id_normalized as hero_id, realm, main_class, sub_class, profession, rarity, level,
       generation, summons, max_summons, trait_score,
       price_native as price_amount, native_token as token_symbol`;
 
+    const heroIdExclude = hero.heroId || hero.heroIdNormalized || '';
+
     switch (tierId) {
+      case 'class_rarity_gen_level_summons_traits':
       case 'class_rarity_gen_level_traits':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
-          FROM tavern_heroes
-          WHERE main_class = ${mainClass}
-            AND rarity = ${rarity}
-            AND generation = ${generation}
-            AND level BETWEEN ${Math.max(1, level - 3)} AND ${level + 3}
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_listings
+          WHERE is_active = true
+            AND main_class = $1
+            AND rarity = $2
+            AND generation = $3
+            AND level BETWEEN $4 AND $5
             AND price_native > 0
-            AND hero_id != ${hero.heroId || ''}
-          ORDER BY ABS(level - ${level}), ABS(COALESCE(trait_score, 0) - ${traitScore})
+            AND hero_id_normalized != $6
+          ORDER BY ABS(level - $7), ABS(COALESCE(trait_score, 0) - $8)
           LIMIT 100
-        `;
+        `, [mainClass, rarity, generation, Math.max(1, level - 3), level + 3, heroIdExclude, level, traitScore]);
       case 'class_rarity_gen_traits':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
-          FROM tavern_heroes
-          WHERE main_class = ${mainClass}
-            AND rarity = ${rarity}
-            AND generation = ${generation}
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_listings
+          WHERE is_active = true
+            AND main_class = $1
+            AND rarity = $2
+            AND generation = $3
             AND price_native > 0
-            AND hero_id != ${hero.heroId || ''}
-          ORDER BY ABS(COALESCE(trait_score, 0) - ${traitScore}), ABS(COALESCE(level, 1) - ${level})
+            AND hero_id_normalized != $4
+          ORDER BY ABS(COALESCE(trait_score, 0) - $5), ABS(COALESCE(level, 1) - $6)
           LIMIT 150
-        `;
+        `, [mainClass, rarity, generation, heroIdExclude, traitScore, level]);
       case 'class_rarity_gen':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
-          FROM tavern_heroes
-          WHERE main_class = ${mainClass}
-            AND rarity = ${rarity}
-            AND generation = ${generation}
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_listings
+          WHERE is_active = true
+            AND main_class = $1
+            AND rarity = $2
+            AND generation = $3
             AND price_native > 0
-            AND hero_id != ${hero.heroId || ''}
-          ORDER BY ABS(COALESCE(level, 1) - ${level})
+            AND hero_id_normalized != $4
+          ORDER BY ABS(COALESCE(level, 1) - $5)
           LIMIT 200
-        `;
+        `, [mainClass, rarity, generation, heroIdExclude, level]);
       case 'class_rarity':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
-          FROM tavern_heroes
-          WHERE main_class = ${mainClass}
-            AND rarity = ${rarity}
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_listings
+          WHERE is_active = true
+            AND main_class = $1
+            AND rarity = $2
             AND price_native > 0
-            AND hero_id != ${hero.heroId || ''}
-          ORDER BY ABS(COALESCE(generation, 0) - ${generation}), ABS(COALESCE(level, 1) - ${level})
+            AND hero_id_normalized != $3
+          ORDER BY ABS(COALESCE(generation, 0) - $4), ABS(COALESCE(level, 1) - $5)
           LIMIT 200
-        `;
+        `, [mainClass, rarity, heroIdExclude, generation, level]);
       case 'rarity_gen':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
-          FROM tavern_heroes
-          WHERE rarity = ${rarity}
-            AND generation = ${generation}
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_listings
+          WHERE is_active = true
+            AND rarity = $1
+            AND generation = $2
             AND price_native > 0
-            AND hero_id != ${hero.heroId || ''}
+            AND hero_id_normalized != $3
           ORDER BY price_native ASC
           LIMIT 300
-        `;
+        `, [rarity, generation, heroIdExclude]);
       case 'rarity_only':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
-          FROM tavern_heroes
-          WHERE rarity = ${rarity}
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_listings
+          WHERE is_active = true
+            AND rarity = $1
             AND price_native > 0
-            AND hero_id != ${hero.heroId || ''}
+            AND hero_id_normalized != $2
           ORDER BY price_native ASC
           LIMIT 300
-        `;
+        `, [rarity, heroIdExclude]);
       case 'floor':
-        return rawPg`
-          SELECT ${rawPg.unsafe(cols)}
-          FROM tavern_heroes
-          WHERE rarity <= ${rarity}
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_listings
+          WHERE is_active = true
+            AND rarity <= $1
             AND price_native > 0
-            AND hero_id != ${hero.heroId || ''}
+            AND hero_id_normalized != $2
           ORDER BY price_native ASC
           LIMIT 300
-        `;
+        `, [rarity, heroIdExclude]);
       default:
         return [];
     }
@@ -1096,10 +1172,26 @@ async function queryProgressiveTier(hero, tierId, source) {
 }
 
 async function findComparables(hero, source) {
-  for (const tier of PROGRESSIVE_TIERS) {
+  const isGen0 = (hero.generation != null ? hero.generation : 0) === 0;
+  const heroGen = hero.generation != null ? hero.generation : 0;
+
+  const gen0SafeTiers = isGen0
+    ? PROGRESSIVE_TIERS.filter(t => !['class_rarity', 'rarity_only', 'floor'].includes(t.id))
+    : PROGRESSIVE_TIERS;
+
+  for (const tier of gen0SafeTiers) {
     try {
-      const results = await queryProgressiveTier(hero, tier.id, source);
-      const prices = (results || [])
+      let results = await queryProgressiveTier(hero, tier.id, source);
+      results = results || [];
+
+      if (isGen0) {
+        results = results.filter(r => {
+          const g = r.generation != null ? parseInt(r.generation) : null;
+          return g === 0 || g === null;
+        });
+      }
+
+      const prices = results
         .map(s => parseFloat(s.price_amount))
         .filter(p => !isNaN(p) && p > 0);
       
@@ -1119,6 +1211,20 @@ async function findComparables(hero, source) {
       console.log(`[HeroPriceTool] Tier ${tier.id} (${source}) query error: ${err.message}`);
     }
   }
+
+  if (isGen0) {
+    return {
+      results: [],
+      prices: [],
+      tier: { id: 'gen0_insufficient_data', label: 'Gen 0 - Insufficient Same-Gen Data', confidence: 'insufficient' },
+      priceStats: {
+        avg: 0, median: 0, min: 0, max: 0, stdDev: 0, cv: 0,
+        confidence: 'insufficient', sampleSize: 0,
+        warning: 'Gen 0 heroes require same-generation comparables. Not enough Gen 0 sales data available to provide accurate pricing.'
+      }
+    };
+  }
+
   return null;
 }
 
@@ -1242,15 +1348,18 @@ export async function getHeroPriceByHeroId(heroId) {
       dataSource = 'sales';
     }
 
-    if (!priceStats && hasTavernTable) {
+    if (!priceStats || priceStats.confidence === 'insufficient') {
       try {
         const listingMatch = await findComparables(hero, 'listings');
-        if (listingMatch && listingMatch.priceStats) {
+        if (listingMatch && listingMatch.priceStats && listingMatch.priceStats.sampleSize > 0) {
           salesData = listingMatch.results;
           matchTier = listingMatch.tier.id;
           priceStats = listingMatch.priceStats;
           dataSource = 'listings';
           if (priceStats.confidence === 'high') priceStats.confidence = 'medium';
+          else if (priceStats.confidence === 'medium') priceStats.confidence = 'medium-low';
+          priceStats.warning = (priceStats.warning || '') + ' Based on active listings (asking prices), not confirmed sales.';
+          priceStats.warning = priceStats.warning.trim();
         }
       } catch (err) {
         console.log(`[HeroPriceTool] Listing-based fallback error: ${err.message}`);
@@ -1264,19 +1373,21 @@ export async function getHeroPriceByHeroId(heroId) {
     let flipOpportunity = null;
     
     if (priceStats) {
+      const fairValue = priceStats.fairValue != null ? priceStats.fairValue : priceStats.median;
       estimatedValue = {
-        fairValue: priceStats.median,
-        buyBelow: priceStats.p25,
-        sellAbove: priceStats.p75,
-        premiumPrice: priceStats.p90,
-        bargainPrice: priceStats.p10,
+        fairValue,
+        buyBelow: priceStats.p35 ?? priceStats.range?.low ?? priceStats.min,
+        sellAbove: priceStats.p75 ?? priceStats.range?.high ?? priceStats.max,
+        premiumPrice: priceStats.p90 ?? priceStats.max,
+        bargainPrice: priceStats.p20 ?? priceStats.min,
         token: hero.nativeToken || (hero.realm === 'cv' ? 'CRYSTAL' : 'JEWEL'),
         confidence: priceStats.confidence,
         matchTier,
         matchTierLabel: tierLabel,
         dataSource,
         sampleSize: priceStats.sampleSize,
-        priceVariation: priceStats.cv
+        priceVariation: priceStats.cv,
+        ...(priceStats.warning ? { warning: priceStats.warning } : {})
       };
       
       if (hero.isForSale && hero.currentListingPrice > 0) {
