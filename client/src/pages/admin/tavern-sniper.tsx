@@ -84,15 +84,14 @@ const REALMS = ["All", "cv", "sd"];
 
 const CLASS_RANK: Record<string, number> = {
   Warrior: 1, Knight: 1, Thief: 1, Archer: 1, Priest: 1, Wizard: 1, Monk: 1, Pirate: 1,
-  Berserker: 1, Seer: 1, Legionnaire: 1, Scholar: 1,
-  Paladin: 2, DarkKnight: 2, Summoner: 2, Ninja: 2, Shapeshifter: 2, Bard: 2,
-  Dragoon: 3, Sage: 3, SpellBow: 3,
-  DreadKnight: 4
+  Berserker: 2, Seer: 2, Legionnaire: 2, Scholar: 2,
+  Paladin: 3, DarkKnight: 3, Summoner: 3, Ninja: 3, Shapeshifter: 3, Bard: 3,
+  Dragoon: 4, Sage: 4, SpellBow: 4,
+  DreadKnight: 5
 };
 
-const CBASE: Record<number, number> = { 1: 80, 2: 160, 3: 280, 4: 540 };
-const SBASE: Record<number, number> = { 1: 20, 2: 40, 3: 60, 4: 100 };
-const RBASE: Record<number, number> = { 0: 0, 1: 25, 2: 75, 3: 175, 4: 350 };
+const CLASS_BASE: Record<number, number> = { 1: 175, 2: 200, 3: 250, 4: 350, 5: 500 };
+const RARITY_BONUS: Record<number, number> = { 0: 0, 1: 25, 2: 75, 3: 175, 4: 350 };
 
 function calculateBurnValue(
   hero: TavernHero,
@@ -102,41 +101,38 @@ function calculateBurnValue(
 ): BurnResult {
   const isDarkSummoned = hero.darkSummoned === true;
   const rank = CLASS_RANK[hero.mainClassStr] || 1;
-  const subRank = CLASS_RANK[hero.subClassStr] || 0;
-  const cbase = CBASE[rank] || 80;
-  const sbase = SBASE[rank] || 20;
-  const rbase = RBASE[hero.rarity] || 0;
-  const subBonus = subRank > rank ? (subRank - rank) * 20 : 0;
+  const subRank = CLASS_RANK[hero.subClassStr] || 1;
+  const classBase = CLASS_BASE[rank] || 175;
+  const rarityBonus = RARITY_BONUS[hero.rarity] || 0;
   const levelBonus = (hero.level - 1) * 10;
   const summonBonus = (hero.maxSummons || 0) * 15;
+  const genBonus = (hero.generation || 0) * 8;
+  const subBonus = subRank > rank ? (subRank - rank) * 15 : 0;
 
-  const heroScore = cbase + subBonus + rbase + levelBonus + summonBonus;
+  const heroScore = classBase + subBonus + rarityBonus + levelBonus + summonBonus + genBonus;
 
-  const d20Avg = 10.5;
-  const deReward = (heroScore * d20Avg * categoryMultiplier) / 100;
+  const deAvg = (heroScore * categoryMultiplier) / 600;
+  const gdeAvg = (heroScore * categoryMultiplier) / 6945;
 
-  let gdeReward = 0;
+  let deReward = deAvg;
+  let gdeReward = gdeAvg;
   let voidShards = 0;
 
   if (isDarkSummoned) {
+    deReward = deAvg * 0.5;
     gdeReward = 0;
-    voidShards = Math.floor(deReward * 0.5);
-  } else {
-    gdeReward = (sbase * d20Avg * categoryMultiplier) / 100;
+    voidShards = Math.floor(deAvg * 0.25);
   }
 
-  const actualDE = isDarkSummoned ? deReward * 0.5 : deReward;
-
   const totalValueCrystal =
-    actualDE * dePrice +
-    gdeReward * gdePrice +
-    voidShards * 0;
+    deReward * dePrice +
+    gdeReward * gdePrice;
 
   const profitCrystal = totalValueCrystal - hero.priceNative;
 
   return {
     heroScore,
-    deReward: actualDE,
+    deReward,
     gdeReward,
     voidShards,
     isDarkSummoned,
