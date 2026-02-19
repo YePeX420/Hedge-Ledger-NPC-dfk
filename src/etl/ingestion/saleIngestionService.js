@@ -894,8 +894,8 @@ const PROGRESSIVE_TIERS = [
   { id: 'class_rarity_gen_level_traits', label: 'Class + Rarity + Gen + Level + Traits', confidence: 'high' },
   { id: 'class_rarity_gen_traits', label: 'Class + Rarity + Gen + Traits', confidence: 'high' },
   { id: 'class_rarity_gen', label: 'Class + Rarity + Gen', confidence: 'medium' },
-  { id: 'class_rarity', label: 'Class + Rarity', confidence: 'medium' },
-  { id: 'rarity_gen', label: 'Rarity + Gen', confidence: 'medium-low' },
+  { id: 'rarity_gen', label: 'Rarity + Gen', confidence: 'medium' },
+  { id: 'class_rarity', label: 'Class + Rarity (any gen)', confidence: 'medium-low' },
   { id: 'rarity_only', label: 'Rarity Only', confidence: 'low' },
   { id: 'floor', label: 'Floor Estimate', confidence: 'low' },
 ];
@@ -1603,5 +1603,71 @@ export async function getHeroPriceRecommendation(params) {
   } catch (err) {
     console.error('[SaleIngestion] getHeroPriceRecommendation error:', err.message);
     return { ok: false, error: err.message };
+  }
+}
+
+export async function generatePriceNarrative(priceResult) {
+  try {
+    const OpenAI = (await import('openai')).default;
+    // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const hero = priceResult.hero;
+    const estimate = priceResult.estimatedValue;
+    const comps = priceResult.comparableSales || [];
+    const flip = priceResult.flipOpportunity;
+    const dataSource = priceResult.dataSource || 'unknown';
+    const tierLabel = priceResult.matchTierLabel || priceResult.matchTier || 'none';
+
+    const compSummary = comps.slice(0, 8).map(c =>
+      `Hero #${c.heroId}: ${c.mainClass || '?'} Gen${c.generation ?? '?'} Lv${c.level || '?'} ${RARITY_NAMES[c.rarity] || '?'} - ${c.price} ${c.token}${c.saleDate ? ` (${new Date(c.saleDate).toLocaleDateString()})` : ''}`
+    ).join('\n');
+
+    const prompt = `You are an expert DeFi Kingdoms market analyst. Provide a brief 3-5 sentence narrative justifying this hero's price estimate. Be specific about WHY the price is what it is.
+
+HERO DETAILS:
+- Hero #${hero.heroId}: ${hero.mainClass}/${hero.subClass || 'none'}, ${hero.rarityName} (rarity ${hero.rarity}), Gen ${hero.generation}, Level ${hero.level}
+- Realm: ${hero.realm === 'cv' ? 'Crystalvale' : 'Sundered Isles'}
+- Profession: ${hero.profession || 'none'}
+- Summons: ${hero.summons}/${hero.maxSummons}
+- Combat Power: ${hero.combatPower}, Trait Score: ${hero.traitScore || 0}
+- Currently Listed: ${hero.isForSale ? `${hero.currentListingPrice} ${hero.nativeToken}` : 'Not for sale'}
+
+PRICE ESTIMATE:
+- Fair Value: ${estimate ? `${estimate.fairValue} ${estimate.token}` : 'No estimate available'}
+- Confidence: ${estimate?.confidence || 'none'}
+- Match Tier: ${tierLabel}
+- Data Source: ${dataSource === 'sales' ? 'Recent sales history' : dataSource === 'listings' ? 'Current tavern listings (no sales data)' : 'None'}
+- Sample Size: ${estimate?.sampleSize || 0} comparable heroes
+- Price Variation (CV%): ${estimate?.priceVariation || 'N/A'}
+
+COMPARABLE ${dataSource === 'listings' ? 'LISTINGS' : 'SALES'} USED:
+${compSummary || 'None available'}
+
+${flip ? `FLIP ANALYSIS: Listed at ${flip.currentPrice} ${estimate?.token}, estimated value ${flip.estimatedValue} ${estimate?.token} (${flip.discount}% ${flip.discount > 0 ? 'below' : 'above'} value). Verdict: ${flip.verdict}` : ''}
+
+KEY CONTEXT FOR DFK PRICING:
+- Gen 0 heroes are founding heroes and extremely rare/valuable (often 10,000-100,000+ CRYSTAL/JEWEL)
+- Rarity is the strongest price driver: Common < Uncommon < Rare < Legendary < Mythic
+- Generation is the second strongest driver: Gen 0 >> Gen 1 > Gen 2+
+- Class and profession matching affect price within the same rarity/gen band
+- Summons remaining add value, especially for Gen 0 with remaining summons
+- Trait score and stat boosts provide incremental premium
+
+Write your narrative as if briefing a trader. Mention any red flags (e.g. if comparables are from a different generation or the match quality is loose). Output ONLY the narrative text, no headers or formatting.`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      max_completion_tokens: 300,
+    });
+
+    return {
+      ok: true,
+      narrative: response.choices[0]?.message?.content?.trim() || 'Unable to generate analysis.'
+    };
+  } catch (err) {
+    console.error('[HeroPriceTool] AI narrative error:', err.message);
+    return { ok: false, narrative: null, error: err.message };
   }
 }

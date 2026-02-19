@@ -9773,6 +9773,22 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/market-intel/hero-price-narrative - AI reasoning narrative for hero price
+  app.post("/api/admin/market-intel/hero-price-narrative", isAdmin, async (req, res) => {
+    try {
+      const { generatePriceNarrative } = await import("./src/etl/ingestion/saleIngestionService.js");
+      const priceResult = req.body;
+      if (!priceResult || !priceResult.hero) {
+        return res.status(400).json({ ok: false, error: 'Missing price result data' });
+      }
+      const result = await generatePriceNarrative(priceResult);
+      res.json(result);
+    } catch (error) {
+      console.error('[Market Intel] Price narrative error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/market-intel/flippable-heroes - Find underpriced heroes for flipping
   app.get("/api/admin/market-intel/flippable-heroes", isAdmin, async (req, res) => {
     try {
@@ -9814,6 +9830,20 @@ async function startAdminWebServer() {
     try {
       const { getHeroPriceByHeroId } = await import("./src/etl/ingestion/saleIngestionService.js");
       const result = await getHeroPriceByHeroId(req.params.heroId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.post("/api/user/hero-price-narrative", isUser, async (req, res) => {
+    try {
+      const { generatePriceNarrative } = await import("./src/etl/ingestion/saleIngestionService.js");
+      const priceResult = req.body;
+      if (!priceResult || !priceResult.hero) {
+        return res.status(400).json({ ok: false, error: 'Missing price result data' });
+      }
+      const result = await generatePriceNarrative(priceResult);
       res.json(result);
     } catch (error) {
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });

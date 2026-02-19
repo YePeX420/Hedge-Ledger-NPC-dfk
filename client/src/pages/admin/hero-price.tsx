@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter, Dna, Crosshair } from "lucide-react";
+import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter, Dna, Crosshair, Brain } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const RARITY_NAMES: Record<number, string> = {
@@ -152,6 +152,9 @@ export default function HeroPricePage() {
   const [priceResult, setPriceResult] = useState<HeroPriceResult | null>(null);
   const [priceLoading, setPriceLoading] = useState(false);
 
+  const [narrative, setNarrative] = useState<string | null>(null);
+  const [narrativeLoading, setNarrativeLoading] = useState(false);
+
   const [flipRealm, setFlipRealm] = useState("all");
   const [flipMinDiscount, setFlipMinDiscount] = useState("20");
   const [flipMaxPrice, setFlipMaxPrice] = useState("");
@@ -168,6 +171,7 @@ export default function HeroPricePage() {
 
     setPriceLoading(true);
     setPriceResult(null);
+    setNarrative(null);
     try {
       const res = await fetch(`/api/admin/market-intel/hero-price/${id}`, { credentials: 'include' });
       const data: HeroPriceResult = await res.json();
@@ -206,6 +210,29 @@ export default function HeroPricePage() {
       toast({ title: "Scan error", description: err.message, variant: "destructive" });
     } finally {
       setFlipLoading(false);
+    }
+  };
+
+  const fetchNarrative = async () => {
+    if (!priceResult || !priceResult.ok) return;
+    setNarrativeLoading(true);
+    try {
+      const res = await fetch('/api/admin/market-intel/hero-price-narrative', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(priceResult)
+      });
+      const data = await res.json();
+      if (data.ok && data.narrative) {
+        setNarrative(data.narrative);
+      } else {
+        toast({ title: "AI Analysis", description: data.error || "Could not generate narrative", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "AI error", description: err.message, variant: "destructive" });
+    } finally {
+      setNarrativeLoading(false);
     }
   };
 
@@ -408,6 +435,71 @@ export default function HeroPricePage() {
                         )}
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {hero.generation === 0 && (
+                <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 flex items-start gap-2" data-testid="warning-gen0">
+                  <Target className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <span className="font-medium text-yellow-600 dark:text-yellow-400">Gen 0 Hero</span>
+                    <span className="text-muted-foreground"> — Founding heroes are extremely scarce and carry massive premiums (often 10,000-100,000+ CRYSTAL). Price estimates may be unreliable if comparables include later generations.</span>
+                  </div>
+                </div>
+              )}
+
+              {estimate?.dataSource === 'listings' && (
+                <div className="rounded-md border border-orange-500/40 bg-orange-500/10 p-3 flex items-start gap-2" data-testid="warning-data-source">
+                  <BarChart3 className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <span className="font-medium text-orange-600 dark:text-orange-400">Listing-Based Estimate</span>
+                    <span className="text-muted-foreground"> — No recent sales data available. Price is based on current tavern listings, which may not reflect actual market value. Confidence has been downgraded accordingly.</span>
+                  </div>
+                </div>
+              )}
+
+              {estimate && (estimate.confidence === 'low' || estimate.confidence === 'medium-low') && (
+                <div className="rounded-md border border-red-500/30 bg-red-500/5 p-3 flex items-start gap-2" data-testid="warning-low-confidence">
+                  <Percent className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <span className="font-medium text-red-600 dark:text-red-400">Low Confidence</span>
+                    <span className="text-muted-foreground"> — The match tier ({estimate.matchTierLabel || estimate.matchTier}) dropped key filters. The estimate is a rough approximation — use caution when trading.</span>
+                  </div>
+                </div>
+              )}
+
+              {estimate && (
+                <Card data-testid="card-ai-narrative">
+                  <CardContent className="pt-4">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <Brain className="h-4 w-4 text-purple-500" />
+                        <span className="text-sm font-medium">AI Price Analysis</span>
+                      </div>
+                      {!narrative && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={fetchNarrative}
+                          disabled={narrativeLoading}
+                          data-testid="button-get-narrative"
+                        >
+                          {narrativeLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Brain className="h-3 w-3 mr-1" />}
+                          {narrativeLoading ? 'Analyzing...' : 'Get AI Analysis'}
+                        </Button>
+                      )}
+                    </div>
+                    {narrative && (
+                      <p className="mt-3 text-sm leading-relaxed" data-testid="text-narrative">
+                        {narrative}
+                      </p>
+                    )}
+                    {!narrative && !narrativeLoading && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Click to generate an AI-powered explanation of this price estimate
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
               )}
