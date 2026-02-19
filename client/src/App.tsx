@@ -41,6 +41,7 @@ import AdminBargainHunter from "@/pages/admin/bargain-hunter";
 import AdminDarkBargainHunter from "@/pages/admin/dark-bargain-hunter";
 import AdminTavernIndexer from "@/pages/admin/tavern-indexer";
 import AdminMarketIntel from "@/pages/admin/market-intel";
+import AdminHeroPrice from "@/pages/admin/hero-price";
 import AdminProfitTracker from "@/pages/admin/profit-tracker";
 import AdminPVEDropRates from "@/pages/admin/pve-droprates";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
@@ -347,6 +348,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminMarketIntel />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/hero-price">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminHeroPrice />
           </ProtectedAdminPage>
         )}
       </Route>

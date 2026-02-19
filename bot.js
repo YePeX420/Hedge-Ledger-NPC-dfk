@@ -9758,6 +9758,84 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/market-intel/hero-price/:heroId - Get price estimate for a specific hero by ID
+  app.get("/api/admin/market-intel/hero-price/:heroId", isAdmin, async (req, res) => {
+    try {
+      const { getHeroPriceByHeroId } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      const result = await getHeroPriceByHeroId(req.params.heroId);
+      res.json(result);
+    } catch (error) {
+      console.error('[Market Intel] Hero price error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/market-intel/flippable-heroes - Find underpriced heroes for flipping
+  app.get("/api/admin/market-intel/flippable-heroes", isAdmin, async (req, res) => {
+    try {
+      const { findFlippableHeroes } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      const options = {
+        realm: req.query.realm || null,
+        minDiscount: req.query.minDiscount ? parseFloat(req.query.minDiscount) : 20,
+        minConfidence: req.query.minConfidence || 'medium-low',
+        limit: req.query.limit ? parseInt(req.query.limit) : 50,
+        maxPrice: req.query.maxPrice ? parseFloat(req.query.maxPrice) : null,
+        mainClass: req.query.mainClass || null
+      };
+      
+      const result = await findFlippableHeroes(options);
+      res.json(result);
+    } catch (error) {
+      console.error('[Market Intel] Flippable heroes error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // POST /api/admin/market-intel/compute-metrics - Manually trigger demand metrics computation
+  app.post("/api/admin/market-intel/compute-metrics", isAdmin, async (req, res) => {
+    try {
+      const { computeDemandMetrics } = await import("./src/etl/ingestion/saleIngestionService.js");
+      
+      console.log('[Market Intel] Manual demand metrics computation triggered');
+      const result = await computeDemandMetrics();
+      res.json(result);
+    } catch (error) {
+      console.error('[Market Intel] Compute metrics error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // Also expose hero-price and flippable-heroes for user dashboard
+  app.get("/api/user/hero-price/:heroId", isUser, async (req, res) => {
+    try {
+      const { getHeroPriceByHeroId } = await import("./src/etl/ingestion/saleIngestionService.js");
+      const result = await getHeroPriceByHeroId(req.params.heroId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.get("/api/user/flippable-heroes", isUser, async (req, res) => {
+    try {
+      const { findFlippableHeroes } = await import("./src/etl/ingestion/saleIngestionService.js");
+      const options = {
+        realm: req.query.realm || null,
+        minDiscount: req.query.minDiscount ? parseFloat(req.query.minDiscount) : 20,
+        minConfidence: req.query.minConfidence || 'medium-low',
+        limit: req.query.limit ? parseInt(req.query.limit) : 50,
+        maxPrice: req.query.maxPrice ? parseFloat(req.query.maxPrice) : null,
+        mainClass: req.query.mainClass || null
+      };
+      const result = await findFlippableHeroes(options);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // ============================================================================
   // COMBAT PETS FOR SALE ENDPOINTS
   // ============================================================================

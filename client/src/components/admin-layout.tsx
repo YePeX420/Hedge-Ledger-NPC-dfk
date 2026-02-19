@@ -73,6 +73,7 @@ const navItems = [
   { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: Swords },
   { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
   { href: '/admin/market-intel', label: 'Market Intel', icon: TrendingUp },
+  { href: '/admin/hero-price', label: 'Hero Price Tool', icon: DollarSign },
   { href: '/admin/profit-tracker', label: 'Profit Tracker', icon: DollarSign },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },

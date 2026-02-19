@@ -5,8 +5,12 @@
  * Runs hourly to:
  * 1. Snapshot current tavern listings
  * 2. Compare with previous snapshot to detect removed heroes (sold/delisted)
- * 3. Store detected sales in tavern_hero_sales with hero traits snapshot
+ * 3. Store detected sales in tavern_sales with hero traits snapshot
  * 4. Update demand metrics based on sale velocity
+ * 
+ * Also provides:
+ * - Hero Price Tool: given a hero ID, fetches hero data and triangulates price from sales
+ * - Flippable Heroes Finder: scans tavern for underpriced heroes with flip profit estimates
  */
 
 import { db, rawPg } from '../../../server/db.js';
@@ -27,7 +31,7 @@ let saleIngestionState = {
 let autoRunInterval = null;
 
 async function ensureSaleTablesExist() {
-  await db.execute(sql`
+  await rawPg`
     CREATE TABLE IF NOT EXISTS tavern_listing_snapshots (
       id SERIAL PRIMARY KEY,
       snapshot_id TEXT NOT NULL,
@@ -46,19 +50,12 @@ async function ensureSaleTablesExist() {
       trait_score INTEGER,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
     )
-  `);
+  `;
   
-  await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS tavern_listing_snapshots_snapshot_idx 
-    ON tavern_listing_snapshots(snapshot_id)
-  `);
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_listing_snapshots_snapshot_idx ON tavern_listing_snapshots(snapshot_id)`;
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_listing_snapshots_hero_idx ON tavern_listing_snapshots(hero_id)`;
   
-  await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS tavern_listing_snapshots_hero_idx 
-    ON tavern_listing_snapshots(hero_id)
-  `);
-  
-  await db.execute(sql`
+  await rawPg`
     CREATE TABLE IF NOT EXISTS tavern_sales (
       id SERIAL PRIMARY KEY,
       hero_id INTEGER NOT NULL,
@@ -69,19 +66,35 @@ async function ensureSaleTablesExist() {
       price_amount NUMERIC(30, 8),
       is_floor_hero BOOLEAN DEFAULT FALSE,
       as_of_date DATE,
+      main_class TEXT,
+      sub_class TEXT,
+      profession TEXT,
+      rarity INTEGER,
+      level INTEGER,
+      generation INTEGER,
+      summons INTEGER,
+      max_summons INTEGER,
+      trait_score INTEGER,
       UNIQUE(hero_id, sale_timestamp)
     )
-  `);
+  `;
   
-  await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS tavern_sales_realm_idx ON tavern_sales(realm)
-  `);
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_realm_idx ON tavern_sales(realm)`;
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_timestamp_idx ON tavern_sales(sale_timestamp DESC)`;
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_class_idx ON tavern_sales(main_class)`;
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_rarity_idx ON tavern_sales(rarity)`;
+
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS main_class TEXT`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS sub_class TEXT`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS profession TEXT`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS rarity INTEGER`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS level INTEGER`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS generation INTEGER`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS summons INTEGER`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS max_summons INTEGER`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS trait_score INTEGER`;
   
-  await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS tavern_sales_timestamp_idx ON tavern_sales(sale_timestamp DESC)
-  `);
-  
-  await db.execute(sql`
+  await rawPg`
     CREATE TABLE IF NOT EXISTS hero_snapshots (
       id SERIAL PRIMARY KEY,
       sale_id INTEGER REFERENCES tavern_sales(id),
@@ -104,9 +117,9 @@ async function ensureSaleTablesExist() {
       elite_genes INTEGER DEFAULT 0,
       exalted_genes INTEGER DEFAULT 0
     )
-  `);
+  `;
   
-  await db.execute(sql`
+  await rawPg`
     CREATE TABLE IF NOT EXISTS tavern_listing_history (
       id SERIAL PRIMARY KEY,
       hero_id TEXT NOT NULL,
@@ -126,9 +139,9 @@ async function ensureSaleTablesExist() {
       status TEXT,
       status_changed_at TIMESTAMPTZ
     )
-  `);
+  `;
   
-  await db.execute(sql`
+  await rawPg`
     CREATE TABLE IF NOT EXISTS tavern_demand_metrics (
       id SERIAL PRIMARY KEY,
       realm TEXT NOT NULL,
@@ -147,11 +160,23 @@ async function ensureSaleTablesExist() {
       liquidity_score NUMERIC(10, 2) DEFAULT 0,
       UNIQUE(realm, main_class, as_of_date)
     )
-  `);
+  `;
   
-  await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS tavern_demand_metrics_date_idx ON tavern_demand_metrics(as_of_date DESC)
-  `);
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_demand_metrics_date_idx ON tavern_demand_metrics(as_of_date DESC)`;
+
+  try {
+    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS main_class TEXT`;
+    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS sub_class TEXT`;
+    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS profession TEXT`;
+    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS rarity INTEGER`;
+    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS level INTEGER`;
+    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS generation INTEGER`;
+    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS summons INTEGER`;
+    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS max_summons INTEGER`;
+    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS trait_score INTEGER`;
+  } catch (err) {
+    // columns may already exist
+  }
 }
 
 export async function takeListingSnapshot() {
@@ -161,25 +186,14 @@ export async function takeListingSnapshot() {
   try {
     await ensureSaleTablesExist();
     
-    const heroes = await db.execute(sql`
+    const heroList = await rawPg`
       SELECT 
-        hero_id,
-        realm,
-        price_native,
-        native_token,
-        main_class,
-        sub_class,
-        profession,
-        rarity,
-        level,
-        generation,
-        summons,
-        max_summons,
-        trait_score
+        hero_id, realm, price_native, native_token,
+        main_class, sub_class, profession, rarity, level,
+        generation, summons, max_summons, trait_score
       FROM tavern_heroes
-    `);
+    `;
     
-    const heroList = Array.isArray(heroes) ? heroes : (heroes.rows || []);
     console.log(`[SaleIngestion] Found ${heroList.length} heroes in tavern`);
     
     if (heroList.length === 0) {
@@ -193,29 +207,29 @@ export async function takeListingSnapshot() {
     for (let i = 0; i < heroList.length; i += batchSize) {
       const batch = heroList.slice(i, i + batchSize);
       
-      const values = batch.map(h => sql`(
-        ${snapshotId},
-        ${h.hero_id},
-        ${h.realm},
-        ${h.price_native},
-        ${h.native_token},
-        ${h.main_class},
-        ${h.sub_class},
-        ${h.profession},
-        ${h.rarity},
-        ${h.level},
-        ${h.generation},
-        ${h.summons},
-        ${h.max_summons},
-        ${h.trait_score}
-      )`);
+      const values = batch.map(h => `(
+        '${snapshotId}',
+        '${h.hero_id}',
+        '${h.realm || 'unknown'}',
+        ${h.price_native != null ? h.price_native : 'NULL'},
+        ${h.native_token ? `'${h.native_token}'` : 'NULL'},
+        ${h.main_class ? `'${h.main_class}'` : 'NULL'},
+        ${h.sub_class ? `'${h.sub_class}'` : 'NULL'},
+        ${h.profession ? `'${h.profession}'` : 'NULL'},
+        ${h.rarity != null ? h.rarity : 'NULL'},
+        ${h.level != null ? h.level : 'NULL'},
+        ${h.generation != null ? h.generation : 'NULL'},
+        ${h.summons != null ? h.summons : 'NULL'},
+        ${h.max_summons != null ? h.max_summons : 'NULL'},
+        ${h.trait_score != null ? h.trait_score : 'NULL'}
+      )`).join(',');
       
-      await db.execute(sql`
+      await rawPg.unsafe(`
         INSERT INTO tavern_listing_snapshots (
           snapshot_id, hero_id, realm, price_native, native_token,
           main_class, sub_class, profession, rarity, level,
           generation, summons, max_summons, trait_score
-        ) VALUES ${sql.join(values, sql`, `)}
+        ) VALUES ${values}
       `);
       
       inserted += batch.length;
@@ -238,15 +252,13 @@ export async function reconcileSales() {
   try {
     await ensureSaleTablesExist();
     
-    const snapshots = await db.execute(sql`
+    const snapshotList = await rawPg`
       SELECT DISTINCT snapshot_id, MIN(created_at) as created_at
       FROM tavern_listing_snapshots
       GROUP BY snapshot_id
       ORDER BY MIN(created_at) DESC
       LIMIT 2
-    `);
-    
-    const snapshotList = Array.isArray(snapshots) ? snapshots : (snapshots.rows || []);
+    `;
     
     if (snapshotList.length < 2) {
       console.log('[SaleIngestion] Need at least 2 snapshots for comparison');
@@ -258,7 +270,7 @@ export async function reconcileSales() {
     
     console.log(`[SaleIngestion] Comparing ${previousSnapshotId} -> ${currentSnapshotId}`);
     
-    const removedHeroes = await db.execute(sql`
+    const removedList = await rawPg`
       SELECT 
         prev.hero_id,
         prev.realm,
@@ -280,9 +292,8 @@ export async function reconcileSales() {
         AND curr.snapshot_id = ${currentSnapshotId}
       WHERE prev.snapshot_id = ${previousSnapshotId}
         AND curr.hero_id IS NULL
-    `);
+    `;
     
-    const removedList = Array.isArray(removedHeroes) ? removedHeroes : (removedHeroes.rows || []);
     console.log(`[SaleIngestion] Found ${removedList.length} heroes removed from listings`);
     
     let salesCount = 0;
@@ -303,6 +314,14 @@ export async function reconcileSales() {
     
     console.log(`[SaleIngestion] Reconciliation complete: ${salesCount} sales, ${delistCount} delistings`);
     
+    if (salesCount > 0) {
+      try {
+        await computeDemandMetrics();
+      } catch (err) {
+        console.error('[SaleIngestion] Demand metrics computation error:', err.message);
+      }
+    }
+    
     return { 
       ok: true, 
       salesDetected: salesCount, 
@@ -319,38 +338,48 @@ export async function reconcileSales() {
 
 async function recordPotentialSale(hero) {
   try {
-    const existingSale = await db.execute(sql`
+    const existingSale = await rawPg`
       SELECT id FROM tavern_sales 
       WHERE hero_id = ${parseInt(hero.hero_id)} 
       AND sale_timestamp > NOW() - INTERVAL '24 hours'
-    `);
+    `;
     
-    const existingList = Array.isArray(existingSale) ? existingSale : (existingSale.rows || []);
-    if (existingList.length > 0) {
+    if (existingSale.length > 0) {
       return { wasSale: false, reason: 'Already recorded' };
     }
     
     const tokenSymbol = hero.native_token || (hero.realm === 'cv' ? 'CRYSTAL' : 'JEWEL');
+    const isFloor = (hero.rarity === 0 || hero.rarity === null) && (hero.level <= 1 || hero.level === null);
     
-    await db.execute(sql`
+    await rawPg`
       INSERT INTO tavern_sales (
         hero_id, realm, sale_timestamp, token_address, token_symbol,
-        price_amount, is_floor_hero, as_of_date
+        price_amount, is_floor_hero, as_of_date,
+        main_class, sub_class, profession, rarity, level,
+        generation, summons, max_summons, trait_score
       ) VALUES (
         ${parseInt(hero.hero_id)},
-        ${hero.realm},
+        ${hero.realm || 'unknown'},
         CURRENT_TIMESTAMP,
         '',
         ${tokenSymbol},
         ${hero.price_native || '0'},
-        ${hero.rarity === 0 && hero.level <= 1},
-        CURRENT_DATE
+        ${isFloor},
+        CURRENT_DATE,
+        ${hero.main_class || null},
+        ${hero.sub_class || null},
+        ${hero.profession || null},
+        ${hero.rarity != null ? hero.rarity : null},
+        ${hero.level != null ? hero.level : null},
+        ${hero.generation != null ? hero.generation : null},
+        ${hero.summons != null ? hero.summons : null},
+        ${hero.max_summons != null ? hero.max_summons : null},
+        ${hero.trait_score != null ? hero.trait_score : null}
       )
       ON CONFLICT (hero_id, sale_timestamp) DO NOTHING
-    `);
+    `;
     
     await recordHeroSnapshot(hero);
-    
     await updateListingHistory(hero, 'sold');
     
     return { wasSale: true };
@@ -362,26 +391,24 @@ async function recordPotentialSale(hero) {
 
 async function recordHeroSnapshot(hero) {
   try {
-    const saleResult = await db.execute(sql`
+    const saleList = await rawPg`
       SELECT id FROM tavern_sales 
       WHERE hero_id = ${parseInt(hero.hero_id)}
       ORDER BY sale_timestamp DESC
       LIMIT 1
-    `);
+    `;
     
-    const saleList = Array.isArray(saleResult) ? saleResult : (saleResult.rows || []);
     if (saleList.length === 0) return;
     
     const saleId = saleList[0].id;
     
-    const existingSnapshot = await db.execute(sql`
+    const snapshotList = await rawPg`
       SELECT id FROM hero_snapshots WHERE sale_id = ${saleId}
-    `);
+    `;
     
-    const snapshotList = Array.isArray(existingSnapshot) ? existingSnapshot : (existingSnapshot.rows || []);
     if (snapshotList.length > 0) return;
     
-    await db.execute(sql`
+    await rawPg`
       INSERT INTO hero_snapshots (
         sale_id, hero_id, rarity, main_class, sub_class, level, profession,
         summons_remaining, max_summons, strength, agility, dexterity,
@@ -398,7 +425,7 @@ async function recordHeroSnapshot(hero) {
         ${hero.max_summons || 0},
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0
       )
-    `);
+    `;
   } catch (err) {
     console.error(`[SaleIngestion] Error recording hero snapshot:`, err.message);
   }
@@ -406,32 +433,113 @@ async function recordHeroSnapshot(hero) {
 
 async function updateListingHistory(hero, status) {
   try {
-    await db.execute(sql`
+    await rawPg`
       INSERT INTO tavern_listing_history (
         hero_id, realm, snapshot_at, price_native, native_token,
         main_class, sub_class, profession, rarity, level,
         generation, summons, max_summons, trait_score, status, status_changed_at
       ) VALUES (
         ${hero.hero_id},
-        ${hero.realm},
+        ${hero.realm || 'unknown'},
         CURRENT_TIMESTAMP,
-        ${hero.price_native},
-        ${hero.native_token},
-        ${hero.main_class},
-        ${hero.sub_class},
-        ${hero.profession},
-        ${hero.rarity},
-        ${hero.level},
-        ${hero.generation},
-        ${hero.summons},
-        ${hero.max_summons},
-        ${hero.trait_score},
+        ${hero.price_native || null},
+        ${hero.native_token || null},
+        ${hero.main_class || null},
+        ${hero.sub_class || null},
+        ${hero.profession || null},
+        ${hero.rarity != null ? hero.rarity : null},
+        ${hero.level != null ? hero.level : null},
+        ${hero.generation != null ? hero.generation : null},
+        ${hero.summons != null ? hero.summons : null},
+        ${hero.max_summons != null ? hero.max_summons : null},
+        ${hero.trait_score != null ? hero.trait_score : null},
         ${status},
         CURRENT_TIMESTAMP
       )
-    `);
+    `;
   } catch (err) {
     console.error(`[SaleIngestion] Error updating listing history:`, err.message);
+  }
+}
+
+export async function computeDemandMetrics() {
+  console.log('[SaleIngestion] Computing demand metrics...');
+  
+  try {
+    await ensureSaleTablesExist();
+    
+    const salesByClass = await rawPg`
+      SELECT 
+        realm,
+        main_class,
+        sub_class,
+        rarity,
+        COUNT(*) FILTER (WHERE sale_timestamp > NOW() - INTERVAL '7 days') as sales_7d,
+        COUNT(*) FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days') as sales_30d,
+        AVG(price_amount::NUMERIC) FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days') as avg_price,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_amount::NUMERIC) 
+          FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days') as median_price
+      FROM tavern_sales
+      WHERE main_class IS NOT NULL
+        AND sale_timestamp > NOW() - INTERVAL '30 days'
+      GROUP BY realm, main_class, sub_class, rarity
+      ORDER BY COUNT(*) DESC
+    `;
+    
+    if (salesByClass.length === 0) {
+      console.log('[SaleIngestion] No sales data for demand metrics');
+      return { ok: true, metricsComputed: 0 };
+    }
+    
+    const maxSales30d = Math.max(...salesByClass.map(r => parseInt(r.sales_30d) || 1));
+    
+    let metricsComputed = 0;
+    
+    for (const row of salesByClass) {
+      const sales7d = parseInt(row.sales_7d) || 0;
+      const sales30d = parseInt(row.sales_30d) || 0;
+      
+      const velocityScore = sales30d > 0 ? Math.round((sales7d / Math.max(sales30d, 1)) * 100 * 100) / 100 : 0;
+      const demandScore = Math.round((sales30d / maxSales30d) * 100 * 100) / 100;
+      const liquidityScore = Math.min(100, Math.round(sales30d * 3.33 * 100) / 100);
+      
+      await rawPg`
+        INSERT INTO tavern_demand_metrics (
+          realm, main_class, sub_class, rarity, as_of_date,
+          sales_count_7d, sales_count_30d, median_price_native,
+          demand_score, velocity_score, liquidity_score
+        ) VALUES (
+          ${row.realm},
+          ${row.main_class},
+          ${row.sub_class || null},
+          ${row.rarity != null ? row.rarity : null},
+          CURRENT_DATE,
+          ${sales7d},
+          ${sales30d},
+          ${row.median_price || null},
+          ${demandScore},
+          ${velocityScore},
+          ${liquidityScore}
+        )
+        ON CONFLICT (realm, main_class, as_of_date) DO UPDATE SET
+          sub_class = EXCLUDED.sub_class,
+          rarity = EXCLUDED.rarity,
+          sales_count_7d = EXCLUDED.sales_count_7d,
+          sales_count_30d = EXCLUDED.sales_count_30d,
+          median_price_native = EXCLUDED.median_price_native,
+          demand_score = EXCLUDED.demand_score,
+          velocity_score = EXCLUDED.velocity_score,
+          liquidity_score = EXCLUDED.liquidity_score
+      `;
+      
+      metricsComputed++;
+    }
+    
+    console.log(`[SaleIngestion] Computed ${metricsComputed} demand metrics`);
+    return { ok: true, metricsComputed };
+  } catch (err) {
+    console.error('[SaleIngestion] computeDemandMetrics error:', err.message);
+    return { ok: false, error: err.message };
   }
 }
 
@@ -469,10 +577,10 @@ export async function runFullIngestionCycle() {
 
 async function cleanupOldSnapshots() {
   try {
-    await db.execute(sql`
+    await rawPg`
       DELETE FROM tavern_listing_snapshots
       WHERE created_at < NOW() - INTERVAL '7 days'
-    `);
+    `;
     console.log('[SaleIngestion] Cleaned up old snapshots (>7 days)');
   } catch (err) {
     console.error('[SaleIngestion] Cleanup error:', err.message);
@@ -512,9 +620,9 @@ export function getSaleIngestionStatus() {
 
 export async function getSalesStats(realm = null, days = 30) {
   try {
-    let query;
+    let result;
     if (realm) {
-      query = sql`
+      result = await rawPg`
         SELECT 
           realm,
           COUNT(*) as total_sales,
@@ -527,7 +635,7 @@ export async function getSalesStats(realm = null, days = 30) {
         GROUP BY realm
       `;
     } else {
-      query = sql`
+      result = await rawPg`
         SELECT 
           realm,
           COUNT(*) as total_sales,
@@ -539,9 +647,7 @@ export async function getSalesStats(realm = null, days = 30) {
         GROUP BY realm
       `;
     }
-    
-    const result = await db.execute(query);
-    return Array.isArray(result) ? result : (result.rows || []);
+    return result;
   } catch (err) {
     console.error('[SaleIngestion] getSalesStats error:', err.message);
     return [];
@@ -550,12 +656,13 @@ export async function getSalesStats(realm = null, days = 30) {
 
 export async function getRecentSales(limit = 50, realm = null) {
   try {
-    let query;
+    let result;
     if (realm) {
-      query = sql`
+      result = await rawPg`
         SELECT 
           ts.*, 
-          hs.main_class, hs.sub_class, hs.rarity, hs.level, hs.profession
+          hs.main_class as hs_main_class, hs.sub_class as hs_sub_class, 
+          hs.rarity as hs_rarity, hs.level as hs_level, hs.profession as hs_profession
         FROM tavern_sales ts
         LEFT JOIN hero_snapshots hs ON ts.id = hs.sale_id
         WHERE ts.realm = ${realm}
@@ -563,19 +670,18 @@ export async function getRecentSales(limit = 50, realm = null) {
         LIMIT ${limit}
       `;
     } else {
-      query = sql`
+      result = await rawPg`
         SELECT 
           ts.*, 
-          hs.main_class, hs.sub_class, hs.rarity, hs.level, hs.profession
+          hs.main_class as hs_main_class, hs.sub_class as hs_sub_class, 
+          hs.rarity as hs_rarity, hs.level as hs_level, hs.profession as hs_profession
         FROM tavern_sales ts
         LEFT JOIN hero_snapshots hs ON ts.id = hs.sale_id
         ORDER BY ts.sale_timestamp DESC
         LIMIT ${limit}
       `;
     }
-    
-    const result = await db.execute(query);
-    return Array.isArray(result) ? result : (result.rows || []);
+    return result;
   } catch (err) {
     console.error('[SaleIngestion] getRecentSales error:', err.message);
     return [];
@@ -586,24 +692,22 @@ export async function getDemandMetrics(realm = null) {
   try {
     await ensureSaleTablesExist();
     
-    let query;
+    let result;
     if (realm) {
-      query = sql`
+      result = await rawPg`
         SELECT * FROM tavern_demand_metrics 
         WHERE realm = ${realm}
         ORDER BY as_of_date DESC, demand_score DESC
         LIMIT 100
       `;
     } else {
-      query = sql`
+      result = await rawPg`
         SELECT * FROM tavern_demand_metrics 
         ORDER BY as_of_date DESC, demand_score DESC
         LIMIT 100
       `;
     }
-    
-    const result = await db.execute(query);
-    return Array.isArray(result) ? result : (result.rows || []);
+    return result;
   } catch (err) {
     console.error('[SaleIngestion] getDemandMetrics error:', err.message);
     return [];
@@ -621,14 +725,481 @@ export async function initializeSaleTables() {
   }
 }
 
+const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+
+function computePriceStats(prices) {
+  if (!prices || prices.length === 0) return null;
+  
+  const sorted = [...prices].sort((a, b) => a - b);
+  const sum = sorted.reduce((a, b) => a + b, 0);
+  const avg = sum / sorted.length;
+  const median = sorted.length % 2 === 0
+    ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+    : sorted[Math.floor(sorted.length / 2)];
+  const min = sorted[0];
+  const max = sorted[sorted.length - 1];
+  
+  const p10 = sorted[Math.floor(sorted.length * 0.1)] || min;
+  const p25 = sorted[Math.floor(sorted.length * 0.25)] || min;
+  const p75 = sorted[Math.floor(sorted.length * 0.75)] || max;
+  const p90 = sorted[Math.floor(sorted.length * 0.9)] || max;
+  
+  const variance = sorted.reduce((acc, p) => acc + Math.pow(p - avg, 2), 0) / sorted.length;
+  const stdDev = Math.sqrt(variance);
+  const cv = (stdDev / avg) * 100;
+  
+  let confidence = 'low';
+  if (sorted.length >= 20 && cv < 50) confidence = 'high';
+  else if (sorted.length >= 10 && cv < 75) confidence = 'medium';
+  else if (sorted.length >= 5 && cv < 100) confidence = 'medium-low';
+  
+  return {
+    avg: Math.round(avg * 100) / 100,
+    median: Math.round(median * 100) / 100,
+    min: Math.round(min * 100) / 100,
+    max: Math.round(max * 100) / 100,
+    p10: Math.round(p10 * 100) / 100,
+    p25: Math.round(p25 * 100) / 100,
+    p75: Math.round(p75 * 100) / 100,
+    p90: Math.round(p90 * 100) / 100,
+    stdDev: Math.round(stdDev * 100) / 100,
+    cv: Math.round(cv),
+    confidence,
+    sampleSize: sorted.length
+  };
+}
+
+export async function getHeroPriceByHeroId(heroId) {
+  try {
+    await ensureSaleTablesExist();
+    
+    const numericId = parseInt(heroId);
+    if (isNaN(numericId)) {
+      return { ok: false, error: 'Invalid hero ID' };
+    }
+    
+    let hero = null;
+
+    try {
+      const tavernHeroCheck = await rawPg`
+        SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tavern_heroes') as exists
+      `;
+      if (tavernHeroCheck[0]?.exists) {
+        const tavernHero = await rawPg`
+          SELECT 
+            hero_id, normalized_id, realm, main_class, sub_class, profession,
+            rarity, level, generation, summons, max_summons,
+            strength, agility, intelligence, wisdom, luck, dexterity, vitality, endurance,
+            hp, mp, stamina, active1, active2, passive1, passive2,
+            trait_score, combat_power, price_native, native_token,
+            stat_genes, visual_genes
+          FROM tavern_heroes
+          WHERE normalized_id = ${numericId} OR hero_id = ${heroId.toString()}
+          LIMIT 1
+        `;
+    
+        if (tavernHero.length > 0) {
+          const h = tavernHero[0];
+          hero = {
+            heroId: h.hero_id,
+            normalizedId: h.normalized_id || numericId,
+            realm: h.realm,
+            mainClass: h.main_class,
+            subClass: h.sub_class,
+            profession: h.profession,
+            rarity: h.rarity,
+            rarityName: RARITY_NAMES[h.rarity] || `Rarity${h.rarity}`,
+            level: h.level,
+            generation: h.generation,
+            summons: h.summons,
+            maxSummons: h.max_summons,
+            stats: {
+              strength: h.strength, agility: h.agility, intelligence: h.intelligence,
+              wisdom: h.wisdom, luck: h.luck, dexterity: h.dexterity,
+              vitality: h.vitality, endurance: h.endurance
+            },
+            traitScore: h.trait_score,
+            combatPower: h.combat_power,
+            currentListingPrice: h.price_native ? parseFloat(h.price_native) : null,
+            nativeToken: h.native_token,
+            isForSale: h.price_native != null && parseFloat(h.price_native) > 0,
+            source: 'tavern_index'
+          };
+        }
+      }
+    } catch (err) {
+      console.log(`[HeroPriceTool] Tavern heroes table not available, falling back to GraphQL: ${err.message}`);
+    }
+    
+    if (!hero) {
+      try {
+        const { getHeroById } = await import('../../../onchain-data.js');
+        const gqlHero = await getHeroById(numericId);
+        if (gqlHero) {
+          const realm = gqlHero.network === 'dfk' ? 'cv' : 'sd';
+          hero = {
+            heroId: gqlHero.id,
+            normalizedId: numericId,
+            realm,
+            mainClass: gqlHero.mainClassStr,
+            subClass: gqlHero.subClassStr,
+            profession: gqlHero.professionStr,
+            rarity: gqlHero.rarity,
+            rarityName: RARITY_NAMES[gqlHero.rarity] || `Rarity${gqlHero.rarity}`,
+            level: gqlHero.level,
+            generation: gqlHero.generation,
+            summons: gqlHero.summons,
+            maxSummons: gqlHero.maxSummons,
+            stats: {
+              strength: gqlHero.strength, agility: gqlHero.agility, intelligence: gqlHero.intelligence,
+              wisdom: gqlHero.wisdom, luck: gqlHero.luck, dexterity: gqlHero.dexterity,
+              vitality: gqlHero.vitality, endurance: gqlHero.endurance
+            },
+            traitScore: 0,
+            combatPower: (gqlHero.strength || 0) + (gqlHero.agility || 0) + (gqlHero.intelligence || 0) + 
+                        (gqlHero.wisdom || 0) + (gqlHero.luck || 0) + (gqlHero.dexterity || 0) + 
+                        (gqlHero.vitality || 0) + (gqlHero.endurance || 0),
+            currentListingPrice: gqlHero.salePrice ? parseFloat(gqlHero.salePrice) / 1e18 : null,
+            nativeToken: realm === 'cv' ? 'CRYSTAL' : 'JEWEL',
+            isForSale: gqlHero.salePrice && parseFloat(gqlHero.salePrice) > 0,
+            source: 'graphql'
+          };
+        }
+      } catch (err) {
+        console.error(`[HeroPriceTool] GraphQL lookup failed for hero ${numericId}:`, err.message);
+      }
+    }
+    
+    if (!hero) {
+      return { ok: false, error: `Hero ${heroId} not found in tavern index or blockchain` };
+    }
+    
+    const tiers = [
+      { label: 'exact', where: buildSalesFilter(hero, 'exact') },
+      { label: 'tight', where: buildSalesFilter(hero, 'tight') },
+      { label: 'broad', where: buildSalesFilter(hero, 'broad') },
+    ];
+    
+    let salesData = [];
+    let matchTier = 'none';
+    let priceStats = null;
+    
+    for (const tier of tiers) {
+      const results = await tier.where;
+      const prices = results
+        .map(s => parseFloat(s.price_amount))
+        .filter(p => !isNaN(p) && p > 0);
+      
+      if (prices.length >= 3) {
+        salesData = results;
+        matchTier = tier.label;
+        priceStats = computePriceStats(prices);
+        break;
+      }
+      if (prices.length > 0 && !salesData.length) {
+        salesData = results;
+        matchTier = tier.label;
+        priceStats = computePriceStats(prices);
+      }
+    }
+    
+    let estimatedValue = null;
+    let flipOpportunity = null;
+    
+    if (priceStats) {
+      estimatedValue = {
+        fairValue: priceStats.median,
+        buyBelow: priceStats.p25,
+        sellAbove: priceStats.p75,
+        premiumPrice: priceStats.p90,
+        bargainPrice: priceStats.p10,
+        token: hero.nativeToken || (hero.realm === 'cv' ? 'CRYSTAL' : 'JEWEL'),
+        confidence: priceStats.confidence,
+        matchTier,
+        sampleSize: priceStats.sampleSize,
+        priceVariation: priceStats.cv
+      };
+      
+      if (hero.isForSale && hero.currentListingPrice > 0) {
+        const discount = ((estimatedValue.fairValue - hero.currentListingPrice) / estimatedValue.fairValue) * 100;
+        const potentialProfit = estimatedValue.fairValue - hero.currentListingPrice;
+        
+        flipOpportunity = {
+          currentPrice: hero.currentListingPrice,
+          estimatedValue: estimatedValue.fairValue,
+          discount: Math.round(discount * 10) / 10,
+          potentialProfit: Math.round(potentialProfit * 100) / 100,
+          isUnderpriced: discount > 15,
+          verdict: discount > 40 ? 'STRONG BUY' : discount > 20 ? 'BUY' : discount > 0 ? 'FAIR' : 'OVERPRICED'
+        };
+      }
+    }
+    
+    return {
+      ok: true,
+      hero,
+      estimatedValue,
+      flipOpportunity,
+      comparableSales: salesData.slice(0, 15).map(s => ({
+        heroId: s.hero_id,
+        price: parseFloat(s.price_amount),
+        token: s.token_symbol,
+        saleDate: s.sale_timestamp,
+        mainClass: s.main_class,
+        subClass: s.sub_class,
+        rarity: s.rarity,
+        level: s.level,
+        profession: s.profession,
+        realm: s.realm
+      })),
+      matchTier
+    };
+  } catch (err) {
+    console.error('[HeroPriceTool] Error:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+async function buildSalesFilter(hero, tier) {
+  const realm = hero.realm;
+  const mainClass = hero.mainClass;
+  const rarity = hero.rarity;
+  const level = hero.level || 1;
+  const subClass = hero.subClass;
+  
+  switch (tier) {
+    case 'exact':
+      return rawPg`
+        SELECT * FROM tavern_sales
+        WHERE realm = ${realm}
+          AND main_class = ${mainClass}
+          AND rarity = ${rarity}
+          AND level BETWEEN ${Math.max(1, level - 2)} AND ${level + 2}
+          AND (sub_class = ${subClass} OR sub_class IS NULL)
+          AND sale_timestamp > NOW() - INTERVAL '30 days'
+          AND price_amount > 0
+        ORDER BY sale_timestamp DESC
+        LIMIT 100
+      `;
+    case 'tight':
+      return rawPg`
+        SELECT * FROM tavern_sales
+        WHERE realm = ${realm}
+          AND main_class = ${mainClass}
+          AND rarity = ${rarity}
+          AND level BETWEEN ${Math.max(1, level - 5)} AND ${level + 5}
+          AND sale_timestamp > NOW() - INTERVAL '60 days'
+          AND price_amount > 0
+        ORDER BY sale_timestamp DESC
+        LIMIT 200
+      `;
+    case 'broad':
+      return rawPg`
+        SELECT * FROM tavern_sales
+        WHERE realm = ${realm}
+          AND main_class = ${mainClass}
+          AND (rarity = ${rarity} OR rarity BETWEEN ${Math.max(0, rarity - 1)} AND ${rarity + 1})
+          AND sale_timestamp > NOW() - INTERVAL '90 days'
+          AND price_amount > 0
+        ORDER BY sale_timestamp DESC
+        LIMIT 300
+      `;
+    default:
+      return [];
+  }
+}
+
+export async function findFlippableHeroes(options = {}) {
+  try {
+    await ensureSaleTablesExist();
+    
+    const {
+      realm = null,
+      minDiscount = 20,
+      minConfidence = 'medium-low',
+      limit = 50,
+      maxPrice = null,
+      mainClass = null
+    } = options;
+
+    const tableCheck = await rawPg`
+      SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tavern_heroes') as exists
+    `;
+    if (!tableCheck[0]?.exists) {
+      return { ok: true, flippable: [], message: 'Tavern heroes table not found. Run tavern indexer first to populate hero data.', totalScanned: 0, totalSalesData: 0, matchesFound: 0 };
+    }
+    
+    let tavernHeroes;
+    if (realm && mainClass) {
+      tavernHeroes = await rawPg`
+        SELECT 
+          hero_id, normalized_id, realm, main_class, sub_class, profession,
+          rarity, level, generation, summons, max_summons,
+          trait_score, combat_power, price_native, native_token
+        FROM tavern_heroes
+        WHERE realm = ${realm} AND main_class = ${mainClass}
+          AND price_native > 0
+        ORDER BY price_native ASC
+        LIMIT 500
+      `;
+    } else if (realm) {
+      tavernHeroes = await rawPg`
+        SELECT 
+          hero_id, normalized_id, realm, main_class, sub_class, profession,
+          rarity, level, generation, summons, max_summons,
+          trait_score, combat_power, price_native, native_token
+        FROM tavern_heroes
+        WHERE realm = ${realm} AND price_native > 0
+        ORDER BY price_native ASC
+        LIMIT 500
+      `;
+    } else {
+      tavernHeroes = await rawPg`
+        SELECT 
+          hero_id, normalized_id, realm, main_class, sub_class, profession,
+          rarity, level, generation, summons, max_summons,
+          trait_score, combat_power, price_native, native_token
+        FROM tavern_heroes
+        WHERE price_native > 0
+        ORDER BY price_native ASC
+        LIMIT 500
+      `;
+    }
+    
+    if (tavernHeroes.length === 0) {
+      return { ok: true, flippable: [], message: 'No tavern heroes found. Run tavern indexer first.' };
+    }
+    
+    const allRecentSales = await rawPg`
+      SELECT 
+        main_class, sub_class, rarity, level, realm, profession,
+        price_amount, token_symbol, sale_timestamp
+      FROM tavern_sales
+      WHERE sale_timestamp > NOW() - INTERVAL '60 days'
+        AND price_amount > 0
+        AND main_class IS NOT NULL
+      ORDER BY sale_timestamp DESC
+    `;
+    
+    if (allRecentSales.length === 0) {
+      return { ok: true, flippable: [], message: 'No sales data yet. Run ingestion cycles to build sales history first.' };
+    }
+    
+    const salesIndex = {};
+    for (const sale of allRecentSales) {
+      const key = `${sale.realm}|${sale.main_class}|${sale.rarity}`;
+      if (!salesIndex[key]) salesIndex[key] = [];
+      salesIndex[key].push(sale);
+    }
+    
+    const confidenceOrder = ['high', 'medium', 'medium-low', 'low'];
+    const minConfIdx = confidenceOrder.indexOf(minConfidence);
+    
+    const flippable = [];
+    
+    for (const hero of tavernHeroes) {
+      const listingPrice = parseFloat(hero.price_native);
+      if (!listingPrice || listingPrice <= 0) continue;
+      if (maxPrice && listingPrice > maxPrice) continue;
+      
+      const heroLevel = hero.level || 1;
+      
+      const exactKey = `${hero.realm}|${hero.main_class}|${hero.rarity}`;
+      const broadKey1 = `${hero.realm}|${hero.main_class}|${Math.max(0, (hero.rarity || 0) - 1)}`;
+      const broadKey2 = `${hero.realm}|${hero.main_class}|${Math.min(4, (hero.rarity || 0) + 1)}`;
+      
+      let matchedSales = [];
+      
+      const exactSales = salesIndex[exactKey] || [];
+      const levelMatched = exactSales.filter(s => {
+        const sl = s.level || 1;
+        return Math.abs(sl - heroLevel) <= 5;
+      });
+      
+      if (levelMatched.length >= 3) {
+        matchedSales = levelMatched;
+      } else {
+        matchedSales = exactSales;
+        if (matchedSales.length < 3) {
+          const broad1 = salesIndex[broadKey1] || [];
+          const broad2 = salesIndex[broadKey2] || [];
+          matchedSales = [...matchedSales, ...broad1, ...broad2];
+        }
+      }
+      
+      if (matchedSales.length < 2) continue;
+      
+      const prices = matchedSales
+        .map(s => parseFloat(s.price_amount))
+        .filter(p => !isNaN(p) && p > 0);
+      
+      if (prices.length < 2) continue;
+      
+      const stats = computePriceStats(prices);
+      if (!stats) continue;
+      
+      const confIdx = confidenceOrder.indexOf(stats.confidence);
+      if (confIdx > minConfIdx) continue;
+      
+      const fairValue = stats.median;
+      const discount = ((fairValue - listingPrice) / fairValue) * 100;
+      
+      if (discount < minDiscount) continue;
+      
+      const potentialProfit = fairValue - listingPrice;
+      
+      flippable.push({
+        heroId: hero.hero_id,
+        normalizedId: hero.normalized_id,
+        realm: hero.realm,
+        mainClass: hero.main_class,
+        subClass: hero.sub_class,
+        profession: hero.profession,
+        rarity: hero.rarity,
+        rarityName: RARITY_NAMES[hero.rarity] || `Rarity${hero.rarity}`,
+        level: hero.level,
+        generation: hero.generation,
+        traitScore: hero.trait_score,
+        combatPower: hero.combat_power,
+        listingPrice: Math.round(listingPrice * 100) / 100,
+        estimatedValue: Math.round(fairValue * 100) / 100,
+        discount: Math.round(discount * 10) / 10,
+        potentialProfit: Math.round(potentialProfit * 100) / 100,
+        confidence: stats.confidence,
+        sampleSize: stats.sampleSize,
+        token: hero.native_token || (hero.realm === 'cv' ? 'CRYSTAL' : 'JEWEL'),
+        verdict: discount > 40 ? 'STRONG BUY' : discount > 25 ? 'BUY' : 'POSSIBLE BUY',
+        sellTarget: Math.round(stats.p75 * 100) / 100,
+        premiumTarget: Math.round(stats.p90 * 100) / 100
+      });
+    }
+    
+    flippable.sort((a, b) => {
+      const confA = confidenceOrder.indexOf(a.confidence);
+      const confB = confidenceOrder.indexOf(b.confidence);
+      if (confA !== confB) return confA - confB;
+      return b.discount - a.discount;
+    });
+    
+    return {
+      ok: true,
+      flippable: flippable.slice(0, limit),
+      totalScanned: tavernHeroes.length,
+      totalSalesData: allRecentSales.length,
+      matchesFound: flippable.length
+    };
+  } catch (err) {
+    console.error('[FlippableHeroes] Error:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
 export async function getHeroPriceRecommendation(params) {
   try {
     await ensureSaleTablesExist();
     
     const { mainClass, rarity, levelMin, levelMax, profession, realm } = params;
     
-    // Build query based on provided filters
-    // Use a flexible approach: get all sales from last 30 days with hero data, filter in JS
     const allSales = await rawPg`
       SELECT 
         ts.hero_id,
@@ -636,11 +1207,11 @@ export async function getHeroPriceRecommendation(params) {
         ts.token_symbol,
         ts.sale_timestamp,
         ts.realm,
-        hs.main_class,
-        hs.sub_class,
-        hs.rarity,
-        hs.level,
-        hs.profession
+        COALESCE(ts.main_class, hs.main_class) as main_class,
+        COALESCE(ts.sub_class, hs.sub_class) as sub_class,
+        COALESCE(ts.rarity, hs.rarity) as rarity,
+        COALESCE(ts.level, hs.level) as level,
+        COALESCE(ts.profession, hs.profession) as profession
       FROM tavern_sales ts
       LEFT JOIN hero_snapshots hs ON ts.id = hs.sale_id
       WHERE ts.sale_timestamp > NOW() - INTERVAL '30 days'
@@ -648,18 +1219,12 @@ export async function getHeroPriceRecommendation(params) {
       LIMIT 500
     `;
     
-    // Apply filters in JavaScript for flexibility
     let similarSales = allSales.filter(s => {
-      // Realm filter
       if (realm && s.realm !== realm) return false;
-      // Class filter
       if (mainClass && s.main_class !== mainClass) return false;
-      // Rarity filter
       if (rarity !== undefined && rarity !== null && rarity !== '' && s.rarity !== parseInt(rarity)) return false;
-      // Level range
       if (levelMin && (s.level === null || s.level < parseInt(levelMin))) return false;
       if (levelMax && (s.level === null || s.level > parseInt(levelMax))) return false;
-      // Profession filter  
       if (profession && s.profession !== profession) return false;
       return true;
     }).slice(0, 100);
@@ -673,11 +1238,9 @@ export async function getHeroPriceRecommendation(params) {
       };
     }
     
-    // Calculate price statistics
     const prices = similarSales
       .map(s => parseFloat(s.price_amount))
-      .filter(p => !isNaN(p) && p > 0)
-      .sort((a, b) => a - b);
+      .filter(p => !isNaN(p) && p > 0);
     
     if (prices.length === 0) {
       return {
@@ -688,59 +1251,24 @@ export async function getHeroPriceRecommendation(params) {
       };
     }
     
-    const sum = prices.reduce((a, b) => a + b, 0);
-    const avg = sum / prices.length;
-    const median = prices.length % 2 === 0
-      ? (prices[prices.length / 2 - 1] + prices[prices.length / 2]) / 2
-      : prices[Math.floor(prices.length / 2)];
-    const min = prices[0];
-    const max = prices[prices.length - 1];
-    
-    // Percentiles for buy/sell recommendations
-    const p10 = prices[Math.floor(prices.length * 0.1)] || min;
-    const p25 = prices[Math.floor(prices.length * 0.25)] || min;
-    const p75 = prices[Math.floor(prices.length * 0.75)] || max;
-    const p90 = prices[Math.floor(prices.length * 0.9)] || max;
-    
-    // Calculate standard deviation for confidence
-    const variance = prices.reduce((acc, p) => acc + Math.pow(p - avg, 2), 0) / prices.length;
-    const stdDev = Math.sqrt(variance);
-    const coefficientOfVariation = (stdDev / avg) * 100;
-    
-    // Confidence level based on sample size and price variation
-    let confidence = 'low';
-    if (similarSales.length >= 20 && coefficientOfVariation < 50) {
-      confidence = 'high';
-    } else if (similarSales.length >= 10 && coefficientOfVariation < 75) {
-      confidence = 'medium';
-    }
+    const stats = computePriceStats(prices);
     
     const token = similarSales[0]?.token_symbol || (realm === 'cv' ? 'CRYSTAL' : 'JEWEL');
     
     return {
       ok: true,
       recommendation: {
-        // Buy recommendations (lower prices = better deals)
-        buyLow: Math.round(p10 * 100) / 100,      // Great deal
-        buyFair: Math.round(p25 * 100) / 100,     // Fair price to buy
-        
-        // Market price
-        marketMedian: Math.round(median * 100) / 100,
-        marketAverage: Math.round(avg * 100) / 100,
-        
-        // Sell recommendations (higher prices = better returns)
-        sellFair: Math.round(p75 * 100) / 100,    // Fair price to sell
-        sellHigh: Math.round(p90 * 100) / 100,    // Premium price
-        
-        priceRange: {
-          min: Math.round(min * 100) / 100,
-          max: Math.round(max * 100) / 100
-        },
-        
+        buyLow: stats.p10,
+        buyFair: stats.p25,
+        marketMedian: stats.median,
+        marketAverage: stats.avg,
+        sellFair: stats.p75,
+        sellHigh: stats.p90,
+        priceRange: { min: stats.min, max: stats.max },
         token,
-        confidence,
-        sampleSize: similarSales.length,
-        priceVariation: Math.round(coefficientOfVariation)
+        confidence: stats.confidence,
+        sampleSize: stats.sampleSize,
+        priceVariation: stats.cv
       },
       recentSales: similarSales.slice(0, 10).map(s => ({
         heroId: s.hero_id,
