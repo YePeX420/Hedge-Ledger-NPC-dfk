@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter } from "lucide-react";
+import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter, Dna, Crosshair } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const RARITY_NAMES: Record<number, string> = {
@@ -88,6 +88,11 @@ interface ComparableSale {
   level: number;
   profession: string;
   realm: string;
+  professionMatch?: boolean;
+  traitScore?: number;
+  traitScoreBand?: string;
+  statBoost1?: string;
+  statBoost2?: string;
 }
 
 interface HeroPriceResult {
@@ -415,6 +420,7 @@ export default function HeroPricePage() {
                         <TableHead>Class</TableHead>
                         <TableHead>Rarity</TableHead>
                         <TableHead>Level</TableHead>
+                        <TableHead>Genes</TableHead>
                         <TableHead>Price</TableHead>
                         <TableHead>When</TableHead>
                       </TableRow>
@@ -432,6 +438,19 @@ export default function HeroPricePage() {
                             )}
                           </TableCell>
                           <TableCell>{sale.level || '-'}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1 text-xs">
+                              {sale.professionMatch && (
+                                <Crosshair className="h-3 w-3 text-green-400" />
+                              )}
+                              {sale.traitScore != null && (
+                                <span className="text-muted-foreground">TS:{sale.traitScore}</span>
+                              )}
+                              {sale.statBoost1 && (
+                                <span className="text-muted-foreground">{sale.statBoost1}</span>
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell className="font-medium">
                             {sale.price.toFixed(2)} {sale.token}
                           </TableCell>

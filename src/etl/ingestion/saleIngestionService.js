@@ -30,6 +30,53 @@ let saleIngestionState = {
 
 let autoRunInterval = null;
 
+const PROFESSION_CLASS_MAP = {
+  'mining': ['DarkKnight', 'Warrior', 'Knight', 'Paladin', 'Berserker', 'Legionnaire'],
+  'gardening': ['Sage', 'Wizard', 'Scholar', 'Summoner', 'Seer', 'Bard'],
+  'fishing': ['Pirate', 'Monk', 'Ninja', 'Shapeshifter', 'Dragoon', 'SpellBow'],
+  'foraging': ['Thief', 'Archer', 'Priest', 'DreadKnight', 'Ranger']
+};
+
+function computeProfessionMatch(mainClass, profession) {
+  if (!mainClass || !profession) return false;
+  const matchClasses = PROFESSION_CLASS_MAP[profession] || [];
+  return matchClasses.includes(mainClass);
+}
+
+function getTraitScoreBand(traitScore) {
+  if (traitScore == null) return 'unknown';
+  if (traitScore >= 80) return 'elite';
+  if (traitScore >= 50) return 'strong';
+  if (traitScore >= 20) return 'average';
+  return 'basic';
+}
+
+const STAT_BOOST_NAMES = {
+  0: 'STR', 2: 'AGI', 4: 'INT', 6: 'WIS', 8: 'LCK', 10: 'DEX', 12: 'VIT', 14: 'END'
+};
+
+function decodeStatBoostsFromGenes(statGenes) {
+  if (!statGenes) return { boost1: null, boost2: null };
+  try {
+    const kai = '123456789abcdefghijkmnopqrstuvwx';
+    const genesBigInt = BigInt(statGenes);
+    let kaiString = '';
+    let temp = genesBigInt;
+    for (let i = 0; i < 48; i++) {
+      kaiString = kai[Number(temp % 32n)] + kaiString;
+      temp = temp / 32n;
+    }
+    const boost1Dominant = kai.indexOf(kaiString[31]);
+    const boost2Dominant = kai.indexOf(kaiString[35]);
+    return {
+      boost1: STAT_BOOST_NAMES[boost1Dominant] || null,
+      boost2: STAT_BOOST_NAMES[boost2Dominant] || null
+    };
+  } catch {
+    return { boost1: null, boost2: null };
+  }
+}
+
 async function ensureSaleTablesExist() {
   await rawPg`
     CREATE TABLE IF NOT EXISTS tavern_listing_snapshots (
@@ -48,6 +95,9 @@ async function ensureSaleTablesExist() {
       summons INTEGER,
       max_summons INTEGER,
       trait_score INTEGER,
+      profession_match BOOLEAN DEFAULT FALSE,
+      stat_boost_1 TEXT,
+      stat_boost_2 TEXT,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
     )
   `;
@@ -75,6 +125,10 @@ async function ensureSaleTablesExist() {
       summons INTEGER,
       max_summons INTEGER,
       trait_score INTEGER,
+      profession_match BOOLEAN DEFAULT FALSE,
+      stat_boost_1 TEXT,
+      stat_boost_2 TEXT,
+      trait_score_band TEXT,
       UNIQUE(hero_id, sale_timestamp)
     )
   `;
@@ -88,11 +142,17 @@ async function ensureSaleTablesExist() {
   await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS summons INTEGER`;
   await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS max_summons INTEGER`;
   await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS trait_score INTEGER`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS profession_match BOOLEAN DEFAULT FALSE`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS stat_boost_1 TEXT`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS stat_boost_2 TEXT`;
+  await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS trait_score_band TEXT`;
 
   await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_realm_idx ON tavern_sales(realm)`;
   await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_timestamp_idx ON tavern_sales(sale_timestamp DESC)`;
   await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_class_idx ON tavern_sales(main_class)`;
   await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_rarity_idx ON tavern_sales(rarity)`;
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_profession_match_idx ON tavern_sales(profession_match)`;
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_trait_band_idx ON tavern_sales(trait_score_band)`;
   
   await rawPg`
     CREATE TABLE IF NOT EXISTS hero_snapshots (
@@ -136,10 +196,20 @@ async function ensureSaleTablesExist() {
       summons INTEGER,
       max_summons INTEGER,
       trait_score INTEGER,
+      profession_match BOOLEAN DEFAULT FALSE,
+      stat_boost_1 TEXT,
+      stat_boost_2 TEXT,
       status TEXT,
       status_changed_at TIMESTAMPTZ
     )
   `;
+
+  await rawPg`ALTER TABLE tavern_listing_snapshots ADD COLUMN IF NOT EXISTS profession_match BOOLEAN DEFAULT FALSE`;
+  await rawPg`ALTER TABLE tavern_listing_snapshots ADD COLUMN IF NOT EXISTS stat_boost_1 TEXT`;
+  await rawPg`ALTER TABLE tavern_listing_snapshots ADD COLUMN IF NOT EXISTS stat_boost_2 TEXT`;
+  await rawPg`ALTER TABLE tavern_listing_history ADD COLUMN IF NOT EXISTS profession_match BOOLEAN DEFAULT FALSE`;
+  await rawPg`ALTER TABLE tavern_listing_history ADD COLUMN IF NOT EXISTS stat_boost_1 TEXT`;
+  await rawPg`ALTER TABLE tavern_listing_history ADD COLUMN IF NOT EXISTS stat_boost_2 TEXT`;
   
   await rawPg`
     CREATE TABLE IF NOT EXISTS tavern_demand_metrics (
@@ -150,6 +220,10 @@ async function ensureSaleTablesExist() {
       profession TEXT,
       rarity INTEGER,
       level_band TEXT,
+      profession_match BOOLEAN,
+      trait_score_band TEXT,
+      avg_trait_score NUMERIC(10, 2),
+      pct_profession_match NUMERIC(5, 2),
       as_of_date DATE DEFAULT CURRENT_DATE,
       sales_count_7d INTEGER DEFAULT 0,
       sales_count_30d INTEGER DEFAULT 0,
@@ -162,21 +236,12 @@ async function ensureSaleTablesExist() {
     )
   `;
   
+  await rawPg`ALTER TABLE tavern_demand_metrics ADD COLUMN IF NOT EXISTS profession_match BOOLEAN`;
+  await rawPg`ALTER TABLE tavern_demand_metrics ADD COLUMN IF NOT EXISTS trait_score_band TEXT`;
+  await rawPg`ALTER TABLE tavern_demand_metrics ADD COLUMN IF NOT EXISTS avg_trait_score NUMERIC(10, 2)`;
+  await rawPg`ALTER TABLE tavern_demand_metrics ADD COLUMN IF NOT EXISTS pct_profession_match NUMERIC(5, 2)`;
+  
   await rawPg`CREATE INDEX IF NOT EXISTS tavern_demand_metrics_date_idx ON tavern_demand_metrics(as_of_date DESC)`;
-
-  try {
-    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS main_class TEXT`;
-    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS sub_class TEXT`;
-    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS profession TEXT`;
-    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS rarity INTEGER`;
-    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS level INTEGER`;
-    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS generation INTEGER`;
-    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS summons INTEGER`;
-    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS max_summons INTEGER`;
-    await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS trait_score INTEGER`;
-  } catch (err) {
-    // columns may already exist
-  }
 }
 
 export async function takeListingSnapshot() {
@@ -186,11 +251,24 @@ export async function takeListingSnapshot() {
   try {
     await ensureSaleTablesExist();
     
+    const tableCheck = await rawPg`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = 'tavern_heroes'
+      ) as exists
+    `;
+    
+    if (!tableCheck[0]?.exists) {
+      console.log('[SaleIngestion] tavern_heroes table does not exist yet - waiting for Tavern Indexer to run');
+      return { ok: true, snapshotId, heroCount: 0 };
+    }
+    
     const heroList = await rawPg`
       SELECT 
         hero_id, realm, price_native, native_token,
         main_class, sub_class, profession, rarity, level,
-        generation, summons, max_summons, trait_score
+        generation, summons, max_summons, trait_score,
+        stat_genes
       FROM tavern_heroes
     `;
     
@@ -207,28 +285,36 @@ export async function takeListingSnapshot() {
     for (let i = 0; i < heroList.length; i += batchSize) {
       const batch = heroList.slice(i, i + batchSize);
       
-      const values = batch.map(h => `(
-        '${snapshotId}',
-        '${h.hero_id}',
-        '${h.realm || 'unknown'}',
-        ${h.price_native != null ? h.price_native : 'NULL'},
-        ${h.native_token ? `'${h.native_token}'` : 'NULL'},
-        ${h.main_class ? `'${h.main_class}'` : 'NULL'},
-        ${h.sub_class ? `'${h.sub_class}'` : 'NULL'},
-        ${h.profession ? `'${h.profession}'` : 'NULL'},
-        ${h.rarity != null ? h.rarity : 'NULL'},
-        ${h.level != null ? h.level : 'NULL'},
-        ${h.generation != null ? h.generation : 'NULL'},
-        ${h.summons != null ? h.summons : 'NULL'},
-        ${h.max_summons != null ? h.max_summons : 'NULL'},
-        ${h.trait_score != null ? h.trait_score : 'NULL'}
-      )`).join(',');
+      const values = batch.map(h => {
+        const profMatch = computeProfessionMatch(h.main_class, h.profession);
+        const boosts = decodeStatBoostsFromGenes(h.stat_genes);
+        return `(
+          '${snapshotId}',
+          '${h.hero_id}',
+          '${h.realm || 'unknown'}',
+          ${h.price_native != null ? h.price_native : 'NULL'},
+          ${h.native_token ? `'${h.native_token}'` : 'NULL'},
+          ${h.main_class ? `'${h.main_class}'` : 'NULL'},
+          ${h.sub_class ? `'${h.sub_class}'` : 'NULL'},
+          ${h.profession ? `'${h.profession}'` : 'NULL'},
+          ${h.rarity != null ? h.rarity : 'NULL'},
+          ${h.level != null ? h.level : 'NULL'},
+          ${h.generation != null ? h.generation : 'NULL'},
+          ${h.summons != null ? h.summons : 'NULL'},
+          ${h.max_summons != null ? h.max_summons : 'NULL'},
+          ${h.trait_score != null ? h.trait_score : 'NULL'},
+          ${profMatch},
+          ${boosts.boost1 ? `'${boosts.boost1}'` : 'NULL'},
+          ${boosts.boost2 ? `'${boosts.boost2}'` : 'NULL'}
+        )`;
+      }).join(',');
       
       await rawPg.unsafe(`
         INSERT INTO tavern_listing_snapshots (
           snapshot_id, hero_id, realm, price_native, native_token,
           main_class, sub_class, profession, rarity, level,
-          generation, summons, max_summons, trait_score
+          generation, summons, max_summons, trait_score,
+          profession_match, stat_boost_1, stat_boost_2
         ) VALUES ${values}
       `);
       
@@ -285,6 +371,9 @@ export async function reconcileSales() {
         prev.summons,
         prev.max_summons,
         prev.trait_score,
+        prev.profession_match,
+        prev.stat_boost_1,
+        prev.stat_boost_2,
         prev.created_at as listed_at
       FROM tavern_listing_snapshots prev
       LEFT JOIN tavern_listing_snapshots curr 
@@ -351,12 +440,16 @@ async function recordPotentialSale(hero) {
     const tokenSymbol = hero.native_token || (hero.realm === 'cv' ? 'CRYSTAL' : 'JEWEL');
     const isFloor = (hero.rarity === 0 || hero.rarity === null) && (hero.level <= 1 || hero.level === null);
     
+    const profMatch = hero.profession_match || computeProfessionMatch(hero.main_class, hero.profession);
+    const traitBand = getTraitScoreBand(hero.trait_score);
+    
     await rawPg`
       INSERT INTO tavern_sales (
         hero_id, realm, sale_timestamp, token_address, token_symbol,
         price_amount, is_floor_hero, as_of_date,
         main_class, sub_class, profession, rarity, level,
-        generation, summons, max_summons, trait_score
+        generation, summons, max_summons, trait_score,
+        profession_match, stat_boost_1, stat_boost_2, trait_score_band
       ) VALUES (
         ${parseInt(hero.hero_id)},
         ${hero.realm || 'unknown'},
@@ -374,7 +467,11 @@ async function recordPotentialSale(hero) {
         ${hero.generation != null ? hero.generation : null},
         ${hero.summons != null ? hero.summons : null},
         ${hero.max_summons != null ? hero.max_summons : null},
-        ${hero.trait_score != null ? hero.trait_score : null}
+        ${hero.trait_score != null ? hero.trait_score : null},
+        ${profMatch},
+        ${hero.stat_boost_1 || null},
+        ${hero.stat_boost_2 || null},
+        ${traitBand}
       )
       ON CONFLICT (hero_id, sale_timestamp) DO NOTHING
     `;
@@ -433,11 +530,14 @@ async function recordHeroSnapshot(hero) {
 
 async function updateListingHistory(hero, status) {
   try {
+    const profMatch = hero.profession_match || computeProfessionMatch(hero.main_class, hero.profession);
     await rawPg`
       INSERT INTO tavern_listing_history (
         hero_id, realm, snapshot_at, price_native, native_token,
         main_class, sub_class, profession, rarity, level,
-        generation, summons, max_summons, trait_score, status, status_changed_at
+        generation, summons, max_summons, trait_score,
+        profession_match, stat_boost_1, stat_boost_2,
+        status, status_changed_at
       ) VALUES (
         ${hero.hero_id},
         ${hero.realm || 'unknown'},
@@ -453,6 +553,9 @@ async function updateListingHistory(hero, status) {
         ${hero.summons != null ? hero.summons : null},
         ${hero.max_summons != null ? hero.max_summons : null},
         ${hero.trait_score != null ? hero.trait_score : null},
+        ${profMatch},
+        ${hero.stat_boost_1 || null},
+        ${hero.stat_boost_2 || null},
         ${status},
         CURRENT_TIMESTAMP
       )
@@ -478,7 +581,12 @@ export async function computeDemandMetrics() {
         COUNT(*) FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days') as sales_30d,
         AVG(price_amount::NUMERIC) FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days') as avg_price,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_amount::NUMERIC) 
-          FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days') as median_price
+          FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days') as median_price,
+        AVG(trait_score) FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days') as avg_trait_score,
+        ROUND(100.0 * COUNT(*) FILTER (WHERE profession_match = true AND sale_timestamp > NOW() - INTERVAL '30 days') / 
+          NULLIF(COUNT(*) FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days'), 0), 1) as pct_profession_match,
+        MODE() WITHIN GROUP (ORDER BY trait_score_band) 
+          FILTER (WHERE sale_timestamp > NOW() - INTERVAL '30 days') as top_trait_band
       FROM tavern_sales
       WHERE main_class IS NOT NULL
         AND sale_timestamp > NOW() - INTERVAL '30 days'
@@ -490,6 +598,8 @@ export async function computeDemandMetrics() {
       console.log('[SaleIngestion] No sales data for demand metrics');
       return { ok: true, metricsComputed: 0 };
     }
+    
+    await rawPg`DELETE FROM tavern_demand_metrics WHERE as_of_date = CURRENT_DATE`;
     
     const maxSales30d = Math.max(...salesByClass.map(r => parseInt(r.sales_30d) || 1));
     
@@ -507,7 +617,8 @@ export async function computeDemandMetrics() {
         INSERT INTO tavern_demand_metrics (
           realm, main_class, sub_class, rarity, as_of_date,
           sales_count_7d, sales_count_30d, median_price_native,
-          demand_score, velocity_score, liquidity_score
+          demand_score, velocity_score, liquidity_score,
+          avg_trait_score, pct_profession_match, trait_score_band
         ) VALUES (
           ${row.realm},
           ${row.main_class},
@@ -519,17 +630,11 @@ export async function computeDemandMetrics() {
           ${row.median_price || null},
           ${demandScore},
           ${velocityScore},
-          ${liquidityScore}
+          ${liquidityScore},
+          ${row.avg_trait_score != null ? Math.round(row.avg_trait_score * 100) / 100 : null},
+          ${row.pct_profession_match != null ? parseFloat(row.pct_profession_match) : null},
+          ${row.top_trait_band || null}
         )
-        ON CONFLICT (realm, main_class, as_of_date) DO UPDATE SET
-          sub_class = EXCLUDED.sub_class,
-          rarity = EXCLUDED.rarity,
-          sales_count_7d = EXCLUDED.sales_count_7d,
-          sales_count_30d = EXCLUDED.sales_count_30d,
-          median_price_native = EXCLUDED.median_price_native,
-          demand_score = EXCLUDED.demand_score,
-          velocity_score = EXCLUDED.velocity_score,
-          liquidity_score = EXCLUDED.liquidity_score
       `;
       
       metricsComputed++;
@@ -660,7 +765,10 @@ export async function getRecentSales(limit = 50, realm = null) {
     if (realm) {
       result = await rawPg`
         SELECT 
-          ts.*, 
+          ts.id, ts.hero_id, ts.realm, ts.sale_timestamp, ts.token_symbol, ts.price_amount,
+          ts.main_class, ts.sub_class, ts.profession, ts.rarity, ts.level,
+          ts.generation, ts.summons, ts.max_summons, ts.trait_score,
+          ts.profession_match, ts.stat_boost_1, ts.stat_boost_2, ts.trait_score_band,
           hs.main_class as hs_main_class, hs.sub_class as hs_sub_class, 
           hs.rarity as hs_rarity, hs.level as hs_level, hs.profession as hs_profession
         FROM tavern_sales ts
@@ -672,7 +780,10 @@ export async function getRecentSales(limit = 50, realm = null) {
     } else {
       result = await rawPg`
         SELECT 
-          ts.*, 
+          ts.id, ts.hero_id, ts.realm, ts.sale_timestamp, ts.token_symbol, ts.price_amount,
+          ts.main_class, ts.sub_class, ts.profession, ts.rarity, ts.level,
+          ts.generation, ts.summons, ts.max_summons, ts.trait_score,
+          ts.profession_match, ts.stat_boost_1, ts.stat_boost_2, ts.trait_score_band,
           hs.main_class as hs_main_class, hs.sub_class as hs_sub_class, 
           hs.rarity as hs_rarity, hs.level as hs_level, hs.profession as hs_profession
         FROM tavern_sales ts
@@ -695,14 +806,24 @@ export async function getDemandMetrics(realm = null) {
     let result;
     if (realm) {
       result = await rawPg`
-        SELECT * FROM tavern_demand_metrics 
+        SELECT id, realm, main_class, sub_class, profession, rarity, level_band,
+          sales_count_7d, sales_count_30d, avg_time_on_market_hours, median_price_native,
+          demand_score, velocity_score, liquidity_score,
+          avg_trait_score, pct_profession_match, trait_score_band,
+          as_of_date
+        FROM tavern_demand_metrics 
         WHERE realm = ${realm}
         ORDER BY as_of_date DESC, demand_score DESC
         LIMIT 100
       `;
     } else {
       result = await rawPg`
-        SELECT * FROM tavern_demand_metrics 
+        SELECT id, realm, main_class, sub_class, profession, rarity, level_band,
+          sales_count_7d, sales_count_30d, avg_time_on_market_hours, median_price_native,
+          demand_score, velocity_score, liquidity_score,
+          avg_trait_score, pct_profession_match, trait_score_band,
+          as_of_date
+        FROM tavern_demand_metrics 
         ORDER BY as_of_date DESC, demand_score DESC
         LIMIT 100
       `;
@@ -950,7 +1071,12 @@ export async function getHeroPriceByHeroId(heroId) {
         rarity: s.rarity,
         level: s.level,
         profession: s.profession,
-        realm: s.realm
+        realm: s.realm,
+        professionMatch: s.profession_match || false,
+        traitScore: s.trait_score || null,
+        traitScoreBand: s.trait_score_band || null,
+        statBoost1: s.stat_boost_1 || null,
+        statBoost2: s.stat_boost_2 || null
       })),
       matchTier
     };
@@ -967,10 +1093,17 @@ async function buildSalesFilter(hero, tier) {
   const level = hero.level || 1;
   const subClass = hero.subClass;
   
+  const cols = `id, hero_id, realm, sale_timestamp, token_symbol, price_amount,
+    main_class, sub_class, profession, rarity, level,
+    generation, summons, max_summons, trait_score,
+    profession_match, stat_boost_1, stat_boost_2, trait_score_band`;
+  
   switch (tier) {
     case 'exact':
       return rawPg`
-        SELECT * FROM tavern_sales
+        SELECT ${rawPg.unsafe(cols)},
+          COALESCE(trait_score, 0) as ts
+        FROM tavern_sales
         WHERE realm = ${realm}
           AND main_class = ${mainClass}
           AND rarity = ${rarity}
@@ -978,24 +1111,33 @@ async function buildSalesFilter(hero, tier) {
           AND (sub_class = ${subClass} OR sub_class IS NULL)
           AND sale_timestamp > NOW() - INTERVAL '30 days'
           AND price_amount > 0
-        ORDER BY sale_timestamp DESC
+        ORDER BY 
+          CASE WHEN profession_match = true THEN 0 ELSE 1 END,
+          ABS(COALESCE(trait_score, 0) - ${hero.traitScore || 0}),
+          sale_timestamp DESC
         LIMIT 100
       `;
     case 'tight':
       return rawPg`
-        SELECT * FROM tavern_sales
+        SELECT ${rawPg.unsafe(cols)},
+          COALESCE(trait_score, 0) as ts
+        FROM tavern_sales
         WHERE realm = ${realm}
           AND main_class = ${mainClass}
           AND rarity = ${rarity}
           AND level BETWEEN ${Math.max(1, level - 5)} AND ${level + 5}
           AND sale_timestamp > NOW() - INTERVAL '60 days'
           AND price_amount > 0
-        ORDER BY sale_timestamp DESC
+        ORDER BY 
+          ABS(COALESCE(trait_score, 0) - ${hero.traitScore || 0}),
+          sale_timestamp DESC
         LIMIT 200
       `;
     case 'broad':
       return rawPg`
-        SELECT * FROM tavern_sales
+        SELECT ${rawPg.unsafe(cols)},
+          COALESCE(trait_score, 0) as ts
+        FROM tavern_sales
         WHERE realm = ${realm}
           AND main_class = ${mainClass}
           AND (rarity = ${rarity} OR rarity BETWEEN ${Math.max(0, rarity - 1)} AND ${rarity + 1})

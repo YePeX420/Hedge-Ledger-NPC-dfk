@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, TrendingUp, TrendingDown, DollarSign, Clock, Target, Play, RefreshCw, Activity, BarChart3, Calculator, ShoppingCart, Tag, Percent } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, DollarSign, Clock, Target, Play, RefreshCw, Activity, BarChart3, Calculator, ShoppingCart, Tag, Percent, Dna, Crosshair } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const RARITY_NAMES: Record<number, string> = {
@@ -17,6 +17,22 @@ const RARITY_NAMES: Record<number, string> = {
 
 const RARITY_COLORS: Record<number, string> = {
   0: 'bg-gray-500', 1: 'bg-green-500', 2: 'bg-blue-500', 3: 'bg-orange-500', 4: 'bg-purple-500'
+};
+
+const TRAIT_BAND_COLORS: Record<string, string> = {
+  'elite': 'text-purple-400',
+  'strong': 'text-blue-400',
+  'average': 'text-green-400',
+  'basic': 'text-gray-400',
+  'unknown': 'text-muted-foreground'
+};
+
+const TRAIT_BAND_LABELS: Record<string, string> = {
+  'elite': 'Elite Genes',
+  'strong': 'Strong Genes',
+  'average': 'Average Genes',
+  'basic': 'Basic Genes',
+  'unknown': 'Unknown'
 };
 
 const CLASS_OPTIONS = [
@@ -107,6 +123,9 @@ interface DemandMetric {
   demand_score: number;
   velocity_score: number;
   liquidity_score: number;
+  avg_trait_score?: number;
+  pct_profession_match?: number;
+  trait_score_band?: string;
 }
 
 export default function MarketIntelPage() {
@@ -444,7 +463,7 @@ export default function MarketIntelPage() {
               <BarChart3 className="h-5 w-5" />
               Demand Heatmap
             </CardTitle>
-            <CardDescription>Class demand scores by sales velocity</CardDescription>
+            <CardDescription>Class demand scores by sales velocity and genetic traits</CardDescription>
           </CardHeader>
           <CardContent>
             {demandMetricsQuery.isLoading ? (
@@ -452,35 +471,62 @@ export default function MarketIntelPage() {
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
             ) : demandMetrics.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">No demand data yet</p>
+              <p className="text-center text-muted-foreground py-8" data-testid="text-no-demand-data">No demand data yet. Run the sale ingestion to start collecting marketplace data.</p>
             ) : (
               <div className="space-y-2">
-                {demandMetrics.slice(0, 10).map((metric) => (
+                {demandMetrics.slice(0, 15).map((metric) => (
                   <div 
                     key={metric.id} 
-                    className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                    className="flex flex-col gap-1 p-3 rounded-md bg-muted/50"
                     data-testid={`row-demand-${metric.id}`}
                   >
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-xs">
-                        {metric.realm.toUpperCase()}
-                      </Badge>
-                      <span className="font-medium">{metric.main_class}</span>
-                      {metric.rarity !== undefined && metric.rarity !== null && (
-                        <Badge className={`${RARITY_COLORS[metric.rarity]} text-xs`}>
-                          {RARITY_NAMES[metric.rarity]}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className="text-xs">
+                          {metric.realm.toUpperCase()}
                         </Badge>
-                      )}
+                        <span className="font-medium">{metric.main_class}</span>
+                        {metric.rarity !== undefined && metric.rarity !== null && (
+                          <Badge className={`${RARITY_COLORS[metric.rarity]} text-xs`}>
+                            {RARITY_NAMES[metric.rarity]}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className="text-sm font-medium">{metric.sales_count_7d} / 7d</div>
+                          <div className="text-xs text-muted-foreground">{metric.sales_count_30d} / 30d</div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Target className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-bold">{metric.demand_score}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <div className="text-sm font-medium">{metric.sales_count_7d} / 7d</div>
-                        <div className="text-xs text-muted-foreground">{metric.sales_count_30d} / 30d</div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Target className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-bold">{metric.demand_score}</span>
-                      </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                      {metric.trait_score_band && (
+                        <span className={`flex items-center gap-1 ${TRAIT_BAND_COLORS[metric.trait_score_band] || 'text-muted-foreground'}`} data-testid={`trait-band-${metric.id}`}>
+                          <Dna className="h-3 w-3" />
+                          {TRAIT_BAND_LABELS[metric.trait_score_band] || metric.trait_score_band}
+                        </span>
+                      )}
+                      {metric.avg_trait_score != null && (
+                        <span className="flex items-center gap-1" data-testid={`avg-trait-${metric.id}`}>
+                          Avg TS: {Number(metric.avg_trait_score).toFixed(0)}
+                        </span>
+                      )}
+                      {metric.pct_profession_match != null && (
+                        <span className={`flex items-center gap-1 ${Number(metric.pct_profession_match) >= 50 ? 'text-green-400' : 'text-muted-foreground'}`} data-testid={`prof-match-${metric.id}`}>
+                          <Crosshair className="h-3 w-3" />
+                          {Number(metric.pct_profession_match).toFixed(0)}% prof match
+                        </span>
+                      )}
+                      {metric.median_price_native != null && (
+                        <span className="flex items-center gap-1">
+                          <DollarSign className="h-3 w-3" />
+                          {Number(metric.median_price_native).toFixed(2)} median
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}
