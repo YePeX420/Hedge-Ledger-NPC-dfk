@@ -79,11 +79,6 @@ async function ensureSaleTablesExist() {
     )
   `;
   
-  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_realm_idx ON tavern_sales(realm)`;
-  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_timestamp_idx ON tavern_sales(sale_timestamp DESC)`;
-  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_class_idx ON tavern_sales(main_class)`;
-  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_rarity_idx ON tavern_sales(rarity)`;
-
   await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS main_class TEXT`;
   await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS sub_class TEXT`;
   await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS profession TEXT`;
@@ -93,6 +88,11 @@ async function ensureSaleTablesExist() {
   await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS summons INTEGER`;
   await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS max_summons INTEGER`;
   await rawPg`ALTER TABLE tavern_sales ADD COLUMN IF NOT EXISTS trait_score INTEGER`;
+
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_realm_idx ON tavern_sales(realm)`;
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_timestamp_idx ON tavern_sales(sale_timestamp DESC)`;
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_class_idx ON tavern_sales(main_class)`;
+  await rawPg`CREATE INDEX IF NOT EXISTS tavern_sales_rarity_idx ON tavern_sales(rarity)`;
   
   await rawPg`
     CREATE TABLE IF NOT EXISTS hero_snapshots (
