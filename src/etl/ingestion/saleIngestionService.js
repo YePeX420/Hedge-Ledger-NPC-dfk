@@ -1814,6 +1814,49 @@ export async function getHeroPriceRecommendation(params) {
   }
 }
 
+export async function generateConfidenceSummaries(heroes) {
+  try {
+    const OpenAI = (await import('openai')).default;
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const heroLines = heroes.map((h, i) =>
+      `${i + 1}. Hero #${h.normalizedId || h.heroId}: ${h.mainClass}/${h.subClass || '-'} ${h.rarityName} Gen${h.generation} Lv${h.level} | Listed: ${h.listingPrice} ${h.token} | Fair: ${h.estimatedValue} ${h.token} | Discount: ${h.discount}% | Confidence: ${h.confidence} (${h.sampleSize} sales) | Verdict: ${h.verdict}`
+    ).join('\n');
+
+    const prompt = `You are a DeFi Kingdoms market analyst. For each hero below, write exactly ONE short sentence (max 20 words) justifying WHY the confidence level is what it is. Focus on sample size, price consistency, and match quality.
+
+HEROES:
+${heroLines}
+
+Rules:
+- Output ONLY a JSON array of strings, one per hero, in the same order.
+- Each string is a single sentence, max 20 words.
+- Reference specific numbers (sample size, price variation) when explaining confidence.
+- For "high" confidence: emphasize strong sample size and consistent pricing.
+- For "medium" confidence: note adequate but not ideal sample size or some price spread.
+- For "medium-low" or "low": highlight limited data, wide price variation, or loose matching.
+- Output valid JSON only, no markdown fencing.`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      max_completion_tokens: 100 * heroes.length,
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() || '[]';
+    const cleaned = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '');
+    const summaries = JSON.parse(cleaned);
+
+    return {
+      ok: true,
+      summaries: Array.isArray(summaries) ? summaries : []
+    };
+  } catch (err) {
+    console.error('[HeroPriceTool] Confidence summary error:', err.message);
+    return { ok: false, summaries: [], error: err.message };
+  }
+}
+
 export async function generatePriceNarrative(priceResult) {
   try {
     const OpenAI = (await import('openai')).default;

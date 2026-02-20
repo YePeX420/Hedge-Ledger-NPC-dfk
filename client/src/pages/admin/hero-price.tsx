@@ -7,7 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter, Dna, Crosshair, Brain } from "lucide-react";
+import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter, Dna, Crosshair, Brain, Sparkles, MessageSquare } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 
 const RARITY_NAMES: Record<number, string> = {
@@ -166,6 +167,9 @@ export default function HeroPricePage() {
   const [narrative, setNarrative] = useState<string | null>(null);
   const [narrativeLoading, setNarrativeLoading] = useState(false);
 
+  const [confidenceSummaries, setConfidenceSummaries] = useState<Record<string, string>>({});
+  const [summariesLoading, setSummariesLoading] = useState(false);
+
   const [flipRealm, setFlipRealm] = useState("all");
   const [flipMinDiscount, setFlipMinDiscount] = useState("20");
   const [flipMaxPrice, setFlipMaxPrice] = useState("");
@@ -221,6 +225,40 @@ export default function HeroPricePage() {
       toast({ title: "Scan error", description: err.message, variant: "destructive" });
     } finally {
       setFlipLoading(false);
+    }
+  };
+
+  const fetchConfidenceSummaries = async () => {
+    if (!flipResult?.flippable || flipResult.flippable.length === 0) return;
+    const uncached = flipResult.flippable.filter(h => !confidenceSummaries[h.heroId]);
+    if (uncached.length === 0) {
+      toast({ title: "Already generated", description: "All visible heroes already have AI assessments" });
+      return;
+    }
+    setSummariesLoading(true);
+    try {
+      const batch = uncached.slice(0, 20);
+      const res = await fetch('/api/admin/market-intel/confidence-summaries', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ heroes: batch })
+      });
+      const data = await res.json();
+      if (data.ok && data.summaries) {
+        const newSummaries = { ...confidenceSummaries };
+        batch.forEach((h, i) => {
+          if (data.summaries[i]) newSummaries[h.heroId] = data.summaries[i];
+        });
+        setConfidenceSummaries(newSummaries);
+        toast({ title: "AI Assessments", description: `Generated ${data.summaries.length} confidence summaries` });
+      } else {
+        toast({ title: "AI Assessment", description: data.error || "Could not generate summaries", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "AI error", description: err.message, variant: "destructive" });
+    } finally {
+      setSummariesLoading(false);
     }
   };
 
@@ -766,6 +804,16 @@ export default function HeroPricePage() {
                       {flipResult.matchesFound} flippable heroes found from {flipResult.totalScanned} scanned
                       ({flipResult.totalSalesData} sales in database)
                     </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={fetchConfidenceSummaries}
+                      disabled={summariesLoading}
+                      data-testid="button-generate-assessments"
+                    >
+                      {summariesLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      <span className="ml-1">AI Assess All</span>
+                    </Button>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -782,6 +830,7 @@ export default function HeroPricePage() {
                           <TableHead>Discount</TableHead>
                           <TableHead>Profit</TableHead>
                           <TableHead>Conf.</TableHead>
+                          <TableHead>AI Assessment</TableHead>
                           <TableHead>Sell Target</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -843,10 +892,26 @@ export default function HeroPricePage() {
                               </span>
                             </TableCell>
                             <TableCell>
-                              <span className={CONFIDENCE_COLORS[h.confidence] || ''}>
-                                {h.confidence}
-                              </span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className={`cursor-help ${CONFIDENCE_COLORS[h.confidence] || ''}`}>
+                                    {h.confidence}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs text-xs">
+                                  {confidenceSummaries[h.heroId]
+                                    ? confidenceSummaries[h.heroId]
+                                    : `${h.confidence} confidence based on ${h.sampleSize} comparable sales. Click "AI Assess All" for detailed reasoning.`}
+                                </TooltipContent>
+                              </Tooltip>
                               <div className="text-xs text-muted-foreground">{h.sampleSize} sales</div>
+                            </TableCell>
+                            <TableCell className="text-xs max-w-[200px]" data-testid={`cell-assessment-${idx}`}>
+                              {confidenceSummaries[h.heroId] ? (
+                                <span className="text-muted-foreground italic">{confidenceSummaries[h.heroId]}</span>
+                              ) : (
+                                <span className="text-muted-foreground/50">--</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-sm">
                               <div>{formatPrice(h.sellTarget)} {h.token}</div>

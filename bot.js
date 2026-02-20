@@ -9861,6 +9861,23 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/market-intel/confidence-summaries - AI confidence justifications for flippable heroes
+  app.post("/api/admin/market-intel/confidence-summaries", isAdmin, async (req, res) => {
+    try {
+      const { generateConfidenceSummaries } = await import("./src/etl/ingestion/saleIngestionService.js");
+      const { heroes } = req.body;
+      if (!heroes || !Array.isArray(heroes) || heroes.length === 0) {
+        return res.status(400).json({ ok: false, error: 'Missing heroes array' });
+      }
+      const batch = heroes.slice(0, 20);
+      const result = await generateConfidenceSummaries(batch);
+      res.json(result);
+    } catch (error) {
+      console.error('[Market Intel] Confidence summary error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/market-intel/flippable-heroes - Find underpriced heroes for flipping
   app.get("/api/admin/market-intel/flippable-heroes", isAdmin, async (req, res) => {
     try {
@@ -9916,6 +9933,21 @@ async function startAdminWebServer() {
         return res.status(400).json({ ok: false, error: 'Missing price result data' });
       }
       const result = await generatePriceNarrative(priceResult);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  app.post("/api/user/confidence-summaries", isUser, async (req, res) => {
+    try {
+      const { generateConfidenceSummaries } = await import("./src/etl/ingestion/saleIngestionService.js");
+      const { heroes } = req.body;
+      if (!heroes || !Array.isArray(heroes) || heroes.length === 0) {
+        return res.status(400).json({ ok: false, error: 'Missing heroes array' });
+      }
+      const batch = heroes.slice(0, 20);
+      const result = await generateConfidenceSummaries(batch);
       res.json(result);
     } catch (error) {
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
