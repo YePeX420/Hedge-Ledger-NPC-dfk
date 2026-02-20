@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter, Dna, Crosshair, Brain, Sparkles, MessageSquare, Clock, History } from "lucide-react";
+import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter, Dna, Crosshair, Brain, Sparkles, MessageSquare, Clock, History, Wallet, ChevronDown, ChevronUp } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 
@@ -165,6 +165,45 @@ interface FlippableResult {
   error?: string;
 }
 
+interface WalletHero {
+  heroId: string;
+  normalizedId: number;
+  realm: string;
+  mainClass: string;
+  subClass: string;
+  profession: string;
+  rarity: number;
+  rarityName: string;
+  level: number;
+  generation: number;
+  summons: number;
+  maxSummons: number;
+  traitScore: number;
+  isForSale: boolean;
+  listingPrice: number | null;
+  estimateType: EstimateType;
+  fairValue: number | null;
+  token: string;
+  confidence: string | null;
+  matchTier: string | null;
+  sampleSize: number;
+  lastSale: LastSale | null;
+  flip: FlipOpportunity | null;
+  error?: string;
+}
+
+interface WalletPriceResult {
+  ok: boolean;
+  wallet?: string;
+  heroes?: WalletHero[];
+  totalHeroes?: number;
+  pricedHeroes?: number;
+  listedHeroes?: number;
+  valueTotals?: Record<string, number>;
+  listedTotals?: Record<string, number>;
+  error?: string;
+}
+
 export default function HeroPricePage() {
   const { toast } = useToast();
 
@@ -177,6 +216,12 @@ export default function HeroPricePage() {
 
   const [confidenceSummaries, setConfidenceSummaries] = useState<Record<string, string>>({});
   const [summariesLoading, setSummariesLoading] = useState(false);
+
+  const [walletAddress, setWalletAddress] = useState("");
+  const [walletResult, setWalletResult] = useState<WalletPriceResult | null>(null);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [walletSortField, setWalletSortField] = useState<'fairValue' | 'level' | 'rarity' | 'generation'>('fairValue');
+  const [walletSortDir, setWalletSortDir] = useState<'asc' | 'desc'>('desc');
 
   const [flipRealm, setFlipRealm] = useState("all");
   const [flipMinDiscount, setFlipMinDiscount] = useState("20");
@@ -207,6 +252,55 @@ export default function HeroPricePage() {
     } finally {
       setPriceLoading(false);
     }
+  };
+
+  const lookupWalletPrices = async () => {
+    const addr = walletAddress.trim();
+    if (!addr || !/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+      toast({ title: "Invalid address", description: "Enter a valid wallet address (0x...)", variant: "destructive" });
+      return;
+    }
+
+    setWalletLoading(true);
+    setWalletResult(null);
+    try {
+      const res = await fetch(`/api/admin/market-intel/wallet-price/${addr}`, { credentials: 'include' });
+      const data: WalletPriceResult = await res.json();
+      setWalletResult(data);
+      if (data.ok) {
+        const valSummary = data.valueTotals ? Object.entries(data.valueTotals).map(([t, v]) => `${formatPrice(v)} ${t}`).join(' + ') : '0';
+        toast({
+          title: `Wallet priced`,
+          description: `${data.pricedHeroes}/${data.totalHeroes} heroes valued at ${valSummary}`
+        });
+      } else {
+        toast({ title: "Wallet lookup failed", description: data.error || "Could not price wallet", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Wallet error", description: err.message, variant: "destructive" });
+    } finally {
+      setWalletLoading(false);
+    }
+  };
+
+  const sortedWalletHeroes = (walletResult?.heroes || []).slice().sort((a, b) => {
+    const aVal = a[walletSortField] ?? -1;
+    const bVal = b[walletSortField] ?? -1;
+    return walletSortDir === 'desc' ? (bVal as number) - (aVal as number) : (aVal as number) - (bVal as number);
+  });
+
+  const toggleWalletSort = (field: typeof walletSortField) => {
+    if (walletSortField === field) {
+      setWalletSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    } else {
+      setWalletSortField(field);
+      setWalletSortDir('desc');
+    }
+  };
+
+  const SortIcon = ({ field }: { field: typeof walletSortField }) => {
+    if (walletSortField !== field) return null;
+    return walletSortDir === 'desc' ? <ChevronDown className="h-3 w-3 inline" /> : <ChevronUp className="h-3 w-3 inline" />;
   };
 
   const scanFlippableHeroes = async () => {
@@ -763,6 +857,217 @@ export default function HeroPricePage() {
           {priceResult && !priceResult.ok && (
             <div className="mt-6 text-center py-8 text-muted-foreground">
               {priceResult.error || 'Hero not found'}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            Wallet Portfolio Pricing
+          </CardTitle>
+          <CardDescription>Enter a wallet address to price every hero in it and see total portfolio value</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-3">
+            <div className="flex-1 max-w-md space-y-2">
+              <Label>Wallet Address</Label>
+              <Input
+                type="text"
+                placeholder="0x..."
+                value={walletAddress}
+                onChange={(e) => setWalletAddress(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && lookupWalletPrices()}
+                data-testid="input-wallet-address"
+              />
+            </div>
+            <Button
+              onClick={lookupWalletPrices}
+              disabled={walletLoading || !walletAddress.trim()}
+              data-testid="button-lookup-wallet"
+            >
+              {walletLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+              <span className="ml-2">{walletLoading ? 'Pricing Heroes...' : 'Price Wallet'}</span>
+            </Button>
+          </div>
+
+          {walletLoading && (
+            <div className="mt-6 flex flex-col items-center py-8 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Fetching heroes and running pricing engine on each one. This may take a minute for large wallets...</p>
+            </div>
+          )}
+
+          {walletResult && walletResult.ok && walletResult.heroes && (
+            <div className="mt-6 space-y-4">
+              <div className="grid gap-4 md:grid-cols-4">
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="text-xs text-muted-foreground mb-1">Total Heroes</div>
+                    <div className="text-xl font-bold" data-testid="text-wallet-total-heroes">{walletResult.totalHeroes}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="text-xs text-muted-foreground mb-1">Heroes Priced</div>
+                    <div className="text-xl font-bold" data-testid="text-wallet-priced-heroes">
+                      {walletResult.pricedHeroes} / {walletResult.totalHeroes}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="text-xs text-muted-foreground mb-1">Est. Portfolio Value</div>
+                    <div data-testid="text-wallet-total-value">
+                      {walletResult.valueTotals && Object.keys(walletResult.valueTotals).length > 0 ? (
+                        Object.entries(walletResult.valueTotals).map(([token, val]) => (
+                          <div key={token} className="text-xl font-bold text-blue-500">
+                            {formatPrice(val)} {token}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xl font-bold text-muted-foreground">--</div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="text-xs text-muted-foreground mb-1">Listed Value</div>
+                    <div data-testid="text-wallet-listed-value">
+                      <div className="text-sm text-muted-foreground mb-1">{walletResult.listedHeroes || 0} heroes listed</div>
+                      {walletResult.listedTotals && Object.keys(walletResult.listedTotals).length > 0 ? (
+                        Object.entries(walletResult.listedTotals).map(([token, val]) => (
+                          <div key={token} className="text-lg font-bold">
+                            {formatPrice(val)} {token}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-lg font-bold text-muted-foreground">--</div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Hero</TableHead>
+                      <TableHead>Class</TableHead>
+                      <TableHead>
+                        <button className="flex items-center gap-1 cursor-pointer" onClick={() => toggleWalletSort('rarity')} data-testid="button-sort-rarity">
+                          Rarity <SortIcon field="rarity" />
+                        </button>
+                      </TableHead>
+                      <TableHead>
+                        <button className="flex items-center gap-1 cursor-pointer" onClick={() => toggleWalletSort('level')} data-testid="button-sort-level">
+                          Lv <SortIcon field="level" />
+                        </button>
+                      </TableHead>
+                      <TableHead>
+                        <button className="flex items-center gap-1 cursor-pointer" onClick={() => toggleWalletSort('generation')} data-testid="button-sort-gen">
+                          Gen <SortIcon field="generation" />
+                        </button>
+                      </TableHead>
+                      <TableHead>Prof</TableHead>
+                      <TableHead>Listed</TableHead>
+                      <TableHead>
+                        <button className="flex items-center gap-1 cursor-pointer" onClick={() => toggleWalletSort('fairValue')} data-testid="button-sort-value">
+                          Est. Value <SortIcon field="fairValue" />
+                        </button>
+                      </TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Conf.</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedWalletHeroes.map((h, idx) => (
+                      <TableRow key={h.heroId || idx} data-testid={`row-wallet-hero-${idx}`}>
+                        <TableCell>
+                          <button
+                            className="font-mono text-xs text-left underline decoration-dotted cursor-pointer"
+                            onClick={() => {
+                              setHeroId(h.normalizedId?.toString() || h.heroId);
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                              setTimeout(lookupHeroPrice, 100);
+                            }}
+                            data-testid={`button-wallet-hero-lookup-${idx}`}
+                          >
+                            {h.normalizedId || h.heroId}
+                          </button>
+                          <div className="text-xs text-muted-foreground">{h.realm === 'cv' ? 'CV' : 'SD'}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div>{h.mainClass}</div>
+                          {h.subClass && <div className="text-xs text-muted-foreground">{h.subClass}</div>}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={`${RARITY_COLORS[h.rarity] || ''} text-xs`}>
+                            {h.rarityName || RARITY_NAMES[h.rarity] || '?'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{h.level}</TableCell>
+                        <TableCell>{h.generation}</TableCell>
+                        <TableCell className="text-xs">{h.profession || '-'}</TableCell>
+                        <TableCell className="text-sm">
+                          {h.isForSale ? (
+                            <span className="font-medium">{formatPrice(h.listingPrice)} {h.token}</span>
+                          ) : (
+                            <span className="text-muted-foreground">--</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {h.fairValue ? (
+                            <span className="font-bold text-blue-500">{formatPrice(h.fairValue)} {h.token}</span>
+                          ) : h.lastSale ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-muted-foreground cursor-help">{formatPrice(h.lastSale.price)} *</span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">Last sale on {new Date(h.lastSale.endedAt).toLocaleDateString()}</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <span className="text-muted-foreground">--</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">
+                            {h.estimateType === 'SOLD' ? 'Sold' :
+                             h.estimateType === 'ASK_ACTIVE' ? 'Active' :
+                             h.estimateType === 'ASK_HISTORY' ? 'History' :
+                             h.estimateType === 'ASK_THIN' ? 'Thin' : 'None'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {h.confidence ? (
+                            <span className={`text-xs ${CONFIDENCE_COLORS[h.confidence] || ''}`}>
+                              {h.confidence}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">--</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {walletResult.heroes.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  No heroes found in this wallet.
+                </div>
+              )}
+            </div>
+          )}
+
+          {walletResult && !walletResult.ok && (
+            <div className="mt-6 text-center py-8 text-muted-foreground">
+              {walletResult.error || 'Could not fetch wallet heroes'}
             </div>
           )}
         </CardContent>

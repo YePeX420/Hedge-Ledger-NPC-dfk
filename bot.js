@@ -9916,6 +9916,145 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/market-intel/wallet-price/:address - Price all heroes in a wallet
+  app.get("/api/admin/market-intel/wallet-price/:address", isAdmin, async (req, res) => {
+    try {
+      const address = req.params.address;
+      if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+      }
+
+      const { getAllHeroesByOwner } = await import("./onchain-data.js");
+      const { getHeroPriceByHeroId } = await import("./src/etl/ingestion/saleIngestionService.js");
+
+      console.log(`[WalletPrice] Fetching heroes for wallet ${address}...`);
+      const heroes = await getAllHeroesByOwner(address);
+      console.log(`[WalletPrice] Found ${heroes.length} heroes, pricing each...`);
+
+      if (heroes.length === 0) {
+        return res.json({ ok: true, wallet: address.toLowerCase(), heroes: [], totalHeroes: 0, totalEstimatedValue: 0, token: 'CRYSTAL' });
+      }
+
+      const results = [];
+      const valueTotals = {};
+      const listedTotals = {};
+      let pricedCount = 0;
+      let listedCount = 0;
+
+      for (const hero of heroes) {
+        const heroId = hero.normalizedId || hero.id;
+        try {
+          const priceData = await getHeroPriceByHeroId(heroId);
+          const estimate = priceData.estimatedValue;
+          const heroInfo = priceData.hero;
+          const fairValue = estimate?.fairValue ?? null;
+          const askMedian = estimate?.askMedian ?? null;
+          const estimateType = priceData.estimateType || 'NONE';
+          const isAskType = ['ASK_ACTIVE', 'ASK_HISTORY', 'ASK_THIN'].includes(estimateType);
+          const displayValue = isAskType ? askMedian : fairValue;
+          const lastSale = priceData.lastSale || null;
+          const heroToken = estimate?.token || heroInfo?.nativeToken || 'CRYSTAL';
+
+          if (displayValue && displayValue > 0) {
+            valueTotals[heroToken] = (valueTotals[heroToken] || 0) + displayValue;
+            pricedCount++;
+          }
+
+          const isForSale = heroInfo?.isForSale || false;
+          const listingPrice = heroInfo?.currentListingPrice || null;
+          if (isForSale && listingPrice) {
+            listedCount++;
+            listedTotals[heroToken] = (listedTotals[heroToken] || 0) + listingPrice;
+          }
+
+          const nid = heroInfo?.normalizedId ?? (typeof heroId === 'string' ? parseInt(heroId) : heroId);
+
+          results.push({
+            heroId: heroInfo?.heroId || hero.id,
+            normalizedId: isNaN(nid) ? 0 : nid,
+            realm: heroInfo?.realm || (hero.network === 'dfk' ? 'cv' : 'sd'),
+            mainClass: heroInfo?.mainClass || hero.mainClassStr || '?',
+            subClass: heroInfo?.subClass || hero.subClassStr || '',
+            profession: heroInfo?.profession || hero.professionStr || '',
+            rarity: heroInfo?.rarity ?? hero.rarity ?? 0,
+            rarityName: heroInfo?.rarityName || '',
+            level: heroInfo?.level ?? hero.level ?? 1,
+            generation: heroInfo?.generation ?? hero.generation ?? 0,
+            summons: heroInfo?.summons ?? hero.summons ?? 0,
+            maxSummons: heroInfo?.maxSummons ?? hero.maxSummons ?? 0,
+            traitScore: heroInfo?.traitScore ?? 0,
+            isForSale,
+            listingPrice,
+            estimateType,
+            fairValue: displayValue,
+            token: estimate?.token || heroInfo?.nativeToken || 'CRYSTAL',
+            confidence: estimate?.confidence || null,
+            matchTier: estimate?.matchTier || null,
+            sampleSize: estimate?.sampleSize || 0,
+            lastSale,
+            flip: priceData.flipOpportunity || null
+          });
+        } catch (err) {
+          console.error(`[WalletPrice] Failed to price hero ${heroId}:`, err.message);
+          const errNid = typeof heroId === 'string' ? parseInt(heroId) : heroId;
+          results.push({
+            heroId: hero.id,
+            normalizedId: isNaN(errNid) ? 0 : errNid,
+            realm: hero.network === 'dfk' ? 'cv' : 'sd',
+            mainClass: hero.mainClassStr || '?',
+            subClass: hero.subClassStr || '',
+            profession: hero.professionStr || '',
+            rarity: hero.rarity ?? 0,
+            rarityName: '',
+            level: hero.level ?? 1,
+            generation: hero.generation ?? 0,
+            summons: hero.summons ?? 0,
+            maxSummons: hero.maxSummons ?? 0,
+            traitScore: 0,
+            isForSale: false,
+            listingPrice: null,
+            estimateType: 'NONE',
+            fairValue: null,
+            token: 'CRYSTAL',
+            confidence: null,
+            matchTier: null,
+            sampleSize: 0,
+            lastSale: null,
+            flip: null,
+            error: err.message
+          });
+        }
+      }
+
+      results.sort((a, b) => (b.fairValue || 0) - (a.fairValue || 0));
+
+      const roundedValueTotals = {};
+      for (const [token, val] of Object.entries(valueTotals)) {
+        roundedValueTotals[token] = Math.round(val * 100) / 100;
+      }
+      const roundedListedTotals = {};
+      for (const [token, val] of Object.entries(listedTotals)) {
+        roundedListedTotals[token] = Math.round(val * 100) / 100;
+      }
+
+      console.log(`[WalletPrice] Priced ${pricedCount}/${heroes.length} heroes, totals:`, JSON.stringify(roundedValueTotals));
+
+      res.json({
+        ok: true,
+        wallet: address.toLowerCase(),
+        heroes: results,
+        totalHeroes: heroes.length,
+        pricedHeroes: pricedCount,
+        listedHeroes: listedCount,
+        valueTotals: roundedValueTotals,
+        listedTotals: roundedListedTotals
+      });
+    } catch (error) {
+      console.error('[WalletPrice] Error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // POST /api/admin/market-intel/compute-metrics - Manually trigger demand metrics computation
   app.post("/api/admin/market-intel/compute-metrics", isAdmin, async (req, res) => {
     try {
