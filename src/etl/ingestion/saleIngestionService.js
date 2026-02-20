@@ -1820,27 +1820,33 @@ export async function generateConfidenceSummaries(heroes) {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     const heroLines = heroes.map((h, i) =>
-      `${i + 1}. Hero #${h.normalizedId || h.heroId}: ${h.mainClass}/${h.subClass || '-'} ${h.rarityName} Gen${h.generation} Lv${h.level} | Listed: ${h.listingPrice} ${h.token} | Fair: ${h.estimatedValue} ${h.token} | Discount: ${h.discount}% | Confidence: ${h.confidence} (${h.sampleSize} sales) | Verdict: ${h.verdict}`
+      `${i + 1}. Hero #${h.normalizedId || h.heroId}: ${h.mainClass}/${h.subClass || '-'} ${h.rarityName} Gen${h.generation} Lv${h.level} | Profession: ${h.profession || 'none'} | TraitScore: ${h.traitScore || 0} | CombatPower: ${h.combatPower || 0} | Listed: ${h.listingPrice} ${h.token} | Fair: ${h.estimatedValue} ${h.token} | Discount: ${h.discount}% | Confidence: ${h.confidence} (${h.sampleSize} comps) | Verdict: ${h.verdict}`
     ).join('\n');
 
-    const prompt = `You are a DeFi Kingdoms market analyst. For each hero below, write exactly ONE short sentence (max 20 words) justifying WHY the confidence level is what it is. Focus on sample size, price consistency, and match quality.
+    const prompt = `You are a DeFi Kingdoms market analyst. For each hero below, write exactly ONE short sentence (max 25 words) explaining what SPECIFICALLY makes this hero underpriced and a good flip opportunity.
+
+DFK PRICING DRIVERS (strongest to weakest):
+1. Rarity: Mythic > Legendary > Rare > Uncommon > Common (biggest price driver)
+2. Generation: Gen0 >> Gen1 > Gen2+ (Gen0 are founders, extremely valuable)
+3. Level: Higher level = more valuable within same class/rarity
+4. Class combo: Some mainClass/subClass pairings are more desirable (DreadKnight, Sage, etc.)
+5. Profession gene: Heroes matching their profession gene (mining, gardening, fishing, foraging) earn more
+6. Trait/combat scores: Higher scores = better stats = more valuable
 
 HEROES:
 ${heroLines}
 
 Rules:
 - Output ONLY a JSON array of strings, one per hero, in the same order.
-- Each string is a single sentence, max 20 words.
-- Reference specific numbers (sample size, price variation) when explaining confidence.
-- For "high" confidence: emphasize strong sample size and consistent pricing.
-- For "medium" confidence: note adequate but not ideal sample size or some price spread.
-- For "medium-low" or "low": highlight limited data, wide price variation, or loose matching.
+- Each string must name the 1-2 SPECIFIC attributes driving the profit (e.g. "Lv7 Rare Scholar underpriced vs Lv5-9 Rare Scholar comps" or "mining profession gene adds value not reflected in listing price").
+- Do NOT talk about sample size or data quality. Focus on WHY the hero is worth more than its listing price.
+- Reference the hero's actual class, level, rarity, profession, or genes in your explanation.
 - Output valid JSON only, no markdown fencing.`;
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
-      max_completion_tokens: 100 * heroes.length,
+      max_completion_tokens: 120 * heroes.length,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() || '[]';

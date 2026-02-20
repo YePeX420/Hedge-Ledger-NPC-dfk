@@ -232,7 +232,7 @@ export default function HeroPricePage() {
     if (!flipResult?.flippable || flipResult.flippable.length === 0) return;
     const uncached = flipResult.flippable.filter(h => !confidenceSummaries[h.heroId]);
     if (uncached.length === 0) {
-      toast({ title: "Already generated", description: "All visible heroes already have AI assessments" });
+      toast({ title: "Already analyzed", description: "All visible heroes already have value driver analysis" });
       return;
     }
     setSummariesLoading(true);
@@ -812,7 +812,7 @@ export default function HeroPricePage() {
                       data-testid="button-generate-assessments"
                     >
                       {summariesLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                      <span className="ml-1">AI Assess All</span>
+                      <span className="ml-1">Analyze Value Drivers</span>
                     </Button>
                   </div>
 
@@ -830,7 +830,7 @@ export default function HeroPricePage() {
                           <TableHead>Discount</TableHead>
                           <TableHead>Profit</TableHead>
                           <TableHead>Conf.</TableHead>
-                          <TableHead>AI Assessment</TableHead>
+                          <TableHead>Why Underpriced</TableHead>
                           <TableHead>Sell Target</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -901,12 +901,12 @@ export default function HeroPricePage() {
                                 <TooltipContent side="top" className="max-w-xs text-xs">
                                   {confidenceSummaries[h.heroId]
                                     ? confidenceSummaries[h.heroId]
-                                    : `${h.confidence} confidence based on ${h.sampleSize} comparable sales. Click "AI Assess All" for detailed reasoning.`}
+                                    : `${h.confidence} confidence based on ${h.sampleSize} comparable sales. Click "Analyze Value Drivers" for specific insights.`}
                                 </TooltipContent>
                               </Tooltip>
                               <div className="text-xs text-muted-foreground">{h.sampleSize} sales</div>
                             </TableCell>
-                            <TableCell className="text-xs max-w-[200px]" data-testid={`cell-assessment-${idx}`}>
+                            <TableCell className="text-xs max-w-[250px]" data-testid={`cell-assessment-${idx}`}>
                               {confidenceSummaries[h.heroId] ? (
                                 <span className="text-muted-foreground italic">{confidenceSummaries[h.heroId]}</span>
                               ) : (
