@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter, Dna, Crosshair, Brain, Sparkles, MessageSquare } from "lucide-react";
+import { Loader2, Search, TrendingUp, TrendingDown, DollarSign, ArrowRight, ArrowUpRight, Target, Percent, ShoppingCart, Tag, BarChart3, RefreshCw, Filter, Dna, Crosshair, Brain, Sparkles, MessageSquare, Clock, History } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 
@@ -108,6 +108,12 @@ interface ComparableSale {
   statBoost2?: string;
 }
 
+interface LastSale {
+  endedAt: string;
+  price: number;
+  token: string;
+}
+
 interface HeroPriceResult {
   ok: boolean;
   hero?: HeroData;
@@ -119,6 +125,8 @@ interface HeroPriceResult {
   matchTierLabel?: string;
   dataSource?: string;
   warnings?: string[];
+  lastSale?: LastSale | null;
+  debugCounts?: Record<string, number>;
   error?: string;
 }
 
@@ -598,6 +606,46 @@ export default function HeroPricePage() {
                         : ' — No comparable sales or listings found for this hero type. Run the auction pipeline and tavern indexer to build more pricing data.'}
                     </span>
                   </div>
+                </div>
+              )}
+
+              {priceResult?.lastSale && (
+                <Card data-testid="card-last-sale">
+                  <CardContent className="pt-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <History className="h-4 w-4 text-blue-500" />
+                      <span className="text-sm font-medium">Last Known Sale</span>
+                      <Badge variant="outline" className="text-xs">Historical</Badge>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-3">
+                        <div className="text-xs text-muted-foreground mb-1">Sale Price</div>
+                        <div className="text-xl font-bold" data-testid="text-last-sale-price">
+                          {formatPrice(priceResult.lastSale.price)} {priceResult.lastSale.token}
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-muted/30 bg-muted/5 p-3">
+                        <div className="text-xs text-muted-foreground mb-1">Sale Date</div>
+                        <div className="text-sm font-medium flex items-center gap-1" data-testid="text-last-sale-date">
+                          <Clock className="h-3 w-3" />
+                          {new Date(priceResult.lastSale.endedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      This is the last recorded sale price for this specific hero. It is not a fair value estimate and may be outdated.
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {priceResult?.debugCounts && hero?.generation === 0 && (
+                <div className="rounded-md border border-muted/30 bg-muted/5 p-3 text-xs text-muted-foreground" data-testid="debug-gen0-counts">
+                  <span className="font-medium">Gen 0 Data Availability:</span>{' '}
+                  SOLD 90d: {priceResult.debugCounts.gen0Sold90d ?? 0} | 
+                  SOLD 365d: {priceResult.debugCounts.gen0Sold365d ?? 0} | 
+                  SOLD all: {priceResult.debugCounts.gen0SoldAll ?? 0} | 
+                  Listings 90d: {priceResult.debugCounts.gen0Listings90d ?? 0}
                 </div>
               )}
 

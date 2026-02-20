@@ -9532,6 +9532,22 @@ async function startAdminWebServer() {
     }
   });
 
+  app.post("/api/admin/auction-pipeline/backfill-gen0", isAdmin, async (req, res) => {
+    try {
+      const { backfillClosedAuctions } = await import("./src/etl/ingestion/auctionPipeline.js");
+      const realm = req.body?.realm || req.query?.realm || 'cv';
+      const days = parseInt(req.body?.days || req.query?.days) || 730;
+      const gen0Only = req.body?.gen0Only !== false;
+      console.log(`[AuctionPipeline] Admin triggered Gen0 closed auction backfill for ${realm} (${days} days, gen0Only=${gen0Only})`);
+      backfillClosedAuctions({ realm, daysLookback: days, gen0Only }).catch(err => {
+        console.error('[AuctionPipeline] Gen0 backfill error:', err);
+      });
+      res.json({ ok: true, message: `Gen0 closed auction backfill started for ${realm} (${days} days, gen0Only=${gen0Only})` });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/tavern-indexer/heroes - Get indexed heroes with filters
   app.get("/api/admin/tavern-indexer/heroes", isAdmin, async (req, res) => {
     try {

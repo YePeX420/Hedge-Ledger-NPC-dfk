@@ -656,6 +656,205 @@ export async function runSalesBackfill(realm = 'cv', options = {}) {
 }
 
 // ============================================================================
+// JOB 4: BACKFILL CLOSED AUCTIONS (GEN0-FOCUSED, SOLD + DELISTED)
+// ============================================================================
+
+const CLOSED_AUCTIONS_QUERY = `
+  query ClosedAuctions($first: Int!, $skip: Int!, $since: Int!) {
+    saleAuctions(
+      first: $first
+      skip: $skip
+      where: { startedAt_gte: $since }
+      orderBy: startedAt
+      orderDirection: desc
+    ) {
+      id
+      startedAt
+      endedAt
+      startingPrice
+      endingPrice
+      purchasePrice
+      seller { id }
+      winner { id }
+      tokenId {
+        id
+        normalizedId
+        generation
+        rarity
+        mainClass
+        subClass
+        profession
+        level
+        summons
+        maxSummons
+        statBoost1
+        statBoost2
+        network
+        originRealm
+      }
+    }
+  }
+`;
+
+export async function backfillClosedAuctions({ realm = 'cv', daysLookback = 730, gen0Only = true } = {}) {
+  const lockKey = `dfk:backfill-closed:${realm}`;
+  const log = (msg) => console.log(`[ClosedAuctionBackfill:${realm}] ${msg}`);
+
+  const acquired = await acquireAdvisoryLock(lockKey);
+  if (!acquired) {
+    log('Another instance running, skipping');
+    return { ok: false, reason: 'lock_held' };
+  }
+
+  const stats = { fetched: 0, inserted: 0, updated: 0, skipped: 0, skippedNonGen0: 0, skippedNoEnd: 0, sold: 0, delisted: 0, errors: 0 };
+
+  try {
+    const sinceEpoch = Math.floor((Date.now() - daysLookback * 24 * 60 * 60 * 1000) / 1000);
+    log(`Backfilling closed auctions since ${new Date(sinceEpoch * 1000).toISOString()} (${daysLookback} days)${gen0Only ? ' [Gen0 only]' : ''}...`);
+
+    const existingAuctions = await rawPg`
+      SELECT auction_id FROM tavern_sales
+      WHERE realm = ${realm} AND auction_id IS NOT NULL
+    `;
+    const existingSet = new Set(existingAuctions.map(r => r.auction_id));
+    log(`Found ${existingSet.size} existing auction IDs in DB`);
+
+    let skip = 0;
+    const pageSize = 1000;
+    let pagesProcessed = 0;
+
+    while (true) {
+      const data = await graphqlRequest(CLOSED_AUCTIONS_QUERY, { first: pageSize, skip, since: sinceEpoch });
+      const auctions = data?.saleAuctions || [];
+      if (auctions.length === 0) break;
+
+      pagesProcessed++;
+      let pageInserted = 0;
+
+      for (const auction of auctions) {
+        stats.fetched++;
+
+        if (!auction.endedAt) {
+          stats.skippedNoEnd++;
+          continue;
+        }
+
+        const hero = auction.tokenId || {};
+        const heroGen = hero.generation != null ? parseInt(hero.generation) : null;
+
+        if (gen0Only && heroGen !== 0) {
+          stats.skippedNonGen0++;
+          continue;
+        }
+
+        const heroId = hero.id || '';
+        const detectedRealm = detectRealm(heroId, hero.network);
+        if (detectedRealm !== realm) {
+          stats.skipped++;
+          continue;
+        }
+
+        const isAlreadyInDb = existingSet.has(auction.id);
+
+        try {
+          const normalizedId = hero.normalizedId ? Number(hero.normalizedId) : normalizeIdFromPadded(heroId);
+          const endedAt = new Date(Number(auction.endedAt) * 1000);
+          const nativeToken = realm === 'cv' ? 'CRYSTAL' : realm === 'sd' ? 'JADE' : 'JEWEL';
+          const tokenAddress = nativeToken === 'CRYSTAL'
+            ? '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb'
+            : '0xB3F5867E277798b50ba7A71C0b24FDcA03045eDF';
+
+          let status = 'DELISTED';
+          let purchasePriceWei = null;
+          let purchasePriceNative = null;
+          let salePrice = 0;
+          let buyerAddress = null;
+
+          if (auction.purchasePrice != null && auction.purchasePrice !== '0') {
+            status = 'SOLD';
+            purchasePriceWei = auction.purchasePrice;
+            purchasePriceNative = weiToNative(auction.purchasePrice);
+            salePrice = purchasePriceNative || 0;
+            stats.sold++;
+          } else {
+            stats.delisted++;
+          }
+
+          buyerAddress = auction.winner?.id || null;
+          const traitScore = calcTraitScore(hero);
+
+          await rawPg`
+            INSERT INTO tavern_sales (
+              hero_id, realm, sale_timestamp, token_address, token_symbol,
+              price_amount, as_of_date, auction_id, status, ended_at,
+              purchase_price_wei, purchase_price_native, source,
+              buyer_address, seller_address,
+              main_class, sub_class, profession, rarity, level,
+              generation, summons, max_summons, trait_score
+            ) VALUES (
+              ${normalizedId}, ${realm}, ${endedAt},
+              ${tokenAddress}, ${nativeToken},
+              ${salePrice}, ${endedAt}, ${auction.id},
+              ${status}, ${endedAt}, ${purchasePriceWei}, ${purchasePriceNative},
+              'BACKFILL_CLOSED',
+              ${buyerAddress}, ${auction.seller?.id || null},
+              ${resolveClassName(hero.mainClass)}, ${resolveClassName(hero.subClass)},
+              ${resolveProfession(hero.profession)},
+              ${hero.rarity ?? 0}, ${hero.level ?? 1}, ${hero.generation ?? 0},
+              ${hero.summons ?? 0}, ${hero.maxSummons ?? 0}, ${traitScore}
+            )
+            ON CONFLICT (realm, auction_id) WHERE auction_id IS NOT NULL DO UPDATE SET
+              status = EXCLUDED.status,
+              ended_at = EXCLUDED.ended_at,
+              purchase_price_wei = EXCLUDED.purchase_price_wei,
+              purchase_price_native = EXCLUDED.purchase_price_native,
+              price_amount = EXCLUDED.price_amount,
+              buyer_address = EXCLUDED.buyer_address,
+              source = CASE WHEN tavern_sales.source = 'BACKFILL_CLOSED' THEN 'BACKFILL_CLOSED' ELSE EXCLUDED.source END
+          `;
+
+          if (isAlreadyInDb) {
+            stats.updated++;
+          } else {
+            stats.inserted++;
+            existingSet.add(auction.id);
+          }
+          pageInserted++;
+        } catch (err) {
+          stats.errors++;
+          if (stats.errors <= 5) log(`Error inserting auction ${auction.id}: ${err.message}`);
+        }
+      }
+
+      log(`Page ${pagesProcessed}: ${auctions.length} fetched, ${pageInserted} upserted (total: ${stats.inserted} new, ${stats.updated} updated, ${stats.sold} sold, ${stats.delisted} delisted)`);
+
+      skip += auctions.length;
+      if (auctions.length < pageSize) break;
+      if (skip > 500000) { log('Safety limit reached at 500k records'); break; }
+
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    await rawPg`
+      INSERT INTO tavern_ingestion_jobs (job_name, realm, last_run_at, metadata)
+      VALUES ('closed_auction_backfill', ${realm}, NOW(), ${JSON.stringify(stats)})
+      ON CONFLICT (job_name, realm) DO UPDATE SET
+        last_run_at = EXCLUDED.last_run_at,
+        metadata = EXCLUDED.metadata
+    `;
+
+    log(`Done: ${stats.fetched} fetched, ${stats.inserted} new, ${stats.updated} updated (${stats.sold} sold, ${stats.delisted} delisted), ${stats.skippedNonGen0} non-Gen0 skipped, ${stats.skippedNoEnd} no endedAt, ${stats.errors} errors`);
+    return { ok: true, stats };
+
+  } catch (err) {
+    log(`Error: ${err.message}`);
+    return { ok: false, error: err.message, stats };
+  } finally {
+    await releaseAdvisoryLock(lockKey);
+  }
+}
+
+// ============================================================================
 // SYNC TO TAVERN_HEROES (UI COMPATIBILITY)
 // ============================================================================
 

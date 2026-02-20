@@ -1478,6 +1478,35 @@ export async function getHeroPriceByHeroId(heroId) {
       if (hero.generation === 0) warnings.push('GEN0_NO_COMPS');
     }
 
+    if (hero.generation === 0) {
+      try {
+        const heroRealm = hero.realm || 'cv';
+        const gen0Sold90 = await rawPg`
+          SELECT COUNT(*) as cnt FROM tavern_sales
+          WHERE generation = 0 AND status = 'SOLD' AND ended_at >= NOW() - INTERVAL '90 days' AND realm = ${heroRealm}
+        `;
+        const gen0Sold365 = await rawPg`
+          SELECT COUNT(*) as cnt FROM tavern_sales
+          WHERE generation = 0 AND status = 'SOLD' AND ended_at >= NOW() - INTERVAL '365 days' AND realm = ${heroRealm}
+        `;
+        const gen0SoldAll = await rawPg`
+          SELECT COUNT(*) as cnt FROM tavern_sales
+          WHERE generation = 0 AND status = 'SOLD' AND realm = ${heroRealm}
+        `;
+        const gen0Listings = await rawPg`
+          SELECT COUNT(*) as cnt FROM tavern_listings
+          WHERE generation = 0 AND last_seen_at >= NOW() - INTERVAL '90 days'
+        `;
+        debugCounts.gen0Sold90d = parseInt(gen0Sold90[0]?.cnt || 0);
+        debugCounts.gen0Sold365d = parseInt(gen0Sold365[0]?.cnt || 0);
+        debugCounts.gen0SoldAll = parseInt(gen0SoldAll[0]?.cnt || 0);
+        debugCounts.gen0Listings90d = parseInt(gen0Listings[0]?.cnt || 0);
+        console.log(`[HeroPriceTool] Gen0 Debug for Hero #${heroId} (${heroRealm}): SOLD last 90d=${debugCounts.gen0Sold90d}, SOLD last 365d=${debugCounts.gen0Sold365d}, SOLD all-time=${debugCounts.gen0SoldAll}, Listings 90d=${debugCounts.gen0Listings90d}`);
+      } catch (dbgErr) {
+        console.log(`[HeroPriceTool] Gen0 debug count error: ${dbgErr.message}`);
+      }
+    }
+
     console.log(`[HeroPriceTool] Hero #${heroId} | estimateType=${estimateType} | soldComps=${debugCounts.soldComps} askActiveComps=${debugCounts.askActiveComps} askHistoryComps=${debugCounts.askHistoryComps} tierUsed=${debugCounts.tierUsed}`);
 
     const tierInfo = PROGRESSIVE_TIERS.find(t => t.id === matchTier);
@@ -1548,6 +1577,36 @@ export async function getHeroPriceByHeroId(heroId) {
       }
     }
     
+    let lastSale = null;
+    if (estimateType === 'NONE') {
+      try {
+        const heroRealm = hero.realm || 'cv';
+        const heroIdNum = hero.normalizedId || parseInt(heroId);
+        const lastSaleRow = await rawPg`
+          SELECT ended_at, purchase_price_native, purchase_price_wei, token_symbol, price_amount
+          FROM tavern_sales
+          WHERE hero_id = ${heroIdNum} AND realm = ${heroRealm} AND status = 'SOLD'
+          ORDER BY ended_at DESC
+          LIMIT 1
+        `;
+        if (lastSaleRow.length > 0) {
+          const row = lastSaleRow[0];
+          const price = row.purchase_price_native != null ? parseFloat(row.purchase_price_native) :
+                        (row.price_amount != null ? parseFloat(row.price_amount) : null);
+          if (price && price > 0) {
+            lastSale = {
+              endedAt: row.ended_at,
+              price,
+              token: row.token_symbol || (heroRealm === 'cv' ? 'CRYSTAL' : 'JEWEL')
+            };
+            console.log(`[HeroPriceTool] Found last known sale for Hero #${heroId}: ${price} ${lastSale.token} on ${row.ended_at}`);
+          }
+        }
+      } catch (lsErr) {
+        console.log(`[HeroPriceTool] Last sale lookup error: ${lsErr.message}`);
+      }
+    }
+
     return {
       ok: true,
       hero,
@@ -1555,6 +1614,8 @@ export async function getHeroPriceByHeroId(heroId) {
       estimateType,
       flipOpportunity,
       warnings,
+      lastSale,
+      debugCounts: hero.generation === 0 ? debugCounts : undefined,
       comparableSales: (salesData || []).slice(0, 15).map(s => ({
         heroId: s.hero_id,
         price: parseFloat(s.price_amount),

@@ -1,0 +1,133 @@
+You are a senior Node.js (ESM) engineer in an Express + Postgres webapp using pg + Drizzle.
+
+CURRENT STATE:
+The pricing UI correctly shows N/A for Gen0 Hero #62 because:
+- No Gen0 SOLD comps in DB (status='SOLD')
+- No Gen0 listing comps in DB within last 90 days
+
+We must add:
+1) A backfill job that ingests historical auctions from DFK GraphQL to populate SOLD/DELISTED rows (canonical, purchasePrice-based)
+2) A hero-specific "last known sale" fallback when comps are missing
+3) A debug endpoint/log output that proves whether the DB has any Gen0 data
+
+NON-NEGOTIABLES:
+- SOLD is confirmed only when purchasePrice != null
+- Do NOT use open:true for open listings; but this backfill is for closed auctions, so focus on endedAt/purchasePrice
+- Never compare Gen0 to non-Gen0
+- Do not output 0.00; return null/N/A if no data
+
+--------------------------------------------------------------------
+A) DATABASE ASSUMPTIONS / MINIMUM COLUMNS
+--------------------------------------------------------------------
+tavern_sales must have:
+- realm
+- hero_id (normalized, e.g. "62")
+- generation
+- rarity
+- main_class, sub_class, profession (best-effort)
+- status: 'SOLD' | 'DELISTED' | 'INFERRED_DELTA'
+- ended_at (timestamp)
+- purchase_price_wei (numeric/text) OR purchase_price_native (numeric)
+- token_symbol/native_token
+
+If ended_at and purchase_price fields are missing, add them via Drizzle migration.
+
+Add unique constraint:
+- UNIQUE(realm, auction_id)  (or if auction_id not present, add it)
+
+--------------------------------------------------------------------
+B) IMPLEMENT BACKFILL JOB (ONE-TIME + OPTIONAL DAILY)
+--------------------------------------------------------------------
+Create a worker function:
+backfillClosedAuctions({ realm, daysLookback, gen0Only })
+
+Behavior:
+- Query DFK GraphQL saleAuctions ordered by endedAt DESC in pages of 1000.
+- For each auction with endedAt present:
+    - If endedAt < now - daysLookback: stop the loop (we’re done)
+    - Determine hero generation from tokenId.generation (best effort; generation is stable)
+    - If gen0Only && generation != 0: continue
+    - Determine status:
+        SOLD if purchasePrice != null
+        else DELISTED
+    - Upsert into tavern_sales using (realm, auction_id) uniqueness:
+        status, ended_at, purchase_price_wei/purchase_price_native, seller, winner
+        plus hero snapshot fields copied from tokenId (class/rarity/gen/level/summons etc. best effort)
+- Throttle GraphQL calls (concurrency <= 3–5). Log progress every page.
+
+IMPORTANT: tokenId fields can reflect current hero state, but generation/rarity/class are stable enough for comps.
+Level may have changed; store it as best-effort and do not rely on it for Gen0 precision.
+
+GraphQL query shape (use tokenId to avoid N+1):
+saleAuctions(first: 1000, skip: $skip, orderBy: endedAt, orderDirection: desc) {
+  id
+  startedAt
+  endedAt
+  startingPrice
+  endingPrice
+  purchasePrice
+  seller { id }
+  winner { id }
+  tokenId {
+    id
+    normalizedId
+    generation
+    rarity
+    mainClassStr
+    subClassStr
+    professionStr
+    level
+    summons
+    maxSummons
+    statBoost1
+    statBoost2
+    network
+    originRealm
+  }
+}
+
+If the GraphQL schema doesn’t allow ordering by endedAt or returns null endedAt values first, then:
+- fetch using startedAt desc and filter endedAt != null in code, and stop when endedAt is older than threshold.
+
+Add an admin-protected endpoint (keep existing routing conventions):
+POST /admin/backfill/gen0?realm=si&days=730
+This triggers backfillClosedAuctions({ realm:'si', daysLookback:730, gen0Only:true })
+Return immediately with “started” and log progress server-side, or run synchronously if acceptable.
+
+--------------------------------------------------------------------
+C) HERO-SPECIFIC LAST SALE FALLBACK
+--------------------------------------------------------------------
+When pricing returns estimateType='NONE' (no comps), add:
+- lastSale: { endedAt, price, token_symbol } from tavern_sales where status='SOLD' and hero_id matches
+Query:
+SELECT ended_at, purchase_price_native, purchase_price_wei, token_symbol
+FROM tavern_sales
+WHERE hero_id=$1 AND realm=$2 AND status='SOLD'
+ORDER BY ended_at DESC
+LIMIT 1;
+
+UI:
+- Show “Last Known Sale” card if exists (label it clearly; do not call it fair value)
+- If no last sale, keep N/A.
+
+--------------------------------------------------------------------
+D) DEBUG COUNTS (TO CONFIRM DATA EXISTS)
+--------------------------------------------------------------------
+Add server log output on every price lookup for Gen0:
+- count of Gen0 SOLD rows in last 90d/365d
+- count of Gen0 listing rows in last 90d
+This will prove whether the issue is data scarcity or query filtering.
+
+Example:
+SELECT COUNT(*) FROM tavern_sales WHERE generation=0 AND status='SOLD' AND ended_at >= now()-interval '365 days' AND realm=$realm;
+SELECT COUNT(*) FROM tavern_heroes WHERE generation=0 AND last_seen_at >= now()-interval '90 days' AND realm=$realm;
+
+--------------------------------------------------------------------
+E) ACCEPTANCE CRITERIA
+--------------------------------------------------------------------
+1) Running /admin/backfill/gen0?realm=si&days=730 inserts SOLD/DELISTED Gen0 auction rows into tavern_sales (idempotent upserts).
+2) After backfill, Gen0 heroes should often produce comps (at least at tier 6: rarity + gen0) if any exist in history.
+3) If still no comps, the UI shows Last Known Sale (if exists) rather than only N/A.
+4) No Gen0 cross-generation comparisons are introduced.
+
+Implement now with minimal disruption to existing pricing tier UX and routes.
