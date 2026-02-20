@@ -1068,12 +1068,19 @@ async function queryProgressiveTier(hero, tierId, source) {
     }
   }
 
-  if (source === 'listings') {
+  if (source === 'listings_active' || source === 'listings_history' || source === 'listings') {
     const cols = `hero_id_normalized as hero_id, realm, main_class, sub_class, profession, rarity, level,
       generation, summons, max_summons, trait_score,
-      price_native as price_amount, native_token as token_symbol`;
+      price_native as price_amount, native_token as token_symbol, last_seen_at as data_date`;
 
     const heroIdExclude = hero.heroId || hero.heroIdNormalized || '';
+
+    let activeFilter;
+    if (source === 'listings_active' || source === 'listings') {
+      activeFilter = `AND (is_active = true OR last_seen_at >= NOW() - INTERVAL '90 minutes')`;
+    } else {
+      activeFilter = `AND last_seen_at >= NOW() - INTERVAL '90 days'`;
+    }
 
     switch (tierId) {
       case 'class_rarity_gen_level_summons_traits':
@@ -1081,13 +1088,13 @@ async function queryProgressiveTier(hero, tierId, source) {
         return rawPg.unsafe(`
           SELECT ${cols}
           FROM tavern_listings
-          WHERE is_active = true
-            AND main_class = $1
+          WHERE main_class = $1
             AND rarity = $2
             AND generation = $3
             AND level BETWEEN $4 AND $5
             AND price_native > 0
             AND hero_id_normalized != $6
+            ${activeFilter}
           ORDER BY ABS(level - $7), ABS(COALESCE(trait_score, 0) - $8)
           LIMIT 100
         `, [mainClass, rarity, generation, Math.max(1, level - 3), level + 3, heroIdExclude, level, traitScore]);
@@ -1095,12 +1102,12 @@ async function queryProgressiveTier(hero, tierId, source) {
         return rawPg.unsafe(`
           SELECT ${cols}
           FROM tavern_listings
-          WHERE is_active = true
-            AND main_class = $1
+          WHERE main_class = $1
             AND rarity = $2
             AND generation = $3
             AND price_native > 0
             AND hero_id_normalized != $4
+            ${activeFilter}
           ORDER BY ABS(COALESCE(trait_score, 0) - $5), ABS(COALESCE(level, 1) - $6)
           LIMIT 150
         `, [mainClass, rarity, generation, heroIdExclude, traitScore, level]);
@@ -1108,12 +1115,12 @@ async function queryProgressiveTier(hero, tierId, source) {
         return rawPg.unsafe(`
           SELECT ${cols}
           FROM tavern_listings
-          WHERE is_active = true
-            AND main_class = $1
+          WHERE main_class = $1
             AND rarity = $2
             AND generation = $3
             AND price_native > 0
             AND hero_id_normalized != $4
+            ${activeFilter}
           ORDER BY ABS(COALESCE(level, 1) - $5)
           LIMIT 200
         `, [mainClass, rarity, generation, heroIdExclude, level]);
@@ -1121,11 +1128,11 @@ async function queryProgressiveTier(hero, tierId, source) {
         return rawPg.unsafe(`
           SELECT ${cols}
           FROM tavern_listings
-          WHERE is_active = true
-            AND main_class = $1
+          WHERE main_class = $1
             AND rarity = $2
             AND price_native > 0
             AND hero_id_normalized != $3
+            ${activeFilter}
           ORDER BY ABS(COALESCE(generation, 0) - $4), ABS(COALESCE(level, 1) - $5)
           LIMIT 200
         `, [mainClass, rarity, heroIdExclude, generation, level]);
@@ -1133,11 +1140,11 @@ async function queryProgressiveTier(hero, tierId, source) {
         return rawPg.unsafe(`
           SELECT ${cols}
           FROM tavern_listings
-          WHERE is_active = true
-            AND rarity = $1
+          WHERE rarity = $1
             AND generation = $2
             AND price_native > 0
             AND hero_id_normalized != $3
+            ${activeFilter}
           ORDER BY price_native ASC
           LIMIT 300
         `, [rarity, generation, heroIdExclude]);
@@ -1145,10 +1152,10 @@ async function queryProgressiveTier(hero, tierId, source) {
         return rawPg.unsafe(`
           SELECT ${cols}
           FROM tavern_listings
-          WHERE is_active = true
-            AND rarity = $1
+          WHERE rarity = $1
             AND price_native > 0
             AND hero_id_normalized != $2
+            ${activeFilter}
           ORDER BY price_native ASC
           LIMIT 300
         `, [rarity, heroIdExclude]);
@@ -1156,10 +1163,10 @@ async function queryProgressiveTier(hero, tierId, source) {
         return rawPg.unsafe(`
           SELECT ${cols}
           FROM tavern_listings
-          WHERE is_active = true
-            AND rarity <= $1
+          WHERE rarity <= $1
             AND price_native > 0
             AND hero_id_normalized != $2
+            ${activeFilter}
           ORDER BY price_native ASC
           LIMIT 300
         `, [rarity, heroIdExclude]);
@@ -1171,13 +1178,14 @@ async function queryProgressiveTier(hero, tierId, source) {
   return [];
 }
 
-async function findComparables(hero, source) {
+async function findComparables(hero, source, minComps = 3) {
   const isGen0 = (hero.generation != null ? hero.generation : 0) === 0;
-  const heroGen = hero.generation != null ? hero.generation : 0;
 
   const gen0SafeTiers = isGen0
     ? PROGRESSIVE_TIERS.filter(t => !['class_rarity', 'rarity_only', 'floor'].includes(t.id))
     : PROGRESSIVE_TIERS;
+
+  let bestThinResult = null;
 
   for (const tier of gen0SafeTiers) {
     try {
@@ -1195,7 +1203,7 @@ async function findComparables(hero, source) {
         .map(s => parseFloat(s.price_amount))
         .filter(p => !isNaN(p) && p > 0);
       
-      if (prices.length >= 3) {
+      if (prices.length >= minComps) {
         const stats = computePriceStats(prices);
         if (stats) {
           stats.confidence = tier.confidence === 'high' && stats.sampleSize < 10 ? 'medium' : tier.confidence;
@@ -1207,25 +1215,15 @@ async function findComparables(hero, source) {
         if (stats) stats.confidence = 'low';
         return { results, prices, tier, priceStats: stats };
       }
+      if (prices.length >= 1 && !bestThinResult) {
+        bestThinResult = { results, prices, tier };
+      }
     } catch (err) {
       console.log(`[HeroPriceTool] Tier ${tier.id} (${source}) query error: ${err.message}`);
     }
   }
 
-  if (isGen0) {
-    return {
-      results: [],
-      prices: [],
-      tier: { id: 'gen0_insufficient_data', label: 'Gen 0 - Insufficient Same-Gen Data', confidence: 'insufficient' },
-      priceStats: {
-        avg: 0, median: 0, min: 0, max: 0, stdDev: 0, cv: 0,
-        confidence: 'insufficient', sampleSize: 0,
-        warning: 'Gen 0 heroes require same-generation comparables. Not enough Gen 0 sales data available to provide accurate pricing.'
-      }
-    };
-  }
-
-  return null;
+  return { found: false, thin: bestThinResult };
 }
 
 export async function getHeroPriceByHeroId(heroId) {
@@ -1341,32 +1339,89 @@ export async function getHeroPriceByHeroId(heroId) {
     let dataSource = 'none';
     let estimateType = 'NONE';
     let warnings = [];
+    let debugCounts = { soldComps: 0, askActiveComps: 0, askHistoryComps: 0, tierUsed: 'none' };
 
     const salesMatch = await findComparables(hero, 'sales');
-    if (salesMatch && salesMatch.priceStats && salesMatch.priceStats.sampleSize > 0 && salesMatch.priceStats.confidence !== 'insufficient') {
+    if (salesMatch && salesMatch.priceStats && salesMatch.priceStats.sampleSize > 0) {
       salesData = salesMatch.results;
       matchTier = salesMatch.tier.id;
       priceStats = salesMatch.priceStats;
       dataSource = 'sales';
       estimateType = 'SOLD';
+      debugCounts.soldComps = salesMatch.prices.length;
+      debugCounts.tierUsed = salesMatch.tier.id;
     }
 
     if (estimateType !== 'SOLD') {
+      if (salesMatch && salesMatch.thin) debugCounts.soldComps = salesMatch.thin.prices.length;
+
       try {
-        const listingMatch = await findComparables(hero, 'listings');
-        if (listingMatch && listingMatch.priceStats && listingMatch.priceStats.sampleSize > 0 && listingMatch.priceStats.confidence !== 'insufficient') {
-          salesData = listingMatch.results;
-          matchTier = listingMatch.tier.id;
-          priceStats = listingMatch.priceStats;
-          dataSource = 'listings';
-          estimateType = 'ASK';
+        const activeMatch = await findComparables(hero, 'listings_active');
+        if (activeMatch && activeMatch.priceStats && activeMatch.priceStats.sampleSize > 0) {
+          salesData = activeMatch.results;
+          matchTier = activeMatch.tier.id;
+          priceStats = activeMatch.priceStats;
+          dataSource = 'listings_active';
+          estimateType = 'ASK_ACTIVE';
+          debugCounts.askActiveComps = activeMatch.prices.length;
+          debugCounts.tierUsed = activeMatch.tier.id;
           if (priceStats.confidence === 'high') priceStats.confidence = 'medium';
           else if (priceStats.confidence === 'medium') priceStats.confidence = 'medium-low';
           else if (priceStats.confidence === 'medium-low') priceStats.confidence = 'low';
           warnings.push('ASK_SIDE_ONLY');
+        } else {
+          if (activeMatch && activeMatch.thin) debugCounts.askActiveComps = activeMatch.thin.prices.length;
         }
       } catch (err) {
-        console.log(`[HeroPriceTool] Listing-based fallback error: ${err.message}`);
+        console.log(`[HeroPriceTool] ASK_ACTIVE fallback error: ${err.message}`);
+      }
+    }
+
+    if (estimateType !== 'SOLD' && estimateType !== 'ASK_ACTIVE') {
+      try {
+        const historyMatch = await findComparables(hero, 'listings_history');
+        if (historyMatch && historyMatch.priceStats && historyMatch.priceStats.sampleSize > 0) {
+          salesData = historyMatch.results;
+          matchTier = historyMatch.tier.id;
+          priceStats = historyMatch.priceStats;
+          dataSource = 'listings_history';
+          estimateType = 'ASK_HISTORY';
+          debugCounts.askHistoryComps = historyMatch.prices.length;
+          debugCounts.tierUsed = historyMatch.tier.id;
+          if (priceStats.confidence === 'high') priceStats.confidence = 'medium-low';
+          else if (priceStats.confidence === 'medium') priceStats.confidence = 'low';
+          else priceStats.confidence = 'low';
+          warnings.push('ASK_SIDE_ONLY', 'HISTORICAL_LISTINGS');
+        } else {
+          if (historyMatch && historyMatch.thin) debugCounts.askHistoryComps = historyMatch.thin.prices.length;
+
+          const thinSource = historyMatch?.thin || (await findComparables(hero, 'listings_active'))?.thin;
+          if (thinSource && thinSource.prices.length >= 1) {
+            const thinPrices = thinSource.prices;
+            const sorted = [...thinPrices].sort((a, b) => a - b);
+            const thinMedian = sorted.length % 2 === 0
+              ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+              : sorted[Math.floor(sorted.length / 2)];
+            salesData = thinSource.results;
+            matchTier = thinSource.tier.id;
+            dataSource = 'listings_thin';
+            estimateType = 'ASK_THIN';
+            debugCounts.tierUsed = thinSource.tier.id;
+            priceStats = {
+              median: Math.round(thinMedian * 100) / 100,
+              min: Math.round(sorted[0] * 100) / 100,
+              max: Math.round(sorted[sorted.length - 1] * 100) / 100,
+              avg: Math.round(thinMedian * 100) / 100,
+              stdDev: 0,
+              cv: 0,
+              confidence: 'very-low',
+              sampleSize: sorted.length
+            };
+            warnings.push('ASK_SIDE_ONLY', 'THIN_SAMPLE_SIZE');
+          }
+        }
+      } catch (err) {
+        console.log(`[HeroPriceTool] ASK_HISTORY fallback error: ${err.message}`);
       }
     }
 
@@ -1375,32 +1430,60 @@ export async function getHeroPriceByHeroId(heroId) {
       if (hero.generation === 0) warnings.push('GEN0_NO_COMPS');
     }
 
+    console.log(`[HeroPriceTool] Hero #${heroId} | estimateType=${estimateType} | soldComps=${debugCounts.soldComps} askActiveComps=${debugCounts.askActiveComps} askHistoryComps=${debugCounts.askHistoryComps} tierUsed=${debugCounts.tierUsed}`);
+
     const tierInfo = PROGRESSIVE_TIERS.find(t => t.id === matchTier);
     const tierLabel = tierInfo ? tierInfo.label : matchTier;
     
     let estimatedValue = null;
     let flipOpportunity = null;
     
+    const isAskType = ['ASK_ACTIVE', 'ASK_HISTORY', 'ASK_THIN'].includes(estimateType);
+
     if (priceStats && estimateType !== 'NONE') {
       const fairValue = priceStats.fairValue != null ? priceStats.fairValue : priceStats.median;
-      estimatedValue = {
-        fairValue: estimateType === 'ASK' ? null : fairValue,
-        askMedian: estimateType === 'ASK' ? fairValue : null,
-        buyBelow: priceStats.p35 ?? priceStats.range?.low ?? priceStats.min,
-        sellAbove: priceStats.p75 ?? priceStats.range?.high ?? priceStats.max,
-        premiumPrice: priceStats.p90 ?? priceStats.max,
-        bargainPrice: priceStats.p20 ?? priceStats.min,
-        token: hero.nativeToken || (hero.realm === 'cv' ? 'CRYSTAL' : 'JEWEL'),
-        confidence: priceStats.confidence,
-        matchTier,
-        matchTierLabel: tierLabel,
-        dataSource,
-        estimateType,
-        sampleSize: priceStats.sampleSize,
-        priceVariation: priceStats.cv,
-        warnings,
-        ...(priceStats.warning ? { warning: priceStats.warning } : {})
-      };
+      const token = hero.nativeToken || (hero.realm === 'cv' ? 'CRYSTAL' : 'JEWEL');
+
+      if (isAskType) {
+        estimatedValue = {
+          fairValue: null,
+          askMedian: fairValue,
+          askMin: priceStats.min,
+          askMax: priceStats.max,
+          buyBelow: null,
+          sellAbove: null,
+          premiumPrice: null,
+          bargainPrice: null,
+          token,
+          confidence: priceStats.confidence,
+          matchTier,
+          matchTierLabel: tierLabel,
+          dataSource,
+          estimateType,
+          sampleSize: priceStats.sampleSize,
+          priceVariation: priceStats.cv,
+          warnings
+        };
+      } else {
+        estimatedValue = {
+          fairValue,
+          askMedian: null,
+          buyBelow: priceStats.p35 ?? priceStats.range?.low ?? priceStats.min,
+          sellAbove: priceStats.p75 ?? priceStats.range?.high ?? priceStats.max,
+          premiumPrice: priceStats.p90 ?? priceStats.max,
+          bargainPrice: priceStats.p20 ?? priceStats.min,
+          token,
+          confidence: priceStats.confidence,
+          matchTier,
+          matchTierLabel: tierLabel,
+          dataSource,
+          estimateType,
+          sampleSize: priceStats.sampleSize,
+          priceVariation: priceStats.cv,
+          warnings,
+          ...(priceStats.warning ? { warning: priceStats.warning } : {})
+        };
+      }
       
       if (estimateType === 'SOLD' && hero.isForSale && hero.currentListingPrice > 0 && fairValue > 0) {
         const discount = ((fairValue - hero.currentListingPrice) / fairValue) * 100;

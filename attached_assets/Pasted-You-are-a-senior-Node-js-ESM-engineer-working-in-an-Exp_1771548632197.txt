@@ -1,0 +1,164 @@
+You are a senior Node.js (ESM) engineer working in an Express + Postgres webapp (pg + Drizzle).
+We already attempted listing-based fallback, but Gen0 heroes still return “No comparable data found”.
+Fix this in a reliable/scalable way.
+
+PROBLEM OBSERVED:
+Hero #62 (Gen0) returns no estimate. The engine appears to:
+- either early-return on Gen0 when SOLD comps are missing
+- or only checks ACTIVE listings (short recency window), and there are no Gen0 active listings at that moment
+
+GOAL:
+When SOLD comps are missing, show ask-side reference using tavern listing data.
+For Gen0, NEVER mix generations, but DO allow listing-based reference (active and/or recent history).
+
+NON-NEGOTIABLE RULES:
+1) SOLD comps (status='SOLD', purchasePrice-confirmed) are always priority.
+2) Gen0 constraint stays: never drop generation for Gen0 in any tier or source.
+3) Do NOT return 0.00. When no estimate, return null values and UI shows “N/A”.
+4) Listing-derived results must be labeled ASK-SIDE ONLY and confidence downgraded.
+5) Do NOT claim flip profit using ask-based estimates; disable flip verdict or label “relative to asks”.
+
+--------------------------------------------------------------------
+A) ENSURE THE ENGINE DOES NOT EARLY-RETURN FOR GEN0
+--------------------------------------------------------------------
+Search code for any logic like:
+- if (hero.generation === 0) return insufficient;
+This must be removed.
+
+Correct behavior:
+- Gen0 simply restricts the tier relaxation (generation filter is hard),
+  but the engine still attempts LISTING fallback if SOLD comps are insufficient.
+
+Acceptance:
+- For Gen0, the engine tries SOLD tiers 1→6 (with gen hard).
+- If insufficient, it then tries listing tiers (with gen hard).
+
+--------------------------------------------------------------------
+B) ADD TWO LISTING FALLBACK MODES: ACTIVE + HISTORY
+--------------------------------------------------------------------
+Implement listing fallback in two stages:
+
+1) ASK_ACTIVE comps:
+   - tavern_heroes rows that are CURRENTLY ACTIVE
+   - definition:
+     - if is_active exists: is_active=true
+     - else: last_seen_at >= now() - interval '90 minutes'
+
+2) ASK_HISTORY comps:
+   - tavern_heroes rows that were seen listed recently, even if now delisted
+   - definition:
+     - last_seen_at >= now() - interval '90 days'
+   This is specifically to help Gen0 / thin segments where active listings are often zero.
+
+IMPORTANT:
+- ASK_HISTORY is still ask-side (not sold), and should have lower confidence than ASK_ACTIVE.
+- If the table currently deletes rows when listings disappear, change ingestion to NOT delete.
+  Keep rows and update last_seen_at; optionally add is_active + inactive_since fields.
+
+--------------------------------------------------------------------
+C) UPDATE THE COMPARABLE SEARCH FLOW
+--------------------------------------------------------------------
+Keep the 6-tier logic exactly the same, but change data source fallback order:
+
+Step 1: SOLD (canonical)
+- Query tavern_sales where status='SOLD' and ended_at within 90 days
+- Try tiers 1→6 (Gen0 keeps generation filter always)
+
+If SOLD comps found >= MIN_COMPS_SOLD (keep current MIN=3):
+  return estimateType='SOLD'
+
+Step 2: ASK_ACTIVE (fallback)
+- Query tavern_heroes for active listings
+- Try tiers 1→6 (Gen0 keeps generation filter always)
+
+If ASK_ACTIVE comps >= MIN_COMPS_LISTING (keep current MIN=3):
+  return estimateType='ASK_ACTIVE'
+  confidence = one level lower than the tier
+
+Step 3: ASK_HISTORY (fallback for thin markets)
+- Query tavern_heroes for listings seen in last 90 days (even if inactive)
+- Try tiers 1→6 (Gen0 keeps generation filter always)
+
+If ASK_HISTORY comps >= MIN_COMPS_LISTING (3):
+  return estimateType='ASK_HISTORY'
+  confidence = two levels lower than the tier (or cap at LOW)
+
+Step 4: THIN SAMPLE MODE (do NOT output zeros)
+If still insufficient but comps exist (1–2 comps) in ASK_ACTIVE or ASK_HISTORY:
+  return estimateType='ASK_THIN'
+  include the observed listing prices and show:
+    - askMedian = median of the 1–2 values
+    - askMin/askMax = min/max
+  set confidence='VERY_LOW'
+  warnings include: 'THIN_SAMPLE_SIZE', 'ASK_SIDE_ONLY'
+
+Else:
+  estimateType='NONE', all price fields null, warnings include 'INSUFFICIENT_DATA'
+
+--------------------------------------------------------------------
+D) SQL REQUIREMENTS
+--------------------------------------------------------------------
+All sources must hard-match these:
+- realm matches hero realm
+- native_token matches (CRYSTAL vs JEWEL etc)
+- Gen0: generation=0 always required; never relax away
+
+SOLD comps:
+SELECT price fields FROM tavern_sales
+WHERE status='SOLD'
+  AND realm=$1
+  AND token_symbol/native_token=$2
+  AND ended_at >= now() - interval '90 days'
+  AND ...tier filters...
+
+ASK_ACTIVE comps:
+SELECT price_native FROM tavern_heroes
+WHERE realm=$1
+  AND native_token=$2
+  AND (is_active=true OR last_seen_at >= now() - interval '90 minutes')
+  AND ...tier filters...
+
+ASK_HISTORY comps:
+SELECT price_native FROM tavern_heroes
+WHERE realm=$1
+  AND native_token=$2
+  AND last_seen_at >= now() - interval '90 days'
+  AND ...tier filters...
+
+Outliers:
+- Use IQR or MAD (no 2σ rule)
+
+Percentile gating:
+- if comps < 8: only show median + min/max (or IQR), no 20/90 bands
+
+--------------------------------------------------------------------
+E) UI / RESPONSE BEHAVIOR (NO ROUTE CHANGES)
+--------------------------------------------------------------------
+Do not change routes. Update the response payload/viewmodel to include:
+- estimateType: SOLD | ASK_ACTIVE | ASK_HISTORY | ASK_THIN | NONE
+- fairValue: number|null (ONLY for SOLD)
+- askMedian/askMin/askMax: number|null (for ask types)
+- comparableCount
+- tierUsed
+- confidence
+- warnings
+
+UI rules:
+- estimateType='NONE' -> show N/A (not 0.00) + message:
+  “No Gen0 SOLD comps; no Gen0 listing comps found in last 90 days.”
+- estimateType in ASK_* -> show “Ask-side reference” label + warning banner
+- Disable “flip profit verdict” when estimateType is ASK_*.
+
+Also display debugging counts in server logs:
+- soldCompCount, askActiveCompCount, askHistoryCompCount and tierUsed
+This will make it obvious why Gen0 returned NONE.
+
+--------------------------------------------------------------------
+F) ACCEPTANCE TESTS
+--------------------------------------------------------------------
+1) Gen0 hero with no sold comps but at least 1 historical Gen0 listing -> returns ASK_THIN or ASK_HISTORY (not NONE, not 0)
+2) Gen0 hero with no sold comps and no listing history -> returns NONE + N/A UI
+3) Non-Gen0 hero with sold comps -> returns SOLD as before
+4) Ensure generation is never relaxed for Gen0 even at tier 6
+
+Implement these changes now with minimal disruption to existing code structure.
