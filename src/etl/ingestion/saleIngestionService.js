@@ -924,6 +924,8 @@ const PROGRESSIVE_TIERS = [
   { id: 'class_rarity_gen_traits', label: 'Class + Rarity + Gen + Traits', confidence: 'high' },
   { id: 'class_rarity_gen', label: 'Class + Rarity + Gen', confidence: 'medium' },
   { id: 'rarity_gen', label: 'Rarity + Gen', confidence: 'medium' },
+  { id: 'gen0_rarity', label: 'Gen 0 + Same Rarity (any class)', confidence: 'medium-low' },
+  { id: 'gen0_floor', label: 'Gen 0 Floor (any class/rarity)', confidence: 'low' },
   { id: 'class_rarity', label: 'Class + Rarity (any gen)', confidence: 'medium-low' },
   { id: 'rarity_only', label: 'Rarity Only', confidence: 'low' },
   { id: 'floor', label: 'Floor Estimate', confidence: 'low' },
@@ -1041,6 +1043,29 @@ async function queryProgressiveTier(hero, tierId, source) {
           ORDER BY sale_timestamp DESC
           LIMIT 300
         `, [rarity, generation]);
+      case 'gen0_rarity':
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_sales
+          WHERE generation = 0
+            AND rarity = $1
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+            ${statusFilter}
+          ORDER BY ABS(COALESCE(level, 1) - $2), sale_timestamp DESC
+          LIMIT 300
+        `, [rarity, level]);
+      case 'gen0_floor':
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_sales
+          WHERE generation = 0
+            AND price_amount > 0
+            AND sale_timestamp > NOW() - INTERVAL '90 days'
+            ${statusFilter}
+          ORDER BY ABS(COALESCE(level, 1) - $1), sale_timestamp DESC
+          LIMIT 300
+        `, [level]);
       case 'rarity_only':
         return rawPg.unsafe(`
           SELECT ${cols}
@@ -1148,6 +1173,29 @@ async function queryProgressiveTier(hero, tierId, source) {
           ORDER BY price_native ASC
           LIMIT 300
         `, [rarity, generation, heroIdExclude]);
+      case 'gen0_rarity':
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_listings
+          WHERE generation = 0
+            AND rarity = $1
+            AND price_native > 0
+            AND hero_id_normalized != $2
+            ${activeFilter}
+          ORDER BY ABS(COALESCE(level, 1) - $3), price_native ASC
+          LIMIT 300
+        `, [rarity, heroIdExclude, level]);
+      case 'gen0_floor':
+        return rawPg.unsafe(`
+          SELECT ${cols}
+          FROM tavern_listings
+          WHERE generation = 0
+            AND price_native > 0
+            AND hero_id_normalized != $1
+            ${activeFilter}
+          ORDER BY ABS(COALESCE(level, 1) - $2), price_native ASC
+          LIMIT 300
+        `, [heroIdExclude, level]);
       case 'rarity_only':
         return rawPg.unsafe(`
           SELECT ${cols}
@@ -1183,7 +1231,7 @@ async function findComparables(hero, source, minComps = 3) {
 
   const gen0SafeTiers = isGen0
     ? PROGRESSIVE_TIERS.filter(t => !['class_rarity', 'rarity_only', 'floor'].includes(t.id))
-    : PROGRESSIVE_TIERS;
+    : PROGRESSIVE_TIERS.filter(t => !['gen0_rarity', 'gen0_floor'].includes(t.id));
 
   let bestThinResult = null;
 
@@ -1210,7 +1258,7 @@ async function findComparables(hero, source, minComps = 3) {
         }
         return { results, prices, tier, priceStats: stats };
       }
-      if (prices.length >= 1 && tier.id === 'floor') {
+      if (prices.length >= 1 && (tier.id === 'floor' || tier.id === 'gen0_floor')) {
         const stats = computePriceStats(prices);
         if (stats) stats.confidence = 'low';
         return { results, prices, tier, priceStats: stats };
