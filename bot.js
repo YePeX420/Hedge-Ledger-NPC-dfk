@@ -10298,8 +10298,131 @@ async function startAdminWebServer() {
       }
     }
 
-    console.log(`[Combat Pets] Complete: ${allRawPets.length} total pets for sale`);
-    const result = { pets: allRawPets };
+    console.log(`[Combat Pets] Complete: ${allRawPets.length} total pets from subgraph`);
+
+    let verifiedPets = allRawPets;
+    try {
+      const { ethers: ethersLib } = await import('ethers');
+      const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11';
+      const MULTICALL3_ABI = [
+        'function tryAggregate(bool requireSuccess, tuple(address target, bytes callData)[] calls) view returns (tuple(bool success, bytes returnData)[])',
+      ];
+      const petAuctionIface = new ethersLib.Interface([
+        'function isOnAuction(uint256 _tokenId) view returns (bool)',
+      ]);
+
+      const realmConfigs = {
+        CRY: {
+          rpcs: [
+            'https://avax-dfk.gateway.pokt.network/v1/lb/6244818c00b9f0003ad1b619/ext/bc/q2aTwKuyzgs8pynF7UXBZCU7DejbZbZ6EUyHr3JQzYgwNPUPi/rpc',
+            'https://53935.rpc.thirdweb.com',
+            'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc',
+          ],
+          auction: '0x49744F76caA3B63CccE9CE7de5C8282C92c891e5',
+        },
+        SUN: {
+          rpcs: ['https://public-en.node.kaia.io'],
+          auction: '0x7aB1C574A8762bEde901F32670481c0427DdF626',
+        },
+      };
+
+      const staleIds = new Set();
+      const BATCH_SIZE = 50;
+      const BATCH_DELAY_MS = 1000;
+      const VERIFY_TIMEOUT_MS = 120000;
+
+      async function verifyRealmPets(realmKey, petsInRealm, multicall, auctionAddr) {
+        let staleCount = 0;
+        let failedBatches = 0;
+        const startTime = Date.now();
+        for (let i = 0; i < petsInRealm.length; i += BATCH_SIZE) {
+          if (Date.now() - startTime > VERIFY_TIMEOUT_MS) {
+            console.warn(`[Combat Pets] ${realmKey}: timeout after ${Math.floor((Date.now() - startTime) / 1000)}s, checked ${i}/${petsInRealm.length}`);
+            break;
+          }
+          const batch = petsInRealm.slice(i, i + BATCH_SIZE);
+          const calls = batch.map(p => ({
+            target: auctionAddr,
+            callData: petAuctionIface.encodeFunctionData('isOnAuction', [BigInt(p.normalizedId)]),
+          }));
+          let batchResults = null;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              batchResults = await multicall.tryAggregate(false, calls);
+              break;
+            } catch (batchErr) {
+              if (attempt === 0) {
+                await new Promise(r => setTimeout(r, 3000));
+              } else {
+                failedBatches++;
+                if (failedBatches >= 5) {
+                  console.warn(`[Combat Pets] ${realmKey}: 5+ batch failures, stopping verification`);
+                  return;
+                }
+              }
+            }
+          }
+          if (batchResults) {
+            for (let j = 0; j < batchResults.length; j++) {
+              const [success, returnData] = batchResults[j];
+              if (!success) {
+                staleIds.add(batch[j].id);
+                staleCount++;
+              } else {
+                try {
+                  const [onAuction] = petAuctionIface.decodeFunctionResult('isOnAuction', returnData);
+                  if (!onAuction) {
+                    staleIds.add(batch[j].id);
+                    staleCount++;
+                  }
+                } catch {
+                  staleIds.add(batch[j].id);
+                  staleCount++;
+                }
+              }
+            }
+          }
+          if (i + BATCH_SIZE < petsInRealm.length) {
+            await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+          }
+        }
+        console.log(`[Combat Pets] ${realmKey}: checked ${petsInRealm.length}, stale: ${staleCount}, failed batches: ${failedBatches}`);
+      }
+
+      for (const [realmKey, config] of Object.entries(realmConfigs)) {
+        const petsInRealm = allRawPets.filter(p => p.currentRealm === realmKey);
+        if (petsInRealm.length === 0) continue;
+        let connected = false;
+        for (const rpc of config.rpcs) {
+          try {
+            const provider = new ethersLib.JsonRpcProvider(rpc, undefined, { staticNetwork: true });
+            const multicall = new ethersLib.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, provider);
+            console.log(`[Combat Pets] Verifying ${petsInRealm.length} ${realmKey} pets via Multicall3 (${rpc.split('/')[2]})...`);
+            await verifyRealmPets(realmKey, petsInRealm, multicall, config.auction);
+            connected = true;
+            break;
+          } catch (rpcErr) {
+            console.warn(`[Combat Pets] ${realmKey} RPC ${rpc.split('/')[2]} failed, trying next...`);
+          }
+        }
+        if (!connected) {
+          console.warn(`[Combat Pets] ${realmKey}: all RPCs failed, skipping verification`);
+        }
+      }
+
+      if (staleIds.size > 0) {
+        console.log(`[Combat Pets] Total filtered: ${staleIds.size} stale/sold pets`);
+        verifiedPets = allRawPets.filter(p => !staleIds.has(p.id));
+      } else {
+        console.log(`[Combat Pets] All pets verified as active`);
+      }
+      verifiedPets._verifiedCount = staleIds.size;
+    } catch (verifyErr) {
+      console.warn('[Combat Pets] On-chain verification failed, using subgraph data as-is:', verifyErr.message);
+    }
+
+    console.log(`[Combat Pets] Final: ${verifiedPets.length} verified pets for sale`);
+    const result = { pets: verifiedPets };
     const pets = (result.pets || []).map(pet => {
       const rarity = Number(pet.rarity);
       const element = Number(pet.element);
