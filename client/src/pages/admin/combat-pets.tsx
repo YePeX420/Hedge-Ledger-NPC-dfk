@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, RefreshCw, ExternalLink, LayoutGrid, List, Filter, X, Star, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, RefreshCw, ExternalLink, LayoutGrid, List, Filter, X, Star, ChevronDown, ChevronUp, Clock } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 
 interface CombatPet {
@@ -133,11 +133,36 @@ export default function CombatPetsShop() {
   const [filterRealm, setFilterRealm] = useState<string>("all");
   const [filterCombatStarTier, setFilterCombatStarTier] = useState<string>("all");
 
-  const { data: petsResponse, isLoading, error, isFetching } = useQuery<{ ok: boolean; pets: CombatPet[]; count: number }>({
+  const [isForceRefreshing, setIsForceRefreshing] = useState(false);
+  const { data: petsResponse, isLoading, error, isFetching, refetch } = useQuery<{ ok: boolean; pets: CombatPet[]; count: number; lastUpdated?: number }>({
     queryKey: ["/api/admin/combat-pets"],
     refetchInterval: 120000,
   });
   const pets = petsResponse?.pets;
+  const lastUpdated = petsResponse?.lastUpdated;
+
+  const handleForceRefresh = useCallback(async () => {
+    setIsForceRefreshing(true);
+    try {
+      const res = await fetch('/api/admin/combat-pets?refresh=true', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to refresh');
+      const data = await res.json();
+      queryClient.setQueryData(["/api/admin/combat-pets"], data);
+    } catch (e) {
+      refetch();
+    } finally {
+      setIsForceRefreshing(false);
+    }
+  }, [refetch]);
+
+  const formatTimeAgo = (timestamp: number) => {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${minutes % 60}m ago`;
+  };
 
   const uniqueValues = useMemo(() => {
     if (!pets) return { combatNames: [], profNames: [], craftNames: [], backgrounds: [], seasons: [] };
@@ -254,6 +279,12 @@ export default function CombatPetsShop() {
             {pets ? `${filteredPets.length} of ${pets.length} pets for sale` : "Loading pets..."}
             {isFetching && !isLoading && " (refreshing...)"}
           </p>
+          {lastUpdated && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid="text-last-updated">
+              <Clock className="w-3 h-3" />
+              Last synced: {formatTimeAgo(lastUpdated)} ({new Date(lastUpdated).toLocaleTimeString()})
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -283,11 +314,12 @@ export default function CombatPetsShop() {
           <Button
             variant="outline"
             size="icon"
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/admin/combat-pets"] })}
-            disabled={isFetching}
+            onClick={handleForceRefresh}
+            disabled={isFetching || isForceRefreshing}
             data-testid="button-refresh"
+            title="Force refresh from blockchain"
           >
-            <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-4 h-4 ${(isFetching || isForceRefreshing) ? "animate-spin" : ""}`} />
           </Button>
         </div>
       </div>

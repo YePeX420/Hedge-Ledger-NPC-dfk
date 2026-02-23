@@ -10132,10 +10132,11 @@ async function startAdminWebServer() {
   // ============================================================================
 
   let combatPetsCache = { data: null, timestamp: 0 };
-  const COMBAT_PETS_CACHE_TTL = 300000;
+  const COMBAT_PETS_CACHE_TTL = 120000;
+  const COMBAT_PETS_REFRESH_INTERVAL = 180000;
 
-  async function fetchCombatPetsForSale() {
-    if (combatPetsCache.data && (Date.now() - combatPetsCache.timestamp) < COMBAT_PETS_CACHE_TTL) {
+  async function fetchCombatPetsForSale(forceRefresh = false) {
+    if (!forceRefresh && combatPetsCache.data && (Date.now() - combatPetsCache.timestamp) < COMBAT_PETS_CACHE_TTL) {
       return combatPetsCache.data;
     }
 
@@ -10386,8 +10387,9 @@ async function startAdminWebServer() {
 
   app.get('/api/admin/combat-pets', isAdmin, async (req, res) => {
     try {
-      const pets = await fetchCombatPetsForSale();
-      res.json({ ok: true, pets, count: pets.length });
+      const forceRefresh = req.query.refresh === 'true';
+      const pets = await fetchCombatPetsForSale(forceRefresh);
+      res.json({ ok: true, pets, count: pets.length, lastUpdated: combatPetsCache.timestamp });
     } catch (error) {
       console.error('[Combat Pets] Fetch error:', error.message);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
@@ -10396,13 +10398,24 @@ async function startAdminWebServer() {
 
   app.get('/api/user/combat-pets', isUser, async (req, res) => {
     try {
-      const pets = await fetchCombatPetsForSale();
-      res.json({ ok: true, pets, count: pets.length });
+      const forceRefresh = req.query.refresh === 'true';
+      const pets = await fetchCombatPetsForSale(forceRefresh);
+      res.json({ ok: true, pets, count: pets.length, lastUpdated: combatPetsCache.timestamp });
     } catch (error) {
       console.error('[Combat Pets] Fetch error:', error.message);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });
+
+  setInterval(async () => {
+    try {
+      console.log('[Combat Pets] Background refresh started...');
+      await fetchCombatPetsForSale(true);
+      console.log('[Combat Pets] Background refresh complete');
+    } catch (err) {
+      console.error('[Combat Pets] Background refresh failed:', err.message);
+    }
+  }, COMBAT_PETS_REFRESH_INTERVAL);
 
   // ============================================================================
   // SUMMON PROFIT TRACKER ENDPOINTS
