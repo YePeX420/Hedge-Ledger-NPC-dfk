@@ -221,7 +221,9 @@ function extractVisualGeneIds(visualTrait) {
  * @param {string} parent2Rarity - Parent 2 rarity
  * @returns {Object} Complete probability distributions for all traits
  */
-export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics, parent1Rarity, parent2Rarity) {
+export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics, parent1Rarity, parent2Rarity, options = {}) {
+  const skipVisuals = options.skipVisuals === true;
+
   // Class traits use mutation system
   const classData = calculateTraitWithMutations(parent1Genetics.mainClass, parent2Genetics.mainClass, CLASS_MUTATION_MAP);
   const subClassData = calculateTraitWithMutations(parent1Genetics.subClass, parent2Genetics.subClass, CLASS_MUTATION_MAP);
@@ -234,74 +236,86 @@ export function calculateSummoningProbabilities(parent1Genetics, parent2Genetics
   
   // Non-mutation traits use standard probability calculation
   const professionData = calculateTraitProbabilities(parent1Genetics.profession, parent2Genetics.profession);
-  const statBoost1Data = calculateTraitProbabilities(parent1Genetics.statBoost1, parent2Genetics.statBoost1);
-  const statBoost2Data = calculateTraitProbabilities(parent1Genetics.statBoost2, parent2Genetics.statBoost2);
-  const elementData = calculateTraitProbabilities(parent1Genetics.element, parent2Genetics.element);
-  
-  // Visual traits - extract gene ID values and use visual mutation maps
-  const genderData = calculateTraitProbabilities(parent1Genetics.visual.gender, parent2Genetics.visual.gender);
-  const headAppData = calculateVisualTraitWithMutations(
-    extractVisualGeneIds(parent1Genetics.visual.headAppendage), 
-    extractVisualGeneIds(parent2Genetics.visual.headAppendage),
-    HEAD_APPENDAGE_MUTATION_MAP
-  );
-  const backAppData = calculateVisualTraitWithMutations(
-    extractVisualGeneIds(parent1Genetics.visual.backAppendage), 
-    extractVisualGeneIds(parent2Genetics.visual.backAppendage),
-    BACK_APPENDAGE_MUTATION_MAP
-  );
-  const bgData = calculateTraitProbabilities(
-    extractVisualGeneIds(parent1Genetics.visual.background), 
-    extractVisualGeneIds(parent2Genetics.visual.background)
-  );
-  const hairStyleData = calculateVisualTraitWithMutations(
-    extractVisualGeneIds(parent1Genetics.visual.hairStyle), 
-    extractVisualGeneIds(parent2Genetics.visual.hairStyle),
-    HAIR_STYLE_MUTATION_MAP
-  );
-  const hairColorData = calculateVisualTraitWithMutations(
-    extractVisualGeneIds(parent1Genetics.visual.hairColor), 
-    extractVisualGeneIds(parent2Genetics.visual.hairColor),
-    HAIR_COLOR_MUTATION_MAP
-  );
-  const eyeColorData = calculateVisualTraitWithMutations(
-    extractVisualGeneIds(parent1Genetics.visual.eyeColor), 
-    extractVisualGeneIds(parent2Genetics.visual.eyeColor),
-    EYE_COLOR_MUTATION_MAP
-  );
-  const skinColorData = calculateVisualTraitWithMutations(
-    extractVisualGeneIds(parent1Genetics.visual.skinColor), 
-    extractVisualGeneIds(parent2Genetics.visual.skinColor),
-    SKIN_COLOR_MUTATION_MAP
-  );
-  const appColorData = calculateVisualTraitWithMutations(
-    extractVisualGeneIds(parent1Genetics.visual.appendageColor), 
-    extractVisualGeneIds(parent2Genetics.visual.appendageColor),
-    APPENDAGE_COLOR_MUTATION_MAP
-  );
-  const backAppColorData = calculateVisualTraitWithMutations(
-    extractVisualGeneIds(parent1Genetics.visual.backAppendageColor), 
-    extractVisualGeneIds(parent2Genetics.visual.backAppendageColor),
-    APPENDAGE_COLOR_MUTATION_MAP
-  );
-  const vu1Data = calculateTraitProbabilities(
-    extractVisualGeneIds(parent1Genetics.visual.visualUnknown1), 
-    extractVisualGeneIds(parent2Genetics.visual.visualUnknown1)
-  );
-  const vu2Data = calculateTraitProbabilities(
-    extractVisualGeneIds(parent1Genetics.visual.visualUnknown2), 
-    extractVisualGeneIds(parent2Genetics.visual.visualUnknown2)
-  );
-  
-  // Crafting traits - extract gene ID values (use same function as visual traits)
-  const craft1Data = calculateTraitProbabilities(
-    extractVisualGeneIds(parent1Genetics.crafting1), 
-    extractVisualGeneIds(parent2Genetics.crafting1)
-  );
-  const craft2Data = calculateTraitProbabilities(
-    extractVisualGeneIds(parent1Genetics.crafting2), 
-    extractVisualGeneIds(parent2Genetics.crafting2)
-  );
+
+  // Skip statBoost, element and all visual/crafting traits when not needed (e.g. sniper fast mode)
+  let statBoost1Data, statBoost2Data, elementData;
+  let genderData, headAppData, backAppData, bgData, hairStyleData, hairColorData;
+  let eyeColorData, skinColorData, appColorData, backAppColorData, vu1Data, vu2Data;
+  let craft1Data, craft2Data;
+
+  if (skipVisuals) {
+    const empty = { probabilities: {}, mutations: new Set() };
+    statBoost1Data = statBoost2Data = elementData = empty;
+    genderData = headAppData = backAppData = bgData = hairStyleData = hairColorData = empty;
+    eyeColorData = skinColorData = appColorData = backAppColorData = vu1Data = vu2Data = empty;
+    craft1Data = craft2Data = empty;
+  } else {
+    statBoost1Data = calculateTraitProbabilities(parent1Genetics.statBoost1, parent2Genetics.statBoost1);
+    statBoost2Data = calculateTraitProbabilities(parent1Genetics.statBoost2, parent2Genetics.statBoost2);
+    elementData = calculateTraitProbabilities(parent1Genetics.element, parent2Genetics.element);
+
+    genderData = calculateTraitProbabilities(parent1Genetics.visual.gender, parent2Genetics.visual.gender);
+    headAppData = calculateVisualTraitWithMutations(
+      extractVisualGeneIds(parent1Genetics.visual.headAppendage),
+      extractVisualGeneIds(parent2Genetics.visual.headAppendage),
+      HEAD_APPENDAGE_MUTATION_MAP
+    );
+    backAppData = calculateVisualTraitWithMutations(
+      extractVisualGeneIds(parent1Genetics.visual.backAppendage),
+      extractVisualGeneIds(parent2Genetics.visual.backAppendage),
+      BACK_APPENDAGE_MUTATION_MAP
+    );
+    bgData = calculateTraitProbabilities(
+      extractVisualGeneIds(parent1Genetics.visual.background),
+      extractVisualGeneIds(parent2Genetics.visual.background)
+    );
+    hairStyleData = calculateVisualTraitWithMutations(
+      extractVisualGeneIds(parent1Genetics.visual.hairStyle),
+      extractVisualGeneIds(parent2Genetics.visual.hairStyle),
+      HAIR_STYLE_MUTATION_MAP
+    );
+    hairColorData = calculateVisualTraitWithMutations(
+      extractVisualGeneIds(parent1Genetics.visual.hairColor),
+      extractVisualGeneIds(parent2Genetics.visual.hairColor),
+      HAIR_COLOR_MUTATION_MAP
+    );
+    eyeColorData = calculateVisualTraitWithMutations(
+      extractVisualGeneIds(parent1Genetics.visual.eyeColor),
+      extractVisualGeneIds(parent2Genetics.visual.eyeColor),
+      EYE_COLOR_MUTATION_MAP
+    );
+    skinColorData = calculateVisualTraitWithMutations(
+      extractVisualGeneIds(parent1Genetics.visual.skinColor),
+      extractVisualGeneIds(parent2Genetics.visual.skinColor),
+      SKIN_COLOR_MUTATION_MAP
+    );
+    appColorData = calculateVisualTraitWithMutations(
+      extractVisualGeneIds(parent1Genetics.visual.appendageColor),
+      extractVisualGeneIds(parent2Genetics.visual.appendageColor),
+      APPENDAGE_COLOR_MUTATION_MAP
+    );
+    backAppColorData = calculateVisualTraitWithMutations(
+      extractVisualGeneIds(parent1Genetics.visual.backAppendageColor),
+      extractVisualGeneIds(parent2Genetics.visual.backAppendageColor),
+      APPENDAGE_COLOR_MUTATION_MAP
+    );
+    vu1Data = calculateTraitProbabilities(
+      extractVisualGeneIds(parent1Genetics.visual.visualUnknown1),
+      extractVisualGeneIds(parent2Genetics.visual.visualUnknown1)
+    );
+    vu2Data = calculateTraitProbabilities(
+      extractVisualGeneIds(parent1Genetics.visual.visualUnknown2),
+      extractVisualGeneIds(parent2Genetics.visual.visualUnknown2)
+    );
+    craft1Data = calculateTraitProbabilities(
+      extractVisualGeneIds(parent1Genetics.crafting1),
+      extractVisualGeneIds(parent2Genetics.crafting1)
+    );
+    craft2Data = calculateTraitProbabilities(
+      extractVisualGeneIds(parent1Genetics.crafting2),
+      extractVisualGeneIds(parent2Genetics.crafting2)
+    );
+  }
   
   const results = {
     class: classData.probabilities,

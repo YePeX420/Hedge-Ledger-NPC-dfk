@@ -10820,7 +10820,7 @@ async function startAdminWebServer() {
       const rarity2 = rarityNames[hero2.rarity] || 'Common';
       
       // Calculate probabilities
-      const probabilities = calculateSummoningProbabilities(genetics1, genetics2, rarity1, rarity2);
+      const probabilities = calculateSummoningProbabilities(genetics1, genetics2, rarity1, rarity2, { skipVisuals: false });
       
       // Calculate offspring generation
       const offspringGeneration = Math.max(hero1.generation, hero2.generation) + 1;
@@ -11029,6 +11029,9 @@ async function startAdminWebServer() {
     }
   });
 
+  let sniperPriceCache = { data: null, timestamp: 0 };
+  const SNIPER_PRICE_CACHE_TTL = 5 * 60 * 1000;
+
   // POST /api/admin/sniper/search - Find optimal hero pairs
   app.post("/api/admin/sniper/search", isAdmin, async (req, res) => {
     try {
@@ -11083,17 +11086,24 @@ async function startAdminWebServer() {
         });
       }
 
-      // Fetch current USD prices for tokens using fast focused price graph
+      // Fetch current USD prices for tokens, with 5-minute cache to avoid repeated RPC calls
       let crystalPriceUsd = 0;
       let jewelPriceUsd = 0;
       const CRYSTAL_ADDRESS = '0x04b9dA42306B023f3572e106B11D82aAd9D32EBb'.toLowerCase();
       const JEWEL_ADDRESS = '0xCCb93dABD71c8Dad03Fc4CE5559dC3D89F67a260'.toLowerCase();
       try {
-        // Use focused price graph (fast, ~1-2 seconds) instead of full graph (~2-5 min)
-        const priceGraph = await buildFocusedPriceGraph([]);
-        crystalPriceUsd = priceGraph.get(CRYSTAL_ADDRESS) || 0;
-        jewelPriceUsd = priceGraph.get(JEWEL_ADDRESS) || 0;
-        console.log(`[Sniper] Token prices: CRYSTAL=$${crystalPriceUsd.toFixed(4)}, JEWEL=$${jewelPriceUsd.toFixed(4)}`);
+        const now = Date.now();
+        if (sniperPriceCache.data && (now - sniperPriceCache.timestamp) < SNIPER_PRICE_CACHE_TTL) {
+          crystalPriceUsd = sniperPriceCache.data.crystalPriceUsd;
+          jewelPriceUsd = sniperPriceCache.data.jewelPriceUsd;
+          console.log(`[Sniper] Token prices (cached): CRYSTAL=$${crystalPriceUsd.toFixed(4)}, JEWEL=$${jewelPriceUsd.toFixed(4)}`);
+        } else {
+          const priceGraph = await buildFocusedPriceGraph([]);
+          crystalPriceUsd = priceGraph.get(CRYSTAL_ADDRESS) || 0;
+          jewelPriceUsd = priceGraph.get(JEWEL_ADDRESS) || 0;
+          sniperPriceCache = { data: { crystalPriceUsd, jewelPriceUsd }, timestamp: now };
+          console.log(`[Sniper] Token prices (fresh): CRYSTAL=$${crystalPriceUsd.toFixed(4)}, JEWEL=$${jewelPriceUsd.toFixed(4)}`);
+        }
       } catch (priceErr) {
         console.warn('[Sniper] Could not fetch token prices (proceeding without USD):', priceErr?.message);
       }
@@ -11282,7 +11292,19 @@ async function startAdminWebServer() {
       let indexedResult = [];
       if (!isWalletMode) {
         indexedResult = await rawPg`
-          SELECT * FROM tavern_heroes 
+          SELECT
+            hero_id, normalized_id, realm, native_token,
+            main_class, sub_class, profession,
+            rarity, level, generation, summons, max_summons, price_native,
+            trait_score, combat_power, genes_status, stat_genes, visual_genes,
+            main_class_r1, main_class_r2, main_class_r3,
+            sub_class_r1, sub_class_r2, sub_class_r3,
+            active1, active2, passive1, passive2,
+            active1_r1, active1_r2, active1_r3,
+            active2_r1, active2_r2, active2_r3,
+            passive1_r1, passive1_r2, passive1_r3,
+            passive2_r1, passive2_r2, passive2_r3
+          FROM tavern_heroes
           WHERE genes_status = 'complete'
           ORDER BY price_native ASC NULLS LAST
         `;
@@ -12122,7 +12144,7 @@ async function startAdminWebServer() {
           const rarity1 = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero1.rarity] || 'Common';
           const rarity2 = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][hero2.rarity] || 'Common';
 
-          const probs = calculateSummoningProbabilities(genetics1, genetics2, rarity1, rarity2);
+          const probs = calculateSummoningProbabilities(genetics1, genetics2, rarity1, rarity2, { skipVisuals: true });
 
           // Calculate JOINT probability of target traits
           // For multiple classes/professions: use OR logic (sum probabilities)
