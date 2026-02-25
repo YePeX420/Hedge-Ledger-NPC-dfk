@@ -10504,8 +10504,26 @@ async function startAdminWebServer() {
       };
     });
 
-    combatPetsCache = { data: pets, timestamp: Date.now() };
-    return pets;
+    const profMaxMap = new Map();
+    for (const pet of pets) {
+      if (pet.profBonusStars > 0 && pet.profBonusScalar > 0) {
+        const key = `${pet.profBonusName}|${pet.profBonusStars}`;
+        const cur = profMaxMap.get(key) || 0;
+        if (pet.profBonusScalar > cur) profMaxMap.set(key, pet.profBonusScalar);
+      }
+    }
+    const petsWithProfRoll = pets.map(pet => {
+      let profTopRollPercent = null;
+      if (pet.profBonusStars > 0 && pet.profBonusScalar > 0) {
+        const key = `${pet.profBonusName}|${pet.profBonusStars}`;
+        const maxVal = profMaxMap.get(key);
+        if (maxVal) profTopRollPercent = Math.min(100, Math.round((pet.profBonusScalar / maxVal) * 10000) / 100);
+      }
+      return { ...pet, profTopRollPercent };
+    });
+
+    combatPetsCache = { data: petsWithProfRoll, timestamp: Date.now() };
+    return petsWithProfRoll;
   }
 
   app.get('/api/admin/combat-pets', isAdmin, async (req, res) => {

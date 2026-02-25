@@ -47,6 +47,7 @@ interface CombatPet {
   priceCurrency: string;
   topRollPercent: number | null;
   topRollMaxValue: number | null;
+  profTopRollPercent: number | null;
   ownerName: string;
   ownerId: string;
 }
@@ -119,9 +120,9 @@ export default function CombatPetsShop() {
   const [filterElement, setFilterElement] = useState<string>("all");
   const [filterSeason, setFilterSeason] = useState<string>("all");
   const [filterBackground, setFilterBackground] = useState<string>("all");
-  const [filterCombatBonusName, setFilterCombatBonusName] = useState<string>("all");
-  const [filterProfBonusName, setFilterProfBonusName] = useState<string>("all");
-  const [filterCraftBonusName, setFilterCraftBonusName] = useState<string>("all");
+  const [filterGatheringName, setFilterGatheringName] = useState<string>("");
+  const [filterCombatName, setFilterCombatName] = useState<string>("");
+  const [topRollMode, setTopRollMode] = useState<"combat" | "gathering" | "both">("combat");
   const [filterMinCombatStars, setFilterMinCombatStars] = useState<string>("0");
   const [filterMinProfStars, setFilterMinProfStars] = useState<string>("0");
   const [filterMinCraftStars, setFilterMinCraftStars] = useState<string>("0");
@@ -165,13 +166,10 @@ export default function CombatPetsShop() {
   };
 
   const uniqueValues = useMemo(() => {
-    if (!pets) return { combatNames: [], profNames: [], craftNames: [], backgrounds: [], seasons: [] };
-    const combatNames = Array.from(new Set(pets.map(p => p.combatBonusName).filter(n => n && n !== "None"))).sort();
-    const profNames = Array.from(new Set(pets.map(p => p.profBonusName).filter(n => n && n !== "None" && n !== "Unknown"))).sort();
-    const craftNames = Array.from(new Set(pets.map(p => p.craftBonusName).filter(n => n && n !== "None" && n !== "Unknown"))).sort();
+    if (!pets) return { backgrounds: [], seasons: [] };
     const backgrounds = Array.from(new Set(pets.map(p => p.background))).sort((a: number, b: number) => a - b);
     const seasons = Array.from(new Set(pets.map(p => p.seasonName))).sort();
-    return { combatNames, profNames, craftNames, backgrounds, seasons };
+    return { backgrounds, seasons };
   }, [pets]);
 
   const filteredPets = useMemo(() => {
@@ -184,10 +182,15 @@ export default function CombatPetsShop() {
     if (filterElement !== "all") result = result.filter(p => p.element === parseInt(filterElement));
     if (filterSeason !== "all") result = result.filter(p => p.seasonName === filterSeason);
     if (filterBackground !== "all") result = result.filter(p => p.background === parseInt(filterBackground));
-    if (filterCombatBonusName !== "all") result = result.filter(p => p.combatBonusName === filterCombatBonusName);
+    if (filterCombatName.trim()) {
+      const q = filterCombatName.trim().toLowerCase();
+      result = result.filter(p => p.combatBonusName.toLowerCase().includes(q));
+    }
+    if (filterGatheringName.trim()) {
+      const q = filterGatheringName.trim().toLowerCase();
+      result = result.filter(p => p.profBonusName.toLowerCase().includes(q) || p.craftBonusName.toLowerCase().includes(q));
+    }
     if (filterCombatStarTier !== "all") result = result.filter(p => p.combatBonusStars === parseInt(filterCombatStarTier));
-    if (filterProfBonusName !== "all") result = result.filter(p => p.profBonusName === filterProfBonusName);
-    if (filterCraftBonusName !== "all") result = result.filter(p => p.craftBonusName === filterCraftBonusName);
     if (filterRealm !== "all") result = result.filter(p => p.currentRealm === filterRealm);
     if (filterCombatOnly) result = result.filter(p => p.combatBonusStars > 0);
 
@@ -201,7 +204,11 @@ export default function CombatPetsShop() {
     if (minTS > 0) result = result.filter(p => p.totalStars >= minTS);
 
     const minTR = parseFloat(filterMinTopRoll);
-    if (!isNaN(minTR) && minTR > 0) result = result.filter(p => p.topRollPercent !== null && p.topRollPercent >= minTR);
+    if (!isNaN(minTR) && minTR > 0) {
+      if (topRollMode === "combat") result = result.filter(p => p.topRollPercent !== null && p.topRollPercent >= minTR);
+      else if (topRollMode === "gathering") result = result.filter(p => p.profTopRollPercent !== null && p.profTopRollPercent >= minTR);
+      else result = result.filter(p => (p.topRollPercent ?? 0) >= minTR && (p.profTopRollPercent ?? 0) >= minTR);
+    }
 
     const maxP = parseFloat(filterMaxPrice);
     if (!isNaN(maxP) && maxP > 0) result = result.filter(p => p.salePriceJewel <= maxP);
@@ -223,7 +230,7 @@ export default function CombatPetsShop() {
     });
 
     return result;
-  }, [pets, filterRarity, filterShiny, filterEggType, filterElement, filterSeason, filterBackground, filterCombatBonusName, filterCombatStarTier, filterProfBonusName, filterCraftBonusName, filterMinCombatStars, filterMinProfStars, filterMinCraftStars, filterMinTotalStars, filterMinTopRoll, filterMaxPrice, filterMinPrice, filterCombatOnly, filterRealm, sortBy]);
+  }, [pets, filterRarity, filterShiny, filterEggType, filterElement, filterSeason, filterBackground, filterGatheringName, filterCombatName, filterCombatStarTier, filterMinCombatStars, filterMinProfStars, filterMinCraftStars, filterMinTotalStars, filterMinTopRoll, topRollMode, filterMaxPrice, filterMinPrice, filterCombatOnly, filterRealm, sortBy]);
 
   const resetFilters = () => {
     setSortBy("price-asc");
@@ -233,10 +240,10 @@ export default function CombatPetsShop() {
     setFilterElement("all");
     setFilterSeason("all");
     setFilterBackground("all");
-    setFilterCombatBonusName("all");
+    setFilterGatheringName("");
+    setFilterCombatName("");
     setFilterCombatStarTier("all");
-    setFilterProfBonusName("all");
-    setFilterCraftBonusName("all");
+    setTopRollMode("combat");
     setFilterMinCombatStars("0");
     setFilterMinProfStars("0");
     setFilterMinCraftStars("0");
@@ -255,15 +262,15 @@ export default function CombatPetsShop() {
     filterElement !== "all",
     filterSeason !== "all",
     filterBackground !== "all",
-    filterCombatBonusName !== "all",
+    filterGatheringName.trim() !== "",
+    filterCombatName.trim() !== "",
     filterCombatStarTier !== "all",
-    filterProfBonusName !== "all",
-    filterCraftBonusName !== "all",
     parseInt(filterMinCombatStars) > 0,
     parseInt(filterMinProfStars) > 0,
     parseInt(filterMinCraftStars) > 0,
     parseInt(filterMinTotalStars) > 0,
     filterMinTopRoll !== "" && parseFloat(filterMinTopRoll) > 0,
+    topRollMode !== "combat",
     filterMaxPrice !== "" && parseFloat(filterMaxPrice) > 0,
     filterMinPrice !== "" && parseFloat(filterMinPrice) > 0,
     filterCombatOnly,
@@ -430,16 +437,14 @@ export default function CombatPetsShop() {
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs">Combat Bonus</Label>
-                <Select value={filterCombatBonusName} onValueChange={setFilterCombatBonusName}>
-                  <SelectTrigger data-testid="select-combat-bonus"><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    <SelectItem value="all">All</SelectItem>
-                    {uniqueValues.combatNames.map(n => (
-                      <SelectItem key={n} value={n}>{n}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label className="text-xs">Combat Name</Label>
+                <Input
+                  type="text"
+                  placeholder="e.g. Stone Hide, Shock..."
+                  value={filterCombatName}
+                  onChange={(e) => setFilterCombatName(e.target.value)}
+                  data-testid="input-combat-name"
+                />
               </div>
 
               <div className="space-y-1">
@@ -456,29 +461,14 @@ export default function CombatPetsShop() {
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs">Prof. Bonus</Label>
-                <Select value={filterProfBonusName} onValueChange={setFilterProfBonusName}>
-                  <SelectTrigger data-testid="select-prof-bonus"><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    <SelectItem value="all">All</SelectItem>
-                    {uniqueValues.profNames.map(n => (
-                      <SelectItem key={n} value={n}>{n}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs">Craft Bonus</Label>
-                <Select value={filterCraftBonusName} onValueChange={setFilterCraftBonusName}>
-                  <SelectTrigger data-testid="select-craft-bonus"><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    <SelectItem value="all">All</SelectItem>
-                    {uniqueValues.craftNames.map(n => (
-                      <SelectItem key={n} value={n}>{n}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label className="text-xs">Gathering Name</Label>
+                <Input
+                  type="text"
+                  placeholder="e.g. Efficient, Fisher..."
+                  value={filterGatheringName}
+                  onChange={(e) => setFilterGatheringName(e.target.value)}
+                  data-testid="input-gathering-name"
+                />
               </div>
 
               <div className="space-y-1">
@@ -546,7 +536,7 @@ export default function CombatPetsShop() {
                 </Select>
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1 col-span-2 sm:col-span-1">
                 <Label className="text-xs">Min Top Roll %</Label>
                 <Input
                   type="number"
@@ -558,6 +548,19 @@ export default function CombatPetsShop() {
                   onChange={(e) => setFilterMinTopRoll(e.target.value)}
                   data-testid="input-min-top-roll"
                 />
+                <div className="flex gap-1 pt-0.5">
+                  {(["combat", "gathering", "both"] as const).map(mode => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setTopRollMode(mode)}
+                      className={`flex-1 text-xs px-1 py-0.5 rounded border transition-colors toggle-elevate ${topRollMode === mode ? "toggle-elevated bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground"}`}
+                      data-testid={`button-top-roll-mode-${mode}`}
+                    >
+                      {mode === "combat" ? "Combat" : mode === "gathering" ? "Gather" : "Both"}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-1">
