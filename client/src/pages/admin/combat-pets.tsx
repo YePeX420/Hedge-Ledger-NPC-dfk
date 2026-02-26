@@ -550,15 +550,17 @@ export default function CombatPetsShop() {
                 />
                 <div className="flex gap-1 pt-0.5">
                   {(["combat", "gathering", "both"] as const).map(mode => (
-                    <button
+                    <Button
                       key={mode}
                       type="button"
+                      size="sm"
+                      variant={topRollMode === mode ? "default" : "outline"}
                       onClick={() => setTopRollMode(mode)}
-                      className={`flex-1 text-xs px-1 py-0.5 rounded border transition-colors toggle-elevate ${topRollMode === mode ? "toggle-elevated bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground"}`}
+                      className="flex-1 text-xs"
                       data-testid={`button-top-roll-mode-${mode}`}
                     >
                       {mode === "combat" ? "Combat" : mode === "gathering" ? "Gather" : "Both"}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
