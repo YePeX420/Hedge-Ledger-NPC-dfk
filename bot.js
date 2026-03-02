@@ -10134,12 +10134,22 @@ async function startAdminWebServer() {
   let combatPetsCache = { data: null, timestamp: 0 };
   const COMBAT_PETS_CACHE_TTL = 120000;
   const COMBAT_PETS_REFRESH_INTERVAL = 180000;
+  let _combatPetsFetchInProgress = null;
 
   async function fetchCombatPetsForSale(forceRefresh = false) {
     if (!forceRefresh && combatPetsCache.data && (Date.now() - combatPetsCache.timestamp) < COMBAT_PETS_CACHE_TTL) {
       return combatPetsCache.data;
     }
 
+    // Prevent concurrent fetches — queue callers onto the in-progress promise
+    if (_combatPetsFetchInProgress) {
+      return _combatPetsFetchInProgress;
+    }
+
+    let resolveFetch, rejectFetch;
+    _combatPetsFetchInProgress = new Promise((res, rej) => { resolveFetch = res; rejectFetch = rej; });
+
+    try {
     const { GraphQLClient, gql } = await import('graphql-request');
     const dfkClient = new GraphQLClient('https://api.defikingdoms.com/graphql');
 
@@ -10313,15 +10323,17 @@ async function startAdminWebServer() {
 
       const realmConfigs = {
         CRY: {
+          chainId: 53935,
           rpcs: [
-            'https://avax-dfk.gateway.pokt.network/v1/lb/6244818c00b9f0003ad1b619/ext/bc/q2aTwKuyzgs8pynF7UXBZCU7DejbZbZ6EUyHr3JQzYgwNPUPi/rpc',
             'https://53935.rpc.thirdweb.com',
             'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc',
+            'https://avax-dfk.gateway.pokt.network/v1/lb/6244818c00b9f0003ad1b619/ext/bc/q2aTwKuyzgs8pynF7UXBZCU7DejbZbZ6EUyHr3JQzYgwNPUPi/rpc',
           ],
           auction: '0x49744F76caA3B63CccE9CE7de5C8282C92c891e5',
         },
         SUN: {
-          rpcs: ['https://public-en.node.kaia.io'],
+          chainId: 8217,
+          rpcs: ['https://public-en.node.kaia.io', 'https://kaia.blockpi.network/v1/rpc/public'],
           auction: '0x7aB1C574A8762bEde901F32670481c0427DdF626',
         },
       };
@@ -10356,8 +10368,8 @@ async function startAdminWebServer() {
               } else {
                 failedBatches++;
                 if (failedBatches >= 5) {
-                  console.warn(`[Combat Pets] ${realmKey}: 5+ batch failures, stopping verification`);
-                  return;
+                  console.warn(`[Combat Pets] ${realmKey}: 5+ batch failures, trying next RPC...`);
+                  throw new Error(`${realmKey}: too many batch failures`);
                 }
               }
             }
@@ -10393,16 +10405,17 @@ async function startAdminWebServer() {
         const petsInRealm = allRawPets.filter(p => p.currentRealm === realmKey);
         if (petsInRealm.length === 0) continue;
         let connected = false;
+        const network = { chainId: config.chainId, name: realmKey };
         for (const rpc of config.rpcs) {
           try {
-            const provider = new ethersLib.JsonRpcProvider(rpc, undefined, { staticNetwork: true });
+            const provider = new ethersLib.JsonRpcProvider(rpc, network, { staticNetwork: ethersLib.Network.from(network) });
             const multicall = new ethersLib.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, provider);
             console.log(`[Combat Pets] Verifying ${petsInRealm.length} ${realmKey} pets via Multicall3 (${rpc.split('/')[2]})...`);
             await verifyRealmPets(realmKey, petsInRealm, multicall, config.auction);
             connected = true;
             break;
           } catch (rpcErr) {
-            console.warn(`[Combat Pets] ${realmKey} RPC ${rpc.split('/')[2]} failed, trying next...`);
+            console.warn(`[Combat Pets] ${realmKey} RPC ${rpc.split('/')[2]} failed: ${rpcErr.message?.substring(0,80)}`);
           }
         }
         if (!connected) {
@@ -10523,29 +10536,40 @@ async function startAdminWebServer() {
     });
 
     combatPetsCache = { data: petsWithProfRoll, timestamp: Date.now() };
+    resolveFetch(petsWithProfRoll);
     return petsWithProfRoll;
+    } catch (fetchErr) {
+      rejectFetch(fetchErr);
+      throw fetchErr;
+    } finally {
+      _combatPetsFetchInProgress = null;
+    }
   }
 
-  app.get('/api/admin/combat-pets', isAdmin, async (req, res) => {
-    try {
-      const forceRefresh = req.query.refresh === 'true';
-      const pets = await fetchCombatPetsForSale(forceRefresh);
+  function serveCombatPets(res, forceRefresh) {
+    if (!forceRefresh && combatPetsCache.data) {
+      const pets = combatPetsCache.data;
+      return res.json({ ok: true, pets, count: pets.length, lastUpdated: combatPetsCache.timestamp });
+    }
+    if (!forceRefresh && _combatPetsFetchInProgress) {
+      return res.json({ ok: true, loading: true, pets: [], count: 0 });
+    }
+    fetchCombatPetsForSale(forceRefresh).then(pets => {
       res.json({ ok: true, pets, count: pets.length, lastUpdated: combatPetsCache.timestamp });
-    } catch (error) {
+    }).catch(error => {
       console.error('[Combat Pets] Fetch error:', error.message);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
-    }
+    });
+  }
+
+  app.get('/api/admin/combat-pets', isAdmin, (req, res) => {
+    const forceRefresh = req.query.refresh === 'true';
+    serveCombatPets(res, forceRefresh);
   });
 
-  app.get('/api/user/combat-pets', isUser, async (req, res) => {
-    try {
-      const forceRefresh = req.query.refresh === 'true';
-      const pets = await fetchCombatPetsForSale(forceRefresh);
-      res.json({ ok: true, pets, count: pets.length, lastUpdated: combatPetsCache.timestamp });
-    } catch (error) {
-      console.error('[Combat Pets] Fetch error:', error.message);
-      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
-    }
+  app.get('/api/user/combat-pets', isUser, (req, res) => {
+    const forceRefresh = req.query.refresh === 'true';
+    serveCombatPets(res, forceRefresh);
   });
 
   setInterval(async () => {
@@ -10557,6 +10581,13 @@ async function startAdminWebServer() {
       console.error('[Combat Pets] Background refresh failed:', err.message);
     }
   }, COMBAT_PETS_REFRESH_INTERVAL);
+
+  console.log('[Combat Pets] Starting initial cache warm-up...');
+  fetchCombatPetsForSale(false).then(pets => {
+    console.log(`[Combat Pets] Cache warm-up complete: ${pets.length} pets cached`);
+  }).catch(err => {
+    console.error('[Combat Pets] Cache warm-up failed:', err.message);
+  });
 
   // ============================================================================
   // SUMMON PROFIT TRACKER ENDPOINTS

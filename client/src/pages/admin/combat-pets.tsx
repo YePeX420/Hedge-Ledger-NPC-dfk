@@ -135,11 +135,15 @@ export default function CombatPetsShop() {
   const [filterCombatStarTier, setFilterCombatStarTier] = useState<string>("all");
 
   const [isForceRefreshing, setIsForceRefreshing] = useState(false);
-  const { data: petsResponse, isLoading, error, isFetching, refetch } = useQuery<{ ok: boolean; pets: CombatPet[]; count: number; lastUpdated?: number }>({
+  const { data: petsResponse, isLoading, error, isFetching, refetch } = useQuery<{ ok: boolean; pets: CombatPet[]; count: number; lastUpdated?: number; loading?: boolean }>({
     queryKey: ["/api/admin/combat-pets"],
-    refetchInterval: 120000,
+    refetchInterval: (query) => {
+      const data = query.state.data as { loading?: boolean } | undefined;
+      return data?.loading ? 10000 : 120000;
+    },
   });
-  const pets = petsResponse?.pets;
+  const isPreparingData = petsResponse?.loading === true;
+  const pets = isPreparingData ? undefined : petsResponse?.pets;
   const lastUpdated = petsResponse?.lastUpdated;
 
   const handleForceRefresh = useCallback(async () => {
@@ -614,10 +618,17 @@ export default function CombatPetsShop() {
         </Card>
       )}
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-20">
+      {isLoading || isPreparingData ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-          <span className="ml-2 text-muted-foreground">Loading pets for sale...</span>
+          <span className="text-muted-foreground">
+            {isPreparingData
+              ? "Preparing pet data... Fetching listings and verifying on-chain status. This takes a few minutes on first load."
+              : "Connecting to pet marketplace..."}
+          </span>
+          {isPreparingData && (
+            <span className="text-xs text-muted-foreground">Checking back every 10 seconds</span>
+          )}
         </div>
       ) : error ? (
         <Card>

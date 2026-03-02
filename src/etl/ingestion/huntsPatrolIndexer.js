@@ -210,6 +210,10 @@ const KNOWN_ITEMS = {
   '0xb16838fc6eae51faea13fbeb655bde8bf702d5c2': { name: 'JEWEL', type: 'currency', rarity: 'common' },
   '0xa4f8d1b4f8f1363f0fc8d6189089ff068c800ab4': { name: 'Dark Crystal', type: 'material', rarity: 'uncommon' },
   '0x4bc4bbdf294eeb3017fb4bd7806b6d61d74e85bb': { name: 'Void Essence', type: 'material', rarity: 'rare' },
+  // Wrapped METIS - used when gas refund is distributed as a token (Metis chain)
+  '0x75cb093e4d61d2a2e65d8e0bbb01de8d89b53481': { name: 'WMETIS', type: 'gas_refund', rarity: 'common' },
+  // Metis native representation address (used in some DFK contracts for native gas refunds)
+  '0xdeaddeaddeaddeaddeaddeaddeaddeaddead0000': { name: 'METIS (Native)', type: 'gas_refund', rarity: 'common' },
 };
 
 // Rarity tier names (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Mythic)
@@ -419,6 +423,40 @@ async function initializePVETables() {
       `);
     } catch (e) {
       // Columns may already exist, ignore error
+    }
+
+    // Schema migrations for pve_activities (fix column mismatch from legacy schema)
+    try {
+      await db.execute(sql`ALTER TABLE pve_activities ADD COLUMN IF NOT EXISTS activity_id INTEGER`);
+      await db.execute(sql`ALTER TABLE pve_activities ADD COLUMN IF NOT EXISTS name VARCHAR(100)`);
+      await db.execute(sql`ALTER TABLE pve_activities ADD COLUMN IF NOT EXISTS contract_address VARCHAR(42)`);
+      await db.execute(sql`ALTER TABLE pve_activities ALTER COLUMN activity_name DROP NOT NULL`);
+      await db.execute(sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS pve_activities_chain_type_actid
+        ON pve_activities(chain_id, activity_type, activity_id)
+      `);
+    } catch (e) {
+      // Migrations may already be applied
+    }
+
+    // Schema migration: pve_loot_items rename item_name -> name and add type/rarity
+    try {
+      await db.execute(sql`ALTER TABLE pve_loot_items RENAME COLUMN item_name TO name`);
+    } catch (e) {
+      // Already renamed or doesn't exist
+    }
+    try {
+      await db.execute(sql`ALTER TABLE pve_loot_items ADD COLUMN IF NOT EXISTS item_type VARCHAR(50)`);
+      await db.execute(sql`ALTER TABLE pve_loot_items ADD COLUMN IF NOT EXISTS rarity VARCHAR(20)`);
+    } catch (e) {
+      // Columns may already exist
+    }
+
+    // Schema migration: native gas refund on patrol completions
+    try {
+      await db.execute(sql`ALTER TABLE pve_completions ADD COLUMN IF NOT EXISTS native_gas_refund NUMERIC DEFAULT 0`);
+    } catch (e) {
+      // Column may already exist
     }
     
     // Create equipment stats table for enriched data (fetched from NFT contracts)
