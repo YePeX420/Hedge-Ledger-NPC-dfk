@@ -96,6 +96,30 @@ const CHAIN_CONFIGS = {
   },
 };
 
+// Fetch native METIS gas refund for a patrol completion tx via Blockscout v2 API.
+// The PVP Diamond sends native METIS directly to the player as an internal call —
+// invisible to getLogs. Blockscout exposes it via its internal-transactions endpoint.
+// Returns amount as a decimal METIS string (e.g. "0.014198498606914285") or "0".
+async function getMetisGasRefund(txHash, playerAddress) {
+  try {
+    const url = `https://andromeda-explorer.metis.io/api/v2/transactions/${txHash}/internal-transactions`;
+    const res = await fetch(url);
+    if (!res.ok) return '0';
+    const data = await res.json();
+    const pvpDiamond = PVP_DIAMOND_METIS.toLowerCase();
+    const refundCall = (data.items || []).find(item =>
+      item.type === 'call' &&
+      item.from?.hash?.toLowerCase() === pvpDiamond &&
+      item.to?.hash?.toLowerCase() === playerAddress.toLowerCase() &&
+      item.value && item.value !== '0'
+    );
+    if (!refundCall) return '0';
+    return ethers.formatEther(refundCall.value);
+  } catch {
+    return '0';
+  }
+}
+
 // Live progress tracking
 const liveProgress = new Map();
 const runningIndexers = new Map();
@@ -827,6 +851,18 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
           const safePartyLuck = partyLuck ?? 0;
           const safeScavengerBonus = scavengerBonusPct ?? 0;
           const completedAtIso = completedAt.toISOString();
+
+          // Fetch native METIS gas refund for 3-stage Metis patrol completions.
+          // Refund is delivered as an internal call (invisible to getLogs) from
+          // the PVP Diamond to the player — requires Blockscout v2 API to read.
+          let nativeGasRefund = '0';
+          if (chain === 'metis' && fightsCompleted === 3) {
+            await new Promise(r => setTimeout(r, 200)); // rate-limit courtesy
+            nativeGasRefund = await getMetisGasRefund(txHash, playerAddress);
+            if (nativeGasRefund !== '0') {
+              console.log(`[PVE ${chain}] Gas refund detected tx=${txHash.slice(0,10)}... amount=${nativeGasRefund} METIS`);
+            }
+          }
           
           try {
             // Store hero/pet IDs as JSON strings (TEXT column)
@@ -839,13 +875,16 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
             const insertSQL = `
               INSERT INTO pve_completions (
                 tx_hash, block_number, chain_id, activity_id, player_address, 
-                party_luck, scavenger_bonus_pct, completed_at, fights_completed
+                party_luck, scavenger_bonus_pct, completed_at, fights_completed,
+                native_gas_refund
               ) VALUES (
                 '${txHash}', ${completionLog.blockNumber}, ${config.chainId}, ${activityIdInDb},
                 '${playerAddress}', ${safePartyLuck}, ${safeScavengerBonus}, '${completedAtIso}',
-                ${fightsCompleted}
+                ${fightsCompleted}, ${nativeGasRefund}
               )
-              ON CONFLICT (tx_hash) DO NOTHING
+              ON CONFLICT (tx_hash) DO UPDATE SET
+                fights_completed = EXCLUDED.fights_completed,
+                native_gas_refund = EXCLUDED.native_gas_refund
               RETURNING id
             `;
             const result = await execRawSQL(insertSQL);
@@ -1070,18 +1109,33 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
           // Use execRawSQL with .unsafe() - completely bypass all type inference
           // Omit hero/pet columns to avoid Neon pooler type caching issues
           const completedAtIsoW = completedAt.toISOString();
+
+          // Fetch native METIS gas refund for 3-stage Metis patrol completions.
+          // Refund is an internal native-value call from PVP Diamond to player —
+          // invisible to getLogs, captured via Blockscout v2 API.
+          let nativeGasRefundW = '0';
+          if (chain === 'metis' && fightsCompletedW === 3) {
+            await new Promise(r => setTimeout(r, 200)); // rate-limit courtesy
+            nativeGasRefundW = await getMetisGasRefund(txHash, playerAddress);
+            if (nativeGasRefundW !== '0') {
+              console.log(`[PVE ${chain} W${workerId}] Gas refund detected tx=${txHash.slice(0,10)}... amount=${nativeGasRefundW} METIS`);
+            }
+          }
           
           const completionSQLW = `
             INSERT INTO pve_completions (
               tx_hash, block_number, chain_id, activity_id, player_address,
-              party_luck, scavenger_bonus_pct, completed_at, fights_completed
+              party_luck, scavenger_bonus_pct, completed_at, fights_completed,
+              native_gas_refund
             ) VALUES (
               '${txHash}', ${completionLog.blockNumber}, ${config.chainId},
               ${activityIdInDb}, '${playerAddress}',
               ${partyLuck}, ${scavengerBonusPct}, '${completedAtIsoW}',
-              ${fightsCompletedW}
+              ${fightsCompletedW}, ${nativeGasRefundW}
             )
-            ON CONFLICT (tx_hash) DO NOTHING
+            ON CONFLICT (tx_hash) DO UPDATE SET
+              fights_completed = EXCLUDED.fights_completed,
+              native_gas_refund = EXCLUDED.native_gas_refund
           `;
           await execRawSQL(completionSQLW);
           totalCompletionsFound++;

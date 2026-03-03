@@ -13,12 +13,13 @@ interface PatrolHealthStats {
   eligible_completions: number;
   refunded_completions: number;
   refund_rate_pct: number | null;
-  total_wmetis_24h: number;
-  avg_wmetis_per_refund: number | null;
+  total_metis_24h: number;
+  avg_metis_per_refund: number | null;
   last_refund_at: string | null;
   total_completions_all_time: number;
   total_full_completions_all_time: number;
-  total_wmetis_all_time: number;
+  total_metis_all_time: number;
+  avg_metis_per_refund_all_time: number | null;
 }
 
 interface RewardItem {
@@ -37,13 +38,14 @@ interface PatrolCompletion {
   patrol_name: string | null;
   patrol_type_id: number | null;
   rewards: RewardItem[];
-  wmetis_refunded: number;
+  native_gas_refund: number;
 }
 
 interface WalletSummary {
   total_completions: number;
   total_full_completions: number;
-  total_wmetis_earned: number;
+  total_metis_earned: number;
+  total_refunded: number;
   first_patrol_at: string | null;
   last_patrol_at: string | null;
 }
@@ -55,7 +57,7 @@ function formatDate(iso: string | null) {
   });
 }
 
-function formatWmetis(val: number) {
+function formatMetis(val: number) {
   if (!val || val === 0) return "—";
   return val.toFixed(4);
 }
@@ -86,7 +88,7 @@ function HealthVerdict({ pct }: { pct: number | null }) {
   if (pct === null) return <p className="text-muted-foreground text-sm">Index some Metis patrol data to see pool health.</p>;
   if (pct >= 80) return <p className="text-sm text-green-600 dark:text-green-400">Pool is well-funded. Completing all 3 stages is profitable right now.</p>;
   if (pct >= 40) return <p className="text-sm text-yellow-600 dark:text-yellow-400">Pool is partially funded. Refunds are inconsistent — patrol at your own risk.</p>;
-  return <p className="text-sm text-destructive">Pool appears nearly empty. Most 3-stage completions are not receiving WMETIS. Not profitable to patrol.</p>;
+  return <p className="text-sm text-destructive">Pool appears nearly empty. Most 3-stage completions are not receiving a METIS refund. Not profitable to patrol.</p>;
 }
 
 export default function AdminPatrolRewards() {
@@ -130,7 +132,7 @@ export default function AdminPatrolRewards() {
       <div>
         <h1 className="text-2xl font-semibold">Patrol Refund Pool Health</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Players who complete all 3 stages of a Metis patrol are eligible for a WMETIS gas refund — only when the refund pool is funded. Use this page to check if patrolling is profitable right now.
+          Players who complete all 3 stages of a Metis patrol are eligible for a native METIS gas refund — only when the refund pool is funded. Use this page to check if patrolling is profitable right now.
         </p>
       </div>
 
@@ -156,7 +158,7 @@ export default function AdminPatrolRewards() {
             Refund Pool Health — Last 24 Hours
           </CardTitle>
           <CardDescription>
-            Of players who completed all 3 stages, what % received WMETIS?
+            Of players who completed all 3 stages, what % received a native METIS gas refund?
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -189,12 +191,12 @@ export default function AdminPatrolRewards() {
                   <p className="text-lg font-semibold">{stats?.refunded_completions ?? 0}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">WMETIS Distributed</p>
-                  <p className="text-lg font-semibold">{stats?.total_wmetis_24h?.toFixed(4) ?? "0"}</p>
+                  <p className="text-xs text-muted-foreground">METIS Distributed</p>
+                  <p className="text-lg font-semibold">{stats?.total_metis_24h?.toFixed(4) ?? "0"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Avg per Refund</p>
-                  <p className="text-lg font-semibold">{stats?.avg_wmetis_per_refund?.toFixed(4) ?? "—"}</p>
+                  <p className="text-lg font-semibold">{stats?.avg_metis_per_refund?.toFixed(4) ?? "—"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Last Refund</p>
@@ -203,7 +205,7 @@ export default function AdminPatrolRewards() {
               </div>
 
               {stats && stats.total_completions_all_time > 0 && (
-                <div className="grid grid-cols-3 gap-3 pt-2 border-t text-muted-foreground">
+                <div className="grid grid-cols-4 gap-3 pt-2 border-t text-muted-foreground">
                   <div>
                     <p className="text-xs">All-time completions</p>
                     <p className="text-sm font-medium text-foreground">{stats.total_completions_all_time}</p>
@@ -213,8 +215,12 @@ export default function AdminPatrolRewards() {
                     <p className="text-sm font-medium text-foreground">{stats.total_full_completions_all_time}</p>
                   </div>
                   <div>
-                    <p className="text-xs">All-time WMETIS paid</p>
-                    <p className="text-sm font-medium text-foreground">{stats.total_wmetis_all_time?.toFixed(4) ?? "0"}</p>
+                    <p className="text-xs">All-time METIS paid</p>
+                    <p className="text-sm font-medium text-foreground">{stats.total_metis_all_time?.toFixed(4) ?? "0"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs">Avg METIS per refund (all-time)</p>
+                    <p className="text-sm font-medium text-foreground">{stats.avg_metis_per_refund_all_time?.toFixed(4) ?? "—"}</p>
                   </div>
                 </div>
               )}
@@ -230,7 +236,7 @@ export default function AdminPatrolRewards() {
             <Search className="w-4 h-4" />
             Per-Wallet Patrol History
           </CardTitle>
-          <CardDescription>Look up patrol completions and WMETIS refunds for a specific wallet</CardDescription>
+          <CardDescription>Look up patrol completions and METIS refunds for a specific wallet</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleSearch} className="flex gap-2">
@@ -261,9 +267,9 @@ export default function AdminPatrolRewards() {
               </Card>
               <Card>
                 <CardContent className="py-3">
-                  <p className="text-xs text-muted-foreground">WMETIS Earned</p>
-                  <p className="text-xl font-semibold">{summary.total_wmetis_earned?.toFixed(4) ?? "0"}</p>
-                  <p className="text-xs text-muted-foreground">from 3-stage completions</p>
+                  <p className="text-xs text-muted-foreground">METIS Refunded</p>
+                  <p className="text-xl font-semibold">{summary.total_metis_earned?.toFixed(4) ?? "0"}</p>
+                  <p className="text-xs text-muted-foreground">{summary.total_refunded} of {summary.total_full_completions} runs refunded</p>
                 </CardContent>
               </Card>
               <Card>
@@ -299,14 +305,14 @@ export default function AdminPatrolRewards() {
                     <TableHead>Date</TableHead>
                     <TableHead>Patrol</TableHead>
                     <TableHead className="text-center">Stage</TableHead>
-                    <TableHead className="text-right">WMETIS Refunded</TableHead>
+                    <TableHead className="text-right">METIS Refunded</TableHead>
                     <TableHead>Other Rewards</TableHead>
                     <TableHead className="text-right">Tx</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {completions.map(c => {
-                    const otherRewards = (c.rewards || []).filter(r => r.item_type !== 'gas_refund');
+                    const otherRewards = (c.rewards || []);
                     const isFull = c.fights_completed === 3;
                     return (
                       <TableRow key={c.id} data-testid={`row-patrol-${c.id}`}>
@@ -325,9 +331,9 @@ export default function AdminPatrolRewards() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          {c.wmetis_refunded > 0 ? (
+                          {c.native_gas_refund > 0 ? (
                             <span className="text-green-600 dark:text-green-400 font-medium text-sm">
-                              {c.wmetis_refunded.toFixed(4)}
+                              {c.native_gas_refund.toFixed(4)}
                             </span>
                           ) : (
                             <span className="text-muted-foreground text-sm">—</span>

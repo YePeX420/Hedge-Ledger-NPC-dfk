@@ -5923,60 +5923,36 @@ async function startAdminWebServer() {
     try {
       const { rawPg } = await import('./server/db.js');
 
-      // Global stats: eligible (fights_completed=3) vs actually refunded
+      // Global stats: eligible (fights_completed=3) vs actually refunded.
+      // native_gas_refund is set directly by the indexer via Blockscout v2 API
+      // (native METIS internal calls are invisible to getLogs).
       const statsRows = await rawPg`
         SELECT
-          COUNT(*) FILTER (WHERE c.fights_completed = 3)::int AS eligible_completions,
-          COUNT(DISTINCT c.tx_hash) FILTER (
-            WHERE c.fights_completed = 3
-            AND EXISTS (
-              SELECT 1 FROM pve_reward_events r
-              JOIN pve_loot_items l ON r.item_id = l.id
-              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
-            )
-          )::int AS refunded_completions,
-          COALESCE(SUM(
-            CASE WHEN c.fights_completed = 3 THEN (
-              SELECT COALESCE(SUM(r.amount), 0)
-              FROM pve_reward_events r
-              JOIN pve_loot_items l ON r.item_id = l.id
-              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
-            ) ELSE 0 END
-          ), 0) AS total_wmetis_24h,
-          MAX(
-            CASE WHEN EXISTS (
-              SELECT 1 FROM pve_reward_events r
-              JOIN pve_loot_items l ON r.item_id = l.id
-              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
-            ) THEN c.completed_at ELSE NULL END
-          ) AS last_refund_at
-        FROM pve_completions c
-        WHERE c.chain_id = 1088
-          AND c.completed_at > NOW() - INTERVAL '24 hours'
+          COUNT(*) FILTER (WHERE fights_completed = 3)::int AS eligible_completions,
+          COUNT(*) FILTER (WHERE fights_completed = 3 AND native_gas_refund > 0)::int AS refunded_completions,
+          COALESCE(SUM(native_gas_refund) FILTER (WHERE fights_completed = 3), 0) AS total_metis_24h,
+          MAX(completed_at) FILTER (WHERE native_gas_refund > 0) AS last_refund_at
+        FROM pve_completions
+        WHERE chain_id = 1088
+          AND completed_at > NOW() - INTERVAL '24 hours'
       `;
 
       const s = statsRows[0] || {};
       const eligible = parseInt(s.eligible_completions) || 0;
       const refunded = parseInt(s.refunded_completions) || 0;
       const refundRatePct = eligible > 0 ? Math.round((refunded / eligible) * 1000) / 10 : null;
-      const totalWmetis24h = parseFloat(s.total_wmetis_24h) || 0;
-      const avgWmetisPerRefund = refunded > 0 ? Math.round((totalWmetis24h / refunded) * 1000) / 1000 : null;
+      const totalWmetis24h = parseFloat(s.total_metis_24h) || 0;
+      const avgWmetisPerRefund = refunded > 0 ? Math.round((totalWmetis24h / refunded) * 10000) / 10000 : null;
 
       // Also get all-time totals
       const totalsRows = await rawPg`
         SELECT
           COUNT(*)::int AS total_completions_all_time,
           COUNT(*) FILTER (WHERE fights_completed = 3)::int AS total_full_completions,
-          COALESCE(SUM(
-            CASE WHEN fights_completed = 3 THEN (
-              SELECT COALESCE(SUM(r.amount), 0)
-              FROM pve_reward_events r
-              JOIN pve_loot_items l ON r.item_id = l.id
-              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
-            ) ELSE 0 END
-          ), 0) AS total_wmetis_all_time
-        FROM pve_completions c
-        WHERE c.chain_id = 1088
+          COALESCE(SUM(native_gas_refund) FILTER (WHERE fights_completed = 3), 0) AS total_metis_all_time,
+          AVG(native_gas_refund) FILTER (WHERE native_gas_refund > 0) AS avg_metis_per_refund_all_time
+        FROM pve_completions
+        WHERE chain_id = 1088
       `;
       const t = totalsRows[0] || {};
 
@@ -5986,12 +5962,13 @@ async function startAdminWebServer() {
           eligible_completions: eligible,
           refunded_completions: refunded,
           refund_rate_pct: refundRatePct,
-          total_wmetis_24h: totalWmetis24h,
-          avg_wmetis_per_refund: avgWmetisPerRefund,
+          total_metis_24h: totalWmetis24h,
+          avg_metis_per_refund: avgWmetisPerRefund,
           last_refund_at: s.last_refund_at || null,
           total_completions_all_time: parseInt(t.total_completions_all_time) || 0,
           total_full_completions_all_time: parseInt(t.total_full_completions) || 0,
-          total_wmetis_all_time: parseFloat(t.total_wmetis_all_time) || 0,
+          total_metis_all_time: parseFloat(t.total_metis_all_time) || 0,
+          avg_metis_per_refund_all_time: parseFloat(t.avg_metis_per_refund_all_time) || null,
         }
       });
     } catch (error) {
@@ -6017,6 +5994,7 @@ async function startAdminWebServer() {
           c.completed_at,
           c.fights_completed,
           c.chain_id,
+          c.native_gas_refund,
           a.name AS patrol_name,
           a.activity_id AS patrol_type_id,
           COALESCE(
@@ -6029,15 +6007,14 @@ async function startAdminWebServer() {
               ) ORDER BY l.item_type DESC, l.name
             ) FILTER (WHERE r.id IS NOT NULL),
             '[]'::json
-          ) AS rewards,
-          COALESCE(SUM(CASE WHEN l.item_type = 'gas_refund' THEN r.amount ELSE 0 END), 0) AS wmetis_refunded
+          ) AS rewards
         FROM pve_completions c
         LEFT JOIN pve_activities a ON c.activity_id = a.id
         LEFT JOIN pve_reward_events r ON r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id
         LEFT JOIN pve_loot_items l ON r.item_id = l.id
         WHERE LOWER(c.player_address) = ${wallet}
           AND c.chain_id = 1088
-        GROUP BY c.id, c.tx_hash, c.completed_at, c.fights_completed, c.chain_id, a.name, a.activity_id
+        GROUP BY c.id, c.tx_hash, c.completed_at, c.fights_completed, c.chain_id, c.native_gas_refund, a.name, a.activity_id
         ORDER BY c.completed_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
@@ -6046,19 +6023,13 @@ async function startAdminWebServer() {
         SELECT
           COUNT(*)::int AS total_completions,
           COUNT(*) FILTER (WHERE fights_completed = 3)::int AS total_full_completions,
-          COALESCE(SUM(
-            CASE WHEN fights_completed = 3 THEN (
-              SELECT COALESCE(SUM(r.amount), 0)
-              FROM pve_reward_events r
-              JOIN pve_loot_items l ON r.item_id = l.id
-              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
-            ) ELSE 0 END
-          ), 0) AS total_wmetis_earned,
-          MIN(c.completed_at) AS first_patrol_at,
-          MAX(c.completed_at) AS last_patrol_at
-        FROM pve_completions c
-        WHERE LOWER(c.player_address) = ${wallet}
-          AND c.chain_id = 1088
+          COALESCE(SUM(native_gas_refund) FILTER (WHERE fights_completed = 3), 0) AS total_metis_earned,
+          COUNT(*) FILTER (WHERE fights_completed = 3 AND native_gas_refund > 0)::int AS total_refunded,
+          MIN(completed_at) AS first_patrol_at,
+          MAX(completed_at) AS last_patrol_at
+        FROM pve_completions
+        WHERE LOWER(player_address) = ${wallet}
+          AND chain_id = 1088
       `;
       const sm = summaryRows[0] || {};
 
@@ -6066,13 +6037,14 @@ async function startAdminWebServer() {
         ok: true,
         completions: rows.map(r => ({
           ...r,
-          wmetis_refunded: parseFloat(r.wmetis_refunded) || 0,
+          native_gas_refund: parseFloat(r.native_gas_refund) || 0,
           rewards: typeof r.rewards === 'string' ? JSON.parse(r.rewards) : r.rewards,
         })),
         summary: {
           total_completions: parseInt(sm.total_completions) || 0,
           total_full_completions: parseInt(sm.total_full_completions) || 0,
-          total_wmetis_earned: parseFloat(sm.total_wmetis_earned) || 0,
+          total_metis_earned: parseFloat(sm.total_metis_earned) || 0,
+          total_refunded: parseInt(sm.total_refunded) || 0,
           first_patrol_at: sm.first_patrol_at || null,
           last_patrol_at: sm.last_patrol_at || null,
         }
