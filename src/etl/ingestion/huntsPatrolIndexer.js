@@ -539,7 +539,24 @@ async function getActivityDbId(chainId, activityType, activityId) {
     SELECT id FROM pve_activities 
     WHERE chain_id = ${chainId} AND activity_type = ${activityType} AND activity_id = ${activityId}
   `);
-  return result[0]?.id || null;
+  if (result[0]?.id) return result[0].id;
+
+  // Fallback for patrol: event args[0] is a patrol instance ID (e.g. 192233), not the
+  // patrol type ID (1=Night Raid, 2=Dark Water, 3=Blood Moon Rising). The contract
+  // doesn't expose type from instance ID via a simple call, so fall back to the first
+  // available patrol activity for this chain so completions are always stored.
+  if (activityType === 'patrol') {
+    const fallback = await rawPg`
+      SELECT id FROM pve_activities
+      WHERE chain_id = ${chainId} AND activity_type = 'patrol'
+      ORDER BY activity_id ASC LIMIT 1
+    `;
+    if (fallback[0]?.id) {
+      console.log(`[PVE metis] Patrol instance ${activityId} → using fallback activity id ${fallback[0].id}`);
+      return fallback[0].id;
+    }
+  }
+  return null;
 }
 
 // Get or create loot item

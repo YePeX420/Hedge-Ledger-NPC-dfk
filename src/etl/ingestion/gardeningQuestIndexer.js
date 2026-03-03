@@ -988,10 +988,12 @@ async function indexBlockRange(fromBlock, toBlock, indexerName, workerId = null)
         }
         
         if (events.length > 0) {
-          await db.insert(gardeningQuestRewards)
-            .values(events)
-            .onConflictDoNothing();
-          
+          const CHUNK_SIZE = 500;
+          for (let ci = 0; ci < events.length; ci += CHUNK_SIZE) {
+            await db.insert(gardeningQuestRewards)
+              .values(events.slice(ci, ci + CHUNK_SIZE))
+              .onConflictDoNothing();
+          }
           totalEventsFound += events.length;
           eventsInBatch = events.length;
         }
