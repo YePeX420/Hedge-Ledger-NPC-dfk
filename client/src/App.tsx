@@ -44,6 +44,7 @@ import AdminMarketIntel from "@/pages/admin/market-intel";
 import AdminHeroPrice from "@/pages/admin/hero-price";
 import AdminProfitTracker from "@/pages/admin/profit-tracker";
 import AdminPVEDropRates from "@/pages/admin/pve-droprates";
+import AdminPatrolRewards from "@/pages/admin/patrol-rewards";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
 import CombatClasses from "@/pages/admin/combat-classes";
 import HedgePlansAccess from "@/pages/admin/hedge-plans-access";
@@ -380,6 +381,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminPVEDropRates />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
+      <Route path="/admin/patrol-rewards">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminPatrolRewards />
           </ProtectedAdminPage>
         )}
       </Route>

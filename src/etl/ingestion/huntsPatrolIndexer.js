@@ -458,6 +458,13 @@ async function initializePVETables() {
     } catch (e) {
       // Column may already exist
     }
+
+    // Schema migration: fights_completed tracks how many stages were done (3 = eligible for WMETIS refund)
+    try {
+      await db.execute(sql`ALTER TABLE pve_completions ADD COLUMN IF NOT EXISTS fights_completed INTEGER DEFAULT 0`);
+    } catch (e) {
+      // Column may already exist
+    }
     
     // Create equipment stats table for enriched data (fetched from NFT contracts)
     await db.execute(sql`
@@ -719,6 +726,7 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
           let activityId;
           let playerAddress;
           let heroIds = [];
+          let fightsCompleted = 0;
           
           if (config.activityType === 'hunt') {
             // Parse HuntCompleted event
@@ -750,15 +758,13 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
             });
             if (!parsed) continue;
             
-            activityId = Number(parsed.args[0]);
+            activityId = Number(parsed.args[0] ?? parsed.args.patrolId);
             playerAddress = (parsed.args.player || parsed.args[1]).toLowerCase();
+            fightsCompleted = Number(parsed.args[2] ?? parsed.args.fightsCompleted ?? 0);
             
-            if (!parsed.args.patrolWon && parsed.args[3] === false) {
+            if (parsed.args[3] === false || parsed.args.patrolWon === false) {
               continue; // Patrol was lost
             }
-            
-            // Default to trial 1 for now
-            activityId = 1;
           }
           
           // Get activity database ID
@@ -816,10 +822,11 @@ async function indexBlockRange(chain, fromBlock, toBlock) {
             const insertSQL = `
               INSERT INTO pve_completions (
                 tx_hash, block_number, chain_id, activity_id, player_address, 
-                party_luck, scavenger_bonus_pct, completed_at
+                party_luck, scavenger_bonus_pct, completed_at, fights_completed
               ) VALUES (
                 '${txHash}', ${completionLog.blockNumber}, ${config.chainId}, ${activityIdInDb},
-                '${playerAddress}', ${safePartyLuck}, ${safeScavengerBonus}, '${completedAtIso}'
+                '${playerAddress}', ${safePartyLuck}, ${safeScavengerBonus}, '${completedAtIso}',
+                ${fightsCompleted}
               )
               ON CONFLICT (tx_hash) DO NOTHING
               RETURNING id
@@ -1002,7 +1009,7 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
           });
           if (!parsed) continue;
           
-          let activityIdOnChain, playerAddress, heroIds, petIds, partyLuck, victory;
+          let activityIdOnChain, playerAddress, heroIds, petIds, partyLuck, victory, fightsCompletedW = 0;
           
           if (config.activityType === 'hunt') {
             const huntTuple = parsed.args[1] || parsed.args.hunt;
@@ -1018,9 +1025,11 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
             petIds = [];
             partyLuck = 0;
           } else {
-            activityIdOnChain = (parsed.args[0] || parsed.args.patrolId).toString();
+            activityIdOnChain = (parsed.args[0] ?? parsed.args.patrolId).toString();
             playerAddress = (parsed.args[1] || parsed.args.player).toLowerCase();
-            victory = parsed.args[3] || parsed.args.patrolWon;
+            fightsCompletedW = Number(parsed.args[2] ?? parsed.args.fightsCompleted ?? 0);
+            victory = parsed.args[3] ?? parsed.args.patrolWon;
+            if (!victory) continue; // Skip lost patrols
             heroIds = [];
             petIds = [];
             partyLuck = 0;
@@ -1048,11 +1057,12 @@ async function indexWorkerBlockRange(chain, workerId, fromBlock, toBlock) {
           const completionSQLW = `
             INSERT INTO pve_completions (
               tx_hash, block_number, chain_id, activity_id, player_address,
-              party_luck, scavenger_bonus_pct, completed_at
+              party_luck, scavenger_bonus_pct, completed_at, fights_completed
             ) VALUES (
               '${txHash}', ${completionLog.blockNumber}, ${config.chainId},
               ${activityIdInDb}, '${playerAddress}',
-              ${partyLuck}, ${scavengerBonusPct}, '${completedAtIsoW}'
+              ${partyLuck}, ${scavengerBonusPct}, '${completedAtIsoW}',
+              ${fightsCompletedW}
             )
             ON CONFLICT (tx_hash) DO NOTHING
           `;

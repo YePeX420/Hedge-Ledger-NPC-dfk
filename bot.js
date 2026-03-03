@@ -3571,6 +3571,19 @@ async function initializeEconomicSystem() {
   } catch (err) {
     console.warn('⚠️ Dashboard users table check failed:', err.message);
   }
+
+  // Ensure pve_completions schema has required columns (may not exist yet if indexer never ran)
+  try {
+    const { rawPg } = await import('./server/db.js');
+    await rawPg`ALTER TABLE pve_completions ADD COLUMN IF NOT EXISTS fights_completed INTEGER DEFAULT 0`;
+    await rawPg`ALTER TABLE pve_completions ADD COLUMN IF NOT EXISTS native_gas_refund NUMERIC(30, 0) DEFAULT 0`;
+    console.log('✅ pve_completions schema columns verified');
+  } catch (err) {
+    // Table may not exist yet if PVE indexer has never run — that's fine
+    if (!err.message?.includes('does not exist')) {
+      console.warn('⚠️ pve_completions schema check failed:', err.message);
+    }
+  }
   
   console.log('💰 Initializing pricing config...');
   await initializePricingConfig();
@@ -5901,6 +5914,171 @@ async function startAdminWebServer() {
       res.json({ ok: true, patrols: activities });
     } catch (error) {
       console.error('[PVE API] Error fetching patrols:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/pve/patrol-health - Refund pool health check (last 24h on Metis)
+  app.get("/api/pve/patrol-health", async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+
+      // Global stats: eligible (fights_completed=3) vs actually refunded
+      const statsRows = await rawPg`
+        SELECT
+          COUNT(*) FILTER (WHERE c.fights_completed = 3)::int AS eligible_completions,
+          COUNT(DISTINCT c.tx_hash) FILTER (
+            WHERE c.fights_completed = 3
+            AND EXISTS (
+              SELECT 1 FROM pve_reward_events r
+              JOIN pve_loot_items l ON r.item_id = l.id
+              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
+            )
+          )::int AS refunded_completions,
+          COALESCE(SUM(
+            CASE WHEN c.fights_completed = 3 THEN (
+              SELECT COALESCE(SUM(r.amount), 0)
+              FROM pve_reward_events r
+              JOIN pve_loot_items l ON r.item_id = l.id
+              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
+            ) ELSE 0 END
+          ), 0) AS total_wmetis_24h,
+          MAX(
+            CASE WHEN EXISTS (
+              SELECT 1 FROM pve_reward_events r
+              JOIN pve_loot_items l ON r.item_id = l.id
+              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
+            ) THEN c.completed_at ELSE NULL END
+          ) AS last_refund_at
+        FROM pve_completions c
+        WHERE c.chain_id = 1088
+          AND c.completed_at > NOW() - INTERVAL '24 hours'
+      `;
+
+      const s = statsRows[0] || {};
+      const eligible = parseInt(s.eligible_completions) || 0;
+      const refunded = parseInt(s.refunded_completions) || 0;
+      const refundRatePct = eligible > 0 ? Math.round((refunded / eligible) * 1000) / 10 : null;
+      const totalWmetis24h = parseFloat(s.total_wmetis_24h) || 0;
+      const avgWmetisPerRefund = refunded > 0 ? Math.round((totalWmetis24h / refunded) * 1000) / 1000 : null;
+
+      // Also get all-time totals
+      const totalsRows = await rawPg`
+        SELECT
+          COUNT(*)::int AS total_completions_all_time,
+          COUNT(*) FILTER (WHERE fights_completed = 3)::int AS total_full_completions,
+          COALESCE(SUM(
+            CASE WHEN fights_completed = 3 THEN (
+              SELECT COALESCE(SUM(r.amount), 0)
+              FROM pve_reward_events r
+              JOIN pve_loot_items l ON r.item_id = l.id
+              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
+            ) ELSE 0 END
+          ), 0) AS total_wmetis_all_time
+        FROM pve_completions c
+        WHERE c.chain_id = 1088
+      `;
+      const t = totalsRows[0] || {};
+
+      res.json({
+        ok: true,
+        stats: {
+          eligible_completions: eligible,
+          refunded_completions: refunded,
+          refund_rate_pct: refundRatePct,
+          total_wmetis_24h: totalWmetis24h,
+          avg_wmetis_per_refund: avgWmetisPerRefund,
+          last_refund_at: s.last_refund_at || null,
+          total_completions_all_time: parseInt(t.total_completions_all_time) || 0,
+          total_full_completions_all_time: parseInt(t.total_full_completions) || 0,
+          total_wmetis_all_time: parseFloat(t.total_wmetis_all_time) || 0,
+        }
+      });
+    } catch (error) {
+      console.error('[PVE API] Error fetching patrol health:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/pve/patrol-rewards?wallet= - Per-wallet patrol history on Metis
+  app.get("/api/pve/patrol-rewards", async (req, res) => {
+    try {
+      const wallet = (req.query.wallet || '').toLowerCase().trim();
+      if (!wallet) return res.status(400).json({ ok: false, error: 'wallet param required' });
+      const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+      const offset = parseInt(req.query.offset) || 0;
+
+      const { rawPg } = await import('./server/db.js');
+
+      const rows = await rawPg`
+        SELECT
+          c.id,
+          c.tx_hash,
+          c.completed_at,
+          c.fights_completed,
+          c.chain_id,
+          a.name AS patrol_name,
+          a.activity_id AS patrol_type_id,
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'item_name', l.name,
+                'item_type', l.item_type,
+                'amount',    r.amount,
+                'item_address', l.item_address
+              ) ORDER BY l.item_type DESC, l.name
+            ) FILTER (WHERE r.id IS NOT NULL),
+            '[]'::json
+          ) AS rewards,
+          COALESCE(SUM(CASE WHEN l.item_type = 'gas_refund' THEN r.amount ELSE 0 END), 0) AS wmetis_refunded
+        FROM pve_completions c
+        LEFT JOIN pve_activities a ON c.activity_id = a.id
+        LEFT JOIN pve_reward_events r ON r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id
+        LEFT JOIN pve_loot_items l ON r.item_id = l.id
+        WHERE LOWER(c.player_address) = ${wallet}
+          AND c.chain_id = 1088
+        GROUP BY c.id, c.tx_hash, c.completed_at, c.fights_completed, c.chain_id, a.name, a.activity_id
+        ORDER BY c.completed_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+
+      const summaryRows = await rawPg`
+        SELECT
+          COUNT(*)::int AS total_completions,
+          COUNT(*) FILTER (WHERE fights_completed = 3)::int AS total_full_completions,
+          COALESCE(SUM(
+            CASE WHEN fights_completed = 3 THEN (
+              SELECT COALESCE(SUM(r.amount), 0)
+              FROM pve_reward_events r
+              JOIN pve_loot_items l ON r.item_id = l.id
+              WHERE r.tx_hash = c.tx_hash AND r.chain_id = c.chain_id AND l.item_type = 'gas_refund'
+            ) ELSE 0 END
+          ), 0) AS total_wmetis_earned,
+          MIN(c.completed_at) AS first_patrol_at,
+          MAX(c.completed_at) AS last_patrol_at
+        FROM pve_completions c
+        WHERE LOWER(c.player_address) = ${wallet}
+          AND c.chain_id = 1088
+      `;
+      const sm = summaryRows[0] || {};
+
+      res.json({
+        ok: true,
+        completions: rows.map(r => ({
+          ...r,
+          wmetis_refunded: parseFloat(r.wmetis_refunded) || 0,
+          rewards: typeof r.rewards === 'string' ? JSON.parse(r.rewards) : r.rewards,
+        })),
+        summary: {
+          total_completions: parseInt(sm.total_completions) || 0,
+          total_full_completions: parseInt(sm.total_full_completions) || 0,
+          total_wmetis_earned: parseFloat(sm.total_wmetis_earned) || 0,
+          first_patrol_at: sm.first_patrol_at || null,
+          last_patrol_at: sm.last_patrol_at || null,
+        }
+      });
+    } catch (error) {
+      console.error('[PVE API] Error fetching patrol rewards:', error);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
     }
   });

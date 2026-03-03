@@ -76,6 +76,7 @@ const navItems = [
   { href: '/admin/hero-price', label: 'Hero Price Tool', icon: DollarSign },
   { href: '/admin/profit-tracker', label: 'Profit Tracker', icon: DollarSign },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
+  { href: '/admin/patrol-rewards', label: 'Patrol Rewards', icon: Coins },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
   { href: '/admin/hedge/combat-sync', label: 'Hedge: Combat Sync', icon: RefreshCw },
