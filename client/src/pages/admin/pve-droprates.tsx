@@ -223,12 +223,15 @@ function ChainCard({
   onStart: () => void;
   onStop: () => void;
   onRun: () => void;
-  onReset: () => void;
+  onReset: (toBlock: number) => void;
   isStarting: boolean;
   isStopping: boolean;
   isRunning: boolean;
   isResetting: boolean;
 }) {
+  const defaultResetBlock = chain === 'metis' ? 19400000 : 0;
+  const [resetBlock, setResetBlock] = useState<string>(String(defaultResetBlock));
+
   const isChainRunning = liveProgress?.isRunning || chainStatus.isAutoRunning;
   const chainName = chain === 'dfk' ? 'DFK Chain' : 'Metis';
   const activityType = chain === 'dfk' ? 'Hunts' : 'Patrols';
@@ -374,23 +377,41 @@ function ChainCard({
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Reset {chainName} Data?</AlertDialogTitle>
+                <AlertDialogTitle>Reset {chainName} Checkpoint</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will delete all indexed {activityType.toLowerCase()} data including completions, rewards, and equipment drops. 
-                  You'll need to re-index to restore the data with the latest capture fields.
+                  Set the indexer checkpoint to a specific block number. The indexer will re-scan from that block on the next run, updating existing rows with correct <code>fights_completed</code> and <code>native_gas_refund</code> values. Use block <strong>0</strong> to clear all data and start fresh.
                 </AlertDialogDescription>
               </AlertDialogHeader>
+              <div className="px-1 pb-2 space-y-1">
+                <label className="text-sm font-medium" htmlFor={`reset-block-${chain}`}>
+                  Reset to block #
+                </label>
+                <input
+                  id={`reset-block-${chain}`}
+                  data-testid={`input-${chain}-reset-block`}
+                  type="number"
+                  min={0}
+                  value={resetBlock}
+                  onChange={e => setResetBlock(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="e.g. 19400000"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Metis completions start at block ~19,474,860. Use 19,400,000 to backfill all rows.
+                  Set to 0 to wipe all data.
+                </p>
+              </div>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={onReset}
+                  onClick={() => onReset(parseInt(resetBlock) || 0)}
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   data-testid={`button-${chain}-confirm-reset`}
                 >
                   {isResetting ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   ) : null}
-                  Reset All Data
+                  Reset to Block {parseInt(resetBlock) || 0}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -746,11 +767,14 @@ export default function AdminPVEDropRates() {
   });
 
   const resetMutation = useMutation({
-    mutationFn: async (chain: string) => {
-      return await apiRequest("POST", `/api/admin/pve/reset/${chain}`, { toBlock: 0 });
+    mutationFn: async ({ chain, toBlock }: { chain: string; toBlock: number }) => {
+      return await apiRequest("POST", `/api/admin/pve/reset/${chain}`, { toBlock });
     },
-    onSuccess: (_, chain) => {
-      toast({ title: "Reset complete", description: `${chain.toUpperCase()} data cleared. Ready to re-index.` });
+    onSuccess: (_, { chain, toBlock }) => {
+      const msg = toBlock === 0
+        ? `${chain.toUpperCase()} data cleared. Ready to re-index from scratch.`
+        : `${chain.toUpperCase()} checkpoint set to block ${toBlock.toLocaleString()}. Start the indexer to backfill.`;
+      toast({ title: "Checkpoint reset", description: msg });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/pve/status'] });
       queryClient.invalidateQueries({ queryKey: ['/api/pve/hunts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/pve/patrols'] });
@@ -871,7 +895,7 @@ export default function AdminPVEDropRates() {
                   onStart={() => startMutation.mutate('dfk')}
                   onStop={() => stopMutation.mutate('dfk')}
                   onRun={() => runMutation.mutate('dfk')}
-                  onReset={() => resetMutation.mutate('dfk')}
+                  onReset={(toBlock) => resetMutation.mutate({ chain: 'dfk', toBlock })}
                   isStarting={startMutation.isPending}
                   isStopping={stopMutation.isPending}
                   isRunning={runMutation.isPending}
@@ -884,7 +908,7 @@ export default function AdminPVEDropRates() {
                   onStart={() => startMutation.mutate('metis')}
                   onStop={() => stopMutation.mutate('metis')}
                   onRun={() => runMutation.mutate('metis')}
-                  onReset={() => resetMutation.mutate('metis')}
+                  onReset={(toBlock) => resetMutation.mutate({ chain: 'metis', toBlock })}
                   isStarting={startMutation.isPending}
                   isStopping={stopMutation.isPending}
                   isRunning={runMutation.isPending}
