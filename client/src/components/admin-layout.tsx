@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, useRef } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useAuth } from '@/lib/auth';
 import { useQuery } from '@tanstack/react-query';
@@ -113,14 +113,23 @@ interface IndexersMenuProps {
 
 function IndexersMenu({ location, onNavClick }: IndexersMenuProps) {
   const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isActive = indexerPaths.some(p => location === p || location.startsWith(p));
+
+  const openMenu = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setOpen(true);
+  };
+  const closeMenu = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 150);
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <div
-          onMouseEnter={() => setOpen(true)}
-          onMouseLeave={() => setOpen(false)}
+          onMouseEnter={openMenu}
+          onMouseLeave={closeMenu}
           className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none ${
             isActive
               ? 'bg-primary text-primary-foreground'
@@ -135,11 +144,11 @@ function IndexersMenu({ location, onNavClick }: IndexersMenuProps) {
       </PopoverTrigger>
       <PopoverContent
         side="right"
-        sideOffset={8}
+        sideOffset={4}
         align="start"
         className="p-2 w-52"
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
+        onMouseEnter={openMenu}
+        onMouseLeave={closeMenu}
         onOpenAutoFocus={e => e.preventDefault()}
       >
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 pb-1">
@@ -178,14 +187,23 @@ interface GardeningMenuProps {
 
 function GardeningMenu({ location, onNavClick }: GardeningMenuProps) {
   const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isActive = gardeningPaths.some(p => location === p || location.startsWith(p));
+
+  const openMenu = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setOpen(true);
+  };
+  const closeMenu = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 150);
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <div
-          onMouseEnter={() => setOpen(true)}
-          onMouseLeave={() => setOpen(false)}
+          onMouseEnter={openMenu}
+          onMouseLeave={closeMenu}
           className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none ${
             isActive
               ? 'bg-primary text-primary-foreground'
@@ -200,11 +218,11 @@ function GardeningMenu({ location, onNavClick }: GardeningMenuProps) {
       </PopoverTrigger>
       <PopoverContent
         side="right"
-        sideOffset={8}
+        sideOffset={4}
         align="start"
         className="p-2 w-52"
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
+        onMouseEnter={openMenu}
+        onMouseLeave={closeMenu}
         onOpenAutoFocus={e => e.preventDefault()}
       >
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 pb-1">
@@ -243,14 +261,23 @@ interface TavernMenuProps {
 
 function TavernMenu({ location, onNavClick }: TavernMenuProps) {
   const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isActive = tavernPaths.some(p => location === p || location.startsWith(p));
+
+  const openMenu = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setOpen(true);
+  };
+  const closeMenu = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 150);
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <div
-          onMouseEnter={() => setOpen(true)}
-          onMouseLeave={() => setOpen(false)}
+          onMouseEnter={openMenu}
+          onMouseLeave={closeMenu}
           className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none ${
             isActive
               ? 'bg-primary text-primary-foreground'
@@ -265,11 +292,11 @@ function TavernMenu({ location, onNavClick }: TavernMenuProps) {
       </PopoverTrigger>
       <PopoverContent
         side="right"
-        sideOffset={8}
+        sideOffset={4}
         align="start"
         className="p-2 w-52"
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
+        onMouseEnter={openMenu}
+        onMouseLeave={closeMenu}
         onOpenAutoFocus={e => e.preventDefault()}
       >
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 pb-1">
