@@ -55,13 +55,21 @@ const indexerItems = [
   { href: '/admin/pool-indexer-v1', label: 'Pool Indexer V1', icon: Database },
   { href: '/admin/pool-indexer-harmony', label: 'Pool Indexer Harmony', icon: Database },
   { href: '/admin/jeweler', label: 'Jeweler', icon: Gem },
-  { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
   { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
   { href: '/admin/patrol-rewards', label: 'Patrol Rewards', icon: Coins },
 ];
 
 const indexerPaths = indexerItems.map(i => i.href);
+
+const gardeningItems = [
+  { href: '/admin/pools', label: 'Pools', icon: Droplets },
+  { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
+  { href: '/admin/gardening-calc', label: 'Gardening Calculator', icon: Calculator },
+  { href: '/admin/yield-calculator', label: 'Yield Calculator', icon: TrendingUp },
+];
+
+const gardeningPaths = gardeningItems.map(i => i.href);
 
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -70,9 +78,6 @@ const navItems = [
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/value-allocation', label: 'Value Allocation', icon: PieChart },
   { href: '/admin/tokens', label: 'Token Registry', icon: Coins },
-  { href: '/admin/pools', label: 'Pools', icon: Droplets },
-  { href: '/admin/gardening-calc', label: 'Gardening Calculator', icon: Calculator },
-  { href: '/admin/yield-calculator', label: 'Yield Calculator', icon: TrendingUp },
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Swords },
   { href: '/admin/summoning-calculator', label: 'Summoning Calculator', icon: Dna },
   { href: '/admin/summon-sniper', label: 'Summon Sniper', icon: Target },
@@ -146,6 +151,71 @@ function IndexersMenu({ location, onNavClick }: IndexersMenuProps) {
                       : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                   }`}
                   data-testid={`nav-indexer-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span>{item.label}</span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+interface GardeningMenuProps {
+  location: string;
+  onNavClick: () => void;
+}
+
+function GardeningMenu({ location, onNavClick }: GardeningMenuProps) {
+  const [open, setOpen] = useState(false);
+  const isActive = gardeningPaths.some(p => location === p || location.startsWith(p));
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <div
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none ${
+            isActive
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+          }`}
+          data-testid="nav-gardening-tools"
+        >
+          <Sprout className="w-4 h-4 shrink-0" />
+          <span>Gardening Tools</span>
+          <ChevronRight className="w-4 h-4 ml-auto shrink-0" />
+        </div>
+      </PopoverTrigger>
+      <PopoverContent
+        side="right"
+        sideOffset={8}
+        align="start"
+        className="p-2 w-52"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onOpenAutoFocus={e => e.preventDefault()}
+      >
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 pb-1">
+          Gardening Tools
+        </p>
+        <div className="space-y-0.5">
+          {gardeningItems.map((item) => {
+            const Icon = item.icon;
+            const itemActive = location === item.href || location.startsWith(item.href);
+            return (
+              <Link key={item.href} href={item.href} onClick={() => { setOpen(false); onNavClick(); }}>
+                <div
+                  className={`flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer ${
+                    itemActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  }`}
+                  data-testid={`nav-gardening-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                 >
                   <Icon className="w-3.5 h-3.5 shrink-0" />
                   <span>{item.label}</span>
@@ -254,6 +324,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
           {/* Indexers flyout — placed after AI Consultant */}
           <IndexersMenu location={location} onNavClick={handleNavClick} />
+
+          {/* Gardening Tools flyout */}
+          <GardeningMenu location={location} onNavClick={handleNavClick} />
 
           {/* Remaining nav items */}
           {navItems.slice(2).map((item) => {
