@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react';
-import { AdminLayout } from '@/components/admin-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -7,9 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import {
-  ArrowUpDown, ArrowDown, ArrowUp, Search, ShoppingCart,
-  TrendingUp, TrendingDown, Coins, Activity, Wallet
+  ArrowUpDown, ArrowDown, ArrowUp, Search,
+  Coins, Activity, Wallet
 } from 'lucide-react';
+
+interface CostBasis {
+  value: number | null;
+  source: 'buy' | 'lastSale' | 'summoned' | null;
+}
 
 interface Trade {
   itemType: 'hero' | 'pet';
@@ -33,6 +37,7 @@ interface Trade {
   realm: 'CRY' | 'SUN' | 'SD';
   currency: 'CRYSTAL' | 'JEWEL' | 'JADE';
   date: string | null;
+  costBasis?: CostBasis | null;
 }
 
 interface CurrencyTotals {
@@ -53,7 +58,7 @@ interface ActivityData {
   };
 }
 
-type SortField = 'date' | 'price' | 'level' | 'rarityNum' | 'mainClass' | 'itemType' | 'realm';
+type SortField = 'date' | 'price' | 'level' | 'rarityNum' | 'mainClass' | 'itemType' | 'realm' | 'pl';
 type SortDir = 'asc' | 'desc';
 type ItemFilter = 'all' | 'hero' | 'pet';
 type RealmFilter = 'all' | 'CRY' | 'SUN' | 'SD';
@@ -78,6 +83,13 @@ const CURRENCY_COLORS: Record<string, string> = {
   JEWEL:   'text-amber-600 dark:text-amber-400',
   JADE:    'text-green-600 dark:text-green-400',
 };
+
+function getPL(trade: Trade): number | null {
+  if (trade.type !== 'sell') return null;
+  const cb = trade.costBasis;
+  if (!cb || cb.source === 'summoned' || cb.value == null || trade.price == null) return null;
+  return Math.round((trade.price - cb.value) * 100) / 100;
+}
 
 export default function TavernWalletActivity() {
   const [address, setAddress] = useState('');
@@ -126,18 +138,24 @@ export default function TavernWalletActivity() {
     else if (txFilter === 'held') list = list.filter(t => t.held);
 
     return list.slice().sort((a, b) => {
-      let av: any = sortField === 'date'
-        ? (a.date ? new Date(a.date).getTime() : 0)
-        : sortField === 'mainClass' ? (a.mainClass || a.petName || '')
-        : sortField === 'itemType' ? a.itemType
-        : sortField === 'realm' ? a.realm
-        : (a as any)[sortField];
-      let bv: any = sortField === 'date'
-        ? (b.date ? new Date(b.date).getTime() : 0)
-        : sortField === 'mainClass' ? (b.mainClass || b.petName || '')
-        : sortField === 'itemType' ? b.itemType
-        : sortField === 'realm' ? b.realm
-        : (b as any)[sortField];
+      let av: any, bv: any;
+      if (sortField === 'date') {
+        av = a.date ? new Date(a.date).getTime() : 0;
+        bv = b.date ? new Date(b.date).getTime() : 0;
+      } else if (sortField === 'mainClass') {
+        av = a.mainClass || a.petName || '';
+        bv = b.mainClass || b.petName || '';
+      } else if (sortField === 'pl') {
+        av = getPL(a);
+        bv = getPL(b);
+      } else if (sortField === 'itemType') {
+        av = a.itemType; bv = b.itemType;
+      } else if (sortField === 'realm') {
+        av = a.realm; bv = b.realm;
+      } else {
+        av = (a as any)[sortField];
+        bv = (b as any)[sortField];
+      }
       if (av == null) av = sortDir === 'desc' ? -Infinity : Infinity;
       if (bv == null) bv = sortDir === 'desc' ? -Infinity : Infinity;
       return sortDir === 'desc' ? (bv > av ? 1 : -1) : (av > bv ? 1 : -1);
@@ -157,11 +175,10 @@ export default function TavernWalletActivity() {
   const formatDate = (iso: string | null) =>
     iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 
-  const formatPrice = (p: number | null) =>
+  const formatNum = (p: number | null) =>
     p == null ? '—' : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const activeCurrencies = data ? Object.keys(data.currencySummary) : [];
-
   const heldCount = data?.summary.heldCount ?? 0;
   const buysCount = (data?.buys.length ?? 0) - heldCount;
   const sellsCount = data?.sells.length ?? 0;
@@ -203,10 +220,8 @@ export default function TavernWalletActivity() {
 
       {!loading && data && (
         <div className="space-y-4">
-
-          {/* Summary cards — one per active currency */}
+          {/* Summary cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Overall counts */}
             <Card>
               <CardHeader className="pb-2 flex flex-row items-center justify-between gap-1">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Transactions</CardTitle>
@@ -232,20 +247,20 @@ export default function TavernWalletActivity() {
                     <CardTitle className={`text-sm font-medium ${CURRENCY_COLORS[c] || ''}`}>{c}</CardTitle>
                     <Coins className="w-4 h-4 text-muted-foreground" />
                   </CardHeader>
-                  <CardContent className="space-y-1">
+                  <CardContent>
                     <div className="flex gap-4">
                       <div>
                         <p className="text-xs text-muted-foreground">Spent</p>
-                        <p className="text-base font-semibold text-red-500" data-testid={`stat-spent-${c}`}>{formatPrice(s.spent)}</p>
+                        <p className="text-base font-semibold text-red-500" data-testid={`stat-spent-${c}`}>{formatNum(s.spent)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Earned</p>
-                        <p className="text-base font-semibold text-green-500" data-testid={`stat-earned-${c}`}>{formatPrice(s.earned)}</p>
+                        <p className="text-base font-semibold text-green-500" data-testid={`stat-earned-${c}`}>{formatNum(s.earned)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">P&amp;L</p>
                         <p className={`text-base font-semibold ${profit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                          {profit >= 0 ? '+' : ''}{formatPrice(profit)}
+                          {profit >= 0 ? '+' : ''}{formatNum(profit)}
                         </p>
                       </div>
                     </div>
@@ -257,41 +272,24 @@ export default function TavernWalletActivity() {
 
           {/* Filters */}
           <div className="flex flex-wrap gap-2 items-center">
-            {/* Item type */}
             <div className="flex gap-1">
               {(['all', 'hero', 'pet'] as ItemFilter[]).map(f => (
-                <Button
-                  key={f}
-                  variant={itemFilter === f ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setItemFilter(f)}
-                  data-testid={`filter-item-${f}`}
-                >
+                <Button key={f} variant={itemFilter === f ? 'default' : 'outline'} size="sm"
+                  onClick={() => setItemFilter(f)} data-testid={`filter-item-${f}`}>
                   {f === 'all' ? 'All Items' : f === 'hero' ? 'Heroes' : 'Pets'}
                 </Button>
               ))}
             </div>
-
             <div className="w-px h-6 bg-border mx-1" />
-
-            {/* Realm */}
             <div className="flex gap-1">
               {(['all', 'CRY', 'SUN', 'SD'] as RealmFilter[]).map(r => (
-                <Button
-                  key={r}
-                  variant={realmFilter === r ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setRealmFilter(r)}
-                  data-testid={`filter-realm-${r}`}
-                >
+                <Button key={r} variant={realmFilter === r ? 'default' : 'outline'} size="sm"
+                  onClick={() => setRealmFilter(r)} data-testid={`filter-realm-${r}`}>
                   {r === 'all' ? 'All Realms' : r === 'CRY' ? 'Crystalvale' : r === 'SUN' ? 'Sundered Isles' : 'Serendale'}
                 </Button>
               ))}
             </div>
-
             <div className="w-px h-6 bg-border mx-1" />
-
-            {/* Transaction type */}
             <div className="flex gap-1">
               {([
                 { key: 'all', label: `All (${allTrades.length})` },
@@ -299,13 +297,8 @@ export default function TavernWalletActivity() {
                 { key: 'sell', label: `Sells (${sellsCount})` },
                 { key: 'held', label: `Held (${heldCount})` },
               ] as { key: TxFilter; label: string }[]).map(f => (
-                <Button
-                  key={f.key}
-                  variant={txFilter === f.key ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setTxFilter(f.key)}
-                  data-testid={`filter-tx-${f.key}`}
-                >
+                <Button key={f.key} variant={txFilter === f.key ? 'default' : 'outline'} size="sm"
+                  onClick={() => setTxFilter(f.key)} data-testid={`filter-tx-${f.key}`}>
                   {f.label}
                 </Button>
               ))}
@@ -359,6 +352,11 @@ export default function TavernWalletActivity() {
                         </button>
                       </th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                        <button className="flex items-center" onClick={() => toggleSort('pl')} data-testid="sort-pl">
+                          P&amp;L <SortIcon field="pl" />
+                        </button>
+                      </th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">
                         <button className="flex items-center" onClick={() => toggleSort('date')} data-testid="sort-date">
                           Date <SortIcon field="date" />
                         </button>
@@ -368,6 +366,11 @@ export default function TavernWalletActivity() {
                   <tbody>
                     {rows.map((row, i) => {
                       const realmInfo = REALM_LABELS[row.realm] || REALM_LABELS.CRY;
+                      const pl = getPL(row);
+                      const cb = row.costBasis;
+                      const isSummoned = cb?.source === 'summoned';
+                      const isEstimate = cb?.source === 'lastSale';
+
                       return (
                         <tr
                           key={row.auctionId + '-' + i}
@@ -375,22 +378,20 @@ export default function TavernWalletActivity() {
                           data-testid={`row-trade-${i}`}
                         >
                           <td className="px-4 py-2.5">
-                            <div className="flex gap-1 flex-wrap">
-                              {row.held ? (
-                                <Badge variant="outline" className="border-blue-500/50 text-blue-600 dark:text-blue-400">
-                                  Held
-                                </Badge>
-                              ) : (
-                                <Badge
-                                  variant="outline"
-                                  className={row.type === 'buy'
-                                    ? 'border-green-500/50 text-green-600 dark:text-green-400'
-                                    : 'border-red-500/50 text-red-600 dark:text-red-400'}
-                                >
-                                  {row.type === 'buy' ? 'Buy' : 'Sell'}
-                                </Badge>
-                              )}
-                            </div>
+                            {row.held ? (
+                              <Badge variant="outline" className="border-blue-500/50 text-blue-600 dark:text-blue-400">
+                                Held
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className={row.type === 'buy'
+                                  ? 'border-green-500/50 text-green-600 dark:text-green-400'
+                                  : 'border-red-500/50 text-red-600 dark:text-red-400'}
+                              >
+                                {row.type === 'buy' ? 'Buy' : 'Sell'}
+                              </Badge>
+                            )}
                           </td>
                           <td className="px-4 py-2.5">
                             <Badge variant="outline" className={realmInfo.color}>
@@ -413,21 +414,16 @@ export default function TavernWalletActivity() {
                             )}
                           </td>
                           <td className="px-4 py-2.5">
-                            <span className={RARITY_COLORS[row.rarity || ''] || ''}>
-                              {row.rarity || '—'}
-                            </span>
+                            <span className={RARITY_COLORS[row.rarity || ''] || ''}>{row.rarity || '—'}</span>
                           </td>
-                          <td className="px-4 py-2.5 text-center">
-                            {row.level ?? '—'}
-                          </td>
+                          <td className="px-4 py-2.5 text-center">{row.level ?? '—'}</td>
                           <td className="px-4 py-2.5">
                             {row.tokenId ? (
                               <a
                                 href={row.itemType === 'hero'
                                   ? `https://defikingdoms.com/heroes/${row.tokenId}`
                                   : `https://defikingdoms.com/pets/${row.tokenId}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                                target="_blank" rel="noopener noreferrer"
                                 className="text-primary hover:underline font-mono text-xs"
                                 data-testid={`link-token-${row.tokenId}`}
                               >
@@ -437,20 +433,40 @@ export default function TavernWalletActivity() {
                           </td>
                           <td className="px-4 py-2.5 text-muted-foreground text-xs">
                             {row.itemType === 'hero'
-                              ? (row.summons != null && row.maxSummons != null
-                                  ? `${row.summons}/${row.maxSummons} summons`
-                                  : '—')
+                              ? (row.summons != null && row.maxSummons != null ? `${row.summons}/${row.maxSummons} summons` : '—')
                               : (row.element || '—')}
                           </td>
                           <td className="px-4 py-2.5 font-mono text-sm">
                             {row.price != null ? (
                               <span>
-                                {formatPrice(row.price)}{' '}
+                                {formatNum(row.price)}{' '}
                                 <span className={`text-xs ${CURRENCY_COLORS[row.currency] || 'text-muted-foreground'}`}>
                                   {row.currency}
                                 </span>
                               </span>
                             ) : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-sm">
+                            {row.type !== 'sell' ? (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            ) : isSummoned ? (
+                              <span className="text-muted-foreground text-xs italic">Summoned</span>
+                            ) : pl != null ? (
+                              <span>
+                                <span className={pl >= 0 ? 'text-green-500' : 'text-red-500'}>
+                                  {pl >= 0 ? '+' : ''}{formatNum(pl)}
+                                </span>
+                                {' '}
+                                <span className={`text-xs ${CURRENCY_COLORS[row.currency] || 'text-muted-foreground'}`}>
+                                  {row.currency}
+                                </span>
+                                {isEstimate && (
+                                  <span className="text-xs text-muted-foreground ml-1" title="Estimated from last known market sale price">*</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
                           </td>
                           <td className="px-4 py-2.5 text-muted-foreground text-xs whitespace-nowrap">
                             {formatDate(row.date)}
@@ -460,6 +476,9 @@ export default function TavernWalletActivity() {
                     })}
                   </tbody>
                 </table>
+              </div>
+              <div className="px-4 py-2 border-t text-xs text-muted-foreground">
+                * P&amp;L marked with * is estimated using the last known market sale price as cost basis (hero was not bought in this wallet).
               </div>
             </Card>
           )}

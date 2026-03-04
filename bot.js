@@ -9274,6 +9274,91 @@ async function startAdminWebServer() {
       const buys = [...heroBuys.map(a => formatHero(a, 'buy')), ...petBuys.map(a => formatPet(a, 'buy'))];
       const sells = [...heroSells.map(a => formatHero(a, 'sell')), ...petSells.map(a => formatPet(a, 'sell'))];
 
+      // ── Cost Basis Calculation ─────────────────────────────────────────────
+      // Step 1: Build map of tokenId -> wallet buys sorted oldest-first for matching
+      const buysByToken = new Map();
+      for (const b of buys) {
+        if (!b.tokenId) continue;
+        if (!buysByToken.has(b.tokenId)) buysByToken.set(b.tokenId, []);
+        buysByToken.get(b.tokenId).push(b);
+      }
+      // Sort each token's buys oldest → newest so we match in chronological order
+      for (const arr of buysByToken.values()) {
+        arr.sort((a, b) => (a.date || '') < (b.date || '') ? -1 : 1);
+      }
+
+      // Track which buy index has been consumed per tokenId (FIFO matching)
+      const buyConsumedIdx = new Map();
+
+      const unmatchedSellTokenIds = new Set();
+
+      for (const sell of sells) {
+        const tid = sell.tokenId;
+        if (!tid) { sell.costBasis = null; continue; }
+
+        const walletBuys = buysByToken.get(tid) || [];
+        let idx = buyConsumedIdx.get(tid) || 0;
+        // Find the next unconsumed buy that happened before this sell
+        let matched = null;
+        while (idx < walletBuys.length) {
+          const candidate = walletBuys[idx];
+          if ((candidate.date || '') < (sell.date || '')) {
+            matched = candidate;
+            buyConsumedIdx.set(tid, idx + 1);
+            break;
+          }
+          idx++;
+        }
+
+        if (matched) {
+          sell.costBasis = { value: matched.price, source: 'buy' };
+        } else {
+          sell.costBasis = null; // placeholder — will try last market sale below
+          unmatchedSellTokenIds.add(tid);
+        }
+      }
+
+      // Step 2: For unmatched sells, batch-fetch last market sale price (hero only, 50 per request)
+      const unmatchedIds = [...unmatchedSellTokenIds].filter(Boolean);
+      const lastSalePriceMap = new Map();
+      if (unmatchedIds.length > 0) {
+        const CHUNK = 50;
+        for (let i = 0; i < unmatchedIds.length; i += CHUNK) {
+          const chunk = unmatchedIds.slice(i, i + CHUNK);
+          try {
+            const aliasQuery = '{ ' + chunk.map(tid => {
+              const alias = 'h' + tid.replace(/\D/g, '');
+              return alias + ': saleAuctions(where: { tokenId: "' + tid + '", endedAt_not: null } orderBy: endedAt orderDirection: desc first: 1) { purchasePrice endedAt }';
+            }).join(' ') + ' }';
+            const resp = await gqlFetch(aliasQuery);
+            if (resp?.data) {
+              chunk.forEach(tid => {
+                const alias = 'h' + tid.replace(/\D/g, '');
+                const sales = resp.data[alias];
+                if (sales && sales.length > 0) {
+                  const p = parsePrice(sales[0].purchasePrice);
+                  if (p != null) lastSalePriceMap.set(tid, p);
+                }
+              });
+            }
+          } catch (batchErr) {
+            console.warn('[WalletActivity] Last-sale batch failed:', batchErr.message?.slice(0, 60));
+          }
+        }
+      }
+
+      // Step 3: Apply last-sale prices and 'summoned' label to remaining unmatched sells
+      for (const sell of sells) {
+        if (sell.costBasis !== null) continue; // already matched
+        const tid = sell.tokenId;
+        if (tid && lastSalePriceMap.has(tid)) {
+          sell.costBasis = { value: lastSalePriceMap.get(tid), source: 'lastSale' };
+        } else {
+          sell.costBasis = { value: null, source: 'summoned' };
+        }
+      }
+      // ── End Cost Basis ─────────────────────────────────────────────────────
+
       const currencySummary = {};
       for (const t of [...buys, ...sells]) {
         const c = t.currency;
