@@ -9155,7 +9155,7 @@ async function startAdminWebServer() {
     }
   });
 
-  // GET /api/admin/tavern/wallet-activity - Hero buy/sell history for a wallet from DFK GraphQL
+  // GET /api/admin/tavern/wallet-activity - Hero & pet buy/sell/held history from DFK GraphQL
   app.get("/api/admin/tavern/wallet-activity", isAdmin, async (req, res) => {
     try {
       const address = (req.query.address || '').trim().toLowerCase();
@@ -9164,21 +9164,32 @@ async function startAdminWebServer() {
       }
 
       const DFK_GRAPH = 'https://api.defikingdoms.com/graphql';
-      const HERO_FIELDS = 'id mainClass subClass rarity level generation summons maxSummons';
+      const RARITY_MAP = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+      const ELEMENT_MAP = ['Fire', 'Water', 'Earth', 'Wind', 'Lightning', 'Ice', 'Light', 'Dark'];
 
-      async function paginate(buildQuery) {
+      function getRealmCurrency(network) {
+        const n = String(network || '').toLowerCase();
+        if (n === 'kaia' || n === 'klaytn' || n === 'sun') return { realm: 'SUN', currency: 'JEWEL' };
+        if (n === 'sd' || n === 'serendale') return { realm: 'SD', currency: 'JADE' };
+        return { realm: 'CRY', currency: 'CRYSTAL' };
+      }
+
+      async function gqlFetch(query) {
+        const r = await fetch(DFK_GRAPH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+        return r.json();
+      }
+
+      async function paginate(buildQuery, dataKey) {
         const results = [];
         let skip = 0;
         const first = 1000;
         while (true) {
-          const query = buildQuery(first, skip);
-          const r = await fetch(DFK_GRAPH, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query })
-          });
-          const data = await r.json();
-          const page = data?.data?.saleAuctions || [];
+          const data = await gqlFetch(buildQuery(first, skip));
+          const page = (data?.data?.[dataKey]) || [];
           results.push(...page);
           if (page.length < first) break;
           skip += first;
@@ -9186,69 +9197,105 @@ async function startAdminWebServer() {
         return results;
       }
 
-      const RARITY_MAP = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+      function parsePrice(wei) {
+        if (!wei || wei === '0') return null;
+        try { return Math.round(parseFloat(wei) / 1e18 * 100) / 100; } catch { return null; }
+      }
 
-      function formatAuction(a, type) {
-        const hero = a.tokenId || {};
-        const priceWei = a.purchasePrice || '0';
-        let price = null;
-        try {
-          if (priceWei && priceWei !== '0') {
-            price = Math.round(parseFloat(priceWei) / 1e18 * 100) / 100;
-          }
-        } catch (e) {}
+      const hf = 'id mainClass subClass rarity level generation summons maxSummons network';
+      const auctionFields = 'id purchasePrice endedAt seller { id } winner { id }';
+
+      const [heroBuys, heroSells, petBuys, petSells, ownedHeroes] = await Promise.all([
+        paginate((f, s) => '{ saleAuctions(where: { winner: "' + address + '" } orderBy: endedAt orderDirection: desc first: ' + f + ' skip: ' + s + ') { ' + auctionFields + ' tokenId { ' + hf + ' } } }', 'saleAuctions'),
+        paginate((f, s) => '{ saleAuctions(where: { seller: "' + address + '", endedAt_not: null } orderBy: endedAt orderDirection: desc first: ' + f + ' skip: ' + s + ') { ' + auctionFields + ' tokenId { ' + hf + ' } } }', 'saleAuctions'),
+        paginate((f, s) => '{ petAuctions(where: { winner: "' + address + '" } orderBy: endedAt orderDirection: desc first: ' + f + ' skip: ' + s + ') { ' + auctionFields + ' tokenId { id name rarity element } } }', 'petAuctions'),
+        paginate((f, s) => '{ petAuctions(where: { seller: "' + address + '", endedAt_not: null } orderBy: endedAt orderDirection: desc first: ' + f + ' skip: ' + s + ') { ' + auctionFields + ' tokenId { id name rarity element } } }', 'petAuctions'),
+        paginate((f, s) => '{ heroes(where: { owner: "' + address + '" } first: ' + f + ' skip: ' + s + ') { id } }', 'heroes'),
+      ]);
+
+      const ownedHeroIds = new Set(ownedHeroes.map(h => String(h.id)));
+
+      function formatHero(a, type) {
+        const h = a.tokenId || {};
+        const { realm, currency } = getRealmCurrency(h.network);
+        const tokenId = h.id ? String(h.id) : null;
         return {
+          itemType: 'hero',
           type,
+          held: type === 'buy' && tokenId ? ownedHeroIds.has(tokenId) : false,
           auctionId: a.id,
-          heroId: hero.id ? String(hero.id) : null,
-          mainClass: hero.mainClass || null,
-          subClass: hero.subClass || null,
-          rarity: hero.rarity != null ? (RARITY_MAP[hero.rarity] || String(hero.rarity)) : null,
-          rarityNum: hero.rarity != null ? hero.rarity : null,
-          level: hero.level || null,
-          generation: hero.generation || null,
-          summons: hero.summons != null ? hero.summons : null,
-          maxSummons: hero.maxSummons != null ? hero.maxSummons : null,
+          tokenId,
+          mainClass: h.mainClass || null,
+          subClass: h.subClass || null,
+          rarity: h.rarity != null ? (RARITY_MAP[Number(h.rarity)] || String(h.rarity)) : null,
+          rarityNum: h.rarity != null ? Number(h.rarity) : null,
+          level: h.level || null,
+          generation: h.generation || null,
+          summons: h.summons != null ? h.summons : null,
+          maxSummons: h.maxSummons != null ? h.maxSummons : null,
+          petName: null,
+          element: null,
           seller: a.seller?.id || null,
           buyer: a.winner?.id || null,
-          price,
+          price: parsePrice(a.purchasePrice),
+          realm,
+          currency,
           date: a.endedAt ? new Date(Number(a.endedAt) * 1000).toISOString() : null,
         };
       }
 
-      const [buyAuctions, sellAuctions] = await Promise.all([
-        paginate((first, skip) => `{
-          saleAuctions(where: { winner: \${address} } orderBy: endedAt orderDirection: desc first: \${first} skip: \${skip}) {
-            id purchasePrice endedAt
-            seller { id } winner { id }
-            tokenId { \${HERO_FIELDS} }
-          }
-        }`),
-        paginate((first, skip) => `{
-          saleAuctions(where: { seller: \${address}, endedAt_not: null } orderBy: endedAt orderDirection: desc first: \${first} skip: \${skip}) {
-            id purchasePrice endedAt
-            seller { id } winner { id }
-            tokenId { \${HERO_FIELDS} }
-          }
-        }`)
-      ]);
+      function formatPet(a, type) {
+        const p = a.tokenId || {};
+        return {
+          itemType: 'pet',
+          type,
+          held: false,
+          auctionId: a.id,
+          tokenId: p.id ? String(p.id) : null,
+          mainClass: null,
+          subClass: null,
+          rarity: p.rarity != null ? (RARITY_MAP[Number(p.rarity)] || String(p.rarity)) : null,
+          rarityNum: p.rarity != null ? Number(p.rarity) : null,
+          level: null,
+          generation: null,
+          summons: null,
+          maxSummons: null,
+          petName: p.name || null,
+          element: p.element != null ? (ELEMENT_MAP[Number(p.element)] || String(p.element)) : null,
+          seller: a.seller?.id || null,
+          buyer: a.winner?.id || null,
+          price: parsePrice(a.purchasePrice),
+          realm: 'CRY',
+          currency: 'CRYSTAL',
+          date: a.endedAt ? new Date(Number(a.endedAt) * 1000).toISOString() : null,
+        };
+      }
 
-      const buys = buyAuctions.map(a => formatAuction(a, 'buy'));
-      const sells = sellAuctions.map(a => formatAuction(a, 'sell'));
+      const buys = [...heroBuys.map(a => formatHero(a, 'buy')), ...petBuys.map(a => formatPet(a, 'buy'))];
+      const sells = [...heroSells.map(a => formatHero(a, 'sell')), ...petSells.map(a => formatPet(a, 'sell'))];
 
-      const totalSpent = buys.reduce((s, b) => s + (b.price || 0), 0);
-      const totalEarned = sells.reduce((s, b) => s + (b.price || 0), 0);
+      const currencySummary = {};
+      for (const t of [...buys, ...sells]) {
+        const c = t.currency;
+        if (!currencySummary[c]) currencySummary[c] = { spent: 0, earned: 0 };
+        if (t.type === 'buy') currencySummary[c].spent += t.price || 0;
+        else currencySummary[c].earned += t.price || 0;
+      }
+      for (const c of Object.keys(currencySummary)) {
+        currencySummary[c].spent = Math.round(currencySummary[c].spent * 100) / 100;
+        currencySummary[c].earned = Math.round(currencySummary[c].earned * 100) / 100;
+      }
 
       res.json({
         ok: true,
         address,
         buys,
         sells,
+        currencySummary,
         summary: {
           totalBuys: buys.length,
           totalSells: sells.length,
-          totalSpent: Math.round(totalSpent * 100) / 100,
-          totalEarned: Math.round(totalEarned * 100) / 100,
+          heldCount: buys.filter(b => b.held).length,
         }
       });
     } catch (err) {
@@ -10577,9 +10624,9 @@ async function startAdminWebServer() {
         CRY: {
           chainId: 53935,
           rpcs: [
-            'https://53935.rpc.thirdweb.com',
             'https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc',
             'https://avax-dfk.gateway.pokt.network/v1/lb/6244818c00b9f0003ad1b619/ext/bc/q2aTwKuyzgs8pynF7UXBZCU7DejbZbZ6EUyHr3JQzYgwNPUPi/rpc',
+            'https://53935.rpc.thirdweb.com',
           ],
           auction: '0x49744F76caA3B63CccE9CE7de5C8282C92c891e5',
         },
@@ -10591,8 +10638,8 @@ async function startAdminWebServer() {
       };
 
       const staleIds = new Set();
-      const BATCH_SIZE = 50;
-      const BATCH_DELAY_MS = 1000;
+      const BATCH_SIZE = 500;
+      const BATCH_DELAY_MS = 100;
       const VERIFY_TIMEOUT_MS = 120000;
 
       async function verifyRealmPets(realmKey, petsInRealm, multicall, auctionAddr) {
