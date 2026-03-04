@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { 
   Users, 
   Receipt, 
@@ -49,6 +50,19 @@ interface AdminLayoutProps {
   children: ReactNode;
 }
 
+const indexerItems = [
+  { href: '/admin/pool-indexer', label: 'Pool Indexer V2', icon: Database },
+  { href: '/admin/pool-indexer-v1', label: 'Pool Indexer V1', icon: Database },
+  { href: '/admin/pool-indexer-harmony', label: 'Pool Indexer Harmony', icon: Database },
+  { href: '/admin/jeweler', label: 'Jeweler', icon: Gem },
+  { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
+  { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
+  { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
+  { href: '/admin/patrol-rewards', label: 'Patrol Rewards', icon: Coins },
+];
+
+const indexerPaths = indexerItems.map(i => i.href);
+
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/ai-consultant', label: 'AI Consultant', icon: Bot },
@@ -57,11 +71,6 @@ const navItems = [
   { href: '/admin/value-allocation', label: 'Value Allocation', icon: PieChart },
   { href: '/admin/tokens', label: 'Token Registry', icon: Coins },
   { href: '/admin/pools', label: 'Pools', icon: Droplets },
-  { href: '/admin/pool-indexer', label: 'Pool Indexer V2', icon: Database },
-  { href: '/admin/pool-indexer-v1', label: 'Pool Indexer V1', icon: Database },
-  { href: '/admin/pool-indexer-harmony', label: 'Pool Indexer Harmony', icon: Database },
-  { href: '/admin/jeweler', label: 'Jeweler', icon: Gem },
-  { href: '/admin/gardening-quest', label: 'Gardening Quest', icon: Sprout },
   { href: '/admin/gardening-calc', label: 'Gardening Calculator', icon: Calculator },
   { href: '/admin/yield-calculator', label: 'Yield Calculator', icon: TrendingUp },
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Swords },
@@ -71,12 +80,9 @@ const navItems = [
   { href: '/admin/bargain-hunter', label: 'Bargain Hunter', icon: Zap },
   { href: '/admin/dark-bargain-hunter', label: 'Dark Bargain Hunter', icon: Sparkles },
   { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: Swords },
-  { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
   { href: '/admin/market-intel', label: 'Market Intel', icon: TrendingUp },
   { href: '/admin/hero-price', label: 'Hero Price Tool', icon: DollarSign },
   { href: '/admin/profit-tracker', label: 'Profit Tracker', icon: DollarSign },
-  { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
-  { href: '/admin/patrol-rewards', label: 'Patrol Rewards', icon: Coins },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
   { href: '/admin/hedge/combat-sync', label: 'Hedge: Combat Sync', icon: RefreshCw },
@@ -87,6 +93,71 @@ const navItems = [
   { href: '/admin/user-access', label: 'User Access', icon: UserCog },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];
+
+interface IndexersMenuProps {
+  location: string;
+  onNavClick: () => void;
+}
+
+function IndexersMenu({ location, onNavClick }: IndexersMenuProps) {
+  const [open, setOpen] = useState(false);
+  const isActive = indexerPaths.some(p => location === p || location.startsWith(p));
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <div
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none ${
+            isActive
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+          }`}
+          data-testid="nav-indexers"
+        >
+          <Database className="w-4 h-4 shrink-0" />
+          <span>Indexers</span>
+          <ChevronRight className="w-4 h-4 ml-auto shrink-0" />
+        </div>
+      </PopoverTrigger>
+      <PopoverContent
+        side="right"
+        sideOffset={8}
+        align="start"
+        className="p-2 w-52"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onOpenAutoFocus={e => e.preventDefault()}
+      >
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 pb-1">
+          Indexers
+        </p>
+        <div className="space-y-0.5">
+          {indexerItems.map((item) => {
+            const Icon = item.icon;
+            const itemActive = location === item.href || location.startsWith(item.href);
+            return (
+              <Link key={item.href} href={item.href} onClick={() => { setOpen(false); onNavClick(); }}>
+                <div
+                  className={`flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer ${
+                    itemActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  }`}
+                  data-testid={`nav-indexer-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span>{item.label}</span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const { user, logout } = useAuth();
@@ -158,11 +229,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
         {/* Navigation */}
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
+          {/* Dashboard */}
+          {navItems.slice(0, 2).map((item) => {
             const isActive = location === item.href || 
               (item.href !== '/admin' && location.startsWith(item.href));
             const Icon = item.icon;
-            
             return (
               <Link key={item.href} href={item.href} onClick={handleNavClick}>
                 <div
@@ -171,7 +242,33 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                       ? 'bg-primary text-primary-foreground' 
                       : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                   }`}
-                  data-testid={`nav-${item.label.toLowerCase()}`}
+                  data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{item.label}</span>
+                  {isActive && <ChevronRight className="w-4 h-4 ml-auto" />}
+                </div>
+              </Link>
+            );
+          })}
+
+          {/* Indexers flyout — placed after AI Consultant */}
+          <IndexersMenu location={location} onNavClick={handleNavClick} />
+
+          {/* Remaining nav items */}
+          {navItems.slice(2).map((item) => {
+            const isActive = location === item.href || 
+              (item.href !== '/admin' && location.startsWith(item.href));
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href} onClick={handleNavClick}>
+                <div
+                  className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
+                    isActive 
+                      ? 'bg-primary text-primary-foreground' 
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  }`}
+                  data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                 >
                   <Icon className="w-4 h-4" />
                   <span>{item.label}</span>
