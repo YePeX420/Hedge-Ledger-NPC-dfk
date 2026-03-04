@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Search, Coins, AlertTriangle, CheckCircle, XCircle, ExternalLink, Shield, Clock, TrendingUp } from "lucide-react";
+import { Loader2, Search, Coins, AlertTriangle, CheckCircle, XCircle, ExternalLink, Shield, Clock, TrendingUp, Droplets } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface PatrolHealthStats {
@@ -20,6 +20,9 @@ interface PatrolHealthStats {
   total_full_completions_all_time: number;
   total_metis_all_time: number;
   avg_metis_per_refund_all_time: number | null;
+  pool_balance_metis: number | null;
+  daily_burn_rate_metis: number;
+  estimated_runway_days: number | null;
 }
 
 interface RewardItem {
@@ -149,6 +152,105 @@ export default function AdminPatrolRewards() {
           </CardContent>
         </Card>
       )}
+
+      {/* Refund Pool Balance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Droplets className="w-4 h-4" />
+            Refund Pool — Available Funds
+          </CardTitle>
+          <CardDescription>
+            Native METIS held in the PVP Diamond contract (<code className="text-xs">0xc7681...b53B</code>) — this balance funds all gas refunds
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {healthLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Fetching pool balance...</span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-8 items-end">
+              {/* Pool Balance */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Pool Balance</p>
+                {stats?.pool_balance_metis != null ? (
+                  <p className="text-3xl font-bold tabular-nums">
+                    {stats.pool_balance_metis.toFixed(4)}
+                    <span className="text-base font-normal text-muted-foreground ml-2">METIS</span>
+                  </p>
+                ) : (
+                  <p className="text-lg text-muted-foreground">Balance unavailable</p>
+                )}
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  <a
+                    href="https://andromeda-explorer.metis.io/address/0xc7681698B14a2381d9f1eD69FC3D27F33965b53B"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 hover:text-foreground"
+                  >
+                    View on Explorer <ExternalLink className="w-3 h-3" />
+                  </a>
+                </p>
+              </div>
+
+              {/* Daily Burn Rate */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Daily Burn Rate</p>
+                <p className="text-xl font-semibold tabular-nums">
+                  {(stats?.daily_burn_rate_metis ?? 0) > 0
+                    ? stats!.daily_burn_rate_metis.toFixed(4)
+                    : '—'}
+                  {(stats?.daily_burn_rate_metis ?? 0) > 0 && (
+                    <span className="text-sm font-normal text-muted-foreground ml-1">METIS/day</span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">7-day average</p>
+              </div>
+
+              {/* Estimated Runway */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Estimated Runway</p>
+                {stats?.estimated_runway_days != null ? (
+                  <div className="flex items-center gap-2">
+                    {stats.estimated_runway_days > 30 ? (
+                      <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
+                    ) : stats.estimated_runway_days > 7 ? (
+                      <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0" />
+                    ) : (
+                      <XCircle className="w-5 h-5 text-destructive shrink-0" />
+                    )}
+                    <p className={`text-xl font-semibold tabular-nums ${
+                      stats.estimated_runway_days > 30
+                        ? 'text-green-500'
+                        : stats.estimated_runway_days > 7
+                        ? 'text-yellow-500'
+                        : 'text-destructive'
+                    }`}>
+                      {stats.estimated_runway_days.toFixed(1)}
+                      <span className="text-sm font-normal text-muted-foreground ml-1">days</span>
+                    </p>
+                  </div>
+                ) : (stats?.daily_burn_rate_metis ?? 0) === 0 ? (
+                  <p className="text-sm text-muted-foreground">No recent payouts — runway unknown</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Balance unavailable</p>
+                )}
+                {stats?.estimated_runway_days != null && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {stats.estimated_runway_days > 30
+                      ? 'Pool is well-funded'
+                      : stats.estimated_runway_days > 7
+                      ? 'Funding is getting low'
+                      : 'Pool critically low — refunds likely to stop soon'}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Pool Health Section */}
       <Card>

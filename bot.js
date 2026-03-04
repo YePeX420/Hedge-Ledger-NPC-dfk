@@ -5956,6 +5956,39 @@ async function startAdminWebServer() {
       `;
       const t = totalsRows[0] || {};
 
+      // 7-day burn rate for a smoother runway estimate
+      const sevenDayRows = await rawPg`
+        SELECT COALESCE(SUM(native_gas_refund) FILTER (WHERE fights_completed = 3), 0) AS total_metis_7d
+        FROM pve_completions
+        WHERE chain_id = 1088
+          AND completed_at > NOW() - INTERVAL '7 days'
+      `;
+      const totalMetis7d = parseFloat(sevenDayRows[0]?.total_metis_7d) || 0;
+      const dailyBurnRate = totalMetis7d / 7;
+
+      // Live PVP Diamond balance on Metis — this IS the refund pool
+      const PVP_DIAMOND_METIS = '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B';
+      const METIS_RPC = 'https://andromeda.metis.io/?owner=1088';
+      let poolBalanceMetis = null;
+      let estimatedRunwayDays = null;
+      try {
+        const rpcRes = await fetch(METIS_RPC, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [PVP_DIAMOND_METIS, 'latest'], id: 1 }),
+          signal: AbortSignal.timeout(6000),
+        });
+        const rpcData = await rpcRes.json();
+        if (rpcData?.result) {
+          poolBalanceMetis = Number(BigInt(rpcData.result)) / 1e18;
+          estimatedRunwayDays = dailyBurnRate > 0
+            ? Math.round((poolBalanceMetis / dailyBurnRate) * 10) / 10
+            : null;
+        }
+      } catch (rpcErr) {
+        console.warn('[PVE API] Failed to fetch PVP Diamond balance:', rpcErr?.message?.slice(0, 60));
+      }
+
       res.json({
         ok: true,
         stats: {
@@ -5969,6 +6002,9 @@ async function startAdminWebServer() {
           total_full_completions_all_time: parseInt(t.total_full_completions) || 0,
           total_metis_all_time: parseFloat(t.total_metis_all_time) || 0,
           avg_metis_per_refund_all_time: parseFloat(t.avg_metis_per_refund_all_time) || null,
+          pool_balance_metis: poolBalanceMetis,
+          daily_burn_rate_metis: Math.round(dailyBurnRate * 10000) / 10000,
+          estimated_runway_days: estimatedRunwayDays,
         }
       });
     } catch (error) {
