@@ -9,6 +9,11 @@ import {
   ArrowUpDown, ArrowDown, ArrowUp, Search,
   Coins, Activity, Wallet
 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface CostBasis {
   value: number | null;
@@ -83,6 +88,20 @@ const CURRENCY_COLORS: Record<string, string> = {
   JEWEL:   'text-amber-600 dark:text-amber-400',
   JADE:    'text-green-600 dark:text-green-400',
 };
+
+function getCostTooltip(row: Trade): string | null {
+  if (row.type === 'buy' || row.held) return 'Bought by this wallet';
+  if (row.type !== 'sell') return null;
+  const cb = row.costBasis;
+  if (!cb) return null;
+  if (cb.source === 'buy' && cb.value != null)
+    return `Bought by this wallet for ${cb.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${row.currency}`;
+  if (cb.source === 'lastSale')
+    return 'Estimated — last known market sale price. This hero was not bought in this wallet.';
+  if (cb.source === 'summoned')
+    return 'Summoned or transferred into this wallet — no market purchase history found.';
+  return null;
+}
 
 function getPL(trade: Trade): number | null {
   if (trade.type !== 'sell') return null;
@@ -378,6 +397,7 @@ export default function TavernWalletActivity() {
                       const cb = row.costBasis;
                       const isSummoned = cb?.source === 'summoned';
                       const isEstimate = cb?.source === 'lastSale';
+                      const costTooltip = getCostTooltip(row);
 
                       return (
                         <tr
@@ -446,29 +466,56 @@ export default function TavernWalletActivity() {
                           </td>
                           {/* Cost column */}
                           <td className="px-4 py-2.5 font-mono text-sm">
-                            {row.type === 'buy' || row.held ? (
-                              row.price != null ? (
+                            {costTooltip ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="cursor-help underline decoration-dotted decoration-muted-foreground/50 underline-offset-2">
+                                    {row.type === 'buy' || row.held ? (
+                                      row.price != null ? (
+                                        <span>
+                                          {formatNum(row.price)}{' '}
+                                          <span className={`text-xs ${CURRENCY_COLORS[row.currency] || 'text-muted-foreground'}`}>
+                                            {row.currency}
+                                          </span>
+                                        </span>
+                                      ) : '—'
+                                    ) : isSummoned ? (
+                                      <span className="text-muted-foreground text-xs italic">Summoned</span>
+                                    ) : cb?.value != null ? (
+                                      <span>
+                                        {formatNum(cb.value)}{' '}
+                                        <span className={`text-xs ${CURRENCY_COLORS[row.currency] || 'text-muted-foreground'}`}>
+                                          {row.currency}
+                                        </span>
+                                        {isEstimate && (
+                                          <span className="text-xs text-muted-foreground ml-1">*</span>
+                                        )}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground text-xs">—</span>
+                                    )}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs text-xs">
+                                  {costTooltip}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              isSummoned ? (
+                                <span className="text-muted-foreground text-xs italic">Summoned</span>
+                              ) : cb?.value != null ? (
                                 <span>
-                                  {formatNum(row.price)}{' '}
+                                  {formatNum(cb.value)}{' '}
                                   <span className={`text-xs ${CURRENCY_COLORS[row.currency] || 'text-muted-foreground'}`}>
                                     {row.currency}
                                   </span>
+                                  {isEstimate && (
+                                    <span className="text-xs text-muted-foreground ml-1">*</span>
+                                  )}
                                 </span>
-                              ) : '—'
-                            ) : isSummoned ? (
-                              <span className="text-muted-foreground text-xs italic">Summoned</span>
-                            ) : cb?.value != null ? (
-                              <span>
-                                {formatNum(cb.value)}{' '}
-                                <span className={`text-xs ${CURRENCY_COLORS[row.currency] || 'text-muted-foreground'}`}>
-                                  {row.currency}
-                                </span>
-                                {isEstimate && (
-                                  <span className="text-xs text-muted-foreground ml-1" title="Estimated from last known market sale price">*</span>
-                                )}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">—</span>
+                              )
                             )}
                           </td>
                           {/* Sell column */}
