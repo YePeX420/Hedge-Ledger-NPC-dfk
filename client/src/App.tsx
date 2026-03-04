@@ -40,6 +40,7 @@ import AdminQuestOptimizer from "@/pages/admin/quest-optimizer";
 import AdminBargainHunter from "@/pages/admin/bargain-hunter";
 import AdminDarkBargainHunter from "@/pages/admin/dark-bargain-hunter";
 import AdminTavernIndexer from "@/pages/admin/tavern-indexer";
+import AdminTavernWalletActivity from "@/pages/admin/tavern-wallet-activity";
 import AdminMarketIntel from "@/pages/admin/market-intel";
 import AdminHeroPrice from "@/pages/admin/hero-price";
 import AdminProfitTracker from "@/pages/admin/profit-tracker";
@@ -341,6 +342,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminTavernIndexer />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
+      <Route path="/admin/tavern-wallet-activity">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminTavernWalletActivity />
           </ProtectedAdminPage>
         )}
       </Route>

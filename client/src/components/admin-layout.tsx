@@ -37,7 +37,8 @@ import {
   Beer,
   Bot,
   Dumbbell,
-  UserCog
+  UserCog,
+  Activity
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -76,6 +77,7 @@ const tavernItems = [
   { href: '/admin/dark-bargain-hunter', label: 'Dark Bargain Hunter', icon: Sparkles },
   { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: Swords },
   { href: '/admin/hero-price', label: 'Hero Price Tool', icon: DollarSign },
+  { href: '/admin/tavern-wallet-activity', label: 'Wallet Activity', icon: Activity },
   { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
 ];
 

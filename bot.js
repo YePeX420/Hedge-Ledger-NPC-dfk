@@ -9155,6 +9155,108 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/tavern/wallet-activity - Hero buy/sell history for a wallet from DFK GraphQL
+  app.get("/api/admin/tavern/wallet-activity", isAdmin, async (req, res) => {
+    try {
+      const address = (req.query.address || '').trim().toLowerCase();
+      if (!address || !/^0x[a-f0-9]{40}$/.test(address)) {
+        return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+      }
+
+      const DFK_GRAPH = 'https://api.defikingdoms.com/graphql';
+      const HERO_FIELDS = 'id mainClass subClass rarity level generation summons maxSummons';
+
+      async function paginate(buildQuery) {
+        const results = [];
+        let skip = 0;
+        const first = 1000;
+        while (true) {
+          const query = buildQuery(first, skip);
+          const r = await fetch(DFK_GRAPH, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+          });
+          const data = await r.json();
+          const page = data?.data?.saleAuctions || [];
+          results.push(...page);
+          if (page.length < first) break;
+          skip += first;
+        }
+        return results;
+      }
+
+      const RARITY_MAP = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+
+      function formatAuction(a, type) {
+        const hero = a.tokenId || {};
+        const priceWei = a.purchasePrice || '0';
+        let price = null;
+        try {
+          if (priceWei && priceWei !== '0') {
+            price = Math.round(parseFloat(priceWei) / 1e18 * 100) / 100;
+          }
+        } catch (e) {}
+        return {
+          type,
+          auctionId: a.id,
+          heroId: hero.id ? String(hero.id) : null,
+          mainClass: hero.mainClass || null,
+          subClass: hero.subClass || null,
+          rarity: hero.rarity != null ? (RARITY_MAP[hero.rarity] || String(hero.rarity)) : null,
+          rarityNum: hero.rarity != null ? hero.rarity : null,
+          level: hero.level || null,
+          generation: hero.generation || null,
+          summons: hero.summons != null ? hero.summons : null,
+          maxSummons: hero.maxSummons != null ? hero.maxSummons : null,
+          seller: a.seller?.id || null,
+          buyer: a.winner?.id || null,
+          price,
+          date: a.endedAt ? new Date(Number(a.endedAt) * 1000).toISOString() : null,
+        };
+      }
+
+      const [buyAuctions, sellAuctions] = await Promise.all([
+        paginate((first, skip) => `{
+          saleAuctions(where: { winner: \${address} } orderBy: endedAt orderDirection: desc first: \${first} skip: \${skip}) {
+            id purchasePrice endedAt
+            seller { id } winner { id }
+            tokenId { \${HERO_FIELDS} }
+          }
+        }`),
+        paginate((first, skip) => `{
+          saleAuctions(where: { seller: \${address}, endedAt_not: null } orderBy: endedAt orderDirection: desc first: \${first} skip: \${skip}) {
+            id purchasePrice endedAt
+            seller { id } winner { id }
+            tokenId { \${HERO_FIELDS} }
+          }
+        }`)
+      ]);
+
+      const buys = buyAuctions.map(a => formatAuction(a, 'buy'));
+      const sells = sellAuctions.map(a => formatAuction(a, 'sell'));
+
+      const totalSpent = buys.reduce((s, b) => s + (b.price || 0), 0);
+      const totalEarned = sells.reduce((s, b) => s + (b.price || 0), 0);
+
+      res.json({
+        ok: true,
+        address,
+        buys,
+        sells,
+        summary: {
+          totalBuys: buys.length,
+          totalSells: sells.length,
+          totalSpent: Math.round(totalSpent * 100) / 100,
+          totalEarned: Math.round(totalEarned * 100) / 100,
+        }
+      });
+    } catch (err) {
+      console.error('[TavernWalletActivity] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // GET /api/admin/tavern-listings - Fetch heroes from indexed database (fast)
   // Falls back to live DFK API if no indexed data available
   // Supports tournament-ready filtering: rarity, combat power, level, TS
