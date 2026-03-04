@@ -55,7 +55,6 @@ const indexerItems = [
   { href: '/admin/pool-indexer-v1', label: 'Pool Indexer V1', icon: Database },
   { href: '/admin/pool-indexer-harmony', label: 'Pool Indexer Harmony', icon: Database },
   { href: '/admin/jeweler', label: 'Jeweler', icon: Gem },
-  { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: Swords },
   { href: '/admin/patrol-rewards', label: 'Patrol Rewards', icon: Coins },
 ];
@@ -71,6 +70,17 @@ const gardeningItems = [
 
 const gardeningPaths = gardeningItems.map(i => i.href);
 
+const tavernItems = [
+  { href: '/admin/tavern-sniper', label: 'Tavern Sniper', icon: Beer },
+  { href: '/admin/bargain-hunter', label: 'Bargain Hunter', icon: Zap },
+  { href: '/admin/dark-bargain-hunter', label: 'Dark Bargain Hunter', icon: Sparkles },
+  { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: Swords },
+  { href: '/admin/hero-price', label: 'Hero Price Tool', icon: DollarSign },
+  { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },
+];
+
+const tavernPaths = tavernItems.map(i => i.href);
+
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/ai-consultant', label: 'AI Consultant', icon: Bot },
@@ -81,12 +91,7 @@ const navItems = [
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Swords },
   { href: '/admin/summoning-calculator', label: 'Summoning Calculator', icon: Dna },
   { href: '/admin/summon-sniper', label: 'Summon Sniper', icon: Target },
-  { href: '/admin/tavern-sniper', label: 'Tavern Sniper', icon: Beer },
-  { href: '/admin/bargain-hunter', label: 'Bargain Hunter', icon: Zap },
-  { href: '/admin/dark-bargain-hunter', label: 'Dark Bargain Hunter', icon: Sparkles },
-  { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: Swords },
   { href: '/admin/market-intel', label: 'Market Intel', icon: TrendingUp },
-  { href: '/admin/hero-price', label: 'Hero Price Tool', icon: DollarSign },
   { href: '/admin/profit-tracker', label: 'Profit Tracker', icon: DollarSign },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },
   { href: '/admin/level-racer', label: 'Level Racer', icon: Swords },
@@ -229,6 +234,71 @@ function GardeningMenu({ location, onNavClick }: GardeningMenuProps) {
   );
 }
 
+interface TavernMenuProps {
+  location: string;
+  onNavClick: () => void;
+}
+
+function TavernMenu({ location, onNavClick }: TavernMenuProps) {
+  const [open, setOpen] = useState(false);
+  const isActive = tavernPaths.some(p => location === p || location.startsWith(p));
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <div
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none ${
+            isActive
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+          }`}
+          data-testid="nav-tavern-tools"
+        >
+          <Beer className="w-4 h-4 shrink-0" />
+          <span>Tavern Tools</span>
+          <ChevronRight className="w-4 h-4 ml-auto shrink-0" />
+        </div>
+      </PopoverTrigger>
+      <PopoverContent
+        side="right"
+        sideOffset={8}
+        align="start"
+        className="p-2 w-52"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onOpenAutoFocus={e => e.preventDefault()}
+      >
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 pb-1">
+          Tavern Tools
+        </p>
+        <div className="space-y-0.5">
+          {tavernItems.map((item) => {
+            const Icon = item.icon;
+            const itemActive = location === item.href || location.startsWith(item.href);
+            return (
+              <Link key={item.href} href={item.href} onClick={() => { setOpen(false); onNavClick(); }}>
+                <div
+                  className={`flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer ${
+                    itemActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  }`}
+                  data-testid={`nav-tavern-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span>{item.label}</span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function AdminLayout({ children }: AdminLayoutProps) {
   const { user, logout } = useAuth();
   const [location] = useLocation();
@@ -327,6 +397,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
           {/* Gardening Tools flyout */}
           <GardeningMenu location={location} onNavClick={handleNavClick} />
+
+          {/* Tavern Tools flyout */}
+          <TavernMenu location={location} onNavClick={handleNavClick} />
 
           {/* Remaining nav items */}
           {navItems.slice(2).map((item) => {
