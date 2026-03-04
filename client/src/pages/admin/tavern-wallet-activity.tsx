@@ -58,7 +58,7 @@ interface ActivityData {
   };
 }
 
-type SortField = 'date' | 'price' | 'level' | 'rarityNum' | 'mainClass' | 'itemType' | 'realm' | 'pl';
+type SortField = 'date' | 'price' | 'costValue' | 'level' | 'rarityNum' | 'mainClass' | 'itemType' | 'realm' | 'pl';
 type SortDir = 'asc' | 'desc';
 type ItemFilter = 'all' | 'hero' | 'pet';
 type RealmFilter = 'all' | 'CRY' | 'SUN' | 'SD';
@@ -148,6 +148,9 @@ export default function TavernWalletActivity() {
       } else if (sortField === 'pl') {
         av = getPL(a);
         bv = getPL(b);
+      } else if (sortField === 'costValue') {
+        av = a.costBasis?.value ?? (a.type === 'buy' ? a.price : null);
+        bv = b.costBasis?.value ?? (b.type === 'buy' ? b.price : null);
       } else if (sortField === 'itemType') {
         av = a.itemType; bv = b.itemType;
       } else if (sortField === 'realm') {
@@ -347,8 +350,13 @@ export default function TavernWalletActivity() {
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">ID</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">Info</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                        <button className="flex items-center" onClick={() => toggleSort('costValue')} data-testid="sort-cost">
+                          Cost <SortIcon field="costValue" />
+                        </button>
+                      </th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">
                         <button className="flex items-center" onClick={() => toggleSort('price')} data-testid="sort-price">
-                          Price <SortIcon field="price" />
+                          Sell <SortIcon field="price" />
                         </button>
                       </th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">
@@ -436,21 +444,54 @@ export default function TavernWalletActivity() {
                               ? (row.summons != null && row.maxSummons != null ? `${row.summons}/${row.maxSummons} summons` : '—')
                               : (row.element || '—')}
                           </td>
+                          {/* Cost column */}
                           <td className="px-4 py-2.5 font-mono text-sm">
-                            {row.price != null ? (
+                            {row.type === 'buy' || row.held ? (
+                              row.price != null ? (
+                                <span>
+                                  {formatNum(row.price)}{' '}
+                                  <span className={`text-xs ${CURRENCY_COLORS[row.currency] || 'text-muted-foreground'}`}>
+                                    {row.currency}
+                                  </span>
+                                </span>
+                              ) : '—'
+                            ) : isSummoned ? (
+                              <span className="text-muted-foreground text-xs italic">Summoned</span>
+                            ) : cb?.value != null ? (
                               <span>
-                                {formatNum(row.price)}{' '}
+                                {formatNum(cb.value)}{' '}
                                 <span className={`text-xs ${CURRENCY_COLORS[row.currency] || 'text-muted-foreground'}`}>
                                   {row.currency}
                                 </span>
+                                {isEstimate && (
+                                  <span className="text-xs text-muted-foreground ml-1" title="Estimated from last known market sale price">*</span>
+                                )}
                               </span>
-                            ) : '—'}
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
                           </td>
+                          {/* Sell column */}
+                          <td className="px-4 py-2.5 font-mono text-sm">
+                            {row.type === 'sell' ? (
+                              row.price != null ? (
+                                <span>
+                                  {formatNum(row.price)}{' '}
+                                  <span className={`text-xs ${CURRENCY_COLORS[row.currency] || 'text-muted-foreground'}`}>
+                                    {row.currency}
+                                  </span>
+                                </span>
+                              ) : '—'
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                          </td>
+                          {/* P&L column */}
                           <td className="px-4 py-2.5 font-mono text-sm">
                             {row.type !== 'sell' ? (
                               <span className="text-muted-foreground text-xs">—</span>
                             ) : isSummoned ? (
-                              <span className="text-muted-foreground text-xs italic">Summoned</span>
+                              <span className="text-muted-foreground text-xs">—</span>
                             ) : pl != null ? (
                               <span>
                                 <span className={pl >= 0 ? 'text-green-500' : 'text-red-500'}>
