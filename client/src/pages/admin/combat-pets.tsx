@@ -179,7 +179,7 @@ function AbilityTooltip({ name, scalar, children }: {
           {children}
         </span>
       </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
+      <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed bg-popover text-popover-foreground border border-border shadow-lg opacity-100">
         {desc}
       </TooltipContent>
     </Tooltip>
