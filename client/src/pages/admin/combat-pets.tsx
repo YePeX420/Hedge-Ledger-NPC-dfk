@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Loader2, RefreshCw, ExternalLink, LayoutGrid, List, Filter, X, Star, ChevronDown, ChevronUp, Clock } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface CombatPet {
   id: string;
@@ -76,6 +77,113 @@ function getTopRollLabel(pct: number | null): string {
   if (pct >= 50) return "Good";
   if (pct >= 25) return "Fair";
   return "Low";
+}
+
+const COMBAT_ABILITY_DESCRIPTIONS: Record<string, string> = {
+  'Amplify': 'All party Delay effects gain +{bonus}% resistance to Negate.',
+  'Arcane Shell': 'Increase Spell Block by +{bonus}%.',
+  'Attuned': 'Increase SPELL by {bonus}%.',
+  'Beastly Roar': 'Channel 600 Initiative. Target each enemy. On hit: {bonus}% chance to inflict Daze. 80% chance to Intimidate each target by 15% for 2 turns.',
+  'Befuddle': 'On hit, {bonus}% chance to Confuse target.',
+  'Blur': 'Increase Speed by {bonus}%.',
+  'Bop': 'On hit, {bonus}% chance to Daze target.',
+  'Brave': 'Increase resistance to Fear by +{bonus}%.',
+  'Brick Wall': 'Increase P.RED by +{bonus}%.',
+  'Bruise': "On hit, {bonus}% chance to reduce target's P.DEF by 20% for 15 ticks.",
+  'Char': 'On hit, {bonus}% chance to Burn target.',
+  'Cleansing Aura': 'Every {bonus} turns, Cleanse a random debuffed party member.',
+  'Confident': 'Increase resistance to Intimidate by +{bonus}%.',
+  'Conservative': '{bonus}% chance to reduce cost of current skill by 40% (rounded down).',
+  'Diamond Hands': 'Increase resistance to Disarm by +{bonus}%.',
+  'Divine Intervention': 'Increase Critical Heal chance by +{bonus}%.',
+  'Expose': "On hit, {bonus}% chance to reduce target's M.DEF by 20% for 15 ticks.",
+  'Flash': "On hit, {bonus}% chance to reduce target's P.ACC by 10% for 15 ticks.",
+  'Flow State': 'While Channeling, this Hero gains {bonus}% EVA.',
+  'Foil': 'Target enemy. On hit: 90% chance to Dispel target. {bonus}% chance to Negate a single random Delayed action previously cast by target.',
+  'Freeze': 'On hit, {bonus}% chance to Chill target.',
+  'Gash': 'On hit, {bonus}% chance to inflict target with Bleed.',
+  'Good Eye': 'Increase P.ACC by +{bonus}%.',
+  'Gouge': 'On hit, {bonus}% chance to inflict target with Blind.',
+  'Graceful': 'Increase resistance to Push and Pull by +{bonus}%.',
+  'Guardian Shell': "Each Party Member gains a Barrier equal to {bonus}% of target's max HP.",
+  'Hard Head': 'Increase resistance to Daze by +{bonus}%.',
+  'Harder Head': 'Increase resistance to Stun by +{bonus}%.',
+  'Hardy Constitution': 'Increase SER by +{bonus}%.',
+  'Healing Bond': 'Target Party Member gains: At the start of the next 3 turns, heal for {bonus}% of max HP. Stack Limit 1.',
+  'Heavy Hide': 'Increase P.DEF by {bonus}%.',
+  'Hobble': 'On hit, {bonus}% chance to Slow target by 25% for 30 ticks.',
+  'Hush': 'On hit, {bonus}% chance to Silence target for 1 turn.',
+  'Impenetrable': 'Increase resistance to Bleed by +{bonus}%.',
+  'Infect': 'On hit, {bonus}% chance to inflict target with Poison.',
+  'Inner Lids': 'Increase resistance to Blind by +{bonus}%.',
+  'Insulated': 'Increase resistance to Chill by +{bonus}%.',
+  'Intercept': '{bonus}% chance to Negate enemy Delay actions at the moment they are cast.',
+  'Lick Wounds': '{bonus}% chance to Heal for 10% of missing HP each turn.',
+  'Lucid': 'Increase resistance to Confuse by +{bonus}%.',
+  'Magical Shell': 'Increase M.DEF by {bonus}%.',
+  'Maul': 'Deal ({bonus}×POWER) damage to target enemy. 60% chance to inflict target with Bleed (×5).',
+  'Meat Shield': "On this Hero's 5th turn and every 10 turns thereafter, gain a Barrier with HP up to {bonus}% of this Hero's current HP or the amount needed to reach a final Barrier HP of 30% of this Hero's max HP, whichever is lower.",
+  'Moist': 'Increase resistance to Burn by +{bonus}%.',
+  'Mystify': "On hit, {bonus}% chance to reduce target's M.ACC by 10% for 15 ticks.",
+  'Null Field': 'Reduce enemy buff effectiveness by {bonus}%.',
+  'Omni Shell': 'Increase P.DEF and M.DEF by {bonus}%.',
+  'Outspoken': 'Increase resistance to Silence by +{bonus}%.',
+  'Petrify': 'On hit, {bonus}% chance to Fear target for 1 turn.',
+  'Protective Coat': 'Reduce all damage taken by {bonus}%.',
+  'Purifying Aura': 'Remove {bonus}% of debuffs from allies each turn.',
+  'Quicksand': 'Slow enemies by {bonus}%.',
+  'Rebalance': 'Equalize party HP by {bonus}%.',
+  'Recuperate': 'Increase Recovery by +{bonus}%.',
+  'Reflector': 'Reflect {bonus}% of damage taken.',
+  'Relentless': 'Increase resistance to Slow by +{bonus}%.',
+  'Rescuer': "{bonus}% chance to Heal the ally with the lowest HP ratio for 10% of target's missing HP each turn.",
+  'Resilient': 'Increase resistance to Poison by +{bonus}%.',
+  'Rune Sniffer': 'Increase chance of receiving runes from combat (when available) by {bonus}%.',
+  'Scavenger': 'Increase loot drop chance by {bonus}%.',
+  'Sharpened Claws': 'Increase ATTACK by {bonus}%.',
+  'Shock': 'On hit, {bonus}% chance to Stun target for 1 turn.',
+  'Skin of Teeth': '{bonus}% chance to survive a lethal hit with 1 HP.',
+  'Slippery': 'Increase EVA by +{bonus}%.',
+  'Stone Hide': 'Increase Block by +{bonus}%.',
+  'Studious': 'Increase XP gained from combat by {bonus}%.',
+  'Super Meat Shield': "On this Hero's 5th turn and every 10 turns thereafter, party members gain a Barrier with HP equal to {bonus}% of this Hero's current HP or the amount needed to reach a final Barrier HP of 30% of target's max HP, whichever is lower.",
+  'Swift Cast': 'Reduce cast time by {bonus}%.',
+  'Third Eye': 'Increase M.ACC by +{bonus}%.',
+  'Threaten': 'On hit, {bonus}% chance to Intimidate target by 10% for 2 turns.',
+  'Thwack': 'On hit, {bonus}% chance to knockback target.',
+  'Total Recall': 'Reduce ability cooldowns by {bonus}%.',
+  'Tug': 'On hit, {bonus}% chance to Pull target 1.',
+  'Ultra Conservative': 'Reduce all ability costs by {bonus}%.',
+  'Vampiric': 'Gain +{bonus}% Lifesteal.',
+  'Vorpal Soul': 'Increase CSC by +{bonus}%.',
+  'Zoomy': 'Increase movement speed by {bonus}%.',
+};
+
+function getAbilityDescription(name: string, scalar: number): string | null {
+  const template = COMBAT_ABILITY_DESCRIPTIONS[name];
+  if (!template) return null;
+  return template.replace(/\{bonus\}/g, String(scalar));
+}
+
+function AbilityTooltip({ name, scalar, children }: {
+  name: string;
+  scalar: number;
+  children: React.ReactNode;
+}) {
+  const desc = getAbilityDescription(name, scalar);
+  if (!desc) return <>{children}</>;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-help underline decoration-dotted decoration-muted-foreground/50 underline-offset-2">
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
+        {desc}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function getRarityColor(rarity: number): string {
@@ -693,7 +801,9 @@ function PetCard({ pet }: { pet: CombatPet }) {
               <StarDisplay count={pet.combatBonusStars} />
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-xs">{pet.combatBonusName}</span>
+              <AbilityTooltip name={pet.combatBonusName} scalar={pet.combatBonusScalar}>
+                <span className="text-xs">{pet.combatBonusName}</span>
+              </AbilityTooltip>
               {pet.combatBonusScalar > 0 && (
                 <span className="text-xs text-muted-foreground">({pet.combatBonusScalar}%)</span>
               )}
@@ -808,7 +918,11 @@ function PetTable({ pets }: { pets: CombatPet[] }) {
               <td className="p-2">{pet.eggTypeName}</td>
               <td className="p-2">{pet.elementName}</td>
               <td className="p-2 text-center"><StarDisplay count={pet.totalStars} max={9} /></td>
-              <td className="p-2">{pet.combatBonusName}</td>
+              <td className="p-2">
+                <AbilityTooltip name={pet.combatBonusName} scalar={pet.combatBonusScalar}>
+                  {pet.combatBonusName}
+                </AbilityTooltip>
+              </td>
               <td className="p-2 text-center"><StarDisplay count={pet.combatBonusStars} /></td>
               <td className="p-2 text-right">{pet.combatBonusScalar > 0 ? `${pet.combatBonusScalar}%` : "-"}</td>
               <td className="p-2 text-right">
