@@ -12,7 +12,22 @@ import { apiRequest } from "@/lib/queryClient";
 
 const HIDDEN_HEROES_KEY = "tavern-sniper-hidden-heroes";
 
-type SortOption = "levelValue" | "price" | "level" | "combatPower" | "value" | "burnProfit";
+const DFK_CUMULATIVE_XP: Record<number, number> = {
+  1: 0, 2: 1000, 3: 2500, 4: 5000, 5: 9000,
+  6: 15000, 7: 25000, 8: 40000, 9: 60000, 10: 85000,
+  11: 115000, 12: 150000, 13: 190000, 14: 235000, 15: 285000,
+  16: 340000, 17: 400000, 18: 465000, 19: 535000, 20: 610000,
+  21: 690000, 22: 775000, 23: 865000, 24: 960000, 25: 1060000,
+  26: 1165000, 27: 1275000, 28: 1390000, 29: 1510000, 30: 1635000,
+  31: 1765000, 32: 1900000, 33: 2040000, 34: 2185000, 35: 2335000,
+  36: 2490000, 37: 2650000, 38: 2815000, 39: 2985000, 40: 3160000,
+};
+
+function getCumXP(level: number): number {
+  return DFK_CUMULATIVE_XP[Math.max(1, Math.min(40, level))] ?? 0;
+}
+
+type SortOption = "levelValue" | "price" | "level" | "combatPower" | "value" | "burnProfit" | "burnScore";
 
 interface TavernHero {
   id: string;
@@ -104,7 +119,7 @@ function calculateBurnValue(
   const subRank = CLASS_RANK[hero.subClassStr] || 1;
   const classBase = CLASS_BASE[rank] || 175;
   const rarityBonus = RARITY_BONUS[hero.rarity] || 0;
-  const levelBonus = (hero.level - 1) * 10;
+  const levelBonus = Math.sqrt(getCumXP(hero.level) / 1000) * 12;
   const summonBonus = (hero.maxSummons || 0) * 15;
   const genBonus = (hero.generation || 0) * 8;
   const subBonus = subRank > rank ? (subRank - rank) * 15 : 0;
@@ -139,6 +154,18 @@ function calculateBurnValue(
     totalValueCrystal,
     profitCrystal
   };
+}
+
+function calculateBurnScore(hero: TavernHero): number {
+  const rank = CLASS_RANK[hero.mainClassStr] || 1;
+  const subRank = CLASS_RANK[hero.subClassStr] || 1;
+  const classBase = CLASS_BASE[rank] || 175;
+  const rarityBonus = RARITY_BONUS[hero.rarity] || 0;
+  const levelBonus = Math.sqrt(getCumXP(hero.level) / 1000) * 12;
+  const summonBonus = (hero.maxSummons || 0) * 15;
+  const genBonus = (hero.generation || 0) * 8;
+  const subBonus = subRank > rank ? (subRank - rank) * 15 : 0;
+  return classBase + subBonus + rarityBonus + levelBonus + summonBonus + genBonus;
 }
 
 function getRarityColor(rarity: number): string {
@@ -254,9 +281,16 @@ export default function TavernSniper() {
     switch (sortBy) {
       case "levelValue":
         withBurn.sort((a, b) => {
-          const aValue = a.hero.level / (a.hero.priceNative || 1);
-          const bValue = b.hero.level / (b.hero.priceNative || 1);
+          const aValue = getCumXP(a.hero.level) / 1000 / (a.hero.priceNative || 1);
+          const bValue = getCumXP(b.hero.level) / 1000 / (b.hero.priceNative || 1);
           return bValue - aValue;
+        });
+        break;
+      case "burnScore":
+        withBurn.sort((a, b) => {
+          const aScore = calculateBurnScore(a.hero) / (a.hero.priceNative || 1);
+          const bScore = calculateBurnScore(b.hero) / (b.hero.priceNative || 1);
+          return bScore - aScore;
         });
         break;
       case "price":
@@ -560,7 +594,8 @@ export default function TavernSniper() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="levelValue">Level/Cost</SelectItem>
+                  <SelectItem value="levelValue">XP Value (kXP/$)</SelectItem>
+                  <SelectItem value="burnScore">Score/Cost</SelectItem>
                   <SelectItem value="price">Lowest Price</SelectItem>
                   <SelectItem value="level">Highest Level</SelectItem>
                   <SelectItem value="combatPower">Combat Power</SelectItem>
@@ -660,8 +695,9 @@ function HeroCard({
   onHide: (id: string) => void;
   showBurn: boolean;
 }) {
-  const levelValue = hero.level / (hero.priceNative || 1);
+  const levelValue = getCumXP(hero.level) / 1000 / (hero.priceNative || 1);
   const powerValue = hero.combatPower / (hero.priceNative || 1);
+  const burnScoreValue = calculateBurnScore(hero) / (hero.priceNative || 1);
   
   const viewHeroUrl = `https://app.defikingdoms.com/heroes/${hero.id}`;
   
@@ -717,11 +753,12 @@ function HeroCard({
           </div>
           <div className="text-center p-2 bg-muted/50 rounded">
             <div className="text-xs text-muted-foreground">
-              {sortBy === "levelValue" ? "Lvl/$" : sortBy === "value" ? "Pwr/$" : "Power"}
+              {sortBy === "levelValue" ? "kXP/$" : sortBy === "value" ? "Pwr/$" : sortBy === "burnScore" ? "Score/$" : "Power"}
             </div>
             <div className="font-bold text-green-600 dark:text-green-400">
               {sortBy === "levelValue" ? levelValue.toFixed(2) : 
                sortBy === "value" ? powerValue.toFixed(1) :
+               sortBy === "burnScore" ? burnScoreValue.toFixed(2) :
                hero.combatPower}
             </div>
           </div>

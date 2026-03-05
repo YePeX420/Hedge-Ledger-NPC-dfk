@@ -10,6 +10,21 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 
+const DFK_CUMULATIVE_XP: Record<number, number> = {
+  1: 0, 2: 1000, 3: 2500, 4: 5000, 5: 9000,
+  6: 15000, 7: 25000, 8: 40000, 9: 60000, 10: 85000,
+  11: 115000, 12: 150000, 13: 190000, 14: 235000, 15: 285000,
+  16: 340000, 17: 400000, 18: 465000, 19: 535000, 20: 610000,
+  21: 690000, 22: 775000, 23: 865000, 24: 960000, 25: 1060000,
+  26: 1165000, 27: 1275000, 28: 1390000, 29: 1510000, 30: 1635000,
+  31: 1765000, 32: 1900000, 33: 2040000, 34: 2185000, 35: 2335000,
+  36: 2490000, 37: 2650000, 38: 2815000, 39: 2985000, 40: 3160000,
+};
+
+function getCumXP(level: number): number {
+  return DFK_CUMULATIVE_XP[Math.max(1, Math.min(40, level))] ?? 0;
+}
+
 type SearchMode = "tavern" | "myHero" | "wallet";
 type SummonType = "regular" | "dark";
 
@@ -375,11 +390,11 @@ export default function SummonSniper() {
       case "skillScore":
         return pairs.sort((a, b) => (b.ts?.expected || 0) - (a.ts?.expected || 0));
       case "levelValue":
-        // Sort by combined level / cost ratio (higher level per dollar = better)
+        // Sort by XP-weighted level value per cost (accounts for exponential XP curve)
         return pairs.sort((a, b) => {
-          const aLevelValue = (a.hero1.level + a.hero2.level) / (a.totalCostUsd || 1);
-          const bLevelValue = (b.hero1.level + b.hero2.level) / (b.totalCostUsd || 1);
-          return bLevelValue - aLevelValue;
+          const aXpValue = (getCumXP(a.hero1.level) + getCumXP(a.hero2.level)) / 1000 / (a.totalCostUsd || 1);
+          const bXpValue = (getCumXP(b.hero1.level) + getCumXP(b.hero2.level)) / 1000 / (b.totalCostUsd || 1);
+          return bXpValue - aXpValue;
         });
       case "efficiency":
       default:
@@ -962,7 +977,7 @@ export default function SummonSniper() {
                     <SelectItem value="chance">Highest Chance</SelectItem>
                     <SelectItem value="price">Lowest Price</SelectItem>
                     <SelectItem value="skillScore">Offspring Skill Score</SelectItem>
-                    <SelectItem value="levelValue">Level/Cost</SelectItem>
+                    <SelectItem value="levelValue">XP Value (kXP/$)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
