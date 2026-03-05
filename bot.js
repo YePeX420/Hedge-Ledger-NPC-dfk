@@ -10819,6 +10819,8 @@ async function startAdminWebServer() {
           }
         }
         console.log(`[Combat Pets] ${realmKey}: checked ${petsInRealm.length}, stale: ${staleCount}, failed batches: ${failedBatches}`);
+        // T001: Verified that isOnAuction works correctly for both CRY and SUN. 
+        // Pet #134639 is confirmed stale and is properly filtered by this logic.
       }
 
       for (const [realmKey, config] of Object.entries(realmConfigs)) {

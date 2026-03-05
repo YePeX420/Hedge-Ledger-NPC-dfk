@@ -35,6 +35,8 @@ import AdminBattleReady from "@/pages/admin/battle-ready";
 import AdminSummoningCalculator from "@/pages/admin/summoning-calculator";
 import AdminSummonSniper from "@/pages/admin/summon-sniper";
 import AdminTavernSniper from "@/pages/admin/tavern-sniper";
+import AdminHeroScore from "@/pages/admin/hero-score";
+import AdminPVPMatchup from "@/pages/admin/pvp-matchup";
 import AdminAIConsultant from "@/pages/admin/ai-consultant";
 import AdminQuestOptimizer from "@/pages/admin/quest-optimizer";
 import AdminBargainHunter from "@/pages/admin/bargain-hunter";
@@ -50,6 +52,7 @@ import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
 import CombatClasses from "@/pages/admin/combat-classes";
 import HedgePlansAccess from "@/pages/admin/hedge-plans-access";
 import AdminCombatPets from "@/pages/admin/combat-pets";
+import AdminCombatToolkit from "@/pages/admin/combat-toolkit";
 import UserAccessManagement from "@/pages/admin/user-access";
 import UserLogin from "@/pages/user-login";
 import UserDashboardPage from "@/pages/user/dashboard";
@@ -305,6 +308,22 @@ function Router() {
           </ProtectedAdminPage>
         )}
       </Route>
+
+      <Route path="/admin/hero-score">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminHeroScore />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/pvp-matchup">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminPVPMatchup />
+          </ProtectedAdminPage>
+        )}
+      </Route>
       
       <Route path="/admin/ai-consultant">
         {() => (
@@ -385,7 +404,15 @@ function Router() {
           </ProtectedAdminPage>
         )}
       </Route>
-      
+
+      <Route path="/admin/combat-toolkit">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminCombatToolkit />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
       <Route path="/admin/pve-droprates">
         {() => (
           <ProtectedAdminPage>

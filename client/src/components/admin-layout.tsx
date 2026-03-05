@@ -73,9 +73,12 @@ const gardeningPaths = gardeningItems.map(i => i.href);
 
 const tavernItems = [
   { href: '/admin/tavern-sniper', label: 'Tavern Sniper', icon: Beer },
+  { href: '/admin/hero-score', label: 'Hero Score Calc', icon: Calculator },
   { href: '/admin/bargain-hunter', label: 'Bargain Hunter', icon: Zap },
   { href: '/admin/dark-bargain-hunter', label: 'Dark Bargain Hunter', icon: Sparkles },
   { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: Swords },
+  { href: '/admin/combat-toolkit', label: 'Hero Combat Toolkit', icon: Swords },
+  { href: '/admin/pvp-matchup', label: 'PVP Matchup Tool', icon: Swords },
   { href: '/admin/hero-price', label: 'Hero Price Tool', icon: DollarSign },
   { href: '/admin/tavern-wallet-activity', label: 'Wallet Activity', icon: Activity },
   { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },

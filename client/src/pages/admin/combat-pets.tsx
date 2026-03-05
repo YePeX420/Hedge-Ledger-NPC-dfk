@@ -51,6 +51,29 @@ interface CombatPet {
   profTopRollPercent: number | null;
   ownerName: string;
   ownerId: string;
+  deEstimate?: number;
+  gdeEstimate?: number;
+  burnValue?: number;
+  burnProfit?: number;
+}
+
+function petBurnEstimate(rarity: number, totalStars: number) {
+  const starScores: Record<number, number> = {
+    1: 7000, 2: 10000, 3: 19000, 4: 28000, 5: 40000, 
+    6: 75000, 7: 225000, 8: 450000, 9: 1000000
+  };
+  const rarityScores: Record<number, number> = {
+    0: 2000, 1: 25000, 2: 175000, 3: 370000, 4: 780000
+  };
+
+  const starScore = starScores[totalStars] || 0;
+  const rarityScore = rarityScores[rarity] || 0;
+  const scoreNumerator = starScore + rarityScore;
+
+  return {
+    de: scoreNumerator / 15,
+    gde: scoreNumerator / 240
+  };
 }
 
 function getTopRollColor(pct: number | null): string {
@@ -241,6 +264,8 @@ export default function CombatPetsShop() {
   const [filterCombatOnly, setFilterCombatOnly] = useState<boolean>(false);
   const [filterRealm, setFilterRealm] = useState<string>("all");
   const [filterCombatStarTier, setFilterCombatStarTier] = useState<string>("all");
+  const [dePrice, setDePrice] = useState<string>("0.5");
+  const [gdePrice, setGdePrice] = useState<string>("1.5");
 
   const [isForceRefreshing, setIsForceRefreshing] = useState(false);
   const { data: petsResponse, isLoading, error, isFetching, refetch } = useQuery<{ ok: boolean; pets: CombatPet[]; count: number; lastUpdated?: number; loading?: boolean }>({
@@ -327,6 +352,21 @@ export default function CombatPetsShop() {
     const minP = parseFloat(filterMinPrice);
     if (!isNaN(minP) && minP > 0) result = result.filter(p => p.salePriceJewel >= minP);
 
+    const deP = parseFloat(dePrice) || 0.5;
+    const gdeP = parseFloat(gdePrice) || 1.5;
+
+    result = result.map(p => {
+      const estimate = petBurnEstimate(p.rarity, p.totalStars);
+      const burnValue = estimate.de * deP + estimate.gde * gdeP;
+      return {
+        ...p,
+        deEstimate: estimate.de,
+        gdeEstimate: estimate.gde,
+        burnValue,
+        burnProfit: burnValue - p.salePriceJewel
+      };
+    });
+
     result.sort((a, b) => {
       switch (sortBy) {
         case "price-asc": return a.salePriceJewel - b.salePriceJewel;
@@ -337,12 +377,17 @@ export default function CombatPetsShop() {
         case "stars-asc": return a.totalStars - b.totalStars;
         case "combat-stars-desc": return b.combatBonusStars - a.combatBonusStars;
         case "rarity-desc": return b.rarity - a.rarity;
+        case "burn-value-ratio-desc": {
+          const aRatio = (a.burnValue ?? 0) / (a.salePriceJewel || 1);
+          const bRatio = (b.burnValue ?? 0) / (b.salePriceJewel || 1);
+          return bRatio - aRatio;
+        }
         default: return a.salePriceJewel - b.salePriceJewel;
       }
     });
 
     return result;
-  }, [pets, filterRarity, filterShiny, filterEggType, filterElement, filterSeason, filterBackground, filterGatheringName, filterCombatName, filterCombatStarTier, filterMinCombatStars, filterMinProfStars, filterMinCraftStars, filterMinTotalStars, filterMinTopRoll, topRollMode, filterMaxPrice, filterMinPrice, filterCombatOnly, filterRealm, sortBy]);
+  }, [pets, filterRarity, filterShiny, filterEggType, filterElement, filterSeason, filterBackground, filterGatheringName, filterCombatName, filterCombatStarTier, filterMinCombatStars, filterMinProfStars, filterMinCraftStars, filterMinTotalStars, filterMinTopRoll, topRollMode, filterMaxPrice, filterMinPrice, filterCombatOnly, filterRealm, sortBy, dePrice, gdePrice]);
 
   const resetFilters = () => {
     setSortBy("price-asc");
@@ -471,8 +516,31 @@ export default function CombatPetsShop() {
                     <SelectItem value="stars-asc">Total Stars: Least</SelectItem>
                     <SelectItem value="combat-stars-desc">Combat Stars: Most</SelectItem>
                     <SelectItem value="rarity-desc">Rarity: Highest</SelectItem>
+                    <SelectItem value="burn-value-ratio-desc">Burn Value/Price Ratio</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">DE Price (JEWEL)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={dePrice}
+                  onChange={(e) => setDePrice(e.target.value)}
+                  data-testid="input-de-price"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">GDE Price (JEWEL)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={gdePrice}
+                  onChange={(e) => setGdePrice(e.target.value)}
+                  data-testid="input-gde-price"
+                />
               </div>
 
               <div className="space-y-1">
@@ -788,7 +856,17 @@ function PetCard({ pet }: { pet: CombatPet }) {
             <div className="font-bold text-sm" data-testid={`text-price-${pet.id}`}>
               {formatJewel(pet.salePriceJewel)} {pet.priceCurrency === 'CRYSTAL' ? 'C' : 'J'}
             </div>
-            <div className="text-xs text-muted-foreground">
+            {pet.deEstimate !== undefined && (
+              <div className="text-[10px] leading-tight mt-0.5">
+                <div className="text-muted-foreground">
+                  DE/GDE: {pet.deEstimate.toFixed(0)}/{pet.gdeEstimate?.toFixed(1)}
+                </div>
+                <div className={pet.burnProfit && pet.burnProfit > 0 ? "text-green-500 font-medium" : "text-red-500 font-medium"}>
+                  Profit: {pet.burnProfit && pet.burnProfit > 0 ? "+" : ""}{pet.burnProfit?.toFixed(2)} J
+                </div>
+              </div>
+            )}
+            <div className="text-xs text-muted-foreground mt-0.5">
               <StarDisplay count={pet.totalStars} max={9} />
             </div>
           </div>
@@ -898,6 +976,8 @@ function PetTable({ pets }: { pets: CombatPet[] }) {
             <th className="text-left p-2 font-medium">Egg</th>
             <th className="text-left p-2 font-medium">Element</th>
             <th className="text-center p-2 font-medium">Stars</th>
+            <th className="text-right p-2 font-medium">DE/GDE Est</th>
+            <th className="text-right p-2 font-medium">Burn Profit</th>
             <th className="text-left p-2 font-medium">Combat Bonus</th>
             <th className="text-center p-2 font-medium">C.Stars</th>
             <th className="text-right p-2 font-medium">Scalar</th>
@@ -918,6 +998,12 @@ function PetTable({ pets }: { pets: CombatPet[] }) {
               <td className="p-2">{pet.eggTypeName}</td>
               <td className="p-2">{pet.elementName}</td>
               <td className="p-2 text-center"><StarDisplay count={pet.totalStars} max={9} /></td>
+              <td className="p-2 text-right">
+                {pet.deEstimate?.toFixed(0)} / {pet.gdeEstimate?.toFixed(1)}
+              </td>
+              <td className={`p-2 text-right font-medium ${pet.burnProfit && pet.burnProfit > 0 ? "text-green-500" : "text-red-500"}`}>
+                {pet.burnProfit && pet.burnProfit > 0 ? "+" : ""}{pet.burnProfit?.toFixed(2)} J
+              </td>
               <td className="p-2">
                 <AbilityTooltip name={pet.combatBonusName} scalar={pet.combatBonusScalar}>
                   {pet.combatBonusName}
