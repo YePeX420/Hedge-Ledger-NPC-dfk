@@ -1,645 +1,629 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { queryClient } from '@/lib/queryClient';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, Users, Trophy, Swords, Trash2, Plus, GitFork, ChevronRight, Loader2, Medal } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { STARTER_ARMORS } from '@/lib/dfk-combat-formulas';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ArrowLeft, Trophy, Swords, Loader2, Medal, Brain, History, CheckCircle2, XCircle } from 'lucide-react';
 
-interface Entry {
+const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+const RARITY_COLORS = ['text-muted-foreground', 'text-green-500', 'text-blue-500', 'text-orange-500', 'text-purple-500'];
+const REALM_LABELS: Record<string, string> = { cv: 'Crystalvale', sd: 'Sundered Isles', metis: 'Metis' };
+const FORMAT_LABELS: Record<string, string> = { '1v1': '1v1', '3v3': '3v3', '6v6': '6v6' };
+
+interface HeroSnapshot {
   id: number;
-  tournament_id: number;
-  participant_name: string;
-  wallet_address: string | null;
-  hero_id: number | null;
-  main_class: string | null;
-  sub_class: string | null;
-  rarity: number | null;
-  level: number | null;
-  stats_json: Record<string, number> | null;
-  weapon_type: string;
-  armor_name: string;
-  combat_power_score: number | null;
-  is_seeded: boolean;
-  seed_rank: number | null;
-  eliminated: boolean;
-  registered_at: string;
+  heroId: number;
+  realm: string;
+  mainClass: string;
+  subClass: string;
+  rarity: number;
+  level: number;
+  strength: number;
+  dexterity: number;
+  agility: number;
+  vitality: number;
+  endurance: number;
+  intelligence: number;
+  wisdom: number;
+  luck: number;
+  hp: number | null;
+  active1: string | null;
+  active2: string | null;
+  passive1: string | null;
+  passive2: string | null;
+  combatPowerScore: number | null;
 }
 
-interface Match {
-  id: number;
-  tournament_id: number;
-  round: number;
-  match_number: number;
-  entry_a_id: number | null;
-  entry_b_id: number | null;
-  winner_entry_id: number | null;
-  is_bye: boolean;
-  tx_hash: string | null;
-  completed_at: string | null;
+interface TournamentPlacement {
+  placement: {
+    tournamentId: number;
+    heroId: number;
+    playerAddress: string;
+    placement: string;
+    matchesWon: number;
+    matchesLost: number;
+  };
+  snapshot: HeroSnapshot;
 }
 
 interface TournamentDetail {
-  id: number;
-  name: string;
-  description: string | null;
-  format: string;
-  status: string;
-  realm: string;
-  level_min: number | null;
-  level_max: number | null;
-  notes: string | null;
-  created_at: string;
-  entries: Entry[];
-  matches: Match[];
+  tournament: {
+    id: number;
+    tournamentId: number;
+    realm: string;
+    format: string;
+    status: string;
+    startTime: string | null;
+    hostPlayer: string | null;
+    opponentPlayer: string | null;
+    winnerPlayer: string | null;
+    levelMin: number | null;
+    levelMax: number | null;
+    rarityMin: number | null;
+    rarityMax: number | null;
+    partySize: number;
+    allUniqueClasses: boolean | null;
+    noTripleClasses: boolean | null;
+    gloryBout: boolean | null;
+    minGlories: number | null;
+    hostGlories: number | null;
+    opponentGlories: number | null;
+    sponsorCount: number | null;
+    rewardsJson: unknown;
+    tournamentTypeSignature: string | null;
+    rawBattleData: unknown;
+  };
+  placements: TournamentPlacement[];
 }
 
-interface OddsData {
-  entryA: { name: string; heroId: number; combatPower: number; initPct: number; class: string | null; level: number | null; stats: Record<string, number> };
-  entryB: { name: string; heroId: number; combatPower: number; initPct: number; class: string | null; level: number | null; stats: Record<string, number> };
-  verdict: string;
-  powerOddsA: number;
+interface PredictionData {
+  hostWinPct: number;
+  opponentWinPct: number;
+  initPctHost: number;
+  hostDps: number;
+  opponentDps: number;
+  predictedWinner: 'host' | 'opponent';
+  actualWinner: 'host' | 'opponent' | null;
+  correct: boolean | null;
+  hostProfiles: Array<{ heroId: number; class: string | null; level: number | null; STR: number; DEX: number; AGI: number; INT: number; initExpected: number }>;
+  opponentProfiles: Array<{ heroId: number; class: string | null; level: number | null; STR: number; DEX: number; AGI: number; INT: number; initExpected: number }>;
 }
 
-const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
-const RARITY_COLORS = ['text-muted-foreground', 'text-green-500', 'text-blue-500', 'text-purple-500', 'text-amber-500'];
+interface ClassWinrate {
+  winner_class: string;
+  finalist_class: string;
+  bouts: number;
+  win_pct: number;
+}
 
-const STATUS_NEXT: Record<string, { label: string; next: string }> = {
-  draft: { label: 'Open Registration', next: 'open' },
-  open: { label: 'Generate Bracket & Start', next: 'active' },
-  active: { label: 'Mark Completed', next: 'completed' },
-};
+function truncAddr(addr: string | null) {
+  if (!addr) return '—';
+  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+}
 
-const ROUND_LABELS: Record<number, string> = { 1: 'Round 1', 2: 'Quarterfinals', 3: 'Semifinals', 4: 'Final' };
+function formatDate(ts: string | null) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleString();
+}
 
-function getRoundLabel(round: number, totalRounds: number): string {
-  const fromEnd = totalRounds - round;
-  if (fromEnd === 0) return 'Final';
-  if (fromEnd === 1) return 'Semifinals';
-  if (fromEnd === 2) return 'Quarterfinals';
-  return `Round ${round}`;
+function StatRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex justify-between text-xs py-0.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono font-medium">{value}</span>
+    </div>
+  );
+}
+
+function HeroCard({ hero, isWinner }: { hero: HeroSnapshot; isWinner: boolean }) {
+  return (
+    <Card className={`${isWinner ? 'border-green-500/40 bg-green-500/5' : ''}`}>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold">{hero.mainClass}</span>
+            <span className="text-xs text-muted-foreground">/{hero.subClass}</span>
+            {isWinner && <Trophy className="w-3 h-3 text-green-500" />}
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            <Badge variant="outline" className={`text-xs ${RARITY_COLORS[hero.rarity]}`}>{RARITY_LABELS[hero.rarity]}</Badge>
+            <Badge variant="outline" className="text-xs">Lv {hero.level}</Badge>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground font-mono">Hero #{hero.heroId}</p>
+      </CardHeader>
+      <CardContent className="pt-0 grid grid-cols-2 gap-x-4">
+        <div>
+          <StatRow label="STR" value={hero.strength} />
+          <StatRow label="DEX" value={hero.dexterity} />
+          <StatRow label="AGI" value={hero.agility} />
+          <StatRow label="VIT" value={hero.vitality} />
+        </div>
+        <div>
+          <StatRow label="END" value={hero.endurance} />
+          <StatRow label="INT" value={hero.intelligence} />
+          <StatRow label="WIS" value={hero.wisdom} />
+          <StatRow label="LCK" value={hero.luck} />
+        </div>
+        {(hero.active1 || hero.active2 || hero.passive1 || hero.passive2) && (
+          <div className="col-span-2 mt-2 flex gap-1 flex-wrap">
+            {[hero.active1, hero.active2, hero.passive1, hero.passive2].filter(Boolean).map((a, i) => (
+              <Badge key={i} variant="outline" className="text-xs">{String(a).replace('ability_', 'A')}</Badge>
+            ))}
+          </div>
+        )}
+        {hero.combatPowerScore != null && (
+          <div className="col-span-2 mt-1 text-xs text-muted-foreground">CP: <span className="font-mono font-bold text-foreground">{hero.combatPowerScore}</span></div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function AdminTournamentDetail({ id }: { id: string }) {
   const [, navigate] = useLocation();
-  const { toast } = useToast();
-  const [showRegister, setShowRegister] = useState(false);
-  const [oddsMatch, setOddsMatch] = useState<Match | null>(null);
-  const [winnerInput, setWinnerInput] = useState<Record<number, { tx_hash: string }>>({});
-  const [regForm, setRegForm] = useState({
-    participant_name: '', wallet_address: '', hero_id: '',
-    weapon_type: 'Physical', armor_name: 'Tattered Tunic',
-    STR: '10', DEX: '10', AGI: '10', INT: '10', WIS: '10', VIT: '10', END: '10', LCK: '10',
-    level: '1', main_class: '', notes: ''
-  });
+  const tournamentId = parseInt(id);
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['/api/admin/hedge-tournaments', id],
+  const { data: detailData, isLoading: detailLoading, error: detailError } = useQuery({
+    queryKey: ['/api/admin/tournament', tournamentId],
+    enabled: !isNaN(tournamentId),
     queryFn: async () => {
-      const res = await fetch(`/api/admin/hedge-tournaments/${id}`);
+      const res = await fetch(`/api/admin/tournament/${tournamentId}`);
       if (!res.ok) throw new Error('Tournament not found');
       const json = await res.json();
-      return json.data as TournamentDetail;
+      return json as { ok: boolean } & TournamentDetail;
     }
   });
 
-  const { data: oddsData, isLoading: oddsLoading } = useQuery({
-    queryKey: ['/api/admin/hedge-tournaments', id, 'odds', oddsMatch?.id],
-    enabled: !!oddsMatch && !!oddsMatch.entry_a_id && !!oddsMatch.entry_b_id,
+  const { data: predData, isLoading: predLoading } = useQuery({
+    queryKey: ['/api/admin/tournament', tournamentId, 'predict'],
+    enabled: !isNaN(tournamentId) && !!detailData?.ok,
     queryFn: async () => {
-      const res = await fetch(`/api/admin/hedge-tournaments/${id}/matches/${oddsMatch!.id}/odds`);
-      if (!res.ok) throw new Error('Failed to compute odds');
+      const res = await fetch(`/api/admin/tournament/${tournamentId}/predict`);
+      if (!res.ok) throw new Error('Prediction failed');
       const json = await res.json();
-      return json.data as OddsData;
+      return json.data as PredictionData | null;
     }
   });
 
-  const statusMutation = useMutation({
-    mutationFn: async (status: string) => {
-      const res = await fetch(`/api/admin/hedge-tournaments/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/admin/hedge-tournaments', id] }),
-    onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
-  });
-
-  const generateBracketMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`/api/admin/hedge-tournaments/${id}/generate-bracket`, { method: 'POST' });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/hedge-tournaments', id] });
-      toast({ title: 'Bracket generated!' });
-    },
-    onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
-  });
-
-  const registerMutation = useMutation({
-    mutationFn: async () => {
-      const stats_json = {
-        STR: parseInt(regForm.STR), DEX: parseInt(regForm.DEX), AGI: parseInt(regForm.AGI),
-        INT: parseInt(regForm.INT), WIS: parseInt(regForm.WIS), VIT: parseInt(regForm.VIT),
-        END: parseInt(regForm.END), LCK: parseInt(regForm.LCK)
-      };
-      const res = await fetch(`/api/admin/hedge-tournaments/${id}/entries`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          participant_name: regForm.participant_name,
-          wallet_address: regForm.wallet_address || null,
-          hero_id: regForm.hero_id || null,
-          weapon_type: regForm.weapon_type,
-          armor_name: regForm.armor_name,
-          level: parseInt(regForm.level) || 1,
-          stats_json,
-          notes: regForm.notes || null
-        })
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/hedge-tournaments', id] });
-      setShowRegister(false);
-      setRegForm({ participant_name: '', wallet_address: '', hero_id: '', weapon_type: 'Physical', armor_name: 'Tattered Tunic', STR: '10', DEX: '10', AGI: '10', INT: '10', WIS: '10', VIT: '10', END: '10', LCK: '10', level: '1', main_class: '', notes: '' });
-      toast({ title: 'Participant registered' });
-    },
-    onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
-  });
-
-  const removeEntryMutation = useMutation({
-    mutationFn: async (entryId: number) => {
-      const res = await fetch(`/api/admin/hedge-tournaments/${id}/entries/${entryId}`, { method: 'DELETE' });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/admin/hedge-tournaments', id] }),
-    onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
-  });
-
-  const recordResultMutation = useMutation({
-    mutationFn: async ({ matchId, winnerId }: { matchId: number; winnerId: number }) => {
-      const res = await fetch(`/api/admin/hedge-tournaments/${id}/matches/${matchId}/result`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ winner_entry_id: winnerId, tx_hash: winnerInput[matchId]?.tx_hash || null })
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/hedge-tournaments', id] });
-      toast({ title: 'Result recorded' });
-    },
-    onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
-  });
-
-  const handleStatusAdvance = () => {
-    if (!data) return;
-    if (data.status === 'open') {
-      generateBracketMutation.mutate();
-    } else {
-      statusMutation.mutate(STATUS_NEXT[data.status]?.next);
+  const { data: classWinrateData, isLoading: classLoading } = useQuery({
+    queryKey: ['/api/admin/tournament/class-winrates'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/tournament/class-winrates');
+      if (!res.ok) throw new Error('Failed');
+      const json = await res.json();
+      return json.data as ClassWinrate[];
     }
-  };
+  });
 
-  if (isLoading) return (
-    <div className="p-6 flex items-center gap-3 text-muted-foreground">
-      <Loader2 className="w-5 h-5 animate-spin" />
-      Loading tournament...
+  const { data: similarData, isLoading: similarLoading } = useQuery({
+    queryKey: ['/api/admin/tournament/by-signature', detailData?.tournament?.tournamentTypeSignature],
+    enabled: !!detailData?.tournament?.tournamentTypeSignature,
+    queryFn: async () => {
+      const sig = encodeURIComponent(detailData!.tournament.tournamentTypeSignature!);
+      const res = await fetch(`/api/admin/tournament/by-signature/${sig}?limit=20`);
+      if (!res.ok) throw new Error('Failed');
+      const json = await res.json();
+      return json.tournaments as Array<{
+        tournamentId: number;
+        startTime: string | null;
+        winnerPlayer: string | null;
+        hostPlayer: string | null;
+        opponentPlayer: string | null;
+        format: string;
+      }>;
+    }
+  });
+
+  if (detailLoading) return (
+    <div className="p-6 flex items-center gap-2 text-muted-foreground">
+      <Loader2 className="w-4 h-4 animate-spin" />Loading bout...
     </div>
   );
 
-  if (error || !data) return (
+  if (detailError || !detailData?.ok) return (
     <div className="p-6">
-      <p className="text-destructive">Tournament not found.</p>
-      <Button variant="outline" onClick={() => navigate('/admin/tournament')} className="mt-4">Back to Tournaments</Button>
+      <p className="text-destructive">Bout not found or not yet indexed.</p>
+      <Button variant="outline" onClick={() => navigate('/admin/tournament')} className="mt-4">
+        <ArrowLeft className="w-4 h-4 mr-2" />Back
+      </Button>
     </div>
   );
 
-  const entryMap = Object.fromEntries(data.entries.map(e => [e.id, e]));
-  const allRounds = [...new Set(data.matches.map(m => m.round))].sort((a, b) => a - b);
-  const totalRounds = allRounds.length;
-  const hasBracket = data.matches.length > 0;
+  const { tournament, placements } = detailData;
+
+  const hostPlacements = placements.filter(p =>
+    p.placement.playerAddress?.toLowerCase() === tournament.hostPlayer?.toLowerCase()
+  );
+  const opponentPlacements = placements.filter(p =>
+    p.placement.playerAddress?.toLowerCase() === tournament.opponentPlayer?.toLowerCase()
+  );
+
+  const isHostWin = tournament.winnerPlayer &&
+    tournament.winnerPlayer.toLowerCase() === tournament.hostPlayer?.toLowerCase();
+
+  // Find relevant class winrate for this matchup
+  const matchupWinrates = detailData && classWinrateData && hostPlacements.length > 0 && opponentPlacements.length > 0
+    ? classWinrateData.filter(r =>
+        (r.winner_class === hostPlacements[0]?.snapshot?.mainClass && r.finalist_class === opponentPlacements[0]?.snapshot?.mainClass) ||
+        (r.winner_class === opponentPlacements[0]?.snapshot?.mainClass && r.finalist_class === hostPlacements[0]?.snapshot?.mainClass)
+      )
+    : [];
+
+  const similarBouts = similarData?.filter(s => s.tournamentId !== tournamentId) || [];
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto" data-testid="page-tournament-detail">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="space-y-1">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tournament')} className="mb-1 -ml-2">
-            <ArrowLeft className="w-4 h-4 mr-1" /> All Tournaments
-          </Button>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Medal className="w-6 h-6 text-primary" />
-            {data.name}
-          </h1>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="outline">{data.status.charAt(0).toUpperCase() + data.status.slice(1)}</Badge>
-            <Badge variant="outline">{data.format}</Badge>
-            <Badge variant="outline">{data.realm === 'cv' ? 'Crystalvale' : 'Sundered Isles'}</Badge>
-            <span className="text-sm text-muted-foreground flex items-center gap-1">
-              <Users className="w-3 h-3" />{data.entries.length} registered
-            </span>
+      <div className="space-y-2">
+        <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tournament')} className="-ml-2">
+          <ArrowLeft className="w-4 h-4 mr-1" /> All Bouts
+        </Button>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Medal className="w-6 h-6 text-primary" />
+              Bout #{tournament.tournamentId}
+            </h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="outline">{FORMAT_LABELS[tournament.format] || tournament.format}</Badge>
+              <Badge variant="outline">{REALM_LABELS[tournament.realm] || tournament.realm}</Badge>
+              {tournament.gloryBout && <Badge variant="outline" className="text-amber-500 border-amber-500/40">Glory Bout</Badge>}
+              {tournament.levelMin && <Badge variant="outline">Lv {tournament.levelMin}–{tournament.levelMax ?? '∞'}</Badge>}
+              {tournament.rarityMin != null && tournament.rarityMin > 0 && <Badge variant="outline">{RARITY_LABELS[tournament.rarityMin]}+</Badge>}
+              {tournament.allUniqueClasses && <Badge variant="outline">All Unique Classes</Badge>}
+              {tournament.noTripleClasses && <Badge variant="outline">No Triple Classes</Badge>}
+            </div>
+            <p className="text-sm text-muted-foreground">{formatDate(tournament.startTime)}</p>
           </div>
-          {data.description && <p className="text-sm text-muted-foreground mt-1">{data.description}</p>}
+          {tournament.winnerPlayer && (
+            <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-2">
+              <Trophy className="w-5 h-5 text-green-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Winner</p>
+                <p className="font-semibold text-green-600 dark:text-green-400 font-mono text-sm">{truncAddr(tournament.winnerPlayer)}</p>
+              </div>
+            </div>
+          )}
         </div>
-
-        {STATUS_NEXT[data.status] && (
-          <Button
-            onClick={handleStatusAdvance}
-            disabled={generateBracketMutation.isPending || statusMutation.isPending}
-            data-testid="button-status-advance"
-          >
-            {(generateBracketMutation.isPending || statusMutation.isPending) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            {STATUS_NEXT[data.status].label}
-          </Button>
-        )}
       </div>
 
-      {/* Participants section (show when no bracket yet) */}
-      {!hasBracket && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
-            <div>
-              <CardTitle>Participants</CardTitle>
-              <CardDescription>
-                Register participants before generating the bracket. Need 2, 4, 8, or 16 players (padded with BYEs).
-              </CardDescription>
-            </div>
-            <Button size="sm" onClick={() => setShowRegister(true)} data-testid="button-register-participant">
-              <Plus className="w-4 h-4 mr-1" /> Register Hero
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {data.entries.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">No participants yet. Register heroes to get started.</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Participant</TableHead>
-                    <TableHead>Hero ID</TableHead>
-                    <TableHead>Class</TableHead>
-                    <TableHead>Level</TableHead>
-                    <TableHead>Weapon</TableHead>
-                    <TableHead>Combat Power</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.entries.map(entry => (
-                    <TableRow key={entry.id} data-testid={`row-entry-${entry.id}`}>
-                      <TableCell className="font-medium">{entry.participant_name}</TableCell>
-                      <TableCell className="text-muted-foreground">{entry.hero_id ?? '—'}</TableCell>
-                      <TableCell>{entry.main_class ?? '—'}</TableCell>
-                      <TableCell>{entry.level ?? '—'}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">{entry.weapon_type}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {entry.combat_power_score != null ? (
-                          <span className="font-mono font-bold">{entry.combat_power_score}</span>
-                        ) : '—'}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost" size="icon"
-                          onClick={() => { if (confirm('Remove this participant?')) removeEntryMutation.mutate(entry.id); }}
-                          data-testid={`button-remove-entry-${entry.id}`}
-                        >
-                          <Trash2 className="w-4 h-4 text-muted-foreground" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* Tabs */}
+      <Tabs defaultValue="bout">
+        <TabsList data-testid="tabs-tournament-detail">
+          <TabsTrigger value="bout" data-testid="tab-bout-details"><Swords className="w-3.5 h-3.5 mr-1.5" />Bout Details</TabsTrigger>
+          <TabsTrigger value="prediction" data-testid="tab-prediction"><Brain className="w-3.5 h-3.5 mr-1.5" />Combat Prediction</TabsTrigger>
+          <TabsTrigger value="similar" data-testid="tab-similar"><History className="w-3.5 h-3.5 mr-1.5" />Similar Bouts</TabsTrigger>
+        </TabsList>
 
-      {/* Bracket visualization */}
-      {hasBracket && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <GitFork className="w-5 h-5" />
-              Bracket
-            </CardTitle>
-            <CardDescription>
-              {data.entries.length} participants • {totalRounds} round{totalRounds !== 1 ? 's' : ''}
-              {data.status === 'active' && <span className="ml-2 text-green-500">• In Progress</span>}
-              {data.status === 'completed' && <span className="ml-2 text-muted-foreground">• Completed</span>}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <div className="flex gap-8 min-w-max pb-4">
-                {allRounds.map(round => {
-                  const roundMatches = data.matches.filter(m => m.round === round).sort((a, b) => a.match_number - b.match_number);
-                  return (
-                    <div key={round} className="flex flex-col gap-4 min-w-[260px]">
-                      <div className="text-xs font-semibold uppercase text-muted-foreground tracking-wider text-center pb-1 border-b">
-                        {getRoundLabel(round, totalRounds)}
-                      </div>
-                      <div className="flex flex-col" style={{ gap: `${Math.pow(2, round - 1) * 8}px` }}>
-                        {roundMatches.map(match => {
-                          const entryA = match.entry_a_id ? entryMap[match.entry_a_id] : null;
-                          const entryB = match.entry_b_id ? entryMap[match.entry_b_id] : null;
-                          const winner = match.winner_entry_id ? entryMap[match.winner_entry_id] : null;
-                          const isPending = !match.is_bye && !match.winner_entry_id && entryA && entryB;
-                          const isBye = match.is_bye;
-
-                          return (
-                            <Card
-                              key={match.id}
-                              className={`border ${match.winner_entry_id ? 'border-border' : isPending ? 'border-primary/40' : 'border-border/50'}`}
-                              data-testid={`card-match-${match.id}`}
-                            >
-                              <CardContent className="p-3 space-y-2">
-                                {isBye ? (
-                                  <div className="text-xs text-muted-foreground text-center py-2">
-                                    BYE — {winner?.participant_name ?? 'Auto-advance'}
-                                  </div>
-                                ) : (
-                                  <>
-                                    {/* Participant A */}
-                                    <div className={`flex items-center justify-between gap-2 rounded px-2 py-1 ${match.winner_entry_id === match.entry_a_id ? 'bg-green-500/10' : match.winner_entry_id && match.winner_entry_id !== match.entry_a_id ? 'opacity-40' : ''}`}>
-                                      <span className={`text-sm font-medium truncate ${match.winner_entry_id === match.entry_a_id ? 'text-green-600 dark:text-green-400' : ''}`}>
-                                        {entryA ? entryA.participant_name : <span className="text-muted-foreground italic">TBD</span>}
-                                      </span>
-                                      {entryA?.main_class && <Badge variant="outline" className="text-xs shrink-0">{entryA.main_class}</Badge>}
-                                      {match.winner_entry_id === match.entry_a_id && <Trophy className="w-3 h-3 text-green-500 shrink-0" />}
-                                    </div>
-
-                                    <div className="text-center text-xs text-muted-foreground">vs</div>
-
-                                    {/* Participant B */}
-                                    <div className={`flex items-center justify-between gap-2 rounded px-2 py-1 ${match.winner_entry_id === match.entry_b_id ? 'bg-green-500/10' : match.winner_entry_id && match.winner_entry_id !== match.entry_b_id ? 'opacity-40' : ''}`}>
-                                      <span className={`text-sm font-medium truncate ${match.winner_entry_id === match.entry_b_id ? 'text-green-600 dark:text-green-400' : ''}`}>
-                                        {entryB ? entryB.participant_name : <span className="text-muted-foreground italic">TBD</span>}
-                                      </span>
-                                      {entryB?.main_class && <Badge variant="outline" className="text-xs shrink-0">{entryB.main_class}</Badge>}
-                                      {match.winner_entry_id === match.entry_b_id && <Trophy className="w-3 h-3 text-green-500 shrink-0" />}
-                                    </div>
-
-                                    {/* Actions */}
-                                    {isPending && data.status === 'active' && (
-                                      <div className="space-y-2 pt-1 border-t">
-                                        <Input
-                                          placeholder="Tx hash (optional)"
-                                          className="h-7 text-xs"
-                                          value={winnerInput[match.id]?.tx_hash ?? ''}
-                                          onChange={e => setWinnerInput(p => ({ ...p, [match.id]: { tx_hash: e.target.value } }))}
-                                          data-testid={`input-tx-hash-${match.id}`}
-                                        />
-                                        <div className="flex gap-2">
-                                          <Button
-                                            size="sm"
-                                            className="flex-1 h-7 text-xs"
-                                            onClick={() => recordResultMutation.mutate({ matchId: match.id, winnerId: match.entry_a_id! })}
-                                            disabled={recordResultMutation.isPending}
-                                            data-testid={`button-winner-a-${match.id}`}
-                                          >
-                                            {entryA?.participant_name} wins
-                                          </Button>
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="flex-1 h-7 text-xs"
-                                            onClick={() => recordResultMutation.mutate({ matchId: match.id, winnerId: match.entry_b_id! })}
-                                            disabled={recordResultMutation.isPending}
-                                            data-testid={`button-winner-b-${match.id}`}
-                                          >
-                                            {entryB?.participant_name} wins
-                                          </Button>
-                                        </div>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="w-full h-7 text-xs"
-                                          onClick={() => setOddsMatch(match)}
-                                          data-testid={`button-view-odds-${match.id}`}
-                                        >
-                                          <Swords className="w-3 h-3 mr-1" />
-                                          View Matchup Odds
-                                        </Button>
-                                      </div>
-                                    )}
-
-                                    {match.winner_entry_id && (
-                                      <div className="pt-1 border-t">
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="w-full h-7 text-xs"
-                                          onClick={() => setOddsMatch(match)}
-                                        >
-                                          <Swords className="w-3 h-3 mr-1" />
-                                          View Analysis
-                                        </Button>
-                                      </div>
-                                    )}
-                                  </>
-                                )}
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Champion display */}
-                {data.status === 'completed' && (() => {
-                  const finalMatch = data.matches.find(m => m.round === totalRounds);
-                  const champion = finalMatch?.winner_entry_id ? entryMap[finalMatch.winner_entry_id] : null;
-                  return champion ? (
-                    <div className="flex flex-col justify-center min-w-[200px]">
-                      <div className="text-xs font-semibold uppercase text-muted-foreground tracking-wider text-center pb-1 border-b mb-4">
-                        Champion
-                      </div>
-                      <Card className="border-2 border-amber-500/50 bg-amber-500/5 text-center">
-                        <CardContent className="p-4 space-y-2">
-                          <Trophy className="w-8 h-8 text-amber-500 mx-auto" />
-                          <p className="font-bold text-lg">{champion.participant_name}</p>
-                          {champion.main_class && <Badge>{champion.main_class}</Badge>}
-                        </CardContent>
-                      </Card>
-                    </div>
-                  ) : null;
-                })()}
+        {/* Tab 1: Bout Details */}
+        <TabsContent value="bout" className="space-y-4 mt-4">
+          <div className="grid grid-cols-2 gap-6">
+            {/* Host side */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className={`px-3 py-1 rounded-md text-sm font-medium ${isHostWin ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-muted text-muted-foreground'}`}>
+                  Host {isHostWin && <Trophy className="w-3.5 h-3.5 inline ml-1" />}
+                </div>
+                <span className="text-xs font-mono text-muted-foreground">{truncAddr(tournament.hostPlayer)}</span>
               </div>
+              {hostPlacements.length > 0 ? (
+                hostPlacements.map((p, i) => (
+                  <HeroCard key={i} hero={p.snapshot} isWinner={!!isHostWin} />
+                ))
+              ) : (
+                <Card>
+                  <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                    No hero snapshot data indexed for this player
+                  </CardContent>
+                </Card>
+              )}
             </div>
-          </CardContent>
-        </Card>
-      )}
 
-      {/* Register Dialog */}
-      <Dialog open={showRegister} onOpenChange={setShowRegister}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-register-participant">
-          <DialogHeader>
-            <DialogTitle>Register Participant</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Participant Name *</Label>
-                <Input value={regForm.participant_name} onChange={e => setRegForm(p => ({ ...p, participant_name: e.target.value }))} placeholder="Player name" data-testid="input-participant-name" />
+            {/* Opponent side */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className={`px-3 py-1 rounded-md text-sm font-medium ${!isHostWin && tournament.winnerPlayer ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-muted text-muted-foreground'}`}>
+                  Opponent {!isHostWin && tournament.winnerPlayer && <Trophy className="w-3.5 h-3.5 inline ml-1" />}
+                </div>
+                <span className="text-xs font-mono text-muted-foreground">{truncAddr(tournament.opponentPlayer)}</span>
               </div>
-              <div className="space-y-2">
-                <Label>Hero ID (optional)</Label>
-                <Input value={regForm.hero_id} onChange={e => setRegForm(p => ({ ...p, hero_id: e.target.value }))} placeholder="e.g. 134639" data-testid="input-hero-id" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Wallet Address (optional)</Label>
-              <Input value={regForm.wallet_address} onChange={e => setRegForm(p => ({ ...p, wallet_address: e.target.value }))} placeholder="0x..." />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Weapon Type</Label>
-                <Select value={regForm.weapon_type} onValueChange={v => setRegForm(p => ({ ...p, weapon_type: v }))}>
-                  <SelectTrigger data-testid="select-weapon-type"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Physical">Physical</SelectItem>
-                    <SelectItem value="Magical">Magical</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Armor</Label>
-                <Select value={regForm.armor_name} onValueChange={v => setRegForm(p => ({ ...p, armor_name: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {STARTER_ARMORS.map(a => <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Level</Label>
-              <Input type="number" value={regForm.level} onChange={e => setRegForm(p => ({ ...p, level: e.target.value }))} min={1} max={100} />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Hero Stats (used for matchup odds)</Label>
-              <div className="grid grid-cols-4 gap-2">
-                {(['STR','DEX','AGI','INT','WIS','VIT','END','LCK'] as const).map(stat => (
-                  <div key={stat} className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">{stat}</Label>
-                    <Input
-                      type="number"
-                      value={regForm[stat]}
-                      onChange={e => setRegForm(p => ({ ...p, [stat]: e.target.value }))}
-                      min={1} max={100}
-                      className="h-8 text-sm"
-                      data-testid={`input-stat-${stat.toLowerCase()}`}
-                    />
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">If a Hero ID is provided, stats will be auto-fetched from the DFK subgraph. These manual stats are used as fallback.</p>
+              {opponentPlacements.length > 0 ? (
+                opponentPlacements.map((p, i) => (
+                  <HeroCard key={i} hero={p.snapshot} isWinner={!isHostWin && !!tournament.winnerPlayer} />
+                ))
+              ) : (
+                <Card>
+                  <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                    No hero snapshot data indexed for this player
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRegister(false)}>Cancel</Button>
-            <Button
-              onClick={() => { if (!regForm.participant_name.trim()) return; registerMutation.mutate(); }}
-              disabled={registerMutation.isPending}
-              data-testid="button-submit-register"
-            >
-              {registerMutation.isPending ? 'Registering...' : 'Register'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
-      {/* Odds Sheet */}
-      <Sheet open={!!oddsMatch} onOpenChange={(open) => { if (!open) setOddsMatch(null); }}>
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto" data-testid="sheet-odds">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2">
-              <Swords className="w-5 h-5" />
-              Matchup Odds
-            </SheetTitle>
-          </SheetHeader>
+          {/* Glories & Rewards */}
+          {((tournament.hostGlories ?? 0) + (tournament.opponentGlories ?? 0) > 0) && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Glories & Stakes</CardTitle>
+              </CardHeader>
+              <CardContent className="flex gap-8 text-sm">
+                <div><span className="text-muted-foreground">Host staked: </span><span className="font-mono font-bold">{(tournament.hostGlories ?? 0).toLocaleString()}</span></div>
+                <div><span className="text-muted-foreground">Opponent staked: </span><span className="font-mono font-bold">{(tournament.opponentGlories ?? 0).toLocaleString()}</span></div>
+                {tournament.sponsorCount != null && tournament.sponsorCount > 0 && (
+                  <div><span className="text-muted-foreground">Sponsors: </span><span className="font-mono font-bold">{tournament.sponsorCount}</span></div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
-          {oddsLoading ? (
-            <div className="flex items-center gap-2 mt-8 text-muted-foreground">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Computing odds...
+        {/* Tab 2: Combat Prediction */}
+        <TabsContent value="prediction" className="space-y-4 mt-4">
+          {predLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-8">
+              <Loader2 className="w-4 h-4 animate-spin" />Computing prediction...
             </div>
-          ) : oddsData ? (
-            <div className="space-y-6 mt-6">
-              <div className="text-center p-4 bg-muted/30 rounded-lg">
-                <p className="text-sm font-medium text-muted-foreground">Verdict</p>
-                <p className="font-semibold mt-1" data-testid="text-odds-verdict">{oddsData.verdict}</p>
+          ) : !predData ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Brain className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                <p className="font-medium">Insufficient data for prediction</p>
+                <p className="text-sm text-muted-foreground mt-1">Hero snapshots are needed for both sides to run the combat formula.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Verdict */}
+              <Card className={predData.correct === true ? 'border-green-500/40' : predData.correct === false ? 'border-red-500/40' : ''}>
+                <CardContent className="p-5 flex items-center justify-between gap-4 flex-wrap">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Formula Prediction</p>
+                    <p className="text-xl font-bold">
+                      {predData.predictedWinner === 'host' ? truncAddr(tournament.hostPlayer) : truncAddr(tournament.opponentPlayer)} wins
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      {predData.hostWinPct.toFixed(1)}% host vs {predData.opponentWinPct.toFixed(1)}% opponent
+                    </p>
+                  </div>
+                  {predData.correct !== null && (
+                    <div className={`flex items-center gap-2 px-4 py-3 rounded-lg font-semibold ${predData.correct ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
+                      {predData.correct ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+                      <span>{predData.correct ? 'Correct' : 'Incorrect'} Prediction</span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Probability bars */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Win Probabilities</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Overall Win Chance</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs w-24 text-right font-mono font-bold">{predData.hostWinPct.toFixed(1)}% Host</span>
+                      <Progress value={predData.hostWinPct} className="flex-1 h-4" />
+                      <span className="text-xs w-28 font-mono font-bold">Opp {predData.opponentWinPct.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">Initiative Advantage</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs w-24 text-right font-mono">{predData.initPctHost.toFixed(1)}%</span>
+                      <Progress value={predData.initPctHost} className="flex-1 h-3" />
+                      <span className="text-xs w-28 font-mono">{(100 - predData.initPctHost).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">DPS Comparison</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs w-24 text-right font-mono">{predData.hostDps}</span>
+                      <Progress value={(predData.hostDps / (predData.hostDps + predData.opponentDps)) * 100} className="flex-1 h-3" />
+                      <span className="text-xs w-28 font-mono">{predData.opponentDps}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Hero profiles table */}
+              {(predData.hostProfiles.length > 0 || predData.opponentProfiles.length > 0) && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Per-Hero Combat Profiles</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Side</TableHead>
+                          <TableHead>Hero</TableHead>
+                          <TableHead>Class</TableHead>
+                          <TableHead>Lv</TableHead>
+                          <TableHead>STR</TableHead>
+                          <TableHead>DEX</TableHead>
+                          <TableHead>AGI</TableHead>
+                          <TableHead>Init Expected</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {predData.hostProfiles.map((p, i) => (
+                          <TableRow key={`host-${i}`}>
+                            <TableCell><Badge variant="outline" className="text-xs">Host</Badge></TableCell>
+                            <TableCell className="font-mono text-xs">{p.heroId ?? '—'}</TableCell>
+                            <TableCell className="text-sm">{p.class ?? '—'}</TableCell>
+                            <TableCell>{p.level ?? '—'}</TableCell>
+                            <TableCell className="font-mono">{p.STR}</TableCell>
+                            <TableCell className="font-mono">{p.DEX}</TableCell>
+                            <TableCell className="font-mono">{p.AGI}</TableCell>
+                            <TableCell className="font-mono">{p.initExpected?.toFixed(1) ?? '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                        {predData.opponentProfiles.map((p, i) => (
+                          <TableRow key={`opp-${i}`}>
+                            <TableCell><Badge variant="outline" className="text-xs">Opp</Badge></TableCell>
+                            <TableCell className="font-mono text-xs">{p.heroId ?? '—'}</TableCell>
+                            <TableCell className="text-sm">{p.class ?? '—'}</TableCell>
+                            <TableCell>{p.level ?? '—'}</TableCell>
+                            <TableCell className="font-mono">{p.STR}</TableCell>
+                            <TableCell className="font-mono">{p.DEX}</TableCell>
+                            <TableCell className="font-mono">{p.AGI}</TableCell>
+                            <TableCell className="font-mono">{p.initExpected?.toFixed(1) ?? '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Class matchup winrates */}
+              {matchupWinrates.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Historical Class Matchup Data</CardTitle>
+                    <CardDescription className="text-xs">Win rates for this class combination from all indexed bouts</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Winner Class</TableHead>
+                          <TableHead>vs</TableHead>
+                          <TableHead>Loser Class</TableHead>
+                          <TableHead>Bouts</TableHead>
+                          <TableHead>Win %</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {matchupWinrates.map((r, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="font-medium">{r.winner_class}</TableCell>
+                            <TableCell className="text-muted-foreground">beats</TableCell>
+                            <TableCell>{r.finalist_class}</TableCell>
+                            <TableCell className="font-mono">{r.bouts}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Progress value={r.win_pct} className="w-16 h-2" />
+                                <span className="font-mono text-xs">{r.win_pct}%</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* Tab 3: Similar Bouts */}
+        <TabsContent value="similar" className="space-y-4 mt-4">
+          {!tournament.tournamentTypeSignature ? (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground text-sm">
+                No tournament type signature for this bout.
+              </CardContent>
+            </Card>
+          ) : similarLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-8">
+              <Loader2 className="w-4 h-4 animate-spin" />Loading similar bouts...
+            </div>
+          ) : similarBouts.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground text-sm">
+                No other bouts found with the same restrictions signature.
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs font-mono">{tournament.tournamentTypeSignature}</Badge>
+                <span className="text-xs text-muted-foreground">{similarBouts.length} similar bouts</span>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm font-medium">
-                  <span data-testid="text-odds-entry-a">{oddsData.entryA.name}</span>
-                  <span data-testid="text-odds-entry-b">{oddsData.entryB.name}</span>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Combat Power Advantage</p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs w-16 text-right font-mono">{(oddsData.powerOddsA * 100).toFixed(1)}%</span>
-                    <Progress value={oddsData.powerOddsA * 100} className="flex-1 h-3" />
-                    <span className="text-xs w-16 font-mono">{((1 - oddsData.powerOddsA) * 100).toFixed(1)}%</span>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Initiative Probability</p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs w-16 text-right font-mono">{(oddsData.entryA.initPct * 100).toFixed(1)}%</span>
-                    <Progress value={oddsData.entryA.initPct * 100} className="flex-1 h-3" />
-                    <span className="text-xs w-16 font-mono">{(oddsData.entryB.initPct * 100).toFixed(1)}%</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                {[oddsData.entryA, oddsData.entryB].map((entry, idx) => (
-                  <Card key={idx}>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">{entry.name}</CardTitle>
-                      <CardDescription className="text-xs">
-                        {entry.class ?? 'Unknown'} • Lv {entry.level ?? '?'} • CP {entry.combatPower}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-1">
-                      {entry.stats && Object.entries(entry.stats).map(([stat, val]) => (
-                        <div key={stat} className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">{stat}</span>
-                          <span className="font-mono font-medium">{val}</span>
-                        </div>
-                      ))}
+              {/* Win rate summary */}
+              {(() => {
+                const hostWins = similarBouts.filter(s => s.winnerPlayer && s.hostPlayer && s.winnerPlayer.toLowerCase() === s.hostPlayer.toLowerCase()).length;
+                const total = similarBouts.filter(s => s.winnerPlayer).length;
+                const hostPct = total > 0 ? Math.round((hostWins / total) * 100) : null;
+                return total > 0 ? (
+                  <Card>
+                    <CardContent className="p-4">
+                      <p className="text-xs text-muted-foreground mb-2">Host vs Opponent Win Rate (this format)</p>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-mono">{hostPct}% Host</span>
+                        <Progress value={hostPct ?? 50} className="flex-1 h-3" />
+                        <span className="text-sm font-mono">{100 - (hostPct ?? 50)}% Opp</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">{total} completed bouts</p>
                     </CardContent>
                   </Card>
-                ))}
-              </div>
-            </div>
-          ) : oddsMatch && (!oddsMatch.entry_a_id || !oddsMatch.entry_b_id) ? (
-            <p className="mt-8 text-sm text-muted-foreground">Both participants must be known to compute odds.</p>
-          ) : null}
-        </SheetContent>
-      </Sheet>
+                ) : null;
+              })()}
+
+              <Card>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Bout #</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Host</TableHead>
+                        <TableHead>Opponent</TableHead>
+                        <TableHead>Result</TableHead>
+                        <TableHead></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {similarBouts.slice(0, 15).map(s => {
+                        const sHostWin = s.winnerPlayer && s.hostPlayer && s.winnerPlayer.toLowerCase() === s.hostPlayer.toLowerCase();
+                        return (
+                          <TableRow key={s.tournamentId} className="cursor-pointer hover-elevate" onClick={() => navigate(`/admin/tournament/${s.tournamentId}`)}>
+                            <TableCell className="font-mono text-xs">#{s.tournamentId}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{s.startTime ? new Date(s.startTime).toLocaleDateString() : '—'}</TableCell>
+                            <TableCell className="font-mono text-xs">{s.hostPlayer ? `${s.hostPlayer.slice(0, 6)}…` : '—'}</TableCell>
+                            <TableCell className="font-mono text-xs">{s.opponentPlayer ? `${s.opponentPlayer.slice(0, 6)}…` : '—'}</TableCell>
+                            <TableCell>
+                              {s.winnerPlayer ? (
+                                <Badge variant="outline" className={`text-xs ${sHostWin ? 'text-green-600 border-green-500/40' : 'text-blue-500 border-blue-500/40'}`}>
+                                  {sHostWin ? 'Host' : 'Opponent'}
+                                </Badge>
+                              ) : <span className="text-xs text-muted-foreground">Pending</span>}
+                            </TableCell>
+                            <TableCell>
+                              <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
+  );
+}
+
+function ChevronRight({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+    </svg>
   );
 }

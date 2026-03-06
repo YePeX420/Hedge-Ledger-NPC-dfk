@@ -7,246 +7,347 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Medal, Plus, Trash2, ChevronRight, Users } from 'lucide-react';
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { Medal, Play, RefreshCw, Loader2, Trophy, Swords, ChevronRight, Square, RotateCcw, Filter, Activity, Database } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-interface Tournament {
+interface TournamentRow {
   id: number;
-  name: string;
-  description: string | null;
+  tournamentId: number;
+  realm: string;
+  name: string | null;
   format: string;
   status: string;
-  realm: string;
-  level_min: number | null;
-  level_max: number | null;
-  rarity_min: number | null;
-  rarity_max: number | null;
-  notes: string | null;
-  created_at: string;
-  entry_count: number;
+  startTime: string | null;
+  endTime: string | null;
+  levelMin: number | null;
+  levelMax: number | null;
+  rarityMin: number | null;
+  rarityMax: number | null;
+  partySize: number;
+  excludedClasses: number | null;
+  allUniqueClasses: boolean | null;
+  noTripleClasses: boolean | null;
+  mustIncludeClass: boolean | null;
+  gloryBout: boolean | null;
+  minGlories: number | null;
+  hostGlories: number | null;
+  opponentGlories: number | null;
+  sponsorCount: number | null;
+  hostPlayer: string | null;
+  opponentPlayer: string | null;
+  winnerPlayer: string | null;
+  totalEntrants: number | null;
+  tournamentTypeSignature: string | null;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-muted text-muted-foreground',
-  open: 'bg-blue-500/20 text-blue-600 dark:text-blue-400',
-  active: 'bg-green-500/20 text-green-600 dark:text-green-400',
-  completed: 'bg-muted text-muted-foreground',
-};
+interface IndexerStatus {
+  isRunning: boolean;
+  startedAt: string | null;
+  battlesProcessed: number;
+  placementsIndexed: number;
+  snapshotsIndexed: number;
+  totalBattlesToProcess: number;
+  throughputPerMinute: number;
+  estimatedSecondsRemaining: number | null;
+}
 
 const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+const FORMAT_LABELS: Record<string, string> = { '1v1': '1v1', '3v3': '3v3', '6v6': '6v6' };
+const REALM_LABELS: Record<string, string> = { cv: 'Crystalvale', sd: 'Sundered Isles', metis: 'Metis' };
+
+function truncAddr(addr: string | null) {
+  if (!addr) return '—';
+  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+}
+
+function formatDate(ts: string | null) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function gloryTotal(t: TournamentRow) {
+  return (t.hostGlories || 0) + (t.opponentGlories || 0);
+}
 
 export default function AdminTournament() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({
-    name: '', description: '', format: '1v1', realm: 'cv',
-    level_min: '', level_max: '', rarity_min: '', rarity_max: '', notes: ''
-  });
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['/api/admin/hedge-tournaments'],
+  const [filters, setFilters] = useState({
+    format: 'all',
+    realm: 'all',
+    glory_bout: false,
+    level_min: '',
+    level_max: '',
+    rarity_min: 'all',
+  });
+  const [offset, setOffset] = useState(0);
+  const LIMIT = 50;
+
+  const buildQuery = () => {
+    const params = new URLSearchParams({ limit: String(LIMIT), offset: String(offset) });
+    if (filters.format !== 'all') params.set('format', filters.format);
+    if (filters.realm !== 'all') params.set('realm', filters.realm);
+    if (filters.glory_bout) params.set('glory_bout', 'true');
+    if (filters.level_min) params.set('level_min', filters.level_min);
+    if (filters.level_max) params.set('level_max', filters.level_max);
+    if (filters.rarity_min !== 'all') params.set('rarity_min', filters.rarity_min);
+    return params.toString();
+  };
+
+  const { data: browseData, isLoading: browseLoading } = useQuery({
+    queryKey: ['/api/admin/tournament/browse', filters, offset],
     queryFn: async () => {
-      const res = await fetch('/api/admin/hedge-tournaments');
-      if (!res.ok) throw new Error('Failed to load tournaments');
-      const json = await res.json();
-      return json.data as Tournament[];
+      const res = await fetch(`/api/admin/tournament/browse?${buildQuery()}`);
+      if (!res.ok) throw new Error('Failed to load bouts');
+      return res.json() as Promise<{ ok: boolean; data: TournamentRow[]; total: number }>;
     }
   });
 
-  const createMutation = useMutation({
-    mutationFn: async (payload: typeof form) => {
-      const res = await fetch('/api/admin/hedge-tournaments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: payload.name,
-          description: payload.description || null,
-          format: payload.format,
-          realm: payload.realm,
-          level_min: payload.level_min ? parseInt(payload.level_min) : null,
-          level_max: payload.level_max ? parseInt(payload.level_max) : null,
-          rarity_min: payload.rarity_min ? parseInt(payload.rarity_min) : null,
-          rarity_max: payload.rarity_max ? parseInt(payload.rarity_max) : null,
-          notes: payload.notes || null,
-        })
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-      return res.json();
+  const { data: statusData } = useQuery({
+    queryKey: ['/api/admin/tournament/status'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/tournament/status');
+      if (!res.ok) throw new Error('Failed to load status');
+      const json = await res.json();
+      return json.liveState as IndexerStatus;
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/hedge-tournaments'] });
-      setShowCreate(false);
-      setForm({ name: '', description: '', format: '1v1', realm: 'cv', level_min: '', level_max: '', rarity_min: '', rarity_max: '', notes: '' });
-      toast({ title: 'Tournament created' });
-      navigate(`/admin/tournament/${data.data.id}`);
-    },
-    onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
+    refetchInterval: 5000,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await fetch(`/api/admin/hedge-tournaments/${id}`, { method: 'DELETE' });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+  const triggerMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/tournament/trigger', { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to trigger indexer');
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/hedge-tournaments'] });
-      toast({ title: 'Tournament deleted' });
+      toast({ title: 'Indexer started' });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/status'] });
     },
     onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
   });
 
-  const handleCreate = () => {
-    if (!form.name.trim()) return toast({ title: 'Name is required', variant: 'destructive' });
-    createMutation.mutate(form);
+  const stopMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/tournament/stop', { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to stop indexer');
+    },
+    onSuccess: () => {
+      toast({ title: 'Indexer stopped' });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/tournament/status'] });
+    },
+    onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
+  });
+
+  const resetFilters = () => {
+    setFilters({ format: 'all', realm: 'all', glory_bout: false, level_min: '', level_max: '', rarity_min: 'all' });
+    setOffset(0);
   };
+
+  const bouts: TournamentRow[] = browseData?.data || [];
+  const total = browseData?.total || 0;
 
   return (
     <div className="p-6 space-y-6" data-testid="page-tournament-list">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3">
             <Medal className="w-8 h-8 text-primary" />
-            Tournament Bracket
+            DFK Tournaments
           </h1>
-          <p className="text-muted-foreground mt-1">Create and manage community PvP tournaments with bracket tracking.</p>
+          <p className="text-muted-foreground mt-1">Browse real on-chain PvP bouts indexed from the DFK GraphQL API.</p>
         </div>
-        <Button onClick={() => setShowCreate(true)} data-testid="button-create-tournament">
-          <Plus className="w-4 h-4 mr-2" />
-          New Tournament
-        </Button>
       </div>
 
-      {isLoading ? (
-        <div className="grid gap-4">
-          {[1, 2, 3].map(i => (
-            <Card key={i} className="animate-pulse">
-              <CardContent className="p-6 h-24" />
-            </Card>
-          ))}
-        </div>
-      ) : !data?.length ? (
-        <Card>
-          <CardContent className="py-16 flex flex-col items-center gap-4 text-center">
-            <Medal className="w-12 h-12 text-muted-foreground/40" />
-            <div>
-              <p className="font-semibold text-lg">No tournaments yet</p>
-              <p className="text-muted-foreground text-sm">Create your first community tournament to get started.</p>
+      {/* Indexer Status Card */}
+      <Card>
+        <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Activity className={`w-4 h-4 ${statusData?.isRunning ? 'text-green-500 animate-pulse' : 'text-muted-foreground'}`} />
+              <span className="text-sm font-medium">{statusData?.isRunning ? 'Indexer Running' : 'Indexer Idle'}</span>
             </div>
-            <Button onClick={() => setShowCreate(true)} data-testid="button-create-first">
-              <Plus className="w-4 h-4 mr-2" />
-              Create Tournament
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4">
-          {data.map(t => (
-            <Card key={t.id} className="hover-elevate cursor-pointer" data-testid={`card-tournament-${t.id}`} onClick={() => navigate(`/admin/tournament/${t.id}`)}>
-              <CardContent className="p-5 flex items-center justify-between gap-4 flex-wrap">
-                <div className="space-y-1 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-lg" data-testid={`text-tournament-name-${t.id}`}>{t.name}</span>
-                    <Badge variant="outline" className={STATUS_COLORS[t.status]}>
-                      {t.status.charAt(0).toUpperCase() + t.status.slice(1)}
-                    </Badge>
-                    <Badge variant="outline">{t.format}</Badge>
-                    <Badge variant="outline">{t.realm === 'cv' ? 'Crystalvale' : 'Sundered Isles'}</Badge>
-                  </div>
-                  {t.description && <p className="text-sm text-muted-foreground">{t.description}</p>}
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Users className="w-3 h-3" />
-                      {t.entry_count} participant{t.entry_count !== 1 ? 's' : ''}
-                    </span>
-                    {t.level_min && <span>Lv {t.level_min}–{t.level_max ?? '∞'}</span>}
-                    {t.rarity_min !== null && <span>{RARITY_LABELS[t.rarity_min]}+</span>}
-                    <span>{new Date(t.created_at).toLocaleDateString()}</span>
-                  </div>
+            <Separator orientation="vertical" className="h-4" />
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1"><Database className="w-3 h-3" />{total.toLocaleString()} bouts indexed</span>
+              {statusData?.isRunning && statusData.throughputPerMinute > 0 && (
+                <span>{statusData.throughputPerMinute}/min</span>
+              )}
+              {statusData?.isRunning && statusData.estimatedSecondsRemaining && (
+                <span>ETA: {Math.ceil(statusData.estimatedSecondsRemaining / 60)}m</span>
+              )}
+            </div>
+            {statusData?.isRunning && (
+              <div className="w-32">
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all"
+                    style={{ width: `${statusData.totalBattlesToProcess > 0 ? Math.min(100, (statusData.battlesProcessed / statusData.totalBattlesToProcess) * 100) : 0}%` }}
+                  />
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    data-testid={`button-delete-tournament-${t.id}`}
-                    onClick={(e) => { e.stopPropagation(); if (confirm('Delete this tournament?')) deleteMutation.mutate(t.id); }}
-                  >
-                    <Trash2 className="w-4 h-4 text-muted-foreground" />
-                  </Button>
-                  <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {statusData?.isRunning ? (
+              <Button variant="outline" size="sm" onClick={() => stopMutation.mutate()} disabled={stopMutation.isPending} data-testid="button-stop-indexer">
+                <Square className="w-3 h-3 mr-1" /> Stop
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => triggerMutation.mutate()} disabled={triggerMutation.isPending} data-testid="button-run-indexer">
+                {triggerMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Play className="w-3 h-3 mr-1" />}
+                Run Indexer
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-lg" data-testid="dialog-create-tournament">
-          <DialogHeader>
-            <DialogTitle>New Tournament</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Name *</Label>
-              <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Crystalvale 1v1 Championship" data-testid="input-tournament-name" />
+      <div className="flex gap-6">
+        {/* Filter sidebar */}
+        <div className="w-56 shrink-0 space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold flex items-center gap-1"><Filter className="w-3 h-3" /> Filters</span>
+            <Button variant="ghost" size="sm" onClick={resetFilters} className="h-6 px-2 text-xs">
+              <RotateCcw className="w-3 h-3 mr-1" /> Reset
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Format</Label>
+            <Select value={filters.format} onValueChange={v => { setFilters(p => ({ ...p, format: v })); setOffset(0); }}>
+              <SelectTrigger className="h-8 text-sm" data-testid="select-filter-format"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Formats</SelectItem>
+                <SelectItem value="1v1">1v1</SelectItem>
+                <SelectItem value="3v3">3v3</SelectItem>
+                <SelectItem value="6v6">6v6</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Realm</Label>
+            <Select value={filters.realm} onValueChange={v => { setFilters(p => ({ ...p, realm: v })); setOffset(0); }}>
+              <SelectTrigger className="h-8 text-sm" data-testid="select-filter-realm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Realms</SelectItem>
+                <SelectItem value="cv">Crystalvale</SelectItem>
+                <SelectItem value="sd">Sundered Isles</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Min Rarity</Label>
+            <Select value={filters.rarity_min} onValueChange={v => { setFilters(p => ({ ...p, rarity_min: v })); setOffset(0); }}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any Rarity</SelectItem>
+                {RARITY_LABELS.map((r, i) => <SelectItem key={i} value={String(i)}>{r}+</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Min Lv</Label>
+              <Input className="h-8 text-sm" type="number" value={filters.level_min} onChange={e => { setFilters(p => ({ ...p, level_min: e.target.value })); setOffset(0); }} placeholder="1" />
             </div>
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Optional tournament description..." rows={2} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Format</Label>
-                <Select value={form.format} onValueChange={v => setForm(p => ({ ...p, format: v }))}>
-                  <SelectTrigger data-testid="select-tournament-format">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1v1">1v1</SelectItem>
-                    <SelectItem value="3v3">3v3</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Realm</Label>
-                <Select value={form.realm} onValueChange={v => setForm(p => ({ ...p, realm: v }))}>
-                  <SelectTrigger data-testid="select-tournament-realm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cv">Crystalvale</SelectItem>
-                    <SelectItem value="sd">Sundered Isles</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Min Level</Label>
-                <Input type="number" value={form.level_min} onChange={e => setForm(p => ({ ...p, level_min: e.target.value }))} placeholder="1" />
-              </div>
-              <div className="space-y-2">
-                <Label>Max Level</Label>
-                <Input type="number" value={form.level_max} onChange={e => setForm(p => ({ ...p, level_max: e.target.value }))} placeholder="100" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Rules, prizes, schedule..." rows={2} />
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Max Lv</Label>
+              <Input className="h-8 text-sm" type="number" value={filters.level_max} onChange={e => { setFilters(p => ({ ...p, level_max: e.target.value })); setOffset(0); }} placeholder="100" />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={createMutation.isPending} data-testid="button-submit-create">
-              {createMutation.isPending ? 'Creating...' : 'Create Tournament'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
+          <div className="flex items-center justify-between">
+            <Label className="text-xs text-muted-foreground">Glory Bouts Only</Label>
+            <Switch checked={filters.glory_bout} onCheckedChange={v => { setFilters(p => ({ ...p, glory_bout: v })); setOffset(0); }} data-testid="switch-glory-bout" />
+          </div>
+        </div>
+
+        {/* Main bout list */}
+        <div className="flex-1 space-y-3">
+          {browseLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map(i => (
+                <Card key={i} className="animate-pulse"><CardContent className="p-4 h-20" /></Card>
+              ))}
+            </div>
+          ) : bouts.length === 0 ? (
+            <Card>
+              <CardContent className="py-16 text-center">
+                <Swords className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                <p className="font-medium">No bouts indexed yet</p>
+                <p className="text-sm text-muted-foreground mt-1">Run the indexer to pull DFK on-chain battle data.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">{total.toLocaleString()} total bouts — showing {offset + 1}–{Math.min(offset + LIMIT, total)}</p>
+
+              {bouts.map(t => {
+                const isHostWin = t.winnerPlayer && t.hostPlayer &&
+                  t.winnerPlayer.toLowerCase() === t.hostPlayer.toLowerCase();
+                const glories = gloryTotal(t);
+
+                return (
+                  <Card key={t.id} className="hover-elevate cursor-pointer" data-testid={`card-bout-${t.tournamentId}`} onClick={() => navigate(`/admin/tournament/${t.tournamentId}`)}>
+                    <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
+                      <div className="space-y-1.5 flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-mono text-muted-foreground">#{t.tournamentId}</span>
+                          <Badge variant="outline" className="text-xs">{FORMAT_LABELS[t.format] || t.format}</Badge>
+                          <Badge variant="outline" className="text-xs">{REALM_LABELS[t.realm] || t.realm}</Badge>
+                          {t.gloryBout && <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/40">Glory</Badge>}
+                          {t.levelMin && <Badge variant="outline" className="text-xs">Lv {t.levelMin}–{t.levelMax ?? '∞'}</Badge>}
+                          {t.rarityMin != null && t.rarityMin > 0 && <Badge variant="outline" className="text-xs">{RARITY_LABELS[t.rarityMin]}+</Badge>}
+                          {t.allUniqueClasses && <Badge variant="outline" className="text-xs">All Unique</Badge>}
+                          {t.noTripleClasses && <Badge variant="outline" className="text-xs">No Triple</Badge>}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className={`font-medium truncate max-w-[140px] ${isHostWin ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                            {truncAddr(t.hostPlayer)}
+                          </span>
+                          <Swords className="w-3 h-3 text-muted-foreground shrink-0" />
+                          <span className={`font-medium truncate max-w-[140px] ${!isHostWin && t.winnerPlayer ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                            {truncAddr(t.opponentPlayer)}
+                          </span>
+                          {t.winnerPlayer && (
+                            <Badge variant="outline" className="text-xs text-green-600 border-green-500/40 shrink-0">
+                              <Trophy className="w-2.5 h-2.5 mr-1" />
+                              {isHostWin ? 'Host' : 'Opponent'} Win
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          <span>{formatDate(t.startTime)}</span>
+                          {glories > 0 && <span>{glories.toLocaleString()} Glories</span>}
+                          {t.sponsorCount != null && t.sponsorCount > 0 && <span>{t.sponsorCount} sponsors</span>}
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                    </CardContent>
+                  </Card>
+                );
+              })}
+
+              <div className="flex items-center justify-between pt-2">
+                <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - LIMIT))}>
+                  Previous
+                </Button>
+                <span className="text-xs text-muted-foreground">Page {Math.floor(offset / LIMIT) + 1} of {Math.ceil(total / LIMIT)}</span>
+                <Button variant="outline" size="sm" disabled={offset + LIMIT >= total} onClick={() => setOffset(offset + LIMIT)}>
+                  Next
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
