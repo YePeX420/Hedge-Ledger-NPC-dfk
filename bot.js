@@ -9408,8 +9408,10 @@ async function startAdminWebServer() {
       'function getBracket(uint256 _tournamentId) view returns (uint8[])',
       'function getAllRoundRewards(uint256 _tournamentId) view returns (tuple(address tokenAddress, uint8 rewardType, uint256 tokenId, uint256 amount, uint256 decimals)[][])',
       'function getTournamentSponsorshipData(uint256 _tournamentId) view returns (tuple(uint256 rounds, uint256[] sponsorshipAmounts, address sponsorAddress, address tokenAddress, bool isGasToken))',
-      'event TournamentPlayerClaimed(uint256 indexed tournamentId, uint256 indexed playerId, address indexed player, uint256[] heroIds)',
     ];
+    // Known entry event topic hash (TournamentEntered variant with heroIds)
+    // topic[1]=tournamentId, topic[2]=playerAddress; data=(partyIndex uint256, heroIds uint256[])
+    const TOURNAMENT_ENTRY_TOPIC = '0x3db508391058a8109f60bf08e2af35ca966ef562e90c5e706ae71f83ce7486ee';
     const DFK_CLASS_NAMES = ['Warrior','Knight','Thief','Archer','Priest','Wizard','Monk','Pirate','Berserker','Seer','Legionnaire','Scholar','Paladin','Dark Knight','Summoner','Ninja','Shapeshifter','Bard','Dragoon','Sage','Spellbow'];
     const TOURNAMENT_TYPE_LABELS_BD = { 0:'Open Battle',1:'Off-Season Tournament',2:'Standard Open Battle',3:'Glory Tournament',4:'Veteran Tournament',5:'Champion Tournament',6:'Elite Invitational',7:'Grand Prix' };
     const HOST_TIER_LABELS_BD = { 0:'Basic',1:'Silver',2:'Gold',3:'Platinum',4:'Diamond',5:'Champion' };
@@ -9497,36 +9499,77 @@ async function startAdminWebServer() {
           contract.getTournamentSponsorshipData(tournamentId).catch(() => null),
         ]);
 
-        // Scan for players via TournamentPlayerClaimed events (timeout-gated)
-        let playerMap = {};
+        // Scan for players via tournament entry events (correct topic hash)
+        // topic[1]=tournamentId (indexed), topic[2]=player address (indexed)
+        // data = abi.encode(uint256 partyIndex, uint256[] heroIds)
+        let players = [];
+        let detectedFormat = null;
         try {
-          const entryPeriodStart = Number(e.entryPeriodStart);
           const latestBlock = await provider.getBlockNumber();
-          // Estimate block number at entry period start (2s per block on Metis)
-          const secsAgo = Math.floor(Date.now() / 1000) - entryPeriodStart;
-          const estimatedStartBlock = Math.max(0, latestBlock - Math.ceil(secsAgo / 2) - 100);
-          const fromBlock = Math.max(0, estimatedStartBlock - 100);
-          const iface = new ethers.Interface(BRACKET_ABI_EXT);
-          const topic0 = iface.getEvent('TournamentPlayerClaimed').topicHash;
+          const fromBlock = Math.max(0, latestBlock - 100000);
           const topic1 = ethers.zeroPadValue(ethers.toBeHex(tournamentId), 32);
           const logsP = provider.getLogs({
             address: PVP_DIAMOND_BD,
-            topics: [topic0, topic1],
+            topics: [TOURNAMENT_ENTRY_TOPIC, topic1],
             fromBlock,
             toBlock: latestBlock,
           });
           const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000));
           const logs = await Promise.race([logsP, timeout]);
+          const abiCoder = ethers.AbiCoder.defaultAbiCoder();
           for (const log of logs) {
             try {
-              const decoded = iface.parseLog(log);
-              const playerId = Number(decoded.args.playerId);
-              const playerAddr = decoded.args.player;
-              playerMap[playerId] = playerAddr;
+              const playerAddr = ethers.getAddress('0x' + log.topics[2].slice(26));
+              const decoded = abiCoder.decode(['uint256', 'uint256[]'], log.data);
+              const partyIndex = Number(decoded[0]);
+              const heroIds = decoded[1].map(h => Number(h));
+              players.push({ address: playerAddr, partyIndex, heroIds, heroes: [] });
+              if (!detectedFormat && heroIds.length > 0) {
+                detectedFormat = heroIds.length === 1 ? '1v1' : heroIds.length === 3 ? '3v3' : heroIds.length === 6 ? '6v6' : null;
+              }
             } catch (_) {}
           }
         } catch (playerErr) {
           console.warn(`[BracketDetail] Player event scan failed for ${tournamentId}:`, playerErr.message);
+        }
+
+        // Batch-fetch hero details (stats, class, pet, equipment) for all registered heroes
+        if (players.length > 0) {
+          try {
+            const allHeroIds = players.flatMap(p => p.heroIds);
+            if (allHeroIds.length > 0) {
+              const heroIdList = allHeroIds.map(id => `"${id}"`).join(',');
+              const heroQuery = `{
+                heroes(where: { id_in: [${heroIdList}] }) {
+                  id normalizedId mainClassStr subClassStr level rarity element pjStatus pjLevel
+                  strength agility dexterity intelligence wisdom vitality endurance luck hp mp
+                  active1 active2 passive1 passive2
+                  pet { id normalizedId name rarity element combatBonus combatBonusScalar eggType season shiny }
+                  weapon1 { id displayId normalizedId rarity weaponType baseDamage basePotency bonus1 bonus2 bonus3 bonus4 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 durability maxDurability }
+                  weapon2 { id displayId normalizedId rarity weaponType baseDamage basePotency bonus1 bonus2 bonus3 bonus4 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 durability maxDurability }
+                  offhand1 { id displayId normalizedId rarity equipmentType bonus1 bonus2 bonus3 bonus4 bonus5 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 bonusScalar5 durability maxDurability }
+                  offhand2 { id displayId normalizedId rarity equipmentType bonus1 bonus2 bonus3 bonus4 bonus5 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 bonusScalar5 durability maxDurability }
+                  armor { id displayId normalizedId rarity armorType rawPhysDefense physDefScalar rawMagicDefense magicDefScalar evasion bonus1 bonus2 bonus3 bonus4 bonus5 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 bonusScalar5 durability maxDurability }
+                  accessory { id displayId normalizedId rarity equipmentType bonus1 bonus2 bonus3 bonus4 bonus5 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 bonusScalar5 durability maxDurability }
+                }
+              }`;
+              const gqlTimeout = new Promise((_, rej) => setTimeout(() => rej(new Error('gql_timeout')), 8000));
+              const gqlFetch = fetch('https://api.defikingdoms.com/graphql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: heroQuery }),
+              }).then(r => r.json());
+              const gqlResult = await Promise.race([gqlFetch, gqlTimeout]);
+              const heroList = gqlResult?.data?.heroes || [];
+              const heroMap = {};
+              for (const hero of heroList) heroMap[hero.id] = hero;
+              for (const player of players) {
+                player.heroes = player.heroIds.map(id => heroMap[String(id)]).filter(Boolean);
+              }
+            }
+          } catch (heroErr) {
+            console.warn(`[BracketDetail] Hero enrichment failed for ${tournamentId}:`, heroErr.message);
+          }
         }
 
         const nowSec = Math.floor(Date.now() / 1000);
@@ -9550,7 +9593,7 @@ async function startAdminWebServer() {
           stateLabel,
           tournamentType,
           rounds: Number(t.rounds),
-          roundLengthMinutes: Math.round(Number(t.roundLength) / 60),
+          roundLengthMinutes: Number(t.roundLength),
           bestOf: Number(t.bestOf),
           tournamentStartTime,
           entryPeriodStart,
@@ -9558,7 +9601,7 @@ async function startAdminWebServer() {
           entrantsClaimed: Number(t.entrantsClaimed),
           maxEntrants: stateLabel === 'in_progress' ? Number(t.entrants) : 8,
           partyCount,
-          format: partyCount === 1 ? '1v1' : partyCount === 3 ? '3v3' : partyCount === 6 ? '6v6' : '—',
+          format: detectedFormat || (partyCount === 1 ? '1v1' : partyCount === 3 ? '3v3' : partyCount === 6 ? '6v6' : null),
           // Shot clock
           shotClockDuration: Number(t.shotClockDuration),
           bankedShotClockTime: Number(t.bankedShotClockTime),
@@ -9582,7 +9625,7 @@ async function startAdminWebServer() {
           onlyPJ: Boolean(e.onlyPJ),
           onlyBannermen: Boolean(e.onlyBannermen),
           maxTeamTraitScore: Number(e.maxTeamTraitScore) || 0,
-          entryFee: Number(e.entryFee) / Math.pow(10, Number(e.entryFeeDecimals) || 18),
+          entryFee: Number(e.entryFee) * Math.pow(10, Number(e.entryFeeDecimals)) / 1e18,
           // Host
           hostAddress,
           hostTier,
@@ -9598,7 +9641,7 @@ async function startAdminWebServer() {
           isGasToken: sponsorship.isGasToken,
         } : null);
 
-        const responseData = { ok: true, tournament, bracket, players: playerMap, rewardTiers };
+        const responseData = { ok: true, tournament, bracket, players, rewardTiers };
         _bracketDetailCache.set(tournamentId, { data: responseData, ts: Date.now() });
         res.json(responseData);
       } catch (err) {

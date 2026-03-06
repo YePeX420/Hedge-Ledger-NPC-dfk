@@ -1,11 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
-import { ArrowLeft, Trophy, Medal, Copy, Check, Users, Gift, Info, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Trophy, Medal, Copy, Check, Users, Gift, Info, RefreshCw, Shield, Sword, Zap, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useState } from 'react';
+import {
+  ACTIVE_SKILLS, PASSIVE_SKILLS,
+  ABILITY_RARITY_COLORS, ABILITY_RARITY_BORDER,
+  getActiveSkill, getPassiveSkill,
+} from '@/data/dfk-abilities';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,7 +46,7 @@ interface TournamentDetail {
   entrantsClaimed: number;
   maxEntrants: number;
   partyCount: number;
-  format: string;
+  format: string | null;
   shotClockDuration: number;
   bankedShotClockTime: number;
   shotClockPenaltyMode: number;
@@ -70,25 +75,128 @@ interface TournamentDetail {
   tournamentSponsored: boolean;
 }
 
+interface HeroEquipItem {
+  id: string;
+  displayId: number;
+  normalizedId: number | string;
+  rarity: number;
+  durability: number;
+  maxDurability: number;
+}
+
+interface HeroWeapon extends HeroEquipItem {
+  weaponType: number;
+  baseDamage: number;
+  basePotency: number;
+  bonus1: number; bonus2: number; bonus3: number; bonus4: number;
+  bonusScalar1: number; bonusScalar2: number; bonusScalar3: number; bonusScalar4: number;
+}
+
+interface HeroArmor extends HeroEquipItem {
+  armorType: number;
+  rawPhysDefense: number; physDefScalar: number;
+  rawMagicDefense: number; magicDefScalar: number;
+  evasion: number;
+  bonus1: number; bonus2: number; bonus3: number; bonus4: number; bonus5: number;
+  bonusScalar1: number; bonusScalar2: number; bonusScalar3: number; bonusScalar4: number; bonusScalar5: number;
+}
+
+interface HeroAccessory extends HeroEquipItem {
+  equipmentType: number;
+  bonus1: number; bonus2: number; bonus3: number; bonus4: number; bonus5: number;
+  bonusScalar1: number; bonusScalar2: number; bonusScalar3: number; bonusScalar4: number; bonusScalar5: number;
+}
+
+interface HeroPet {
+  id: string;
+  normalizedId: string;
+  name: string;
+  rarity: number;
+  element: number;
+  eggType: number;
+  season: number;
+  shiny: boolean;
+  combatBonus: number;
+  combatBonusScalar: number;
+}
+
+interface HeroDetail {
+  id: string;
+  normalizedId: string;
+  mainClassStr: string;
+  subClassStr: string;
+  level: number;
+  rarity: number;
+  element: number;
+  strength: number; agility: number; dexterity: number; intelligence: number;
+  wisdom: number; vitality: number; endurance: number; luck: number;
+  hp: number; mp: number;
+  active1: number; active2: number;
+  passive1: number; passive2: number;
+  pjStatus: string | null;
+  pjLevel: number | null;
+  pet: HeroPet | null;
+  weapon1: HeroWeapon | null;
+  weapon2: HeroWeapon | null;
+  offhand1: HeroAccessory | null;
+  offhand2: HeroAccessory | null;
+  armor: HeroArmor | null;
+  accessory: HeroAccessory | null;
+}
+
+interface PlayerEntry {
+  address: string;
+  partyIndex: number;
+  heroIds: number[];
+  heroes: HeroDetail[];
+}
+
 interface BracketDetailResponse {
   ok: boolean;
   tournament: TournamentDetail;
   bracket: BracketData;
-  players: Record<string, string>;
+  players: PlayerEntry[];
   rewardTiers: RewardTier[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATE_CONFIG: Record<string, { label: string; className: string }> = {
-  in_progress:      { label: 'In Progress',       className: 'bg-green-600/15 text-green-400 border border-green-600/30' },
-  accepting_entries:{ label: 'Accepting Entries',  className: 'bg-purple-400/15 text-purple-300 border border-purple-400/30' },
-  upcoming:         { label: 'Upcoming',           className: 'bg-purple-700/15 text-purple-400 border border-purple-700/30' },
-  completed:        { label: 'Completed',          className: 'bg-muted text-muted-foreground border border-border' },
-  cancelled:        { label: 'Cancelled',          className: 'bg-red-600/15 text-red-400 border border-red-600/30' },
+  in_progress:       { label: 'In Progress',       className: 'bg-green-600/15 text-green-400 border border-green-600/30' },
+  accepting_entries: { label: 'Accepting Entries',  className: 'bg-purple-400/15 text-purple-300 border border-purple-400/30' },
+  upcoming:          { label: 'Upcoming',           className: 'bg-purple-700/15 text-purple-400 border border-purple-700/30' },
+  completed:         { label: 'Completed',          className: 'bg-muted text-muted-foreground border border-border' },
+  cancelled:         { label: 'Cancelled',          className: 'bg-red-600/15 text-red-400 border border-red-600/30' },
 };
 
-const RARITY_NAMES: Record<number, string> = { 0:'Common', 1:'Uncommon', 2:'Rare', 3:'Legendary', 4:'Mythic' };
+const RARITY_NAMES: Record<number, string> = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary', 4: 'Mythic' };
+
+const RARITY_COLORS: Record<number, string> = {
+  0: 'text-muted-foreground',
+  1: 'text-green-400',
+  2: 'text-blue-400',
+  3: 'text-purple-400',
+  4: 'text-amber-400',
+};
+
+const WEAPON_TYPE_NAMES: Record<number, string> = {
+  0: 'Staff', 1: 'Sword', 2: 'Axe', 3: 'Bow', 4: 'Dagger',
+  5: 'Crossbow', 6: 'Spear', 7: 'Wand', 8: 'Club', 9: 'Fist',
+};
+
+const ARMOR_TYPE_NAMES: Record<number, string> = {
+  0: 'Light', 1: 'Medium', 2: 'Heavy',
+};
+
+const ELEMENT_NAMES: Record<number, string> = {
+  0: 'Fire', 2: 'Water', 4: 'Earth', 6: 'Wind', 8: 'Lightning',
+  10: 'Ice', 12: 'Light', 14: 'Dark',
+};
+
+const PET_COMBAT_BONUS_NAMES: Record<number, string> = {
+  0: 'None', 1: 'Phys Atk', 2: 'Magic Atk', 3: 'Defense', 4: 'Speed',
+  5: 'Crit Rate', 6: 'HP Regen', 7: 'Accuracy', 8: 'Evasion', 9: 'MP Regen',
+};
 
 function shortAddr(addr: string | undefined | null): string {
   if (!addr) return '?';
@@ -97,7 +205,9 @@ function shortAddr(addr: string | undefined | null): string {
 
 function formatDatetime(ts: number): string {
   if (!ts) return '—';
-  return new Date(ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(ts * 1000).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
 }
 
 // ─── Copy button helper ───────────────────────────────────────────────────────
@@ -124,13 +234,13 @@ function CopyButton({ text }: { text: string }) {
 
 // ─── Bracket visualization ────────────────────────────────────────────────────
 
-function PlayerSlot({ slotId, players, winner, isWinner }: {
+function PlayerSlot({ slotId, slotMap, winner, isWinner }: {
   slotId: number;
-  players: Record<string, string>;
+  slotMap: Record<number, string>;
   winner: number;
   isWinner: boolean;
 }) {
-  const addr = slotId > 0 ? (players[slotId] || null) : null;
+  const addr = slotId > 0 ? (slotMap[slotId] ?? null) : null;
   const isEmpty = slotId === 0;
 
   return (
@@ -163,9 +273,9 @@ function PlayerSlot({ slotId, players, winner, isWinner }: {
   );
 }
 
-function MatchCard({ match, players, roundIndex, matchIndex }: {
+function MatchCard({ match, slotMap, roundIndex, matchIndex }: {
   match: BracketMatch;
-  players: Record<string, string>;
+  slotMap: Record<number, string>;
   roundIndex: number;
   matchIndex: number;
 }) {
@@ -174,9 +284,9 @@ function MatchCard({ match, players, roundIndex, matchIndex }: {
       className="flex flex-col gap-0.5 w-44"
       data-testid={`match-r${roundIndex}-m${matchIndex}`}
     >
-      <PlayerSlot slotId={match.slotA} players={players} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotA} />
+      <PlayerSlot slotId={match.slotA} slotMap={slotMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotA} />
       <div className="border-t border-border/40 mx-2" />
-      <PlayerSlot slotId={match.slotB} players={players} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotB} />
+      <PlayerSlot slotId={match.slotB} slotMap={slotMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotB} />
     </div>
   );
 }
@@ -185,9 +295,15 @@ const ROUND_LABELS = ['Round of 8', 'Semifinal', 'Final'];
 
 function BracketTab({ bracket, players, champion }: {
   bracket: BracketData;
-  players: Record<string, string>;
+  players: PlayerEntry[];
   champion: number;
 }) {
+  // Build slot map: partyIndex+1 (1-based slot) → address
+  const slotMap: Record<number, string> = {};
+  for (const p of players) {
+    slotMap[p.partyIndex + 1] = p.address;
+  }
+
   const hasAnyPlayer = bracket.rounds[0]?.some(m => m.slotA !== 0 || m.slotB !== 0);
 
   return (
@@ -209,7 +325,7 @@ function BracketTab({ bracket, players, champion }: {
                 style={{ gap: ri === 0 ? '8px' : ri === 1 ? '88px' : '184px', justifyContent: 'space-around', alignItems: 'center' }}
               >
                 {round.map((match, mi) => (
-                  <MatchCard key={mi} match={match} players={players} roundIndex={ri} matchIndex={mi} />
+                  <MatchCard key={mi} match={match} slotMap={slotMap} roundIndex={ri} matchIndex={mi} />
                 ))}
               </div>
             </div>
@@ -226,8 +342,8 @@ function BracketTab({ bracket, players, champion }: {
                 {champion > 0 ? (
                   <>
                     <span className="text-xs text-muted-foreground w-4 shrink-0">#{champion}</span>
-                    {players[champion] ? (
-                      <span className="font-mono text-xs font-bold truncate">{shortAddr(players[champion])}</span>
+                    {slotMap[champion] ? (
+                      <span className="font-mono text-xs font-bold truncate">{shortAddr(slotMap[champion])}</span>
                     ) : (
                       <span className="text-xs font-bold">Player {champion}</span>
                     )}
@@ -272,7 +388,7 @@ function DetailsTab({ t }: { t: TournamentDetail }) {
       <div>
         <SectionHeading>Battle Settings</SectionHeading>
         <div className="rounded-md border border-border/50 bg-card px-4 py-1">
-          <DetailRow label="Format" value={t.format} />
+          {t.format && <DetailRow label="Format" value={t.format} />}
           <DetailRow label="Best Of" value={t.bestOf} />
           <DetailRow label="Rounds" value={`${t.rounds} rounds — ${t.roundLengthMinutes} min each`} />
           <DetailRow label="Battle Inventory" value={`${t.battleInventory} / ${t.battleBudget} Stone`} />
@@ -354,37 +470,244 @@ function DetailsTab({ t }: { t: TournamentDetail }) {
   );
 }
 
+// ─── Players tab — hero detail sub-components ──────────────────────────────────
+
+function DurabilityBar({ current, max }: { current: number; max: number }) {
+  if (!max) return null;
+  const pct = Math.round((current / max) * 100);
+  const color = pct > 60 ? 'bg-green-500' : pct > 30 ? 'bg-yellow-500' : 'bg-red-500';
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="h-1.5 w-14 rounded-full bg-muted overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs text-muted-foreground">{current}/{max}</span>
+    </div>
+  );
+}
+
+function EquipSlot({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2 py-1.5">
+      <div className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <span className="text-xs text-muted-foreground mr-1.5">{label}</span>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function WeaponSlotDisplay({ weapon, label }: { weapon: HeroWeapon; label: string }) {
+  const typeName = WEAPON_TYPE_NAMES[weapon.weaponType] ?? `Type ${weapon.weaponType}`;
+  const rarityColor = RARITY_COLORS[weapon.rarity] ?? 'text-muted-foreground';
+  return (
+    <EquipSlot label={label} icon={<Sword className="w-4 h-4" />}>
+      <span className={`text-xs font-medium ${rarityColor}`}>
+        {typeName} <span className="text-muted-foreground font-normal">#{weapon.displayId}</span>
+      </span>
+      {weapon.baseDamage > 0 && (
+        <span className="text-xs text-muted-foreground ml-2">{weapon.baseDamage} dmg</span>
+      )}
+      <div className="mt-0.5">
+        <DurabilityBar current={weapon.durability} max={weapon.maxDurability} />
+      </div>
+    </EquipSlot>
+  );
+}
+
+function ArmorSlotDisplay({ armor }: { armor: HeroArmor }) {
+  const typeName = ARMOR_TYPE_NAMES[armor.armorType] ?? `Type ${armor.armorType}`;
+  const rarityColor = RARITY_COLORS[armor.rarity] ?? 'text-muted-foreground';
+  return (
+    <EquipSlot label="Armor" icon={<Shield className="w-4 h-4" />}>
+      <span className={`text-xs font-medium ${rarityColor}`}>
+        {typeName} Armor <span className="text-muted-foreground font-normal">#{armor.displayId}</span>
+      </span>
+      {armor.rawPhysDefense > 0 && (
+        <span className="text-xs text-muted-foreground ml-2">{armor.rawPhysDefense} pDef</span>
+      )}
+      {armor.rawMagicDefense > 0 && (
+        <span className="text-xs text-muted-foreground ml-1">{armor.rawMagicDefense} mDef</span>
+      )}
+      <div className="mt-0.5">
+        <DurabilityBar current={armor.durability} max={armor.maxDurability} />
+      </div>
+    </EquipSlot>
+  );
+}
+
+function AccessorySlotDisplay({ item, label }: { item: HeroAccessory; label: string }) {
+  const rarityColor = RARITY_COLORS[item.rarity] ?? 'text-muted-foreground';
+  return (
+    <EquipSlot label={label} icon={<Zap className="w-4 h-4" />}>
+      <span className={`text-xs font-medium ${rarityColor}`}>
+        Accessory <span className="text-muted-foreground font-normal">#{item.displayId}</span>
+      </span>
+      <div className="mt-0.5">
+        <DurabilityBar current={item.durability} max={item.maxDurability} />
+      </div>
+    </EquipSlot>
+  );
+}
+
+function HeroCard({ hero, index }: { hero: HeroDetail; index: number }) {
+  const active1 = getActiveSkill(hero.active1);
+  const active2 = getActiveSkill(hero.active2);
+  const passive1 = getPassiveSkill(hero.passive1);
+  const passive2 = getPassiveSkill(hero.passive2);
+
+  const hasEquipment = hero.weapon1 || hero.weapon2 || hero.offhand1 || hero.offhand2 || hero.armor || hero.accessory;
+
+  return (
+    <div
+      className="rounded-md border border-border/50 bg-muted/10 p-3 space-y-2.5"
+      data-testid={`card-hero-${hero.id}`}
+    >
+      {/* Header: class, level, rarity */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-semibold text-sm">{hero.mainClassStr}</span>
+        {hero.subClassStr && hero.subClassStr !== hero.mainClassStr && (
+          <span className="text-sm text-muted-foreground">/ {hero.subClassStr}</span>
+        )}
+        <span className="text-xs text-muted-foreground">Lv {hero.level}</span>
+        <span className={`text-xs font-medium ${RARITY_COLORS[hero.rarity] ?? ''}`}>
+          {RARITY_NAMES[hero.rarity] ?? `Rarity ${hero.rarity}`}
+        </span>
+        {hero.pjStatus === 'pj' && (
+          <Badge variant="outline" className="text-xs px-1.5 py-0">PJ {hero.pjLevel}</Badge>
+        )}
+        <span className="text-xs text-muted-foreground ml-auto">#{hero.normalizedId || hero.id}</span>
+      </div>
+
+      {/* Stats strip */}
+      <div className="flex flex-wrap gap-1.5">
+        {[
+          ['STR', hero.strength], ['AGI', hero.agility], ['DEX', hero.dexterity],
+          ['INT', hero.intelligence], ['WIS', hero.wisdom], ['VIT', hero.vitality],
+          ['END', hero.endurance], ['LCK', hero.luck],
+        ].map(([label, val]) => (
+          <div key={label as string} className="flex items-center gap-1 bg-muted/40 rounded px-1.5 py-0.5" data-testid={`stat-${label}-${hero.id}`}>
+            <span className="text-xs text-muted-foreground">{label}</span>
+            <span className="text-xs font-mono font-medium">{val}</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-1 bg-muted/40 rounded px-1.5 py-0.5">
+          <span className="text-xs text-muted-foreground">HP</span>
+          <span className="text-xs font-mono font-medium">{hero.hp}</span>
+        </div>
+        <div className="flex items-center gap-1 bg-muted/40 rounded px-1.5 py-0.5">
+          <span className="text-xs text-muted-foreground">MP</span>
+          <span className="text-xs font-mono font-medium">{hero.mp}</span>
+        </div>
+      </div>
+
+      {/* Skills row */}
+      <div className="flex flex-wrap gap-1">
+        {[active1, active2].map((skill, i) => skill && (
+          <Badge
+            key={`active-${i}`}
+            variant="outline"
+            className={`text-xs ${ABILITY_RARITY_COLORS[skill.rarity]} ${ABILITY_RARITY_BORDER[skill.rarity]}`}
+            data-testid={`badge-skill-active-${i}-${hero.id}`}
+          >
+            {skill.label}
+          </Badge>
+        ))}
+        {[passive1, passive2].map((skill, i) => skill && (
+          <Badge
+            key={`passive-${i}`}
+            variant="outline"
+            className={`text-xs ${ABILITY_RARITY_COLORS[skill.rarity]} ${ABILITY_RARITY_BORDER[skill.rarity]} opacity-80`}
+            data-testid={`badge-skill-passive-${i}-${hero.id}`}
+          >
+            {skill.label}
+          </Badge>
+        ))}
+      </div>
+
+      {/* Pet */}
+      {hero.pet && (
+        <div className="flex items-center gap-2 text-xs" data-testid={`pet-${hero.id}`}>
+          <Star className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className={`font-medium ${RARITY_COLORS[hero.pet.rarity] ?? ''}`}>{hero.pet.name}</span>
+          <span className="text-muted-foreground">{RARITY_NAMES[hero.pet.rarity] ?? ''}</span>
+          {hero.pet.combatBonus > 0 && (
+            <span className="text-muted-foreground">
+              — {PET_COMBAT_BONUS_NAMES[hero.pet.combatBonus] ?? `Bonus ${hero.pet.combatBonus}`}
+              {hero.pet.combatBonusScalar > 0 && ` +${(hero.pet.combatBonusScalar / 100).toFixed(1)}%`}
+            </span>
+          )}
+          {hero.pet.shiny && <Badge variant="outline" className="text-xs px-1.5 py-0 text-amber-400 border-amber-500/40">Shiny</Badge>}
+        </div>
+      )}
+
+      {/* Equipment */}
+      {hasEquipment && (
+        <div className="border-t border-border/30 pt-2 space-y-0" data-testid={`equip-${hero.id}`}>
+          {hero.weapon1 && <WeaponSlotDisplay weapon={hero.weapon1} label="Main" />}
+          {hero.weapon2 && <WeaponSlotDisplay weapon={hero.weapon2} label="Off-weapon" />}
+          {hero.offhand1 && <AccessorySlotDisplay item={hero.offhand1} label="Offhand" />}
+          {hero.offhand2 && <AccessorySlotDisplay item={hero.offhand2} label="Offhand 2" />}
+          {hero.armor && <ArmorSlotDisplay armor={hero.armor} />}
+          {hero.accessory && <AccessorySlotDisplay item={hero.accessory} label="Accessory" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Players tab ──────────────────────────────────────────────────────────────
 
-function PlayersTab({ players, maxEntrants }: { players: Record<string, string>; maxEntrants: number }) {
-  const entries = Object.entries(players).sort((a, b) => Number(a[0]) - Number(b[0]));
-
-  if (entries.length === 0) {
+function PlayersTab({ players, maxEntrants, totalEntrants }: {
+  players: PlayerEntry[];
+  maxEntrants: number;
+  totalEntrants: number;
+}) {
+  if (players.length === 0) {
     return (
       <div className="text-center py-12" data-testid="section-players-empty">
         <Users className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
         <p className="font-medium">No players have registered yet</p>
-        <p className="text-sm text-muted-foreground mt-1">Player wallets will appear here once they claim entry.</p>
+        <p className="text-sm text-muted-foreground mt-1">Player wallets and hero teams will appear here once they enter.</p>
       </div>
     );
   }
 
+  const sorted = [...players].sort((a, b) => a.partyIndex - b.partyIndex);
+
   return (
-    <div className="space-y-3" data-testid="section-players">
-      <p className="text-sm text-muted-foreground">{entries.length} / {maxEntrants} players registered</p>
-      <div className="rounded-md border border-border/50 overflow-hidden">
-        {entries.map(([slotId, addr], idx) => (
-          <div
-            key={slotId}
-            className={`flex items-center gap-4 px-4 py-3 ${idx < entries.length - 1 ? 'border-b border-border/40' : ''}`}
-            data-testid={`row-player-${slotId}`}
-          >
-            <span className="text-xs text-muted-foreground w-6 shrink-0">#{slotId}</span>
-            <span className="font-mono text-sm flex-1">{addr}</span>
-            <CopyButton text={addr} />
+    <div className="space-y-4" data-testid="section-players">
+      <p className="text-sm text-muted-foreground">{totalEntrants} / {maxEntrants} players registered</p>
+      {sorted.map((player, idx) => (
+        <div
+          key={player.address}
+          className="rounded-md border border-border/50 overflow-hidden"
+          data-testid={`card-player-${idx}`}
+        >
+          {/* Player header */}
+          <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 border-b border-border/40">
+            <span className="text-xs text-muted-foreground w-6 shrink-0">#{player.partyIndex + 1}</span>
+            <span className="font-mono text-sm flex-1 truncate">{player.address}</span>
+            <CopyButton text={player.address} />
           </div>
-        ))}
-      </div>
+
+          {/* Hero cards */}
+          <div className="p-3 space-y-3">
+            {player.heroes.length > 0 ? (
+              player.heroes.map((hero, hi) => (
+                <HeroCard key={hero.id} hero={hero} index={hi} />
+              ))
+            ) : player.heroIds.length > 0 ? (
+              <div className="text-xs text-muted-foreground py-2">
+                Heroes: {player.heroIds.join(', ')} — loading details unavailable
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground py-2">No hero data available</div>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -515,13 +838,12 @@ export default function TournamentBracketPage({ id }: Props) {
       </div>
 
       {/* Quick stats bar */}
-      <div className="flex gap-4 flex-wrap text-sm text-muted-foreground">
-        <span>{t.format} format</span>
+      <div className="flex gap-4 flex-wrap text-sm text-muted-foreground" data-testid="stats-bar">
+        {t.format && <><span data-testid="stat-format">{t.format}</span><span>·</span></>}
+        <span data-testid="stat-rounds">{t.rounds} rounds ({t.roundLengthMinutes} min)</span>
         <span>·</span>
-        <span>{t.rounds} rounds ({t.roundLengthMinutes} min)</span>
-        <span>·</span>
-        <span>{t.entrantsClaimed ?? t.entrants} / {t.maxEntrants} players</span>
-        {t.entryFee > 0 && <><span>·</span><span>{t.entryFee.toFixed(2)} JEWEL entry</span></>}
+        <span data-testid="stat-players">{t.entrants} / {t.maxEntrants} players</span>
+        {t.entryFee > 0 && <><span>·</span><span data-testid="stat-entry-fee">{t.entryFee.toFixed(2)} JEWEL entry</span></>}
       </div>
 
       {/* Tabs */}
@@ -531,7 +853,7 @@ export default function TournamentBracketPage({ id }: Props) {
           <TabsTrigger value="details" data-testid="tab-details">Details</TabsTrigger>
           <TabsTrigger value="players" data-testid="tab-players">
             Players
-            <span className="ml-1.5 text-xs text-muted-foreground">({Object.keys(players).length})</span>
+            <span className="ml-1.5 text-xs text-muted-foreground">({t.entrants})</span>
           </TabsTrigger>
           <TabsTrigger value="rewards" data-testid="tab-rewards">Rewards</TabsTrigger>
         </TabsList>
@@ -573,7 +895,7 @@ export default function TournamentBracketPage({ id }: Props) {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <PlayersTab players={players} maxEntrants={t.maxEntrants} />
+              <PlayersTab players={players} maxEntrants={t.maxEntrants} totalEntrants={t.entrants} />
             </CardContent>
           </Card>
         </TabsContent>
