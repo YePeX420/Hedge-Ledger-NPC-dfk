@@ -9325,7 +9325,16 @@ async function startAdminWebServer() {
           COUNT(*) as bout_count,
           MIN(start_time) as window_start,
           MAX(start_time) as window_end,
-          EXTRACT(EPOCH FROM date_trunc('day', MIN(start_time)))::bigint as window_epoch
+          EXTRACT(EPOCH FROM date_trunc('day', MIN(start_time)))::bigint as window_epoch,
+          MAX(name) as tournament_name,
+          COUNT(DISTINCT name) FILTER (WHERE name IS NOT NULL AND name != '') as unique_names,
+          BOOL_OR(COALESCE(all_unique_classes, false)) as all_unique_classes,
+          BOOL_OR(COALESCE(no_triple_classes, false)) as no_triple_classes,
+          BOOL_OR(COALESCE(glory_bout, false)) as glory_bout,
+          MAX(COALESCE(min_hero_stat_score, 0)) as min_hero_stat_score,
+          MAX(COALESCE(max_hero_stat_score, 3000)) as max_hero_stat_score,
+          MAX(COALESCE(min_team_stat_score, 0)) as min_team_stat_score,
+          MAX(COALESCE(max_team_stat_score, 9000)) as max_team_stat_score
         FROM pvp_tournaments
         WHERE status = 'completed' AND start_time IS NOT NULL
         GROUP BY
@@ -9340,20 +9349,33 @@ async function startAdminWebServer() {
       const labelMap = {};
       for (const r of labelRows) { if (r.signature) labelMap[r.signature] = r.label; }
 
-      const sessions = rows.map(r => ({
-        sessionKey: `${r.signature || 'unknown'}_${r.window_epoch}`,
-        signature: r.signature,
-        label: labelMap[r.signature] || null,
-        format: r.format,
-        levelMin: r.level_min,
-        levelMax: r.level_max,
-        rarityMin: r.rarity_min,
-        rarityMax: r.rarity_max,
-        realm: r.realm,
-        boutCount: parseInt(r.bout_count),
-        startTime: r.window_start,
-        endTime: r.window_end,
-      }));
+      const sessions = rows.map(r => {
+        // Use the tournament's own name if all bouts share the same name
+        const uniqueNameCount = parseInt(r.unique_names) || 0;
+        const tournamentName = uniqueNameCount === 1 ? (r.tournament_name || null) : null;
+        return {
+          sessionKey: `${r.signature || 'unknown'}_${r.window_epoch}`,
+          signature: r.signature,
+          label: labelMap[r.signature] || null,
+          tournamentName,
+          format: r.format,
+          levelMin: r.level_min,
+          levelMax: r.level_max,
+          rarityMin: r.rarity_min,
+          rarityMax: r.rarity_max,
+          realm: r.realm,
+          boutCount: parseInt(r.bout_count),
+          startTime: r.window_start,
+          endTime: r.window_end,
+          allUniqueClasses: r.all_unique_classes === true,
+          noTripleClasses: r.no_triple_classes === true,
+          gloryBout: r.glory_bout === true,
+          minHeroStatScore: parseInt(r.min_hero_stat_score) || 0,
+          maxHeroStatScore: parseInt(r.max_hero_stat_score) || 3000,
+          minTeamStatScore: parseInt(r.min_team_stat_score) || 0,
+          maxTeamStatScore: parseInt(r.max_team_stat_score) || 9000,
+        };
+      });
 
       res.json({ ok: true, sessions });
     } catch (err) {

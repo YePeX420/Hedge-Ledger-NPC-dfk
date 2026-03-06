@@ -536,6 +536,7 @@ interface TournamentSession {
   sessionKey: string;
   signature: string | null;
   label: string | null;
+  tournamentName: string | null;
   format: string;
   levelMin: number | null;
   levelMax: number | null;
@@ -545,6 +546,44 @@ interface TournamentSession {
   boutCount: number;
   startTime: string | null;
   endTime: string | null;
+  allUniqueClasses: boolean;
+  noTripleClasses: boolean;
+  gloryBout: boolean;
+  minHeroStatScore: number | null;
+  maxHeroStatScore: number | null;
+  minTeamStatScore: number | null;
+  maxTeamStatScore: number | null;
+}
+
+const REALM_DISPLAY: Record<string, { label: string; color: string }> = {
+  cv:    { label: 'Crystalvale', color: 'text-teal-400' },
+  sd:    { label: 'Sundered',    color: 'text-amber-400' },
+  metis: { label: 'Metis',       color: 'text-blue-400' },
+};
+
+function sessionTitle(s: TournamentSession): string {
+  if (s.tournamentName) return s.tournamentName;
+  if (s.label) return s.label;
+  const parts: string[] = [s.format];
+  if (s.levelMin != null) parts.push(`Lv ${s.levelMin}–${s.levelMax ?? '∞'}`);
+  return parts.join(' · ') || 'Tournament';
+}
+
+function buildRestrictionLine(s: TournamentSession): string {
+  const parts: string[] = [];
+  if (s.levelMin != null) parts.push(`Lv ${s.levelMin}–${s.levelMax ?? '∞'}`);
+  if (s.rarityMin != null && s.rarityMin > 0) parts.push(`${RARITY_LABELS[s.rarityMin]}+`);
+  const realm = REALM_DISPLAY[s.realm]?.label ?? s.realm;
+  if (realm) parts.push(realm);
+  if (s.allUniqueClasses) parts.push('All Unique');
+  if (s.noTripleClasses) parts.push('No Triple');
+  if (s.gloryBout) parts.push('Glory');
+  return parts.join('  ·  ');
+}
+
+function formatSessionDate(start: string | null): string {
+  if (!start) return '—';
+  return new Date(start).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function TournamentsTab() {
@@ -561,28 +600,10 @@ function TournamentsTab() {
 
   const sessions = data?.sessions || [];
 
-  function sessionTitle(s: TournamentSession) {
-    if (s.label) return s.label;
-    const lvl = s.levelMin ? `Lv ${s.levelMin}–${s.levelMax ?? '∞'}` : '';
-    const rar = s.rarityMin != null && s.rarityMin > 0 ? `${RARITY_LABELS[s.rarityMin]}+` : '';
-    return [s.format, lvl, rar].filter(Boolean).join(' · ') || 'Tournament';
-  }
-
-  function formatDateRange(start: string | null, end: string | null) {
-    if (!start) return '—';
-    const s = new Date(start);
-    const e = end ? new Date(end) : null;
-    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-    if (!e || s.toDateString() === e.toDateString()) {
-      return s.toLocaleDateString(undefined, { ...opts, year: 'numeric' });
-    }
-    return `${s.toLocaleDateString(undefined, opts)} – ${e.toLocaleDateString(undefined, { ...opts, year: 'numeric' })}`;
-  }
-
   if (isLoading) return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {[1,2,3,4,5,6].map(i => (
-        <Card key={i} className="animate-pulse"><CardContent className="h-36 p-4" /></Card>
+        <Card key={i} className="animate-pulse"><CardContent className="h-28 p-4" /></Card>
       ))}
     </div>
   );
@@ -604,48 +625,46 @@ function TournamentsTab() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {sessions.map(s => (
-        <Card
-          key={s.sessionKey}
-          className="hover-elevate cursor-pointer"
-          data-testid={`card-session-${s.sessionKey}`}
-          onClick={() => navigate(`/admin/tournaments/session/${encodeURIComponent(s.sessionKey)}`)}
-        >
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <p className="font-semibold text-sm leading-snug">{sessionTitle(s)}</p>
-              <Badge variant="outline" className="text-xs shrink-0">{s.format}</Badge>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {s.levelMin && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                  Lv {s.levelMin}–{s.levelMax ?? '∞'}
-                </Badge>
+      {sessions.map(s => {
+        const title = sessionTitle(s);
+        const restrictionLine = buildRestrictionLine(s);
+        const realmInfo = REALM_DISPLAY[s.realm];
+        return (
+          <Card
+            key={s.sessionKey}
+            className="hover-elevate cursor-pointer"
+            data-testid={`card-session-${s.sessionKey}`}
+            onClick={() => navigate(`/admin/tournaments/session/${encodeURIComponent(s.sessionKey)}`)}
+          >
+            <CardContent className="p-5 flex flex-col gap-3">
+              {/* Header: name + format badge */}
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-bold text-sm leading-snug">{title}</p>
+                <Badge variant="outline" className="text-xs shrink-0 font-semibold">{s.format}</Badge>
+              </div>
+
+              {/* Restriction subtitle */}
+              {restrictionLine && (
+                <p className={`text-xs leading-tight ${realmInfo ? realmInfo.color : 'text-muted-foreground'}`}>
+                  {restrictionLine}
+                </p>
               )}
-              {s.rarityMin != null && s.rarityMin > 0 && (
-                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${RARITY_COLORS[s.rarityMin]}`}>
-                  {RARITY_LABELS[s.rarityMin]}+
-                </Badge>
-              )}
-              {s.realm && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                  {s.realm === 'cv' ? 'Crystalvale' : s.realm === 'sd' ? 'Sundered' : s.realm}
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Users className="w-3 h-3" />
-                {s.boutCount} bout{s.boutCount !== 1 ? 's' : ''}
-              </span>
-              <span className="flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
-                {formatDateRange(s.startTime, s.endTime)}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+
+              {/* Footer: bout count + date */}
+              <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/60">
+                <span className="flex items-center gap-1.5">
+                  <Users className="w-3 h-3" />
+                  {s.boutCount} {s.boutCount !== 1 ? 'bouts' : 'bout'}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="w-3 h-3" />
+                  {formatSessionDate(s.startTime)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
