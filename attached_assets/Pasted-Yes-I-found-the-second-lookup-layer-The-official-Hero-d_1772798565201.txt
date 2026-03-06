@@ -1,0 +1,92 @@
+Yes — I found the second lookup layer.
+
+The official Hero docs show that `Passive1`, `Passive2`, `Active1`, and `Active2` are all part of the hero stat-gene layout, and then give a shared `Active/Passive Ability` code table: `0..7` map to `Basic1..Basic8`, `16..19` map to `Advanced1..Advanced4`, `24..25` map to `Elite1..Elite2`, and `28` maps to `Exalted1`. ([DFK Developer Docs][1])
+
+The official combat docs then resolve those tier labels into actual trait names, but **separately for Active Traits and Passive Traits**. In other words, `Basic1` is overloaded: as an active trait it is **Poisoned Blade**, and as a passive trait it is **Duelist**. ([DeFi Kingdoms][2])
+
+So for accessory bonus `36: "Gain Ability: X"`, the safest model is a **two-step** lookup:
+`bonusScalar -> tierSlot -> activeName OR passiveName`. The accessory docs do confirm that bonus `36` is `Gain Ability: X`, and the gameplay docs say equipment can grant “special passive and active abilities,” but I did **not** find an explicit sentence saying bonus 36 always uses the hero gene ability-code table, nor one saying how to distinguish active vs passive from the accessory docs alone. That part is still an inference. ([DFK Developer Docs][3])
+
+The clean map to ship into Replit is this:
+
+```ts
+export const ABILITY_CODE_TO_SLOT: Record<number, string> = {
+  0: "Basic1",
+  1: "Basic2",
+  2: "Basic3",
+  3: "Basic4",
+  4: "Basic5",
+  5: "Basic6",
+  6: "Basic7",
+  7: "Basic8",
+  16: "Advanced1",
+  17: "Advanced2",
+  18: "Advanced3",
+  19: "Advanced4",
+  24: "Elite1",
+  25: "Elite2",
+  28: "Exalted1",
+};
+
+export const ACTIVE_TRAIT_BY_CODE: Record<number, { slot: string; name: string }> = {
+  0: { slot: "Basic1", name: "Poisoned Blade" },
+  1: { slot: "Basic2", name: "Blinding Winds" },
+  2: { slot: "Basic3", name: "Heal" },
+  3: { slot: "Basic4", name: "Cleanse" },
+  4: { slot: "Basic5", name: "Iron Skin" },
+  5: { slot: "Basic6", name: "Speed" },
+  6: { slot: "Basic7", name: "Critical Aim" },
+  7: { slot: "Basic8", name: "Deathmark" },
+  16: { slot: "Advanced1", name: "Exhaust" },
+  17: { slot: "Advanced2", name: "Daze" },
+  18: { slot: "Advanced3", name: "Explosion" },
+  19: { slot: "Advanced4", name: "Hardened Shield" },
+  24: { slot: "Elite1", name: "Stun" },
+  25: { slot: "Elite2", name: "Second Wind" },
+  28: { slot: "Exalted1", name: "Resurrection" },
+};
+
+export const PASSIVE_TRAIT_BY_CODE: Record<number, { slot: string; name: string }> = {
+  0: { slot: "Basic1", name: "Duelist" },
+  1: { slot: "Basic2", name: "Clutch" },
+  2: { slot: "Basic3", name: "Foresight" },
+  3: { slot: "Basic4", name: "Headstrong" },
+  4: { slot: "Basic5", name: "Clear Vision" },
+  5: { slot: "Basic6", name: "Fearless" },
+  6: { slot: "Basic7", name: "Chatterbox" },
+  7: { slot: "Basic8", name: "Stalwart" },
+  16: { slot: "Advanced1", name: "Leadership" },
+  17: { slot: "Advanced2", name: "Efficient" },
+  18: { slot: "Advanced3", name: "Menacing" },
+  19: { slot: "Advanced4", name: "Toxic" },
+  24: { slot: "Elite1", name: "Giant Slayer" },
+  25: { slot: "Elite2", name: "Last Stand" },
+  28: { slot: "Exalted1", name: "Second Life" },
+};
+```
+
+One practical gotcha: the Hero docs write the codes as `Basic1`, `Advanced1`, etc., while the combat docs write them as `Basic 1`, `Advanced 1`, etc. Normalize by removing spaces before joining the tables. ([DFK Developer Docs][1])
+
+What I would implement right now is:
+
+```ts
+export function decodeAccessoryAbility(code: number) {
+  return {
+    code,
+    slot: ABILITY_CODE_TO_SLOT[code] ?? null,
+    active: ACTIVE_TRAIT_BY_CODE[code]?.name ?? null,
+    passive: PASSIVE_TRAIT_BY_CODE[code]?.name ?? null,
+    resolved: ACTIVE_TRAIT_BY_CODE[code] || PASSIVE_TRAIT_BY_CODE[code] ? true : false,
+  };
+}
+```
+
+That keeps the ambiguity explicit instead of forcing a wrong single-name map.
+
+As a sanity check, if your live `bonusScalar` values for accessory bonus `36` mostly fall in `{0..7,16..19,24,25,28}`, that is strong evidence this is the correct namespace. That’s an inference from the official code table, not a directly stated DFK rule. ([DFK Developer Docs][1])
+
+If you want, I can next turn this into a full `equipment_lookup.ts` module with the bonus tables and this ability resolver merged together.
+
+[1]: https://devs.defikingdoms.com/nfts/heroes "Heroes | DFK Developers"
+[2]: https://docs.defikingdoms.com/gameplay/combat "Combat | DeFi Kingdoms"
+[3]: https://devs.defikingdoms.com/nfts/equipment/accessories "Accessories | DFK Developers"
