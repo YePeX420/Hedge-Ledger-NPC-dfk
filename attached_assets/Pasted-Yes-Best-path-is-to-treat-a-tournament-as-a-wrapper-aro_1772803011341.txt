@@ -1,0 +1,79 @@
+Yes. Best path is to treat a tournament as a **wrapper around a set of generated PvP bouts**, and use the **bout-level chain data as the timing/economics source of truth**. The public dev-doc pages I found expose the PvP Diamond’s bout interfaces and events, while hosted tournaments are described publicly in the roadmap and Metis/DFK announcement material rather than in a separate hosted-tournament ABI page. ([DFK Developer Docs][1])
+
+For **dates/times**, do not model a tournament with one start and one end timestamp. DFK’s own AMA example shows the lifecycle is: **entries close → bracket generates → voting opens → first round starts later**. In that hosted-tournament example, they said entries were closing immediately and the first round would start about eight minutes later, which confirms a real voting slot exists between bracket generation and combat. ([Medium][2])
+
+So the clean data model is:
+
+```ts
+type Tournament = {
+  id: string
+  createdAt: number
+  entriesCloseAt: number | null
+  bracketGeneratedAt: number | null
+  firstVoteOpenAt: number | null
+  firstMatchScheduledStartAt: number | null
+  completedAt: number | null
+  entryFeeToken: string | null
+  entryFeeAmount: string | null
+  customRewardJson: unknown | null
+}
+
+type TournamentRound = {
+  tournamentId: string
+  roundIndex: number
+  bracketGeneratedAt: number | null
+  voteOpenAt: number | null
+  firstScheduledStartAt: number | null
+  firstActualStartAt: number | null
+  lastResultSubmittedAt: number | null
+  lastCompletedAt: number | null
+}
+
+type TournamentMatch = {
+  tournamentId: string
+  roundIndex: number
+  battleId: string
+  createdAt: number
+  scheduledStartAt: number | null
+  actualStartAt: number | null
+  resultSubmittedAt: number | null
+  completedAt: number | null
+  votingEnabledWithWindowRaw: string | null
+  setupTimeRaw: string | null
+  sponsorTotalsByToken: unknown
+  sponsorBreakdown: unknown
+  payoutTotalsByToken: unknown
+}
+```
+
+At the **match** level, the official PvP docs already give you almost everything you need: `BattleCreated`, `BattleStartedEarly`, `BattleResultSubmitted`, `BattleCompleted`, `BattleSponsored`, `BattleSponsorRefunded`, `BattleWinnerRewarded`, and `BattleSpectatorRewarded`, plus `battleStartTime`, `votingEnabledWithWindow`, `setupTime`, `sponsorCount`, and `allowEarlyBattleStart` via `getBattle` / `getBattleSettings` / `getBattleAndSpectatorInfo`. My recommendation is: use the **event block timestamp** for observed state changes, use `battleStartTime` as the **scheduled** start, and store raw `votingEnabledWithWindow` and `setupTime` exactly as returned. In the public docs I found, those two fields are exposed by name but not decoded further, so I would not hardcode semantics for them yet. ([DFK Developer Docs][1])
+
+That leads to the practical formulas:
+
+* `roundVoteWindow = firstScheduledStartAt - bracketGeneratedAt`
+* `interRoundGap = nextRound.bracketGeneratedAt - currentRound.lastCompletedAt`
+* `actualRoundDuration = max(match.completedAt) - min(match.actualStartAt or scheduledStartAt)`
+
+Because **early start is allowed**, schedule-based timing alone will overstate some waits. The launch notes explicitly say bout creators can pick a future start time and can allow both players to start early, and the contract exposes `BattleStartedEarly`. ([Medium][3])
+
+For **sponsored token amounts**, keep **tournament-level funding** separate from **bout-level sponsorship**. Hosted tournaments let organizers set entry fees, sponsor matches, and offer custom rewards, and organizers receive 25% of tournament entry fees. Separately, the PvP contract exposes bout sponsorship on-chain: `BattleSponsored` includes `sponsorToken`, `isGasToken`, `amount`, `sponsorCount`, and `newTotal`, and `getBattleAndSpectatorInfo` returns aggregated `sponsorTokens` plus per-sponsor breakdowns. That means your schema should support **multiple sponsor tokens per match**, not one flat number. ([Metis][4])
+
+For old-school bout sponsorship behavior, the launch notes also say bouts could be sponsored by any user, up to 50 sponsors per bout, with 10% of the sponsorship amount going to the winner and 90% distributed to correct voters. That is useful when reconciling sponsored totals against payout events, though I would still trust the on-chain reward events for actual accounting. ([Medium][3])
+
+One more thing that matters for analytics: **version your duration model by date**. DFK changed tournament timing mechanics over 2025: March brought shot-clock and sudden-death improvements, and July added banked shot clock plus new sudden-death tournament modes. So comparing round duration distributions across early and later tournaments without a ruleset/version flag will blur signal. ([DeFi Kingdoms][5])
+
+So the short recommendation is:
+
+* Use your tournament/subgraph source for **tournament metadata, bracket membership, round number, entry fee, and any `sponsoredPrizeAmount`-style fields**.
+* Use **PvP Diamond events + per-battle settings** for **actual timestamps and bout-level sponsor amounts**.
+* Keep `sponsoredPrizeAmount` separate from `BattleSponsored.newTotal`; they are different layers of economics. ([Metis][4])
+
+The only real gap I still see is the exact decode of `votingEnabledWithWindow` and any hosted-tournament-specific ABI/events not surfaced in the public dev-doc pages I found. So I would store those raw now and decode them in a second pass from the current verified Metis contract source/ABI. ([DFK Developer Docs][1])
+
+Next useful step would be turning this into a concrete ETL spec for your Replit app.
+
+[1]: https://devs.defikingdoms.com/contracts/pvp-combat "https://devs.defikingdoms.com/contracts/pvp-combat"
+[2]: https://medium.com/defi-kingdoms-official/defi-kingdoms-ama-10-16-25-transcript-9ab54b311b5e "https://medium.com/defi-kingdoms-official/defi-kingdoms-ama-10-16-25-transcript-9ab54b311b5e"
+[3]: https://medium.com/defi-kingdoms-official/player-vs-player-combat-launch-notes-7020fec163b2 "https://medium.com/defi-kingdoms-official/player-vs-player-combat-launch-notes-7020fec163b2"
+[4]: https://www.metis.io/blog/player-hosted-pvp-tournaments-coming-to-metis-powered-by-defi-kingdoms "https://www.metis.io/blog/player-hosted-pvp-tournaments-coming-to-metis-powered-by-defi-kingdoms"
+[5]: https://docs.defikingdoms.com/roadmap "https://docs.defikingdoms.com/roadmap"
