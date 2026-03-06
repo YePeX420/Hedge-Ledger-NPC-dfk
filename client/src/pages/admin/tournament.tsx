@@ -14,7 +14,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Medal, RefreshCw, Loader2, Trophy, Swords, ChevronRight,
   RotateCcw, Filter, Activity, Database, Zap, Clock,
-  CheckCircle2, Circle, Play, Radio, History, Calendar, Users, LayoutGrid
+  CheckCircle2, Circle, Play, Radio, History, Calendar, Users, LayoutGrid, Lock
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -564,12 +564,11 @@ const REALM_DISPLAY: Record<string, { label: string; color: string }> = {
 function sessionTitle(s: TournamentSession): string {
   if (s.tournamentName) return s.tournamentName;
   if (s.label) return s.label;
-  const parts: string[] = [s.format];
-  if (s.levelMin != null) parts.push(`Lv ${s.levelMin}–${s.levelMax ?? '∞'}`);
-  return parts.join(' · ') || 'Tournament';
+  if (s.levelMin != null) return `Lv ${s.levelMin}–${s.levelMax ?? '∞'}`;
+  return 'Tournament';
 }
 
-function buildRestrictionLine(s: TournamentSession): string {
+function buildRestrictionLine(s: { levelMin: number | null; levelMax: number | null; rarityMin: number | null; realm: string; allUniqueClasses: boolean; noTripleClasses: boolean; gloryBout: boolean }): string {
   const parts: string[] = [];
   if (s.levelMin != null) parts.push(`Lv ${s.levelMin}–${s.levelMax ?? '∞'}`);
   if (s.rarityMin != null && s.rarityMin > 0) parts.push(`${RARITY_LABELS[s.rarityMin]}+`);
@@ -578,7 +577,7 @@ function buildRestrictionLine(s: TournamentSession): string {
   if (s.allUniqueClasses) parts.push('All Unique');
   if (s.noTripleClasses) parts.push('No Triple');
   if (s.gloryBout) parts.push('Glory');
-  return parts.join('  ·  ');
+  return parts.join(' · ');
 }
 
 function formatSessionDate(start: string | null): string {
@@ -637,10 +636,10 @@ function TournamentsTab() {
             onClick={() => navigate(`/admin/tournaments/session/${encodeURIComponent(s.sessionKey)}`)}
           >
             <CardContent className="p-5 flex flex-col gap-3">
-              {/* Header: name + format badge */}
+              {/* Header: name + format */}
               <div className="flex items-start justify-between gap-3">
                 <p className="font-bold text-sm leading-snug">{title}</p>
-                <Badge variant="outline" className="text-xs shrink-0 font-semibold">{s.format}</Badge>
+                <span className="text-sm text-muted-foreground font-medium shrink-0">{s.format}</span>
               </div>
 
               {/* Restriction subtitle */}
@@ -659,6 +658,128 @@ function TournamentsTab() {
                 <span className="flex items-center gap-1.5">
                   <Calendar className="w-3 h-3" />
                   {formatSessionDate(s.startTime)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Private bouts tab ────────────────────────────────────────────────────────
+
+interface PrivateBout {
+  tournamentId: number;
+  name: string | null;
+  format: string;
+  realm: string;
+  levelMin: number | null;
+  levelMax: number | null;
+  rarityMin: number | null;
+  hostPlayer: string | null;
+  opponentPlayer: string | null;
+  winnerPlayer: string | null;
+  startTime: string | null;
+  gloryBout: boolean;
+  minGlories: number;
+  hostGlories: number;
+  opponentGlories: number;
+  allUniqueClasses: boolean;
+  noTripleClasses: boolean;
+}
+
+function shortAddr(addr: string | null): string {
+  if (!addr) return '—';
+  if (addr.length <= 12) return addr;
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function PrivateBoutsTab() {
+  const [, navigate] = useLocation();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['/api/admin/tournament/private-bouts'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/tournament/private-bouts');
+      if (!res.ok) throw new Error('Failed');
+      return res.json() as Promise<{ ok: boolean; bouts: PrivateBout[] }>;
+    }
+  });
+
+  const bouts = data?.bouts || [];
+
+  if (isLoading) return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {[1,2,3,4,5,6].map(i => (
+        <Card key={i} className="animate-pulse"><CardContent className="h-28 p-4" /></Card>
+      ))}
+    </div>
+  );
+
+  if (bouts.length === 0) return (
+    <Card>
+      <CardContent className="py-16 text-center">
+        <Lock className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+        <p className="font-medium">No private bouts indexed yet</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Private challenge bouts will appear here once they are recorded.
+        </p>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {bouts.map(b => {
+        const title = b.name || `Bout #${b.tournamentId}`;
+        const restrictionLine = buildRestrictionLine({
+          levelMin: b.levelMin,
+          levelMax: b.levelMax,
+          rarityMin: b.rarityMin,
+          realm: b.realm,
+          allUniqueClasses: b.allUniqueClasses,
+          noTripleClasses: b.noTripleClasses,
+          gloryBout: b.gloryBout,
+        });
+        const realmInfo = REALM_DISPLAY[b.realm];
+        return (
+          <Card
+            key={b.tournamentId}
+            className="hover-elevate cursor-pointer"
+            data-testid={`card-private-bout-${b.tournamentId}`}
+            onClick={() => navigate(`/admin/tournament/${b.tournamentId}`)}
+          >
+            <CardContent className="p-5 flex flex-col gap-3">
+              {/* Header: name + format */}
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-bold text-sm leading-snug">{title}</p>
+                <span className="text-sm text-muted-foreground font-medium shrink-0">{b.format}</span>
+              </div>
+
+              {/* Restriction subtitle */}
+              {restrictionLine && (
+                <p className={`text-xs leading-tight ${realmInfo ? realmInfo.color : 'text-muted-foreground'}`}>
+                  {restrictionLine}
+                </p>
+              )}
+
+              {/* Players */}
+              <p className="text-xs text-muted-foreground leading-snug">
+                {shortAddr(b.hostPlayer)} <span className="text-muted-foreground/50">vs</span> {shortAddr(b.opponentPlayer)}
+              </p>
+
+              {/* Footer: date */}
+              <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/60">
+                <span className="flex items-center gap-1.5">
+                  <Lock className="w-3 h-3" />
+                  Private
+                  {b.gloryBout && <span className="text-amber-400 ml-1">· Glory</span>}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="w-3 h-3" />
+                  {formatSessionDate(b.startTime)}
                 </span>
               </div>
             </CardContent>
@@ -695,6 +816,9 @@ export default function AdminTournament() {
           <TabsTrigger value="history" data-testid="tab-history">
             <History className="w-3.5 h-3.5 mr-1.5" /> History
           </TabsTrigger>
+          <TabsTrigger value="private" data-testid="tab-private">
+            <Lock className="w-3.5 h-3.5 mr-1.5" /> Private
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="tournaments" className="mt-4">
@@ -707,6 +831,10 @@ export default function AdminTournament() {
 
         <TabsContent value="history" className="mt-4">
           <HistoryTab />
+        </TabsContent>
+
+        <TabsContent value="private" className="mt-4">
+          <PrivateBoutsTab />
         </TabsContent>
       </Tabs>
     </div>

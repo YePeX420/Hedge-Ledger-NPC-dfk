@@ -9337,6 +9337,7 @@ async function startAdminWebServer() {
           MAX(COALESCE(max_team_stat_score, 9000)) as max_team_stat_score
         FROM pvp_tournaments
         WHERE status = 'completed' AND start_time IS NOT NULL
+          AND (private_battle IS NULL OR private_battle = false)
         GROUP BY
           tournament_type_signature, format, level_min, level_max,
           rarity_min, rarity_max, realm,
@@ -9380,6 +9381,64 @@ async function startAdminWebServer() {
       res.json({ ok: true, sessions });
     } catch (err) {
       console.error('[Tournament Sessions] Error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/tournament/private-bouts — individual private challenge bouts
+  app.get("/api/admin/tournament/private-bouts", isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const rows = await rawPg.unsafe(`
+        SELECT
+          tournament_id,
+          name,
+          format,
+          realm,
+          level_min,
+          level_max,
+          rarity_min,
+          host_player,
+          opponent_player,
+          winner_player,
+          start_time,
+          glory_bout,
+          min_glories,
+          host_glories,
+          opponent_glories,
+          all_unique_classes,
+          no_triple_classes
+        FROM pvp_tournaments
+        WHERE private_battle = true
+          AND status = 'completed'
+          AND start_time IS NOT NULL
+        ORDER BY start_time DESC
+        LIMIT 100
+      `);
+
+      const bouts = rows.map(r => ({
+        tournamentId: r.tournament_id,
+        name: r.name || null,
+        format: r.format,
+        realm: r.realm,
+        levelMin: r.level_min,
+        levelMax: r.level_max,
+        rarityMin: r.rarity_min,
+        hostPlayer: r.host_player,
+        opponentPlayer: r.opponent_player,
+        winnerPlayer: r.winner_player,
+        startTime: r.start_time,
+        gloryBout: r.glory_bout === true,
+        minGlories: r.min_glories || 0,
+        hostGlories: r.host_glories || 0,
+        opponentGlories: r.opponent_glories || 0,
+        allUniqueClasses: r.all_unique_classes === true,
+        noTripleClasses: r.no_triple_classes === true,
+      }));
+
+      res.json({ ok: true, bouts });
+    } catch (err) {
+      console.error('[Private Bouts] Error:', err);
       res.status(500).json({ ok: false, error: err.message });
     }
   });
