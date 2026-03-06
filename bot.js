@@ -8751,6 +8751,144 @@ async function startAdminWebServer() {
     }
   });
 
+  // ============================================================================
+  // LIVE TOURNAMENT FEED — proxies DFK GraphQL directly, caches 30s,
+  // and write-through saves completed bouts to pvp_tournaments in background.
+  // ============================================================================
+
+  const _liveTournamentCache = { data: null, ts: 0 };
+  const LIVE_CACHE_TTL = 30_000; // 30 seconds
+
+  // Minimal GraphQL query for live feed (all states, most recent first)
+  const LIVE_BATTLES_QUERY = `
+    query LiveBattles($first: Int!, $skip: Int!) {
+      battles(first: $first, skip: $skip, orderBy: id, orderDirection: desc) {
+        id
+        battleState
+        host { id name }
+        opponent { id name }
+        winner { id name }
+        battleStartTime
+        partyCount
+        minLevel
+        maxLevel
+        minRarity
+        maxRarity
+        gloryBout
+        minGlories
+        hostGlories
+        opponentGlories
+        sponsorCount
+        privateBattle
+        allUniqueClasses
+        noTripleClasses
+        mustIncludeClass1
+        includedClass1
+        excludedClasses
+        excludedConsumables
+        shotClockDuration
+        battleInventory
+        battleBudget
+        minHeroStatScore
+        maxHeroStatScore
+        minTeamStatScore
+        maxTeamStatScore
+        mapId
+        excludedOrigin
+        rewards { token isGasToken totalAmount }
+        sponsors { token isGasToken amount sponsor { id name } }
+        hostHeroes {
+          id normalizedId rarity generation level mainClassStr subClassStr
+          strength agility vitality endurance intelligence wisdom luck dexterity
+          hp mp stamina active1 active2 passive1 passive2 statGenes
+        }
+        opponentHeroes {
+          id normalizedId rarity generation level mainClassStr subClassStr
+          strength agility vitality endurance intelligence wisdom luck dexterity
+          hp mp stamina active1 active2 passive1 passive2 statGenes
+        }
+      }
+    }
+  `;
+
+  function getBattleStatus(battle) {
+    if (battle.battleState === 5 && battle.winner) return 'completed';
+    const ZERO = '0x0000000000000000000000000000000000000000';
+    const hasOpponent = battle.opponent?.id && battle.opponent.id !== ZERO;
+    if (!hasOpponent) return 'open';
+    return 'in_progress';
+  }
+
+  app.get("/api/admin/tournament/live", isAdmin, async (req, res) => {
+    try {
+      const now = Date.now();
+      const forceRefresh = req.query.refresh === '1';
+
+      // Serve from cache if fresh
+      if (!forceRefresh && _liveTournamentCache.data && (now - _liveTournamentCache.ts) < LIVE_CACHE_TTL) {
+        return res.json({ ok: true, cached: true, cachedAt: _liveTournamentCache.ts, data: _liveTournamentCache.data });
+      }
+
+      const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+      const skip = parseInt(req.query.skip) || 0;
+
+      // Fetch fresh from DFK GraphQL
+      const response = await fetch('https://api.defikingdoms.com/graphql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: LIVE_BATTLES_QUERY, variables: { first: limit, skip } }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`DFK API returned ${response.status}`);
+      }
+
+      const json = await response.json();
+      if (json.errors) throw new Error(json.errors[0]?.message || 'GraphQL error');
+
+      const battles = (json.data?.battles || []).map(b => ({
+        ...b,
+        status: getBattleStatus(b),
+      }));
+
+      // Update cache
+      _liveTournamentCache.data = battles;
+      _liveTournamentCache.ts = now;
+
+      // Background write-through: save completed bouts to DB
+      const completedBattles = battles.filter(b => b.status === 'completed');
+      if (completedBattles.length > 0) {
+        (async () => {
+          try {
+            const { processBattle } = await import('./src/etl/ingestion/tournamentIndexer.js');
+            let saved = 0;
+            for (const battle of completedBattles) {
+              try {
+                const result = await processBattle(battle, 'cv');
+                if (result.placements > 0) saved++;
+              } catch (e) {
+                // Ignore conflicts (already saved)
+              }
+            }
+            if (saved > 0) console.log(`[LiveFeed] Background-saved ${saved} new completed bouts`);
+          } catch (e) {
+            console.error('[LiveFeed] Background save error:', e.message);
+          }
+        })();
+      }
+
+      res.json({ ok: true, cached: false, cachedAt: now, data: battles, total: battles.length });
+    } catch (err) {
+      console.error('[LiveFeed] Error:', err.message);
+      // Return stale cache if available
+      if (_liveTournamentCache.data) {
+        return res.json({ ok: true, cached: true, stale: true, cachedAt: _liveTournamentCache.ts, data: _liveTournamentCache.data });
+      }
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // GET /api/admin/similarity/config - Get similarity scoring config
   app.get("/api/admin/similarity/config", isAdmin, async (req, res) => {
     try {

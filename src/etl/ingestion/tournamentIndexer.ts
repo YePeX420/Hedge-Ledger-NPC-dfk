@@ -627,7 +627,7 @@ function getAbilityName(abilityId: number | undefined): string | null {
 }
 
 // Process a single battle and store tournament/placement/snapshot data
-async function processBattle(battle: Battle, realm: RealmType = 'cv'): Promise<{ placements: number; snapshots: number }> {
+export async function processBattle(battle: Battle, realm: RealmType = 'cv'): Promise<{ placements: number; snapshots: number }> {
   let placementsAdded = 0;
   let snapshotsAdded = 0;
   
