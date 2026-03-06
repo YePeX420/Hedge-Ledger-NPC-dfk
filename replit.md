@@ -6,6 +6,19 @@ Hedge Ledger is an AI-powered Discord bot designed as an in-character NPC assist
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
+## Admin Nav Structure
+The sidebar uses hover flyout groups (FlyoutMenu component in admin-layout.tsx):
+- **Top** (always visible): Dashboard, AI Consultant
+- **Tavern** — buying heroes & pets: Tavern Sniper, Hero Score Calc, Bargain Hunter, Dark Bargain Hunter, Combat Pets Shop, Hero Price Tool, Wallet Activity, Tavern Indexer
+- **Combat** — PvP/PvE tools: Hero Combat Toolkit, PVP Matchup Tool, DFK Tournaments, Battle-Ready Heroes, Combat Pets Shop, PVE Drop Rates, Hedge: Combat Sync
+- **Summon** — summoning tools: Summoning Calculator, Summon Sniper
+- **Ecosystem** — on-chain economy: Users, Value Allocation, Token Registry, Bridge, Extractors, User Access
+- **Gardening** — LP/gardening: Pools, Gardening Quest, Gardening Calculator, Yield Calculator
+- **Indexers** — data indexing: Pool Indexers, Jeweler, Patrol Rewards
+- **Unfinished** — WIP tools: Quest Optimizer, Battle-Ready Heroes, Market Intel, Profit Tracker, Challenges, Level Racer, Hedge: Plans & Access, Expenses
+- **System** (always visible): Settings
+Note: Combat Pets Shop appears in both Tavern and Combat. Battle-Ready Heroes appears in both Combat and Unfinished.
+
 ## System Architecture
 The project is built with a Node.js backend using Discord.js for bot functionalities and an Express server for an admin dashboard.
 
