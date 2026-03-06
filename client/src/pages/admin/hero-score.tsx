@@ -2,9 +2,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Loader2, TrendingUp, RefreshCw } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 export const CLASS_RANKS: Record<string, number> = {
   Warrior: 0, Knight: 0, Thief: 0, Archer: 0, Priest: 0, Wizard: 0, Monk: 0, Pirate: 0,
@@ -30,6 +32,38 @@ export const R_BASE: Record<number, number> = {
   4: 16000
 };
 
+const CLASS_IDS: Record<string, number> = {
+  Warrior: 0, Knight: 1, Thief: 2, Archer: 3, Priest: 4, Wizard: 5, Monk: 6, Pirate: 7,
+  Berserker: 8, Seer: 9, Legionnaire: 10, Scholar: 11,
+  Paladin: 16, DarkKnight: 17, Summoner: 18, Ninja: 19, Shapeshifter: 20, Bard: 21,
+  Dragoon: 24, Sage: 25, SpellBow: 26,
+  DreadKnight: 28,
+};
+
+const RARITY_NAMES: Record<string, string> = {
+  "0": "Common", "1": "Uncommon", "2": "Rare", "3": "Legendary", "4": "Mythic"
+};
+
+interface MultiplierRow {
+  network: string;
+  class: number;
+  rarity: number;
+  level: number;
+  dark_summon: boolean;
+  current_multiplier_tier: number;
+  regeneration_chance: number;
+  last_burn: string | null;
+}
+
+interface MultiplierSummary {
+  minTier: number;
+  maxTier: number;
+  avgTier: number;
+  avgRegenChance: number;
+  lastBurn: string | null;
+  sampleSize: number;
+}
+
 export default function HeroScoreCalculator() {
   const [mainClass, setMainClass] = useState("Warrior");
   const [subClass, setSubClass] = useState("Warrior");
@@ -41,6 +75,10 @@ export default function HeroScoreCalculator() {
   const [dePrice, setDePrice] = useState(0.5);
   const [gdePrice, setGdePrice] = useState(1.5);
   const [marketPrice, setMarketPrice] = useState<number | "">("");
+
+  const [multiplierSummary, setMultiplierSummary] = useState<MultiplierSummary | null>(null);
+  const [multiplierLoading, setMultiplierLoading] = useState(false);
+  const [multiplierError, setMultiplierError] = useState<string | null>(null);
 
   const mainRank = CLASS_RANKS[mainClass] || 0;
   const subRank = CLASS_RANKS[subClass] || 0;
@@ -56,6 +94,65 @@ export default function HeroScoreCalculator() {
   const gdeOutput = totalHeroScore / 240;
   const burnValue = deOutput * dePrice + gdeOutput * gdePrice;
   const profit = marketPrice !== "" ? burnValue - marketPrice : null;
+
+  const fetchMultiplier = useCallback(async (className: string, rarityVal: string) => {
+    const classId = CLASS_IDS[className];
+    if (classId === undefined) return;
+
+    setMultiplierLoading(true);
+    setMultiplierError(null);
+
+    try {
+      const response = await apiRequest("POST", "/api/admin/divine-altar/multiplier", {
+        params: [
+          { field: "class", operator: "in", value: `[${classId}]` },
+          { field: "rarity", operator: "in", value: `[${rarityVal}]` },
+        ],
+      });
+      const data = await response.json();
+
+      if (!data.ok || !Array.isArray(data.data) || data.data.length === 0) {
+        setMultiplierSummary(null);
+        return;
+      }
+
+      const rows: MultiplierRow[] = data.data;
+      const tiers = rows.map(r => r.current_multiplier_tier).filter(t => t != null);
+      const regens = rows.map(r => r.regeneration_chance).filter(r => r != null);
+      const burns = rows.map(r => r.last_burn).filter(Boolean) as string[];
+      burns.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+      setMultiplierSummary({
+        minTier: Math.min(...tiers),
+        maxTier: Math.max(...tiers),
+        avgTier: tiers.reduce((a, b) => a + b, 0) / tiers.length,
+        avgRegenChance: regens.length > 0 ? (regens.reduce((a, b) => a + b, 0) / regens.length) : 0,
+        lastBurn: burns.length > 0 ? burns[0] : null,
+        sampleSize: rows.length,
+      });
+    } catch (err: any) {
+      setMultiplierError("Could not load live multiplier data");
+      setMultiplierSummary(null);
+    } finally {
+      setMultiplierLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchMultiplier(mainClass, rarity);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [mainClass, rarity, fetchMultiplier]);
+
+  const formatDate = (iso: string | null) => {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    } catch {
+      return iso;
+    }
+  };
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6" data-testid="page-hero-score-calculator">
@@ -245,6 +342,77 @@ export default function HeroScoreCalculator() {
                   <span className={`text-xl font-bold ${profit >= 0 ? 'text-green-500' : 'text-red-500'}`} data-testid="text-burn-profit">
                     {profit >= 0 ? '+' : ''}{profit.toLocaleString(undefined, { maximumFractionDigits: 2 })} JEWEL
                   </span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Live Multiplier Tier Card */}
+          <Card data-testid="card-live-multiplier">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" />
+                  Transcendence Multiplier (Live)
+                </CardTitle>
+                {multiplierLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                {!multiplierLoading && multiplierSummary && (
+                  <Badge variant="secondary" className="text-xs" data-testid="badge-multiplier-sample">
+                    {multiplierSummary.sampleSize} hero{multiplierSummary.sampleSize !== 1 ? "s" : ""} on-chain
+                  </Badge>
+                )}
+              </div>
+              <CardDescription className="text-xs">
+                {RARITY_NAMES[rarity]} {mainClass} — live burn data from DFK
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {multiplierLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2" data-testid="status-multiplier-loading">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Fetching live multiplier data...
+                </div>
+              )}
+              {!multiplierLoading && multiplierError && (
+                <div className="text-sm text-muted-foreground py-2" data-testid="status-multiplier-error">
+                  {multiplierError}
+                </div>
+              )}
+              {!multiplierLoading && !multiplierError && !multiplierSummary && (
+                <div className="text-sm text-muted-foreground py-2" data-testid="status-multiplier-empty">
+                  No burn history found for {RARITY_NAMES[rarity]} {mainClass}. This hero combo has not been burned yet on-chain.
+                </div>
+              )}
+              {!multiplierLoading && multiplierSummary && (
+                <div className="space-y-3" data-testid="container-multiplier-data">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-xs text-muted-foreground mb-1">Tier Range</div>
+                      <div className="text-xl font-bold" data-testid="text-multiplier-tier-range">
+                        {multiplierSummary.minTier === multiplierSummary.maxTier
+                          ? `Tier ${multiplierSummary.minTier}`
+                          : `Tier ${multiplierSummary.minTier}–${multiplierSummary.maxTier}`}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        avg {multiplierSummary.avgTier.toFixed(1)}x DE output
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground mb-1">Regen Chance</div>
+                      <div className="text-xl font-bold" data-testid="text-multiplier-regen">
+                        {(multiplierSummary.avgRegenChance * 100).toFixed(1)}%
+                      </div>
+                      <div className="text-xs text-muted-foreground">avg per burn</div>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center text-xs text-muted-foreground pt-2 border-t">
+                    <span>Last on-chain burn</span>
+                    <span data-testid="text-multiplier-last-burn">{formatDate(multiplierSummary.lastBurn)}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground bg-muted/30 rounded-md p-2">
+                    Tier {Math.round(multiplierSummary.avgTier)} = {Math.round(multiplierSummary.avgTier)}x DE multiplier on burn.
+                    Regen chance is the probability the tier resets to Tier 1 after a burn.
+                  </div>
                 </div>
               )}
             </CardContent>

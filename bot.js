@@ -13808,7 +13808,8 @@ Be helpful, accurate, and conversational. When discussing game mechanics, cite s
                   class: h.mainClassStr,
                   level: h.level,
                   score: best[1],
-                  hasProfGene
+                  hasProfGene,
+                  isReroll: !!h.isReroll
                 });
               }
               
@@ -13826,7 +13827,8 @@ Be helpful, accurate, and conversational. When discussing game mechanics, cite s
                   id: h.normalizedId,
                   class: h.mainClassStr,
                   level: h.level,
-                  bestStat: trainable.sort((a,b) => b.val - a.val)[0]
+                  bestStat: trainable.sort((a,b) => b.val - a.val)[0],
+                  isReroll: !!h.isReroll
                 });
               }
             }
@@ -13839,41 +13841,106 @@ Be helpful, accurate, and conversational. When discussing game mechanics, cite s
               professionCounts[h.professionStr] = (professionCounts[h.professionStr] || 0) + 1;
             });
 
+            // Count rerolled heroes
+            const rerolledCount = heroes.filter(h => h.isReroll).length;
+
+            // Fetch live transcendence multiplier tiers for top class+rarity combos in this wallet
+            let multiplierContext = '';
+            try {
+              const combos = [];
+              const seen = new Set();
+              const CLASS_IDS_MAP = {
+                Warrior: 0, Knight: 1, Thief: 2, Archer: 3, Priest: 4, Wizard: 5, Monk: 6, Pirate: 7,
+                Berserker: 8, Seer: 9, Legionnaire: 10, Scholar: 11,
+                Paladin: 16, DarkKnight: 17, Summoner: 18, Ninja: 19, Shapeshifter: 20, Bard: 21,
+                Dragoon: 24, Sage: 25, SpellBow: 26, DreadKnight: 28
+              };
+              const RARITY_NAMES_MAP = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary', 4: 'Mythic' };
+              for (const h of heroes) {
+                const cid = CLASS_IDS_MAP[h.mainClassStr];
+                if (cid === undefined) continue;
+                const key = `${cid}_${h.rarity}`;
+                if (!seen.has(key)) { seen.add(key); combos.push({ className: h.mainClassStr, classId: cid, rarity: h.rarity }); }
+                if (combos.length >= 5) break;
+              }
+              if (combos.length > 0) {
+                const classIds = [...new Set(combos.map(c => c.classId))];
+                const rarityIds = [...new Set(combos.map(c => c.rarity))];
+                const multiplierResp = await fetch('https://api.defikingdoms.com/divine_essence_multiplier', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    params: [
+                      { field: 'class', operator: 'in', value: `[${classIds.join(',')}]` },
+                      { field: 'rarity', operator: 'in', value: `[${rarityIds.join(',')}]` }
+                    ]
+                  }),
+                  signal: AbortSignal.timeout(8000)
+                });
+                if (multiplierResp.ok) {
+                  const raw = await multiplierResp.json();
+                  if (Array.isArray(raw) && raw.length > 0) {
+                    const grouped = {};
+                    for (const row of raw) {
+                      const cid = row[1]; const rid = row[2]; const tier = row[5]; const regen = row[6];
+                      const k = `${cid}_${rid}`;
+                      if (!grouped[k]) grouped[k] = { tiers: [], regens: [] };
+                      if (tier != null) grouped[k].tiers.push(tier);
+                      if (regen != null) grouped[k].regens.push(regen);
+                    }
+                    const lines = combos.map(c => {
+                      const k = `${c.classId}_${c.rarity}`;
+                      const g = grouped[k];
+                      if (!g || g.tiers.length === 0) return `- ${c.className} ${RARITY_NAMES_MAP[c.rarity]}: No burn history`;
+                      const avgTier = (g.tiers.reduce((a,b)=>a+b,0)/g.tiers.length).toFixed(1);
+                      const avgRegen = g.regens.length > 0 ? ((g.regens.reduce((a,b)=>a+b,0)/g.regens.length)*100).toFixed(1) : '?';
+                      return `- ${c.className} ${RARITY_NAMES_MAP[c.rarity]}: avg Tier ${avgTier} (${avgRegen}% regen chance, ${g.tiers.length} heroes sampled)`;
+                    });
+                    multiplierContext = `\n**TRANSCENDENCE MULTIPLIER TIERS (live from DFK):**\nTier N = Nx DE output multiplier on burn. Regen chance = probability tier resets to 1 after burn.\n${lines.join('\n')}\n`;
+                  }
+                }
+              }
+            } catch (multErr) {
+              console.warn('[AI Consultant] Multiplier fetch skipped:', multErr.message);
+            }
+
             // Build context with quest recommendations
             walletContext = `
 **WALLET ANALYSIS DATA for ${walletAddress}:**
 Total Heroes: ${heroes.length}
 Average Level: ${(heroes.reduce((a, h) => a + h.level, 0) / heroes.length).toFixed(1)}
+Rerolled Heroes: ${rerolledCount} of ${heroes.length} (rerolled = stat-optimized via MeditationCircle; non-rerolled may have suboptimal stat spreads)
 
 **Class Distribution:**
 ${Object.entries(classCounts).sort((a,b) => b[1] - a[1]).slice(0,10).map(([c, n]) => `- ${c}: ${n}`).join('\n')}
 
 **Profession Gene Distribution:**
 ${Object.entries(professionCounts).sort((a,b) => b[1] - a[1]).map(([p, n]) => `- ${p}: ${n}`).join('\n')}
-
+${multiplierContext}
 **PROFESSION QUEST RECOMMENDATIONS:**
 Best Mining Heroes (${professionQuesters.mining.length} total):
-${professionQuesters.mining.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
+${professionQuesters.mining.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}${h.isReroll ? ' [REROLLED]' : ''}`).join('\n') || 'None above average'}
 
 Best Gardening Heroes (${professionQuesters.gardening.length} total):
-${professionQuesters.gardening.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
+${professionQuesters.gardening.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}${h.isReroll ? ' [REROLLED]' : ''}`).join('\n') || 'None above average'}
 
 Best Fishing Heroes (${professionQuesters.fishing.length} total):
-${professionQuesters.fishing.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
+${professionQuesters.fishing.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}${h.isReroll ? ' [REROLLED]' : ''}`).join('\n') || 'None above average'}
 
 Best Foraging Heroes (${professionQuesters.foraging.length} total):
-${professionQuesters.foraging.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
+${professionQuesters.foraging.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}${h.isReroll ? ' [REROLLED]' : ''}`).join('\n') || 'None above average'}
 
 **TRAINING QUEST RECOMMENDATIONS:**
 IMPORTANT RULE: Heroes can ONLY do training quests for stats between 40-50. Stats ABOVE 50 are NOT eligible for training quests for that stat.
 Success rates: stat 40 = 53%, stat 45 = 60%, stat 50 = 68% (max)
 
 Training Candidates (${trainingQuesters.length} total with at least one stat in 40-50 range):
-${trainingQuesters.slice(0,20).map(h => `- #${h.id} ${h.class} L${h.level} - Best: ${h.bestStat.stat} (${h.bestStat.val}) ${h.trainableStats ? `| All trainable: ${h.trainableStats}` : ''}`).join('\n') || 'No heroes with any stats in 40-50 range (stats above 50 cannot do training quests)'}
+${trainingQuesters.slice(0,20).map(h => `- #${h.id} ${h.class} L${h.level} - Best: ${h.bestStat.stat} (${h.bestStat.val})${h.isReroll ? ' [REROLLED]' : ''} ${h.trainableStats ? `| All trainable: ${h.trainableStats}` : ''}`).join('\n') || 'No heroes with any stats in 40-50 range (stats above 50 cannot do training quests)'}
 
 Use this data to provide specific hero recommendations when the user asks about questing, leveling, or hero optimization.
+When commenting on heroes, note [REROLLED] status — rerolled heroes have optimized stat distributions and are stronger candidates for combat and high-score questing than non-rerolled heroes at the same level.
 `;
-            console.log('[AI Consultant] Fetched', heroes.length, 'heroes with quest analysis');
+            console.log('[AI Consultant] Fetched', heroes.length, 'heroes with quest analysis (rerolled:', rerolledCount, ')');
           } else {
             walletContext = `\n**WALLET DATA:** No heroes found for wallet ${walletAddress}. The wallet may be empty or on a different realm.\n`;
           }
@@ -13917,6 +13984,47 @@ Use this data to provide specific hero recommendations when the user asks about 
     } catch (err) {
       console.error('[AI Consultant] Error:', err);
       res.status(500).json({ error: 'Failed to generate response' });
+    }
+  });
+
+  // ============================================================================
+  // DIVINE ALTAR / HERO SCORE — LIVE MULTIPLIER PROXY
+  // ============================================================================
+
+  // POST /api/admin/divine-altar/multiplier — proxy to DFK multiplier API
+  // Maps unkeyed array response to named fields per knowledgebase §4
+  app.post('/api/admin/divine-altar/multiplier', isAdmin, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const response = await fetch('https://api.defikingdoms.com/divine_essence_multiplier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        return res.status(502).json({ error: `DFK API returned ${response.status}` });
+      }
+
+      const raw = await response.json();
+      const rows = Array.isArray(raw) ? raw : [];
+
+      const mapped = rows.map(row => ({
+        network: row[0],
+        class: row[1],
+        rarity: row[2],
+        level: row[3],
+        dark_summon: row[4],
+        current_multiplier_tier: row[5],
+        regeneration_chance: row[6],
+        last_burn: row[7],
+      }));
+
+      res.json({ ok: true, data: mapped });
+    } catch (err) {
+      console.error('[Divine Altar] Multiplier proxy error:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 

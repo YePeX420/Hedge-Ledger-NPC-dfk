@@ -474,6 +474,7 @@ export async function getAllHeroesByOwner(ownerAddress) {
         passive2
         active1
         active2
+        isReroll
       }
     }
   `;
