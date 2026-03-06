@@ -10556,7 +10556,7 @@ async function startAdminWebServer() {
   const COMBAT_PETS_REFRESH_INTERVAL = 180000;
   let _combatPetsFetchInProgress = null;
 
-  async function fetchCombatPetsForSale(forceRefresh = false) {
+  async function fetchCombatPetsForSale(forceRefresh = false, skipVerification = false) {
     if (!forceRefresh && combatPetsCache.data && (Date.now() - combatPetsCache.timestamp) < COMBAT_PETS_CACHE_TTL) {
       return combatPetsCache.data;
     }
@@ -10731,6 +10731,7 @@ async function startAdminWebServer() {
     console.log(`[Combat Pets] Complete: ${allRawPets.length} total pets from subgraph`);
 
     let verifiedPets = allRawPets;
+    if (!skipVerification) {
     try {
       const { ethers: ethersLib } = await import('ethers');
       const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11';
@@ -10766,10 +10767,11 @@ async function startAdminWebServer() {
       async function verifyRealmPets(realmKey, petsInRealm, multicall, auctionAddr) {
         let staleCount = 0;
         let failedBatches = 0;
+        let checkedCount = 0;
         const startTime = Date.now();
         for (let i = 0; i < petsInRealm.length; i += BATCH_SIZE) {
           if (Date.now() - startTime > VERIFY_TIMEOUT_MS) {
-            console.warn(`[Combat Pets] ${realmKey}: timeout after ${Math.floor((Date.now() - startTime) / 1000)}s, checked ${i}/${petsInRealm.length}`);
+            console.warn(`[Combat Pets] ${realmKey}: timeout after ${Math.floor((Date.now() - startTime) / 1000)}s, checked ${checkedCount}/${petsInRealm.length}`);
             break;
           }
           const batch = petsInRealm.slice(i, i + BATCH_SIZE);
@@ -10795,6 +10797,7 @@ async function startAdminWebServer() {
             }
           }
           if (batchResults) {
+            checkedCount += batchResults.length;
             for (let j = 0; j < batchResults.length; j++) {
               const [success, returnData] = batchResults[j];
               if (!success) {
@@ -10818,7 +10821,7 @@ async function startAdminWebServer() {
             await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
           }
         }
-        console.log(`[Combat Pets] ${realmKey}: checked ${petsInRealm.length}, stale: ${staleCount}, failed batches: ${failedBatches}`);
+        console.log(`[Combat Pets] ${realmKey}: checked ${checkedCount}/${petsInRealm.length}, stale: ${staleCount}, failed batches: ${failedBatches}`);
         // T001: Verified that isOnAuction works correctly for both CRY and SUN. 
         // Pet #134639 is confirmed stale and is properly filtered by this logic.
       }
@@ -10846,6 +10849,11 @@ async function startAdminWebServer() {
       }
 
       if (staleIds.size > 0) {
+        if (staleIds.has('134639')) {
+          console.log(`[Combat Pets] ✓ Pet #134639 confirmed stale and filtered`);
+        } else if (allRawPets.some(p => p.id === '134639')) {
+          console.log(`[Combat Pets] Pet #134639 is in subgraph but passed isOnAuction check (may have been re-listed)`);
+        }
         console.log(`[Combat Pets] Total filtered: ${staleIds.size} stale/sold pets`);
         verifiedPets = allRawPets.filter(p => !staleIds.has(p.id));
       } else {
@@ -10854,6 +10862,9 @@ async function startAdminWebServer() {
       verifiedPets._verifiedCount = staleIds.size;
     } catch (verifyErr) {
       console.warn('[Combat Pets] On-chain verification failed, using subgraph data as-is:', verifyErr.message);
+    }
+    } else {
+      console.log(`[Combat Pets] Skipping on-chain verification (initial warm-up — verification will run in 90s)`);
     }
 
     console.log(`[Combat Pets] Final: ${verifiedPets.length} verified pets for sale`);
@@ -11004,12 +11015,22 @@ async function startAdminWebServer() {
     }
   }, COMBAT_PETS_REFRESH_INTERVAL);
 
-  console.log('[Combat Pets] Starting initial cache warm-up...');
-  fetchCombatPetsForSale(false).then(pets => {
-    console.log(`[Combat Pets] Cache warm-up complete: ${pets.length} pets cached`);
+  console.log('[Combat Pets] Starting initial cache warm-up (without on-chain verification)...');
+  fetchCombatPetsForSale(false, true).then(pets => {
+    console.log(`[Combat Pets] Cache warm-up complete: ${pets.length} pets cached (unverified)`);
   }).catch(err => {
     console.error('[Combat Pets] Cache warm-up failed:', err.message);
   });
+
+  // Staggered on-chain verification — runs 90s after startup to avoid RPC contention with pool analytics
+  setTimeout(() => {
+    console.log('[Combat Pets] Running post-startup on-chain verification refresh...');
+    fetchCombatPetsForSale(true, false).then(pets => {
+      console.log(`[Combat Pets] Verification refresh complete: ${pets.length} verified pets`);
+    }).catch(err => {
+      console.error('[Combat Pets] Verification refresh failed:', err.message);
+    });
+  }, 90000);
 
   // ============================================================================
   // SUMMON PROFIT TRACKER ENDPOINTS
