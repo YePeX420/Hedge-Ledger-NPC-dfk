@@ -38,7 +38,8 @@ import {
   Bot,
   Dumbbell,
   UserCog,
-  Activity
+  Activity,
+  Medal
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -79,6 +80,7 @@ const tavernItems = [
   { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: Swords },
   { href: '/admin/combat-toolkit', label: 'Hero Combat Toolkit', icon: Swords },
   { href: '/admin/pvp-matchup', label: 'PVP Matchup Tool', icon: Swords },
+  { href: '/admin/tournament', label: 'Tournament Bracket', icon: Medal },
   { href: '/admin/hero-price', label: 'Hero Price Tool', icon: DollarSign },
   { href: '/admin/tavern-wallet-activity', label: 'Wallet Activity', icon: Activity },
   { href: '/admin/tavern-indexer', label: 'Tavern Indexer', icon: Database },

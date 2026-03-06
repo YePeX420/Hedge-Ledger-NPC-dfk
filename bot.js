@@ -14029,6 +14029,425 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
   });
 
   // ============================================================================
+  // HEDGE TOURNAMENT BRACKET SYSTEM
+  // ============================================================================
+
+  // GET /api/admin/hedge-tournaments — list all tournaments with entry counts
+  app.get('/api/admin/hedge-tournaments', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const rows = await rawPg`
+        SELECT t.*, COUNT(e.id)::int AS entry_count
+        FROM hedge_tournaments t
+        LEFT JOIN hedge_tournament_entries e ON e.tournament_id = t.id
+        GROUP BY t.id
+        ORDER BY t.created_at DESC
+      `;
+      res.json({ ok: true, data: rows });
+    } catch (err) {
+      console.error('[Tournaments] List error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/admin/hedge-tournaments — create tournament
+  app.post('/api/admin/hedge-tournaments', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { name, description, format = '1v1', realm = 'cv', level_min, level_max, rarity_min, rarity_max, notes } = req.body;
+      if (!name) return res.status(400).json({ error: 'name is required' });
+      const [row] = await rawPg`
+        INSERT INTO hedge_tournaments (name, description, format, realm, level_min, level_max, rarity_min, rarity_max, notes)
+        VALUES (${name}, ${description || null}, ${format}, ${realm}, ${level_min || null}, ${level_max || null}, ${rarity_min || null}, ${rarity_max || null}, ${notes || null})
+        RETURNING *
+      `;
+      res.json({ ok: true, data: row });
+    } catch (err) {
+      console.error('[Tournaments] Create error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/admin/hedge-tournaments/:id — get single tournament with entries and matches
+  app.get('/api/admin/hedge-tournaments/:id', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { id } = req.params;
+      const [tournament] = await rawPg`SELECT * FROM hedge_tournaments WHERE id = ${id}`;
+      if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+      const entries = await rawPg`SELECT * FROM hedge_tournament_entries WHERE tournament_id = ${id} ORDER BY seed_rank ASC NULLS LAST, registered_at ASC`;
+      const matches = await rawPg`SELECT * FROM hedge_tournament_matches WHERE tournament_id = ${id} ORDER BY round ASC, match_number ASC`;
+      res.json({ ok: true, data: { ...tournament, entries, matches } });
+    } catch (err) {
+      console.error('[Tournaments] Get error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/admin/hedge-tournaments/:id — update tournament
+  app.patch('/api/admin/hedge-tournaments/:id', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { id } = req.params;
+      const { name, description, status, format, realm, level_min, level_max, rarity_min, rarity_max, notes } = req.body;
+      const [row] = await rawPg`
+        UPDATE hedge_tournaments SET
+          name = COALESCE(${name || null}, name),
+          description = COALESCE(${description !== undefined ? description : null}, description),
+          status = COALESCE(${status || null}, status),
+          format = COALESCE(${format || null}, format),
+          realm = COALESCE(${realm || null}, realm),
+          level_min = COALESCE(${level_min !== undefined ? level_min : null}, level_min),
+          level_max = COALESCE(${level_max !== undefined ? level_max : null}, level_max),
+          rarity_min = COALESCE(${rarity_min !== undefined ? rarity_min : null}, rarity_min),
+          rarity_max = COALESCE(${rarity_max !== undefined ? rarity_max : null}, rarity_max),
+          notes = COALESCE(${notes !== undefined ? notes : null}, notes),
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${id}
+        RETURNING *
+      `;
+      if (!row) return res.status(404).json({ error: 'Tournament not found' });
+      res.json({ ok: true, data: row });
+    } catch (err) {
+      console.error('[Tournaments] Update error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/admin/hedge-tournaments/:id — delete tournament
+  app.delete('/api/admin/hedge-tournaments/:id', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { id } = req.params;
+      await rawPg`DELETE FROM hedge_tournament_matches WHERE tournament_id = ${id}`;
+      await rawPg`DELETE FROM hedge_tournament_entries WHERE tournament_id = ${id}`;
+      await rawPg`DELETE FROM hedge_tournaments WHERE id = ${id}`;
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[Tournaments] Delete error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/admin/hedge-tournaments/:id/entries — register participant with hero snapshot
+  app.post('/api/admin/hedge-tournaments/:id/entries', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { id } = req.params;
+      const { participant_name, wallet_address, hero_id, weapon_type = 'Physical', armor_name = 'Tattered Tunic', notes, stats_json, seed_rank } = req.body;
+      if (!participant_name) return res.status(400).json({ error: 'participant_name is required' });
+
+      let heroData = { main_class: null, sub_class: null, rarity: null, level: null, stats: null };
+
+      // Try to fetch hero snapshot from DFK GraphQL if hero_id provided
+      if (hero_id) {
+        try {
+          const query = `{
+            hero(id: "${hero_id}") {
+              id mainClass subClass rarity level
+              strength dexterity agility vitality endurance intelligence wisdom luck
+            }
+          }`;
+          const gqlResp = await fetch('https://defi-kingdoms-community.4everland.app/ipfs/graphs/crystalvale', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query }),
+            signal: AbortSignal.timeout(8000)
+          });
+          const gqlJson = await gqlResp.json();
+          const h = gqlJson?.data?.hero;
+          if (h) {
+            heroData = {
+              main_class: h.mainClass,
+              sub_class: h.subClass,
+              rarity: h.rarity,
+              level: h.level,
+              stats: { STR: h.strength, DEX: h.dexterity, AGI: h.agility, INT: h.intelligence, WIS: h.wisdom, VIT: h.vitality, END: h.endurance, LCK: h.luck }
+            };
+          }
+        } catch (gqlErr) {
+          console.warn('[Tournaments] GraphQL hero fetch failed, using manual stats:', gqlErr.message);
+        }
+      }
+
+      // Use manually provided stats_json as fallback
+      const finalStats = heroData.stats || stats_json || null;
+
+      // Compute a simple combat power score if we have stats
+      let combat_power_score = null;
+      if (finalStats) {
+        combat_power_score = Math.round(
+          finalStats.STR * 1.2 + finalStats.DEX * 1.2 + finalStats.AGI * 1.1 +
+          finalStats.INT * 1.2 + finalStats.WIS * 1.1 + finalStats.VIT * 1.0 +
+          finalStats.END * 1.0 + finalStats.LCK * 0.8
+        );
+      }
+
+      const [entry] = await rawPg`
+        INSERT INTO hedge_tournament_entries
+          (tournament_id, participant_name, wallet_address, hero_id, main_class, sub_class, rarity, level,
+           stats_json, weapon_type, armor_name, combat_power_score, notes, seed_rank)
+        VALUES
+          (${id}, ${participant_name}, ${wallet_address || null}, ${hero_id ? BigInt(hero_id) : null},
+           ${heroData.main_class || null}, ${heroData.sub_class || null}, ${heroData.rarity !== null ? heroData.rarity : null},
+           ${heroData.level || null}, ${finalStats ? JSON.stringify(finalStats) : null},
+           ${weapon_type}, ${armor_name}, ${combat_power_score}, ${notes || null}, ${seed_rank || null})
+        RETURNING *
+      `;
+      res.json({ ok: true, data: entry });
+    } catch (err) {
+      console.error('[Tournaments] Register entry error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/admin/hedge-tournaments/:id/entries/:entryId — remove participant
+  app.delete('/api/admin/hedge-tournaments/:id/entries/:entryId', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { id, entryId } = req.params;
+      // Only allow if no matches exist yet
+      const [matchCheck] = await rawPg`SELECT id FROM hedge_tournament_matches WHERE tournament_id = ${id} LIMIT 1`;
+      if (matchCheck) return res.status(400).json({ error: 'Cannot remove participants after bracket has been generated' });
+      await rawPg`DELETE FROM hedge_tournament_entries WHERE id = ${entryId} AND tournament_id = ${id}`;
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[Tournaments] Remove entry error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/admin/hedge-tournaments/:id/generate-bracket — generate single-elimination bracket
+  app.post('/api/admin/hedge-tournaments/:id/generate-bracket', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { id } = req.params;
+
+      const entries = await rawPg`SELECT * FROM hedge_tournament_entries WHERE tournament_id = ${id} ORDER BY seed_rank ASC NULLS LAST, registered_at ASC`;
+      if (entries.length < 2) return res.status(400).json({ error: 'Need at least 2 participants to generate a bracket' });
+
+      // Clear existing matches
+      await rawPg`DELETE FROM hedge_tournament_matches WHERE tournament_id = ${id}`;
+
+      // Pad to nearest power of 2 with BYE slots
+      let size = 1;
+      while (size < entries.length) size *= 2;
+      const slots = [...entries];
+      while (slots.length < size) slots.push(null); // null = BYE
+
+      // Fisher-Yates shuffle of non-seeded entries; seeded entries keep their position
+      const seeded = slots.filter(e => e && e.seed_rank);
+      const unseeded = slots.filter(e => !e || !e.seed_rank);
+      for (let i = unseeded.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [unseeded[i], unseeded[j]] = [unseeded[j], unseeded[i]];
+      }
+      // Rebuild: seeded take positions 0..seeded.length-1, unseeded fill the rest
+      const ordered = [...seeded, ...unseeded];
+
+      const totalRounds = Math.log2(size);
+      const matchInserts = [];
+
+      // Round 1 matches
+      for (let i = 0; i < size; i += 2) {
+        const entryA = ordered[i];
+        const entryB = ordered[i + 1];
+        const isBye = !entryA || !entryB;
+        const autoWinnerId = isBye ? (entryA ? entryA.id : entryB ? entryB.id : null) : null;
+        matchInserts.push({
+          tournament_id: parseInt(id),
+          round: 1,
+          match_number: Math.floor(i / 2) + 1,
+          entry_a_id: entryA ? entryA.id : null,
+          entry_b_id: entryB ? entryB.id : null,
+          winner_entry_id: autoWinnerId,
+          is_bye: isBye,
+          completed_at: isBye ? new Date().toISOString() : null
+        });
+      }
+
+      // Placeholder matches for subsequent rounds
+      for (let r = 2; r <= totalRounds; r++) {
+        const matchesInRound = size / Math.pow(2, r);
+        for (let m = 1; m <= matchesInRound; m++) {
+          matchInserts.push({
+            tournament_id: parseInt(id),
+            round: r,
+            match_number: m,
+            entry_a_id: null,
+            entry_b_id: null,
+            winner_entry_id: null,
+            is_bye: false,
+            completed_at: null
+          });
+        }
+      }
+
+      // Insert all matches
+      for (const match of matchInserts) {
+        await rawPg`
+          INSERT INTO hedge_tournament_matches
+            (tournament_id, round, match_number, entry_a_id, entry_b_id, winner_entry_id, is_bye, completed_at)
+          VALUES
+            (${match.tournament_id}, ${match.round}, ${match.match_number},
+             ${match.entry_a_id}, ${match.entry_b_id}, ${match.winner_entry_id},
+             ${match.is_bye}, ${match.completed_at || null})
+        `;
+      }
+
+      // Auto-advance BYE winners to round 2
+      for (const match of matchInserts.filter(m => m.is_bye && m.winner_entry_id && m.round === 1)) {
+        const nextMatchNum = Math.ceil(match.match_number / 2);
+        const isSlotA = match.match_number % 2 === 1;
+        if (isSlotA) {
+          await rawPg`UPDATE hedge_tournament_matches SET entry_a_id = ${match.winner_entry_id} WHERE tournament_id = ${id} AND round = 2 AND match_number = ${nextMatchNum}`;
+        } else {
+          await rawPg`UPDATE hedge_tournament_matches SET entry_b_id = ${match.winner_entry_id} WHERE tournament_id = ${id} AND round = 2 AND match_number = ${nextMatchNum}`;
+        }
+      }
+
+      // Update tournament status to active
+      await rawPg`UPDATE hedge_tournaments SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ${id}`;
+
+      const allMatches = await rawPg`SELECT * FROM hedge_tournament_matches WHERE tournament_id = ${id} ORDER BY round ASC, match_number ASC`;
+      res.json({ ok: true, data: allMatches, totalRounds, bracketSize: size });
+    } catch (err) {
+      console.error('[Tournaments] Generate bracket error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/admin/hedge-tournaments/:id/matches/:matchId/result — record match winner
+  app.patch('/api/admin/hedge-tournaments/:id/matches/:matchId/result', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { id, matchId } = req.params;
+      const { winner_entry_id, tx_hash, notes } = req.body;
+      if (!winner_entry_id) return res.status(400).json({ error: 'winner_entry_id is required' });
+
+      const [match] = await rawPg`SELECT * FROM hedge_tournament_matches WHERE id = ${matchId} AND tournament_id = ${id}`;
+      if (!match) return res.status(404).json({ error: 'Match not found' });
+
+      // Determine loser
+      const loserEntryId = match.entry_a_id == winner_entry_id ? match.entry_b_id : match.entry_a_id;
+
+      // Update match result
+      await rawPg`
+        UPDATE hedge_tournament_matches SET
+          winner_entry_id = ${winner_entry_id},
+          tx_hash = ${tx_hash || null},
+          notes = ${notes || null},
+          completed_at = CURRENT_TIMESTAMP
+        WHERE id = ${matchId}
+      `;
+
+      // Mark loser as eliminated
+      if (loserEntryId) {
+        await rawPg`UPDATE hedge_tournament_entries SET eliminated = TRUE WHERE id = ${loserEntryId}`;
+      }
+
+      // Advance winner to next round match
+      const nextRound = match.round + 1;
+      const nextMatchNum = Math.ceil(match.match_number / 2);
+      const isSlotA = match.match_number % 2 === 1;
+
+      const [nextMatch] = await rawPg`
+        SELECT * FROM hedge_tournament_matches WHERE tournament_id = ${id} AND round = ${nextRound} AND match_number = ${nextMatchNum}
+      `;
+      if (nextMatch) {
+        if (isSlotA) {
+          await rawPg`UPDATE hedge_tournament_matches SET entry_a_id = ${winner_entry_id} WHERE id = ${nextMatch.id}`;
+        } else {
+          await rawPg`UPDATE hedge_tournament_matches SET entry_b_id = ${winner_entry_id} WHERE id = ${nextMatch.id}`;
+        }
+      } else {
+        // No next match — this was the final; mark tournament complete
+        await rawPg`UPDATE hedge_tournaments SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ${id}`;
+      }
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[Tournaments] Record result error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/admin/hedge-tournaments/:id/matches/:matchId/odds — compute matchup odds
+  app.get('/api/admin/hedge-tournaments/:id/matches/:matchId/odds', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { id, matchId } = req.params;
+
+      const [match] = await rawPg`SELECT * FROM hedge_tournament_matches WHERE id = ${matchId} AND tournament_id = ${id}`;
+      if (!match) return res.status(404).json({ error: 'Match not found' });
+      if (!match.entry_a_id || !match.entry_b_id) return res.status(400).json({ error: 'Match does not have two participants yet' });
+
+      const [entryA] = await rawPg`SELECT * FROM hedge_tournament_entries WHERE id = ${match.entry_a_id}`;
+      const [entryB] = await rawPg`SELECT * FROM hedge_tournament_entries WHERE id = ${match.entry_b_id}`;
+
+      function computeProfile(stats, avgLevel) {
+        const dim = (val, coeff) => {
+          const raw = (coeff.A * val + coeff.B * avgLevel + coeff.C) / (coeff.D * avgLevel + coeff.E);
+          return raw > coeff.dim ? coeff.dim + (raw - coeff.dim) / 3 : raw;
+        };
+        const focus = 0.6 * stats.WIS + 0.4 * stats.DEX;
+        const STR = dim(stats.STR, { A:0.115, B:-0.020675, C:-0.281925, D:2.245, E:24.995, dim:0.10 });
+        const DEX = dim(stats.DEX, { A:0.115, B:-0.019425, C:-0.428175, D:2.370, E:21.870, dim:0.10 });
+        const AGI = dim(stats.AGI, { A:0.115, B:-0.020050, C:-0.312550, D:2.3075, E:21.9325, dim:0.10 });
+        const initExpected = 2 * stats.AGI;
+        const initMin = 2 * (stats.AGI - stats.LCK / 2);
+        const initMax = 2 * (stats.AGI + stats.LCK / 2);
+        const atkStat = stats.STR * 0.5;
+        const expectedDps = Math.min(atkStat, 20) + 10;
+        return { STR, DEX, AGI, focus, initExpected, initMin, initMax, expectedDps, atkStat };
+      }
+
+      function simInitProb(minA, maxA, minB, maxB) {
+        let wins = 0;
+        for (let i = 0; i < 5000; i++) {
+          const a = minA + Math.random() * (maxA - minA);
+          const b = minB + Math.random() * (maxB - minB);
+          if (a > b) wins++;
+        }
+        return wins / 5000;
+      }
+
+      const defaultStats = { STR:10, DEX:10, AGI:10, INT:10, WIS:10, VIT:10, END:10, LCK:10 };
+      const statsA = entryA.stats_json || defaultStats;
+      const statsB = entryB.stats_json || defaultStats;
+      const avgLevel = ((entryA.level || 1) + (entryB.level || 1)) / 2;
+
+      const profileA = computeProfile(statsA, avgLevel);
+      const profileB = computeProfile(statsB, avgLevel);
+      const initPctA = simInitProb(profileA.initMin, profileA.initMax, profileB.initMin, profileB.initMax);
+
+      const combatPowerA = entryA.combat_power_score || 0;
+      const combatPowerB = entryB.combat_power_score || 0;
+      const totalPower = combatPowerA + combatPowerB || 1;
+      const powerOddsA = combatPowerA / totalPower;
+
+      const verdict = powerOddsA > 0.55
+        ? `${entryA.participant_name} has the combat edge (${(powerOddsA * 100).toFixed(1)}% power advantage)`
+        : powerOddsA < 0.45
+        ? `${entryB.participant_name} has the combat edge (${((1 - powerOddsA) * 100).toFixed(1)}% power advantage)`
+        : 'Even matchup — initiative will decide';
+
+      res.json({
+        ok: true,
+        data: {
+          entryA: { name: entryA.participant_name, heroId: entryA.hero_id, combatPower: combatPowerA, initPct: initPctA, class: entryA.main_class, level: entryA.level, stats: statsA },
+          entryB: { name: entryB.participant_name, heroId: entryB.hero_id, combatPower: combatPowerB, initPct: 1 - initPctA, class: entryB.main_class, level: entryB.level, stats: statsB },
+          verdict,
+          powerOddsA
+        }
+      });
+    } catch (err) {
+      console.error('[Tournaments] Odds error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================================
   // QUEST OPTIMIZER API
   // ============================================================================
   // Analyzes wallet heroes for optimal quest assignments based on stats

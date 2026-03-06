@@ -3682,3 +3682,89 @@ export const insertDashboardUserSessionSchema = createInsertSchema(dashboardUser
 });
 export type InsertDashboardUserSession = z.infer<typeof insertDashboardUserSessionSchema>;
 export type DashboardUserSession = typeof dashboardUserSessions.$inferSelect;
+
+/**
+ * Hedge Tournaments - Admin-managed community tournament events
+ */
+export const hedgeTournaments = pgTable("hedge_tournaments", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  format: text("format").notNull().default('1v1'), // '1v1', '3v3'
+  status: text("status").notNull().default('draft'), // 'draft', 'open', 'active', 'completed'
+  realm: text("realm").notNull().default('cv'), // 'cv', 'sd'
+  levelMin: integer("level_min"),
+  levelMax: integer("level_max"),
+  rarityMin: integer("rarity_min"),
+  rarityMax: integer("rarity_max"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  statusIdx: index("hedge_tournaments_status_idx").on(table.status),
+  createdAtIdx: index("hedge_tournaments_created_at_idx").on(table.createdAt),
+}));
+
+export const insertHedgeTournamentSchema = createInsertSchema(hedgeTournaments).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertHedgeTournament = z.infer<typeof insertHedgeTournamentSchema>;
+export type HedgeTournament = typeof hedgeTournaments.$inferSelect;
+
+/**
+ * Hedge Tournament Entries - Registered participants with hero snapshots
+ */
+export const hedgeTournamentEntries = pgTable("hedge_tournament_entries", {
+  id: serial("id").primaryKey(),
+  tournamentId: integer("tournament_id").notNull(),
+  participantName: text("participant_name").notNull(),
+  walletAddress: text("wallet_address"),
+  heroId: bigint("hero_id", { mode: "number" }),
+  mainClass: text("main_class"),
+  subClass: text("sub_class"),
+  rarity: integer("rarity"), // 0=common..4=mythic
+  level: integer("level"),
+  statsJson: json("stats_json").$type<{
+    STR: number; DEX: number; AGI: number; INT: number;
+    WIS: number; VIT: number; END: number; LCK: number;
+  }>(),
+  weaponType: text("weapon_type").default('Physical'), // 'Physical', 'Magical'
+  armorName: text("armor_name").default('Tattered Tunic'),
+  combatPowerScore: integer("combat_power_score"),
+  isSeeded: boolean("is_seeded").default(false),
+  seedRank: integer("seed_rank"),
+  eliminated: boolean("eliminated").default(false),
+  notes: text("notes"),
+  registeredAt: timestamp("registered_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  tournamentIdx: index("hedge_tournament_entries_tournament_idx").on(table.tournamentId),
+  heroIdx: index("hedge_tournament_entries_hero_idx").on(table.heroId),
+}));
+
+export const insertHedgeTournamentEntrySchema = createInsertSchema(hedgeTournamentEntries).omit({ id: true, registeredAt: true });
+export type InsertHedgeTournamentEntry = z.infer<typeof insertHedgeTournamentEntrySchema>;
+export type HedgeTournamentEntry = typeof hedgeTournamentEntries.$inferSelect;
+
+/**
+ * Hedge Tournament Matches - Bracket matchups
+ */
+export const hedgeTournamentMatches = pgTable("hedge_tournament_matches", {
+  id: serial("id").primaryKey(),
+  tournamentId: integer("tournament_id").notNull(),
+  round: integer("round").notNull(), // 1 = first round, 2 = quarterfinals, etc.
+  matchNumber: integer("match_number").notNull(), // position within the round
+  entryAId: integer("entry_a_id"),
+  entryBId: integer("entry_b_id"),
+  winnerEntryId: integer("winner_entry_id"),
+  isBye: boolean("is_bye").default(false),
+  txHash: text("tx_hash"),
+  notes: text("notes"),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  tournamentIdx: index("hedge_tournament_matches_tournament_idx").on(table.tournamentId),
+  roundIdx: index("hedge_tournament_matches_round_idx").on(table.tournamentId, table.round),
+}));
+
+export const insertHedgeTournamentMatchSchema = createInsertSchema(hedgeTournamentMatches).omit({ id: true, createdAt: true });
+export type InsertHedgeTournamentMatch = z.infer<typeof insertHedgeTournamentMatchSchema>;
+export type HedgeTournamentMatch = typeof hedgeTournamentMatches.$inferSelect;

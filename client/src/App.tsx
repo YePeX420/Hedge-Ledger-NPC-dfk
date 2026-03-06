@@ -53,6 +53,8 @@ import CombatClasses from "@/pages/admin/combat-classes";
 import HedgePlansAccess from "@/pages/admin/hedge-plans-access";
 import AdminCombatPets from "@/pages/admin/combat-pets";
 import AdminCombatToolkit from "@/pages/admin/combat-toolkit";
+import AdminTournament from "@/pages/admin/tournament";
+import AdminTournamentDetail from "@/pages/admin/tournament-detail";
 import UserAccessManagement from "@/pages/admin/user-access";
 import UserLogin from "@/pages/user-login";
 import UserDashboardPage from "@/pages/user/dashboard";
@@ -321,6 +323,22 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminPVPMatchup />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+      
+      <Route path="/admin/tournament/:id">
+        {(params) => (
+          <ProtectedAdminPage>
+            <AdminTournamentDetail id={params.id} />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
+      <Route path="/admin/tournament">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminTournament />
           </ProtectedAdminPage>
         )}
       </Route>
