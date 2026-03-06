@@ -14,7 +14,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Medal, RefreshCw, Loader2, Trophy, Swords, ChevronRight,
   RotateCcw, Filter, Activity, Database, Zap, Clock,
-  CheckCircle2, Circle, Play, Radio, History
+  CheckCircle2, Circle, Play, Radio, History, Calendar, Users, LayoutGrid
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -530,6 +530,126 @@ function HistoryTab() {
   );
 }
 
+// ─── Tournaments browser tab ──────────────────────────────────────────────────
+
+interface TournamentSession {
+  sessionKey: string;
+  signature: string | null;
+  label: string | null;
+  format: string;
+  levelMin: number | null;
+  levelMax: number | null;
+  rarityMin: number | null;
+  rarityMax: number | null;
+  realm: string;
+  boutCount: number;
+  startTime: string | null;
+  endTime: string | null;
+}
+
+function TournamentsTab() {
+  const [, navigate] = useLocation();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['/api/admin/tournament/sessions'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/tournament/sessions');
+      if (!res.ok) throw new Error('Failed');
+      return res.json() as Promise<{ ok: boolean; sessions: TournamentSession[] }>;
+    }
+  });
+
+  const sessions = data?.sessions || [];
+
+  function sessionTitle(s: TournamentSession) {
+    if (s.label) return s.label;
+    const lvl = s.levelMin ? `Lv ${s.levelMin}–${s.levelMax ?? '∞'}` : '';
+    const rar = s.rarityMin != null && s.rarityMin > 0 ? `${RARITY_LABELS[s.rarityMin]}+` : '';
+    return [s.format, lvl, rar].filter(Boolean).join(' · ') || 'Tournament';
+  }
+
+  function formatDateRange(start: string | null, end: string | null) {
+    if (!start) return '—';
+    const s = new Date(start);
+    const e = end ? new Date(end) : null;
+    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+    if (!e || s.toDateString() === e.toDateString()) {
+      return s.toLocaleDateString(undefined, { ...opts, year: 'numeric' });
+    }
+    return `${s.toLocaleDateString(undefined, opts)} – ${e.toLocaleDateString(undefined, { ...opts, year: 'numeric' })}`;
+  }
+
+  if (isLoading) return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {[1,2,3,4,5,6].map(i => (
+        <Card key={i} className="animate-pulse"><CardContent className="h-36 p-4" /></Card>
+      ))}
+    </div>
+  );
+
+  if (sessions.length === 0) return (
+    <Card>
+      <CardContent className="py-16 text-center">
+        <LayoutGrid className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+        <p className="font-medium">No tournament sessions indexed yet</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Browse the Live tab to automatically start indexing bouts into history.
+        </p>
+        <Button variant="outline" size="sm" className="mt-4" onClick={() => {}}>
+          <Radio className="w-3.5 h-3.5 mr-1.5" /> Go to Live tab
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {sessions.map(s => (
+        <Card
+          key={s.sessionKey}
+          className="hover-elevate cursor-pointer"
+          data-testid={`card-session-${s.sessionKey}`}
+          onClick={() => navigate(`/admin/tournaments/session/${encodeURIComponent(s.sessionKey)}`)}
+        >
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-semibold text-sm leading-snug">{sessionTitle(s)}</p>
+              <Badge variant="outline" className="text-xs shrink-0">{s.format}</Badge>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {s.levelMin && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                  Lv {s.levelMin}–{s.levelMax ?? '∞'}
+                </Badge>
+              )}
+              {s.rarityMin != null && s.rarityMin > 0 && (
+                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${RARITY_COLORS[s.rarityMin]}`}>
+                  {RARITY_LABELS[s.rarityMin]}+
+                </Badge>
+              )}
+              {s.realm && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                  {s.realm === 'cv' ? 'Crystalvale' : s.realm === 'sd' ? 'Sundered' : s.realm}
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Users className="w-3 h-3" />
+                {s.boutCount} bout{s.boutCount !== 1 ? 's' : ''}
+              </span>
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                {formatDateRange(s.startTime, s.endTime)}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminTournament() {
@@ -545,8 +665,11 @@ export default function AdminTournament() {
         </p>
       </div>
 
-      <Tabs defaultValue="live" className="space-y-4">
+      <Tabs defaultValue="tournaments" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="tournaments" data-testid="tab-tournaments">
+            <LayoutGrid className="w-3.5 h-3.5 mr-1.5" /> Tournaments
+          </TabsTrigger>
           <TabsTrigger value="live" data-testid="tab-live">
             <Radio className="w-3.5 h-3.5 mr-1.5 text-emerald-500" /> Live
           </TabsTrigger>
@@ -554,6 +677,10 @@ export default function AdminTournament() {
             <History className="w-3.5 h-3.5 mr-1.5" /> History
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="tournaments" className="mt-4">
+          <TournamentsTab />
+        </TabsContent>
 
         <TabsContent value="live" className="mt-4">
           <LiveTab />

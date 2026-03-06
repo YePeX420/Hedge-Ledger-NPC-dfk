@@ -9291,6 +9291,256 @@ async function startAdminWebServer() {
     }
   });
 
+  // ─── Ability name lookup (mirrors dfk-abilities.ts, for JS endpoints) ──────
+  const _ACTIVE_SKILL_NAMES = {
+    0:'Poisoned Blade',1:'Blinding Winds',2:'Heal',3:'Cleanse',4:'Iron Skin',
+    5:'Speed',6:'Critical Aim',7:'Deathmark',16:'Exhaust',17:'Daze',
+    18:'Explosion',19:'Hardened Shield',24:'Stun',25:'Second Wind',28:'Resurrection'
+  };
+  const _PASSIVE_SKILL_NAMES = {
+    0:'Duelist',1:'Clutch',2:'Foresight',3:'Headstrong',4:'Clear Vision',
+    5:'Fearless',6:'Chatterbox',7:'Stalwart',16:'Leadership',17:'Efficient',
+    18:'Menacing',19:'Toxic',24:'Giant Slayer',25:'Last Stand',28:'Second Life'
+  };
+  function _abilityName(id, type) {
+    if (id == null) return null;
+    const n = parseInt(id);
+    const map = type === 'active' ? _ACTIVE_SKILL_NAMES : _PASSIVE_SKILL_NAMES;
+    return map[n] ?? null;
+  }
+
+  // GET /api/admin/tournament/sessions — groups pvp_tournaments by signature + 72h windows
+  app.get("/api/admin/tournament/sessions", isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const rows = await rawPg.unsafe(`
+        SELECT
+          tournament_type_signature as signature,
+          format,
+          level_min,
+          level_max,
+          rarity_min,
+          rarity_max,
+          realm,
+          COUNT(*) as bout_count,
+          MIN(start_time) as window_start,
+          MAX(start_time) as window_end,
+          EXTRACT(EPOCH FROM date_trunc('day', MIN(start_time)))::bigint as window_epoch
+        FROM pvp_tournaments
+        WHERE status = 'completed' AND start_time IS NOT NULL
+        GROUP BY
+          tournament_type_signature, format, level_min, level_max,
+          rarity_min, rarity_max, realm,
+          date_trunc('day', start_time)
+        ORDER BY window_start DESC
+        LIMIT 200
+      `);
+
+      const labelRows = await rawPg.unsafe(`SELECT signature, label FROM pvp_tournament_types WHERE is_active = true`);
+      const labelMap = {};
+      for (const r of labelRows) { if (r.signature) labelMap[r.signature] = r.label; }
+
+      const sessions = rows.map(r => ({
+        sessionKey: `${r.signature || 'unknown'}_${r.window_epoch}`,
+        signature: r.signature,
+        label: labelMap[r.signature] || null,
+        format: r.format,
+        levelMin: r.level_min,
+        levelMax: r.level_max,
+        rarityMin: r.rarity_min,
+        rarityMax: r.rarity_max,
+        realm: r.realm,
+        boutCount: parseInt(r.bout_count),
+        startTime: r.window_start,
+        endTime: r.window_end,
+      }));
+
+      res.json({ ok: true, sessions });
+    } catch (err) {
+      console.error('[Tournament Sessions] Error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/tournament/sessions/:sessionKey/bouts — bouts for a session
+  app.get("/api/admin/tournament/sessions/:sessionKey/bouts", isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const { sessionKey } = req.params;
+      // sessionKey = "<signature>_<epoch>" — epoch is UNIX seconds of start of day
+      const lastUnderscore = sessionKey.lastIndexOf('_');
+      if (lastUnderscore < 0) return res.status(400).json({ ok: false, error: 'Invalid sessionKey' });
+
+      const signature = sessionKey.substring(0, lastUnderscore);
+      const epoch = parseInt(sessionKey.substring(lastUnderscore + 1));
+      if (isNaN(epoch)) return res.status(400).json({ ok: false, error: 'Invalid sessionKey epoch' });
+
+      const windowStart = new Date(epoch * 1000).toISOString();
+      const windowEnd = new Date((epoch + 86400) * 1000).toISOString();
+
+      const bouts = await rawPg.unsafe(`
+        SELECT t.*,
+          json_agg(
+            json_build_object(
+              'heroId', s.hero_id,
+              'mainClass', s.main_class,
+              'subClass', s.sub_class,
+              'level', s.level,
+              'rarity', s.rarity,
+              'strength', s.strength,
+              'dexterity', s.dexterity,
+              'agility', s.agility,
+              'vitality', s.vitality,
+              'endurance', s.endurance,
+              'intelligence', s.intelligence,
+              'wisdom', s.wisdom,
+              'luck', s.luck,
+              'active1', s.active1,
+              'active2', s.active2,
+              'passive1', s.passive1,
+              'passive2', s.passive2,
+              'playerAddress', p.player_address,
+              'placement', p.placement
+            )
+          ) FILTER (WHERE s.hero_id IS NOT NULL) as hero_snapshots
+        FROM pvp_tournaments t
+        LEFT JOIN tournament_placements p ON p.tournament_id = t.tournament_id
+        LEFT JOIN hero_tournament_snapshots s ON s.placement_id = p.id
+        WHERE t.tournament_type_signature = $1
+          AND t.start_time >= $2
+          AND t.start_time < $3
+          AND t.status = 'completed'
+        GROUP BY t.id
+        ORDER BY t.start_time ASC
+      `, [signature, windowStart, windowEnd]);
+
+      res.json({ ok: true, bouts, sessionKey, signature });
+    } catch (err) {
+      console.error('[Tournament Sessions Bouts] Error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/tournament/:id/comp-data — live-fallback comp analysis data
+  app.get("/api/admin/tournament/:id/comp-data", isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const tournamentId = parseInt(req.params.id);
+      if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid ID' });
+
+      const DFK_GRAPH = 'https://api.defikingdoms.com/graphql';
+
+      // 1. Try to get from hero_tournament_snapshots (post-match indexed)
+      const snapshots = await rawPg.unsafe(`
+        SELECT s.*, p.placement, p.player_address
+        FROM hero_tournament_snapshots s
+        JOIN tournament_placements p ON s.placement_id = p.id
+        JOIN pvp_tournaments t ON p.tournament_id = t.tournament_id
+        WHERE t.tournament_id = $1
+      `, [tournamentId]);
+
+      if (snapshots.length > 0) {
+        // Get tournament info for player addresses
+        const [tInfo] = await rawPg.unsafe(
+          `SELECT host_player, opponent_player, winner_player FROM pvp_tournaments WHERE tournament_id = $1`,
+          [tournamentId]
+        );
+        const hostAddr = tInfo?.host_player?.toLowerCase();
+        const hostHeroes = snapshots
+          .filter(s => s.player_address?.toLowerCase() === hostAddr)
+          .map(s => ({
+            heroId: s.hero_id, mainClass: s.main_class, subClass: s.sub_class,
+            level: s.level, rarity: s.rarity,
+            str: s.strength, dex: s.dexterity, agi: s.agility,
+            int: s.intelligence, wis: s.wisdom, vit: s.vitality, end: s.endurance, lck: s.luck,
+            active1: s.active1, active2: s.active2, passive1: s.passive1, passive2: s.passive2,
+          }));
+        const opponentHeroes = snapshots
+          .filter(s => s.player_address?.toLowerCase() !== hostAddr)
+          .map(s => ({
+            heroId: s.hero_id, mainClass: s.main_class, subClass: s.sub_class,
+            level: s.level, rarity: s.rarity,
+            str: s.strength, dex: s.dexterity, agi: s.agility,
+            int: s.intelligence, wis: s.wisdom, vit: s.vitality, end: s.endurance, lck: s.luck,
+            active1: s.active1, active2: s.active2, passive1: s.passive1, passive2: s.passive2,
+          }));
+        return res.json({ ok: true, source: 'snapshot', hostHeroes, opponentHeroes });
+      }
+
+      // 2. Live fallback: fetch from DFK GraphQL
+      const gqlFetch = async (query) => {
+        const r = await fetch(DFK_GRAPH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query }),
+        });
+        if (!r.ok) throw new Error(`DFK GraphQL ${r.status}`);
+        const j = await r.json();
+        if (j.errors) throw new Error(j.errors[0]?.message);
+        return j.data;
+      };
+
+      const battleData = await gqlFetch(`{
+        battles(where:{id:"${tournamentId}"}) {
+          id battleState
+          host { id } opponent { id }
+          hostHeroes {
+            id normalizedId mainClassStr subClassStr level rarity
+            strength agility dexterity intelligence wisdom vitality endurance luck
+            active1 active2 passive1 passive2
+          }
+          opponentHeroes { id normalizedId mainClassStr subClassStr level rarity }
+        }
+      }`);
+
+      const battle = battleData?.battles?.[0];
+      if (!battle) {
+        return res.status(404).json({ ok: false, error: 'Battle not found in DFK GraphQL — may not be indexed yet' });
+      }
+
+      // Fetch opponent hero stats by chain IDs
+      const oppIds = (battle.opponentHeroes || []).map(h => `"${h.id}"`).join(',');
+      let opponentHeroesRaw = battle.opponentHeroes || [];
+      if (oppIds) {
+        try {
+          const oppData = await gqlFetch(`{
+            heroes(where:{id_in:[${oppIds}]}) {
+              id normalizedId mainClassStr subClassStr level rarity
+              strength agility dexterity intelligence wisdom vitality endurance luck
+              active1 active2 passive1 passive2
+            }
+          }`);
+          if (oppData?.heroes) opponentHeroesRaw = oppData.heroes;
+        } catch (e) {
+          console.warn('[comp-data] Failed to fetch opponent hero stats:', e.message);
+        }
+      }
+
+      const mapHero = (h) => ({
+        heroId: h.normalizedId || h.id,
+        mainClass: h.mainClassStr,
+        subClass: h.subClassStr,
+        level: h.level,
+        rarity: h.rarity,
+        str: h.strength ?? 0, dex: h.dexterity ?? 0, agi: h.agility ?? 0,
+        int: h.intelligence ?? 0, wis: h.wisdom ?? 0, vit: h.vitality ?? 0,
+        end: h.endurance ?? 0, lck: h.luck ?? 0,
+        active1: _abilityName(h.active1, 'active'),
+        active2: _abilityName(h.active2, 'active'),
+        passive1: _abilityName(h.passive1, 'passive'),
+        passive2: _abilityName(h.passive2, 'passive'),
+      });
+
+      const hostHeroes = (battle.hostHeroes || []).map(mapHero);
+      const opponentHeroes = opponentHeroesRaw.map(mapHero);
+
+      res.json({ ok: true, source: 'live', hostHeroes, opponentHeroes });
+    } catch (err) {
+      console.error('[Tournament comp-data] Error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // GET /api/admin/tournament/:id - Get full tournament details with restrictions
   app.get("/api/admin/tournament/:id", isAdmin, async (req, res) => {
     try {

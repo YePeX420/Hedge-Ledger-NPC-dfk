@@ -55,6 +55,7 @@ import AdminCombatPets from "@/pages/admin/combat-pets";
 import AdminCombatToolkit from "@/pages/admin/combat-toolkit";
 import AdminTournament from "@/pages/admin/tournament";
 import AdminTournamentDetail from "@/pages/admin/tournament-detail";
+import TournamentSession from "@/pages/admin/tournament-session";
 import UserAccessManagement from "@/pages/admin/user-access";
 import UserLogin from "@/pages/user-login";
 import UserDashboardPage from "@/pages/user/dashboard";
@@ -327,6 +328,14 @@ function Router() {
         )}
       </Route>
       
+      <Route path="/admin/tournaments/session/:sessionKey">
+        {(params) => (
+          <ProtectedAdminPage>
+            <TournamentSession sessionKey={params.sessionKey} />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
       <Route path="/admin/tournament/:id">
         {(params) => (
           <ProtectedAdminPage>

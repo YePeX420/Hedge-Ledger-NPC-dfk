@@ -7,7 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Trophy, Swords, Loader2, Medal, Brain, History, CheckCircle2, XCircle } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ArrowLeft, Trophy, Swords, Loader2, Medal, Brain, History, CheckCircle2, XCircle, ChevronDown, ChevronRight as ChevronRightIcon, Zap, BookOpen, FlaskConical } from 'lucide-react';
+import { ABILITY_FORMULAS, projectHeroOutput } from '@/data/ability-formulas';
+import { SKILL_CODEX, hasFullCodex } from '@/data/skill-codex';
 
 const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
 const RARITY_COLORS = ['text-muted-foreground', 'text-green-500', 'text-blue-500', 'text-orange-500', 'text-purple-500'];
@@ -132,6 +135,33 @@ interface ClassWinrate {
   win_pct: number;
 }
 
+interface HeroCompData {
+  heroId: number;
+  mainClass: string;
+  subClass: string;
+  level: number;
+  rarity: number;
+  str: number;
+  dex: number;
+  agi: number;
+  int: number;
+  wis: number;
+  vit: number;
+  end: number;
+  lck: number;
+  active1: string | null;
+  active2: string | null;
+  passive1: string | null;
+  passive2: string | null;
+}
+
+interface CompData {
+  ok: boolean;
+  source: 'snapshot' | 'live';
+  hostHeroes: HeroCompData[];
+  opponentHeroes: HeroCompData[];
+}
+
 function truncAddr(addr: string | null) {
   if (!addr) return '—';
   return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
@@ -209,6 +239,176 @@ function HeroCard({ hero, isWinner }: { hero: HeroSnapshot; isWinner: boolean })
   );
 }
 
+function heroToStats(h: HeroCompData) {
+  return { str: h.str, dex: h.dex, agi: h.agi, int: h.int, wis: h.wis, vit: h.vit, end: h.end, lck: h.lck };
+}
+
+const CLASS_CHIP: Record<string, string> = {
+  Warrior: 'bg-red-500/15 text-red-400',
+  Knight: 'bg-yellow-500/15 text-yellow-400',
+  Archer: 'bg-green-500/15 text-green-400',
+  Priest: 'bg-blue-500/15 text-blue-400',
+  Wizard: 'bg-indigo-500/15 text-indigo-400',
+  Pirate: 'bg-teal-500/15 text-teal-400',
+  Berserker: 'bg-red-600/15 text-red-500',
+  Seer: 'bg-cyan-500/15 text-cyan-400',
+};
+
+const ABILITY_TYPE_STYLE: Record<string, string> = {
+  physical_damage: 'border-red-500/40 text-red-400',
+  magical_damage: 'border-indigo-500/40 text-indigo-400',
+  heal: 'border-green-500/40 text-green-400',
+  buff: 'border-blue-500/40 text-blue-400',
+  debuff: 'border-orange-500/40 text-orange-400',
+  cc: 'border-purple-500/40 text-purple-400',
+  mixed: 'border-teal-500/40 text-teal-400',
+  passive: 'border-muted-foreground/40 text-muted-foreground',
+};
+
+function CompHeroRow({ hero, side }: { hero: HeroCompData; side: 'host' | 'opponent' }) {
+  const [codexOpen, setCodexOpen] = useState(false);
+  const stats = heroToStats(hero);
+  const proj = projectHeroOutput(stats, {
+    active1: hero.active1,
+    active2: hero.active2,
+    passive1: hero.passive1,
+    passive2: hero.passive2,
+  });
+
+  const abilities = [
+    { name: hero.active1, slot: 'active' as const },
+    { name: hero.active2, slot: 'active' as const },
+    { name: hero.passive1, slot: 'passive' as const },
+    { name: hero.passive2, slot: 'passive' as const },
+  ].filter(a => !!a.name);
+
+  const classAbilities = SKILL_CODEX[hero.mainClass] || [];
+  const showCodex = hasFullCodex(hero.mainClass);
+
+  return (
+    <div className="space-y-3" data-testid={`comp-hero-${side}-${hero.heroId}`}>
+      {/* Hero header */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${CLASS_CHIP[hero.mainClass] ?? 'bg-muted text-muted-foreground'}`}>
+          {hero.mainClass}
+        </span>
+        <span className="text-xs text-muted-foreground">/{hero.subClass}</span>
+        <Badge variant="outline" className="text-xs">Lv {hero.level}</Badge>
+        <span className={`text-xs ${RARITY_COLORS[hero.rarity]}`}>{RARITY_LABELS[hero.rarity]}</span>
+        <span className="text-xs font-mono text-muted-foreground ml-auto">#{hero.heroId}</span>
+      </div>
+
+      {/* Equipped abilities with tooltips */}
+      {abilities.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {abilities.map((a, i) => {
+            const formula = ABILITY_FORMULAS[a.name!];
+            const badge = (
+              <Badge
+                key={i}
+                variant="outline"
+                className={`text-[11px] cursor-default ${formula
+                  ? ABILITY_TYPE_STYLE[formula.type] ?? ''
+                  : a.slot === 'active' ? SKILL_RARITY_STYLE[ACTIVE_RARITY[a.name!] ?? 'basic'] : SKILL_RARITY_STYLE[PASSIVE_RARITY[a.name!] ?? 'basic']
+                }`}
+              >
+                {a.slot === 'passive' && <span className="opacity-50 mr-1 text-[10px]">P</span>}
+                {a.name}
+              </Badge>
+            );
+            if (!formula) return badge;
+            return (
+              <Tooltip key={i}>
+                <TooltipTrigger asChild>{badge}</TooltipTrigger>
+                <TooltipContent className="max-w-xs space-y-1">
+                  <p className="font-semibold text-xs">{a.name}</p>
+                  <p className="text-xs font-mono text-muted-foreground">{formula.formulaStr}</p>
+                  <p className="text-xs">{formula.description}</p>
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Projection scores */}
+      <div className="grid grid-cols-4 gap-2">
+        <div className="bg-red-500/5 border border-red-500/20 rounded-md p-2 text-center">
+          <p className="text-[10px] text-muted-foreground mb-0.5">Phys DPS</p>
+          <p className="text-sm font-mono font-bold text-red-400">{Math.round(proj.physDps) || '—'}</p>
+        </div>
+        <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-md p-2 text-center">
+          <p className="text-[10px] text-muted-foreground mb-0.5">Mag DPS</p>
+          <p className="text-sm font-mono font-bold text-indigo-400">{Math.round(proj.magicDps) || '—'}</p>
+        </div>
+        <div className="bg-green-500/5 border border-green-500/20 rounded-md p-2 text-center">
+          <p className="text-[10px] text-muted-foreground mb-0.5">Heal</p>
+          <p className="text-sm font-mono font-bold text-green-400">{Math.round(proj.healValue) || '—'}</p>
+        </div>
+        <div className="bg-purple-500/5 border border-purple-500/20 rounded-md p-2 text-center">
+          <p className="text-[10px] text-muted-foreground mb-0.5">CC</p>
+          <p className="text-sm font-mono font-bold text-purple-400">
+            {proj.ccCount > 0 ? proj.ccCount : '—'}
+          </p>
+        </div>
+      </div>
+
+      {/* CC type chips */}
+      {proj.ccTypes.length > 0 && (
+        <div className="flex gap-1 flex-wrap">
+          {proj.ccTypes.map((cc, i) => (
+            <Badge key={i} variant="outline" className="text-[10px] border-purple-500/30 text-purple-400 px-1.5 py-0 capitalize">{cc}</Badge>
+          ))}
+          {proj.passiveFlags.filter(p => ['Leadership', 'Duelist', 'Menacing', 'Toxic', 'Last Stand', 'Second Life'].includes(p)).map((p, i) => (
+            <Badge key={`p-${i}`} variant="outline" className="text-[10px] border-amber-500/30 text-amber-400 px-1.5 py-0">{p}</Badge>
+          ))}
+        </div>
+      )}
+      {proj.passiveFlags.filter(p => ['Leadership', 'Duelist', 'Menacing', 'Toxic', 'Last Stand', 'Second Life'].includes(p) && !proj.ccTypes.length).map((p, i) => (
+        <Badge key={`np-${i}`} variant="outline" className="text-[10px] border-amber-500/30 text-amber-400 px-1.5 py-0">{p}</Badge>
+      ))}
+
+      {/* Skill Codex collapsible */}
+      {showCodex && classAbilities.length > 0 && (
+        <div className="mt-1">
+          <button
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setCodexOpen(o => !o)}
+            data-testid={`btn-codex-toggle-${hero.heroId}`}
+          >
+            {codexOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRightIcon className="w-3 h-3" />}
+            <BookOpen className="w-3 h-3" />
+            {hero.mainClass} Skill Codex ({classAbilities.length} abilities)
+          </button>
+          {codexOpen && (
+            <div className="mt-2 pl-4 space-y-1.5 border-l border-border">
+              <p className="text-[10px] text-muted-foreground italic mb-2">
+                Codex path selections are not exposed by the public API — showing all abilities available to {hero.mainClass} as reference.
+              </p>
+              {classAbilities.map(ab => (
+                <div key={ab.id} className="flex items-start gap-2 py-0.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-medium">{ab.name}</span>
+                      <Badge variant="outline" className={`text-[9px] px-1 py-0 ${ABILITY_TYPE_STYLE[ab.type] ?? ''}`}>
+                        {ab.type.replace('_', ' ')}
+                      </Badge>
+                      {ab.hasCombo && (
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/40 text-amber-400">COMBO</Badge>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{ab.formulaStr}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminTournamentDetail({ id }: { id: string }) {
   const [, navigate] = useLocation();
   const tournamentId = parseInt(id);
@@ -261,6 +461,16 @@ export default function AdminTournamentDetail({ id }: { id: string }) {
         opponentPlayer: string | null;
         format: string;
       }>;
+    }
+  });
+
+  const { data: compData, isLoading: compLoading } = useQuery({
+    queryKey: ['/api/admin/tournament', tournamentId, 'comp-data'],
+    enabled: !isNaN(tournamentId) && !!detailData?.ok,
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/tournament/${tournamentId}/comp-data`);
+      if (!res.ok) throw new Error('Comp data unavailable');
+      return res.json() as Promise<CompData>;
     }
   });
 
@@ -343,6 +553,7 @@ export default function AdminTournamentDetail({ id }: { id: string }) {
           <TabsTrigger value="bout" data-testid="tab-bout-details"><Swords className="w-3.5 h-3.5 mr-1.5" />Bout Details</TabsTrigger>
           <TabsTrigger value="prediction" data-testid="tab-prediction"><Brain className="w-3.5 h-3.5 mr-1.5" />Combat Prediction</TabsTrigger>
           <TabsTrigger value="similar" data-testid="tab-similar"><History className="w-3.5 h-3.5 mr-1.5" />Similar Bouts</TabsTrigger>
+          <TabsTrigger value="comp" data-testid="tab-comp-analysis"><FlaskConical className="w-3.5 h-3.5 mr-1.5" />Comp Analysis</TabsTrigger>
         </TabsList>
 
         {/* Tab 1: Bout Details */}
@@ -657,6 +868,197 @@ export default function AdminTournamentDetail({ id }: { id: string }) {
                   </Table>
                 </CardContent>
               </Card>
+            </>
+          )}
+        </TabsContent>
+
+        {/* Tab 4: Comp Analysis */}
+        <TabsContent value="comp" className="space-y-6 mt-4" data-testid="tab-content-comp">
+          {compLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-8">
+              <Loader2 className="w-4 h-4 animate-spin" />Loading comp data…
+            </div>
+          ) : !compData?.ok ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <FlaskConical className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                <p className="font-medium">Comp data unavailable</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Hero data could not be retrieved. The bout may not be indexed yet, or the DFK GraphQL is unavailable.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Source badge */}
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={compData.source === 'live'
+                    ? 'border-orange-500/40 text-orange-400'
+                    : 'border-green-500/40 text-green-400'}
+                  data-testid="badge-comp-source"
+                >
+                  <Zap className="w-2.5 h-2.5 mr-1" />
+                  {compData.source === 'live' ? 'Live Data' : 'Indexed Data'}
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  {compData.source === 'live'
+                    ? 'Fetched directly from DFK GraphQL — bout may be in progress'
+                    : 'From indexed hero snapshots'}
+                </span>
+              </div>
+
+              {/* Team comparison */}
+              {(() => {
+                const hostTeamPhys = compData.hostHeroes.reduce((sum, h) => {
+                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
+                  return sum + p.physDps;
+                }, 0);
+                const hostTeamMag = compData.hostHeroes.reduce((sum, h) => {
+                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
+                  return sum + p.magicDps;
+                }, 0);
+                const hostTeamHeal = compData.hostHeroes.reduce((sum, h) => {
+                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
+                  return sum + p.healValue;
+                }, 0);
+                const hostTeamCc = compData.hostHeroes.reduce((sum, h) => {
+                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
+                  return sum + p.ccCount;
+                }, 0);
+
+                const oppTeamPhys = compData.opponentHeroes.reduce((sum, h) => {
+                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
+                  return sum + p.physDps;
+                }, 0);
+                const oppTeamMag = compData.opponentHeroes.reduce((sum, h) => {
+                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
+                  return sum + p.magicDps;
+                }, 0);
+                const oppTeamHeal = compData.opponentHeroes.reduce((sum, h) => {
+                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
+                  return sum + p.healValue;
+                }, 0);
+                const oppTeamCc = compData.opponentHeroes.reduce((sum, h) => {
+                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
+                  return sum + p.ccCount;
+                }, 0);
+
+                const adv = (hostVal: number, oppVal: number) => {
+                  if (hostVal === 0 && oppVal === 0) return null;
+                  const diff = hostVal - oppVal;
+                  if (Math.abs(diff) < 5) return 'tied';
+                  return diff > 0 ? 'host' : 'opponent';
+                };
+
+                const physAdv = adv(hostTeamPhys, oppTeamPhys);
+                const magAdv = adv(hostTeamMag, oppTeamMag);
+                const healAdv = adv(hostTeamHeal, oppTeamHeal);
+                const ccAdv = adv(hostTeamCc, oppTeamCc);
+
+                const advStyle = (a: string | null, side: 'host' | 'opponent' | 'tied') =>
+                  a === side ? (side === 'host' ? 'bg-blue-500/10 text-blue-400 font-bold' : side === 'opponent' ? 'bg-orange-500/10 text-orange-400 font-bold' : 'bg-muted') : 'text-muted-foreground';
+
+                const advLabel = (a: string | null) => {
+                  if (!a) return '—';
+                  if (a === 'tied') return 'Tied';
+                  if (a === 'host') return 'Host edge';
+                  return 'Opp edge';
+                };
+                const advStyle2 = (a: string | null) => {
+                  if (!a || a === 'tied') return 'text-muted-foreground text-xs';
+                  return a === 'host' ? 'text-blue-400 text-xs font-semibold' : 'text-orange-400 text-xs font-semibold';
+                };
+
+                return (
+                  <Card data-testid="card-team-summary">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Team Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">Category</TableHead>
+                            <TableHead className="text-xs text-blue-400">Host</TableHead>
+                            <TableHead className="text-xs text-orange-400">Opponent</TableHead>
+                            <TableHead className="text-xs">Edge</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {[
+                            { label: 'Phys DPS', hv: hostTeamPhys, ov: oppTeamPhys, a: physAdv },
+                            { label: 'Mag DPS', hv: hostTeamMag, ov: oppTeamMag, a: magAdv },
+                            { label: 'Heal', hv: hostTeamHeal, ov: oppTeamHeal, a: healAdv },
+                            { label: 'CC Threats', hv: hostTeamCc, ov: oppTeamCc, a: ccAdv },
+                          ].map(row => (
+                            <TableRow key={row.label}>
+                              <TableCell className="text-xs font-medium">{row.label}</TableCell>
+                              <TableCell className={`text-xs font-mono ${advStyle(row.a, 'host')}`}>{Math.round(row.hv) || '—'}</TableCell>
+                              <TableCell className={`text-xs font-mono ${advStyle(row.a, 'opponent')}`}>{Math.round(row.ov) || '—'}</TableCell>
+                              <TableCell className={advStyle2(row.a)}>{advLabel(row.a)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
+
+              {/* Per-hero breakdown */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Host side */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <div className="px-3 py-1 rounded-md text-sm font-medium bg-blue-500/10 text-blue-400">
+                      Host
+                    </div>
+                    <span className="text-xs font-mono text-muted-foreground">{truncAddr(tournament.hostPlayer)}</span>
+                  </div>
+                  {compData.hostHeroes.length > 0 ? (
+                    compData.hostHeroes.map((hero, i) => (
+                      <Card key={i}>
+                        <CardContent className="p-4">
+                          <CompHeroRow hero={hero} side="host" />
+                        </CardContent>
+                      </Card>
+                    ))
+                  ) : (
+                    <Card>
+                      <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                        No hero data for host
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+
+                {/* Opponent side */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <div className="px-3 py-1 rounded-md text-sm font-medium bg-orange-500/10 text-orange-400">
+                      Opponent
+                    </div>
+                    <span className="text-xs font-mono text-muted-foreground">{truncAddr(tournament.opponentPlayer)}</span>
+                  </div>
+                  {compData.opponentHeroes.length > 0 ? (
+                    compData.opponentHeroes.map((hero, i) => (
+                      <Card key={i}>
+                        <CardContent className="p-4">
+                          <CompHeroRow hero={hero} side="opponent" />
+                        </CardContent>
+                      </Card>
+                    ))
+                  ) : (
+                    <Card>
+                      <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                        No hero data for opponent
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </TabsContent>
