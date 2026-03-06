@@ -9398,6 +9398,216 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/tournament/bracket/:id — full bracket detail (on-chain)
+  {
+    const _bracketDetailCache = new Map();
+    const BRACKET_ABI_EXT = [
+      'function getTournament(uint256 _tournamentId) view returns (tuple(uint256 tournamentStartTime, uint256 rounds, uint256 roundLength, uint256 setupTime, uint256 shotClockDuration, uint256 bankedShotClockTime, uint256 shotClockPenaltyMode, uint256 shotClockForfeitCount, uint256 suddenDeathMode, uint256 bestOf, uint256 entrants, uint256 entrantsClaimed, uint256 durabilityPerRound, uint256 lossExperience, uint256 winExperience, uint256 currentRound, uint256 remainingBoutsInRound, uint8 tournamentType, uint8 state, bool autoRandom, bool tournamentSponsored, bool tournamentHosted))',
+      'function getTournamentEntrySettings(uint256 _tournamentId) view returns (tuple(uint256 entryFee, uint256 entryFeeDecimals, uint256 entryPeriodStart, uint256 minRank, uint256 maxRank, uint256 minRarity, uint256 maxRarity, uint256 battleInventory, uint256 battleBudget, uint256 minHeroStatScore, uint256 maxHeroStatScore, uint256 minTeamStatScore, uint256 maxTeamStatScore, uint256 minLevel, uint256 maxLevel, uint256 excludedClasses, uint256 excludedConsumables, uint256 excludedOrigin, uint256 partyCount, uint256 maxTraitTier, uint256 maxHeroTraitScore, uint256 maxTeamTraitScore, bool allUniqueClasses, bool noTripleClasses, bool onlyPJ, bool requiresQualifierTokens, bool requiresEquipmentQualifiers, bool requiresStateQualifiers, bool onlyBannermen, bool requiresEquipmentRestrictions))',
+      'function getTournamentHostData(uint256 _tournamentId) view returns (tuple(address hostAddress, uint8 tier, uint256 imageId, uint256 backgroundId))',
+      'function getBracket(uint256 _tournamentId) view returns (uint8[])',
+      'function getAllRoundRewards(uint256 _tournamentId) view returns (tuple(address tokenAddress, uint8 rewardType, uint256 tokenId, uint256 amount, uint256 decimals)[][])',
+      'function getTournamentSponsorshipData(uint256 _tournamentId) view returns (tuple(uint256 rounds, uint256[] sponsorshipAmounts, address sponsorAddress, address tokenAddress, bool isGasToken))',
+      'event TournamentPlayerClaimed(uint256 indexed tournamentId, uint256 indexed playerId, address indexed player, uint256[] heroIds)',
+    ];
+    const DFK_CLASS_NAMES = ['Warrior','Knight','Thief','Archer','Priest','Wizard','Monk','Pirate','Berserker','Seer','Legionnaire','Scholar','Paladin','Dark Knight','Summoner','Ninja','Shapeshifter','Bard','Dragoon','Sage','Spellbow'];
+    const TOURNAMENT_TYPE_LABELS_BD = { 0:'Open Battle',1:'Off-Season Tournament',2:'Standard Open Battle',3:'Glory Tournament',4:'Veteran Tournament',5:'Champion Tournament',6:'Elite Invitational',7:'Grand Prix' };
+    const HOST_TIER_LABELS_BD = { 0:'Basic',1:'Silver',2:'Gold',3:'Platinum',4:'Diamond',5:'Champion' };
+    const SUDDEN_DEATH_LABELS = { 0:'None',1:'Growing Atrophy',2:'Shrinking Arena' };
+    const SHOT_CLOCK_PENALTY_LABELS = { 0:'Random Basic Attack',1:'Forfeit' };
+    const METIS_RPC_BD = 'https://andromeda.metis.io/?owner=1088';
+    const PVP_DIAMOND_BD = '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B';
+
+    function decodeBracketData(raw) {
+      const nums = raw.map(v => Number(v));
+      // 8-player single elimination: 15 elements
+      // positions 0-7: initial seeding; 8-11: r1 winners; 12-13: r2 winners; 14: champion
+      const round1 = [
+        { slotA: nums[0], slotB: nums[1], winner: nums[8] || 0 },
+        { slotA: nums[2], slotB: nums[3], winner: nums[9] || 0 },
+        { slotA: nums[4], slotB: nums[5], winner: nums[10] || 0 },
+        { slotA: nums[6], slotB: nums[7], winner: nums[11] || 0 },
+      ];
+      const round2 = [
+        { slotA: nums[8] || 0, slotB: nums[9] || 0, winner: nums[12] || 0 },
+        { slotA: nums[10] || 0, slotB: nums[11] || 0, winner: nums[13] || 0 },
+      ];
+      const finals = [
+        { slotA: nums[12] || 0, slotB: nums[13] || 0, winner: nums[14] || 0 },
+      ];
+      return { rounds: [round1, round2, finals], champion: nums[14] || 0 };
+    }
+
+    function decodeExcludedClasses(bitmask) {
+      const n = Number(bitmask);
+      if (!n) return [];
+      return DFK_CLASS_NAMES.filter((_, i) => (n >> i) & 1);
+    }
+
+    function formatRewardTiers(allRoundRewards, sponsorship) {
+      // allRoundRewards: array of rounds, each round is an array of reward items
+      // Index 0 = first to lose (Round of 8), last = champion
+      const roundLabels = ['Lose in Round of 8', 'Lose in Final Four', '2nd Place', 'Champion'];
+      const ITEM_NAMES = { 5: 'Small Chest', 6: 'Bronze Chest', 7: 'Silver Chest', 8: 'Gold Chest', 9: 'Platinum Chest' };
+      const sponsorAmounts = (sponsorship?.sponsorshipAmounts || []).map(v => Number(v) / 1e18);
+      // Sponsorship amounts: index 0 might be for losers, last might be for winner
+      // We'll map them in reverse order if they match the number of rounds
+      const tiers = [];
+      const numRounds = allRoundRewards?.length || 0;
+      for (let i = 0; i < Math.max(numRounds, sponsorAmounts.length, 4); i++) {
+        const roundRewards = allRoundRewards?.[i] || [];
+        const items = roundRewards
+          .filter(r => Number(r.rewardType) === 2)
+          .map(r => ({ tokenId: Number(r.tokenId), amount: Number(r.amount), name: ITEM_NAMES[Number(r.tokenId)] || `Item #${r.tokenId}` }));
+        // Sponsor amount mapping: if length matches rounds, index i = round i
+        // Otherwise try reversed mapping for champion-first convention
+        let jewel = 0;
+        if (sponsorAmounts.length > 0) {
+          if (i < sponsorAmounts.length) jewel = sponsorAmounts[i];
+        }
+        tiers.push({
+          tier: roundLabels[i] || `Round ${i + 1}`,
+          jewel,
+          items,
+          isChampion: i === Math.max(numRounds, 4) - 1,
+        });
+      }
+      // Reverse so champion is first in display
+      return tiers.reverse();
+    }
+
+    app.get("/api/admin/tournament/bracket/:id", isAdmin, async (req, res) => {
+      const tournamentId = parseInt(req.params.id);
+      if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
+
+      const cached = _bracketDetailCache.get(tournamentId);
+      if (cached && Date.now() - cached.ts < 60_000) return res.json(cached.data);
+
+      try {
+        const { ethers } = await import('ethers');
+        const provider = new ethers.JsonRpcProvider(METIS_RPC_BD);
+        const contract = new ethers.Contract(PVP_DIAMOND_BD, BRACKET_ABI_EXT, provider);
+
+        const [t, e, h, rawBracket, allRoundRewards, sponsorship] = await Promise.all([
+          contract.getTournament(tournamentId),
+          contract.getTournamentEntrySettings(tournamentId),
+          contract.getTournamentHostData(tournamentId),
+          contract.getBracket(tournamentId).catch(() => []),
+          contract.getAllRoundRewards(tournamentId).catch(() => []),
+          contract.getTournamentSponsorshipData(tournamentId).catch(() => null),
+        ]);
+
+        // Scan for players via TournamentPlayerClaimed events (timeout-gated)
+        let playerMap = {};
+        try {
+          const entryPeriodStart = Number(e.entryPeriodStart);
+          const latestBlock = await provider.getBlockNumber();
+          // Estimate block number at entry period start (2s per block on Metis)
+          const secsAgo = Math.floor(Date.now() / 1000) - entryPeriodStart;
+          const estimatedStartBlock = Math.max(0, latestBlock - Math.ceil(secsAgo / 2) - 100);
+          const fromBlock = Math.max(0, estimatedStartBlock - 100);
+          const iface = new ethers.Interface(BRACKET_ABI_EXT);
+          const topic0 = iface.getEvent('TournamentPlayerClaimed').topicHash;
+          const topic1 = ethers.zeroPadValue(ethers.toBeHex(tournamentId), 32);
+          const logsP = provider.getLogs({
+            address: PVP_DIAMOND_BD,
+            topics: [topic0, topic1],
+            fromBlock,
+            toBlock: latestBlock,
+          });
+          const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000));
+          const logs = await Promise.race([logsP, timeout]);
+          for (const log of logs) {
+            try {
+              const decoded = iface.parseLog(log);
+              const playerId = Number(decoded.args.playerId);
+              const playerAddr = decoded.args.player;
+              playerMap[playerId] = playerAddr;
+            } catch (_) {}
+          }
+        } catch (playerErr) {
+          console.warn(`[BracketDetail] Player event scan failed for ${tournamentId}:`, playerErr.message);
+        }
+
+        const nowSec = Math.floor(Date.now() / 1000);
+        const onChainState = Number(t.state);
+        const entryPeriodStart = Number(e.entryPeriodStart);
+        const tournamentStartTime = Number(t.tournamentStartTime);
+        let stateLabel = 'upcoming';
+        if (onChainState === 5) stateLabel = 'in_progress';
+        else if (onChainState === 3) stateLabel = 'completed';
+        else if (onChainState === 4) stateLabel = 'cancelled';
+        else if (entryPeriodStart <= nowSec) stateLabel = 'accepting_entries';
+
+        const tournamentType = Number(t.tournamentType);
+        const hostAddress = h.hostAddress !== '0x0000000000000000000000000000000000000000' ? h.hostAddress : null;
+        const hostTier = Number(h.tier);
+        const partyCount = Number(e.partyCount);
+
+        const tournament = {
+          id: tournamentId,
+          name: `${TOURNAMENT_TYPE_LABELS_BD[tournamentType] ?? 'Tournament'} #${tournamentId}`,
+          stateLabel,
+          tournamentType,
+          rounds: Number(t.rounds),
+          roundLengthMinutes: Math.round(Number(t.roundLength) / 60),
+          bestOf: Number(t.bestOf),
+          tournamentStartTime,
+          entryPeriodStart,
+          entrants: Number(t.entrants),
+          entrantsClaimed: Number(t.entrantsClaimed),
+          maxEntrants: stateLabel === 'in_progress' ? Number(t.entrants) : 8,
+          partyCount,
+          format: partyCount === 1 ? '1v1' : partyCount === 3 ? '3v3' : partyCount === 6 ? '6v6' : '—',
+          // Shot clock
+          shotClockDuration: Number(t.shotClockDuration),
+          bankedShotClockTime: Number(t.bankedShotClockTime),
+          shotClockPenaltyMode: Number(t.shotClockPenaltyMode),
+          shotClockPenaltyLabel: SHOT_CLOCK_PENALTY_LABELS[Number(t.shotClockPenaltyMode)] || 'Unknown',
+          shotClockForfeitCount: Number(t.shotClockForfeitCount),
+          // Combat
+          suddenDeathMode: Number(t.suddenDeathMode),
+          suddenDeathLabel: SUDDEN_DEATH_LABELS[Number(t.suddenDeathMode)] || 'None',
+          durabilityPerRound: Number(t.durabilityPerRound),
+          // Entry settings
+          battleInventory: Number(e.battleInventory),
+          battleBudget: Number(e.battleBudget),
+          minLevel: Number(e.minLevel) || null,
+          maxLevel: Number(e.maxLevel) || null,
+          minRarity: Number(e.minRarity) || null,
+          maxRarity: Number(e.maxRarity) || null,
+          excludedClasses: decodeExcludedClasses(e.excludedClasses),
+          allUniqueClasses: Boolean(e.allUniqueClasses),
+          noTripleClasses: Boolean(e.noTripleClasses),
+          onlyPJ: Boolean(e.onlyPJ),
+          onlyBannermen: Boolean(e.onlyBannermen),
+          maxTeamTraitScore: Number(e.maxTeamTraitScore) || 0,
+          entryFee: Number(e.entryFee) / Math.pow(10, Number(e.entryFeeDecimals) || 18),
+          // Host
+          hostAddress,
+          hostTier,
+          hostTierLabel: HOST_TIER_LABELS_BD[hostTier] || 'Basic',
+          tournamentHosted: Boolean(t.tournamentHosted),
+          tournamentSponsored: Boolean(t.tournamentSponsored),
+        };
+
+        const bracket = decodeBracketData(rawBracket.length >= 15 ? rawBracket : Array(15).fill(0));
+        const rewardTiers = formatRewardTiers(allRoundRewards, sponsorship ? {
+          sponsorshipAmounts: sponsorship.sponsorshipAmounts,
+          tokenAddress: sponsorship.tokenAddress,
+          isGasToken: sponsorship.isGasToken,
+        } : null);
+
+        const responseData = { ok: true, tournament, bracket, players: playerMap, rewardTiers };
+        _bracketDetailCache.set(tournamentId, { data: responseData, ts: Date.now() });
+        res.json(responseData);
+      } catch (err) {
+        console.error(`[BracketDetail] Error for tournament ${tournamentId}:`, err.message);
+        res.status(500).json({ ok: false, error: err.message });
+      }
+    });
+  }
+
   // GET /api/admin/tournament/private-bouts — individual private challenge bouts
   app.get("/api/admin/tournament/private-bouts", isAdmin, async (req, res) => {
     try {

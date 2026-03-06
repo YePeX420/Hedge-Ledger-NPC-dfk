@@ -56,6 +56,7 @@ import AdminCombatToolkit from "@/pages/admin/combat-toolkit";
 import AdminTournament from "@/pages/admin/tournament";
 import AdminTournamentDetail from "@/pages/admin/tournament-detail";
 import TournamentSession from "@/pages/admin/tournament-session";
+import TournamentBracketPage from "@/pages/admin/tournament-bracket";
 import UserAccessManagement from "@/pages/admin/user-access";
 import UserLogin from "@/pages/user-login";
 import UserDashboardPage from "@/pages/user/dashboard";
@@ -332,6 +333,14 @@ function Router() {
         {(params) => (
           <ProtectedAdminPage>
             <TournamentSession sessionKey={params.sessionKey} />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
+      <Route path="/admin/tournament/bracket/:id">
+        {(params) => (
+          <ProtectedAdminPage>
+            <TournamentBracketPage id={params.id} />
           </ProtectedAdminPage>
         )}
       </Route>

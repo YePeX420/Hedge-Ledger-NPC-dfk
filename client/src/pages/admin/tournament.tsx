@@ -737,6 +737,7 @@ const STATE_BADGE: Record<string, { label: string; className: string }> = {
 };
 
 function ScheduledTournamentsTab() {
+  const [, navigate] = useLocation();
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['/api/admin/tournament/scheduled'],
     queryFn: async () => {
@@ -804,6 +805,7 @@ function ScheduledTournamentsTab() {
               key={t.id}
               className="hover-elevate cursor-pointer"
               data-testid={`card-tournament-${t.id}`}
+              onClick={() => navigate(`/admin/tournament/bracket/${t.id}`)}
             >
               <CardContent className="p-5 flex flex-col gap-3">
                 {/* Header: name + format */}
