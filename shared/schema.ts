@@ -3768,3 +3768,46 @@ export const hedgeTournamentMatches = pgTable("hedge_tournament_matches", {
 export const insertHedgeTournamentMatchSchema = createInsertSchema(hedgeTournamentMatches).omit({ id: true, createdAt: true });
 export type InsertHedgeTournamentMatch = z.infer<typeof insertHedgeTournamentMatchSchema>;
 export type HedgeTournamentMatch = typeof hedgeTournamentMatches.$inferSelect;
+
+// ─── DFK Bracket Tournaments (internal DFK API) ───────────────────────────────
+
+export const dfkTournaments = pgTable("dfk_tournaments", {
+  id: serial("id").primaryKey(),
+  tournamentId: text("tournament_id").notNull().unique(),
+  realm: text("realm").notNull().default('sd'),
+  tournamentType: integer("tournament_type"),
+  tournamentState: integer("tournament_state"),
+  name: text("name"),
+  entryPeriodStart: timestamp("entry_period_start", { withTimezone: true }),
+  tournamentStartTime: timestamp("tournament_start_time", { withTimezone: true }),
+  entrants: integer("entrants"),
+  entrantsClaimed: integer("entrants_claimed"),
+  rounds: integer("rounds"),
+  currentRound: integer("current_round"),
+  bestOf: integer("best_of"),
+  partyCount: integer("party_count"),
+  minLevel: integer("min_level"),
+  maxLevel: integer("max_level"),
+  minRarity: integer("min_rarity"),
+  maxRarity: integer("max_rarity"),
+  minHeroStatScore: integer("min_hero_stat_score"),
+  maxHeroStatScore: integer("max_hero_stat_score"),
+  minTeamStatScore: integer("min_team_stat_score"),
+  maxTeamStatScore: integer("max_team_stat_score"),
+  allUniqueClasses: boolean("all_unique_classes").default(false),
+  noTripleClasses: boolean("no_triple_classes").default(false),
+  gloryBout: boolean("glory_bout").default(false),
+  partyCountFormatted: text("party_count_formatted"),
+  rawJson: json("raw_json"),
+  lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  tournamentIdIdx: uniqueIndex("dfk_tournaments_id_idx").on(table.tournamentId),
+  stateIdx: index("dfk_tournaments_state_idx").on(table.tournamentState),
+  startTimeIdx: index("dfk_tournaments_start_idx").on(table.tournamentStartTime),
+}));
+
+export const insertDfkTournamentSchema = createInsertSchema(dfkTournaments).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertDfkTournament = z.infer<typeof insertDfkTournamentSchema>;
+export type DfkTournament = typeof dfkTournaments.$inferSelect;

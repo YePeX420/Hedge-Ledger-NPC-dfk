@@ -9385,6 +9385,19 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/tournament/scheduled — DFK bracket tournaments from internal API
+  app.get("/api/admin/tournament/scheduled", isAdmin, async (req, res) => {
+    try {
+      const forceRefresh = req.query.refresh === '1';
+      const { fetchActiveTournaments } = await import('./src/services/dfkTournamentApi.js');
+      const tournaments = await fetchActiveTournaments(forceRefresh);
+      res.json({ ok: true, tournaments, count: tournaments.length });
+    } catch (err) {
+      console.error('[Scheduled Tournaments] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // GET /api/admin/tournament/private-bouts — individual private challenge bouts
   app.get("/api/admin/tournament/private-bouts", isAdmin, async (req, res) => {
     try {

@@ -668,6 +668,170 @@ function TournamentsTab() {
   );
 }
 
+// ─── Scheduled (bracket) tournaments tab ──────────────────────────────────────
+
+interface ScheduledTournament {
+  id: string;
+  name: string;
+  tournamentType: number | null;
+  tournamentState: number | null;
+  stateLabel: string;
+  tournamentStartTime: number | null;
+  entryPeriodStart: number | null;
+  entriesCloseInSeconds: number | null;
+  entrants: number | null;
+  entrantsClaimed: number | null;
+  partyCount: number | null;
+  format: string;
+  realm: string;
+  minLevel: number | null;
+  maxLevel: number | null;
+  minRarity: number | null;
+  allUniqueClasses: boolean;
+  noTripleClasses: boolean;
+  gloryBout: boolean;
+  rounds: number | null;
+  bestOf: number | null;
+}
+
+function formatCloseCountdown(seconds: number | null): string {
+  if (seconds == null || seconds <= 0) return '';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return '<1m';
+}
+
+function formatTournamentDateTime(unix: number | null): string {
+  if (!unix) return '—';
+  return new Date(unix * 1000).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+}
+
+const STATE_BADGE: Record<string, { label: string; className: string }> = {
+  accepting_entries: { label: 'Accepting Entries', className: 'bg-purple-600 text-white' },
+  in_progress:       { label: 'In Progress',       className: 'bg-yellow-500 text-black' },
+  completed:         { label: 'Completed',          className: 'bg-muted text-muted-foreground' },
+  upcoming:          { label: 'Upcoming',           className: 'bg-blue-600 text-white' },
+  cancelled:         { label: 'Cancelled',          className: 'bg-destructive text-destructive-foreground' },
+};
+
+function ScheduledTournamentsTab() {
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['/api/admin/tournament/scheduled'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/tournament/scheduled');
+      if (!res.ok) throw new Error('Failed to load tournaments');
+      return res.json() as Promise<{ ok: boolean; tournaments: ScheduledTournament[]; count: number }>;
+    },
+    refetchInterval: 60_000,
+  });
+
+  const tournaments = data?.tournaments || [];
+
+  if (isLoading) return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {[1,2,3,4,5,6].map(i => (
+        <Card key={i} className="animate-pulse"><CardContent className="h-40 p-4" /></Card>
+      ))}
+    </div>
+  );
+
+  if (tournaments.length === 0) return (
+    <Card>
+      <CardContent className="py-16 text-center">
+        <Trophy className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+        <p className="font-medium">No active tournaments right now</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Scheduled DFK bracket tournaments will appear here when available.
+        </p>
+        <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+          <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{tournaments.length} tournament{tournaments.length !== 1 ? 's' : ''}</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {tournaments.map(t => {
+          const badge = STATE_BADGE[t.stateLabel] ?? STATE_BADGE.upcoming;
+          const closeCountdown = formatCloseCountdown(t.entriesCloseInSeconds);
+          const restrictionLine = buildRestrictionLine({
+            levelMin: t.minLevel,
+            levelMax: t.maxLevel,
+            rarityMin: t.minRarity,
+            realm: t.realm,
+            allUniqueClasses: t.allUniqueClasses,
+            noTripleClasses: t.noTripleClasses,
+            gloryBout: t.gloryBout,
+          });
+          const realmInfo = REALM_DISPLAY[t.realm];
+
+          return (
+            <Card
+              key={t.id}
+              className="hover-elevate cursor-pointer"
+              data-testid={`card-tournament-${t.id}`}
+            >
+              <CardContent className="p-5 flex flex-col gap-3">
+                {/* Header: name + format */}
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-bold text-sm leading-snug">{t.name}</p>
+                  <span className="text-sm text-muted-foreground font-medium shrink-0">{t.format}</span>
+                </div>
+
+                {/* Date/time */}
+                <p className="text-xs text-muted-foreground">
+                  {formatTournamentDateTime(t.tournamentStartTime)}
+                </p>
+
+                {/* Status badge */}
+                <div>
+                  <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-md ${badge.className}`}>
+                    {badge.label}
+                  </span>
+                </div>
+
+                {/* Entries */}
+                {t.entrants != null && (
+                  <p className="text-sm text-muted-foreground">
+                    Entries: {t.entrantsClaimed ?? 0} / {t.entrants}
+                  </p>
+                )}
+
+                {/* Close countdown */}
+                {closeCountdown && (
+                  <p className="text-sm text-muted-foreground">
+                    Entries Close In: {closeCountdown}
+                  </p>
+                )}
+
+                {/* Restriction line */}
+                {restrictionLine && (
+                  <p className={`text-xs leading-tight ${realmInfo ? realmInfo.color : 'text-muted-foreground'}`}>
+                    {restrictionLine}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Private bouts tab ────────────────────────────────────────────────────────
 
 interface PrivateBout {
@@ -808,7 +972,10 @@ export default function AdminTournament() {
       <Tabs defaultValue="tournaments" className="space-y-4">
         <TabsList>
           <TabsTrigger value="tournaments" data-testid="tab-tournaments">
-            <LayoutGrid className="w-3.5 h-3.5 mr-1.5" /> Tournaments
+            <Trophy className="w-3.5 h-3.5 mr-1.5" /> Tournaments
+          </TabsTrigger>
+          <TabsTrigger value="open-battles" data-testid="tab-open-battles">
+            <LayoutGrid className="w-3.5 h-3.5 mr-1.5" /> Open Battles
           </TabsTrigger>
           <TabsTrigger value="live" data-testid="tab-live">
             <Radio className="w-3.5 h-3.5 mr-1.5 text-emerald-500" /> Live
@@ -822,6 +989,10 @@ export default function AdminTournament() {
         </TabsList>
 
         <TabsContent value="tournaments" className="mt-4">
+          <ScheduledTournamentsTab />
+        </TabsContent>
+
+        <TabsContent value="open-battles" className="mt-4">
           <TournamentsTab />
         </TabsContent>
 
