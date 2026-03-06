@@ -189,8 +189,9 @@ export async function fetchActiveTournaments(forceRefresh = false): Promise<DfkT
             const stateLabel = onChainStateToLabel(onChainState, entryPeriodStart, nowSec);
 
             // Entries close when tournament starts
-            const entriesCloseInSeconds = (stateLabel === 'accepting_entries' && tournamentStartTime > nowSec)
-              ? tournamentStartTime - nowSec
+            const entriesCloseDeadline = tournamentStartTime - 600; // entries close 10 min before start
+            const entriesCloseInSeconds = (stateLabel === 'accepting_entries' && entriesCloseDeadline > nowSec)
+              ? entriesCloseDeadline - nowSec
               : null;
 
             // Entries open countdown for upcoming
