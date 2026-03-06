@@ -6,7 +6,8 @@ import { ethers } from 'ethers';
 
 const METIS_RPC = 'https://andromeda.metis.io/?owner=1088';
 const PVP_DIAMOND = '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B';
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const NORMAL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min when no live tournaments
+const LIVE_CACHE_TTL_MS   = 60 * 1000;     // 1 min when any tournament is in_progress
 
 // ─── Contract ABI (only what we need) ────────────────────────────────────────
 const TOURNAMENT_ABI = [
@@ -133,6 +134,7 @@ export interface DfkTournamentCard {
   gloryBout: boolean;
   rounds: number | null;
   bestOf: number | null;
+  currentRound: number | null;
   tournamentHosted: boolean;
   hostAddress: string | null;
   hostTier: number | null;
@@ -141,13 +143,13 @@ export interface DfkTournamentCard {
 }
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
-let _cache: { data: DfkTournamentCard[]; ts: number } | null = null;
+let _cache: { data: DfkTournamentCard[]; ts: number; ttl: number } | null = null;
 let _inflight: Promise<DfkTournamentCard[]> | null = null;
 
 // ─── Main fetch ───────────────────────────────────────────────────────────────
 export async function fetchActiveTournaments(forceRefresh = false): Promise<DfkTournamentCard[]> {
   const now = Date.now();
-  if (!forceRefresh && _cache && now - _cache.ts < CACHE_TTL_MS) {
+  if (!forceRefresh && _cache && (now - _cache.ts) < _cache.ttl) {
     return _cache.data;
   }
   if (_inflight) return _inflight;
@@ -162,7 +164,7 @@ export async function fetchActiveTournaments(forceRefresh = false): Promise<DfkT
       console.log(`[DfkTournamentApi] ${ids.length} active tournament IDs from chain`);
 
       if (ids.length === 0) {
-        _cache = { data: [], ts: Date.now() };
+        _cache = { data: [], ts: Date.now(), ttl: NORMAL_CACHE_TTL_MS };
         return [];
       }
 
@@ -248,6 +250,7 @@ export async function fetchActiveTournaments(forceRefresh = false): Promise<DfkT
               gloryBout: false,
               rounds: Number(t.rounds) || null,
               bestOf: Number(t.bestOf) || null,
+              currentRound: Number(t.currentRound) || null,
               tournamentHosted: isHosted,
               hostAddress,
               hostTier,
@@ -280,8 +283,10 @@ export async function fetchActiveTournaments(forceRefresh = false): Promise<DfkT
         return (a.tournamentStartTime ?? 0) - (b.tournamentStartTime ?? 0);
       });
 
-      console.log(`[DfkTournamentApi] Mapped ${cards.length} tournaments from on-chain data`);
-      _cache = { data: cards, ts: Date.now() };
+      const hasLive = cards.some(c => c.stateLabel === 'in_progress');
+      const ttl = hasLive ? LIVE_CACHE_TTL_MS : NORMAL_CACHE_TTL_MS;
+      console.log(`[DfkTournamentApi] Mapped ${cards.length} tournaments. Cache TTL: ${ttl / 1000}s (${hasLive ? 'live' : 'normal'})`);
+      _cache = { data: cards, ts: Date.now(), ttl };
       return cards;
     } finally {
       _inflight = null;

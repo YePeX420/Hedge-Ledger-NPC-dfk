@@ -696,6 +696,7 @@ interface ScheduledTournament {
   gloryBout: boolean;
   rounds: number | null;
   bestOf: number | null;
+  currentRound: number | null;
   tournamentHosted: boolean;
   hostedBy: string | null;
 }
@@ -745,10 +746,105 @@ function ScheduledTournamentsTab() {
       if (!res.ok) throw new Error('Failed to load tournaments');
       return res.json() as Promise<{ ok: boolean; tournaments: ScheduledTournament[]; count: number }>;
     },
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,
   });
 
   const tournaments = data?.tournaments || [];
+  const liveTournaments = tournaments.filter(t => t.stateLabel === 'in_progress');
+  const otherTournaments = tournaments.filter(t => t.stateLabel !== 'in_progress');
+
+  const renderCard = (t: ScheduledTournament, liveHighlight = false) => {
+    const badge = STATE_BADGE[t.stateLabel] ?? STATE_BADGE.upcoming;
+    const closeCountdown = formatCloseCountdown(t.entriesCloseInSeconds);
+    const openCountdown = formatOpenCountdown(t.entriesOpenInSeconds);
+    const restrictionLine = buildRestrictionLine({
+      levelMin: t.minLevel,
+      levelMax: t.maxLevel,
+      rarityMin: t.minRarity,
+      realm: t.realm,
+      allUniqueClasses: t.allUniqueClasses,
+      noTripleClasses: t.noTripleClasses,
+      gloryBout: t.gloryBout,
+    });
+    const realmInfo = REALM_DISPLAY[t.realm];
+    const isUpcoming = t.stateLabel === 'upcoming';
+    const isAccepting = t.stateLabel === 'accepting_entries';
+    const isInProgress = t.stateLabel === 'in_progress';
+
+    return (
+      <Card
+        key={t.id}
+        className={`hover-elevate cursor-pointer ${liveHighlight ? 'border-green-500/50 bg-green-500/5' : ''}`}
+        data-testid={`card-tournament-${t.id}`}
+        onClick={() => navigate(`/admin/tournament/bracket/${t.id}`)}
+      >
+        <CardContent className="p-5 flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-3">
+            <p className="font-bold text-sm leading-snug">{t.name}</p>
+            <span className="text-sm text-muted-foreground font-medium shrink-0">{t.format}</span>
+          </div>
+
+          {t.hostedBy && (
+            <p className="text-xs text-muted-foreground -mt-1">
+              Hosted By: {t.hostedBy}
+            </p>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            {isUpcoming
+              ? `Opens: ${formatTournamentDateTime(t.entryPeriodStart)}`
+              : `Starts: ${formatTournamentDateTime(t.tournamentStartTime)}`}
+          </p>
+
+          <div>
+            <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-md ${badge.className}`}>
+              {badge.label}
+            </span>
+          </div>
+
+          {isUpcoming && (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Max. Entries: {t.maxEntrants}
+              </p>
+              {openCountdown && (
+                <p className="text-sm text-muted-foreground">
+                  Entries Open In: {openCountdown}
+                </p>
+              )}
+            </>
+          )}
+
+          {isAccepting && (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Entries: {t.entrants ?? 0} / {t.maxEntrants}
+              </p>
+              {closeCountdown && (
+                <p className="text-sm text-muted-foreground">
+                  Entries Close In: {closeCountdown}
+                </p>
+              )}
+            </>
+          )}
+
+          {isInProgress && (
+            <p className="text-sm text-muted-foreground">
+              {t.currentRound && t.rounds
+                ? `Round ${t.currentRound} of ${t.rounds}`
+                : `Entries: ${t.entrantsClaimed ?? t.entrants ?? 0} / ${t.maxEntrants}`}
+            </p>
+          )}
+
+          {restrictionLine && (
+            <p className={`text-xs leading-tight ${realmInfo ? realmInfo.color : 'text-muted-foreground'}`}>
+              {restrictionLine}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   if (isLoading) return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -774,111 +870,32 @@ function ScheduledTournamentsTab() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{tournaments.length} tournament{tournaments.length !== 1 ? 's' : ''}</p>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
         </Button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {tournaments.map(t => {
-          const badge = STATE_BADGE[t.stateLabel] ?? STATE_BADGE.upcoming;
-          const closeCountdown = formatCloseCountdown(t.entriesCloseInSeconds);
-          const openCountdown = formatOpenCountdown(t.entriesOpenInSeconds);
-          const restrictionLine = buildRestrictionLine({
-            levelMin: t.minLevel,
-            levelMax: t.maxLevel,
-            rarityMin: t.minRarity,
-            realm: t.realm,
-            allUniqueClasses: t.allUniqueClasses,
-            noTripleClasses: t.noTripleClasses,
-            gloryBout: t.gloryBout,
-          });
-          const realmInfo = REALM_DISPLAY[t.realm];
-          const isUpcoming = t.stateLabel === 'upcoming';
-          const isAccepting = t.stateLabel === 'accepting_entries';
-          const isInProgress = t.stateLabel === 'in_progress';
 
-          return (
-            <Card
-              key={t.id}
-              className="hover-elevate cursor-pointer"
-              data-testid={`card-tournament-${t.id}`}
-              onClick={() => navigate(`/admin/tournament/bracket/${t.id}`)}
-            >
-              <CardContent className="p-5 flex flex-col gap-3">
-                {/* Header: name + format */}
-                <div className="flex items-start justify-between gap-3">
-                  <p className="font-bold text-sm leading-snug">{t.name}</p>
-                  <span className="text-sm text-muted-foreground font-medium shrink-0">{t.format}</span>
-                </div>
+      {liveTournaments.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shrink-0" />
+            <span className="font-semibold text-sm text-green-600 dark:text-green-400">Live Now</span>
+            <span className="text-xs text-muted-foreground">({liveTournaments.length})</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {liveTournaments.map(t => renderCard(t, true))}
+          </div>
+        </div>
+      )}
 
-                {/* Hosted By line */}
-                {t.hostedBy && (
-                  <p className="text-xs text-muted-foreground -mt-1">
-                    Hosted By: {t.hostedBy}
-                  </p>
-                )}
-
-                {/* Date/time */}
-                <p className="text-xs text-muted-foreground">
-                  {isUpcoming
-                    ? `Opens: ${formatTournamentDateTime(t.entryPeriodStart)}`
-                    : `Starts: ${formatTournamentDateTime(t.tournamentStartTime)}`}
-                </p>
-
-                {/* Status badge */}
-                <div>
-                  <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-md ${badge.className}`}>
-                    {badge.label}
-                  </span>
-                </div>
-
-                {/* State-dependent entry info */}
-                {isUpcoming && (
-                  <>
-                    <p className="text-sm text-muted-foreground">
-                      Max. Entries: {t.maxEntrants}
-                    </p>
-                    {openCountdown && (
-                      <p className="text-sm text-muted-foreground">
-                        Entries Open In: {openCountdown}
-                      </p>
-                    )}
-                  </>
-                )}
-
-                {isAccepting && (
-                  <>
-                    <p className="text-sm text-muted-foreground">
-                      Entries: {t.entrants ?? 0} / {t.maxEntrants}
-                    </p>
-                    {closeCountdown && (
-                      <p className="text-sm text-muted-foreground">
-                        Entries Close In: {closeCountdown}
-                      </p>
-                    )}
-                  </>
-                )}
-
-                {isInProgress && (
-                  <p className="text-sm text-muted-foreground">
-                    Entries: {t.entrantsClaimed ?? t.entrants ?? 0} / {t.maxEntrants}
-                  </p>
-                )}
-
-                {/* Restriction line */}
-                {restrictionLine && (
-                  <p className={`text-xs leading-tight ${realmInfo ? realmInfo.color : 'text-muted-foreground'}`}>
-                    {restrictionLine}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      {otherTournaments.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {otherTournaments.map(t => renderCard(t, false))}
+        </div>
+      )}
     </div>
   );
 }
