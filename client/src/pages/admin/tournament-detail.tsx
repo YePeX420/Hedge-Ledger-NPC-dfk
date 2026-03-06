@@ -14,6 +14,38 @@ const RARITY_COLORS = ['text-muted-foreground', 'text-green-500', 'text-blue-500
 const REALM_LABELS: Record<string, string> = { cv: 'Crystalvale', sd: 'Sundered Isles', metis: 'Metis' };
 const FORMAT_LABELS: Record<string, string> = { '1v1': '1v1', '3v3': '3v3', '6v6': '6v6' };
 
+// ─── Ability rarity lookup (extracted from DFK game client) ──────────────────
+type SkillRarity = 'basic' | 'advanced' | 'elite' | 'exalted';
+const ACTIVE_RARITY: Record<string, SkillRarity> = {
+  'Poisoned Blade': 'basic', 'Blinding Winds': 'basic', 'Heal': 'basic', 'Cleanse': 'basic',
+  'Iron Skin': 'basic', 'Speed': 'basic', 'Critical Aim': 'basic', 'Deathmark': 'basic',
+  'Exhaust': 'advanced', 'Daze': 'advanced', 'Explosion': 'advanced', 'Hardened Shield': 'advanced',
+  'Stun': 'elite', 'Second Wind': 'elite',
+  'Resurrection': 'exalted',
+};
+const PASSIVE_RARITY: Record<string, SkillRarity> = {
+  'Duelist': 'basic', 'Clutch': 'basic', 'Foresight': 'basic', 'Headstrong': 'basic',
+  'Clear Vision': 'basic', 'Fearless': 'basic', 'Chatterbox': 'basic', 'Stalwart': 'basic',
+  'Leadership': 'advanced', 'Efficient': 'advanced', 'Menacing': 'advanced', 'Toxic': 'advanced',
+  'Giant Slayer': 'elite', 'Last Stand': 'elite',
+  'Second Life': 'exalted',
+};
+const SKILL_RARITY_STYLE: Record<SkillRarity, string> = {
+  basic:    'border-border text-muted-foreground',
+  advanced: 'border-blue-500/40 text-blue-400',
+  elite:    'border-purple-500/40 text-purple-400',
+  exalted:  'border-amber-500/40 text-amber-400',
+};
+function SkillBadge({ name, type }: { name: string; type: 'active' | 'passive' }) {
+  const table = type === 'active' ? ACTIVE_RARITY : PASSIVE_RARITY;
+  const rarity: SkillRarity = table[name] ?? 'basic';
+  return (
+    <Badge variant="outline" className={`text-[11px] px-1.5 py-0 ${SKILL_RARITY_STYLE[rarity]}`}>
+      {name}
+    </Badge>
+  );
+}
+
 interface HeroSnapshot {
   id: number;
   heroId: number;
@@ -150,10 +182,23 @@ function HeroCard({ hero, isWinner }: { hero: HeroSnapshot; isWinner: boolean })
           <StatRow label="LCK" value={hero.luck} />
         </div>
         {(hero.active1 || hero.active2 || hero.passive1 || hero.passive2) && (
-          <div className="col-span-2 mt-2 flex gap-1 flex-wrap">
-            {[hero.active1, hero.active2, hero.passive1, hero.passive2].filter(Boolean).map((a, i) => (
-              <Badge key={i} variant="outline" className="text-xs">{String(a).replace('ability_', 'A')}</Badge>
-            ))}
+          <div className="col-span-2 mt-2 space-y-1">
+            {(hero.active1 || hero.active2) && (
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-[10px] text-muted-foreground w-10 shrink-0">Active</span>
+                {[hero.active1, hero.active2].filter(Boolean).map((a, i) => (
+                  <SkillBadge key={i} name={String(a)} type="active" />
+                ))}
+              </div>
+            )}
+            {(hero.passive1 || hero.passive2) && (
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-[10px] text-muted-foreground w-10 shrink-0">Passive</span>
+                {[hero.passive1, hero.passive2].filter(Boolean).map((a, i) => (
+                  <SkillBadge key={i} name={String(a)} type="passive" />
+                ))}
+              </div>
+            )}
           </div>
         )}
         {hero.combatPowerScore != null && (

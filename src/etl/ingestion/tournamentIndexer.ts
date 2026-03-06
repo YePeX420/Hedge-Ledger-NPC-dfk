@@ -620,10 +620,22 @@ function computeCombatPowerScore(hero: BattleHero): number {
 }
 
 // Get ability name from ID (placeholder - can be enhanced with actual ability mapping)
-function getAbilityName(abilityId: number | undefined): string | null {
+function getAbilityName(abilityId: number | undefined, type: 'active' | 'passive' = 'active'): string | null {
   if (abilityId === undefined || abilityId === null) return null;
-  // TODO: Map ability IDs to names from DFK ability catalog
-  return `ability_${abilityId}`;
+  const ACTIVE: Record<number, string> = {
+    0: 'Poisoned Blade', 1: 'Blinding Winds', 2: 'Heal', 3: 'Cleanse',
+    4: 'Iron Skin', 5: 'Speed', 6: 'Critical Aim', 7: 'Deathmark',
+    16: 'Exhaust', 17: 'Daze', 18: 'Explosion', 19: 'Hardened Shield',
+    24: 'Stun', 25: 'Second Wind', 28: 'Resurrection',
+  };
+  const PASSIVE: Record<number, string> = {
+    0: 'Duelist', 1: 'Clutch', 2: 'Foresight', 3: 'Headstrong',
+    4: 'Clear Vision', 5: 'Fearless', 6: 'Chatterbox', 7: 'Stalwart',
+    16: 'Leadership', 17: 'Efficient', 18: 'Menacing', 19: 'Toxic',
+    24: 'Giant Slayer', 25: 'Last Stand', 28: 'Second Life',
+  };
+  const table = type === 'passive' ? PASSIVE : ACTIVE;
+  return table[abilityId] ?? `skill_${abilityId}`;
 }
 
 // Process a single battle and store tournament/placement/snapshot data
@@ -744,10 +756,10 @@ export async function processBattle(battle: Battle, realm: RealmType = 'cv'): Pr
           hp: hero.hp,
           mp: hero.mp,
           stamina: hero.stamina,
-          active1: getAbilityName(hero.active1),
-          active2: getAbilityName(hero.active2),
-          passive1: getAbilityName(hero.passive1),
-          passive2: getAbilityName(hero.passive2),
+          active1: getAbilityName(hero.active1, 'active'),
+          active2: getAbilityName(hero.active2, 'active'),
+          passive1: getAbilityName(hero.passive1, 'passive'),
+          passive2: getAbilityName(hero.passive2, 'passive'),
           summonsRemaining: hero.summonsRemaining,
           maxSummons: hero.maxSummons,
           combatPowerScore: computeCombatPowerScore(hero),
@@ -800,10 +812,10 @@ export async function processBattle(battle: Battle, realm: RealmType = 'cv'): Pr
           hp: hero.hp,
           mp: hero.mp,
           stamina: hero.stamina,
-          active1: getAbilityName(hero.active1),
-          active2: getAbilityName(hero.active2),
-          passive1: getAbilityName(hero.passive1),
-          passive2: getAbilityName(hero.passive2),
+          active1: getAbilityName(hero.active1, 'active'),
+          active2: getAbilityName(hero.active2, 'active'),
+          passive1: getAbilityName(hero.passive1, 'passive'),
+          passive2: getAbilityName(hero.passive2, 'passive'),
           summonsRemaining: hero.summonsRemaining,
           maxSummons: hero.maxSummons,
           combatPowerScore: computeCombatPowerScore(hero),

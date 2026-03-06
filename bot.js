@@ -10898,9 +10898,9 @@ async function startAdminWebServer() {
       };
 
       const staleIds = new Set();
-      const BATCH_SIZE = 500;
-      const BATCH_DELAY_MS = 100;
-      const VERIFY_TIMEOUT_MS = 120000;
+      const BATCH_SIZE = 250;
+      const BATCH_DELAY_MS = 200;
+      const VERIFY_TIMEOUT_MS = 300000;
 
       async function verifyRealmPets(realmKey, petsInRealm, multicall, auctionAddr) {
         let staleCount = 0;
@@ -10971,7 +10971,9 @@ async function startAdminWebServer() {
         const network = { chainId: config.chainId, name: realmKey };
         for (const rpc of config.rpcs) {
           try {
-            const provider = new ethersLib.JsonRpcProvider(rpc, network, { staticNetwork: ethersLib.Network.from(network) });
+            const fetchReq = new ethersLib.FetchRequest(rpc);
+            fetchReq.timeout = 8000;
+            const provider = new ethersLib.JsonRpcProvider(fetchReq, network, { staticNetwork: ethersLib.Network.from(network) });
             const multicall = new ethersLib.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, provider);
             console.log(`[Combat Pets] Verifying ${petsInRealm.length} ${realmKey} pets via Multicall3 (${rpc.split('/')[2]})...`);
             await verifyRealmPets(realmKey, petsInRealm, multicall, config.auction);
