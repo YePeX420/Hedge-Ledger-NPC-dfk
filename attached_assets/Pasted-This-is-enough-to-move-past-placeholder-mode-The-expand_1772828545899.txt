@@ -1,0 +1,172 @@
+This is enough to move past placeholder mode.
+
+The expanded object confirms the live game has a real tournament registry model in memory, and it is richer than the public community GraphQL API. The public GraphQL docs still only cover Heroes, Hero Sales/Rentals, Equipment, Pets, Pet Sales, Profiles, and Bazaar, while the published PvP contract docs expose battle-level interfaces on the Metis PvP Diamond, not a documented tournament interface. 
+
+What your object tells us immediately:
+
+It is almost certainly coming from an internal API/indexer or unpublished tournament facet wrapper, not a raw public subgraph response.
+
+It already contains the three core layers you need:
+
+tournament header fields
+
+player_entries
+
+bouts
+
+
+The bouts[*].battle_id field is the most important bridge, because the public PvP Diamond does expose getBattle(...) and battle events on Metis, so this likely gives you a join from tournament data into the documented battle layer. 
+
+
+A few strong inferences from this specific object:
+
+entry_period_start = 1741446000
+
+tournament_start_time = 1741449600
+
+
+That is a difference of 3600 seconds, so for this tournament the entry window is 1 hour.
+
+That makes the card logic much clearer:
+
+entry_period_start = entries open
+
+tournament_start_time = entries close / tournament kickoff anchor
+
+"Entries Close In" on the card is very likely tournament_start_time - now
+
+
+I would still treat that as a practical inference until you compare it against one live accepting-entry card.
+
+The object also shows the tournament source is not just a thin copy of the public battle settings struct. The public PvP docs currently show only one mustIncludeClass1 / includedClass1 slot in battle settings, but your tournament object has included_class_1, included_class_2, included_class_3 and matching must_include_class_* flags. That strongly suggests a separate tournament model or an unpublished extension beyond the public battle ABI. 
+
+It also lines up with shipped feature history. The roadmap says DFK shipped Tournaments in February 2025, Hosted Tournaments in May 2025, shot-clock and sudden-death tournament updates in March and July 2025, and Hero Trait Tournament Restrictions in June 2025. Fields like shot_clock_duration, banked_shot_clock_time, max_hero_trait_score, max_team_trait_score, and max_trait_tier fit that timeline. 
+
+What I would add to your schema right now:
+
+type Tournament = {
+  id: string;
+  creator: string;
+  tournament_start_time: number;   // unix seconds
+  entry_period_start: number;      // unix seconds
+  rounds: number | null;
+  current_round: number | null;
+  remaining_bouts_in_round: number | null;
+  round_length: number | null;
+  best_of: number | null;
+
+  entrants: number | null;         // likely capacity, verify
+  entrants_claimed: number | null; // semantics still unclear
+  entry_fee: string | null;
+  entry_fee_decimals: number | null;
+
+  tournament_type: number | null;
+  tournament_state: number | null;
+  tournament_sponsored: boolean | null;
+
+  battle_inventory: number | null;
+  battle_budget: number | null;
+  party_count: number | null;
+
+  min_rank: number | null;
+  max_rank: number | null;
+  min_rarity: number | null;
+  max_rarity: number | null;
+  min_level: number | null;
+  max_level: number | null;
+
+  min_hero_stat_score: number | null;
+  max_hero_stat_score: number | null;
+  min_team_stat_score: number | null;
+  max_team_stat_score: number | null;
+
+  min_hero_trait_score: number | null;
+  max_hero_trait_score: number | null;
+  min_team_trait_score: number | null;
+  max_team_trait_score: number | null;
+  min_trait_tier: number | null;
+  max_trait_tier: number | null;
+
+  excluded_classes: string | null;
+  excluded_consumables: string | null;
+  excluded_origin: number | null;
+
+  included_class_1: number | null;
+  included_class_2: number | null;
+  included_class_3: number | null;
+  must_include_class_1: boolean | null;
+  must_include_class_2: boolean | null;
+  must_include_class_3: boolean | null;
+
+  auto_random: boolean | null;
+  all_unique_classes: boolean | null;
+  no_triple_classes: boolean | null;
+  only_pj: boolean | null;
+  only_bannermen: boolean | null;
+
+  setup_time: number | null;
+  shot_clock_duration: number | null;
+  banked_shot_clock_time: number | null;
+  shot_clock_penalty_mode: number | null;
+  shot_clock_forfeit_count: number | null;
+
+  equipment_qualifiers: unknown | null;
+  equipment_restrictions: unknown | null;
+  requires_equipment_qualifiers: boolean | null;
+  requires_equipment_restrictions: unknown | null;
+
+  bracket_raw: number[] | null;
+  raw_json: unknown;
+};
+
+type TournamentBout = {
+  tournament_id: string;
+  bout_id: number;
+  battle_id: string;   // use as public PvP join key
+  sponsor_count: number | null;
+  raw_json: unknown;
+};
+
+type TournamentPlayerEntry = {
+  tournament_id: string;
+  entry_index: number;
+  claimed: boolean | null;
+  raw_json: unknown;
+};
+
+What I would not hardcode yet:
+
+entrants as “current filled entries”
+
+entrants_claimed as “joined count”
+
+255 in bracket as definitely “bye”
+
+
+Those are all plausible, but not proven from this screenshot alone. The repeated 255 values in bracket do look like a sentinel for empty/bye slots, but I would keep bracket_raw untouched until you compare a few tournaments.
+
+The best technical next step is to verify whether battle_id is the same namespace as the public PvP Diamond. The public docs expose getBattle(uint256) on 0xc7681698B14a2381d9f1eD69FC3D27F33965b53B, so test one of the values from bouts[*].battle_id, not bout_id. If getBattle(100000000027) returns a valid battle, your indexer path becomes:
+
+tournament source -> bouts[].battle_id -> public PvP battle/events -> hero/equipment snapshots. 
+
+Use this exact smoke test:
+
+import { ethers } from "ethers";
+import abi from "./PVPDiamond.json";
+
+const provider = new ethers.JsonRpcProvider("https://andromeda.metis.io/?owner=1088");
+const pvp = new ethers.Contract(
+  "0xc7681698B14a2381d9f1eD69FC3D27F33965b53B",
+  abi,
+  provider
+);
+
+const battleId = 100000000027n; // from bouts[*].battle_id
+const battle = await pvp.getBattle(battleId);
+console.log(battle);
+
+If that works, you do not need to wait for a tournament ABI to build most of the data layer.
+
+If it does not work, then the tournament source is likely maintaining its own battle-id namespace and you’ll need the request URL or the create/join tx path to identify the contract/service behind it.
+
+The most valuable next capture is one fully expanded bouts[0] object and one fully expanded player_entries[0] object.
