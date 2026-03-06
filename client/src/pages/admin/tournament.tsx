@@ -679,8 +679,10 @@ interface ScheduledTournament {
   tournamentStartTime: number | null;
   entryPeriodStart: number | null;
   entriesCloseInSeconds: number | null;
+  entriesOpenInSeconds: number | null;
   entrants: number | null;
   entrantsClaimed: number | null;
+  maxEntrants: number;
   partyCount: number | null;
   format: string;
   realm: string;
@@ -689,9 +691,13 @@ interface ScheduledTournament {
   minRarity: number | null;
   allUniqueClasses: boolean;
   noTripleClasses: boolean;
+  onlyPJ: boolean;
+  onlyBannermen: boolean;
   gloryBout: boolean;
   rounds: number | null;
   bestOf: number | null;
+  tournamentHosted: boolean;
+  hostedBy: string | null;
 }
 
 function formatCloseCountdown(seconds: number | null): string {
@@ -711,11 +717,22 @@ function formatTournamentDateTime(unix: number | null): string {
   });
 }
 
+function formatOpenCountdown(seconds: number | null): string {
+  if (seconds == null || seconds <= 0) return '';
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return '<1m';
+}
+
 const STATE_BADGE: Record<string, { label: string; className: string }> = {
   accepting_entries: { label: 'Accepting Entries', className: 'bg-purple-600 text-white' },
-  in_progress:       { label: 'In Progress',       className: 'bg-yellow-500 text-black' },
+  in_progress:       { label: 'In Progress',       className: 'bg-green-600 text-white' },
   completed:         { label: 'Completed',          className: 'bg-muted text-muted-foreground' },
-  upcoming:          { label: 'Upcoming',           className: 'bg-blue-600 text-white' },
+  upcoming:          { label: 'Upcoming',           className: 'bg-purple-400 text-white' },
   cancelled:         { label: 'Cancelled',          className: 'bg-destructive text-destructive-foreground' },
 };
 
@@ -767,6 +784,7 @@ function ScheduledTournamentsTab() {
         {tournaments.map(t => {
           const badge = STATE_BADGE[t.stateLabel] ?? STATE_BADGE.upcoming;
           const closeCountdown = formatCloseCountdown(t.entriesCloseInSeconds);
+          const openCountdown = formatOpenCountdown(t.entriesOpenInSeconds);
           const restrictionLine = buildRestrictionLine({
             levelMin: t.minLevel,
             levelMax: t.maxLevel,
@@ -777,6 +795,9 @@ function ScheduledTournamentsTab() {
             gloryBout: t.gloryBout,
           });
           const realmInfo = REALM_DISPLAY[t.realm];
+          const isUpcoming = t.stateLabel === 'upcoming';
+          const isAccepting = t.stateLabel === 'accepting_entries';
+          const isInProgress = t.stateLabel === 'in_progress';
 
           return (
             <Card
@@ -791,9 +812,18 @@ function ScheduledTournamentsTab() {
                   <span className="text-sm text-muted-foreground font-medium shrink-0">{t.format}</span>
                 </div>
 
+                {/* Hosted By line */}
+                {t.hostedBy && (
+                  <p className="text-xs text-muted-foreground -mt-1">
+                    Hosted By: {t.hostedBy}
+                  </p>
+                )}
+
                 {/* Date/time */}
                 <p className="text-xs text-muted-foreground">
-                  {formatTournamentDateTime(t.tournamentStartTime)}
+                  {isUpcoming
+                    ? `Opens: ${formatTournamentDateTime(t.entryPeriodStart)}`
+                    : `Starts: ${formatTournamentDateTime(t.tournamentStartTime)}`}
                 </p>
 
                 {/* Status badge */}
@@ -803,17 +833,36 @@ function ScheduledTournamentsTab() {
                   </span>
                 </div>
 
-                {/* Entries */}
-                {t.entrants != null && (
-                  <p className="text-sm text-muted-foreground">
-                    Entries: {t.entrantsClaimed ?? 0} / {t.entrants}
-                  </p>
+                {/* State-dependent entry info */}
+                {isUpcoming && (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Max. Entries: {t.maxEntrants}
+                    </p>
+                    {openCountdown && (
+                      <p className="text-sm text-muted-foreground">
+                        Entries Open In: {openCountdown}
+                      </p>
+                    )}
+                  </>
                 )}
 
-                {/* Close countdown */}
-                {closeCountdown && (
+                {isAccepting && (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Entries: {t.entrants ?? 0} / {t.maxEntrants}
+                    </p>
+                    {closeCountdown && (
+                      <p className="text-sm text-muted-foreground">
+                        Entries Close In: {closeCountdown}
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {isInProgress && (
                   <p className="text-sm text-muted-foreground">
-                    Entries Close In: {closeCountdown}
+                    Entries: {t.entrantsClaimed ?? t.entrants ?? 0} / {t.maxEntrants}
                   </p>
                 )}
 
