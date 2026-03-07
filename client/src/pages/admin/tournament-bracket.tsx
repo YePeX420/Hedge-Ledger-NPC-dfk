@@ -1,16 +1,20 @@
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
-import { ArrowLeft, Trophy, Medal, Copy, Check, Users, Gift, Info, RefreshCw, Shield, Sword, Zap, Star } from 'lucide-react';
+import { ArrowLeft, Trophy, Medal, Copy, Check, Users, Gift, Info, RefreshCw, Shield, Sword, Zap, Star, X, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useState } from 'react';
 import {
   ACTIVE_SKILLS, PASSIVE_SKILLS,
   ABILITY_RARITY_COLORS, ABILITY_RARITY_BORDER,
   getActiveSkill, getPassiveSkill,
 } from '@/data/dfk-abilities';
+import {
+  computeHeroCombatProfile,
+} from '@/lib/dfk-combat-formulas';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -149,6 +153,16 @@ interface PlayerEntry {
   partyIndex: number;
   heroIds: number[];
   heroes: HeroDetail[];
+  playerName: string | null;
+}
+
+interface AiMatchupResult {
+  winPctA: number;
+  winPctB: number;
+  initPctA: number;
+  analysis: string;
+  teamA: { name: string; address: string };
+  teamB: { name: string; address: string };
 }
 
 interface BracketDetailResponse {
@@ -234,13 +248,15 @@ function CopyButton({ text }: { text: string }) {
 
 // ─── Bracket visualization ────────────────────────────────────────────────────
 
-function PlayerSlot({ slotId, slotMap, winner, isWinner }: {
+function PlayerSlot({ slotId, slotMap, nameMap, winner, isWinner }: {
   slotId: number;
   slotMap: Record<number, string>;
+  nameMap: Record<number, string>;
   winner: number;
   isWinner: boolean;
 }) {
   const addr = slotId > 0 ? (slotMap[slotId] ?? null) : null;
+  const name = slotId > 0 ? (nameMap[slotId] ?? null) : null;
   const isEmpty = slotId === 0;
 
   return (
@@ -262,7 +278,7 @@ function PlayerSlot({ slotId, slotMap, winner, isWinner }: {
         <>
           <span className="text-xs text-muted-foreground w-4 shrink-0">#{slotId}</span>
           {addr ? (
-            <span className="font-mono text-xs truncate">{shortAddr(addr)}</span>
+            <span className="text-xs truncate">{name || shortAddr(addr)}</span>
           ) : (
             <span className="text-xs text-muted-foreground">Player {slotId}</span>
           )}
@@ -273,9 +289,10 @@ function PlayerSlot({ slotId, slotMap, winner, isWinner }: {
   );
 }
 
-function MatchCard({ match, slotMap, roundIndex, matchIndex }: {
+function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex }: {
   match: BracketMatch;
   slotMap: Record<number, string>;
+  nameMap: Record<number, string>;
   roundIndex: number;
   matchIndex: number;
 }) {
@@ -284,9 +301,9 @@ function MatchCard({ match, slotMap, roundIndex, matchIndex }: {
       className="flex flex-col gap-0.5 w-44"
       data-testid={`match-r${roundIndex}-m${matchIndex}`}
     >
-      <PlayerSlot slotId={match.slotA} slotMap={slotMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotA} />
+      <PlayerSlot slotId={match.slotA} slotMap={slotMap} nameMap={nameMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotA} />
       <div className="border-t border-border/40 mx-2" />
-      <PlayerSlot slotId={match.slotB} slotMap={slotMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotB} />
+      <PlayerSlot slotId={match.slotB} slotMap={slotMap} nameMap={nameMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotB} />
     </div>
   );
 }
@@ -300,8 +317,10 @@ function BracketTab({ bracket, players, champion }: {
 }) {
   // Build slot map: partyIndex+1 (1-based slot) → address
   const slotMap: Record<number, string> = {};
+  const nameMap: Record<number, string> = {};
   for (const p of players) {
     slotMap[p.partyIndex + 1] = p.address;
+    if (p.playerName) nameMap[p.partyIndex + 1] = p.playerName;
   }
 
   const hasAnyPlayer = bracket.rounds[0]?.some(m => m.slotA !== 0 || m.slotB !== 0);
@@ -325,7 +344,7 @@ function BracketTab({ bracket, players, champion }: {
                 style={{ gap: ri === 0 ? '8px' : ri === 1 ? '88px' : '184px', justifyContent: 'space-around', alignItems: 'center' }}
               >
                 {round.map((match, mi) => (
-                  <MatchCard key={mi} match={match} slotMap={slotMap} roundIndex={ri} matchIndex={mi} />
+                  <MatchCard key={mi} match={match} slotMap={slotMap} nameMap={nameMap} roundIndex={ri} matchIndex={mi} />
                 ))}
               </div>
             </div>
@@ -343,7 +362,7 @@ function BracketTab({ bracket, players, champion }: {
                   <>
                     <span className="text-xs text-muted-foreground w-4 shrink-0">#{champion}</span>
                     {slotMap[champion] ? (
-                      <span className="font-mono text-xs font-bold truncate">{shortAddr(slotMap[champion])}</span>
+                      <span className="text-xs font-bold truncate">{nameMap[champion] || shortAddr(slotMap[champion])}</span>
                     ) : (
                       <span className="text-xs font-bold">Player {champion}</span>
                     )}
@@ -551,7 +570,211 @@ function AccessorySlotDisplay({ item, label }: { item: HeroAccessory; label: str
   );
 }
 
-function HeroCard({ hero, index }: { hero: HeroDetail; index: number }) {
+// ─── Hero Detail Modal ────────────────────────────────────────────────────────
+
+const STATUS_RESISTANCES = [
+  'Banish', 'Berserk', 'Bleed', 'Blind', 'Poison', 'Pull', 'Push', 'Silence',
+  'Sleep', 'Slow', 'Stun', 'Taunt', 'Fear', 'Intimidate', 'Mana Burn', 'Negate',
+  'Burn', 'Confuse', 'Daze', 'Disarm', 'Ethereal', 'Exhaust', 'Chill',
+];
+
+const ELEVATED_RESIST_STATUSES: Record<string, number> = {
+  Poison: 46.0, Daze: 46.0, Pull: 23.0, Push: 23.0,
+};
+
+function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => void }) {
+  const stats = {
+    STR: hero.strength, DEX: hero.dexterity, AGI: hero.agility,
+    INT: hero.intelligence, WIS: hero.wisdom, VIT: hero.vitality,
+    END: hero.endurance, LCK: hero.luck,
+  };
+  const profile = computeHeroCombatProfile(stats, hero.level);
+
+  const pDef = (hero.armor?.rawPhysDefense ?? 0) + (hero.armor?.physDefScalar ?? 0) * hero.level;
+  const mDef = (hero.armor?.rawMagicDefense ?? 0) + (hero.armor?.magicDefScalar ?? 0) * hero.level;
+  const pRed = pDef > 0 ? (pDef / (pDef + 100) * 100) : 0;
+  const mRed = mDef > 0 ? (mDef / (mDef + 100) * 100) : 0;
+
+  const fmt = (v: number, digits = 2) => v.toFixed(digits);
+  const pct = (v: number) => (v * 100).toFixed(2) + '%';
+
+  const active1 = getActiveSkill(hero.active1);
+  const active2 = getActiveSkill(hero.active2);
+  const passive1 = getPassiveSkill(hero.passive1);
+  const passive2 = getPassiveSkill(hero.passive2);
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="modal-hero-detail">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            <span>#{hero.normalizedId || hero.id}</span>
+            <span className={RARITY_COLORS[hero.rarity]}>{RARITY_NAMES[hero.rarity]}</span>
+            <span>{hero.mainClassStr}</span>
+            {hero.subClassStr && hero.subClassStr !== hero.mainClassStr && (
+              <span className="text-muted-foreground">/ {hero.subClassStr}</span>
+            )}
+            <span className="text-muted-foreground font-normal">Lv {hero.level}</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* HP/MP bars */}
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <div className="flex justify-between mb-1">
+              <span className="text-muted-foreground text-xs">HP</span>
+              <span className="text-xs font-mono">{hero.hp}</span>
+            </div>
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div className="h-full bg-green-500 rounded-full" style={{ width: '100%' }} />
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between mb-1">
+              <span className="text-muted-foreground text-xs">MP</span>
+              <span className="text-xs font-mono">{hero.mp}</span>
+            </div>
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full" style={{ width: '100%' }} />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+          {/* Vitals */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Vitals</p>
+            <div className="space-y-1 text-xs">
+              {[
+                ['P.DEF', fmt(pDef)],
+                ['M.DEF', fmt(mDef)],
+                ['P.RED', pRed.toFixed(2) + '%'],
+                ['M.RED', mRed.toFixed(2) + '%'],
+                ['BLK', pct(profile.Block)],
+                ['SBLK', pct(profile.SpellBlock)],
+                ['REC', pct(profile.Recovery)],
+                ['SER', pct(profile.SER)],
+                ['SPEED', Math.round(profile.Speed).toString()],
+                ['EVA', pct(profile.EVA)],
+              ].map(([label, val]) => (
+                <div key={label} className="flex justify-between">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="font-mono">{val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Base Stats */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Base Stats</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              {[
+                ['STR', hero.strength], ['DEX', hero.dexterity],
+                ['AGI', hero.agility], ['VIT', hero.vitality],
+                ['END', hero.endurance], ['INT', hero.intelligence],
+                ['WIS', hero.wisdom], ['LCK', hero.luck],
+              ].map(([label, val]) => (
+                <div key={label as string} className="flex justify-between">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="font-mono font-medium">{val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Dynamic Stat Scores */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Dynamic Scores</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              {[
+                ['STR', profile.STR], ['DEX', profile.DEX],
+                ['AGI', profile.AGI], ['VIT', profile.VIT],
+                ['END', profile.END], ['INT', profile.INT],
+                ['WIS', profile.WIS], ['LCK', profile.LCK],
+              ].map(([label, val]) => (
+                <div key={label as string} className="flex justify-between">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="font-mono">{((val as number) * 100).toFixed(1)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Abilities */}
+        <div className="mt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Abilities</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[active1, active2].map((skill, i) => skill && (
+              <Badge key={`a-${i}`} variant="outline"
+                className={`text-xs ${ABILITY_RARITY_COLORS[skill.rarity]} ${ABILITY_RARITY_BORDER[skill.rarity]}`}>
+                {skill.label}
+              </Badge>
+            ))}
+            {[passive1, passive2].map((skill, i) => skill && (
+              <Badge key={`p-${i}`} variant="outline"
+                className={`text-xs ${ABILITY_RARITY_COLORS[skill.rarity]} ${ABILITY_RARITY_BORDER[skill.rarity]} opacity-80`}>
+                {skill.label}
+              </Badge>
+            ))}
+          </div>
+        </div>
+
+        {/* Equipment */}
+        {(hero.weapon1 || hero.armor || hero.accessory) && (
+          <div className="mt-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Equipment</p>
+            <div className="space-y-0.5">
+              {hero.weapon1 && <WeaponSlotDisplay weapon={hero.weapon1} label="Weapon" />}
+              {hero.weapon2 && <WeaponSlotDisplay weapon={hero.weapon2} label="Off-weapon" />}
+              {hero.offhand1 && <AccessorySlotDisplay item={hero.offhand1} label="Offhand" />}
+              {hero.armor && <ArmorSlotDisplay armor={hero.armor} />}
+              {hero.accessory && <AccessorySlotDisplay item={hero.accessory} label="Accessory" />}
+            </div>
+          </div>
+        )}
+
+        {/* Pet */}
+        {hero.pet && (
+          <div className="mt-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Pet</p>
+            <div className="flex items-center gap-2 text-xs">
+              <Star className="w-3.5 h-3.5 text-amber-400" />
+              <span className={`font-medium ${RARITY_COLORS[hero.pet.rarity]}`}>{hero.pet.name}</span>
+              <span className="text-muted-foreground">{RARITY_NAMES[hero.pet.rarity]}</span>
+              {hero.pet.combatBonus > 0 && (
+                <span className="text-muted-foreground">
+                  — {PET_COMBAT_BONUS_NAMES[hero.pet.combatBonus] ?? `Bonus ${hero.pet.combatBonus}`}
+                  {hero.pet.combatBonusScalar > 0 && ` +${(hero.pet.combatBonusScalar / 100).toFixed(1)}%`}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Status Resistances */}
+        <div className="mt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Status Resistances</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs">
+            {STATUS_RESISTANCES.map(status => {
+              const resist = ELEVATED_RESIST_STATUSES[status] ?? 13.0;
+              const isElevated = resist > 13;
+              return (
+                <div key={status} className="flex justify-between">
+                  <span className="text-muted-foreground">{status}</span>
+                  <span className={`font-mono ${isElevated ? 'text-amber-400' : ''}`}>{resist.toFixed(1)}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function HeroCard({ hero, index, onHeroClick }: { hero: HeroDetail; index: number; onHeroClick: (h: HeroDetail) => void }) {
   const active1 = getActiveSkill(hero.active1);
   const active2 = getActiveSkill(hero.active2);
   const passive1 = getPassiveSkill(hero.passive1);
@@ -561,8 +784,9 @@ function HeroCard({ hero, index }: { hero: HeroDetail; index: number }) {
 
   return (
     <div
-      className="rounded-md border border-border/50 bg-muted/10 p-3 space-y-2.5"
+      className="rounded-md border border-border/50 bg-muted/10 p-3 space-y-2.5 cursor-pointer hover-elevate"
       data-testid={`card-hero-${hero.id}`}
+      onClick={() => onHeroClick(hero)}
     >
       {/* Header: class, level, rarity */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -664,6 +888,8 @@ function PlayersTab({ players, maxEntrants, totalEntrants }: {
   maxEntrants: number;
   totalEntrants: number;
 }) {
+  const [selectedHero, setSelectedHero] = useState<HeroDetail | null>(null);
+
   if (players.length === 0) {
     return (
       <div className="text-center py-12" data-testid="section-players-empty">
@@ -677,38 +903,46 @@ function PlayersTab({ players, maxEntrants, totalEntrants }: {
   const sorted = [...players].sort((a, b) => a.partyIndex - b.partyIndex);
 
   return (
-    <div className="space-y-4" data-testid="section-players">
-      <p className="text-sm text-muted-foreground">{totalEntrants} / {maxEntrants} players registered</p>
-      {sorted.map((player, idx) => (
-        <div
-          key={player.address}
-          className="rounded-md border border-border/50 overflow-hidden"
-          data-testid={`card-player-${idx}`}
-        >
-          {/* Player header */}
-          <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 border-b border-border/40">
-            <span className="text-xs text-muted-foreground w-6 shrink-0">#{player.partyIndex + 1}</span>
-            <span className="font-mono text-sm flex-1 truncate">{player.address}</span>
-            <CopyButton text={player.address} />
-          </div>
+    <>
+      {selectedHero && <HeroDetailModal hero={selectedHero} onClose={() => setSelectedHero(null)} />}
+      <div className="space-y-4" data-testid="section-players">
+        <p className="text-sm text-muted-foreground">{totalEntrants} / {maxEntrants} players — click a hero for full stats</p>
+        {sorted.map((player, idx) => (
+          <div
+            key={player.address}
+            className="rounded-md border border-border/50 overflow-hidden"
+            data-testid={`card-player-${idx}`}
+          >
+            {/* Player header */}
+            <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 border-b border-border/40">
+              <span className="text-xs text-muted-foreground w-6 shrink-0">#{player.partyIndex + 1}</span>
+              <span className="text-sm flex-1 font-medium truncate">
+                {player.playerName || <span className="font-mono">{shortAddr(player.address)}</span>}
+              </span>
+              {player.playerName && (
+                <span className="font-mono text-xs text-muted-foreground shrink-0">{shortAddr(player.address)}</span>
+              )}
+              <CopyButton text={player.address} />
+            </div>
 
-          {/* Hero cards */}
-          <div className="p-3 space-y-3">
-            {player.heroes.length > 0 ? (
-              player.heroes.map((hero, hi) => (
-                <HeroCard key={hero.id} hero={hero} index={hi} />
-              ))
-            ) : player.heroIds.length > 0 ? (
-              <div className="text-xs text-muted-foreground py-2">
-                Heroes: {player.heroIds.join(', ')} — loading details unavailable
-              </div>
-            ) : (
-              <div className="text-xs text-muted-foreground py-2">No hero data available</div>
-            )}
+            {/* Hero cards */}
+            <div className="p-3 space-y-3">
+              {player.heroes.length > 0 ? (
+                player.heroes.map((hero, hi) => (
+                  <HeroCard key={hero.id} hero={hero} index={hi} onHeroClick={setSelectedHero} />
+                ))
+              ) : player.heroIds.length > 0 ? (
+                <div className="text-xs text-muted-foreground py-2">
+                  Heroes: {player.heroIds.join(', ')} — loading details unavailable
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground py-2">No hero data available</div>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -764,6 +998,157 @@ function RewardsTab({ rewardTiers, tournamentSponsored }: { rewardTiers: RewardT
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── AI Analysis tab ──────────────────────────────────────────────────────────
+
+function AiAnalysisTab({ tournamentId, bracket, players }: {
+  tournamentId: string;
+  bracket: BracketData;
+  players: PlayerEntry[];
+}) {
+  const [results, setResults] = useState<Record<string, AiMatchupResult & { loading?: boolean; error?: string }>>({});
+  const [selectedRound, setSelectedRound] = useState(0);
+
+  const slotMap: Record<number, string> = {};
+  const nameMap: Record<number, string> = {};
+  for (const p of players) {
+    slotMap[p.partyIndex + 1] = p.address;
+    if (p.playerName) nameMap[p.partyIndex + 1] = p.playerName;
+  }
+
+  const displayName = (slotId: number) => nameMap[slotId] || shortAddr(slotMap[slotId] ?? null);
+
+  const round = bracket.rounds[selectedRound] ?? [];
+  const matchesWithPlayers = round.filter(m =>
+    m.slotA > 0 && m.slotB > 0 && slotMap[m.slotA] && slotMap[m.slotB]
+  );
+
+  const analyze = async (slotA: number, slotB: number) => {
+    const key = `${slotA}-${slotB}`;
+    const addrA = slotMap[slotA];
+    const addrB = slotMap[slotB];
+    if (!addrA || !addrB) return;
+
+    setResults(prev => ({ ...prev, [key]: { ...prev[key], loading: true, error: undefined } as any }));
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/ai-matchup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerAAddr: addrA, playerBAddr: addrB }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Analysis failed');
+      setResults(prev => ({ ...prev, [key]: { ...data, loading: false } }));
+    } catch (err: any) {
+      setResults(prev => ({ ...prev, [key]: { ...prev[key], loading: false, error: err.message } as any }));
+    }
+  };
+
+  if (players.length === 0) {
+    return (
+      <div className="text-center py-12 text-muted-foreground" data-testid="section-ai-empty">
+        <Zap className="w-10 h-10 mx-auto mb-3 opacity-30" />
+        <p>No players registered yet — analysis will be available once entries are in.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5" data-testid="section-ai-analysis">
+      {/* Round selector */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm text-muted-foreground">Round:</span>
+        {bracket.rounds.map((_, ri) => (
+          <Button
+            key={ri}
+            size="sm"
+            variant={selectedRound === ri ? 'default' : 'outline'}
+            onClick={() => setSelectedRound(ri)}
+            data-testid={`btn-round-${ri}`}
+          >
+            {ROUND_LABELS[ri] ?? `Round ${ri + 1}`}
+          </Button>
+        ))}
+      </div>
+
+      {matchesWithPlayers.length === 0 ? (
+        <div className="text-center py-8 text-sm text-muted-foreground">
+          No assigned matchups in this round yet.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {matchesWithPlayers.map(match => {
+            const key = `${match.slotA}-${match.slotB}`;
+            const result = results[key];
+            const nameA = displayName(match.slotA);
+            const nameB = displayName(match.slotB);
+
+            return (
+              <Card key={key} data-testid={`card-matchup-${key}`}>
+                <CardContent className="p-5 space-y-4">
+                  {/* Matchup header */}
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-3">
+                      <span className="font-semibold text-sm">{nameA}</span>
+                      <span className="text-muted-foreground text-sm">vs</span>
+                      <span className="font-semibold text-sm">{nameB}</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => analyze(match.slotA, match.slotB)}
+                      disabled={result?.loading}
+                      data-testid={`btn-analyze-${key}`}
+                    >
+                      <Zap className="w-3.5 h-3.5 mr-1.5" />
+                      {result?.loading ? 'Analyzing...' : result ? 'Re-analyze' : 'Analyze'}
+                    </Button>
+                  </div>
+
+                  {/* Error */}
+                  {result?.error && (
+                    <p className="text-sm text-destructive">{result.error}</p>
+                  )}
+
+                  {/* Results */}
+                  {result && !result.loading && !result.error && (
+                    <div className="space-y-3">
+                      {/* Win bar */}
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs font-medium">
+                          <span className="text-green-400">{nameA} — {result.winPctA}%</span>
+                          <span className="text-red-400">{result.winPctB}% — {nameB}</span>
+                        </div>
+                        <div className="h-3 rounded-full overflow-hidden flex bg-muted">
+                          <div
+                            className="h-full bg-green-500 transition-all duration-700"
+                            style={{ width: `${result.winPctA}%` }}
+                          />
+                          <div
+                            className="h-full bg-red-500 transition-all duration-700"
+                            style={{ width: `${result.winPctB}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Initiative advantage: {nameA} {result.initPctA}% / {nameB} {100 - result.initPctA}%
+                        </p>
+                      </div>
+
+                      {/* AI analysis */}
+                      <div className="rounded-md bg-muted/30 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Analysis</p>
+                        <p className="text-sm leading-relaxed">{result.analysis}</p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -856,6 +1241,10 @@ export default function TournamentBracketPage({ id }: Props) {
             <span className="ml-1.5 text-xs text-muted-foreground">({t.entrants})</span>
           </TabsTrigger>
           <TabsTrigger value="rewards" data-testid="tab-rewards">Rewards</TabsTrigger>
+          <TabsTrigger value="ai-analysis" data-testid="tab-ai-analysis">
+            <Zap className="w-3.5 h-3.5 mr-1.5" />
+            AI Analysis
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="bracket" className="mt-5">
@@ -910,6 +1299,20 @@ export default function TournamentBracketPage({ id }: Props) {
             </CardHeader>
             <CardContent>
               <RewardsTab rewardTiers={rewardTiers} tournamentSponsored={t.tournamentSponsored} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="ai-analysis" className="mt-5">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Zap className="w-4 h-4" />
+                AI Matchup Analysis
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AiAnalysisTab tournamentId={String(t.id)} bracket={bracket} players={players} />
             </CardContent>
           </Card>
         </TabsContent>

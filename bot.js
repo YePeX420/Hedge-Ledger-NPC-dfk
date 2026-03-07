@@ -9641,6 +9641,31 @@ async function startAdminWebServer() {
           isGasToken: sponsorship.isGasToken,
         } : null);
 
+        // Fetch in-game player names from DFK subgraph
+        try {
+          if (players.length > 0) {
+            const addrs = players.map(p => `"${p.address.toLowerCase()}"`).join(',');
+            const nameQuery = `{ players(where: { id_in: [${addrs}] }) { id name } }`;
+            const nameTimeout = new Promise((_, rej) => setTimeout(() => rej(new Error('name_timeout')), 4000));
+            const nameFetch = fetch('https://api.defikingdoms.com/graphql', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query: nameQuery }),
+            }).then(r => r.json());
+            const nameData = await Promise.race([nameFetch, nameTimeout]);
+            const nameMap = {};
+            for (const p of (nameData?.data?.players || [])) {
+              nameMap[p.id.toLowerCase()] = p.name;
+            }
+            for (const player of players) {
+              player.playerName = nameMap[player.address.toLowerCase()] ?? null;
+            }
+          }
+        } catch (nameErr) {
+          console.warn(`[BracketDetail] Player name fetch failed for ${tournamentId}:`, nameErr.message);
+          for (const player of players) player.playerName = player.playerName ?? null;
+        }
+
         const responseData = { ok: true, tournament, bracket, players, rewardTiers };
         _bracketDetailCache.set(tournamentId, { data: responseData, ts: Date.now() });
         res.json(responseData);
@@ -9650,6 +9675,119 @@ async function startAdminWebServer() {
       }
     });
   }
+
+  // POST /api/admin/tournament/bracket/:id/ai-matchup — AI matchup analysis for bracket players
+  app.post('/api/admin/tournament/bracket/:id/ai-matchup', isAdmin, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
+
+      const { playerAAddr, playerBAddr } = req.body;
+      if (!playerAAddr || !playerBAddr) return res.status(400).json({ ok: false, error: 'playerAAddr and playerBAddr required' });
+
+      const cached = _bracketDetailCache.get(tournamentId);
+      if (!cached) return res.status(404).json({ ok: false, error: 'Tournament not in cache — load the bracket page first' });
+
+      const { players, tournament } = cached.data;
+
+      const playerA = players.find(p => p.address.toLowerCase() === playerAAddr.toLowerCase());
+      const playerB = players.find(p => p.address.toLowerCase() === playerBAddr.toLowerCase());
+      if (!playerA || !playerB) return res.status(404).json({ ok: false, error: 'One or both players not found in tournament' });
+
+      // Combat formula helpers
+      function heroProfile(h, avgLevel) {
+        const STR = h.strength ?? 10, DEX = h.dexterity ?? 10, AGI = h.agility ?? 10;
+        const INT = h.intelligence ?? 10, WIS = h.wisdom ?? 10, VIT = h.vitality ?? 10;
+        const END = h.endurance ?? 10, LCK = h.luck ?? 10;
+        const initMin = 2 * (AGI - LCK / 2);
+        const initMax = 2 * (AGI + LCK / 2);
+        return { STR, DEX, AGI, INT, WIS, VIT, END, LCK, initMin, initMax, level: h.level ?? 1,
+          mainClass: h.mainClassStr, id: h.normalizedId || h.id };
+      }
+      function simInitWinPct(profilesA, profilesB, samples = 4000) {
+        let wins = 0;
+        for (let i = 0; i < samples; i++) {
+          const initA = Math.max(...profilesA.map(p => p.initMin + Math.random() * (p.initMax - p.initMin)));
+          const initB = Math.max(...profilesB.map(p => p.initMin + Math.random() * (p.initMax - p.initMin)));
+          if (initA > initB) wins++;
+        }
+        return wins / samples;
+      }
+      function teamScore(profiles, stat) { return profiles.reduce((s, p) => s + (p[stat] ?? 0), 0); }
+
+      const heroesA = playerA.heroes || [];
+      const heroesB = playerB.heroes || [];
+      const allHeroes = [...heroesA, ...heroesB];
+      const avgLevel = allHeroes.length > 0
+        ? allHeroes.reduce((s, h) => s + (h.level ?? 1), 0) / allHeroes.length : 1;
+
+      const profilesA = heroesA.map(h => heroProfile(h, avgLevel));
+      const profilesB = heroesB.map(h => heroProfile(h, avgLevel));
+
+      if (profilesA.length === 0 || profilesB.length === 0) {
+        return res.status(400).json({ ok: false, error: 'Both players must have hero data loaded' });
+      }
+
+      const initPctA = simInitWinPct(profilesA, profilesB);
+      const strA = teamScore(profilesA, 'STR'), strB = teamScore(profilesB, 'STR');
+      const intA = teamScore(profilesA, 'INT'), intB = teamScore(profilesB, 'INT');
+      const vitA = teamScore(profilesA, 'VIT'), vitB = teamScore(profilesB, 'VIT');
+      const endA = teamScore(profilesA, 'END'), endB = teamScore(profilesB, 'END');
+      const totalStr = strA + strB || 1, totalInt = intA + intB || 1;
+      const totalVit = vitA + vitB || 1, totalEnd = endA + endB || 1;
+      const physPctA = strA / totalStr;
+      const magPctA = intA / totalInt;
+      const defPctA = ((vitA / totalVit) + (endA / totalEnd)) / 2;
+      const winPctA = 0.35 * initPctA + 0.25 * physPctA + 0.2 * magPctA + 0.2 * defPctA;
+      const winPctB = 1 - winPctA;
+
+      const nameA = playerA.playerName || playerA.address.slice(0, 6) + '...' + playerA.address.slice(-4);
+      const nameB = playerB.playerName || playerB.address.slice(0, 6) + '...' + playerB.address.slice(-4);
+
+      const describeTeam = (profiles, name) => {
+        const classes = profiles.map(p => p.mainClass || 'Unknown').join(', ');
+        const avgStr = Math.round(teamScore(profiles, 'STR') / profiles.length);
+        const avgInt = Math.round(teamScore(profiles, 'INT') / profiles.length);
+        const avgVit = Math.round(teamScore(profiles, 'VIT') / profiles.length);
+        const avgAgi = Math.round(teamScore(profiles, 'AGI') / profiles.length);
+        return `${name} [${classes}] Avg STR:${avgStr} INT:${avgInt} VIT:${avgVit} AGI:${avgAgi}`;
+      };
+
+      const prompt = `You are a DeFi Kingdoms PvP combat analyst. Analyze this bracket tournament matchup and give win probabilities.\n\nTeam A: ${describeTeam(profilesA, nameA)}\nTeam B: ${describeTeam(profilesB, nameB)}\n\nFormula-estimated initiative win% for A: ${Math.round(initPctA * 100)}%\nOverall formula win estimate: A ${Math.round(winPctA * 100)}% vs B ${Math.round(winPctB * 100)}%\n\nProvide:\n1. Your assessed win probability for each team (must sum to 100%)\n2. Key matchup factors (2-3 sentences)\n3. Which team you favor and why\n\nRespond in JSON: { "winPctA": number, "winPctB": number, "analysis": "string" }`;
+
+      let aiResult = null;
+      try {
+        const { default: OpenAI } = await import('openai');
+        const openai = new OpenAI();
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+          max_tokens: 300,
+        });
+        const raw = completion.choices[0]?.message?.content;
+        if (raw) aiResult = JSON.parse(raw);
+      } catch (aiErr) {
+        console.warn('[AI Matchup] OpenAI call failed:', aiErr.message);
+      }
+
+      const finalWinPctA = aiResult?.winPctA ?? Math.round(winPctA * 100);
+      const finalWinPctB = aiResult?.winPctB ?? Math.round(winPctB * 100);
+
+      res.json({
+        ok: true,
+        winPctA: finalWinPctA,
+        winPctB: finalWinPctB,
+        initPctA: Math.round(initPctA * 100),
+        analysis: aiResult?.analysis ?? `Formula estimate: ${nameA} ${Math.round(winPctA * 100)}% vs ${nameB} ${Math.round(winPctB * 100)}%`,
+        teamA: { name: nameA, address: playerA.address, heroes: profilesA },
+        teamB: { name: nameB, address: playerB.address, heroes: profilesB },
+      });
+    } catch (err) {
+      console.error('[AI Matchup] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
 
   // GET /api/admin/tournament/private-bouts — individual private challenge bouts
   app.get("/api/admin/tournament/private-bouts", isAdmin, async (req, res) => {
