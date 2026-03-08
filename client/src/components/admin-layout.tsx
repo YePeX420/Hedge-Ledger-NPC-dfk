@@ -45,6 +45,7 @@ import {
   Wrench,
   Wand2,
   ShoppingBag,
+  History,
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -97,6 +98,7 @@ const combatItems: NavItem[] = [
   { href: '/admin/combat-toolkit', label: 'Hero Combat Toolkit', icon: Swords },
   { href: '/admin/pvp-matchup', label: 'PVP Matchup Tool', icon: Target },
   { href: '/admin/tournament', label: 'DFK Tournaments', icon: Medal },
+  { href: '/admin/fight-history', label: 'Fight History', icon: History },
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Shield },
   { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: ShoppingBag },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: TrendingDown },

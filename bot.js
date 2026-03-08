@@ -9434,6 +9434,56 @@ async function startAdminWebServer() {
           created_at     TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_tournament_bouts (
+          id                SERIAL PRIMARY KEY,
+          tournament_id     TEXT NOT NULL,
+          tournament_name   TEXT,
+          round_number      INT  NOT NULL,
+          match_index       INT  NOT NULL,
+          player_a          TEXT,
+          player_b          TEXT,
+          player_a_name     TEXT,
+          player_b_name     TEXT,
+          winner_address    TEXT,
+          is_complete       BOOLEAN DEFAULT false,
+          tournament_format TEXT,
+          captured_at       BIGINT,
+          created_at        TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(tournament_id, round_number, match_index)
+        )
+      `);
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_bout_heroes (
+          id                      SERIAL PRIMARY KEY,
+          bout_id                 INT  NOT NULL REFERENCES dfk_tournament_bouts(id) ON DELETE CASCADE,
+          tournament_id           TEXT NOT NULL,
+          round_number            INT  NOT NULL,
+          match_index             INT  NOT NULL,
+          player_address          TEXT NOT NULL,
+          side                    TEXT NOT NULL,
+          is_winner_side          BOOLEAN DEFAULT false,
+          hero_id                 TEXT NOT NULL,
+          normalized_hero_id      TEXT,
+          main_class              TEXT,
+          sub_class               TEXT,
+          level                   INT,
+          rarity                  INT,
+          strength                INT, dexterity INT, agility INT, intelligence INT,
+          wisdom                  INT, vitality  INT, endurance INT, luck       INT,
+          hp                      INT, mp        INT,
+          active1                 TEXT, active2  TEXT,
+          passive1                TEXT, passive2 TEXT,
+          opponent_leadership_count INT DEFAULT 0,
+          opponent_menacing_count   INT DEFAULT 0,
+          effective_dps_mult        NUMERIC(6,4) DEFAULT 1.0,
+          weapon1_json            JSONB, weapon2_json  JSONB,
+          armor_json              JSONB, accessory_json JSONB,
+          offhand1_json           JSONB, pet_json       JSONB,
+          captured_at             BIGINT,
+          created_at              TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
       // Seed in-memory completed list from DB so history survives restarts
       const rows = await rawPg`
         SELECT snapshot_json, completed_at
@@ -9449,6 +9499,175 @@ async function startAdminWebServer() {
       console.log(`[Tournament Tracker] DB ready — seeded ${rows.length} completed tournaments from DB`);
     } catch (err) {
       console.error('[Tournament Tracker] DB init error:', err.message);
+    }
+  })();
+
+  // ── Fight archive: normalize bracket snapshot into per-bout DB records ───────
+  // Called after every bracket snapshot write. Decomposes the bracket into
+  // individual match rows (dfk_tournament_bouts) with per-hero rows
+  // (dfk_bout_heroes) that include opponent cross-team passive context.
+  async function _normalizeBracketToBouts(tournamentId, responseData) {
+    try {
+      const { rawPg: rp } = await import('./server/db.js');
+      const tournament  = responseData.tournament ?? {};
+      const bracket     = responseData.bracket    ?? {};
+      const players     = responseData.players    ?? [];
+
+      // Build lookup: partyIndex → player
+      const playerBySlot = {};
+      for (const p of players) playerBySlot[p.partyIndex] = p;
+
+      // Skill name → passive category helper
+      const LEADERSHIP_NAME = 'Leadership';
+      const MENACING_NAME   = 'Menacing';
+      const getSkillName = (traitId) => {
+        // PASSIVE_SKILLS traitId lookup — inline because this is bot.js
+        const PASSIVE_MAP = {
+          1: 'Duelist', 2: 'Clutch', 3: 'Foresight', 4: 'Headstrong',
+          5: 'Clear Vision', 6: 'Fearless', 7: 'Chatterbox', 8: 'Stalwart',
+          9: 'Leadership', 10: 'Efficient', 11: 'Menacing', 12: 'Toxic',
+          13: 'Giant Slayer', 14: 'Last Stand', 15: 'Second Life',
+        };
+        return PASSIVE_MAP[traitId] ?? null;
+      };
+
+      const roundLabels = ['QF', 'SF', 'Final'];
+      const rounds = bracket.rounds ?? [];
+
+      for (let ri = 0; ri < rounds.length; ri++) {
+        const matches = rounds[ri];
+        for (let mi = 0; mi < matches.length; mi++) {
+          const match = matches[mi];
+          const pA = playerBySlot[match.slotA] ?? null;
+          const pB = playerBySlot[match.slotB] ?? null;
+
+          const winnerSlot = match.winner;
+          const winnerPlayer = winnerSlot > 0 ? (playerBySlot[winnerSlot] ?? null) : null;
+
+          // Upsert the bout row
+          const [boutRow] = await rp`
+            INSERT INTO dfk_tournament_bouts (
+              tournament_id, tournament_name, round_number, match_index,
+              player_a, player_b, player_a_name, player_b_name,
+              winner_address, is_complete, tournament_format, captured_at
+            ) VALUES (
+              ${String(tournamentId)}, ${tournament.name ?? null}, ${ri + 1}, ${mi},
+              ${pA?.address ?? null}, ${pB?.address ?? null},
+              ${pA?.playerName ?? null}, ${pB?.playerName ?? null},
+              ${winnerPlayer?.address ?? null}, ${!!winnerPlayer}, ${tournament.format ?? null},
+              ${Date.now()}
+            )
+            ON CONFLICT (tournament_id, round_number, match_index) DO UPDATE SET
+              winner_address  = EXCLUDED.winner_address,
+              is_complete     = EXCLUDED.is_complete,
+              player_a_name   = COALESCE(EXCLUDED.player_a_name, dfk_tournament_bouts.player_a_name),
+              player_b_name   = COALESCE(EXCLUDED.player_b_name, dfk_tournament_bouts.player_b_name),
+              captured_at     = EXCLUDED.captured_at
+            RETURNING id
+          `;
+          const boutId = boutRow.id;
+
+          // For each side, compute cross-team Leadership/Menacing counts from opponent
+          const sides = [
+            { player: pA, side: 'a', oppPlayer: pB, isWinner: winnerPlayer?.address === pA?.address },
+            { player: pB, side: 'b', oppPlayer: pA, isWinner: winnerPlayer?.address === pB?.address },
+          ];
+
+          for (const { player, side, oppPlayer, isWinner } of sides) {
+            if (!player) continue;
+            const heroes = player.heroes ?? [];
+            const oppHeroes = oppPlayer?.heroes ?? [];
+
+            // Count opponent cross-team passives
+            let oppLeadershipCount = 0;
+            let oppMenacingCount   = 0;
+            for (const oh of oppHeroes) {
+              const p1 = getSkillName(oh.passive1);
+              const p2 = getSkillName(oh.passive2);
+              if (p1 === LEADERSHIP_NAME || p2 === LEADERSHIP_NAME) oppLeadershipCount++;
+              if (p1 === MENACING_NAME   || p2 === MENACING_NAME)   oppMenacingCount++;
+            }
+            // Own team Leadership (boosts own DPS)
+            let ownLeadershipCount = 0;
+            for (const h of heroes) {
+              const p1 = getSkillName(h.passive1);
+              const p2 = getSkillName(h.passive2);
+              if (p1 === LEADERSHIP_NAME || p2 === LEADERSHIP_NAME) ownLeadershipCount++;
+            }
+            const leadershipMult  = 1 + Math.min(ownLeadershipCount * 0.05, 0.15);
+            const menacingDebuff  = 1 - Math.min(oppMenacingCount   * 0.05, 0.15);
+            const effectiveDpsMult = leadershipMult * menacingDebuff;
+
+            for (const hero of heroes) {
+              const p1Name = getSkillName(hero.passive1);
+              const p2Name = getSkillName(hero.passive2);
+              const a1Name = hero.active1 != null ? String(hero.active1) : null;
+              const a2Name = hero.active2 != null ? String(hero.active2) : null;
+
+              await rp`
+                INSERT INTO dfk_bout_heroes (
+                  bout_id, tournament_id, round_number, match_index,
+                  player_address, side, is_winner_side,
+                  hero_id, normalized_hero_id, main_class, sub_class, level, rarity,
+                  strength, dexterity, agility, intelligence, wisdom, vitality, endurance, luck,
+                  hp, mp,
+                  active1, active2, passive1, passive2,
+                  opponent_leadership_count, opponent_menacing_count, effective_dps_mult,
+                  weapon1_json, weapon2_json, armor_json, accessory_json, offhand1_json, pet_json,
+                  captured_at
+                ) VALUES (
+                  ${boutId}, ${String(tournamentId)}, ${ri + 1}, ${mi},
+                  ${player.address}, ${side}, ${isWinner},
+                  ${String(hero.id)}, ${hero.normalizedId ? String(hero.normalizedId) : null},
+                  ${hero.mainClassStr ?? null}, ${hero.subClassStr ?? null},
+                  ${hero.level ?? null}, ${hero.rarity ?? null},
+                  ${hero.strength ?? null}, ${hero.dexterity ?? null}, ${hero.agility ?? null},
+                  ${hero.intelligence ?? null}, ${hero.wisdom ?? null}, ${hero.vitality ?? null},
+                  ${hero.endurance ?? null}, ${hero.luck ?? null},
+                  ${hero.hp ?? null}, ${hero.mp ?? null},
+                  ${a1Name}, ${a2Name}, ${p1Name}, ${p2Name},
+                  ${oppLeadershipCount}, ${oppMenacingCount}, ${effectiveDpsMult.toFixed(4)},
+                  ${hero.weapon1   ? JSON.stringify(hero.weapon1)   : null},
+                  ${hero.weapon2   ? JSON.stringify(hero.weapon2)   : null},
+                  ${hero.armor     ? JSON.stringify(hero.armor)     : null},
+                  ${hero.accessory ? JSON.stringify(hero.accessory) : null},
+                  ${hero.offhand1  ? JSON.stringify(hero.offhand1)  : null},
+                  ${hero.pet       ? JSON.stringify(hero.pet)       : null},
+                  ${Date.now()}
+                )
+                ON CONFLICT DO NOTHING
+              `;
+            }
+          }
+        }
+      }
+      console.log(`[FightArchive] Normalized tournament ${tournamentId} → bouts + heroes written`);
+    } catch (err) {
+      console.warn(`[FightArchive] Normalization failed for ${tournamentId}:`, err.message);
+    }
+  }
+
+  // ── Backfill: normalize any already-stored brackets on startup ───────────────
+  ;(async () => {
+    try {
+      const { rawPg: rp } = await import('./server/db.js');
+      const stored = await rp`
+        SELECT tournament_id, bracket_json FROM dfk_completed_brackets WHERE is_final = true
+      `;
+      for (const row of stored) {
+        try {
+          const [existing] = await rp`
+            SELECT COUNT(*)::int AS cnt FROM dfk_tournament_bouts WHERE tournament_id = ${row.tournament_id}
+          `;
+          if (existing.cnt > 0) continue; // already normalized
+          if (row.bracket_json?.ok) {
+            await _normalizeBracketToBouts(row.tournament_id, row.bracket_json);
+          }
+        } catch (_) {}
+      }
+      console.log(`[FightArchive] Backfill complete — checked ${stored.length} stored brackets`);
+    } catch (err) {
+      console.warn('[FightArchive] Backfill error:', err.message);
     }
   })();
 
@@ -10012,6 +10231,8 @@ async function startAdminWebServer() {
                   ELSE dfk_completed_brackets.finalized_at
                 END
             `;
+            // Fire-and-forget fight archive normalization
+            _normalizeBracketToBouts(String(tournamentId), responseData).catch(() => {});
           } catch (_) { /* fire-and-forget — silent */ }
         })();
 
@@ -15602,6 +15823,89 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
       res.json({ ok: true, data: rows, total: countResult[0]?.total || 0, limit, offset });
     } catch (err) {
       console.error('[Tournament Browse] Error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // ============================================================================
+  // FIGHT ARCHIVE API — normalized per-bout history from dfk_tournament_bouts
+  // ============================================================================
+
+  // GET /api/admin/bouts — paginated fight list with filters
+  app.get('/api/admin/bouts', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const page     = Math.max(1, parseInt(req.query.page)  || 1);
+      const limit    = Math.min(parseInt(req.query.limit) || 50, 200);
+      const offset   = (page - 1) * limit;
+      const tId      = req.query.tournament_id || null;
+      const player   = req.query.player   ? req.query.player.toLowerCase() : null;
+      const heroId   = req.query.hero_id  || null;
+      const round    = req.query.round    ? parseInt(req.query.round) : null;
+
+      // Build WHERE conditions
+      const conditions = ['1=1'];
+      const params = [];
+      let pi = 1;
+      if (tId)   { conditions.push(`b.tournament_id = $${pi++}`);   params.push(String(tId)); }
+      if (round) { conditions.push(`b.round_number  = $${pi++}`);   params.push(round); }
+      if (player) {
+        conditions.push(`(LOWER(b.player_a) LIKE $${pi} OR LOWER(b.player_b) LIKE $${pi})`);
+        params.push(`%${player}%`); pi++;
+      }
+
+      let boutIds = null;
+      if (heroId) {
+        const hRows = await rawPg.unsafe(
+          `SELECT DISTINCT bout_id FROM dfk_bout_heroes WHERE hero_id = $1`, [String(heroId)]
+        );
+        boutIds = hRows.map(r => r.bout_id);
+        if (boutIds.length === 0) {
+          return res.json({ ok: true, bouts: [], total: 0, page, limit });
+        }
+        conditions.push(`b.id = ANY($${pi++})`);
+        params.push(boutIds);
+      }
+
+      const where = `WHERE ${conditions.join(' AND ')}`;
+      const [countRow] = await rawPg.unsafe(
+        `SELECT COUNT(*)::int AS total FROM dfk_tournament_bouts b ${where}`, params
+      );
+      const rows = await rawPg.unsafe(
+        `SELECT b.id, b.tournament_id, b.tournament_name, b.round_number, b.match_index,
+                b.player_a, b.player_a_name, b.player_b, b.player_b_name,
+                b.winner_address, b.is_complete, b.tournament_format, b.captured_at
+         FROM dfk_tournament_bouts b
+         ${where}
+         ORDER BY b.captured_at DESC, b.id DESC
+         LIMIT $${pi} OFFSET $${pi+1}`,
+        [...params, limit, offset]
+      );
+      res.json({ ok: true, bouts: rows, total: countRow.total, page, limit });
+    } catch (err) {
+      console.error('[FightArchive] /api/admin/bouts error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/bouts/:boutId — single bout with full hero detail
+  app.get('/api/admin/bouts/:boutId', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const boutId = parseInt(req.params.boutId);
+      if (isNaN(boutId)) return res.status(400).json({ ok: false, error: 'Invalid bout ID' });
+
+      const [bout] = await rawPg.unsafe(
+        `SELECT * FROM dfk_tournament_bouts WHERE id = $1`, [boutId]
+      );
+      if (!bout) return res.status(404).json({ ok: false, error: 'Bout not found' });
+
+      const heroes = await rawPg.unsafe(
+        `SELECT * FROM dfk_bout_heroes WHERE bout_id = $1 ORDER BY side, id`, [boutId]
+      );
+      res.json({ ok: true, bout, heroes });
+    } catch (err) {
+      console.error('[FightArchive] /api/admin/bouts/:boutId error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
     }
   });

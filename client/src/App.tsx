@@ -57,6 +57,7 @@ import AdminTournament from "@/pages/admin/tournament";
 import AdminTournamentDetail from "@/pages/admin/tournament-detail";
 import TournamentSession from "@/pages/admin/tournament-session";
 import TournamentBracketPage from "@/pages/admin/tournament-bracket";
+import FightHistoryPage from "@/pages/admin/fight-history";
 import UserAccessManagement from "@/pages/admin/user-access";
 import UserLogin from "@/pages/user-login";
 import UserDashboardPage from "@/pages/user/dashboard";
@@ -357,6 +358,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminTournament />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
+      <Route path="/admin/fight-history">
+        {() => (
+          <ProtectedAdminPage>
+            <FightHistoryPage />
           </ProtectedAdminPage>
         )}
       </Route>
