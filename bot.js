@@ -9576,11 +9576,13 @@ async function startAdminWebServer() {
         const onChainState = Number(t.state);
         const entryPeriodStart = Number(e.entryPeriodStart);
         const tournamentStartTime = Number(t.tournamentStartTime);
+        // Verified on-chain state mapping (Mar 2026): 1=upcoming, 2=accepting_entries,
+        // 3=in_progress, 4=cancelled, 5=completed
         let stateLabel = 'upcoming';
-        if (onChainState === 5) stateLabel = 'in_progress';
-        else if (onChainState === 3) stateLabel = 'completed';
+        if (onChainState === 3) stateLabel = 'in_progress';
+        else if (onChainState === 5) stateLabel = 'completed';
         else if (onChainState === 4) stateLabel = 'cancelled';
-        else if (entryPeriodStart <= nowSec) stateLabel = 'accepting_entries';
+        else if (onChainState === 2 || entryPeriodStart <= nowSec) stateLabel = 'accepting_entries';
 
         const tournamentType = Number(t.tournamentType);
         const hostAddress = h.hostAddress !== '0x0000000000000000000000000000000000000000' ? h.hostAddress : null;

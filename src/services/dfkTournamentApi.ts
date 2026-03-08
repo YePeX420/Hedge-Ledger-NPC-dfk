@@ -18,13 +18,20 @@ const TOURNAMENT_ABI = [
 ];
 
 // ─── On-chain state enum → label ─────────────────────────────────────────────
-// Observed values: 1=upcoming, 2=accepting_entries, 5=in_progress
-// 3=completed, 4=cancelled (inferred)
+// Verified live against contract (Mar 2026):
+//   1 = upcoming (entry period not yet open)
+//   2 = accepting_entries (entry period open, tournament not started)
+//   3 = in_progress (tournament running)
+//   4 = cancelled
+//   5 = completed
 function onChainStateToLabel(
   onChainState: number,
   entryPeriodStart: number,
   now: number
 ): string {
+  if (onChainState === 3) return 'in_progress';
+  if (onChainState === 5) return 'completed';
+  if (onChainState === 4) return 'cancelled';
   if (onChainState === 2) {
     // Could still be "upcoming" if entry period hasn't opened yet
     if (entryPeriodStart > now) return 'upcoming';
@@ -32,12 +39,9 @@ function onChainStateToLabel(
   }
   if (onChainState === 1) {
     if (entryPeriodStart > now) return 'upcoming';
-    return 'accepting_entries'; // state 1 + past entry period = open but no one yet
+    return 'accepting_entries';
   }
-  if (onChainState === 5) return 'in_progress';
-  if (onChainState === 3) return 'completed';
-  if (onChainState === 4) return 'cancelled';
-  // For any other state, determine by timestamps
+  // Fallback: determine by timestamps
   if (entryPeriodStart > now) return 'upcoming';
   return 'accepting_entries';
 }
@@ -70,12 +74,15 @@ const HOST_TIER_LABELS: Record<number, string> = {
 };
 
 // ─── State label (re-exported for legacy callers) ─────────────────────────────
+// Verified on-chain state mapping (Mar 2026): 1=upcoming, 2=accepting_entries,
+// 3=in_progress, 4=cancelled, 5=completed
 export function tournamentStateLabel(state: number | null | undefined): string {
   switch (state) {
-    case 0: return 'accepting_entries';
-    case 1: return 'in_progress';
-    case 2: return 'completed';
-    case 3: return 'cancelled';
+    case 1: return 'upcoming';
+    case 2: return 'accepting_entries';
+    case 3: return 'in_progress';
+    case 4: return 'cancelled';
+    case 5: return 'completed';
     default: return 'upcoming';
   }
 }
