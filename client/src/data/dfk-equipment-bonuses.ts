@@ -265,6 +265,90 @@ function processAccessoryBonuses(
   }
 }
 
+// ─── Pet bonus system ────────────────────────────────────────────────────────
+// Pet combatBonus encodes both the skill and star tier in a single integer:
+//   rawId 1-79  → 1-star (base code = rawId)
+//   rawId 80-158 → 2-star (base code = rawId - 79)
+//   rawId 160+   → 3-star (base code = rawId - 159)
+// combatBonusScalar / 10_000 gives the decimal fraction.
+
+export const PET_COMBAT_BASE_NAMES: Record<number, string> = {
+  0: 'None', 2: 'Stone Hide', 3: 'Arcane Shell', 4: 'Recuperate',
+  5: 'Magical Shell', 6: 'Heavy Hide', 7: 'Vorpal Soul', 8: 'Sharpened Claws',
+  9: 'Attuned', 10: 'Hard Head', 11: 'Harder Head', 12: 'Graceful',
+  13: 'Diamond Hands', 14: 'Impenetrable', 15: 'Resilient', 16: 'Relentless',
+  17: 'Outspoken', 18: 'Lucid', 19: 'Brave', 20: 'Confident', 21: 'Inner Lids',
+  22: 'Insulated', 23: 'Moist', 24: 'Studious', 25: 'Slippery', 26: 'Blur',
+  27: 'Divine Intervention', 28: 'Rune Sniffer', 29: 'Threaten', 30: 'Hobble',
+  31: 'Shock', 32: 'Bop', 33: 'Hush', 34: 'Befuddle', 35: 'Petrify',
+  36: 'Tug', 37: 'Gash', 38: 'Infect', 39: 'Gouge', 40: 'Bruise', 41: 'Expose',
+  42: 'Flash', 43: 'Mystify', 44: 'Freeze', 45: 'Char', 46: 'Good Eye',
+  47: 'Third Eye', 48: 'Omni Shell', 49: 'Hardy Constitution', 50: 'Vampiric',
+  51: 'Meat Shield', 52: 'Super Meat Shield', 53: 'Flow State', 54: 'Cleansing Aura',
+  55: 'Lick Wounds', 56: 'Rescuer', 57: 'Amplify', 58: 'Intercept',
+  59: 'Conservative', 60: 'Scavenger', 61: 'Ultra Conservative', 62: 'Reflector',
+  63: 'Null Field', 64: 'Brick Wall', 65: 'Purifying Aura', 66: 'Swift Cast',
+  67: 'Total Recall', 68: 'Zoomy', 69: 'Skin of Teeth', 70: 'Rebalance',
+  71: 'Guardian Shell', 72: 'Healing Bond', 73: 'Foil', 74: 'Quicksand',
+  75: 'Beastly Roar', 76: 'Maul', 77: 'Thwack', 78: 'Protective Coat',
+};
+
+export function decodePetBaseCode(rawId: number): number {
+  if (rawId >= 160) return rawId - 159;
+  if (rawId >= 80) return rawId - 79;
+  return rawId;
+}
+
+export function decodePetStars(rawId: number): number {
+  if (rawId >= 160) return 3;
+  if (rawId >= 80) return 2;
+  if (rawId >= 1) return 1;
+  return 0;
+}
+
+export function getPetBonusName(rawId: number): string {
+  const base = decodePetBaseCode(rawId);
+  const stars = decodePetStars(rawId);
+  const name = PET_COMBAT_BASE_NAMES[base] ?? `Bonus ${rawId}`;
+  if (!stars) return name;
+  const starStr = stars === 3 ? ' (★★★)' : stars === 2 ? ' (★★)' : ' (★)';
+  return name + starStr;
+}
+
+// Maps base pet combat code → which EquipmentBonuses field it affects.
+// 'omniDef' means both physDefPct + magicDefPct.
+const PET_BASE_STAT_MAP: Record<number, keyof EquipmentBonuses | 'omniDef'> = {
+  2: 'blkChance',        // Stone Hide
+  3: 'sblkChance',       // Arcane Shell
+  4: 'recoveryChance',   // Recuperate
+  5: 'magicDefPct',      // Magical Shell
+  6: 'physDefPct',       // Heavy Hide
+  7: 'critStrikeChance', // Vorpal Soul
+  8: 'attackPct',        // Sharpened Claws
+  9: 'spellPct',         // Attuned
+  25: 'evasion',         // Slippery
+  26: 'speed',           // Blur
+  27: 'critHealChance',  // Divine Intervention
+  46: 'physAccuracy',    // Good Eye
+  47: 'magicAccuracy',   // Third Eye
+  48: 'omniDef',         // Omni Shell → both physDefPct + magicDefPct
+  49: 'recoveryChance',  // Hardy Constitution (SER-adjacent)
+};
+
+export function computePetBonuses(
+  pet: { combatBonus: number; combatBonusScalar: number } | null | undefined
+): Partial<EquipmentBonuses> {
+  if (!pet || !pet.combatBonus) return {};
+  const base = decodePetBaseCode(pet.combatBonus);
+  const effect = PET_BASE_STAT_MAP[base];
+  if (!effect) return {};
+  const value = (pet.combatBonusScalar ?? 0) / 10_000;
+  if (effect === 'omniDef') {
+    return { physDefPct: value, magicDefPct: value };
+  }
+  return { [effect]: value };
+}
+
 // ─── Hero-level entry point ───────────────────────────────────────────────────
 
 interface BonusSlots4 {

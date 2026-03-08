@@ -18,6 +18,8 @@ import {
 import {
   computeEquipmentBonuses,
   decodeWeaponSpeedModifier,
+  computePetBonuses,
+  getPetBonusName,
 } from '@/data/dfk-equipment-bonuses';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -238,10 +240,6 @@ const ELEMENT_NAMES: Record<number, string> = {
   10: 'Ice', 12: 'Light', 14: 'Dark',
 };
 
-const PET_COMBAT_BONUS_NAMES: Record<number, string> = {
-  0: 'None', 1: 'Phys Atk', 2: 'Magic Atk', 3: 'Defense', 4: 'Speed',
-  5: 'Crit Rate', 6: 'HP Regen', 7: 'Accuracy', 8: 'Evasion', 9: 'MP Regen',
-};
 
 function shortAddr(addr: string | undefined | null): string {
   if (!addr) return '?';
@@ -644,21 +642,25 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
     offhand2:  hero.offhand2  ?? null,
   });
 
-  // EVA — formula base + armor evasion field + equipment evasion bonus codes + pet
-  const armorEva = (hero.armor?.evasion ?? 0) / 1_000_000;
-  const petEva = hero.pet?.combatBonus === 8 ? (hero.pet.combatBonusScalar ?? 0) / 10000 : 0;
-  const totalEva = profile.EVA + armorEva + equipBonuses.evasion + petEva;
+  // Pet bonuses — decoded from star-encoded combatBonus rawId
+  const petBonuses = computePetBonuses(hero.pet);
 
-  // SPEED — formula base + decoded weapon speed modifiers + equipment speed bonus codes
+  // EVA — formula base + armor evasion field + equipment evasion bonus codes + pet (Slippery)
+  const armorEva = (hero.armor?.evasion ?? 0) / 1_000_000;
+  const totalEva = profile.EVA + armorEva + equipBonuses.evasion + (petBonuses.evasion ?? 0);
+
+  // SPEED — formula base + decoded weapon speed modifiers + equipment speed bonus codes + pet (Blur)
+  // Blur gives a % of base speed, not a flat addition
   const weaponSpeedMod = decodeWeaponSpeedModifier(hero.weapon1?.speedModifier ?? 0)
                        + decodeWeaponSpeedModifier(hero.weapon2?.speedModifier ?? 0);
   const equipSpeedMod = equipBonuses.speed - equipBonuses.speedDown;
-  const totalSpeed = Math.round(profile.Speed) + weaponSpeedMod + equipSpeedMod;
+  const petSpeedMod = Math.round((petBonuses.speed ?? 0) * profile.Speed);
+  const totalSpeed = Math.round(profile.Speed) + weaponSpeedMod + equipSpeedMod + petSpeedMod;
 
-  // BLK / SBLK / REC — formula base + equipment bonus codes
-  const totalBlk = profile.Block + equipBonuses.blkChance;
-  const totalSblk = profile.SpellBlock + equipBonuses.sblkChance;
-  const totalRec = profile.Recovery + equipBonuses.recoveryChance;
+  // BLK / SBLK / REC — formula base + equipment bonus codes + pet
+  const totalBlk = profile.Block + equipBonuses.blkChance + (petBonuses.blkChance ?? 0);
+  const totalSblk = profile.SpellBlock + equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0);
+  const totalRec = profile.Recovery + equipBonuses.recoveryChance + (petBonuses.recoveryChance ?? 0);
 
   // Weapon attack computation — stat code: 0=STR,1=AGI,2=DEX,3=INT,4=WIS,5=VIT,6=END,7=LCK
   const heroStatByCode: Record<number, number> = {
@@ -825,35 +827,43 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
           </div>
         </div>
 
-        {/* Modifiers — equipment bonus codes that affect combat stats */}
+        {/* Modifiers — equipment + pet bonus codes that affect combat stats */}
         {(() => {
           const sign = (n: number) => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
           const totalRet = equipBonuses.retaliateAny + equipBonuses.retaliatePhysical + equipBonuses.retaliateMagical;
+          // Merge pet bonuses into totals for display
+          const totalAtkPct   = equipBonuses.attackPct        + (petBonuses.attackPct        ?? 0);
+          const totalSpellPct = equipBonuses.spellPct         + (petBonuses.spellPct         ?? 0);
+          const totalCSC      = profile.Crit + equipBonuses.critStrikeChance + (petBonuses.critStrikeChance ?? 0);
+          const totalCHC      = equipBonuses.critHealChance   + (petBonuses.critHealChance   ?? 0);
+          const totalPDef     = equipBonuses.physDefPct       + (petBonuses.physDefPct       ?? 0);
+          const totalMDef     = equipBonuses.magicDefPct      + (petBonuses.magicDefPct      ?? 0);
+          const totalPAcc     = equipBonuses.physAccuracy     + (petBonuses.physAccuracy     ?? 0);
+          const totalMAcc     = equipBonuses.magicAccuracy    + (petBonuses.magicAccuracy    ?? 0);
           const modRows: [string, string][] = [
             ...(equipBonuses.physicalDamage  !== 0 ? [['PDM',    sign(equipBonuses.physicalDamage  * 100)] as [string,string]] : []),
             ...(equipBonuses.magicDamage     !== 0 ? [['MDM',    sign(equipBonuses.magicDamage     * 100)] as [string,string]] : []),
-            ...(equipBonuses.attackPct       !== 0 ? [['ATK%',   sign(equipBonuses.attackPct       * 100)] as [string,string]] : []),
-            ...(equipBonuses.spellPct        !== 0 ? [['SPELL%', sign(equipBonuses.spellPct        * 100)] as [string,string]] : []),
-            ...(equipBonuses.critStrikeChance !== 0 || true
-              ? [['CSC',    ((profile.Crit + equipBonuses.critStrikeChance) * 100).toFixed(2) + '%'] as [string,string]]
-              : []),
-            ...(equipBonuses.critHealChance  !== 0 ? [['CHC',    sign(equipBonuses.critHealChance  * 100)] as [string,string]] : []),
+            ...(totalAtkPct   !== 0 ? [['ATK%',   sign(totalAtkPct   * 100)] as [string,string]] : []),
+            ...(totalSpellPct !== 0 ? [['SPELL%', sign(totalSpellPct * 100)] as [string,string]] : []),
+            [['CSC', (totalCSC * 100).toFixed(2) + '%'] as [string,string]],
+            ...(totalCHC      !== 0 ? [['CHC',    sign(totalCHC      * 100)] as [string,string]] : []),
             ...(equipBonuses.critDamage      !== 0 ? [['CDMG',   sign(equipBonuses.critDamage      * 100)] as [string,string]] : []),
             ...(totalRet                    !== 0 ? [['RET',    sign(totalRet                    * 100)] as [string,string]] : []),
             ...(equipBonuses.riposte         !== 0 ? [['RIP',    sign(equipBonuses.riposte         * 100)] as [string,string]] : []),
-            ...(equipBonuses.physDefPct      !== 0 ? [['P.DEF%', sign(equipBonuses.physDefPct      * 100)] as [string,string]] : []),
-            ...(equipBonuses.magicDefPct     !== 0 ? [['M.DEF%', sign(equipBonuses.magicDefPct     * 100)] as [string,string]] : []),
+            ...(totalPDef     !== 0 ? [['P.DEF%', sign(totalPDef     * 100)] as [string,string]] : []),
+            ...(totalMDef     !== 0 ? [['M.DEF%', sign(totalMDef     * 100)] as [string,string]] : []),
             ...(equipBonuses.physDamageReduction !== 0 ? [['P.RED+', sign(equipBonuses.physDamageReduction * 100)] as [string,string]] : []),
             ...(equipBonuses.magicDamageReduction !== 0 ? [['M.RED+', sign(equipBonuses.magicDamageReduction * 100)] as [string,string]] : []),
             ...(equipBonuses.physDefFlat     !== 0 ? [['P.DEF+', equipBonuses.physDefFlat.toFixed(0)] as [string,string]] : []),
             ...(equipBonuses.magicDefFlat    !== 0 ? [['M.DEF+', equipBonuses.magicDefFlat.toFixed(0)] as [string,string]] : []),
-            ...(equipBonuses.blkChance       !== 0 ? [['BLK+',   sign(equipBonuses.blkChance      * 100)] as [string,string]] : []),
-            ...(equipBonuses.sblkChance      !== 0 ? [['SBLK+',  sign(equipBonuses.sblkChance     * 100)] as [string,string]] : []),
-            ...(equipBonuses.physAccuracy    !== 0 ? [['P.ACC+', sign(equipBonuses.physAccuracy    * 100)] as [string,string]] : []),
-            ...(equipBonuses.magicAccuracy   !== 0 ? [['M.ACC+', sign(equipBonuses.magicAccuracy   * 100)] as [string,string]] : []),
-          ];
-          // Always show Modifiers section (CSC row always included); filter sparse zero-bonus heroes
-          const hasEquipBonuses = Object.values(equipBonuses).some(v => typeof v === 'number' && v !== 0);
+            ...(equipBonuses.blkChance + (petBonuses.blkChance ?? 0) !== 0 ? [['BLK+',   sign((equipBonuses.blkChance + (petBonuses.blkChance ?? 0)) * 100)] as [string,string]] : []),
+            ...(equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0) !== 0 ? [['SBLK+',  sign((equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0)) * 100)] as [string,string]] : []),
+            ...(totalPAcc     !== 0 ? [['P.ACC+', sign(totalPAcc     * 100)] as [string,string]] : []),
+            ...(totalMAcc     !== 0 ? [['M.ACC+', sign(totalMAcc     * 100)] as [string,string]] : []),
+          ].flat() as [string, string][];
+          // Show section if any equipment/pet bonus is present
+          const hasEquipBonuses = Object.values(equipBonuses).some(v => typeof v === 'number' && v !== 0)
+                                || Object.values(petBonuses).some(v => typeof v === 'number' && v !== 0);
           if (!hasEquipBonuses) return null;
           return (
             <div className="mt-3">
@@ -917,7 +927,7 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
               <span className="text-muted-foreground">{RARITY_NAMES[hero.pet.rarity]}</span>
               {hero.pet.combatBonus > 0 && (
                 <span className="text-muted-foreground">
-                  — {PET_COMBAT_BONUS_NAMES[hero.pet.combatBonus] ?? `Bonus ${hero.pet.combatBonus}`}
+                  — {getPetBonusName(hero.pet.combatBonus)}
                   {hero.pet.combatBonusScalar > 0 && ` +${(hero.pet.combatBonusScalar / 100).toFixed(1)}%`}
                 </span>
               )}
@@ -1029,7 +1039,7 @@ function HeroCard({ hero, index, onHeroClick }: { hero: HeroDetail; index: numbe
           <span className="text-muted-foreground">{RARITY_NAMES[hero.pet.rarity] ?? ''}</span>
           {hero.pet.combatBonus > 0 && (
             <span className="text-muted-foreground">
-              — {PET_COMBAT_BONUS_NAMES[hero.pet.combatBonus] ?? `Bonus ${hero.pet.combatBonus}`}
+              — {getPetBonusName(hero.pet.combatBonus)}
               {hero.pet.combatBonusScalar > 0 && ` +${(hero.pet.combatBonusScalar / 100).toFixed(1)}%`}
             </span>
           )}
