@@ -18,19 +18,20 @@ const TOURNAMENT_ABI = [
 ];
 
 // ─── On-chain state enum → label ─────────────────────────────────────────────
-// Verified live against contract (Mar 2026):
+// Verified live by watching tournament #2135 transition in real time (Mar 2026):
 //   1 = upcoming (entry period not yet open)
-//   2 = accepting_entries (entry period open, tournament not started)
-//   3 = in_progress (tournament running)
+//   2 = accepting_entries (entry period open, not yet started)
+//   3 = in_progress — brief locked/starting phase (entries closed, rounds about to begin)
 //   4 = cancelled
-//   5 = completed
+//   5 = in_progress — active fighting phase
+//   completed tournaments appear to be removed from getActiveTournamentIds()
 function onChainStateToLabel(
   onChainState: number,
   entryPeriodStart: number,
   now: number
 ): string {
-  if (onChainState === 3) return 'in_progress';
-  if (onChainState === 5) return 'completed';
+  if (onChainState === 3) return 'in_progress'; // locked/starting
+  if (onChainState === 5) return 'in_progress'; // active fighting
   if (onChainState === 4) return 'cancelled';
   if (onChainState === 2) {
     // Could still be "upcoming" if entry period hasn't opened yet
@@ -74,15 +75,16 @@ const HOST_TIER_LABELS: Record<number, string> = {
 };
 
 // ─── State label (re-exported for legacy callers) ─────────────────────────────
-// Verified on-chain state mapping (Mar 2026): 1=upcoming, 2=accepting_entries,
-// 3=in_progress, 4=cancelled, 5=completed
+// Verified live (Mar 2026): 1=upcoming, 2=accepting_entries,
+// 3=in_progress (locked/starting), 4=cancelled, 5=in_progress (fighting)
+// Completed tournaments are removed from getActiveTournamentIds() entirely.
 export function tournamentStateLabel(state: number | null | undefined): string {
   switch (state) {
     case 1: return 'upcoming';
     case 2: return 'accepting_entries';
     case 3: return 'in_progress';
     case 4: return 'cancelled';
-    case 5: return 'completed';
+    case 5: return 'in_progress';
     default: return 'upcoming';
   }
 }

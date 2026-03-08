@@ -9576,11 +9576,12 @@ async function startAdminWebServer() {
         const onChainState = Number(t.state);
         const entryPeriodStart = Number(e.entryPeriodStart);
         const tournamentStartTime = Number(t.tournamentStartTime);
-        // Verified on-chain state mapping (Mar 2026): 1=upcoming, 2=accepting_entries,
-        // 3=in_progress, 4=cancelled, 5=completed
+        // Verified live (Mar 2026): 1=upcoming, 2=accepting_entries,
+        // 3=in_progress (locked/starting), 4=cancelled, 5=in_progress (fighting)
+        // Completed tournaments are removed from getActiveTournamentIds() entirely.
         let stateLabel = 'upcoming';
-        if (onChainState === 3) stateLabel = 'in_progress';
-        else if (onChainState === 5) stateLabel = 'completed';
+        if (onChainState === 3) stateLabel = 'in_progress'; // locked/starting
+        else if (onChainState === 5) stateLabel = 'in_progress'; // active fighting
         else if (onChainState === 4) stateLabel = 'cancelled';
         else if (onChainState === 2 || entryPeriodStart <= nowSec) stateLabel = 'accepting_entries';
 
