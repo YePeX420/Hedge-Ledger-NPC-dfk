@@ -933,12 +933,10 @@ function PlayersTab({ players, maxEntrants, totalEntrants }: {
             {/* Player header */}
             <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 border-b border-border/40">
               <span className="text-xs text-muted-foreground w-6 shrink-0">#{player.partyIndex + 1}</span>
-              <span className="text-sm flex-1 font-medium truncate">
-                {player.playerName || <span className="font-mono">{shortAddr(player.address)}</span>}
-              </span>
               {player.playerName && (
-                <span className="font-mono text-xs text-muted-foreground shrink-0">{shortAddr(player.address)}</span>
+                <span className="text-sm font-medium truncate flex-1 min-w-0">{player.playerName}</span>
               )}
+              <span className="font-mono text-xs text-muted-foreground shrink-0">{shortAddr(player.address)}</span>
               <CopyButton text={player.address} />
             </div>
 
