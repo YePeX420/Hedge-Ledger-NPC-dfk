@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import {
-  Medal, RefreshCw, Loader2, Trophy, Swords, ChevronRight,
+  Medal, RefreshCw, Loader2, Trophy, Swords, ChevronRight, ChevronDown,
   RotateCcw, Filter, Activity, Database, Zap, Clock,
   CheckCircle2, Circle, Play, Radio, History, Calendar, Users, LayoutGrid, Lock
 } from 'lucide-react';
@@ -739,6 +739,11 @@ const STATE_BADGE: Record<string, { label: string; className: string }> = {
 
 function ScheduledTournamentsTab() {
   const [, navigate] = useLocation();
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [completedBefore, setCompletedBefore] = useState<number | null>(null);
+  const [allCompleted, setAllCompleted] = useState<ScheduledTournament[]>([]);
+  const [completedAnchor, setCompletedAnchor] = useState<number | null>(null);
+
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['/api/admin/tournament/scheduled'],
     queryFn: async () => {
@@ -748,6 +753,36 @@ function ScheduledTournamentsTab() {
     },
     refetchInterval: 30_000,
   });
+
+  const completedUrl = completedBefore
+    ? `/api/admin/tournament/completed?before=${completedBefore}&count=30`
+    : '/api/admin/tournament/completed?count=30';
+
+  const { data: completedData, isLoading: completedLoading } = useQuery({
+    queryKey: ['/api/admin/tournament/completed', completedBefore],
+    queryFn: async () => {
+      const res = await fetch(completedUrl);
+      if (!res.ok) throw new Error('Failed to load completed tournaments');
+      return res.json() as Promise<{ ok: boolean; tournaments: ScheduledTournament[]; count: number; anchor: number }>;
+    },
+    enabled: showCompleted,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  // Accumulate pages as user clicks "Load More"
+  const prevLoadedRef = useRef<string>('');
+  useEffect(() => {
+    if (!completedData?.tournaments) return;
+    const key = completedUrl;
+    if (prevLoadedRef.current === key) return;
+    prevLoadedRef.current = key;
+    setAllCompleted(prev => {
+      const existingIds = new Set(prev.map(t => t.id));
+      const newOnes = completedData.tournaments.filter(t => !existingIds.has(t.id));
+      return [...prev, ...newOnes];
+    });
+    if (completedData.anchor != null) setCompletedAnchor(completedData.anchor);
+  }, [completedData]);
 
   const tournaments = data?.tournaments || [];
   const liveTournaments = tournaments.filter(t => t.stateLabel === 'in_progress');
@@ -854,29 +889,38 @@ function ScheduledTournamentsTab() {
     </div>
   );
 
-  if (tournaments.length === 0) return (
-    <Card>
-      <CardContent className="py-16 text-center">
-        <Trophy className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-        <p className="font-medium">No active tournaments right now</p>
-        <p className="text-sm text-muted-foreground mt-1">
-          Scheduled DFK bracket tournaments will appear here when available.
-        </p>
-        <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
-          <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
-        </Button>
-      </CardContent>
-    </Card>
-  );
+  const handleLoadMore = () => {
+    if (allCompleted.length === 0) return;
+    const oldestId = Math.min(...allCompleted.map(t => parseInt(t.id)).filter(n => !isNaN(n)));
+    setCompletedBefore(oldestId);
+  };
+
+  const hasMoreCompleted = allCompleted.length > 0 && allCompleted.length % 30 === 0;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{tournaments.length} tournament{tournaments.length !== 1 ? 's' : ''}</p>
+        {tournaments.length > 0 ? (
+          <p className="text-sm text-muted-foreground">{tournaments.length} tournament{tournaments.length !== 1 ? 's' : ''}</p>
+        ) : (
+          <p className="text-sm text-muted-foreground">No active tournaments right now</p>
+        )}
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
         </Button>
       </div>
+
+      {tournaments.length === 0 && !isLoading && (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <Trophy className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="font-medium">No active tournaments right now</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Scheduled DFK bracket tournaments will appear here when available.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {liveTournaments.length > 0 && (
         <div className="space-y-3">
@@ -896,6 +940,68 @@ function ScheduledTournamentsTab() {
           {otherTournaments.map(t => renderCard(t, false))}
         </div>
       )}
+
+      {/* ── Completed tournaments history ───────────────────────────────── */}
+      <div className="pt-2 border-t">
+        <button
+          data-testid="button-toggle-completed"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover-elevate active-elevate-2 px-2 py-1.5 rounded-md w-full text-left"
+          onClick={() => setShowCompleted(v => !v)}
+        >
+          <History className="w-4 h-4 shrink-0" />
+          <span className="font-medium">Previous Tournaments</span>
+          <ChevronDown
+            className={`w-4 h-4 ml-auto transition-transform duration-200 ${showCompleted ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        {showCompleted && (
+          <div className="mt-4 space-y-4" data-testid="section-completed-tournaments">
+            {completedLoading && allCompleted.length === 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[1,2,3,4,5,6].map(i => (
+                  <Card key={i} className="animate-pulse"><CardContent className="h-36 p-4" /></Card>
+                ))}
+              </div>
+            ) : allCompleted.length === 0 ? (
+              <Card>
+                <CardContent className="py-10 text-center">
+                  <p className="text-sm text-muted-foreground">No completed tournaments found in this ID range.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-muted-foreground/60" />
+                  <span className="text-sm font-medium">Completed</span>
+                  <span className="text-xs text-muted-foreground">({allCompleted.length} shown)</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {allCompleted.map(t => renderCard(t, false))}
+                </div>
+                {hasMoreCompleted && (
+                  <div className="flex justify-center pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid="button-load-more-completed"
+                      onClick={handleLoadMore}
+                      disabled={completedLoading}
+                    >
+                      {completedLoading ? (
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5 mr-1.5" />
+                      )}
+                      Load More
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
