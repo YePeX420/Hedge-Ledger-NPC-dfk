@@ -9389,19 +9389,102 @@ async function startAdminWebServer() {
   // DFK zeroes out tournament storage on-chain after completion, so we cannot
   // retroactively query completed data. Instead we watch the active list on
   // every poll and capture data the moment a tournament disappears.
-  const _trackerPrevIds   = new Set();   // IDs present on the previous poll
-  const _trackerLastData  = new Map();   // id → tournament object (latest snapshot)
-  const _trackerCompleted = [];          // {tournament, completedAt}, newest first
-  const TRACKER_MAX       = 200;         // remember at most this many completed events
+  const _trackerPrevIds    = new Set();   // IDs present on the previous poll
+  const _trackerLastData   = new Map();   // id → tournament object (latest snapshot)
+  const _trackerPrevStates = new Map();   // id → stateLabel from previous poll
+  const _trackerCompleted  = [];          // {tournament, completedAt}, newest first
+  const TRACKER_MAX        = 200;         // remember at most this many completed events
+
+  // ── T001: Ensure DB tables exist and seed in-memory list from DB ─────────────
+  ;(async () => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_completed_tournaments (
+          tournament_id         TEXT PRIMARY KEY,
+          name                  TEXT,
+          tournament_type       INTEGER,
+          state_label           TEXT,
+          realm                 TEXT,
+          format                TEXT,
+          entrants              INTEGER,
+          max_entrants          INTEGER,
+          party_count           INTEGER,
+          tournament_start_time BIGINT,
+          entry_period_start    BIGINT,
+          min_level             INTEGER,
+          max_level             INTEGER,
+          min_rarity            INTEGER,
+          rounds                INTEGER,
+          best_of               INTEGER,
+          tournament_hosted     BOOLEAN DEFAULT false,
+          hosted_by             TEXT,
+          completed_at          BIGINT,
+          snapshot_json         JSONB,
+          created_at            TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_completed_brackets (
+          tournament_id  TEXT PRIMARY KEY,
+          bracket_json   JSONB,
+          is_final       BOOLEAN DEFAULT false,
+          captured_at    BIGINT,
+          finalized_at   BIGINT,
+          created_at     TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      // Seed in-memory completed list from DB so history survives restarts
+      const rows = await rawPg`
+        SELECT snapshot_json, completed_at
+        FROM dfk_completed_tournaments
+        ORDER BY completed_at DESC
+        LIMIT ${TRACKER_MAX}
+      `;
+      for (const row of rows) {
+        if (row.snapshot_json) {
+          _trackerCompleted.push({ ...row.snapshot_json, completedAt: Number(row.completed_at) });
+        }
+      }
+      console.log(`[Tournament Tracker] DB ready — seeded ${rows.length} completed tournaments from DB`);
+    } catch (err) {
+      console.error('[Tournament Tracker] DB init error:', err.message);
+    }
+  })();
+
+  // ── Background bracket snapshot helper ──────────────────────────────────────
+  // Called when a tournament transitions to in_progress (Phase 1 capture) and
+  // again when it completes (Phase 2 final update).
+  function _triggerBracketSnapshot(tournamentId) {
+    ;(async () => {
+      try {
+        await fetch(`http://localhost:${process.env.PORT || 5000}/api/admin/tournament/bracket/${tournamentId}`);
+        console.log(`[Tournament Tracker] Bracket snapshot triggered for ${tournamentId}`);
+      } catch (e) {
+        console.warn(`[Tournament Tracker] Bracket snapshot trigger failed for ${tournamentId}:`, e.message);
+      }
+    })();
+  }
 
   function _trackTournamentTransitions(activeTournaments) {
     const currentIds = new Set(activeTournaments.map(t => t.id));
 
     // Always refresh the latest snapshot for each active tournament
-    activeTournaments.forEach(t => _trackerLastData.set(t.id, t));
+    activeTournaments.forEach(t => {
+      const prev = _trackerLastData.get(t.id);
+      _trackerLastData.set(t.id, t);
+
+      // Phase 1: detect accepting_entries → in_progress transition
+      // Bracket + player + hero data are all available on-chain at this moment.
+      if (prev && prev.stateLabel !== 'in_progress' && t.stateLabel === 'in_progress') {
+        console.log(`[Tournament Tracker] Tournament ${t.id} (${t.name}) entered in_progress — capturing snapshot`);
+        _triggerBracketSnapshot(t.id);
+      }
+      _trackerPrevStates.set(t.id, t.stateLabel);
+    });
 
     if (_trackerPrevIds.size === 0) {
-      // First call — just seed the "known active" set; nothing has completed yet
+      // First call — seed the "known active" set; nothing has completed yet
       currentIds.forEach(id => _trackerPrevIds.add(id));
       return;
     }
@@ -9411,13 +9494,46 @@ async function startAdminWebServer() {
       if (!currentIds.has(id)) {
         const lastData = _trackerLastData.get(id);
         if (lastData) {
-          // Preserve "cancelled" if it was already cancelled, otherwise call it completed
           const stateLabel = lastData.stateLabel === 'cancelled' ? 'cancelled' : 'completed';
-          _trackerCompleted.unshift({ ...lastData, stateLabel, completedAt: Date.now() });
+          const completedAt = Date.now();
+          const entry = { ...lastData, stateLabel, completedAt };
+          _trackerCompleted.unshift(entry);
           if (_trackerCompleted.length > TRACKER_MAX) _trackerCompleted.pop();
           console.log(`[Tournament Tracker] Tournament ${id} (${lastData.name}) marked as ${stateLabel}`);
+
+          // Phase 2: persist metadata to DB + attempt final bracket capture
+          ;(async () => {
+            try {
+              const { rawPg } = await import('./server/db.js');
+              await rawPg`
+                INSERT INTO dfk_completed_tournaments (
+                  tournament_id, name, tournament_type, state_label, realm, format,
+                  entrants, max_entrants, party_count,
+                  tournament_start_time, entry_period_start,
+                  min_level, max_level, min_rarity, rounds, best_of,
+                  tournament_hosted, hosted_by, completed_at, snapshot_json
+                ) VALUES (
+                  ${String(id)}, ${lastData.name ?? null}, ${lastData.tournamentType ?? null},
+                  ${stateLabel}, ${lastData.realm ?? null}, ${lastData.format ?? null},
+                  ${lastData.entrants ?? null}, ${lastData.maxEntrants ?? null}, ${lastData.partyCount ?? null},
+                  ${lastData.tournamentStartTime ?? null}, ${lastData.entryPeriodStart ?? null},
+                  ${lastData.minLevel ?? null}, ${lastData.maxLevel ?? null}, ${lastData.minRarity ?? null},
+                  ${lastData.rounds ?? null}, ${lastData.bestOf ?? null},
+                  ${lastData.tournamentHosted ?? false}, ${lastData.hostedBy ?? null},
+                  ${completedAt}, ${JSON.stringify(entry)}
+                )
+                ON CONFLICT (tournament_id) DO NOTHING
+              `;
+            } catch (dbErr) {
+              console.error(`[Tournament Tracker] DB write failed for ${id}:`, dbErr.message);
+            }
+          })();
+
+          // Trigger a final bracket fetch to capture winner (may be zeroed already — that's OK)
+          _triggerBracketSnapshot(id);
         }
         _trackerPrevIds.delete(id);
+        _trackerPrevStates.delete(id);
       }
     }
     // Add any brand-new IDs for the next diff
@@ -9439,20 +9555,46 @@ async function startAdminWebServer() {
     }
   });
 
-  // GET /api/admin/tournament/completed — tournaments captured by the transition tracker.
-  // DFK zeroes out tournament storage on-chain after completion so we cannot
-  // retroactively fetch completed data. The tracker above detects completions live.
-  app.get('/api/admin/tournament/completed', isAdmin, (req, res) => {
+  // GET /api/admin/tournament/completed — completed tournaments.
+  // Reads from DB (persisted history) with in-memory fallback.
+  app.get('/api/admin/tournament/completed', isAdmin, async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.count) || 50));
     const page  = Math.max(0, parseInt(req.query.page) || 0);
-    const slice = _trackerCompleted.slice(page * limit, (page + 1) * limit);
-    res.json({
-      ok: true,
-      tournaments: slice,
-      count: slice.length,
-      total: _trackerCompleted.length,
-      tracking: _trackerPrevIds.size > 0,
-    });
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const [countRow] = await rawPg`SELECT COUNT(*)::int AS total FROM dfk_completed_tournaments`;
+      const rows = await rawPg`
+        SELECT snapshot_json, completed_at, state_label, tournament_id, name
+        FROM dfk_completed_tournaments
+        ORDER BY completed_at DESC
+        LIMIT ${limit} OFFSET ${page * limit}
+      `;
+      const tournaments = rows.map(r =>
+        r.snapshot_json ? { ...r.snapshot_json } : {
+          id: r.tournament_id,
+          name: r.name,
+          stateLabel: r.state_label,
+          completedAt: Number(r.completed_at),
+        }
+      );
+      return res.json({
+        ok: true,
+        tournaments,
+        count: tournaments.length,
+        total: countRow?.total ?? 0,
+        tracking: _trackerPrevIds.size > 0,
+      });
+    } catch (_dbErr) {
+      // Fallback: serve from in-memory tracker if DB is unavailable
+      const slice = _trackerCompleted.slice(page * limit, (page + 1) * limit);
+      res.json({
+        ok: true,
+        tournaments: slice,
+        count: slice.length,
+        total: _trackerCompleted.length,
+        tracking: _trackerPrevIds.size > 0,
+      });
+    }
   });
 
   // GET /api/admin/tournament/bracket/:id — full bracket detail (on-chain)
@@ -9541,6 +9683,25 @@ async function startAdminWebServer() {
 
       const cached = _bracketDetailCache.get(tournamentId);
       if (cached && Date.now() - cached.ts < 60_000) return res.json(cached.data);
+
+      // T003: Check DB for stored bracket snapshot before hitting the chain.
+      // For completed tournaments the on-chain storage is zeroed — DB is the only source.
+      try {
+        const { rawPg: rp } = await import('./server/db.js');
+        const [stored] = await rp`
+          SELECT bracket_json, is_final FROM dfk_completed_brackets WHERE tournament_id = ${String(tournamentId)}
+        `;
+        if (stored?.bracket_json?.ok) {
+          if (stored.is_final) {
+            // Definitive completed snapshot — serve from DB, no on-chain needed
+            const data = stored.bracket_json;
+            _bracketDetailCache.set(tournamentId, { data, ts: Date.now() - 50_000 }); // short TTL so live data takes over if it becomes active again
+            return res.json(data);
+          }
+          // In-progress snapshot exists but not final — fall through to on-chain;
+          // if on-chain fails we'll fall back to the snapshot below
+        }
+      } catch (_dbReadErr) { /* non-fatal — proceed to on-chain */ }
 
       try {
         const { ethers } = await import('ethers');
@@ -9826,6 +9987,34 @@ async function startAdminWebServer() {
 
         const responseData = { ok: true, tournament, bracket, players, rewardTiers };
         _bracketDetailCache.set(tournamentId, { data: responseData, ts: Date.now() });
+
+        // Fire-and-forget: persist bracket snapshot to DB for historical access.
+        // Marks is_final=true when the tournament state is completed/cancelled.
+        ;(async () => {
+          try {
+            const { rawPg } = await import('./server/db.js');
+            const isFinal = tournament.stateLabel === 'completed' || tournament.stateLabel === 'cancelled'
+              || Number(tournament.tournamentState ?? 0) === 0; // zeroed = post-completion
+            const now = Date.now();
+            await rawPg`
+              INSERT INTO dfk_completed_brackets (tournament_id, bracket_json, is_final, captured_at, finalized_at)
+              VALUES (
+                ${String(tournamentId)}, ${JSON.stringify(responseData)}, ${isFinal}, ${now},
+                ${isFinal ? now : null}
+              )
+              ON CONFLICT (tournament_id) DO UPDATE SET
+                bracket_json  = EXCLUDED.bracket_json,
+                is_final      = EXCLUDED.is_final OR dfk_completed_brackets.is_final,
+                captured_at   = EXCLUDED.captured_at,
+                finalized_at  = CASE
+                  WHEN EXCLUDED.is_final AND dfk_completed_brackets.finalized_at IS NULL
+                  THEN EXCLUDED.captured_at
+                  ELSE dfk_completed_brackets.finalized_at
+                END
+            `;
+          } catch (_) { /* fire-and-forget — silent */ }
+        })();
+
         res.json(responseData);
       } catch (err) {
         console.error(`[BracketDetail] Error for tournament ${tournamentId}:`, err.message);

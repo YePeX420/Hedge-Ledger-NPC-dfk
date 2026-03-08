@@ -323,17 +323,101 @@ function PlayerSlot({ slotId, slotMap, nameMap, winner, isWinner }: {
   );
 }
 
-function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex }: {
+function MatchupModal({ match, players, slotMap, nameMap, onClose, onHeroSelect }: {
+  match: BracketMatch;
+  players: PlayerEntry[];
+  slotMap: Record<number, string>;
+  nameMap: Record<number, string>;
+  onClose: () => void;
+  onHeroSelect: (hero: HeroDetail) => void;
+}) {
+  const [activeSlot, setActiveSlot] = useState<number>(match.slotA > 0 ? match.slotA : match.slotB);
+
+  const playerA = players.find(p => p.partyIndex === match.slotA) ?? null;
+  const playerB = players.find(p => p.partyIndex === match.slotB) ?? null;
+
+  const bothEmpty = match.slotA === 0 && match.slotB === 0;
+  const activePlayer = activeSlot === match.slotA ? playerA : playerB;
+
+  function slotLabel(slotId: number) {
+    const addr = slotMap[slotId];
+    const name = nameMap[slotId];
+    if (!addr && !name) return slotId === 0 ? 'TBD' : `Slot #${slotId}`;
+    return name || shortAddr(addr);
+  }
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-sm" data-testid="modal-matchup">
+        <DialogHeader>
+          <DialogTitle>Match — {slotLabel(match.slotA)} vs {slotLabel(match.slotB)}</DialogTitle>
+        </DialogHeader>
+
+        {bothEmpty ? (
+          <p className="text-sm text-muted-foreground text-center py-4">No players registered for this match yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {/* Player A / B toggle */}
+            <div className="flex gap-2">
+              {[match.slotA, match.slotB].map(slotId => (
+                <Button
+                  key={slotId}
+                  variant={activeSlot === slotId ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 flex items-center gap-1.5"
+                  onClick={() => setActiveSlot(slotId)}
+                  data-testid={`btn-slot-${slotId}`}
+                >
+                  {match.winner === slotId && <Trophy className="w-3 h-3 text-yellow-400 shrink-0" />}
+                  <span className="truncate">{slotLabel(slotId)}</span>
+                </Button>
+              ))}
+            </div>
+
+            {/* Hero selection */}
+            {activePlayer && activePlayer.heroes.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Select hero to inspect</p>
+                <div className="flex flex-wrap gap-2">
+                  {activePlayer.heroes.map((h, i) => (
+                    <Button
+                      key={h.id}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { onHeroSelect(h); onClose(); }}
+                      data-testid={`btn-hero-${h.id}`}
+                    >
+                      <span className="font-medium">{h.mainClassStr}</span>
+                      <span className="text-muted-foreground ml-1">Lv{h.level}</span>
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">Click a hero to open its full stat sheet.</p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-2">No hero data loaded for this player yet.</p>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex, onMatchClick }: {
   match: BracketMatch;
   slotMap: Record<number, string>;
   nameMap: Record<number, string>;
   roundIndex: number;
   matchIndex: number;
+  onMatchClick?: (match: BracketMatch) => void;
 }) {
+  const hasPlayers = match.slotA !== 0 || match.slotB !== 0;
   return (
     <div
-      className="flex flex-col gap-0.5 w-44"
+      className={`flex flex-col gap-0.5 w-44 ${hasPlayers && onMatchClick ? 'cursor-pointer hover-elevate rounded' : ''}`}
       data-testid={`match-r${roundIndex}-m${matchIndex}`}
+      onClick={() => hasPlayers && onMatchClick?.(match)}
     >
       <PlayerSlot slotId={match.slotA} slotMap={slotMap} nameMap={nameMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotA} />
       <div className="border-t border-border/40 mx-2" />
@@ -349,6 +433,9 @@ function BracketTab({ bracket, players, champion }: {
   players: PlayerEntry[];
   champion: number;
 }) {
+  const [selectedMatch, setSelectedMatch] = useState<BracketMatch | null>(null);
+  const [selectedHero, setSelectedHero] = useState<HeroDetail | null>(null);
+
   // Build slot map: partyIndex (0-based, matches getBracket() raw values) → address
   const slotMap: Record<number, string> = {};
   const nameMap: Record<number, string> = {};
@@ -361,6 +448,17 @@ function BracketTab({ bracket, players, champion }: {
 
   return (
     <div className="space-y-4">
+      {selectedHero && <HeroDetailModal hero={selectedHero} onClose={() => setSelectedHero(null)} />}
+      {selectedMatch && (
+        <MatchupModal
+          match={selectedMatch}
+          players={players}
+          slotMap={slotMap}
+          nameMap={nameMap}
+          onClose={() => setSelectedMatch(null)}
+          onHeroSelect={hero => { setSelectedMatch(null); setSelectedHero(hero); }}
+        />
+      )}
       {!hasAnyPlayer && (
         <p className="text-sm text-muted-foreground text-center py-2">
           No players have registered yet — bracket slots will fill once entries open.
@@ -378,7 +476,7 @@ function BracketTab({ bracket, players, champion }: {
                 style={{ gap: ri === 0 ? '8px' : ri === 1 ? '88px' : '184px', justifyContent: 'space-around', alignItems: 'center' }}
               >
                 {round.map((match, mi) => (
-                  <MatchCard key={mi} match={match} slotMap={slotMap} nameMap={nameMap} roundIndex={ri} matchIndex={mi} />
+                  <MatchCard key={mi} match={match} slotMap={slotMap} nameMap={nameMap} roundIndex={ri} matchIndex={mi} onMatchClick={setSelectedMatch} />
                 ))}
               </div>
             </div>
@@ -732,6 +830,10 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
   const weapon1PAcc   = hero.weapon1?.pAccuracyAtRequirement != null ? (hero.weapon1.pAccuracyAtRequirement / 10).toFixed(1) : null;
   const weapon1MAcc   = hero.weapon1?.mAccuracyAtRequirement != null ? (hero.weapon1.mAccuracyAtRequirement / 10).toFixed(1) : null;
   const hasWeaponScalars = weapon1Attack != null && (hero.weapon1?.pScalarValue1 ?? 0) > 0;
+  const weapon2Attack = hero.weapon2 ? computeWeaponAttack(hero.weapon2) : null;
+  const weapon2Spell  = hero.weapon2 ? computeWeaponSpell(hero.weapon2)  : null;
+  const weapon2PAcc   = hero.weapon2?.pAccuracyAtRequirement != null ? (hero.weapon2.pAccuracyAtRequirement / 10).toFixed(1) : null;
+  const weapon2MAcc   = hero.weapon2?.mAccuracyAtRequirement != null ? (hero.weapon2.mAccuracyAtRequirement / 10).toFixed(1) : null;
 
   const fmt = (v: number, digits = 2) => v.toFixed(digits);
   const pct = (v: number) => (v * 100).toFixed(2) + '%';
@@ -791,7 +893,7 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
                 ['BLK', (totalBlk * 100).toFixed(2) + '%'],
                 ['SBLK', (totalSblk * 100).toFixed(2) + '%'],
                 ['REC', (totalRec * 100).toFixed(2) + '%'],
-                ['SER', pct(profile.SER)],
+                ['SER', (baseSER * 100).toFixed(2) + '%'],
                 ['SPEED', totalSpeed.toString()],
                 ['EVA', (totalEva * 100).toFixed(2) + '%'],
               ].map(([label, val]) => (
@@ -918,8 +1020,8 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
           );
         })()}
 
-        {/* Primary Arms — weapon combat output, shown only when scalar data is available */}
-        {hasWeaponScalars && hero.weapon1 && (
+        {/* Primary Arms — weapon combat output */}
+        {hero.weapon1 && (
           <div className="mt-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Primary Arms</p>
             <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
@@ -940,6 +1042,29 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
             </div>
             {hero.weapon1.itemName && (
               <p className="text-xs text-muted-foreground mt-1">{hero.weapon1.itemName}</p>
+            )}
+          </div>
+        )}
+
+        {/* Secondary Arms — off-hand weapon stats */}
+        {hero.weapon2 && (
+          <div className="mt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Secondary Arms</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+              {[
+                ['Attack',  weapon2Attack?.toString() ?? '—'],
+                ['Spell',   weapon2Spell?.toString()  ?? '—'],
+                ['P.ACC',   weapon2PAcc  != null ? weapon2PAcc + '%'  : '—'],
+                ['M.ACC',   weapon2MAcc  != null ? weapon2MAcc + '%'  : '—'],
+              ].map(([label, val]) => (
+                <div key={label} className="flex justify-between">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="font-mono">{val}</span>
+                </div>
+              ))}
+            </div>
+            {hero.weapon2.itemName && (
+              <p className="text-xs text-muted-foreground mt-1">{hero.weapon2.itemName}</p>
             )}
           </div>
         )}
