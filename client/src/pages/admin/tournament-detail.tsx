@@ -911,39 +911,48 @@ export default function AdminTournamentDetail({ id }: { id: string }) {
 
               {/* Team comparison */}
               {(() => {
-                const hostTeamPhys = compData.hostHeroes.reduce((sum, h) => {
-                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
-                  return sum + p.physDps;
-                }, 0);
-                const hostTeamMag = compData.hostHeroes.reduce((sum, h) => {
-                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
-                  return sum + p.magicDps;
-                }, 0);
-                const hostTeamHeal = compData.hostHeroes.reduce((sum, h) => {
-                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
-                  return sum + p.healValue;
-                }, 0);
-                const hostTeamCc = compData.hostHeroes.reduce((sum, h) => {
-                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
-                  return sum + p.ccCount;
-                }, 0);
+                const hasPassive = (h: { passive1: string | null; passive2: string | null }, name: string) =>
+                  h.passive1 === name || h.passive2 === name;
 
-                const oppTeamPhys = compData.opponentHeroes.reduce((sum, h) => {
-                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
-                  return sum + p.physDps;
-                }, 0);
-                const oppTeamMag = compData.opponentHeroes.reduce((sum, h) => {
-                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
-                  return sum + p.magicDps;
-                }, 0);
-                const oppTeamHeal = compData.opponentHeroes.reduce((sum, h) => {
-                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
-                  return sum + p.healValue;
-                }, 0);
-                const oppTeamCc = compData.opponentHeroes.reduce((sum, h) => {
-                  const p = projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 });
-                  return sum + p.ccCount;
-                }, 0);
+                // Raw per-hero projections
+                const projectAll = (heroes: typeof compData.hostHeroes) =>
+                  heroes.map(h => projectHeroOutput(heroToStats(h), { active1: h.active1, active2: h.active2, passive1: h.passive1, passive2: h.passive2 }));
+
+                const hostProjs = projectAll(compData.hostHeroes);
+                const oppProjs  = projectAll(compData.opponentHeroes);
+
+                const hostTeamPhysRaw = hostProjs.reduce((s, p) => s + p.physDps, 0);
+                const hostTeamMagRaw  = hostProjs.reduce((s, p) => s + p.magicDps, 0);
+                const hostTeamHeal    = hostProjs.reduce((s, p) => s + p.healValue, 0);
+                const hostTeamCc      = hostProjs.reduce((s, p) => s + p.ccCount, 0);
+
+                const oppTeamPhysRaw  = oppProjs.reduce((s, p) => s + p.physDps, 0);
+                const oppTeamMagRaw   = oppProjs.reduce((s, p) => s + p.magicDps, 0);
+                const oppTeamHeal     = oppProjs.reduce((s, p) => s + p.healValue, 0);
+                const oppTeamCc       = oppProjs.reduce((s, p) => s + p.ccCount, 0);
+
+                // Cross-team passive multipliers
+                // Leadership: +5%/hero to own team output, cap +15%
+                // Menacing: -5%/hero applied against opposing team output, cap -15%
+                const hostLeadershipCount = compData.hostHeroes.filter(h => hasPassive(h, 'Leadership')).length;
+                const hostMenacingCount   = compData.hostHeroes.filter(h => hasPassive(h, 'Menacing')).length;
+                const oppLeadershipCount  = compData.opponentHeroes.filter(h => hasPassive(h, 'Leadership')).length;
+                const oppMenacingCount    = compData.opponentHeroes.filter(h => hasPassive(h, 'Menacing')).length;
+
+                const hostLeadershipMult = 1 + Math.min(hostLeadershipCount * 0.05, 0.15);
+                const oppLeadershipMult  = 1 + Math.min(oppLeadershipCount  * 0.05, 0.15);
+                // Opponent's Menacing debuffs host; host's Menacing debuffs opponent
+                const hostEffectiveMult  = hostLeadershipMult * (1 - Math.min(oppMenacingCount  * 0.05, 0.15));
+                const oppEffectiveMult   = oppLeadershipMult  * (1 - Math.min(hostMenacingCount * 0.05, 0.15));
+
+                const hostTeamPhys = hostTeamPhysRaw * hostEffectiveMult;
+                const hostTeamMag  = hostTeamMagRaw  * hostEffectiveMult;
+                const oppTeamPhys  = oppTeamPhysRaw  * oppEffectiveMult;
+                const oppTeamMag   = oppTeamMagRaw   * oppEffectiveMult;
+
+                const hasCrossTeamPassives =
+                  hostLeadershipCount > 0 || hostMenacingCount > 0 ||
+                  oppLeadershipCount  > 0 || oppMenacingCount  > 0;
 
                 const adv = (hostVal: number, oppVal: number) => {
                   if (hostVal === 0 && oppVal === 0) return null;
@@ -1002,6 +1011,26 @@ export default function AdminTournamentDetail({ id }: { id: string }) {
                           ))}
                         </TableBody>
                       </Table>
+                      {hasCrossTeamPassives && (
+                        <div className="mt-2 space-y-0.5">
+                          {(hostLeadershipCount > 0 || oppMenacingCount > 0) && (
+                            <p className="text-[10px] text-muted-foreground">
+                              <span className="text-blue-400">Host</span>
+                              {' '}effective×{hostEffectiveMult.toFixed(2)}
+                              {hostLeadershipCount > 0 && ` (+${hostLeadershipCount * 5}% Leadership)`}
+                              {oppMenacingCount > 0 && ` (−${oppMenacingCount * 5}% opp. Menacing)`}
+                            </p>
+                          )}
+                          {(oppLeadershipCount > 0 || hostMenacingCount > 0) && (
+                            <p className="text-[10px] text-muted-foreground">
+                              <span className="text-orange-400">Opp</span>
+                              {' '}effective×{oppEffectiveMult.toFixed(2)}
+                              {oppLeadershipCount > 0 && ` (+${oppLeadershipCount * 5}% Leadership)`}
+                              {hostMenacingCount > 0 && ` (−${hostMenacingCount * 5}% host Menacing)`}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 );

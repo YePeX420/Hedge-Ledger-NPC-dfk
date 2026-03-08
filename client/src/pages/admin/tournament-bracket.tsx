@@ -133,6 +133,7 @@ interface HeroAccessory extends HeroEquipItem {
   equipmentType: number;
   bonus1: number; bonus2: number; bonus3: number; bonus4: number; bonus5: number;
   bonusScalar1: number; bonusScalar2: number; bonusScalar3: number; bonusScalar4: number; bonusScalar5: number;
+  itemName?: string;
 }
 
 interface HeroPet {
@@ -231,6 +232,8 @@ const RARITY_COLORS: Record<number, string> = {
 const WEAPON_TYPE_NAMES: Record<number, string> = {
   0: 'Staff', 1: 'Sword', 2: 'Axe', 3: 'Bow', 4: 'Dagger',
   5: 'Crossbow', 6: 'Spear', 7: 'Wand', 8: 'Club', 9: 'Fist',
+  10: '2H Sword', 11: '2H Axe', 12: '2H Staff', 13: '1H Wand',
+  14: 'Throwing', 15: 'Shield', 16: 'Tome',
 };
 
 const ARMOR_TYPE_NAMES: Record<number, string> = {
@@ -654,12 +657,11 @@ function EquipSlot({ label, icon, children }: { label: string; icon: React.React
 
 function WeaponSlotDisplay({ weapon, label }: { weapon: HeroWeapon; label: string }) {
   const typeName = WEAPON_TYPE_NAMES[weapon.weaponType] ?? `Type ${weapon.weaponType}`;
+  const displayName = weapon.itemName ?? `${typeName} #${weapon.displayId}`;
   const rarityColor = RARITY_COLORS[weapon.rarity] ?? 'text-muted-foreground';
   return (
     <EquipSlot label={label} icon={<Sword className="w-4 h-4" />}>
-      <span className={`text-xs font-medium ${rarityColor}`}>
-        {typeName} <span className="text-muted-foreground font-normal">#{weapon.displayId}</span>
-      </span>
+      <span className={`text-xs font-medium ${rarityColor}`}>{displayName}</span>
       {weapon.baseDamage > 0 && (
         <span className="text-xs text-muted-foreground ml-2">{weapon.baseDamage} dmg</span>
       )}
@@ -672,12 +674,11 @@ function WeaponSlotDisplay({ weapon, label }: { weapon: HeroWeapon; label: strin
 
 function ArmorSlotDisplay({ armor }: { armor: HeroArmor }) {
   const typeName = ARMOR_TYPE_NAMES[armor.armorType] ?? `Type ${armor.armorType}`;
+  const displayName = armor.itemName ?? `${typeName} Armor #${armor.displayId}`;
   const rarityColor = RARITY_COLORS[armor.rarity] ?? 'text-muted-foreground';
   return (
     <EquipSlot label="Armor" icon={<Shield className="w-4 h-4" />}>
-      <span className={`text-xs font-medium ${rarityColor}`}>
-        {typeName} Armor <span className="text-muted-foreground font-normal">#{armor.displayId}</span>
-      </span>
+      <span className={`text-xs font-medium ${rarityColor}`}>{displayName}</span>
       {armor.rawPhysDefense > 0 && (
         <span className="text-xs text-muted-foreground ml-2">{armor.rawPhysDefense} pDef</span>
       )}
@@ -692,12 +693,11 @@ function ArmorSlotDisplay({ armor }: { armor: HeroArmor }) {
 }
 
 function AccessorySlotDisplay({ item, label }: { item: HeroAccessory; label: string }) {
+  const displayName = item.itemName ?? `Accessory #${item.displayId}`;
   const rarityColor = RARITY_COLORS[item.rarity] ?? 'text-muted-foreground';
   return (
     <EquipSlot label={label} icon={<Zap className="w-4 h-4" />}>
-      <span className={`text-xs font-medium ${rarityColor}`}>
-        Accessory <span className="text-muted-foreground font-normal">#{item.displayId}</span>
-      </span>
+      <span className={`text-xs font-medium ${rarityColor}`}>{displayName}</span>
       <div className="mt-0.5">
         <DurabilityBar current={item.durability} max={item.maxDurability} />
       </div>
@@ -729,8 +729,8 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
   const mDefScalarMax = hero.armor?.mDefScalarMax ?? rawMDef * 2;
   const pDef = rawPDef + Math.min(((hero.armor?.physDefScalar ?? 0) / 100) * stats.END, pDefScalarMax);
   const mDef = rawMDef + Math.min(((hero.armor?.magicDefScalar ?? 0) / 100) * stats.WIS, mDefScalarMax);
-  const pRed = pDef > 0 ? (pDef / (pDef + 100) * 100) : 0;
-  const mRed = mDef > 0 ? (mDef / (mDef + 100) * 100) : 0;
+  const pRed = pDef > 0 ? pDef / 10 : 0;
+  const mRed = mDef > 0 ? mDef / 10 : 0;
 
   // Equipment bonus codes — context-sensitive maps per slot
   const equipBonuses = computeEquipmentBonuses({
@@ -807,7 +807,7 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
     for (const [stat, val, max] of scalars) {
       if (!val || stat == null) continue;
       const statVal = heroStatByCode[stat] ?? 0;
-      atk += Math.min((val / 100) * statVal, max ?? Infinity);
+      atk += Math.min((val / 10) * statVal, max ?? Infinity);
     }
     return Math.round(atk);
   }
@@ -821,7 +821,7 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
     for (const [stat, val, max] of scalars) {
       if (!val || stat == null) continue;
       const statVal = heroStatByCode[stat] ?? 0;
-      spell += Math.min((val / 100) * statVal, max ?? Infinity);
+      spell += Math.min((val / 10) * statVal, max ?? Infinity);
     }
     return Math.round(spell);
   }
