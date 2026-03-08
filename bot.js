@@ -9699,9 +9699,21 @@ async function startAdminWebServer() {
         const STR = h.strength ?? 10, DEX = h.dexterity ?? 10, AGI = h.agility ?? 10;
         const INT = h.intelligence ?? 10, WIS = h.wisdom ?? 10, VIT = h.vitality ?? 10;
         const END = h.endurance ?? 10, LCK = h.luck ?? 10;
+        const level = h.level ?? 1;
         const initMin = 2 * (AGI - LCK / 2);
         const initMax = 2 * (AGI + LCK / 2);
-        return { STR, DEX, AGI, INT, WIS, VIT, END, LCK, initMin, initMax, level: h.level ?? 1,
+        // Armor-derived defense (same formula as HeroDetailModal frontend)
+        const rawPDef = Number(h.armor?.rawPhysDefense ?? 0);
+        const pDefScalar = Number(h.armor?.physDefScalar ?? 0);
+        const rawMDef = Number(h.armor?.rawMagicDefense ?? 0);
+        const mDefScalar = Number(h.armor?.magicDefScalar ?? 0);
+        const pDef = rawPDef + pDefScalar * level;
+        const mDef = rawMDef + mDefScalar * level;
+        const pRed = pDef > 0 ? (pDef / (pDef + 100) * 100) : 0;
+        const mRed = mDef > 0 ? (mDef / (mDef + 100) * 100) : 0;
+        const hasArmor = !!h.armor;
+        return { STR, DEX, AGI, INT, WIS, VIT, END, LCK, initMin, initMax, level,
+          pDef, mDef, pRed, mRed, hasArmor,
           mainClass: h.mainClassStr, id: h.normalizedId || h.id };
       }
       function simInitWinPct(profilesA, profilesB, samples = 4000) {
@@ -9731,13 +9743,22 @@ async function startAdminWebServer() {
       const initPctA = simInitWinPct(profilesA, profilesB);
       const strA = teamScore(profilesA, 'STR'), strB = teamScore(profilesB, 'STR');
       const intA = teamScore(profilesA, 'INT'), intB = teamScore(profilesB, 'INT');
+      const pDefA = teamScore(profilesA, 'pDef'), pDefB = teamScore(profilesB, 'pDef');
+      const mDefA = teamScore(profilesA, 'mDef'), mDefB = teamScore(profilesB, 'mDef');
+      // Fall back to VIT/END proxy when no armor data is available
       const vitA = teamScore(profilesA, 'VIT'), vitB = teamScore(profilesB, 'VIT');
       const endA = teamScore(profilesA, 'END'), endB = teamScore(profilesB, 'END');
+      const armoredA = profilesA.filter(p => p.hasArmor).length;
+      const armoredB = profilesB.filter(p => p.hasArmor).length;
+      const useArmorDef = (armoredA + armoredB) > 0;
       const totalStr = strA + strB || 1, totalInt = intA + intB || 1;
       const totalVit = vitA + vitB || 1, totalEnd = endA + endB || 1;
+      const totalPDef = pDefA + pDefB || 1, totalMDef = mDefA + mDefB || 1;
       const physPctA = strA / totalStr;
       const magPctA = intA / totalInt;
-      const defPctA = ((vitA / totalVit) + (endA / totalEnd)) / 2;
+      const defPctA = useArmorDef
+        ? ((pDefA / totalPDef) + (mDefA / totalMDef)) / 2
+        : ((vitA / totalVit) + (endA / totalEnd)) / 2;
       const winPctA = 0.35 * initPctA + 0.25 * physPctA + 0.2 * magPctA + 0.2 * defPctA;
       const winPctB = 1 - winPctA;
 
@@ -9746,11 +9767,20 @@ async function startAdminWebServer() {
 
       const describeTeam = (profiles, name) => {
         const classes = profiles.map(p => p.mainClass || 'Unknown').join(', ');
-        const avgStr = Math.round(teamScore(profiles, 'STR') / profiles.length);
-        const avgInt = Math.round(teamScore(profiles, 'INT') / profiles.length);
-        const avgVit = Math.round(teamScore(profiles, 'VIT') / profiles.length);
-        const avgAgi = Math.round(teamScore(profiles, 'AGI') / profiles.length);
-        return `${name} [${classes}] Avg STR:${avgStr} INT:${avgInt} VIT:${avgVit} AGI:${avgAgi}`;
+        const n = profiles.length || 1;
+        const avgStr = Math.round(teamScore(profiles, 'STR') / n);
+        const avgInt = Math.round(teamScore(profiles, 'INT') / n);
+        const avgVit = Math.round(teamScore(profiles, 'VIT') / n);
+        const avgAgi = Math.round(teamScore(profiles, 'AGI') / n);
+        const avgPDef = (teamScore(profiles, 'pDef') / n).toFixed(1);
+        const avgMDef = (teamScore(profiles, 'mDef') / n).toFixed(1);
+        const avgPRed = (teamScore(profiles, 'pRed') / n).toFixed(1);
+        const avgMRed = (teamScore(profiles, 'mRed') / n).toFixed(1);
+        const armoredCount = profiles.filter(p => p.hasArmor).length;
+        const defStr = armoredCount > 0
+          ? ` P.DEF:${avgPDef}(${avgPRed}%dmgRed) M.DEF:${avgMDef}(${avgMRed}%dmgRed)`
+          : ' (no armor data)';
+        return `${name} [${classes}] Avg STR:${avgStr} INT:${avgInt} VIT:${avgVit} AGI:${avgAgi}${defStr}`;
       };
 
       const prompt = `You are a DeFi Kingdoms PvP combat analyst. Analyze this bracket tournament matchup and give win probabilities.\n\nTeam A: ${describeTeam(profilesA, nameA)}\nTeam B: ${describeTeam(profilesB, nameB)}\n\nFormula-estimated initiative win% for A: ${Math.round(initPctA * 100)}%\nOverall formula win estimate: A ${Math.round(winPctA * 100)}% vs B ${Math.round(winPctB * 100)}%\n\nProvide:\n1. Your assessed win probability for each team (must sum to 100%)\n2. Key matchup factors (2-3 sentences)\n3. Which team you favor and why\n\nRespond in JSON: { "winPctA": number, "winPctB": number, "analysis": "string" }`;
@@ -9779,6 +9809,7 @@ async function startAdminWebServer() {
         winPctA: finalWinPctA,
         winPctB: finalWinPctB,
         initPctA: Math.round(initPctA * 100),
+        defSource: useArmorDef ? 'armor' : 'vit_end_proxy',
         analysis: aiResult?.analysis ?? `Formula estimate: ${nameA} ${Math.round(winPctA * 100)}% vs ${nameB} ${Math.round(winPctB * 100)}%`,
         teamA: { name: nameA, address: playerA.address, heroes: profilesA },
         teamB: { name: nameB, address: playerB.address, heroes: profilesB },

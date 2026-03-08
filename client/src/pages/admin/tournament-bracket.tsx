@@ -156,13 +156,24 @@ interface PlayerEntry {
   playerName: string | null;
 }
 
+interface AiHeroProfile {
+  id: string | number;
+  mainClass: string;
+  level: number;
+  STR: number; DEX: number; AGI: number; INT: number;
+  WIS: number; VIT: number; END: number; LCK: number;
+  pDef: number; mDef: number; pRed: number; mRed: number;
+  hasArmor: boolean;
+}
+
 interface AiMatchupResult {
   winPctA: number;
   winPctB: number;
   initPctA: number;
+  defSource: 'armor' | 'vit_end_proxy';
   analysis: string;
-  teamA: { name: string; address: string };
-  teamB: { name: string; address: string };
+  teamA: { name: string; address: string; heroes: AiHeroProfile[] };
+  teamB: { name: string; address: string; heroes: AiHeroProfile[] };
 }
 
 interface BracketDetailResponse {
@@ -1137,10 +1148,44 @@ function AiAnalysisTab({ tournamentId, bracket, players }: {
                             style={{ width: `${result.winPctB}%` }}
                           />
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          Initiative advantage: {nameA} {result.initPctA}% / {nameB} {100 - result.initPctA}%
-                        </p>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <p className="text-xs text-muted-foreground">
+                            Initiative: {nameA} {result.initPctA}% / {nameB} {100 - result.initPctA}%
+                          </p>
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${result.defSource === 'armor' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-500'}`}>
+                            {result.defSource === 'armor' ? 'Armor defense data' : 'No armor — VIT/END proxy'}
+                          </span>
+                        </div>
                       </div>
+
+                      {/* Per-hero defense breakdown */}
+                      {result.defSource === 'armor' && (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {([
+                            { label: nameA, heroes: result.teamA?.heroes ?? [] },
+                            { label: nameB, heroes: result.teamB?.heroes ?? [] },
+                          ] as { label: string; heroes: AiHeroProfile[] }[]).map(({ label, heroes }) => (
+                            <div key={label} className="rounded-md bg-muted/20 p-2.5 space-y-1.5">
+                              <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+                              {heroes.map((h, hi) => (
+                                <div key={hi} className="text-xs flex items-center gap-2 flex-wrap">
+                                  <span className="text-muted-foreground shrink-0">{h.mainClass} Lv{h.level}</span>
+                                  {h.hasArmor ? (
+                                    <>
+                                      <span>P.DEF <span className="font-mono">{h.pDef.toFixed(1)}</span></span>
+                                      <span className="text-muted-foreground">({h.pRed.toFixed(1)}% red)</span>
+                                      <span>M.DEF <span className="font-mono">{h.mDef.toFixed(1)}</span></span>
+                                      <span className="text-muted-foreground">({h.mRed.toFixed(1)}% red)</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-muted-foreground italic">no armor</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
                       {/* AI analysis */}
                       <div className="rounded-md bg-muted/30 p-3">
