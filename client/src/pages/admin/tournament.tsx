@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient } from '@/lib/queryClient';
@@ -740,9 +740,6 @@ const STATE_BADGE: Record<string, { label: string; className: string }> = {
 function ScheduledTournamentsTab() {
   const [, navigate] = useLocation();
   const [showCompleted, setShowCompleted] = useState(false);
-  const [completedBefore, setCompletedBefore] = useState<number | null>(null);
-  const [allCompleted, setAllCompleted] = useState<ScheduledTournament[]>([]);
-  const [completedAnchor, setCompletedAnchor] = useState<number | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['/api/admin/tournament/scheduled'],
@@ -754,35 +751,24 @@ function ScheduledTournamentsTab() {
     refetchInterval: 30_000,
   });
 
-  const completedUrl = completedBefore
-    ? `/api/admin/tournament/completed?before=${completedBefore}&count=30`
-    : '/api/admin/tournament/completed?count=30';
-
+  // The completed endpoint reads from an in-memory transition tracker seeded by the
+  // scheduled polls. No pagination needed — the tracker rarely accumulates > 100 entries.
   const { data: completedData, isLoading: completedLoading } = useQuery({
-    queryKey: ['/api/admin/tournament/completed', completedBefore],
+    queryKey: ['/api/admin/tournament/completed'],
     queryFn: async () => {
-      const res = await fetch(completedUrl);
+      const res = await fetch('/api/admin/tournament/completed?count=100');
       if (!res.ok) throw new Error('Failed to load completed tournaments');
-      return res.json() as Promise<{ ok: boolean; tournaments: ScheduledTournament[]; count: number; anchor: number }>;
+      return res.json() as Promise<{
+        ok: boolean;
+        tournaments: ScheduledTournament[];
+        count: number;
+        total: number;
+        tracking: boolean;
+      }>;
     },
     enabled: showCompleted,
-    staleTime: 30 * 60 * 1000,
+    refetchInterval: showCompleted ? 60_000 : false, // refresh every minute while open
   });
-
-  // Accumulate pages as user clicks "Load More"
-  const prevLoadedRef = useRef<string>('');
-  useEffect(() => {
-    if (!completedData?.tournaments) return;
-    const key = completedUrl;
-    if (prevLoadedRef.current === key) return;
-    prevLoadedRef.current = key;
-    setAllCompleted(prev => {
-      const existingIds = new Set(prev.map(t => t.id));
-      const newOnes = completedData.tournaments.filter(t => !existingIds.has(t.id));
-      return [...prev, ...newOnes];
-    });
-    if (completedData.anchor != null) setCompletedAnchor(completedData.anchor);
-  }, [completedData]);
 
   const tournaments = data?.tournaments || [];
   const liveTournaments = tournaments.filter(t => t.stateLabel === 'in_progress');
@@ -889,13 +875,8 @@ function ScheduledTournamentsTab() {
     </div>
   );
 
-  const handleLoadMore = () => {
-    if (allCompleted.length === 0) return;
-    const oldestId = Math.min(...allCompleted.map(t => parseInt(t.id)).filter(n => !isNaN(n)));
-    setCompletedBefore(oldestId);
-  };
-
-  const hasMoreCompleted = allCompleted.length > 0 && allCompleted.length % 30 === 0;
+  const completedTournaments = completedData?.tournaments ?? [];
+  const isTracking = completedData?.tracking ?? false;
 
   return (
     <div className="space-y-6">
@@ -957,46 +938,33 @@ function ScheduledTournamentsTab() {
 
         {showCompleted && (
           <div className="mt-4 space-y-4" data-testid="section-completed-tournaments">
-            {completedLoading && allCompleted.length === 0 ? (
+            {completedLoading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[1,2,3,4,5,6].map(i => (
                   <Card key={i} className="animate-pulse"><CardContent className="h-36 p-4" /></Card>
                 ))}
               </div>
-            ) : allCompleted.length === 0 ? (
+            ) : completedTournaments.length === 0 ? (
               <Card>
                 <CardContent className="py-10 text-center">
-                  <p className="text-sm text-muted-foreground">No completed tournaments found in this ID range.</p>
+                  <History className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm font-medium">No completed tournaments yet</p>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
+                    Tournaments will appear here automatically the moment they finish.
+                    {!isTracking && ' (Waiting for first poll…)'}
+                  </p>
                 </CardContent>
               </Card>
             ) : (
               <>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-muted-foreground/60" />
-                  <span className="text-sm font-medium">Completed</span>
-                  <span className="text-xs text-muted-foreground">({allCompleted.length} shown)</span>
+                  <span className="text-sm font-medium">Completed this session</span>
+                  <span className="text-xs text-muted-foreground">({completedTournaments.length})</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {allCompleted.map(t => renderCard(t, false))}
+                  {completedTournaments.map(t => renderCard(t, false))}
                 </div>
-                {hasMoreCompleted && (
-                  <div className="flex justify-center pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      data-testid="button-load-more-completed"
-                      onClick={handleLoadMore}
-                      disabled={completedLoading}
-                    >
-                      {completedLoading ? (
-                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                      ) : (
-                        <ChevronDown className="w-3.5 h-3.5 mr-1.5" />
-                      )}
-                      Load More
-                    </Button>
-                  </div>
-                )}
               </>
             )}
           </div>

@@ -9385,12 +9385,53 @@ async function startAdminWebServer() {
     }
   });
 
+  // ── Completed-tournament transition tracker ────────────────────────────────
+  // DFK zeroes out tournament storage on-chain after completion, so we cannot
+  // retroactively query completed data. Instead we watch the active list on
+  // every poll and capture data the moment a tournament disappears.
+  const _trackerPrevIds   = new Set();   // IDs present on the previous poll
+  const _trackerLastData  = new Map();   // id → tournament object (latest snapshot)
+  const _trackerCompleted = [];          // {tournament, completedAt}, newest first
+  const TRACKER_MAX       = 200;         // remember at most this many completed events
+
+  function _trackTournamentTransitions(activeTournaments) {
+    const currentIds = new Set(activeTournaments.map(t => t.id));
+
+    // Always refresh the latest snapshot for each active tournament
+    activeTournaments.forEach(t => _trackerLastData.set(t.id, t));
+
+    if (_trackerPrevIds.size === 0) {
+      // First call — just seed the "known active" set; nothing has completed yet
+      currentIds.forEach(id => _trackerPrevIds.add(id));
+      return;
+    }
+
+    // Detect IDs that were active before but are no longer returned
+    for (const id of _trackerPrevIds) {
+      if (!currentIds.has(id)) {
+        const lastData = _trackerLastData.get(id);
+        if (lastData) {
+          // Preserve "cancelled" if it was already cancelled, otherwise call it completed
+          const stateLabel = lastData.stateLabel === 'cancelled' ? 'cancelled' : 'completed';
+          _trackerCompleted.unshift({ ...lastData, stateLabel, completedAt: Date.now() });
+          if (_trackerCompleted.length > TRACKER_MAX) _trackerCompleted.pop();
+          console.log(`[Tournament Tracker] Tournament ${id} (${lastData.name}) marked as ${stateLabel}`);
+        }
+        _trackerPrevIds.delete(id);
+      }
+    }
+    // Add any brand-new IDs for the next diff
+    currentIds.forEach(id => _trackerPrevIds.add(id));
+  }
+
   // GET /api/admin/tournament/scheduled — DFK bracket tournaments from internal API
   app.get("/api/admin/tournament/scheduled", isAdmin, async (req, res) => {
     try {
       const forceRefresh = req.query.refresh === '1';
       const { fetchActiveTournaments } = await import('./src/services/dfkTournamentApi.js');
       const tournaments = await fetchActiveTournaments(forceRefresh);
+      // Feed the transition tracker on every poll (no-op when data is cached)
+      _trackTournamentTransitions(tournaments);
       res.json({ ok: true, tournaments, count: tournaments.length });
     } catch (err) {
       console.error('[Scheduled Tournaments] Error:', err.message);
@@ -9398,150 +9439,21 @@ async function startAdminWebServer() {
     }
   });
 
-  // GET /api/admin/tournament/completed — recently completed/cancelled bracket tournaments
-  // Completed tournaments are removed from getActiveTournamentIds() on-chain.
-  // Strategy: scan a window of IDs just below the current minimum active ID.
-  {
-    const _completedCache = new Map(); // key: `${before}_${count}` → { data, ts }
-    const COMPLETED_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min — history doesn't change
-
-    const COMPLETED_ABI = [
-      'function getTournament(uint256 _tournamentId) view returns (tuple(uint256 tournamentStartTime, uint256 rounds, uint256 roundLength, uint256 setupTime, uint256 shotClockDuration, uint256 bankedShotClockTime, uint256 shotClockPenaltyMode, uint256 shotClockForfeitCount, uint256 suddenDeathMode, uint256 bestOf, uint256 entrants, uint256 entrantsClaimed, uint256 durabilityPerRound, uint256 lossExperience, uint256 winExperience, uint256 currentRound, uint256 remainingBoutsInRound, uint8 tournamentType, uint8 state, bool autoRandom, bool tournamentSponsored, bool tournamentHosted))',
-      'function getTournamentEntrySettings(uint256 _tournamentId) view returns (tuple(uint256 entryFee, uint256 entryFeeDecimals, uint256 entryPeriodStart, uint256 minRank, uint256 maxRank, uint256 minRarity, uint256 maxRarity, uint256 battleInventory, uint256 battleBudget, uint256 minHeroStatScore, uint256 maxHeroStatScore, uint256 minTeamStatScore, uint256 maxTeamStatScore, uint256 minLevel, uint256 maxLevel, uint256 excludedClasses, uint256 excludedConsumables, uint256 excludedOrigin, uint256 partyCount, uint256 maxTraitTier, uint256 maxHeroTraitScore, uint256 maxTeamTraitScore, bool allUniqueClasses, bool noTripleClasses, bool onlyPJ, bool requiresQualifierTokens, bool requiresEquipmentQualifiers, bool requiresStateQualifiers, bool onlyBannermen, bool requiresEquipmentRestrictions))',
-      'function getTournamentHostData(uint256 _tournamentId) view returns (tuple(address hostAddress, uint8 tier, uint256 imageId, uint256 backgroundId))',
-    ];
-    const COMPLETED_METIS_RPC = 'https://andromeda.metis.io/?owner=1088';
-    const COMPLETED_PVP_DIAMOND = '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B';
-    const COMPLETED_TYPE_LABELS = { 0:'Open Battle',1:'Off-Season Tournament',2:'Standard Open Battle',3:'Glory Tournament',4:'Veteran Tournament',5:'Champion Tournament',6:'Elite Invitational',7:'Grand Prix' };
-    const COMPLETED_HOST_TIER_LABELS = { 0:'Basic',1:'Silver',2:'Gold',3:'Platinum',4:'Diamond',5:'Champion' };
-    // States that indicate a tournament is still live on-chain (skip these)
-    const COMPLETED_ACTIVE_STATES = new Set([1, 2, 3, 5]);
-
-    app.get('/api/admin/tournament/completed', isAdmin, async (req, res) => {
-      try {
-        const count = Math.min(60, Math.max(1, parseInt(req.query.count) || 30));
-        let before = parseInt(req.query.before) || 0;
-
-        // Auto-detect anchor: use min active tournament ID, so we scan just below it
-        if (!before) {
-          try {
-            const { fetchActiveTournaments } = await import('./src/services/dfkTournamentApi.js');
-            const active = await fetchActiveTournaments();
-            if (active.length > 0) {
-              before = Math.min(...active.map(t => parseInt(t.id)));
-            }
-          } catch (_) { /* ignore, use fallback */ }
-          if (!before) before = 2200; // reasonable fallback for current era
-        }
-
-        const cacheKey = `${before}_${count}`;
-        const now = Date.now();
-        const cached = _completedCache.get(cacheKey);
-        if (cached && (now - cached.ts) < COMPLETED_CACHE_TTL_MS) {
-          return res.json({ ok: true, tournaments: cached.data, count: cached.data.length, anchor: before });
-        }
-
-        const { ethers } = await import('ethers');
-        const provider = new ethers.JsonRpcProvider(COMPLETED_METIS_RPC);
-        const contract = new ethers.Contract(COMPLETED_PVP_DIAMOND, COMPLETED_ABI, provider);
-
-        // Build ID range: [before-1, before-2, ..., before-count]
-        const ids = [];
-        for (let i = 1; i <= count; i++) {
-          const id = before - i;
-          if (id > 0) ids.push(id);
-        }
-
-        const nowSec = Math.floor(Date.now() / 1000);
-        const results = await Promise.all(
-          ids.map(async (id) => {
-            try {
-              const [t, e, h] = await Promise.all([
-                contract.getTournament(id),
-                contract.getTournamentEntrySettings(id),
-                contract.getTournamentHostData(id),
-              ]);
-
-              const onChainState = Number(t.state);
-              const entryPeriodStart = Number(e.entryPeriodStart);
-              const tournamentStartTime = Number(t.tournamentStartTime);
-              const entrantsNum = Number(t.entrants);
-              const claimedNum = Number(t.entrantsClaimed);
-              const tournamentType = Number(t.tournamentType);
-              const currentRound = Number(t.currentRound);
-              const rounds = Number(t.rounds);
-              const isHosted = Boolean(t.tournamentHosted);
-
-              // If still active, skip (shouldn't happen, but guard against stale active IDs)
-              if (COMPLETED_ACTIVE_STATES.has(onChainState)) return null;
-
-              // Tournament that hasn't started (zero start time = likely doesn't exist yet)
-              if (!tournamentStartTime) return null;
-
-              const stateLabel = onChainState === 4 ? 'cancelled' : 'completed';
-
-              const typeName = COMPLETED_TYPE_LABELS[tournamentType] ?? `Tournament Type ${tournamentType}`;
-              const name = `${typeName} #${id}`;
-              const hostAddress = h.hostAddress !== '0x0000000000000000000000000000000000000000' ? h.hostAddress : null;
-              const hostTier = Number(h.tier);
-              const hostedBy = isHosted && hostAddress
-                ? `${COMPLETED_HOST_TIER_LABELS[hostTier] ?? 'Hosted'} Host (${hostAddress.slice(0, 6)}...${hostAddress.slice(-4)})`
-                : null;
-
-              const partyCount = Number(e.partyCount);
-              const format = partyCount === 1 ? '1v1' : partyCount === 3 ? '3v3' : partyCount === 6 ? '6v6' : '—';
-
-              return {
-                id: String(id),
-                name,
-                tournamentType,
-                tournamentState: onChainState,
-                stateLabel,
-                tournamentStartTime,
-                entryPeriodStart,
-                entriesCloseInSeconds: null,
-                entriesOpenInSeconds: null,
-                entrants: entrantsNum,
-                entrantsClaimed: claimedNum,
-                maxEntrants: entrantsNum || 8,
-                partyCount,
-                format,
-                realm: 'sd',
-                minLevel: Number(e.minLevel) || null,
-                maxLevel: Number(e.maxLevel) || null,
-                minRarity: Number(e.minRarity) || null,
-                allUniqueClasses: Boolean(e.allUniqueClasses),
-                noTripleClasses: Boolean(e.noTripleClasses),
-                onlyPJ: Boolean(e.onlyPJ),
-                onlyBannermen: Boolean(e.onlyBannermen),
-                gloryBout: false,
-                rounds: rounds || null,
-                bestOf: Number(t.bestOf) || null,
-                currentRound: currentRound || null,
-                tournamentHosted: isHosted,
-                hostAddress,
-                hostTier,
-                hostedBy,
-              };
-            } catch (_) {
-              return null; // ID doesn't exist or RPC error — skip silently
-            }
-          })
-        );
-
-        const tournaments = results
-          .filter(t => t !== null)
-          .sort((a, b) => (b.tournamentStartTime || 0) - (a.tournamentStartTime || 0));
-
-        _completedCache.set(cacheKey, { data: tournaments, ts: now });
-        console.log(`[Completed Tournaments] Scanned ${ids.length} IDs (before=${before}), found ${tournaments.length}`);
-        res.json({ ok: true, tournaments, count: tournaments.length, anchor: before });
-      } catch (err) {
-        console.error('[Completed Tournaments] Error:', err.message);
-        res.status(500).json({ ok: false, error: err.message });
-      }
+  // GET /api/admin/tournament/completed — tournaments captured by the transition tracker.
+  // DFK zeroes out tournament storage on-chain after completion so we cannot
+  // retroactively fetch completed data. The tracker above detects completions live.
+  app.get('/api/admin/tournament/completed', isAdmin, (req, res) => {
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.count) || 50));
+    const page  = Math.max(0, parseInt(req.query.page) || 0);
+    const slice = _trackerCompleted.slice(page * limit, (page + 1) * limit);
+    res.json({
+      ok: true,
+      tournaments: slice,
+      count: slice.length,
+      total: _trackerCompleted.length,
+      tracking: _trackerPrevIds.size > 0,
     });
-  }
+  });
 
   // GET /api/admin/tournament/bracket/:id — full bracket detail (on-chain)
   {
