@@ -15070,6 +15070,10 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
         return raw > dimCap ? dimCap + (raw - dimCap) / 3 : raw;
       }
 
+      // Per-hero passive traitId weights — excludes Leadership/Menacing (handled cross-team)
+      const PASSIVE_SURV_SCORES = { 28: 0.15, 25: 0.06, 1: 0.02 };  // Second Life, Last Stand, Clutch
+      const PASSIVE_DPS_SCORES  = { 19: 0.03, 24: 0.04, 0: 0.02, 2: 0.01 }; // Toxic, Giant Slayer, Duelist, Foresight
+
       function heroProfile(h, avgLevel) {
         const STR = h.strength ?? 10, DEX = h.dexterity ?? 10, AGI = h.agility ?? 10;
         const INT = h.intelligence ?? 10, WIS = h.wisdom ?? 10, VIT = h.vitality ?? 10;
@@ -15080,7 +15084,33 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
         const atkStat = STR;
         const magStat = INT;
         const focus = 0.6 * WIS + 0.4 * DEX;
-        return { STR, DEX, AGI, INT, WIS, VIT, END, LCK, initMin, initMax, initExpected, atkStat, magStat, focus };
+
+        // Survivability components
+        const hp   = h.hp ?? (100 + 10 * VIT);   // real HP field; fallback from VIT
+        const pdef = END * 0.5;                    // base physical defense proxy
+        const eva  = AGI / 200;                    // evasion fraction (0–1)
+
+        // Passive trait ids
+        const p1 = h.passive1 ?? h.passive_1 ?? -1;
+        const p2 = h.passive2 ?? h.passive_2 ?? -1;
+
+        // Cross-team flags — consumed by team-level bonus functions
+        const hasLeadership = p1 === 16 || p2 === 16;
+        const hasMenacing   = p1 === 18 || p2 === 18;
+
+        // Per-hero scores (not cross-team effects)
+        const survivabilityScore = (PASSIVE_SURV_SCORES[p1] ?? 0) + (PASSIVE_SURV_SCORES[p2] ?? 0);
+        const dpsScore           = (PASSIVE_DPS_SCORES[p1]  ?? 0) + (PASSIVE_DPS_SCORES[p2]  ?? 0);
+
+        return {
+          STR, DEX, AGI, INT, WIS, VIT, END, LCK,
+          initMin, initMax, initExpected,
+          atkStat, magStat, focus,
+          hp, pdef, eva,
+          hasLeadership, hasMenacing,
+          survivabilityScore, dpsScore,
+          passive1: p1, passive2: p2
+        };
       }
 
       function simInitWinPct(profilesA, profilesB, samples = 5000) {
@@ -15094,12 +15124,33 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
         return wins / samples;
       }
 
+      // Raw team DPS — base stat contribution
       function teamDps(profiles) {
-        return profiles.reduce((sum, p) => sum + Math.min(p.atkStat, 20) + 10, 0);
+        return profiles.reduce((sum, p) => sum + p.atkStat + 0.3 * p.magStat, 0);
       }
 
-      function teamMagDps(profiles) {
-        return profiles.reduce((sum, p) => sum + Math.min(p.magStat, 20) + 8, 0);
+      // Leadership: +5% own team DPS per hero with Leadership, capped at +15%
+      function teamLeadershipBonus(profiles) {
+        const count = profiles.filter(p => p.hasLeadership).length;
+        return Math.min(count * 0.05, 0.15);
+      }
+
+      // Menacing: -5% ENEMY team DPS per hero with Menacing, capped at -15%
+      // Pass in the team that HAS Menacing; the result is applied against their opponents.
+      function teamMenacingDebuff(profiles) {
+        const count = profiles.filter(p => p.hasMenacing).length;
+        return Math.min(count * 0.05, 0.15);
+      }
+
+      // Survivability: HP + defense proxy + evasion + passive resilience bonus
+      function teamSurvivability(profiles) {
+        return profiles.reduce((sum, p) =>
+          sum + (p.hp + p.pdef * 5 + p.eva * 200) * (1 + p.survivabilityScore), 0);
+      }
+
+      // Per-hero passive DPS weight (Toxic, Giant Slayer, Duelist, Foresight EVA)
+      function teamPassiveDpsScore(profiles) {
+        return profiles.reduce((sum, p) => sum + p.dpsScore, 0);
       }
 
       const avgLevel = placements.length > 0
@@ -15115,14 +15166,16 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
         hostProfiles = rawData.hostHeroes.map(h => heroProfile({
           strength: h.strength, dexterity: h.dexterity, agility: h.agility,
           intelligence: h.intelligence, wisdom: h.wisdom, vitality: h.vitality,
-          endurance: h.endurance, luck: h.luck, level: h.level
+          endurance: h.endurance, luck: h.luck, level: h.level,
+          passive1: h.passive1, passive2: h.passive2, hp: h.hp
         }, avgLevel));
       }
       if (oppProfiles.length === 0 && rawData?.opponentHeroes) {
         oppProfiles = rawData.opponentHeroes.map(h => heroProfile({
           strength: h.strength, dexterity: h.dexterity, agility: h.agility,
           intelligence: h.intelligence, wisdom: h.wisdom, vitality: h.vitality,
-          endurance: h.endurance, luck: h.luck, level: h.level
+          endurance: h.endurance, luck: h.luck, level: h.level,
+          passive1: h.passive1, passive2: h.passive2, hp: h.hp
         }, avgLevel));
       }
 
@@ -15130,16 +15183,41 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
         return res.json({ ok: true, data: null, reason: 'Insufficient hero snapshot data for this bout' });
       }
 
+      // ── Initiative (30%) ──────────────────────────────────────────────────────
       const initPctHost = simInitWinPct(hostProfiles, oppProfiles);
-      const hostDps = teamDps(hostProfiles);
-      const oppDps = teamDps(oppProfiles);
-      const hostMagDps = teamMagDps(hostProfiles);
-      const oppMagDps = teamMagDps(oppProfiles);
 
-      // Composite win probability: 50% initiative, 50% DPS advantage
-      const totalDps = hostDps + oppDps || 1;
-      const dpsPctHost = hostDps / totalDps;
-      const hostWinPct = 0.5 * initPctHost + 0.5 * dpsPctHost;
+      // ── Cross-team Leadership / Menacing modifiers ───────────────────────────
+      const hostLeadershipBonus = teamLeadershipBonus(hostProfiles);  // boosts host DPS
+      const oppLeadershipBonus  = teamLeadershipBonus(oppProfiles);   // boosts opp DPS
+      const hostMenacingDebuff  = teamMenacingDebuff(hostProfiles);   // reduces opp DPS
+      const oppMenacingDebuff   = teamMenacingDebuff(oppProfiles);    // reduces host DPS
+
+      // ── Effective DPS (35%) ───────────────────────────────────────────────────
+      const hostRawDps = teamDps(hostProfiles);
+      const oppRawDps  = teamDps(oppProfiles);
+      const hostEffDps = hostRawDps * (1 + hostLeadershipBonus) * (1 - oppMenacingDebuff);
+      const oppEffDps  = oppRawDps  * (1 + oppLeadershipBonus)  * (1 - hostMenacingDebuff);
+      const totalEffDps = hostEffDps + oppEffDps || 1;
+      const dpsPctHost = hostEffDps / totalEffDps;
+
+      // ── Survivability (25%) ───────────────────────────────────────────────────
+      const hostSurv = teamSurvivability(hostProfiles);
+      const oppSurv  = teamSurvivability(oppProfiles);
+      const totalSurv = hostSurv + oppSurv || 1;
+      const survPctHost = hostSurv / totalSurv;
+
+      // ── Per-hero passive DPS score (10%) ──────────────────────────────────────
+      const hostPassiveDps = teamPassiveDpsScore(hostProfiles);
+      const oppPassiveDps  = teamPassiveDpsScore(oppProfiles);
+      const totalPassiveDps = hostPassiveDps + oppPassiveDps || 1;
+      const passiveDpsPctHost = hostPassiveDps / totalPassiveDps;
+
+      // ── Composite win probability ─────────────────────────────────────────────
+      // Weights: 30% initiative, 35% effective DPS, 25% survivability, 10% passive DPS
+      const hostWinPct = 0.30 * initPctHost
+                       + 0.35 * dpsPctHost
+                       + 0.25 * survPctHost
+                       + 0.10 * passiveDpsPctHost;
 
       const predictedWinner = hostWinPct >= 0.5 ? 'host' : 'opponent';
       const actualWinner = tournament.winnerPlayer
@@ -15152,22 +15230,37 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
           hostWinPct: Math.round(hostWinPct * 1000) / 10,
           opponentWinPct: Math.round((1 - hostWinPct) * 1000) / 10,
           initPctHost: Math.round(initPctHost * 1000) / 10,
-          hostDps: Math.round(hostDps),
-          opponentDps: Math.round(oppDps),
+          hostRawDps: Math.round(hostRawDps),
+          opponentRawDps: Math.round(oppRawDps),
+          hostEffDps: Math.round(hostEffDps),
+          opponentEffDps: Math.round(oppEffDps),
+          hostLeadershipBonus: Math.round(hostLeadershipBonus * 1000) / 10,
+          oppLeadershipBonus:  Math.round(oppLeadershipBonus  * 1000) / 10,
+          hostMenacingDebuff:  Math.round(hostMenacingDebuff  * 1000) / 10,
+          oppMenacingDebuff:   Math.round(oppMenacingDebuff   * 1000) / 10,
+          hostSurvivability: Math.round(hostSurv),
+          opponentSurvivability: Math.round(oppSurv),
           predictedWinner,
           actualWinner,
           correct: actualWinner ? predictedWinner === actualWinner : null,
+          weights: { initiative: 30, effectiveDps: 35, survivability: 25, passiveDps: 10 },
           hostProfiles: hostProfiles.map((p, i) => ({
             heroId: hostHeroes[i]?.heroId,
             class: hostHeroes[i]?.mainClass,
             level: hostHeroes[i]?.level,
-            ...p
+            hp: p.hp, pdef: Math.round(p.pdef), eva: Math.round(p.eva * 1000) / 10,
+            hasLeadership: p.hasLeadership, hasMenacing: p.hasMenacing,
+            survivabilityScore: p.survivabilityScore, dpsScore: p.dpsScore,
+            STR: p.STR, AGI: p.AGI, INT: p.INT, END: p.END, LCK: p.LCK
           })),
           opponentProfiles: oppProfiles.map((p, i) => ({
             heroId: opponentHeroes[i]?.heroId,
             class: opponentHeroes[i]?.mainClass,
             level: opponentHeroes[i]?.level,
-            ...p
+            hp: p.hp, pdef: Math.round(p.pdef), eva: Math.round(p.eva * 1000) / 10,
+            hasLeadership: p.hasLeadership, hasMenacing: p.hasMenacing,
+            survivabilityScore: p.survivabilityScore, dpsScore: p.dpsScore,
+            STR: p.STR, AGI: p.AGI, INT: p.INT, END: p.END, LCK: p.LCK
           }))
         }
       });

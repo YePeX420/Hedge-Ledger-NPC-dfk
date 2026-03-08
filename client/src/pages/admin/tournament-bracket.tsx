@@ -10,7 +10,7 @@ import { useState } from 'react';
 import {
   ACTIVE_SKILLS, PASSIVE_SKILLS,
   ABILITY_RARITY_COLORS, ABILITY_RARITY_BORDER,
-  getActiveSkill, getPassiveSkill,
+  getActiveSkill, getPassiveSkill, getPassiveEffects,
 } from '@/data/dfk-abilities';
 import {
   computeHeroCombatProfile,
@@ -646,9 +646,18 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
   // Pet bonuses — decoded from star-encoded combatBonus rawId
   const petBonuses = computePetBonuses(hero.pet);
 
-  // EVA — formula base + armor evasion field + equipment evasion bonus codes + pet (Slippery)
+  // Passive static bonuses — Foresight (+3% EVA), Duelist (+2.5% BLK/SBLK),
+  // Headstrong/ClearVision/Fearless/Chatterbox/Stalwart (+2.5% SER each)
+  const passiveEff1 = getPassiveEffects(hero.passive1);
+  const passiveEff2 = getPassiveEffects(hero.passive2);
+  const passiveEva  = (passiveEff1?.evaBonus  ?? 0) + (passiveEff2?.evaBonus  ?? 0);
+  const passiveBlk  = (passiveEff1?.blkBonus  ?? 0) + (passiveEff2?.blkBonus  ?? 0);
+  const passiveSblk = (passiveEff1?.sblkBonus ?? 0) + (passiveEff2?.sblkBonus ?? 0);
+  const passiveSer  = (passiveEff1?.serBonus  ?? 0) + (passiveEff2?.serBonus  ?? 0);
+
+  // EVA — formula base + armor evasion field + equipment evasion bonus codes + pet (Slippery) + passive (Foresight)
   const armorEva = (hero.armor?.evasion ?? 0) / 1_000_000;
-  const totalEva = profile.EVA + armorEva + equipBonuses.evasion + (petBonuses.evasion ?? 0);
+  const totalEva = profile.EVA + armorEva + equipBonuses.evasion + (petBonuses.evasion ?? 0) + passiveEva;
 
   // SPEED — formula base + decoded weapon speed modifiers + equipment speed bonus codes + pet (Blur)
   // Blur gives a % of base speed, not a flat addition
@@ -658,10 +667,10 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
   const petSpeedMod = Math.round((petBonuses.speed ?? 0) * profile.Speed);
   const totalSpeed = Math.round(profile.Speed) + weaponSpeedMod + equipSpeedMod + petSpeedMod;
 
-  // BLK / SBLK / REC — formula base + equipment bonus codes + pet
-  const totalBlk = profile.Block + equipBonuses.blkChance + (petBonuses.blkChance ?? 0);
-  const totalSblk = profile.SpellBlock + equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0);
-  const totalRec = profile.Recovery + equipBonuses.recoveryChance + (petBonuses.recoveryChance ?? 0);
+  // BLK / SBLK / REC — formula base + equipment bonus codes + pet + passive (Duelist)
+  const totalBlk  = profile.Block      + equipBonuses.blkChance      + (petBonuses.blkChance      ?? 0) + passiveBlk;
+  const totalSblk = profile.SpellBlock + equipBonuses.sblkChance     + (petBonuses.sblkChance     ?? 0) + passiveSblk;
+  const totalRec  = profile.Recovery   + equipBonuses.recoveryChance + (petBonuses.recoveryChance ?? 0);
 
   // Weapon attack computation — stat code: 0=STR,1=AGI,2=DEX,3=INT,4=WIS,5=VIT,6=END,7=LCK
   const heroStatByCode: Record<number, number> = {
@@ -819,12 +828,22 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
                 {skill.label}
               </Badge>
             ))}
-            {[passive1, passive2].map((skill, i) => skill && (
-              <Badge key={`p-${i}`} variant="outline"
-                className={`text-xs ${ABILITY_RARITY_COLORS[skill.rarity]} ${ABILITY_RARITY_BORDER[skill.rarity]} opacity-80`}>
-                {skill.label}
-              </Badge>
-            ))}
+            {[passive1, passive2].map((skill, i) => {
+              if (!skill) return null;
+              const eff = getPassiveEffects(skill.traitId);
+              const staticHint = eff?.evaBonus   ? `EVA +${(eff.evaBonus * 100).toFixed(1)}%`
+                               : eff?.blkBonus   ? `BLK/SBLK +${(eff.blkBonus * 100).toFixed(1)}%`
+                               : eff?.serBonus   ? `SER +${(eff.serBonus * 100).toFixed(1)}%`
+                               : null;
+              return (
+                <Badge key={`p-${i}`} variant="outline"
+                  title={eff?.conditionalNote ?? skill.label}
+                  className={`text-xs ${ABILITY_RARITY_COLORS[skill.rarity]} ${ABILITY_RARITY_BORDER[skill.rarity]} opacity-80 flex flex-col items-start gap-0 h-auto py-0.5`}>
+                  <span>{skill.label}</span>
+                  {staticHint && <span className="text-[10px] opacity-70 font-normal">{staticHint}</span>}
+                </Badge>
+              );
+            })}
           </div>
         </div>
 
@@ -857,16 +876,17 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
             ...((equipBonuses.magicDamageReduction + (petBonuses.magicDamageReduction ?? 0)) !== 0 ? [['M.RED+', sign((equipBonuses.magicDamageReduction + (petBonuses.magicDamageReduction ?? 0)) * 100)] as [string,string]] : []),
             ...(equipBonuses.physDefFlat     !== 0 ? [['P.DEF+', equipBonuses.physDefFlat.toFixed(0)] as [string,string]] : []),
             ...(equipBonuses.magicDefFlat    !== 0 ? [['M.DEF+', equipBonuses.magicDefFlat.toFixed(0)] as [string,string]] : []),
-            ...(equipBonuses.blkChance + (petBonuses.blkChance ?? 0) !== 0 ? [['BLK+',   sign((equipBonuses.blkChance + (petBonuses.blkChance ?? 0)) * 100)] as [string,string]] : []),
-            ...(equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0) !== 0 ? [['SBLK+',  sign((equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0)) * 100)] as [string,string]] : []),
+            ...(equipBonuses.blkChance + (petBonuses.blkChance ?? 0) + passiveBlk !== 0 ? [['BLK+',   sign((equipBonuses.blkChance + (petBonuses.blkChance ?? 0) + passiveBlk) * 100)] as [string,string]] : []),
+            ...(equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0) + passiveSblk !== 0 ? [['SBLK+',  sign((equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0) + passiveSblk) * 100)] as [string,string]] : []),
             ...(totalPAcc     !== 0 ? [['P.ACC+', sign(totalPAcc     * 100)] as [string,string]] : []),
             ...(totalMAcc     !== 0 ? [['M.ACC+', sign(totalMAcc     * 100)] as [string,string]] : []),
             ...((petBonuses.lifesteal ?? 0) !== 0 ? [['LIFESTEAL', sign((petBonuses.lifesteal ?? 0) * 100)] as [string,string]] : []),
-            ...((petBonuses.statusEffectResistance ?? 0) !== 0 ? [['SER+', sign((petBonuses.statusEffectResistance ?? 0) * 100)] as [string,string]] : []),
+            ...((petBonuses.statusEffectResistance ?? 0) + passiveSer !== 0 ? [['SER+', sign(((petBonuses.statusEffectResistance ?? 0) + passiveSer) * 100)] as [string,string]] : []),
           ].flat() as [string, string][];
-          // Show section if any equipment/pet bonus is present
+          // Show section if any equipment, pet, or passive bonus is present
           const hasEquipBonuses = Object.values(equipBonuses).some(v => typeof v === 'number' && v !== 0)
-                                || Object.values(petBonuses).some(v => typeof v === 'number' && v !== 0);
+                                || Object.values(petBonuses).some(v => typeof v === 'number' && v !== 0)
+                                || passiveSer !== 0 || passiveBlk !== 0 || passiveSblk !== 0 || passiveEva !== 0;
           if (!hasEquipBonuses) return null;
           return (
             <div className="mt-3">
@@ -1025,16 +1045,26 @@ function HeroCard({ hero, index, onHeroClick }: { hero: HeroDetail; index: numbe
             {skill.label}
           </Badge>
         ))}
-        {[passive1, passive2].map((skill, i) => skill && (
-          <Badge
-            key={`passive-${i}`}
-            variant="outline"
-            className={`text-xs ${ABILITY_RARITY_COLORS[skill.rarity]} ${ABILITY_RARITY_BORDER[skill.rarity]} opacity-80`}
-            data-testid={`badge-skill-passive-${i}-${hero.id}`}
-          >
-            {skill.label}
-          </Badge>
-        ))}
+        {[passive1, passive2].map((skill, i) => {
+          if (!skill) return null;
+          const eff = getPassiveEffects(skill.traitId);
+          const staticHint = eff?.evaBonus   ? `EVA +${(eff.evaBonus * 100).toFixed(1)}%`
+                           : eff?.blkBonus   ? `BLK/SBLK +${(eff.blkBonus * 100).toFixed(1)}%`
+                           : eff?.serBonus   ? `SER +${(eff.serBonus * 100).toFixed(1)}%`
+                           : null;
+          return (
+            <Badge
+              key={`passive-${i}`}
+              variant="outline"
+              title={eff?.conditionalNote ?? skill.label}
+              className={`text-xs ${ABILITY_RARITY_COLORS[skill.rarity]} ${ABILITY_RARITY_BORDER[skill.rarity]} opacity-80 flex flex-col items-start gap-0 h-auto py-0.5`}
+              data-testid={`badge-skill-passive-${i}-${hero.id}`}
+            >
+              <span>{skill.label}</span>
+              {staticHint && <span className="text-[10px] opacity-70 font-normal">{staticHint}</span>}
+            </Badge>
+          );
+        })}
       </div>
 
       {/* Pet */}

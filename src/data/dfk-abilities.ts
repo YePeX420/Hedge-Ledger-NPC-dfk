@@ -1,6 +1,7 @@
 // DFK Ability data extracted from the DFK game client (game.defikingdoms.com)
 // Active skills (DSe) and passive skills (O9t) indexed by traitId
 // These correspond to hero.active1/active2 and hero.passive1/passive2 fields
+// Passive effect values sourced from: docs.defikingdoms.com/gameplay/combat (last verified 2026-03)
 
 export type AbilityRarity = 'basic' | 'advanced' | 'elite' | 'exalted';
 
@@ -9,6 +10,111 @@ export interface Ability {
   label: string;
   rarity: AbilityRarity;
   traitId: number;
+}
+
+// ─── Passive Skill Effects ────────────────────────────────────────────────────
+// Numeric combat effects for each passive skill.
+// Static bonuses apply before combat (always on).
+// crossTeam: true means the skill's effect is applied against / to the opposing team,
+//   not just as a self-benefit (Leadership buffs own allies; Menacing debuffs enemies).
+
+export interface PassiveEffect {
+  evaBonus?: number;
+  blkBonus?: number;
+  sblkBonus?: number;
+  serBonus?: number;
+  statusResistNote?: string;
+  conditionalNote?: string;
+  crossTeam?: boolean;
+  survivabilityScore?: number;
+  dpsScore?: number;
+}
+
+export const PASSIVE_EFFECTS: Record<number, PassiveEffect> = {
+  // Basic 1 — Duelist
+  // Gain +2.5% Block and Spell Block. When fighting 1v1, +20% damage dealt.
+  0:  { blkBonus: 0.025, sblkBonus: 0.025, dpsScore: 0.02,
+        conditionalNote: '+20% dmg when 1v1' },
+
+  // Basic 2 — Clutch
+  // +20% damage dealt when below 25% HP.
+  1:  { survivabilityScore: 0.02,
+        conditionalNote: '+20% dmg when HP <25%' },
+
+  // Basic 3 — Foresight
+  // Gain +3% Evasion.
+  2:  { evaBonus: 0.03, dpsScore: 0.01,
+        conditionalNote: '+3% EVA (always on)' },
+
+  // Basic 4 — Headstrong
+  // +32.5% Daze resistance, +2.5% Status Effect Resistance.
+  3:  { serBonus: 0.025, statusResistNote: 'Daze -32.5%',
+        conditionalNote: '+32.5% Daze resist, +2.5% SER' },
+
+  // Basic 5 — Clear Vision
+  // +32.5% Blind resistance, +2.5% Status Effect Resistance.
+  4:  { serBonus: 0.025, statusResistNote: 'Blind -32.5%',
+        conditionalNote: '+32.5% Blind resist, +2.5% SER' },
+
+  // Basic 6 — Fearless
+  // +32.5% Fear resistance, +2.5% Status Effect Resistance.
+  5:  { serBonus: 0.025, statusResistNote: 'Fear -32.5%',
+        conditionalNote: '+32.5% Fear resist, +2.5% SER' },
+
+  // Basic 7 — Chatterbox
+  // +32.5% Silence resistance, +2.5% Status Effect Resistance.
+  6:  { serBonus: 0.025, statusResistNote: 'Silence -32.5%',
+        conditionalNote: '+32.5% Silence resist, +2.5% SER' },
+
+  // Basic 8 — Stalwart
+  // +32.5% POISON resistance, +2.5% Status Effect Resistance.
+  // NOTE: This is Poison resist — NOT knockback/push resist.
+  7:  { serBonus: 0.025, statusResistNote: 'Poison -32.5%',
+        conditionalNote: '+32.5% Poison resist, +2.5% SER' },
+
+  // Advanced 1 — Leadership
+  // Each ALLY deals +5% more damage (max +15% across 3 heroes).
+  // crossTeam: true — boosts own team's effective DPS output.
+  // Applied in prediction engine as: teamDPS × (1 + min(leadershipCount × 0.05, 0.15))
+  16: { crossTeam: true,
+        conditionalNote: '+5% ally dmg per hero (cap +15%)' },
+
+  // Advanced 2 — Efficient
+  // -10% Mana consumption. No pre-battle stat effect; mana pacing benefit in long fights.
+  17: { conditionalNote: '-10% Mana cost' },
+
+  // Advanced 3 — Menacing
+  // Enemies deal -5% less damage (max -15% across 3 heroes).
+  // crossTeam: true — reduces the OPPOSING team's effective DPS.
+  // Applied in prediction engine as: enemyDPS × (1 - min(menacingCount × 0.05, 0.15))
+  18: { crossTeam: true,
+        conditionalNote: '-5% enemy dmg per hero (cap -15%)' },
+
+  // Advanced 4 — Toxic
+  // Each hit gains +3% chance to apply Poison.
+  19: { dpsScore: 0.03,
+        conditionalNote: '+3% Poison chance per hit' },
+
+  // Elite 1 — Giant Slayer
+  // +10% damage if target has more HP; +20% if target has 2× HP (Hero only).
+  24: { dpsScore: 0.04,
+        conditionalNote: '+10%/+20% dmg vs HP-heavy targets' },
+
+  // Elite 2 — Last Stand
+  // When HP drops below 30%, damage is capped so ≥10% HP remains, then
+  // +300% P.DEF and M.DEF for 15 ticks. Once per battle.
+  25: { survivabilityScore: 0.06,
+        conditionalNote: 'HP floor at 10% + +300% P/M.DEF for 15 ticks (1× per battle)' },
+
+  // Exalted 1 — Second Life
+  // Upon death, revive with 35% HP, Exhausted for 1 turn, +750 Initiative. Once per battle.
+  28: { survivabilityScore: 0.15,
+        conditionalNote: 'Revive at 35% HP, +750 Initiative (1× per battle)' },
+};
+
+export function getPassiveEffects(traitId: number | null | undefined): PassiveEffect | null {
+  if (traitId == null) return null;
+  return PASSIVE_EFFECTS[traitId] ?? null;
 }
 
 // ─── Active Skills (DSe in DFK game client) ──────────────────────────────────
