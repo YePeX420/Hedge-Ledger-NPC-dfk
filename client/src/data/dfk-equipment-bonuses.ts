@@ -159,7 +159,27 @@ export interface EquipmentBonuses {
   pushRes: number;
   healingPotencyDown: number;
   channelTimeReduction: number;
+  // Specific status-effect resistances from armor bonus codes 10-23 (code → fraction)
+  specificResists: Record<number, number>;
 }
+
+// Human-readable names for armor resistance bonus codes 10-23
+export const ARMOR_RESIST_NAMES: Record<number, string> = {
+  10: 'Blind',
+  11: 'Silence',
+  12: 'Fear',
+  13: 'Stun',
+  14: 'Bleed',
+  15: 'Daze',
+  16: 'Exhaust',
+  17: 'Slow',
+  18: 'Knockback',
+  19: 'Poison',
+  20: 'Sleep',
+  21: 'Pull',
+  22: 'Push',
+  23: 'Charm',
+};
 
 function zeroEquipBonuses(): EquipmentBonuses {
   return {
@@ -174,6 +194,7 @@ function zeroEquipBonuses(): EquipmentBonuses {
     physDamageReduction: 0, magicDamageReduction: 0,
     attackPct: 0, spellPct: 0, pierce: 0, pullRes: 0, pushRes: 0,
     healingPotencyDown: 0, channelTimeReduction: 0,
+    specificResists: {},
   };
 }
 
@@ -228,6 +249,14 @@ function processArmorBonuses(
 
   for (const [code, scalar] of slots) {
     if (!code) continue;
+
+    // Resistance codes 10-23: accumulate into specificResists keyed by code
+    if (code >= 10 && code <= 23) {
+      const frac = scalar / 10_000;
+      acc.specificResists[code] = (acc.specificResists[code] ?? 0) + frac;
+      continue;
+    }
+
     const effectKey = (ARMOR_BONUS as any)[code];
     if (!effectKey) continue;
 

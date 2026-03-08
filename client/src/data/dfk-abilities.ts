@@ -24,6 +24,9 @@ export interface PassiveEffect {
   sblkBonus?: number;
   serBonus?: number;
   statusResistNote?: string;
+  // Specific status resist: maps to ARMOR_RESIST_NAMES code (10-23) and the bonus fraction
+  resistCode?: number;
+  specificResistValue?: number;
   conditionalNote?: string;
   crossTeam?: boolean;
   survivabilityScore?: number;
@@ -48,28 +51,28 @@ export const PASSIVE_EFFECTS: Record<number, PassiveEffect> = {
 
   // Basic 4 — Headstrong
   // +32.5% Daze resistance, +2.5% Status Effect Resistance.
-  3:  { serBonus: 0.025, statusResistNote: 'Daze -32.5%',
+  3:  { serBonus: 0.025, statusResistNote: 'Daze -32.5%', resistCode: 15, specificResistValue: 0.325,
         conditionalNote: '+32.5% Daze resist, +2.5% SER' },
 
   // Basic 5 — Clear Vision
   // +32.5% Blind resistance, +2.5% Status Effect Resistance.
-  4:  { serBonus: 0.025, statusResistNote: 'Blind -32.5%',
+  4:  { serBonus: 0.025, statusResistNote: 'Blind -32.5%', resistCode: 10, specificResistValue: 0.325,
         conditionalNote: '+32.5% Blind resist, +2.5% SER' },
 
   // Basic 6 — Fearless
   // +32.5% Fear resistance, +2.5% Status Effect Resistance.
-  5:  { serBonus: 0.025, statusResistNote: 'Fear -32.5%',
+  5:  { serBonus: 0.025, statusResistNote: 'Fear -32.5%', resistCode: 12, specificResistValue: 0.325,
         conditionalNote: '+32.5% Fear resist, +2.5% SER' },
 
   // Basic 7 — Chatterbox
   // +32.5% Silence resistance, +2.5% Status Effect Resistance.
-  6:  { serBonus: 0.025, statusResistNote: 'Silence -32.5%',
+  6:  { serBonus: 0.025, statusResistNote: 'Silence -32.5%', resistCode: 11, specificResistValue: 0.325,
         conditionalNote: '+32.5% Silence resist, +2.5% SER' },
 
   // Basic 8 — Stalwart
   // +32.5% POISON resistance, +2.5% Status Effect Resistance.
   // NOTE: This is Poison resist — NOT knockback/push resist.
-  7:  { serBonus: 0.025, statusResistNote: 'Poison -32.5%',
+  7:  { serBonus: 0.025, statusResistNote: 'Poison -32.5%', resistCode: 19, specificResistValue: 0.325,
         conditionalNote: '+32.5% Poison resist, +2.5% SER' },
 
   // Advanced 1 — Leadership

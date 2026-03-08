@@ -21,6 +21,7 @@ import {
   computePetBonuses,
   getPetBonusName,
   getPetStatLabel,
+  ARMOR_RESIST_NAMES,
 } from '@/data/dfk-equipment-bonuses';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -348,12 +349,12 @@ function BracketTab({ bracket, players, champion }: {
   players: PlayerEntry[];
   champion: number;
 }) {
-  // Build slot map: partyIndex+1 (1-based slot) → address
+  // Build slot map: partyIndex (0-based, matches getBracket() raw values) → address
   const slotMap: Record<number, string> = {};
   const nameMap: Record<number, string> = {};
   for (const p of players) {
-    slotMap[p.partyIndex + 1] = p.address;
-    if (p.playerName) nameMap[p.partyIndex + 1] = p.playerName;
+    slotMap[p.partyIndex] = p.address;
+    if (p.playerName) nameMap[p.partyIndex] = p.playerName;
   }
 
   const hasAnyPlayer = bracket.rounds[0]?.some(m => m.slotA !== 0 || m.slotB !== 0);
@@ -672,6 +673,27 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
   const totalSblk = profile.SpellBlock + equipBonuses.sblkChance     + (petBonuses.sblkChance     ?? 0) + passiveSblk;
   const totalRec  = profile.Recovery   + equipBonuses.recoveryChance + (petBonuses.recoveryChance ?? 0);
 
+  // Critical / mana stats — used in both Primary Arms and Modifiers sections
+  const totalCSC = profile.Crit + equipBonuses.critStrikeChance + (petBonuses.critStrikeChance ?? 0);
+  const totalCHC = equipBonuses.critHealChance + (petBonuses.critHealChance ?? 0);
+  const totalCDM = 1.5 + equipBonuses.critDamage;
+  const hasMcpReduction = (hero.passive1 === 17 || hero.passive2 === 17);
+
+  // Status Effect Resistance per-status computation
+  const baseSER = profile.SER + passiveSer + (petBonuses.statusEffectResistance ?? 0);
+  const resistCodeByName: Record<string, number> = Object.fromEntries(
+    Object.entries(ARMOR_RESIST_NAMES).map(([code, name]) => [name, Number(code)])
+  );
+  const getStatusTotal = (statusName: string): number => {
+    const code = resistCodeByName[statusName];
+    const armorBonus = code != null ? (equipBonuses.specificResists[code] ?? 0) : 0;
+    const p1Bonus = (passiveEff1?.resistCode != null && passiveEff1.resistCode === code) ? (passiveEff1.specificResistValue ?? 0) : 0;
+    const p2Bonus = (passiveEff2?.resistCode != null && passiveEff2.resistCode === code) ? (passiveEff2.specificResistValue ?? 0) : 0;
+    return baseSER + armorBonus + p1Bonus + p2Bonus;
+  };
+  const anyElevated = STATUS_RESISTANCES.some(s => getStatusTotal(s) > baseSER + 0.0001);
+  const [serOpen, setSerOpen] = useState(anyElevated);
+
   // Weapon attack computation — stat code: 0=STR,1=AGI,2=DEX,3=INT,4=WIS,5=VIT,6=END,7=LCK
   const heroStatByCode: Record<number, number> = {
     0: stats.STR, 1: stats.AGI, 2: stats.DEX, 3: stats.INT,
@@ -854,8 +876,6 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
           // Merge pet bonuses into totals for display
           const totalAtkPct   = equipBonuses.attackPct        + (petBonuses.attackPct        ?? 0);
           const totalSpellPct = equipBonuses.spellPct         + (petBonuses.spellPct         ?? 0);
-          const totalCSC      = profile.Crit + equipBonuses.critStrikeChance + (petBonuses.critStrikeChance ?? 0);
-          const totalCHC      = equipBonuses.critHealChance   + (petBonuses.critHealChance   ?? 0);
           const totalPDef     = equipBonuses.physDefPct       + (petBonuses.physDefPct       ?? 0);
           const totalMDef     = equipBonuses.magicDefPct      + (petBonuses.magicDefPct      ?? 0);
           const totalPAcc     = equipBonuses.physAccuracy     + (petBonuses.physAccuracy     ?? 0);
@@ -865,9 +885,8 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
             ...(equipBonuses.magicDamage     !== 0 ? [['MDM',    sign(equipBonuses.magicDamage     * 100)] as [string,string]] : []),
             ...(totalAtkPct   !== 0 ? [['ATK%',   sign(totalAtkPct   * 100)] as [string,string]] : []),
             ...(totalSpellPct !== 0 ? [['SPELL%', sign(totalSpellPct * 100)] as [string,string]] : []),
-            [['CSC', (totalCSC * 100).toFixed(2) + '%'] as [string,string]],
-            ...(totalCHC      !== 0 ? [['CHC',    sign(totalCHC      * 100)] as [string,string]] : []),
-            ...(equipBonuses.critDamage      !== 0 ? [['CDMG',   sign(equipBonuses.critDamage      * 100)] as [string,string]] : []),
+            ...[['MCP', hasMcpReduction ? '90.0%' : '100.0%'] as [string,string]],
+            ...[['PRC', '+' + (equipBonuses.pierce * 100).toFixed(2) + '%'] as [string,string]],
             ...(totalRet                    !== 0 ? [['RET',    sign(totalRet                    * 100)] as [string,string]] : []),
             ...(equipBonuses.riposte         !== 0 ? [['RIP',    sign(equipBonuses.riposte         * 100)] as [string,string]] : []),
             ...(totalPDef     !== 0 ? [['P.DEF%', sign(totalPDef     * 100)] as [string,string]] : []),
@@ -882,12 +901,8 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
             ...(totalMAcc     !== 0 ? [['M.ACC+', sign(totalMAcc     * 100)] as [string,string]] : []),
             ...((petBonuses.lifesteal ?? 0) !== 0 ? [['LIFESTEAL', sign((petBonuses.lifesteal ?? 0) * 100)] as [string,string]] : []),
             ...((petBonuses.statusEffectResistance ?? 0) + passiveSer !== 0 ? [['SER+', sign(((petBonuses.statusEffectResistance ?? 0) + passiveSer) * 100)] as [string,string]] : []),
-          ].flat() as [string, string][];
+          ] as [string, string][];
           // Show section if any equipment, pet, or passive bonus is present
-          const hasEquipBonuses = Object.values(equipBonuses).some(v => typeof v === 'number' && v !== 0)
-                                || Object.values(petBonuses).some(v => typeof v === 'number' && v !== 0)
-                                || passiveSer !== 0 || passiveBlk !== 0 || passiveSblk !== 0 || passiveEva !== 0;
-          if (!hasEquipBonuses) return null;
           return (
             <div className="mt-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Modifiers</p>
@@ -913,6 +928,9 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
                 ['Spell',   weapon1Spell?.toString()  ?? '—'],
                 ['P.ACC',   weapon1PAcc  != null ? weapon1PAcc + '%'  : '—'],
                 ['M.ACC',   weapon1MAcc  != null ? weapon1MAcc + '%'  : '—'],
+                ['CSC',     (totalCSC * 100).toFixed(2) + '%'],
+                ['CDM',     totalCDM.toFixed(2) + 'x'],
+                ['CHC',     (totalCHC * 100).toFixed(2) + '%'],
               ].map(([label, val]) => (
                 <div key={label} className="flex justify-between">
                   <span className="text-muted-foreground">{label}</span>
@@ -961,20 +979,31 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
           </div>
         )}
 
-        {/* Status Resistances — base from SER formula; equipment bonuses excluded (bonus type codes TBD) */}
+        {/* Status Resistances — base SER + passive-specific + armor-specific */}
         <div className="mt-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Status Resistances</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs">
-            {STATUS_RESISTANCES.map(status => {
-              const base = profile.SER * 100;
-              return (
-                <div key={status} className="flex justify-between">
-                  <span className="text-muted-foreground">{status}</span>
-                  <span className="font-mono">{base.toFixed(1)}%</span>
-                </div>
-              );
-            })}
-          </div>
+          <button
+            onClick={() => setSerOpen(o => !o)}
+            className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 hover:text-foreground transition-colors"
+            data-testid="button-ser-toggle"
+          >
+            <ChevronDown className={`h-3 w-3 transition-transform ${serOpen ? '' : '-rotate-90'}`} />
+            Status Resistances
+            {anyElevated && <span className="ml-1 text-green-500">(boosted)</span>}
+          </button>
+          {serOpen && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs">
+              {STATUS_RESISTANCES.map(status => {
+                const total = getStatusTotal(status);
+                const elevated = total > baseSER + 0.0001;
+                return (
+                  <div key={status} className="flex justify-between">
+                    <span className={elevated ? 'text-green-500 font-medium' : 'text-muted-foreground'}>{status}</span>
+                    <span className={`font-mono ${elevated ? 'text-green-500 font-medium' : ''}`}>{(total * 100).toFixed(1)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -1233,8 +1262,8 @@ function AiAnalysisTab({ tournamentId, bracket, players }: {
   const slotMap: Record<number, string> = {};
   const nameMap: Record<number, string> = {};
   for (const p of players) {
-    slotMap[p.partyIndex + 1] = p.address;
-    if (p.playerName) nameMap[p.partyIndex + 1] = p.playerName;
+    slotMap[p.partyIndex] = p.address;
+    if (p.playerName) nameMap[p.partyIndex] = p.playerName;
   }
 
   const displayName = (slotId: number) => nameMap[slotId] || shortAddr(slotMap[slotId] ?? null);
@@ -1479,7 +1508,7 @@ export default function TournamentBracketPage({ id }: Props) {
         {t.format && <><span data-testid="stat-format">{t.format}</span><span>·</span></>}
         <span data-testid="stat-rounds">{t.rounds} rounds ({t.roundLengthMinutes} min)</span>
         <span>·</span>
-        <span data-testid="stat-players">{t.entrants} / {t.maxEntrants} players</span>
+        <span data-testid="stat-players">{t.entrantsClaimed} / {t.entrants} players</span>
         {t.entryFee > 0 && <><span>·</span><span data-testid="stat-entry-fee">{t.entryFee.toFixed(2)} JEWEL entry</span></>}
       </div>
 
@@ -1490,7 +1519,7 @@ export default function TournamentBracketPage({ id }: Props) {
           <TabsTrigger value="details" data-testid="tab-details">Details</TabsTrigger>
           <TabsTrigger value="players" data-testid="tab-players">
             Players
-            <span className="ml-1.5 text-xs text-muted-foreground">({t.entrants})</span>
+            <span className="ml-1.5 text-xs text-muted-foreground">({t.entrantsClaimed})</span>
           </TabsTrigger>
           <TabsTrigger value="rewards" data-testid="tab-rewards">Rewards</TabsTrigger>
           <TabsTrigger value="ai-analysis" data-testid="tab-ai-analysis">
@@ -1536,7 +1565,7 @@ export default function TournamentBracketPage({ id }: Props) {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <PlayersTab players={players} maxEntrants={t.maxEntrants} totalEntrants={t.entrants} />
+              <PlayersTab players={players} maxEntrants={t.maxEntrants} totalEntrants={t.entrantsClaimed} />
             </CardContent>
           </Card>
         </TabsContent>
