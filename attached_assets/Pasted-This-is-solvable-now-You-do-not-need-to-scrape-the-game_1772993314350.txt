@@ -1,0 +1,155 @@
+This is solvable now. You do not need to scrape the game bundle first: DFK’s official developer docs already publish the bonus-code mappings for WeaponCore, ArmorCore, AccessoryCore, the separate offhand bonus table, and the weapon speedModifier encoding. So yes — add speed modifier, the modifiers section (PDM/MDM/RET/...), and CSC/CHC to the plan now. 
+
+The main correction to Replit’s model is this: there is not one global bonusType -> effect enum. The meaning of a code depends on the source contract/slot. DFK splits equipment across WeaponCore, ArmorCore, and AccessoryCore, and AccessoryCore itself serves both Accessory and Offhand slots; its equipmentType is 1 = Accessory, 2 = Shield, 3 = Focus. DFK also exposes all three equipment contracts through the Community GraphQL API, so you can wire this without bundle scraping. 
+
+That means your sample 2 / 35 / 18 is only meaningful after you know the source:
+
+ArmorCore: 2 = Spell Block chance, 18 = Fear resistance, 35 = Riposte. 
+
+AccessoryCore (Accessory table): 2 = Magical Accuracy, 18 = Poison resistance, 35 = SPELL%. 
+
+WeaponCore: 2 = Bleed on hit, 18 = Taunt on hit, 35 = Retaliate on physical damage. 
+
+AccessoryCore (Offhand table): 2 = Block damage reduction; 18 and 35 do not exist there. 
+
+
+Use this as the fix shape in your app:
+
+// Context-sensitive bonus maps. Do NOT merge these into one global enum.
+
+export const WEAPON_BONUS = {
+  20: 'blkChance',
+  21: 'sblkChance',
+  22: 'critDamage',
+  23: 'critStrikeChance',
+  25: 'pierce',
+  26: 'blkReduction',
+  27: 'sblkReduction',
+  28: 'magicDamageUp_healPotencyDown',
+  29: 'healPotencyUp_magicDamageDown',
+  30: 'physAndMagicDefDown',
+  31: 'healPotencyDown',
+  32: 'magicDamage',
+  33: 'physicalDamage',
+  34: 'retaliateAny',
+  35: 'retaliatePhysical',
+  36: 'retaliateMagical',
+  41: 'critHealChance',
+} as const;
+
+export const ARMOR_BONUS = {
+  1: 'blkChance',
+  2: 'sblkChance',
+  3: 'blkReduction',
+  4: 'sblkReduction',
+  5: 'physAccuracy',
+  6: 'magicAccuracy',
+  7: 'speed',
+  8: 'evasion',
+  29: 'physDefPct',
+  30: 'magicDefPct',
+  31: 'physAccuracyDown',
+  32: 'magicAccuracyDown',
+  33: 'physicalDamage',
+  34: 'magicDamage',
+  35: 'riposte',
+  39: 'retaliatePhysical',
+  41: 'recoveryChance',
+  54: 'speedDown',
+  55: 'healingPotencyDown',
+  56: 'critLifesteal',
+  57: 'critStrikeChance',
+  58: 'channelTimeReduction',
+
+  // These are NOT plain stats; handle separately and in-order.
+  36: 'doubleBonusesAbove_ifAccessoryMatchesX',
+  37: 'doubleBonusesAbove_ifOffhandMatchesX',
+  38: 'doubleBonusesAbove_if1HSwordMatchesX',
+  42: 'doubleBonusesAbove_if2HSwordMatchesX',
+  43: 'doubleBonusesAbove_if1HAxeMatchesX',
+  44: 'doubleBonusesAbove_if2HAxeMatchesX',
+  45: 'doubleBonusesAbove_if1HMaceMatchesX',
+  46: 'doubleBonusesAbove_if2HMaceMatchesX',
+  47: 'doubleBonusesAbove_if1HSpearMatchesX',
+  48: 'doubleBonusesAbove_if2HSpearMatchesX',
+  49: 'doubleBonusesAbove_ifWandMatchesX',
+  50: 'doubleBonusesAbove_ifStaffMatchesX',
+  51: 'doubleBonusesAbove_ifGlovesMatchesX',
+  52: 'doubleBonusesAbove_ifBowMatchesX',
+  53: 'doubleBonusesAbove_ifDaggerMatchesX',
+} as const;
+
+export const ACCESSORY_BONUS = {
+  1: 'physAccuracy',
+  2: 'magicAccuracy',
+  3: 'blkChance',
+  4: 'sblkChance',
+  5: 'speed',
+  6: 'evasion',
+  26: 'critDamage',
+  27: 'physDefPct',
+  28: 'magicDefPct',
+  29: 'physAccuracyDown',
+  30: 'magicAccuracyDown',
+  31: 'physicalDamage',
+  32: 'magicDamage',
+  33: 'riposte',
+  34: 'attackPct',
+  35: 'spellPct',
+  37: 'physDamageReduction',
+  38: 'magicDamageReduction',
+} as const;
+
+export const OFFHAND_BONUS = {
+  1: 'blkChance',
+  2: 'blkReduction',
+  3: 'sblkChance',
+  4: 'sblkReduction',
+  5: 'riposte',
+  6: 'physDefFlat',
+  7: 'magicDefFlat',
+  8: 'pullRes',
+  9: 'pushRes',
+} as const;
+
+export function getAccessoryBonusTable(equipmentType: number) {
+  if (equipmentType === 1) return ACCESSORY_BONUS; // Accessory
+  if (equipmentType === 2 || equipmentType === 3) return OFFHAND_BONUS; // Shield / Focus
+  return null;
+}
+
+export function decodeWeaponSpeedModifier(raw: number): number {
+  // Official encoding from DFK docs
+  return (1 - 2 * Math.floor(raw / 128)) * (raw % 128);
+}
+
+Those mappings come directly from the official Weapon/Armor/Accessory docs, and the speedModifier formula is documented on the weapon page. 
+
+For the exact screenshot fields you’re missing, the important rollups are:
+
+PDM: weapon 33, armor 33, accessory 31. MDM: weapon 32 plus tradeoff codes 28/29, armor 34, accessory 32. RET: armor 39, weapon 34/35/36. RIP: armor 35, accessory 33, offhand 5. REC: armor 41. CSC: weapon 23, armor 57. CHC: weapon 41. BLK/SBLK and block reduction come from weapon/armor/accessory/offhand codes shown above. P.RED/M.RED are accessory 37/38. 
+
+
+Two extra gotchas are likely behind the remaining mismatch. First, P.ACC/M.ACC are not only bonus-code driven: weapon data also has base physical accuracy fields accuracyRequirement + pAccuracyAtRequirement, and magic accuracy fields focusRequirement + mAccuracyAtRequirement, both with one-decimal precision. So if Replit only added equipment bonus codes but ignored those weapon fields, accuracy will still drift. 
+
+Second, armor codes 36–53 are not normal additive stats. The docs literally say “Double the bonuses above this bonus…”, so the safe implementation is to process armor bonuses in slot order and treat those as prefix doublers, not as flat multipliers on the whole item. The docs do not spell out the exact comparator for X, but since they also say X = bonusScalar and equipment identity is keyed by type + displayId, my best read is that bonusScalar should be checked against the equipped item’s relevant displayId within that category/type. I would implement it that way and validate against this hero first. 
+
+So the practical order is:
+
+1. Replace the single global bonus map with four context-sensitive maps.
+
+
+2. Route AccessoryCore by equipmentType.
+
+
+3. Add weapon speedModifier and the base accuracy fields.
+
+
+4. Implement armor prefix doublers.
+
+
+5. Re-test this exact hero sheet.
+
+
+
+After that, any remaining delta is much more likely to be from passive ability/trait rollup or base combat formulas than from unknown equipment bonus codes.
