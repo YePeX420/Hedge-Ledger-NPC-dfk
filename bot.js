@@ -18115,6 +18115,9 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
       
       // Auto-start Auction Pipeline (listing indexer, finalizer, backfill)
       await autoStartAuctionPipeline();
+
+      // Auto-start bracket poller (snapshots in-progress tournaments every 20 min)
+      await autoStartBracketPoller();
     } else {
       console.log('[AutoStart] Development environment - indexers will only run when manually triggered from admin panel');
     }
@@ -18352,7 +18355,60 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
       console.error('[AuctionPipeline] Auto-start error:', err.message);
     }
   }
-  
+
+  async function autoStartBracketPoller() {
+    try {
+      await new Promise(r => setTimeout(r, 45000));
+
+      const POLL_INTERVAL_MS = 20 * 60 * 1000;
+      const SNAPSHOT_DELAY_MS = 2000;
+
+      const runBracketPollCycle = async () => {
+        try {
+          // If tracker hasn't populated yet, do a fresh fetch to seed it
+          if (_trackerPrevIds.size === 0) {
+            try {
+              const { fetchActiveTournaments } = await import('./src/services/dfkTournamentApi.js');
+              const tournaments = await fetchActiveTournaments(true);
+              _trackTournamentTransitions(tournaments);
+            } catch (seedErr) {
+              console.warn('[BracketPoller] Could not seed tracker:', seedErr.message);
+            }
+          }
+
+          const inProgressIds = [];
+          for (const id of _trackerPrevIds) {
+            const t = _trackerLastData.get(id);
+            if (t && t.stateLabel === 'in_progress') inProgressIds.push(id);
+          }
+
+          if (inProgressIds.length === 0) {
+            console.log('[BracketPoller] No in-progress tournaments — nothing to snapshot');
+            return;
+          }
+
+          console.log(`[BracketPoller] Snapshotting ${inProgressIds.length} in-progress tournament(s): ${inProgressIds.join(', ')}`);
+          for (const id of inProgressIds) {
+            _triggerBracketSnapshot(id);
+            if (inProgressIds.length > 1) {
+              await new Promise(r => setTimeout(r, SNAPSHOT_DELAY_MS));
+            }
+          }
+          console.log(`[BracketPoller] Snapshotted ${inProgressIds.length} in-progress tournament(s)`);
+        } catch (cycleErr) {
+          console.error('[BracketPoller] Poll cycle error:', cycleErr.message);
+        }
+      };
+
+      await runBracketPollCycle();
+      setInterval(runBracketPollCycle, POLL_INTERVAL_MS);
+
+      console.log('[BracketPoller] Auto-start complete — polling every 20 minutes');
+    } catch (err) {
+      console.error('[BracketPoller] Auto-start error:', err.message);
+    }
+  }
+
   // Auto-start parallel sync on server startup
   async function autoStartParallelSync() {
     try {
