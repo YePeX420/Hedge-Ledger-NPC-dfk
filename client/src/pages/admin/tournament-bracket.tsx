@@ -15,6 +15,10 @@ import {
 import {
   computeHeroCombatProfile,
 } from '@/lib/dfk-combat-formulas';
+import {
+  computeEquipmentBonuses,
+  decodeWeaponSpeedModifier,
+} from '@/data/dfk-equipment-bonuses';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -630,14 +634,31 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
   const pRed = pDef > 0 ? (pDef / (pDef + 100) * 100) : 0;
   const mRed = mDef > 0 ? (mDef / (mDef + 100) * 100) : 0;
 
-  // EVA — formula base + armor evasion bonus + pet evasion bonus
+  // Equipment bonus codes — context-sensitive maps per slot
+  const equipBonuses = computeEquipmentBonuses({
+    weapon1:   hero.weapon1   ?? null,
+    weapon2:   hero.weapon2   ?? null,
+    armor:     hero.armor     ?? null,
+    accessory: hero.accessory ?? null,
+    offhand1:  hero.offhand1  ?? null,
+    offhand2:  hero.offhand2  ?? null,
+  });
+
+  // EVA — formula base + armor evasion field + equipment evasion bonus codes + pet
   const armorEva = (hero.armor?.evasion ?? 0) / 1_000_000;
   const petEva = hero.pet?.combatBonus === 8 ? (hero.pet.combatBonusScalar ?? 0) / 10000 : 0;
-  const totalEva = profile.EVA + armorEva + petEva;
+  const totalEva = profile.EVA + armorEva + equipBonuses.evasion + petEva;
 
-  // SPEED — base speed + weapon speed modifier
-  const speedMod = (hero.weapon1?.speedModifier ?? 0) + (hero.weapon2?.speedModifier ?? 0);
-  const totalSpeed = Math.round(profile.Speed) + speedMod;
+  // SPEED — formula base + decoded weapon speed modifiers + equipment speed bonus codes
+  const weaponSpeedMod = decodeWeaponSpeedModifier(hero.weapon1?.speedModifier ?? 0)
+                       + decodeWeaponSpeedModifier(hero.weapon2?.speedModifier ?? 0);
+  const equipSpeedMod = equipBonuses.speed - equipBonuses.speedDown;
+  const totalSpeed = Math.round(profile.Speed) + weaponSpeedMod + equipSpeedMod;
+
+  // BLK / SBLK / REC — formula base + equipment bonus codes
+  const totalBlk = profile.Block + equipBonuses.blkChance;
+  const totalSblk = profile.SpellBlock + equipBonuses.sblkChance;
+  const totalRec = profile.Recovery + equipBonuses.recoveryChance;
 
   // Weapon attack computation — stat code: 0=STR,1=AGI,2=DEX,3=INT,4=WIS,5=VIT,6=END,7=LCK
   const heroStatByCode: Record<number, number> = {
@@ -733,9 +754,9 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
                 ['M.DEF', fmt(mDef)],
                 ['P.RED', pRed.toFixed(2) + '%'],
                 ['M.RED', mRed.toFixed(2) + '%'],
-                ['BLK', pct(profile.Block)],
-                ['SBLK', pct(profile.SpellBlock)],
-                ['REC', pct(profile.Recovery)],
+                ['BLK', (totalBlk * 100).toFixed(2) + '%'],
+                ['SBLK', (totalSblk * 100).toFixed(2) + '%'],
+                ['REC', (totalRec * 100).toFixed(2) + '%'],
                 ['SER', pct(profile.SER)],
                 ['SPEED', totalSpeed.toString()],
                 ['EVA', (totalEva * 100).toFixed(2) + '%'],
@@ -803,6 +824,51 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
             ))}
           </div>
         </div>
+
+        {/* Modifiers — equipment bonus codes that affect combat stats */}
+        {(() => {
+          const sign = (n: number) => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+          const totalRet = equipBonuses.retaliateAny + equipBonuses.retaliatePhysical + equipBonuses.retaliateMagical;
+          const modRows: [string, string][] = [
+            ...(equipBonuses.physicalDamage  !== 0 ? [['PDM',    sign(equipBonuses.physicalDamage  * 100)] as [string,string]] : []),
+            ...(equipBonuses.magicDamage     !== 0 ? [['MDM',    sign(equipBonuses.magicDamage     * 100)] as [string,string]] : []),
+            ...(equipBonuses.attackPct       !== 0 ? [['ATK%',   sign(equipBonuses.attackPct       * 100)] as [string,string]] : []),
+            ...(equipBonuses.spellPct        !== 0 ? [['SPELL%', sign(equipBonuses.spellPct        * 100)] as [string,string]] : []),
+            ...(equipBonuses.critStrikeChance !== 0 || true
+              ? [['CSC',    ((profile.Crit + equipBonuses.critStrikeChance) * 100).toFixed(2) + '%'] as [string,string]]
+              : []),
+            ...(equipBonuses.critHealChance  !== 0 ? [['CHC',    sign(equipBonuses.critHealChance  * 100)] as [string,string]] : []),
+            ...(equipBonuses.critDamage      !== 0 ? [['CDMG',   sign(equipBonuses.critDamage      * 100)] as [string,string]] : []),
+            ...(totalRet                    !== 0 ? [['RET',    sign(totalRet                    * 100)] as [string,string]] : []),
+            ...(equipBonuses.riposte         !== 0 ? [['RIP',    sign(equipBonuses.riposte         * 100)] as [string,string]] : []),
+            ...(equipBonuses.physDefPct      !== 0 ? [['P.DEF%', sign(equipBonuses.physDefPct      * 100)] as [string,string]] : []),
+            ...(equipBonuses.magicDefPct     !== 0 ? [['M.DEF%', sign(equipBonuses.magicDefPct     * 100)] as [string,string]] : []),
+            ...(equipBonuses.physDamageReduction !== 0 ? [['P.RED+', sign(equipBonuses.physDamageReduction * 100)] as [string,string]] : []),
+            ...(equipBonuses.magicDamageReduction !== 0 ? [['M.RED+', sign(equipBonuses.magicDamageReduction * 100)] as [string,string]] : []),
+            ...(equipBonuses.physDefFlat     !== 0 ? [['P.DEF+', equipBonuses.physDefFlat.toFixed(0)] as [string,string]] : []),
+            ...(equipBonuses.magicDefFlat    !== 0 ? [['M.DEF+', equipBonuses.magicDefFlat.toFixed(0)] as [string,string]] : []),
+            ...(equipBonuses.blkChance       !== 0 ? [['BLK+',   sign(equipBonuses.blkChance      * 100)] as [string,string]] : []),
+            ...(equipBonuses.sblkChance      !== 0 ? [['SBLK+',  sign(equipBonuses.sblkChance     * 100)] as [string,string]] : []),
+            ...(equipBonuses.physAccuracy    !== 0 ? [['P.ACC+', sign(equipBonuses.physAccuracy    * 100)] as [string,string]] : []),
+            ...(equipBonuses.magicAccuracy   !== 0 ? [['M.ACC+', sign(equipBonuses.magicAccuracy   * 100)] as [string,string]] : []),
+          ];
+          // Always show Modifiers section (CSC row always included); filter sparse zero-bonus heroes
+          const hasEquipBonuses = Object.values(equipBonuses).some(v => typeof v === 'number' && v !== 0);
+          if (!hasEquipBonuses) return null;
+          return (
+            <div className="mt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Modifiers</p>
+              <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs">
+                {modRows.map(([label, val]) => (
+                  <div key={label} className="flex justify-between gap-1">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className={`font-mono ${val.startsWith('+') ? 'text-green-500' : val.startsWith('-') ? 'text-red-400' : ''}`}>{val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Primary Arms — weapon combat output, shown only when scalar data is available */}
         {hasWeaponScalars && hero.weapon1 && (
