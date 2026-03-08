@@ -9545,11 +9545,11 @@ async function startAdminWebServer() {
                   strength agility dexterity intelligence wisdom vitality endurance luck hp mp
                   active1 active2 passive1 passive2
                   pet { id normalizedId name rarity element combatBonus combatBonusScalar eggType season shiny }
-                  weapon1 { id displayId normalizedId rarity weaponType baseDamage basePotency bonus1 bonus2 bonus3 bonus4 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 durability maxDurability }
-                  weapon2 { id displayId normalizedId rarity weaponType baseDamage basePotency bonus1 bonus2 bonus3 bonus4 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 durability maxDurability }
+                  weapon1 { id displayId normalizedId rarity weaponType baseDamage basePotency bonus1 bonus2 bonus3 bonus4 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 durability maxDurability pAccuracyAtRequirement accuracyRequirement pScalarStat1 pScalarStat2 pScalarStat3 pScalarValue1 pScalarValue2 pScalarValue3 pScalarMax1 pScalarMax2 pScalarMax3 mAccuracyAtRequirement focusRequirement mScalarStat1 mScalarStat2 mScalarStat3 mScalarValue1 mScalarValue2 mScalarValue3 mScalarMax1 mScalarMax2 mScalarMax3 speedModifier }
+                  weapon2 { id displayId normalizedId rarity weaponType baseDamage basePotency bonus1 bonus2 bonus3 bonus4 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 durability maxDurability pAccuracyAtRequirement accuracyRequirement pScalarStat1 pScalarStat2 pScalarStat3 pScalarValue1 pScalarValue2 pScalarValue3 pScalarMax1 pScalarMax2 pScalarMax3 mAccuracyAtRequirement focusRequirement mScalarStat1 mScalarStat2 mScalarStat3 mScalarValue1 mScalarValue2 mScalarValue3 mScalarMax1 mScalarMax2 mScalarMax3 speedModifier }
                   offhand1 { id displayId normalizedId rarity equipmentType bonus1 bonus2 bonus3 bonus4 bonus5 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 bonusScalar5 durability maxDurability }
                   offhand2 { id displayId normalizedId rarity equipmentType bonus1 bonus2 bonus3 bonus4 bonus5 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 bonusScalar5 durability maxDurability }
-                  armor { id displayId normalizedId rarity armorType rawPhysDefense physDefScalar rawMagicDefense magicDefScalar evasion bonus1 bonus2 bonus3 bonus4 bonus5 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 bonusScalar5 durability maxDurability }
+                  armor { id displayId normalizedId rarity armorType rawPhysDefense physDefScalar rawMagicDefense magicDefScalar evasion pDefScalarMax mDefScalarMax bonus1 bonus2 bonus3 bonus4 bonus5 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 bonusScalar5 durability maxDurability }
                   accessory { id displayId normalizedId rarity equipmentType bonus1 bonus2 bonus3 bonus4 bonus5 bonusScalar1 bonusScalar2 bonusScalar3 bonusScalar4 bonusScalar5 durability maxDurability }
                 }
               }`;
@@ -9561,6 +9561,104 @@ async function startAdminWebServer() {
               }).then(r => r.json());
               const gqlResult = await Promise.race([gqlFetch, gqlTimeout]);
               const heroList = gqlResult?.data?.heroes || [];
+
+              // ── Passive equipment indexing (fire-and-forget) ──────────────────
+              // Upsert all equipment stats into dfk_item_stats as heroes are seen.
+              // Runs in background; does not block the response.
+              ;(async () => {
+                try {
+                  const { rawPg: rp } = await import('./server/db.js');
+                  const n = (v) => (v == null ? null : Number(v));
+                  for (const hero of heroList) {
+                    const slots = [
+                      hero.weapon1   ? { ...hero.weapon1,   _type: 'weapon',    _typeId: hero.weapon1.weaponType }    : null,
+                      hero.weapon2   ? { ...hero.weapon2,   _type: 'weapon',    _typeId: hero.weapon2.weaponType }    : null,
+                      hero.armor     ? { ...hero.armor,     _type: 'armor',     _typeId: hero.armor.armorType }       : null,
+                      hero.accessory ? { ...hero.accessory, _type: 'accessory', _typeId: hero.accessory.equipmentType } : null,
+                      hero.offhand1  ? { ...hero.offhand1,  _type: 'offhand',   _typeId: hero.offhand1.equipmentType }  : null,
+                      hero.offhand2  ? { ...hero.offhand2,  _type: 'offhand',   _typeId: hero.offhand2.equipmentType }  : null,
+                    ].filter(Boolean);
+                    for (const it of slots) {
+                      if (!it.id) continue;
+                      const w = it._type === 'weapon';
+                      const a = it._type === 'armor';
+                      await rp`
+                        INSERT INTO dfk_item_stats (
+                          item_id, item_type, equipment_type_id, display_id, rarity,
+                          base_damage, base_potency,
+                          p_accuracy_at_requirement, accuracy_requirement,
+                          p_scalar_stat_1, p_scalar_value_1, p_scalar_max_1,
+                          p_scalar_stat_2, p_scalar_value_2, p_scalar_max_2,
+                          p_scalar_stat_3, p_scalar_value_3, p_scalar_max_3,
+                          m_accuracy_at_requirement, focus_requirement,
+                          m_scalar_stat_1, m_scalar_value_1, m_scalar_max_1,
+                          m_scalar_stat_2, m_scalar_value_2, m_scalar_max_2,
+                          m_scalar_stat_3, m_scalar_value_3, m_scalar_max_3,
+                          speed_modifier,
+                          raw_phys_defense, phys_def_scalar, p_def_scalar_max,
+                          raw_magic_defense, magic_def_scalar, m_def_scalar_max, evasion,
+                          bonus_1, bonus_scalar_1, bonus_2, bonus_scalar_2,
+                          bonus_3, bonus_scalar_3, bonus_4, bonus_scalar_4,
+                          bonus_5, bonus_scalar_5,
+                          durability, max_durability
+                        ) VALUES (
+                          ${String(it.id)}, ${it._type}, ${n(it._typeId)}, ${n(it.displayId)}, ${n(it.rarity)},
+                          ${w ? n(it.baseDamage) : null}, ${w ? n(it.basePotency) : null},
+                          ${w ? n(it.pAccuracyAtRequirement) : null}, ${w ? n(it.accuracyRequirement) : null},
+                          ${w ? n(it.pScalarStat1) : null}, ${w ? n(it.pScalarValue1) : null}, ${w ? n(it.pScalarMax1) : null},
+                          ${w ? n(it.pScalarStat2) : null}, ${w ? n(it.pScalarValue2) : null}, ${w ? n(it.pScalarMax2) : null},
+                          ${w ? n(it.pScalarStat3) : null}, ${w ? n(it.pScalarValue3) : null}, ${w ? n(it.pScalarMax3) : null},
+                          ${w ? n(it.mAccuracyAtRequirement) : null}, ${w ? n(it.focusRequirement) : null},
+                          ${w ? n(it.mScalarStat1) : null}, ${w ? n(it.mScalarValue1) : null}, ${w ? n(it.mScalarMax1) : null},
+                          ${w ? n(it.mScalarStat2) : null}, ${w ? n(it.mScalarValue2) : null}, ${w ? n(it.mScalarMax2) : null},
+                          ${w ? n(it.mScalarStat3) : null}, ${w ? n(it.mScalarValue3) : null}, ${w ? n(it.mScalarMax3) : null},
+                          ${w ? n(it.speedModifier) : null},
+                          ${a ? n(it.rawPhysDefense) : null}, ${a ? n(it.physDefScalar) : null}, ${a ? n(it.pDefScalarMax) : null},
+                          ${a ? n(it.rawMagicDefense) : null}, ${a ? n(it.magicDefScalar) : null}, ${a ? n(it.mDefScalarMax) : null}, ${a ? n(it.evasion) : null},
+                          ${n(it.bonus1)}, ${n(it.bonusScalar1)}, ${n(it.bonus2)}, ${n(it.bonusScalar2)},
+                          ${n(it.bonus3)}, ${n(it.bonusScalar3)}, ${n(it.bonus4)}, ${n(it.bonusScalar4)},
+                          ${n(it.bonus5)}, ${n(it.bonusScalar5)},
+                          ${n(it.durability)}, ${n(it.maxDurability)}
+                        )
+                        ON CONFLICT (item_id) DO UPDATE SET
+                          durability = EXCLUDED.durability,
+                          last_seen_at = NOW()
+                      `;
+                    }
+                  }
+                } catch (_e) { /* fire-and-forget — silent failure */ }
+              })();
+
+              // ── Item name enrichment (awaited — names appear in response) ─────
+              // Look up display names from dim tables using weaponType/armorType + displayId.
+              try {
+                const { rawPg: rp } = await import('./server/db.js');
+                const wDisplayIds = [...new Set(heroList.flatMap(h => [h.weapon1?.displayId, h.weapon2?.displayId]).filter(v => v != null))];
+                const aDisplayIds = [...new Set(heroList.map(h => h.armor?.displayId).filter(v => v != null))];
+                const xDisplayIds = [...new Set(heroList.flatMap(h => [h.accessory?.displayId, h.offhand1?.displayId, h.offhand2?.displayId]).filter(v => v != null))];
+                const wNameMap = {}, aNameMap = {}, xNameMap = {};
+                if (wDisplayIds.length > 0) {
+                  const rows = await rp`SELECT weapon_type_id, display_id, weapon_name FROM dim_weapon_details WHERE display_id = ANY(${wDisplayIds})`;
+                  for (const r of rows) wNameMap[`${r.weapon_type_id}_${r.display_id}`] = r.weapon_name;
+                }
+                if (aDisplayIds.length > 0) {
+                  const rows = await rp`SELECT armor_type_id, display_id, armor_name FROM dim_armor_details WHERE display_id = ANY(${aDisplayIds})`;
+                  for (const r of rows) aNameMap[`${r.armor_type_id}_${r.display_id}`] = r.armor_name;
+                }
+                if (xDisplayIds.length > 0) {
+                  const rows = await rp`SELECT accessory_type_id, display_id, accessory_name FROM dim_accessory_details WHERE display_id = ANY(${xDisplayIds})`;
+                  for (const r of rows) xNameMap[`${r.accessory_type_id}_${r.display_id}`] = r.accessory_name;
+                }
+                for (const hero of heroList) {
+                  if (hero.weapon1)   hero.weapon1.itemName   = wNameMap[`${hero.weapon1.weaponType}_${hero.weapon1.displayId}`] ?? null;
+                  if (hero.weapon2)   hero.weapon2.itemName   = wNameMap[`${hero.weapon2.weaponType}_${hero.weapon2.displayId}`] ?? null;
+                  if (hero.armor)     hero.armor.itemName     = aNameMap[`${hero.armor.armorType}_${hero.armor.displayId}`] ?? null;
+                  if (hero.accessory) hero.accessory.itemName = xNameMap[`${hero.accessory.equipmentType}_${hero.accessory.displayId}`] ?? null;
+                  if (hero.offhand1)  hero.offhand1.itemName  = xNameMap[`${hero.offhand1.equipmentType}_${hero.offhand1.displayId}`] ?? null;
+                  if (hero.offhand2)  hero.offhand2.itemName  = xNameMap[`${hero.offhand2.equipmentType}_${hero.offhand2.displayId}`] ?? null;
+                }
+              } catch (_e) { /* name enrichment optional — silent failure */ }
+
               const heroMap = {};
               for (const hero of heroList) heroMap[hero.id] = hero;
               for (const player of players) {
@@ -9648,7 +9746,7 @@ async function startAdminWebServer() {
         try {
           if (players.length > 0) {
             const addrs = players.map(p => `"${p.address.toLowerCase()}"`).join(',');
-            const nameQuery = `{ players(where: { id_in: [${addrs}] }) { id name } }`;
+            const nameQuery = `{ profiles(where: { owner_in: [${addrs}] }) { owner name } }`;
             const nameTimeout = new Promise((_, rej) => setTimeout(() => rej(new Error('name_timeout')), 4000));
             const nameFetch = fetch('https://api.defikingdoms.com/graphql', {
               method: 'POST',
@@ -9657,8 +9755,8 @@ async function startAdminWebServer() {
             }).then(r => r.json());
             const nameData = await Promise.race([nameFetch, nameTimeout]);
             const nameMap = {};
-            for (const p of (nameData?.data?.players || [])) {
-              nameMap[p.id.toLowerCase()] = p.name;
+            for (const p of (nameData?.data?.profiles || [])) {
+              nameMap[p.owner.toLowerCase()] = p.name;
             }
             for (const player of players) {
               player.playerName = nameMap[player.address.toLowerCase()] ?? null;
@@ -9710,8 +9808,10 @@ async function startAdminWebServer() {
         const pDefScalar = Number(h.armor?.physDefScalar ?? 0);
         const rawMDef = Number(h.armor?.rawMagicDefense ?? 0);
         const mDefScalar = Number(h.armor?.magicDefScalar ?? 0);
-        const pDef = rawPDef + pDefScalar * level;
-        const mDef = rawMDef + mDefScalar * level;
+        const pDefScalarMax = Number(h.armor?.pDefScalarMax ?? rawPDef * 2);
+        const mDefScalarMax = Number(h.armor?.mDefScalarMax ?? rawMDef * 2);
+        const pDef = rawPDef + Math.min((pDefScalar / 100) * END, pDefScalarMax);
+        const mDef = rawMDef + Math.min((mDefScalar / 100) * WIS, mDefScalarMax);
         const pRed = pDef > 0 ? (pDef / (pDef + 100) * 100) : 0;
         const mRed = mDef > 0 ? (mDef / (mDef + 100) * 100) : 0;
         const hasArmor = !!h.armor;

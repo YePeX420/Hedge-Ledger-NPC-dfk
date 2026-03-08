@@ -94,6 +94,19 @@ interface HeroWeapon extends HeroEquipItem {
   basePotency: number;
   bonus1: number; bonus2: number; bonus3: number; bonus4: number;
   bonusScalar1: number; bonusScalar2: number; bonusScalar3: number; bonusScalar4: number;
+  // Combat scalars (fetched from DFK subgraph)
+  pAccuracyAtRequirement?: number;
+  accuracyRequirement?: number;
+  pScalarStat1?: number; pScalarValue1?: number; pScalarMax1?: number;
+  pScalarStat2?: number; pScalarValue2?: number; pScalarMax2?: number;
+  pScalarStat3?: number; pScalarValue3?: number; pScalarMax3?: number;
+  mAccuracyAtRequirement?: number;
+  focusRequirement?: number;
+  mScalarStat1?: number; mScalarValue1?: number; mScalarMax1?: number;
+  mScalarStat2?: number; mScalarValue2?: number; mScalarMax2?: number;
+  mScalarStat3?: number; mScalarValue3?: number; mScalarMax3?: number;
+  speedModifier?: number;
+  itemName?: string;
 }
 
 interface HeroArmor extends HeroEquipItem {
@@ -101,8 +114,11 @@ interface HeroArmor extends HeroEquipItem {
   rawPhysDefense: number; physDefScalar: number;
   rawMagicDefense: number; magicDefScalar: number;
   evasion: number;
+  pDefScalarMax?: number;
+  mDefScalarMax?: number;
   bonus1: number; bonus2: number; bonus3: number; bonus4: number; bonus5: number;
   bonusScalar1: number; bonusScalar2: number; bonusScalar3: number; bonusScalar4: number; bonusScalar5: number;
+  itemName?: string;
 }
 
 interface HeroAccessory extends HeroEquipItem {
@@ -595,9 +611,6 @@ const STATUS_RESISTANCES = [
   'Burn', 'Confuse', 'Daze', 'Disarm', 'Ethereal', 'Exhaust', 'Chill',
 ];
 
-const ELEVATED_RESIST_STATUSES: Record<string, number> = {
-  Poison: 46.0, Daze: 46.0, Pull: 23.0, Push: 23.0,
-};
 
 function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => void }) {
   const stats = {
@@ -607,10 +620,63 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
   };
   const profile = computeHeroCombatProfile(stats, hero.level);
 
-  const pDef = (hero.armor?.rawPhysDefense ?? 0) + (hero.armor?.physDefScalar ?? 0) * hero.level;
-  const mDef = (hero.armor?.rawMagicDefense ?? 0) + (hero.armor?.magicDefScalar ?? 0) * hero.level;
+  // P.DEF / M.DEF — physDefScalar is stored ×100 (e.g. 150 = 1.5×), capped by pDefScalarMax
+  const rawPDef = hero.armor?.rawPhysDefense ?? 0;
+  const rawMDef = hero.armor?.rawMagicDefense ?? 0;
+  const pDefScalarMax = hero.armor?.pDefScalarMax ?? rawPDef * 2;
+  const mDefScalarMax = hero.armor?.mDefScalarMax ?? rawMDef * 2;
+  const pDef = rawPDef + Math.min(((hero.armor?.physDefScalar ?? 0) / 100) * stats.END, pDefScalarMax);
+  const mDef = rawMDef + Math.min(((hero.armor?.magicDefScalar ?? 0) / 100) * stats.WIS, mDefScalarMax);
   const pRed = pDef > 0 ? (pDef / (pDef + 100) * 100) : 0;
   const mRed = mDef > 0 ? (mDef / (mDef + 100) * 100) : 0;
+
+  // EVA — formula base + armor evasion bonus + pet evasion bonus
+  const armorEva = (hero.armor?.evasion ?? 0) / 1_000_000;
+  const petEva = hero.pet?.combatBonus === 8 ? (hero.pet.combatBonusScalar ?? 0) / 10000 : 0;
+  const totalEva = profile.EVA + armorEva + petEva;
+
+  // SPEED — base speed + weapon speed modifier
+  const speedMod = (hero.weapon1?.speedModifier ?? 0) + (hero.weapon2?.speedModifier ?? 0);
+  const totalSpeed = Math.round(profile.Speed) + speedMod;
+
+  // Weapon attack computation — stat code: 0=STR,1=AGI,2=DEX,3=INT,4=WIS,5=VIT,6=END,7=LCK
+  const heroStatByCode: Record<number, number> = {
+    0: stats.STR, 1: stats.AGI, 2: stats.DEX, 3: stats.INT,
+    4: stats.WIS, 5: stats.VIT, 6: stats.END, 7: stats.LCK,
+  };
+  function computeWeaponAttack(w: HeroWeapon): number {
+    let atk = w.baseDamage ?? 0;
+    const scalars: [number | undefined, number | undefined, number | undefined][] = [
+      [w.pScalarStat1, w.pScalarValue1, w.pScalarMax1],
+      [w.pScalarStat2, w.pScalarValue2, w.pScalarMax2],
+      [w.pScalarStat3, w.pScalarValue3, w.pScalarMax3],
+    ];
+    for (const [stat, val, max] of scalars) {
+      if (!val || stat == null) continue;
+      const statVal = heroStatByCode[stat] ?? 0;
+      atk += Math.min((val / 100) * statVal, max ?? Infinity);
+    }
+    return Math.round(atk);
+  }
+  function computeWeaponSpell(w: HeroWeapon): number {
+    let spell = w.basePotency ?? 0;
+    const scalars: [number | undefined, number | undefined, number | undefined][] = [
+      [w.mScalarStat1, w.mScalarValue1, w.mScalarMax1],
+      [w.mScalarStat2, w.mScalarValue2, w.mScalarMax2],
+      [w.mScalarStat3, w.mScalarValue3, w.mScalarMax3],
+    ];
+    for (const [stat, val, max] of scalars) {
+      if (!val || stat == null) continue;
+      const statVal = heroStatByCode[stat] ?? 0;
+      spell += Math.min((val / 100) * statVal, max ?? Infinity);
+    }
+    return Math.round(spell);
+  }
+  const weapon1Attack = hero.weapon1 ? computeWeaponAttack(hero.weapon1) : null;
+  const weapon1Spell  = hero.weapon1 ? computeWeaponSpell(hero.weapon1)  : null;
+  const weapon1PAcc   = hero.weapon1?.pAccuracyAtRequirement != null ? (hero.weapon1.pAccuracyAtRequirement / 10).toFixed(1) : null;
+  const weapon1MAcc   = hero.weapon1?.mAccuracyAtRequirement != null ? (hero.weapon1.mAccuracyAtRequirement / 10).toFixed(1) : null;
+  const hasWeaponScalars = weapon1Attack != null && (hero.weapon1?.pScalarValue1 ?? 0) > 0;
 
   const fmt = (v: number, digits = 2) => v.toFixed(digits);
   const pct = (v: number) => (v * 100).toFixed(2) + '%';
@@ -671,8 +737,8 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
                 ['SBLK', pct(profile.SpellBlock)],
                 ['REC', pct(profile.Recovery)],
                 ['SER', pct(profile.SER)],
-                ['SPEED', Math.round(profile.Speed).toString()],
-                ['EVA', pct(profile.EVA)],
+                ['SPEED', totalSpeed.toString()],
+                ['EVA', (totalEva * 100).toFixed(2) + '%'],
               ].map(([label, val]) => (
                 <div key={label} className="flex justify-between">
                   <span className="text-muted-foreground">{label}</span>
@@ -738,6 +804,29 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
           </div>
         </div>
 
+        {/* Primary Arms — weapon combat output, shown only when scalar data is available */}
+        {hasWeaponScalars && hero.weapon1 && (
+          <div className="mt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Primary Arms</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+              {[
+                ['Attack',  weapon1Attack?.toString() ?? '—'],
+                ['Spell',   weapon1Spell?.toString()  ?? '—'],
+                ['P.ACC',   weapon1PAcc  != null ? weapon1PAcc + '%'  : '—'],
+                ['M.ACC',   weapon1MAcc  != null ? weapon1MAcc + '%'  : '—'],
+              ].map(([label, val]) => (
+                <div key={label} className="flex justify-between">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="font-mono">{val}</span>
+                </div>
+              ))}
+            </div>
+            {hero.weapon1.itemName && (
+              <p className="text-xs text-muted-foreground mt-1">{hero.weapon1.itemName}</p>
+            )}
+          </div>
+        )}
+
         {/* Equipment */}
         {(hero.weapon1 || hero.armor || hero.accessory) && (
           <div className="mt-1">
@@ -770,17 +859,16 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
           </div>
         )}
 
-        {/* Status Resistances */}
+        {/* Status Resistances — base from SER formula; equipment bonuses excluded (bonus type codes TBD) */}
         <div className="mt-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Status Resistances</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs">
             {STATUS_RESISTANCES.map(status => {
-              const resist = ELEVATED_RESIST_STATUSES[status] ?? 13.0;
-              const isElevated = resist > 13;
+              const base = profile.SER * 100;
               return (
                 <div key={status} className="flex justify-between">
                   <span className="text-muted-foreground">{status}</span>
-                  <span className={`font-mono ${isElevated ? 'text-amber-400' : ''}`}>{resist.toFixed(1)}%</span>
+                  <span className="font-mono">{base.toFixed(1)}%</span>
                 </div>
               );
             })}

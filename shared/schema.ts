@@ -3601,6 +3601,67 @@ export type InsertDimAccessoryDetails = z.infer<typeof insertDimAccessoryDetails
 export type DimAccessoryDetails = typeof dimAccessoryDetails.$inferSelect;
 
 /**
+ * DFK Item Stats — passively indexed combat stat data per NFT item ID.
+ * Populated by the tournament bracket endpoint as heroes are seen in matches.
+ * Primary key is the DFK subgraph item ID (e.g. "764" or "1000000004274").
+ * All non-core fields are nullable; weapon/armor/accessory rows fill their own columns.
+ */
+export const dfkItemStats = pgTable("dfk_item_stats", {
+  itemId: text("item_id").primaryKey(),
+  itemType: text("item_type").notNull(), // 'weapon' | 'armor' | 'accessory' | 'offhand'
+  equipmentTypeId: integer("equipment_type_id"),
+  displayId: integer("display_id"),
+  rarity: integer("rarity"),
+  // Weapon combat scalars
+  baseDamage: integer("base_damage"),
+  basePotency: integer("base_potency"),
+  pAccuracyAtRequirement: integer("p_accuracy_at_requirement"),
+  accuracyRequirement: integer("accuracy_requirement"),
+  pScalarStat1: integer("p_scalar_stat_1"),
+  pScalarValue1: integer("p_scalar_value_1"),
+  pScalarMax1: integer("p_scalar_max_1"),
+  pScalarStat2: integer("p_scalar_stat_2"),
+  pScalarValue2: integer("p_scalar_value_2"),
+  pScalarMax2: integer("p_scalar_max_2"),
+  pScalarStat3: integer("p_scalar_stat_3"),
+  pScalarValue3: integer("p_scalar_value_3"),
+  pScalarMax3: integer("p_scalar_max_3"),
+  mAccuracyAtRequirement: integer("m_accuracy_at_requirement"),
+  focusRequirement: integer("focus_requirement"),
+  mScalarStat1: integer("m_scalar_stat_1"),
+  mScalarValue1: integer("m_scalar_value_1"),
+  mScalarMax1: integer("m_scalar_max_1"),
+  mScalarStat2: integer("m_scalar_stat_2"),
+  mScalarValue2: integer("m_scalar_value_2"),
+  mScalarMax2: integer("m_scalar_max_2"),
+  mScalarStat3: integer("m_scalar_stat_3"),
+  mScalarValue3: integer("m_scalar_value_3"),
+  mScalarMax3: integer("m_scalar_max_3"),
+  speedModifier: integer("speed_modifier"),
+  // Armor defense fields
+  rawPhysDefense: integer("raw_phys_defense"),
+  physDefScalar: integer("phys_def_scalar"),
+  pDefScalarMax: integer("p_def_scalar_max"),
+  rawMagicDefense: integer("raw_magic_defense"),
+  magicDefScalar: integer("magic_def_scalar"),
+  mDefScalarMax: integer("m_def_scalar_max"),
+  evasion: integer("evasion"),
+  // Shared equipment bonus slots
+  bonus1: integer("bonus_1"), bonusScalar1: integer("bonus_scalar_1"),
+  bonus2: integer("bonus_2"), bonusScalar2: integer("bonus_scalar_2"),
+  bonus3: integer("bonus_3"), bonusScalar3: integer("bonus_scalar_3"),
+  bonus4: integer("bonus_4"), bonusScalar4: integer("bonus_scalar_4"),
+  bonus5: integer("bonus_5"), bonusScalar5: integer("bonus_scalar_5"),
+  durability: integer("durability"),
+  maxDurability: integer("max_durability"),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+});
+
+export const insertDfkItemStatsSchema = createInsertSchema(dfkItemStats).omit({ lastSeenAt: true });
+export type InsertDfkItemStats = z.infer<typeof insertDfkItemStatsSchema>;
+export type DfkItemStats = typeof dfkItemStats.$inferSelect;
+
+/**
  * Equipment category mapping - maps contract addresses to equipment categories
  */
 export const equipmentCategories = pgTable("equipment_categories", {
