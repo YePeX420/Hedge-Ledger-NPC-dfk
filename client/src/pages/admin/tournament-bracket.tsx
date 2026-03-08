@@ -278,11 +278,14 @@ function PlayerSlot({ slotId, slotMap, nameMap, winner, isWinner }: {
         <>
           <span className="text-xs text-muted-foreground w-4 shrink-0">#{slotId}</span>
           {addr ? (
-            <span className="text-xs truncate">{name || shortAddr(addr)}</span>
+            <>
+              <span className="text-xs flex-1 min-w-0 truncate">{name || shortAddr(addr)}</span>
+              <CopyButton text={addr} />
+            </>
           ) : (
-            <span className="text-xs text-muted-foreground">Player {slotId}</span>
+            <span className="text-xs text-muted-foreground flex-1 min-w-0">Player {slotId}</span>
           )}
-          {isWinner && <Check className="w-3 h-3 text-green-400 ml-auto shrink-0" />}
+          {isWinner && <Check className="w-3 h-3 text-green-400 shrink-0" />}
         </>
       )}
     </div>
@@ -362,9 +365,12 @@ function BracketTab({ bracket, players, champion }: {
                   <>
                     <span className="text-xs text-muted-foreground w-4 shrink-0">#{champion}</span>
                     {slotMap[champion] ? (
-                      <span className="text-xs font-bold truncate">{nameMap[champion] || shortAddr(slotMap[champion])}</span>
+                      <>
+                        <span className="text-xs font-bold flex-1 min-w-0 truncate">{nameMap[champion] || shortAddr(slotMap[champion])}</span>
+                        <CopyButton text={slotMap[champion]} />
+                      </>
                     ) : (
-                      <span className="text-xs font-bold">Player {champion}</span>
+                      <span className="text-xs font-bold flex-1 min-w-0">Player {champion}</span>
                     )}
                   </>
                 ) : (
