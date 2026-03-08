@@ -133,10 +133,12 @@ export interface EquipmentBonuses {
   retaliateMagical: number;
   riposte: number;
   recoveryChance: number;
+  statusEffectResistance: number;
   critStrikeChance: number;
   critHealChance: number;
   critDamage: number;
   critLifesteal: number;
+  lifesteal: number;
   physDefPct: number;
   magicDefPct: number;
   physDefFlat: number;
@@ -164,7 +166,8 @@ function zeroEquipBonuses(): EquipmentBonuses {
     blkChance: 0, sblkChance: 0, blkReduction: 0, sblkReduction: 0,
     physicalDamage: 0, magicDamage: 0,
     retaliateAny: 0, retaliatePhysical: 0, retaliateMagical: 0, riposte: 0,
-    recoveryChance: 0, critStrikeChance: 0, critHealChance: 0, critDamage: 0, critLifesteal: 0,
+    recoveryChance: 0, statusEffectResistance: 0,
+    critStrikeChance: 0, critHealChance: 0, critDamage: 0, critLifesteal: 0, lifesteal: 0,
     physDefPct: 0, magicDefPct: 0, physDefFlat: 0, magicDefFlat: 0,
     speed: 0, speedDown: 0, evasion: 0,
     physAccuracy: 0, magicAccuracy: 0, physAccuracyDown: 0, magicAccuracyDown: 0,
@@ -318,22 +321,54 @@ export function getPetBonusName(rawId: number): string {
 // Maps base pet combat code → which EquipmentBonuses field it affects.
 // 'omniDef' means both physDefPct + magicDefPct.
 const PET_BASE_STAT_MAP: Record<number, keyof EquipmentBonuses | 'omniDef'> = {
-  2: 'blkChance',        // Stone Hide
-  3: 'sblkChance',       // Arcane Shell
-  4: 'recoveryChance',   // Recuperate
-  5: 'magicDefPct',      // Magical Shell
-  6: 'physDefPct',       // Heavy Hide
-  7: 'critStrikeChance', // Vorpal Soul
-  8: 'attackPct',        // Sharpened Claws
-  9: 'spellPct',         // Attuned
-  25: 'evasion',         // Slippery
-  26: 'speed',           // Blur
-  27: 'critHealChance',  // Divine Intervention
-  46: 'physAccuracy',    // Good Eye
-  47: 'magicAccuracy',   // Third Eye
-  48: 'omniDef',         // Omni Shell → both physDefPct + magicDefPct
-  49: 'recoveryChance',  // Hardy Constitution (SER-adjacent)
+  2: 'blkChance',              // Stone Hide
+  3: 'sblkChance',             // Arcane Shell
+  4: 'recoveryChance',         // Recuperate
+  5: 'magicDefPct',            // Magical Shell
+  6: 'physDefPct',             // Heavy Hide
+  7: 'critStrikeChance',       // Vorpal Soul
+  8: 'attackPct',              // Sharpened Claws
+  9: 'spellPct',               // Attuned
+  25: 'evasion',               // Slippery
+  26: 'speed',                 // Blur
+  27: 'critHealChance',        // Divine Intervention
+  46: 'physAccuracy',          // Good Eye
+  47: 'magicAccuracy',         // Third Eye
+  48: 'omniDef',               // Omni Shell → both physDefPct + magicDefPct
+  49: 'statusEffectResistance',// Hardy Constitution (SER — status effect resist)
+  50: 'lifesteal',             // Vampiric
+  63: 'magicDamageReduction',  // Null Field
+  64: 'physDamageReduction',   // Brick Wall
 };
+
+// Short display label for pet bonus codes that don't map to an EquipmentBonuses field.
+// Used in the hero modal to annotate what the pet's bonus affects.
+const PET_STAT_LABEL_MAP: Record<number, string> = {
+  10: 'Daze Resist',     // Hard Head
+  11: 'Stun Resist',     // Harder Head
+  12: 'Push/Pull Resist',// Graceful
+  13: 'Disarm Resist',   // Diamond Hands
+  14: 'Bleed Resist',    // Impenetrable
+  15: 'Poison Resist',   // Resilient
+  16: 'Slow Resist',     // Relentless
+  17: 'Silence Resist',  // Outspoken
+  18: 'Confuse Resist',  // Lucid
+  19: 'Fear Resist',     // Brave
+  20: 'Intimidate Resist',// Confident
+  21: 'Blind Resist',    // Inner Lids
+  22: 'Chill Resist',    // Insulated
+  23: 'Burn Resist',     // Moist
+  24: 'XP Bonus',        // Studious
+  28: 'Rune Drop',       // Rune Sniffer
+  51: 'Barrier (self)',  // Meat Shield
+  52: 'Barrier (party)', // Super Meat Shield
+  60: 'Rare Loot',       // Scavenger
+};
+
+export function getPetStatLabel(rawId: number): string | null {
+  const base = decodePetBaseCode(rawId);
+  return PET_STAT_LABEL_MAP[base] ?? null;
+}
 
 export function computePetBonuses(
   pet: { combatBonus: number; combatBonusScalar: number } | null | undefined

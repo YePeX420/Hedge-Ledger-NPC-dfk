@@ -20,6 +20,7 @@ import {
   decodeWeaponSpeedModifier,
   computePetBonuses,
   getPetBonusName,
+  getPetStatLabel,
 } from '@/data/dfk-equipment-bonuses';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -852,14 +853,16 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
             ...(equipBonuses.riposte         !== 0 ? [['RIP',    sign(equipBonuses.riposte         * 100)] as [string,string]] : []),
             ...(totalPDef     !== 0 ? [['P.DEF%', sign(totalPDef     * 100)] as [string,string]] : []),
             ...(totalMDef     !== 0 ? [['M.DEF%', sign(totalMDef     * 100)] as [string,string]] : []),
-            ...(equipBonuses.physDamageReduction !== 0 ? [['P.RED+', sign(equipBonuses.physDamageReduction * 100)] as [string,string]] : []),
-            ...(equipBonuses.magicDamageReduction !== 0 ? [['M.RED+', sign(equipBonuses.magicDamageReduction * 100)] as [string,string]] : []),
+            ...((equipBonuses.physDamageReduction + (petBonuses.physDamageReduction ?? 0)) !== 0 ? [['P.RED+', sign((equipBonuses.physDamageReduction + (petBonuses.physDamageReduction ?? 0)) * 100)] as [string,string]] : []),
+            ...((equipBonuses.magicDamageReduction + (petBonuses.magicDamageReduction ?? 0)) !== 0 ? [['M.RED+', sign((equipBonuses.magicDamageReduction + (petBonuses.magicDamageReduction ?? 0)) * 100)] as [string,string]] : []),
             ...(equipBonuses.physDefFlat     !== 0 ? [['P.DEF+', equipBonuses.physDefFlat.toFixed(0)] as [string,string]] : []),
             ...(equipBonuses.magicDefFlat    !== 0 ? [['M.DEF+', equipBonuses.magicDefFlat.toFixed(0)] as [string,string]] : []),
             ...(equipBonuses.blkChance + (petBonuses.blkChance ?? 0) !== 0 ? [['BLK+',   sign((equipBonuses.blkChance + (petBonuses.blkChance ?? 0)) * 100)] as [string,string]] : []),
             ...(equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0) !== 0 ? [['SBLK+',  sign((equipBonuses.sblkChance + (petBonuses.sblkChance ?? 0)) * 100)] as [string,string]] : []),
             ...(totalPAcc     !== 0 ? [['P.ACC+', sign(totalPAcc     * 100)] as [string,string]] : []),
             ...(totalMAcc     !== 0 ? [['M.ACC+', sign(totalMAcc     * 100)] as [string,string]] : []),
+            ...((petBonuses.lifesteal ?? 0) !== 0 ? [['LIFESTEAL', sign((petBonuses.lifesteal ?? 0) * 100)] as [string,string]] : []),
+            ...((petBonuses.statusEffectResistance ?? 0) !== 0 ? [['SER+', sign((petBonuses.statusEffectResistance ?? 0) * 100)] as [string,string]] : []),
           ].flat() as [string, string][];
           // Show section if any equipment/pet bonus is present
           const hasEquipBonuses = Object.values(equipBonuses).some(v => typeof v === 'number' && v !== 0)
@@ -929,6 +932,9 @@ function HeroDetailModal({ hero, onClose }: { hero: HeroDetail; onClose: () => v
                 <span className="text-muted-foreground">
                   — {getPetBonusName(hero.pet.combatBonus)}
                   {hero.pet.combatBonusScalar > 0 && ` +${(hero.pet.combatBonusScalar / 100).toFixed(1)}%`}
+                  {getPetStatLabel(hero.pet.combatBonus) && (
+                    <span className="ml-1 text-blue-400 text-xs">({getPetStatLabel(hero.pet.combatBonus)})</span>
+                  )}
                 </span>
               )}
             </div>
@@ -1041,6 +1047,9 @@ function HeroCard({ hero, index, onHeroClick }: { hero: HeroDetail; index: numbe
             <span className="text-muted-foreground">
               — {getPetBonusName(hero.pet.combatBonus)}
               {hero.pet.combatBonusScalar > 0 && ` +${(hero.pet.combatBonusScalar / 100).toFixed(1)}%`}
+              {getPetStatLabel(hero.pet.combatBonus) && (
+                <span className="ml-1 text-blue-400 text-xs">({getPetStatLabel(hero.pet.combatBonus)})</span>
+              )}
             </span>
           )}
           {hero.pet.shiny && <Badge variant="outline" className="text-xs px-1.5 py-0 text-amber-400 border-amber-500/40">Shiny</Badge>}
