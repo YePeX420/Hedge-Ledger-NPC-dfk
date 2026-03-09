@@ -8993,6 +8993,87 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/battle-ready/hero-fight-records?heroIds=id1,id2,...
+  app.get('/api/admin/battle-ready/hero-fight-records', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const raw = req.query.heroIds;
+      if (!raw) return res.json({ ok: true, records: {} });
+      const heroIds = String(raw).split(',').map(s => s.trim()).filter(Boolean).slice(0, 200);
+      if (!heroIds.length) return res.json({ ok: true, records: {} });
+
+      const rows = await rawPg.unsafe(
+        `SELECT normalized_hero_id,
+                SUM(CASE WHEN is_winner_side THEN 1 ELSE 0 END)::int AS wins,
+                COUNT(*)::int AS total_bouts
+         FROM dfk_bout_heroes
+         WHERE normalized_hero_id = ANY($1)
+         GROUP BY normalized_hero_id`,
+        [heroIds]
+      );
+
+      const records = {};
+      for (const r of rows) {
+        const wins = r.wins ?? 0;
+        const total = r.total_bouts ?? 0;
+        const losses = total - wins;
+        records[r.normalized_hero_id] = { wins, losses, winRate: total > 0 ? wins / total : 0 };
+      }
+      res.json({ ok: true, records });
+    } catch (error) {
+      console.error('[Battle-Ready] hero-fight-records error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
+  // GET /api/admin/battle-ready/top-heroes-from-archive?limit=20&minBouts=2
+  app.get('/api/admin/battle-ready/top-heroes-from-archive', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+      const minBouts = parseInt(req.query.minBouts) || 2;
+
+      const rows = await rawPg.unsafe(
+        `SELECT normalized_hero_id,
+                main_class, sub_class, level, rarity,
+                strength, intelligence, vitality, endurance,
+                passive1, passive2,
+                SUM(CASE WHEN is_winner_side THEN 1 ELSE 0 END)::int AS wins,
+                COUNT(*)::int AS total_bouts,
+                ROUND(100.0 * SUM(CASE WHEN is_winner_side THEN 1 ELSE 0 END)
+                      / NULLIF(COUNT(*), 0), 1) AS win_pct
+         FROM dfk_bout_heroes
+         WHERE normalized_hero_id IS NOT NULL
+         GROUP BY normalized_hero_id, main_class, sub_class, level, rarity,
+                  strength, intelligence, vitality, endurance, passive1, passive2
+         HAVING COUNT(*) >= $1
+         ORDER BY win_pct DESC, total_bouts DESC
+         LIMIT $2`,
+        [minBouts, limit]
+      );
+
+      const heroes = rows.map(r => {
+        const str = r.strength ?? 0;
+        const int_ = r.intelligence ?? 0;
+        const vit = r.vitality ?? 0;
+        const end_ = r.endurance ?? 0;
+        return {
+          ...r,
+          wins: r.wins ?? 0,
+          losses: (r.total_bouts ?? 0) - (r.wins ?? 0),
+          win_pct: parseFloat(r.win_pct) || 0,
+          effDps: +(str + int_ * 0.7).toFixed(1),
+          surv: vit * 10 + end_ * 5,
+        };
+      });
+
+      res.json({ ok: true, heroes, total: heroes.length });
+    } catch (error) {
+      console.error('[Battle-Ready] top-heroes-from-archive error:', error);
+      res.status(500).json({ ok: false, error: error?.message ?? String(error) });
+    }
+  });
+
   // GET /api/admin/tournament/restrictions - Get tournament restriction stats for dashboard
   app.get("/api/admin/tournament/restrictions", isAdmin, async (req, res) => {
     try {

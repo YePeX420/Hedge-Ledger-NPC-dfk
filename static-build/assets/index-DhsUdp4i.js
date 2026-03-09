@@ -69911,6 +69911,32 @@ const REALM_DISPLAY_NAMES = {
   cv: "Crystalvale Tavern",
   sd: "Sundered Isles Barkeep"
 };
+function parsePassiveId(val) {
+  if (val == null) return -1;
+  if (typeof val === "number") return val;
+  const m = String(val).match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : -1;
+}
+function computeCombatMetrics(hero) {
+  const str = hero.strength ?? 0;
+  const int_ = hero.intelligence ?? 0;
+  const vit = hero.vitality ?? 0;
+  const end_ = hero.endurance ?? 0;
+  return {
+    effDps: +(str + int_ * 0.7).toFixed(1),
+    surv: vit * 10 + end_ * 5
+  };
+}
+const KEY_PASSIVES = {
+  9: { label: "Leadership", className: "bg-amber-600/20 text-amber-400 border-amber-600/40" },
+  11: { label: "Menacing", className: "bg-red-700/20 text-red-400 border-red-700/40" },
+  15: { label: "SecondLife", className: "bg-cyan-700/20 text-cyan-400 border-cyan-700/40" },
+  14: { label: "LastStand", className: "bg-orange-700/20 text-orange-400 border-orange-700/40" }
+};
+function getKeyPassiveBadges(hero) {
+  const ids = [parsePassiveId(hero.passive1), parsePassiveId(hero.passive2)];
+  return ids.filter((id) => id in KEY_PASSIVES).map((id) => KEY_PASSIVES[id]);
+}
 function getAbilityTierPoints(abilitySlot) {
   if (abilitySlot == null) return 0;
   let id;
@@ -70065,8 +70091,13 @@ function BattleReadyAdmin() {
   const { data: configData, isLoading: configLoading, refetch: refetchConfig } = useQuery({
     queryKey: ["/api/admin/similarity/config"]
   });
-  const { data: winnersData, isLoading: winnersLoading } = useQuery({
-    queryKey: ["/api/admin/battle-ready/recommendations"]
+  const { data: topHeroesData, isLoading: topHeroesLoading } = useQuery({
+    queryKey: ["/api/admin/battle-ready/top-heroes-from-archive"],
+    queryFn: async () => {
+      const r2 = await fetch("/api/admin/battle-ready/top-heroes-from-archive?limit=20&minBouts=2");
+      if (!r2.ok) throw new Error("Failed to fetch");
+      return r2.json();
+    }
   });
   const tavernQueryParams = new URLSearchParams();
   if (tavernFilter !== "all") tavernQueryParams.set("realm", tavernFilter);
@@ -70085,6 +70116,21 @@ function BattleReadyAdmin() {
       if (!response.ok) throw new Error("Failed to fetch tavern listings");
       return response.json();
     }
+  });
+  const heroIdsCsv = reactExports.useMemo(() => {
+    if (!tavernData) return "";
+    const all = [...tavernData.crystalvale || [], ...tavernData.serendale || []];
+    return all.map((h) => String(h.normalizedId)).join(",");
+  }, [tavernData]);
+  const { data: fightRecordsData } = useQuery({
+    queryKey: ["/api/admin/battle-ready/hero-fight-records", heroIdsCsv],
+    queryFn: async () => {
+      if (!heroIdsCsv) return { ok: true, records: {} };
+      const r2 = await fetch(`/api/admin/battle-ready/hero-fight-records?heroIds=${heroIdsCsv}`);
+      if (!r2.ok) throw new Error("Failed to fetch");
+      return r2.json();
+    },
+    enabled: !!heroIdsCsv
   });
   const { data: tavernIndexerData, refetch: refetchTavernIndexer } = useQuery({
     queryKey: ["/api/admin/tavern-indexer/status"],
@@ -70314,8 +70360,17 @@ function BattleReadyAdmin() {
         return heroTts <= maxTts;
       });
     }
+    if (sortBy2 === "combat_score") {
+      return heroes.sort((a2, b) => {
+        const ma = computeCombatMetrics(a2);
+        const mb = computeCombatMetrics(b);
+        const scoreA = ma.effDps * 0.6 + ma.surv * 4e-3;
+        const scoreB = mb.effDps * 0.6 + mb.surv * 4e-3;
+        return scoreB - scoreA;
+      });
+    }
     return heroes.sort((a2, b) => (a2.priceUSD ?? 999999) - (b.priceUSD ?? 999999));
-  }, [tavernData, tavernFilter, tsFilter]);
+  }, [tavernData, tavernFilter, tsFilter, sortBy2]);
   const teamCostTotals = reactExports.useMemo(() => {
     const selected = allTavernHeroes.filter((h) => selectedHeroes.has(h.id));
     const crystalTotal = selected.filter((h) => h.nativeToken === "CRYSTAL").reduce((sum, h) => sum + h.priceNative, 0);
@@ -70834,48 +70889,63 @@ function BattleReadyAdmin() {
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(CardHeader, { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(CardTitle, { children: "Recent Battle Winners" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(CardDescription, { children: "Heroes that have won recent PVP battles with their combat stats" })
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "flex items-center gap-2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "h-5 w-5" }),
+          "Top Performers from Fight Archive"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(CardDescription, { children: "Heroes ranked by win rate from indexed bracket tournaments (min. 2 bouts)" })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: winnersLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex items-center justify-center py-8", children: /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "h-8 w-8 animate-spin" }) }) : winnersData?.recommendations && winnersData.recommendations.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs(Table, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: topHeroesLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex items-center justify-center py-8", children: /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "h-8 w-8 animate-spin" }) }) : topHeroesData?.heroes && topHeroesData.heroes.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs(Table, { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(TableHeader, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(TableRow, { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Hero ID" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Class" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Level" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Rarity" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Combat Power" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Stats" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Abilities" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Eff. DPS" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Surv." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Key Passives" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "W · L" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Win%" })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(TableBody, { children: winnersData.recommendations.slice(0, 20).map((rec) => {
-          const hero = rec.snapshot;
-          const tournament = rec.tournament;
-          if (!hero) return null;
-          return /* @__PURE__ */ jsxRuntimeExports.jsxs(TableRow, { "data-testid": `row-winner-${hero.heroId}`, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono", children: hero.heroId }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: hero.mainClass }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: hero.level }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$a[hero.rarity] || "", children: RARITY_NAMES$5[hero.rarity] || hero.rarity }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-bold", children: hero.combatPowerScore || "N/A" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(TableBody, { children: topHeroesData.heroes.map((hero) => {
+          const passiveBadges = getKeyPassiveBadges({ passive1: hero.passive1, passive2: hero.passive2 });
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs(TableRow, { "data-testid": `row-archive-${hero.normalized_hero_id}`, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono text-xs", children: hero.normalized_hero_id }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-medium", children: hero.main_class || "?" }),
+              hero.sub_class && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground", children: hero.sub_class })
+            ] }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: hero.level ?? "?" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$a[hero.rarity ?? 0] || "", children: RARITY_NAMES$5[hero.rarity ?? 0] || hero.rarity }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono text-xs", children: hero.effDps.toFixed(1) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono text-xs", children: hero.surv }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1", children: passiveBadges.length > 0 ? passiveBadges.map((p, i) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-[10px] px-1 rounded border ${p.className}`, children: p.label }, i)) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground", children: "—" }) }) }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs(TableCell, { className: "text-xs", children: [
-              "STR:",
-              hero.strength ?? "-",
-              " AGI:",
-              hero.agility ?? "-",
-              " DEX:",
-              hero.dexterity ?? "-",
-              /* @__PURE__ */ jsxRuntimeExports.jsx("br", {}),
-              "VIT:",
-              hero.vitality ?? "-",
-              " END:",
-              hero.endurance ?? "-",
-              " INT:",
-              hero.intelligence ?? "-"
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-green-400 font-medium", children: [
+                hero.wins,
+                "W"
+              ] }),
+              " ",
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
+                hero.losses,
+                "L"
+              ] })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "text-xs text-muted-foreground", children: [hero.active1, hero.active2].filter(Boolean).join(", ") || "None" })
-          ] }, `${hero.heroId}-${tournament?.tournamentId || hero.tournamentId}`);
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              Badge,
+              {
+                variant: "outline",
+                className: `text-xs ${hero.win_pct >= 70 ? "text-green-400 border-green-500/50" : hero.win_pct >= 50 ? "text-blue-400 border-blue-500/50" : "text-muted-foreground"}`,
+                "data-testid": `badge-winpct-${hero.normalized_hero_id}`,
+                children: [
+                  hero.win_pct.toFixed(1),
+                  "%"
+                ]
+              }
+            ) })
+          ] }, hero.normalized_hero_id);
         }) })
-      ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No battle winners indexed yet. Trigger the indexer to start collecting data." }) })
+      ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No fight archive data yet. Load a completed bracket tournament to seed the archive." }) })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(CardHeader, { children: [
@@ -71230,7 +71300,8 @@ function BattleReadyAdmin() {
             /* @__PURE__ */ jsxRuntimeExports.jsxs(SelectContent, { children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(SelectItem, { value: "price", children: "Cheapest" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(SelectItem, { value: "combat_power", children: "Strongest" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(SelectItem, { value: "value", children: "Best Value" })
+              /* @__PURE__ */ jsxRuntimeExports.jsx(SelectItem, { value: "value", children: "Best Value" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(SelectItem, { value: "combat_score", children: "Combat Score" })
             ] })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs(Button, { variant: "outline", size: "sm", onClick: () => refetchTavern(), "data-testid": "button-refresh-tavern", children: [
@@ -71349,84 +71420,98 @@ function BattleReadyAdmin() {
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Rarity" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "CP" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "TS" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Eff. DPS" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Surv." }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Fight Record" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Profession" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Summons" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { children: "Stats" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableHead, { className: "text-right", children: "Price" })
             ] }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(TableBody, { children: allTavernHeroes.map((hero) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              TableRow,
-              {
-                "data-testid": `row-tavern-${hero.id}`,
-                className: selectedHeroes.has(hero.id) ? "bg-muted/50" : "",
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    Checkbox,
-                    {
-                      checked: selectedHeroes.has(hero.id),
-                      onCheckedChange: () => toggleHeroSelection(hero.id),
-                      "data-testid": `checkbox-hero-${hero.id}`
-                    }
-                  ) }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono text-xs", children: hero.normalizedId }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-medium", children: hero.mainClassStr }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground", children: hero.subClassStr })
-                  ] }) }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: hero.level }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$a[hero.rarity] || "", children: RARITY_NAMES$5[hero.rarity] || hero.rarity }),
-                    hero.summonStone && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                      Badge,
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableBody, { children: allTavernHeroes.map((hero) => {
+              const metrics = computeCombatMetrics(hero);
+              const keyPassives = getKeyPassiveBadges(hero);
+              const fightRec = fightRecordsData?.records?.[String(hero.normalizedId)];
+              return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                TableRow,
+                {
+                  "data-testid": `row-tavern-${hero.id}`,
+                  className: selectedHeroes.has(hero.id) ? "bg-muted/50" : "",
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Checkbox,
                       {
-                        variant: "outline",
-                        className: `text-xs px-1 py-0 ${hero.stoneTier === "greater" ? "text-yellow-400 border-yellow-400/50" : hero.stoneTier === "normal" ? "text-slate-300 border-slate-400/50" : hero.stoneTier === "lesser" ? "text-amber-600 border-amber-500/50" : "text-emerald-400 border-emerald-400/50"}`,
-                        "data-testid": `badge-stoned-${hero.id}`,
-                        title: hero.stoneTier && hero.stoneType ? `${hero.stoneTier.charAt(0).toUpperCase() + hero.stoneTier.slice(1)} ${hero.stoneType.charAt(0).toUpperCase() + hero.stoneType.slice(1)} Stone` : "Enhancement Stone",
-                        children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(Gem, { className: "h-3 w-3 mr-0.5" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px]", children: [
-                            hero.stoneTier === "greater" ? "G" : hero.stoneTier === "lesser" ? "L" : "",
-                            hero.stoneType ? hero.stoneType.slice(0, 3).toUpperCase() : ""
-                          ] })
-                        ]
+                        checked: selectedHeroes.has(hero.id),
+                        onCheckedChange: () => toggleHeroSelection(hero.id),
+                        "data-testid": `checkbox-hero-${hero.id}`
                       }
-                    )
-                  ] }) }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "secondary", className: "text-xs font-mono", "data-testid": `text-hero-cp-${hero.id}`, children: hero.combatPower || hero.strength + hero.agility + hero.intelligence + hero.wisdom + hero.luck + hero.dexterity + hero.vitality + hero.endurance || 0 }) }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-xs", "data-testid": `text-hero-ts-${hero.id}`, children: calculateHeroTraitScore(hero) }) }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "text-xs", children: hero.professionStr }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs(TableCell, { className: "text-xs", children: [
-                    hero.summons,
-                    "/",
-                    hero.maxSummons
-                  ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs(TableCell, { className: "text-xs", children: [
-                    "STR:",
-                    hero.strength,
-                    " AGI:",
-                    hero.agility,
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("br", {}),
-                    "INT:",
-                    hero.intelligence,
-                    " WIS:",
-                    hero.wisdom
-                  ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "text-right", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col items-end", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: hero.nativeToken === "CRYSTAL" ? "text-blue-400 font-medium" : "text-purple-400 font-medium", children: [
-                      hero.priceNative.toFixed(2),
-                      " ",
-                      hero.nativeToken
+                    ) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono text-xs", children: hero.normalizedId }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col gap-1", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-medium", children: hero.mainClassStr }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground", children: hero.subClassStr }),
+                      keyPassives.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1", children: keyPassives.map((p, i) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-[10px] px-1 rounded border ${p.className}`, children: p.label }, i)) })
+                    ] }) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: hero.level }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$a[hero.rarity] || "", children: RARITY_NAMES$5[hero.rarity] || hero.rarity }),
+                      hero.summonStone && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                        Badge,
+                        {
+                          variant: "outline",
+                          className: `text-xs px-1 py-0 ${hero.stoneTier === "greater" ? "text-yellow-400 border-yellow-400/50" : hero.stoneTier === "normal" ? "text-slate-300 border-slate-400/50" : hero.stoneTier === "lesser" ? "text-amber-600 border-amber-500/50" : "text-emerald-400 border-emerald-400/50"}`,
+                          "data-testid": `badge-stoned-${hero.id}`,
+                          title: hero.stoneTier && hero.stoneType ? `${hero.stoneTier.charAt(0).toUpperCase() + hero.stoneTier.slice(1)} ${hero.stoneType.charAt(0).toUpperCase() + hero.stoneType.slice(1)} Stone` : "Enhancement Stone",
+                          children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx(Gem, { className: "h-3 w-3 mr-0.5" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px]", children: [
+                              hero.stoneTier === "greater" ? "G" : hero.stoneTier === "lesser" ? "L" : "",
+                              hero.stoneType ? hero.stoneType.slice(0, 3).toUpperCase() : ""
+                            ] })
+                          ]
+                        }
+                      )
+                    ] }) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "secondary", className: "text-xs font-mono", "data-testid": `text-hero-cp-${hero.id}`, children: hero.combatPower || hero.strength + hero.agility + hero.intelligence + hero.wisdom + hero.luck + hero.dexterity + hero.vitality + hero.endurance || 0 }) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-xs", "data-testid": `text-hero-ts-${hero.id}`, children: calculateHeroTraitScore(hero) }) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "text-xs font-mono", "data-testid": `text-hero-effdps-${hero.id}`, children: metrics.effDps.toFixed(1) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "text-xs font-mono", "data-testid": `text-hero-surv-${hero.id}`, children: metrics.surv }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "text-xs", "data-testid": `text-hero-record-${hero.id}`, children: fightRec ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-green-400 font-medium", children: [
+                        fightRec.wins,
+                        "W"
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
+                        fightRec.losses,
+                        "L"
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground", children: "·" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-medium", children: [
+                        (fightRec.winRate * 100).toFixed(0),
+                        "%"
+                      ] })
+                    ] }) : null }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "text-xs", children: hero.professionStr }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs(TableCell, { className: "text-xs", children: [
+                      hero.summons,
+                      "/",
+                      hero.maxSummons
                     ] }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground", children: [
-                      "$",
-                      hero.priceUSD?.toFixed(2) ?? "N/A"
-                    ] })
-                  ] }) })
-                ]
-              },
-              hero.id
-            )) })
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "text-right", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col items-end", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: hero.nativeToken === "CRYSTAL" ? "text-blue-400 font-medium" : "text-purple-400 font-medium", children: [
+                        hero.priceNative.toFixed(2),
+                        " ",
+                        hero.nativeToken
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground", children: [
+                        "$",
+                        hero.priceUSD?.toFixed(2) ?? "N/A"
+                      ] })
+                    ] }) })
+                  ]
+                },
+                hero.id
+              );
+            }) })
           ] }) })
         ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No heroes for sale found. Try refreshing." })
       ] })

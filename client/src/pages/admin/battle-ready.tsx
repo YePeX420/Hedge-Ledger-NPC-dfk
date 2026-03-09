@@ -23,6 +23,39 @@ const REALM_DISPLAY_NAMES: Record<string, string> = {
   sd: 'Sundered Isles Barkeep',
 };
 
+// Parse passive/active ID from "ability_X" string or numeric value
+function parsePassiveId(val: string | number | null | undefined): number {
+  if (val == null) return -1;
+  if (typeof val === 'number') return val;
+  const m = String(val).match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : -1;
+}
+
+// Compute combat metrics from hero stats
+function computeCombatMetrics(hero: { strength?: number | null; intelligence?: number | null; vitality?: number | null; endurance?: number | null }) {
+  const str = hero.strength ?? 0;
+  const int_ = hero.intelligence ?? 0;
+  const vit = hero.vitality ?? 0;
+  const end_ = hero.endurance ?? 0;
+  return {
+    effDps: +(str + int_ * 0.7).toFixed(1),
+    surv: vit * 10 + end_ * 5,
+  };
+}
+
+// Key combat passives with display labels and color classes
+const KEY_PASSIVES: Record<number, { label: string; className: string }> = {
+  9:  { label: 'Leadership', className: 'bg-amber-600/20 text-amber-400 border-amber-600/40' },
+  11: { label: 'Menacing',   className: 'bg-red-700/20 text-red-400 border-red-700/40' },
+  15: { label: 'SecondLife', className: 'bg-cyan-700/20 text-cyan-400 border-cyan-700/40' },
+  14: { label: 'LastStand',  className: 'bg-orange-700/20 text-orange-400 border-orange-700/40' },
+};
+
+function getKeyPassiveBadges(hero: { passive1?: string | number | null; passive2?: string | number | null }) {
+  const ids = [parsePassiveId(hero.passive1), parsePassiveId(hero.passive2)];
+  return ids.filter(id => id in KEY_PASSIVES).map(id => KEY_PASSIVES[id]);
+}
+
 // Ability tier scoring for TS (Team Trait Score)
 // Active: IDs 0-14 → Basic (0-7)=0, Advanced (8-11)=1, Elite (12-13)=2, Exalted (14)=3
 // Passive: IDs 16-30 → Basic (16-23)=0, Advanced (24-27)=1, Elite (28-29)=2, Exalted (30)=3
@@ -189,6 +222,26 @@ interface WinnerRecommendation {
   snapshot: HeroSnapshot;
   tournament: Tournament | null;
   placement: TournamentPlacement | null;
+}
+
+interface ArchiveHero {
+  normalized_hero_id: string;
+  main_class: string | null;
+  sub_class: string | null;
+  level: number | null;
+  rarity: number | null;
+  strength: number | null;
+  intelligence: number | null;
+  vitality: number | null;
+  endurance: number | null;
+  passive1: string | null;
+  passive2: string | null;
+  wins: number;
+  losses: number;
+  total_bouts: number;
+  win_pct: number;
+  effDps: number;
+  surv: number;
 }
 
 interface TavernHero {
@@ -463,7 +516,7 @@ export default function BattleReadyAdmin() {
   const [rarityFilter, setRarityFilter] = useState<'any' | '4' | '3' | '2'>('4'); // Default to Mythic for tournament-ready
   const [combatPowerFilter, setCombatPowerFilter] = useState<'any' | '150' | '220' | '290'>('any'); // Level-aware presets
   const [minLevelFilter, setMinLevelFilter] = useState<'any' | '10' | '20' | '50'>('10'); // Default L10+ for tournaments
-  const [sortBy, setSortBy] = useState<'price' | 'combat_power' | 'value'>('price');
+  const [sortBy, setSortBy] = useState<'price' | 'combat_power' | 'value' | 'combat_score'>('price');
   const [expandedPattern, setExpandedPattern] = useState<string | null>(null);
   const [labelForm, setLabelForm] = useState<{ signature: string; label: string; category: string; color: string } | null>(null);
   
@@ -486,8 +539,14 @@ export default function BattleReadyAdmin() {
     queryKey: ['/api/admin/similarity/config'],
   });
 
-  const { data: winnersData, isLoading: winnersLoading } = useQuery<{ ok: boolean; recommendations: WinnerRecommendation[]; totalWinners: number }>({
-    queryKey: ['/api/admin/battle-ready/recommendations'],
+  // Fight archive top performers (replaces old recommendations)
+  const { data: topHeroesData, isLoading: topHeroesLoading } = useQuery<{ ok: boolean; heroes: ArchiveHero[]; total: number }>({
+    queryKey: ['/api/admin/battle-ready/top-heroes-from-archive'],
+    queryFn: async () => {
+      const r = await fetch('/api/admin/battle-ready/top-heroes-from-archive?limit=20&minBouts=2');
+      if (!r.ok) throw new Error('Failed to fetch');
+      return r.json();
+    },
   });
 
   // Build query params for tavern listings
@@ -510,6 +569,24 @@ export default function BattleReadyAdmin() {
       if (!response.ok) throw new Error('Failed to fetch tavern listings');
       return response.json();
     },
+  });
+
+  // Fight records bulk query — loads W/L for all currently visible tavern heroes
+  const heroIdsCsv = useMemo(() => {
+    if (!tavernData) return '';
+    const all = [...(tavernData.crystalvale || []), ...(tavernData.serendale || [])];
+    return all.map(h => String(h.normalizedId)).join(',');
+  }, [tavernData]);
+
+  const { data: fightRecordsData } = useQuery<{ ok: boolean; records: Record<string, { wins: number; losses: number; winRate: number }> }>({
+    queryKey: ['/api/admin/battle-ready/hero-fight-records', heroIdsCsv],
+    queryFn: async () => {
+      if (!heroIdsCsv) return { ok: true, records: {} };
+      const r = await fetch(`/api/admin/battle-ready/hero-fight-records?heroIds=${heroIdsCsv}`);
+      if (!r.ok) throw new Error('Failed to fetch');
+      return r.json();
+    },
+    enabled: !!heroIdsCsv,
   });
 
   const { data: tavernIndexerData, refetch: refetchTavernIndexer } = useQuery<TavernIndexerStatus>({
@@ -773,15 +850,22 @@ export default function BattleReadyAdmin() {
       const maxTts = parseInt(tsFilter, 10);
       heroes = heroes.filter(h => {
         const heroTts = calculateHeroTraitScore(h);
-        // For team of 3, check if hero could fit within team budget
-        // Individual hero max is 12, so we filter heroes with TS ≤ maxTts/3 roughly
-        // But better to just show individual score and let user decide
         return heroTts <= maxTts;
       });
     }
     
+    if (sortBy === 'combat_score') {
+      return heroes.sort((a, b) => {
+        const ma = computeCombatMetrics(a);
+        const mb = computeCombatMetrics(b);
+        const scoreA = ma.effDps * 0.6 + ma.surv * 0.004;
+        const scoreB = mb.effDps * 0.6 + mb.surv * 0.004;
+        return scoreB - scoreA;
+      });
+    }
+    
     return heroes.sort((a, b) => (a.priceUSD ?? 999999) - (b.priceUSD ?? 999999));
-  }, [tavernData, tavernFilter, tsFilter]);
+  }, [tavernData, tavernFilter, tsFilter, sortBy]);
 
   // Calculate team cost totals and TS for selected heroes
   const teamCostTotals = useMemo(() => {
@@ -1359,15 +1443,18 @@ export default function BattleReadyAdmin() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent Battle Winners</CardTitle>
-          <CardDescription>Heroes that have won recent PVP battles with their combat stats</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <Trophy className="h-5 w-5" />
+            Top Performers from Fight Archive
+          </CardTitle>
+          <CardDescription>Heroes ranked by win rate from indexed bracket tournaments (min. 2 bouts)</CardDescription>
         </CardHeader>
         <CardContent>
-          {winnersLoading ? (
+          {topHeroesLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
-          ) : winnersData?.recommendations && winnersData.recommendations.length > 0 ? (
+          ) : topHeroesData?.heroes && topHeroesData.heroes.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1375,34 +1462,53 @@ export default function BattleReadyAdmin() {
                   <TableHead>Class</TableHead>
                   <TableHead>Level</TableHead>
                   <TableHead>Rarity</TableHead>
-                  <TableHead>Combat Power</TableHead>
-                  <TableHead>Stats</TableHead>
-                  <TableHead>Abilities</TableHead>
+                  <TableHead>Eff. DPS</TableHead>
+                  <TableHead>Surv.</TableHead>
+                  <TableHead>Key Passives</TableHead>
+                  <TableHead>W · L</TableHead>
+                  <TableHead>Win%</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {winnersData.recommendations.slice(0, 20).map((rec) => {
-                  const hero = rec.snapshot;
-                  const tournament = rec.tournament;
-                  if (!hero) return null;
+                {topHeroesData.heroes.map((hero) => {
+                  const passiveBadges = getKeyPassiveBadges({ passive1: hero.passive1, passive2: hero.passive2 });
                   return (
-                    <TableRow key={`${hero.heroId}-${tournament?.tournamentId || hero.tournamentId}`} data-testid={`row-winner-${hero.heroId}`}>
-                      <TableCell className="font-mono">{hero.heroId}</TableCell>
-                      <TableCell>{hero.mainClass}</TableCell>
-                      <TableCell>{hero.level}</TableCell>
+                    <TableRow key={hero.normalized_hero_id} data-testid={`row-archive-${hero.normalized_hero_id}`}>
+                      <TableCell className="font-mono text-xs">{hero.normalized_hero_id}</TableCell>
                       <TableCell>
-                        <span className={RARITY_COLORS[hero.rarity] || ''}>
-                          {RARITY_NAMES[hero.rarity] || hero.rarity}
+                        <div className="flex flex-col">
+                          <span className="font-medium">{hero.main_class || '?'}</span>
+                          {hero.sub_class && <span className="text-xs text-muted-foreground">{hero.sub_class}</span>}
+                        </div>
+                      </TableCell>
+                      <TableCell>{hero.level ?? '?'}</TableCell>
+                      <TableCell>
+                        <span className={RARITY_COLORS[hero.rarity ?? 0] || ''}>
+                          {RARITY_NAMES[hero.rarity ?? 0] || hero.rarity}
                         </span>
                       </TableCell>
-                      <TableCell className="font-bold">{hero.combatPowerScore || 'N/A'}</TableCell>
-                      <TableCell className="text-xs">
-                        STR:{hero.strength ?? '-'} AGI:{hero.agility ?? '-'} DEX:{hero.dexterity ?? '-'}
-                        <br />
-                        VIT:{hero.vitality ?? '-'} END:{hero.endurance ?? '-'} INT:{hero.intelligence ?? '-'}
+                      <TableCell className="font-mono text-xs">{hero.effDps.toFixed(1)}</TableCell>
+                      <TableCell className="font-mono text-xs">{hero.surv}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {passiveBadges.length > 0 ? passiveBadges.map((p, i) => (
+                            <span key={i} className={`text-[10px] px-1 rounded border ${p.className}`}>{p.label}</span>
+                          )) : <span className="text-xs text-muted-foreground">—</span>}
+                        </div>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {[hero.active1, hero.active2].filter(Boolean).join(', ') || 'None'}
+                      <TableCell className="text-xs">
+                        <span className="text-green-400 font-medium">{hero.wins}W</span>
+                        {' '}
+                        <span className="text-muted-foreground">{hero.losses}L</span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${hero.win_pct >= 70 ? 'text-green-400 border-green-500/50' : hero.win_pct >= 50 ? 'text-blue-400 border-blue-500/50' : 'text-muted-foreground'}`}
+                          data-testid={`badge-winpct-${hero.normalized_hero_id}`}
+                        >
+                          {hero.win_pct.toFixed(1)}%
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   );
@@ -1411,7 +1517,7 @@ export default function BattleReadyAdmin() {
             </Table>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
-              No battle winners indexed yet. Trigger the indexer to start collecting data.
+              No fight archive data yet. Load a completed bracket tournament to seed the archive.
             </div>
           )}
         </CardContent>
@@ -1876,6 +1982,7 @@ export default function BattleReadyAdmin() {
                   <SelectItem value="price">Cheapest</SelectItem>
                   <SelectItem value="combat_power">Strongest</SelectItem>
                   <SelectItem value="value">Best Value</SelectItem>
+                  <SelectItem value="combat_score">Combat Score</SelectItem>
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={() => refetchTavern()} data-testid="button-refresh-tavern">
@@ -2009,14 +2116,20 @@ export default function BattleReadyAdmin() {
                       <TableHead>Rarity</TableHead>
                       <TableHead>CP</TableHead>
                       <TableHead>TS</TableHead>
+                      <TableHead>Eff. DPS</TableHead>
+                      <TableHead>Surv.</TableHead>
+                      <TableHead>Fight Record</TableHead>
                       <TableHead>Profession</TableHead>
                       <TableHead>Summons</TableHead>
-                      <TableHead>Stats</TableHead>
                       <TableHead className="text-right">Price</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {allTavernHeroes.map((hero) => (
+                    {allTavernHeroes.map((hero) => {
+                      const metrics = computeCombatMetrics(hero);
+                      const keyPassives = getKeyPassiveBadges(hero);
+                      const fightRec = fightRecordsData?.records?.[String(hero.normalizedId)];
+                      return (
                       <TableRow 
                         key={hero.id} 
                         data-testid={`row-tavern-${hero.id}`}
@@ -2031,9 +2144,16 @@ export default function BattleReadyAdmin() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{hero.normalizedId}</TableCell>
                         <TableCell>
-                          <div className="flex flex-col">
+                          <div className="flex flex-col gap-1">
                             <span className="font-medium">{hero.mainClassStr}</span>
                             <span className="text-xs text-muted-foreground">{hero.subClassStr}</span>
+                            {keyPassives.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {keyPassives.map((p, i) => (
+                                  <span key={i} className={`text-[10px] px-1 rounded border ${p.className}`}>{p.label}</span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>{hero.level}</TableCell>
@@ -2075,13 +2195,24 @@ export default function BattleReadyAdmin() {
                             {calculateHeroTraitScore(hero)}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-xs font-mono" data-testid={`text-hero-effdps-${hero.id}`}>
+                          {metrics.effDps.toFixed(1)}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono" data-testid={`text-hero-surv-${hero.id}`}>
+                          {metrics.surv}
+                        </TableCell>
+                        <TableCell className="text-xs" data-testid={`text-hero-record-${hero.id}`}>
+                          {fightRec ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-green-400 font-medium">{fightRec.wins}W</span>
+                              <span className="text-muted-foreground">{fightRec.losses}L</span>
+                              <span className="text-muted-foreground">·</span>
+                              <span className="font-medium">{(fightRec.winRate * 100).toFixed(0)}%</span>
+                            </div>
+                          ) : null}
+                        </TableCell>
                         <TableCell className="text-xs">{hero.professionStr}</TableCell>
                         <TableCell className="text-xs">{hero.summons}/{hero.maxSummons}</TableCell>
-                        <TableCell className="text-xs">
-                          STR:{hero.strength} AGI:{hero.agility}
-                          <br />
-                          INT:{hero.intelligence} WIS:{hero.wisdom}
-                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-col items-end">
                             <span className={hero.nativeToken === 'CRYSTAL' ? 'text-blue-400 font-medium' : 'text-purple-400 font-medium'}>
@@ -2093,7 +2224,8 @@ export default function BattleReadyAdmin() {
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
