@@ -3,7 +3,7 @@ import { useLocation, useParams } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft, Zap, Users, Shield, Trophy, ChevronDown, Star, RefreshCw, Activity, AlertTriangle,
-  ScrollText, FlaskConical, Search, Database,
+  ScrollText, FlaskConical, Search, Database, ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1322,6 +1322,17 @@ function DirectBattleLogSection({ tournamentId, addrA, addrB }: { tournamentId: 
           </Button>
           {state.data && (
             <span className="text-[10px] font-mono text-muted-foreground/60">{state.data.battleId}</span>
+          )}
+          {state.data?.battleId && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => window.open(`https://game.defikingdoms.com/combat/pvp/${state.data!.battleId}?replay=true`, '_blank', 'noopener,noreferrer')}
+              data-testid="btn-watch-replay"
+            >
+              <ExternalLink className="w-3 h-3 mr-1.5" />
+              Watch Replay
+            </Button>
           )}
         </div>
 
