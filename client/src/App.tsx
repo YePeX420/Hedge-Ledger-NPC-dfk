@@ -66,6 +66,8 @@ import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
 import ChallengesPage from "@/pages/challenges";
 import NotFound from "@/pages/not-found";
+import { useEffect, useState } from "react";
+import { API_BASE_URL } from "@/lib/queryClient";
 
 function ProtectedAdminPage({ children }: { children: React.ReactNode }) {
   return (
@@ -75,6 +77,48 @@ function ProtectedAdminPage({ children }: { children: React.ReactNode }) {
       </AdminLayout>
     </ProtectedRoute>
   );
+}
+
+function UserToolRoute({ tab, children }: { tab: string; children: React.ReactNode }) {
+  const [, setLocation] = (window as any).__wouter_setLocation
+    ? [(null as any), (window as any).__wouter_setLocation]
+    : [null, null];
+  const [status, setStatus] = useState<'loading' | 'allowed' | 'denied' | 'unauthed'>('loading');
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/user/session`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) { setStatus('unauthed'); return; }
+        const allowed: string[] = data.user.allowedTabs || [];
+        setStatus(allowed.includes(tab) ? 'allowed' : 'denied');
+      })
+      .catch(() => setStatus('unauthed'));
+  }, [tab]);
+
+  if (status === 'loading') {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-muted-foreground text-sm">Loading…</div>
+      </div>
+    );
+  }
+  if (status === 'unauthed') {
+    window.location.href = '/user/login';
+    return null;
+  }
+  if (status === 'denied') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <div className="text-xl font-semibold">Access Denied</div>
+        <p className="text-muted-foreground text-sm">You don't have permission to use this tool.</p>
+        <button className="underline text-sm text-muted-foreground" onClick={() => { window.location.href = '/user/dashboard'; }}>
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
 
 function Router() {
@@ -541,6 +585,65 @@ function Router() {
       {/* User dashboard (protected by user session) */}
       <Route path="/user/dashboard">
         {() => <UserDashboardPage />}
+      </Route>
+
+      {/* User tool routes — each reuses the admin page component, gated by UserToolRoute */}
+      <Route path="/user/quest-optimizer">
+        {() => <UserToolRoute tab="quest-optimizer"><AdminQuestOptimizer /></UserToolRoute>}
+      </Route>
+      <Route path="/user/ai-consultant">
+        {() => <UserToolRoute tab="ai-consultant"><AdminAIConsultant /></UserToolRoute>}
+      </Route>
+      <Route path="/user/yield-calculator">
+        {() => <UserToolRoute tab="yield-calculator"><AdminYieldCalculator /></UserToolRoute>}
+      </Route>
+      <Route path="/user/yield-optimizer">
+        {() => <UserToolRoute tab="yield-optimizer"><AdminYieldCalculator /></UserToolRoute>}
+      </Route>
+      <Route path="/user/summon-sniper">
+        {() => <UserToolRoute tab="summon-sniper"><AdminSummonSniper /></UserToolRoute>}
+      </Route>
+      <Route path="/user/tavern-sniper">
+        {() => <UserToolRoute tab="tavern-sniper"><AdminTavernSniper /></UserToolRoute>}
+      </Route>
+      <Route path="/user/gardening-calculator">
+        {() => <UserToolRoute tab="gardening-calculator"><AdminGardeningCalc /></UserToolRoute>}
+      </Route>
+      <Route path="/user/combat-pets">
+        {() => <UserToolRoute tab="combat-pets"><AdminCombatPets /></UserToolRoute>}
+      </Route>
+      <Route path="/user/summoning-calculator">
+        {() => <UserToolRoute tab="summoning-calculator"><AdminSummoningCalculator /></UserToolRoute>}
+      </Route>
+      <Route path="/user/pvp-matchup">
+        {() => <UserToolRoute tab="pvp-matchup"><AdminPVPMatchup /></UserToolRoute>}
+      </Route>
+      <Route path="/user/bargain-hunter">
+        {() => <UserToolRoute tab="bargain-hunter"><AdminBargainHunter /></UserToolRoute>}
+      </Route>
+      <Route path="/user/dark-bargain-hunter">
+        {() => <UserToolRoute tab="dark-bargain-hunter"><AdminDarkBargainHunter /></UserToolRoute>}
+      </Route>
+      <Route path="/user/tavern-indexer">
+        {() => <UserToolRoute tab="tavern-indexer"><AdminTavernIndexer /></UserToolRoute>}
+      </Route>
+      <Route path="/user/market-intel">
+        {() => <UserToolRoute tab="market-intel"><AdminMarketIntel /></UserToolRoute>}
+      </Route>
+      <Route path="/user/battle-ready">
+        {() => <UserToolRoute tab="battle-ready"><AdminBattleReady /></UserToolRoute>}
+      </Route>
+      <Route path="/user/level-racer">
+        {() => <UserToolRoute tab="level-racer"><AdminLevelRacer /></UserToolRoute>}
+      </Route>
+      <Route path="/user/combat-toolkit">
+        {() => <UserToolRoute tab="combat-toolkit"><AdminCombatToolkit /></UserToolRoute>}
+      </Route>
+      <Route path="/user/patrol-rewards">
+        {() => <UserToolRoute tab="patrol-rewards"><AdminPatrolRewards /></UserToolRoute>}
+      </Route>
+      <Route path="/user/profit-tracker">
+        {() => <UserToolRoute tab="profit-tracker"><AdminProfitTracker /></UserToolRoute>}
       </Route>
       
       {/* Public leaderboards page */}

@@ -55,11 +55,17 @@ const TOOL_GROUPS: ToolGroup[] = [
   {
     id: 'heroes',
     label: 'Hero Tools',
-    description: 'Hero analysis, quest optimization, and breeding',
+    description: 'Hero analysis, quest optimization, breeding, and combat',
     tabs: [
       { id: 'quest-optimizer', label: 'Quest Optimizer', description: 'Hero quest recommendations' },
       { id: 'summon-sniper', label: 'Summon Sniper', description: 'Breeding pair finder' },
+      { id: 'summoning-calculator', label: 'Summoning Calculator', description: 'Summoning probability calculator' },
       { id: 'tavern-sniper', label: 'Tavern Sniper', description: 'Hero marketplace search' },
+      { id: 'bargain-hunter', label: 'Bargain Hunter', description: 'Find underpriced heroes' },
+      { id: 'dark-bargain-hunter', label: 'Dark Bargain Hunter', description: 'Advanced hero deal finder' },
+      { id: 'pvp-matchup', label: 'PVP Matchup', description: 'Head-to-head combat analysis' },
+      { id: 'battle-ready', label: 'Battle Ready', description: 'PVP hero readiness checker' },
+      { id: 'combat-toolkit', label: 'Combat Toolkit', description: 'Combat stat analysis tools' },
     ],
   },
   {
@@ -70,6 +76,8 @@ const TOOL_GROUPS: ToolGroup[] = [
       { id: 'yield-calculator', label: 'Yield Calculator', description: 'Garden LP yields' },
       { id: 'yield-optimizer', label: 'Yield Optimizer', description: 'Optimal pool allocations' },
       { id: 'gardening-calculator', label: 'Gardening Calculator', description: 'Garden rewards estimator' },
+      { id: 'patrol-rewards', label: 'Patrol Rewards', description: 'Patrol quest reward tracker' },
+      { id: 'profit-tracker', label: 'Profit Tracker', description: 'Wallet profit and loss tracking' },
     ],
   },
   {
@@ -83,9 +91,26 @@ const TOOL_GROUPS: ToolGroup[] = [
   {
     id: 'market',
     label: 'Market & Pets',
-    description: 'Marketplace browsing and pet analysis',
+    description: 'Marketplace browsing, market intelligence, and pet analysis',
     tabs: [
       { id: 'combat-pets', label: 'Combat Pets Shop', description: 'Pet marketplace with top roll analysis' },
+      { id: 'market-intel', label: 'Market Intel', description: 'Sales analytics and demand metrics' },
+    ],
+  },
+  {
+    id: 'competitive',
+    label: 'Competitive',
+    description: 'Tournaments, leaderboards, and ranked play',
+    tabs: [
+      { id: 'level-racer', label: 'Level Racer', description: 'Class-based leveling competition' },
+    ],
+  },
+  {
+    id: 'indexers',
+    label: 'Indexers',
+    description: 'Live on-chain data indexing tools',
+    tabs: [
+      { id: 'tavern-indexer', label: 'Tavern Indexer', description: 'Live hero listing indexer' },
     ],
   },
 ];

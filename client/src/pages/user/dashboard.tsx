@@ -18,7 +18,17 @@ import {
   Swords,
   Clock,
   AlertTriangle,
-  User
+  User,
+  Sparkles,
+  Shield,
+  ShieldCheck,
+  Flame,
+  BarChart3,
+  Database,
+  Trophy,
+  Layers,
+  DollarSign,
+  Leaf,
 } from 'lucide-react';
 
 interface UserSession {
@@ -65,23 +75,89 @@ const TAB_CONFIG: Record<string, { label: string; icon: any; href: string; descr
     href: '/user/summon-sniper',
     description: 'Find optimal breeding pairs'
   },
+  'summoning-calculator': {
+    label: 'Summoning Calculator',
+    icon: Sparkles,
+    href: '/user/summoning-calculator',
+    description: 'Summoning probability calculator'
+  },
   'tavern-sniper': { 
     label: 'Tavern Sniper', 
     icon: Beer, 
     href: '/user/tavern-sniper',
     description: 'Search hero marketplace'
   },
+  'bargain-hunter': {
+    label: 'Bargain Hunter',
+    icon: DollarSign,
+    href: '/user/bargain-hunter',
+    description: 'Find underpriced heroes'
+  },
+  'dark-bargain-hunter': {
+    label: 'Dark Bargain Hunter',
+    icon: Flame,
+    href: '/user/dark-bargain-hunter',
+    description: 'Advanced hero deal finder'
+  },
   'gardening-calculator': { 
     label: 'Gardening Calculator', 
-    icon: Calculator, 
+    icon: Leaf, 
     href: '/user/gardening-calculator',
     description: 'Estimate gardening rewards'
+  },
+  'patrol-rewards': {
+    label: 'Patrol Rewards',
+    icon: Shield,
+    href: '/user/patrol-rewards',
+    description: 'Patrol quest reward tracker'
+  },
+  'profit-tracker': {
+    label: 'Profit Tracker',
+    icon: BarChart3,
+    href: '/user/profit-tracker',
+    description: 'Wallet profit and loss tracking'
   },
   'combat-pets': { 
     label: 'Combat Pets Shop', 
     icon: Swords, 
     href: '/user/combat-pets',
     description: 'Find top combat pets for sale'
+  },
+  'market-intel': {
+    label: 'Market Intel',
+    icon: TrendingUp,
+    href: '/user/market-intel',
+    description: 'Sales analytics and demand metrics'
+  },
+  'pvp-matchup': {
+    label: 'PVP Matchup',
+    icon: Swords,
+    href: '/user/pvp-matchup',
+    description: 'Head-to-head combat analysis'
+  },
+  'battle-ready': {
+    label: 'Battle Ready',
+    icon: ShieldCheck,
+    href: '/user/battle-ready',
+    description: 'PVP hero readiness checker'
+  },
+  'combat-toolkit': {
+    label: 'Combat Toolkit',
+    icon: Layers,
+    href: '/user/combat-toolkit',
+    description: 'Combat stat analysis tools'
+  },
+  'level-racer': {
+    label: 'Level Racer',
+    icon: Trophy,
+    href: '/user/level-racer',
+    description: 'Class-based leveling competition'
+  },
+  'tavern-indexer': {
+    label: 'Tavern Indexer',
+    icon: Database,
+    href: '/user/tavern-indexer',
+    description: 'Live hero listing indexer'
   },
 };
 
