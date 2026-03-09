@@ -9531,6 +9531,7 @@ async function startAdminWebServer() {
           tournament_format TEXT,
           captured_at       BIGINT,
           created_at        TIMESTAMPTZ DEFAULT NOW(),
+          firebase_battle_id TEXT,
           UNIQUE(tournament_id, round_number, match_index)
         )
       `);
@@ -9565,6 +9566,11 @@ async function startAdminWebServer() {
           created_at              TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      // Add firebase_battle_id column if it doesn't exist yet (idempotent migration)
+      await rawPg.unsafe(`
+        ALTER TABLE dfk_tournament_bouts ADD COLUMN IF NOT EXISTS firebase_battle_id TEXT
+      `);
+
       // Seed in-memory completed list from DB so history survives restarts
       const rows = await rawPg`
         SELECT snapshot_json, completed_at
@@ -10691,24 +10697,88 @@ async function startAdminWebServer() {
   }
 
   // In-memory cache for battle logs (immutable once complete)
-  const _battleLogCache = new Map(); // boutId → { turns, battleId, rawCount }
+  const _battleLogCache = new Map(); // `${tournamentId}-${boutId}` → { turns, battleId, rawDocCount }
+
+  // Build candidate Firestore battle ID list given bout metadata
+  function _battleCandidateIds(tournamentId, boutId, roundNumber, matchIndex) {
+    const tid = String(tournamentId);
+    const bid = String(boutId);
+    const rn  = String(roundNumber);
+    const mi  = String(matchIndex);
+    return [
+      `${tid}-${bid}`,
+      `${tid}-${rn}-${mi}`,
+      `tournament-${tid}-round-${rn}-match-${mi}`,
+      `${tid}_${rn}_${mi}`,
+      `t${tid}_r${rn}_m${mi}`,
+      `battle_${tid}_${rn}_${mi}`,
+      `${rn}_${mi}`,
+      `bout_${bid}`,
+    ];
+  }
+
+  // Shared helper: fetch battle log for a bout row. Checks cache, then DB stored ID, then all candidates.
+  // Persists confirmed ID back to DB when found.
+  async function fetchBattleLogForBout(tournamentId, boutRow) {
+    const boutKey = `${tournamentId}-${boutRow.id}`;
+    if (_battleLogCache.has(boutKey)) return _battleLogCache.get(boutKey);
+
+    const idToken = await getFirebaseIdToken();
+
+    // If a confirmed ID is already stored, only try that one
+    if (boutRow.firebase_battle_id) {
+      try {
+        const data = await fetchFirestoreSubcollection(idToken, `battles/${boutRow.firebase_battle_id}/battle-logs`);
+        const docs = (data.documents || []).map(parseFirestoreDoc).filter(Boolean);
+        if (docs.length > 0) {
+          const turns = docs.sort((a, b) => (Number(a.turn ?? a._id) || 0) - (Number(b.turn ?? b._id) || 0));
+          const result = { turns, battleId: boutRow.firebase_battle_id, rawDocCount: docs.length };
+          _battleLogCache.set(boutKey, result);
+          return result;
+        }
+      } catch (_e) { /* fall through to full candidate search */ }
+    }
+
+    const candidates = _battleCandidateIds(tournamentId, boutRow.id, boutRow.round_number, boutRow.match_index);
+    for (const candidateId of candidates) {
+      try {
+        const data = await fetchFirestoreSubcollection(idToken, `battles/${candidateId}/battle-logs`);
+        const docs = (data.documents || []).map(parseFirestoreDoc).filter(Boolean);
+        if (docs.length > 0) {
+          const turns = docs.sort((a, b) => (Number(a.turn ?? a._id) || 0) - (Number(b.turn ?? b._id) || 0));
+          const result = { turns, battleId: candidateId, rawDocCount: docs.length };
+          _battleLogCache.set(boutKey, result);
+          // Persist confirmed ID to DB (fire-and-forget)
+          ;(async () => {
+            try {
+              const { rawPg: rp } = await import('./server/db.js');
+              await rp.unsafe(`UPDATE dfk_tournament_bouts SET firebase_battle_id = $1 WHERE id = $2`, [candidateId, boutRow.id]);
+            } catch (_) {}
+          })();
+          return result;
+        }
+      } catch (_e) { /* try next */ }
+    }
+    return null;
+  }
 
   // GET /api/admin/firebase/battle-log-probe — discovery endpoint to learn battle ID format
   app.get('/api/admin/firebase/battle-log-probe', isAdmin, async (req, res) => {
     try {
       const idToken = await getFirebaseIdToken();
-      const { battleId, boutId } = req.query;
+      const { battleId } = req.query;
 
       if (battleId) {
         // Direct probe with an explicit battle ID
         const data = await fetchFirestoreSubcollection(idToken, `battles/${battleId}/battle-logs`);
         const docs = (data.documents || []).map(parseFirestoreDoc).filter(Boolean);
-        return res.json({ ok: true, battleId, docs, rawDocCount: docs.length });
+        const fieldKeys = docs.length > 0 ? Object.keys(docs[0]).filter(k => k !== '_id') : [];
+        return res.json({ ok: true, battleId, rawDocCount: docs.length, fieldKeys, firstDoc: docs[0] ?? null });
       }
 
       // No battleId — list the battles collection to understand ID format
-      const base = `https://firestore.googleapis.com/v1/projects/${DFK_FIREBASE_PROJECT_ID}/databases/(default)/documents`;
-      const listResp = await fetch(`${base}/battles?pageSize=10`, {
+      const base = `https://firestore.googleapis.com/v1/projects/${DFK_FIREBASE_PROJECT_ID}/databases/combat-engine/documents`;
+      const listResp = await fetch(`${base}/battles?pageSize=20`, {
         headers: { Authorization: `Bearer ${idToken}` },
       });
       if (!listResp.ok) {
@@ -10717,7 +10787,7 @@ async function startAdminWebServer() {
       }
       const listData = await listResp.json();
       const ids = (listData.documents || []).map(d => d.name?.split('/').pop()).filter(Boolean);
-      return res.json({ ok: true, sampleIds: ids.slice(0, 20), nextPageToken: listData.nextPageToken });
+      return res.json({ ok: true, sampleIds: ids.slice(0, 25), nextPageToken: listData.nextPageToken ?? null });
     } catch (err) {
       console.error('[Firebase Probe] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
@@ -10731,49 +10801,20 @@ async function startAdminWebServer() {
       const { boutId } = req.query;
       if (!boutId) return res.status(400).json({ ok: false, error: 'boutId required' });
 
-      const boutKey = `${tournamentId}-${boutId}`;
-      if (_battleLogCache.has(boutKey)) {
-        const cached = _battleLogCache.get(boutKey);
-        return res.json({ ok: true, ...cached, fromCache: true });
-      }
-
       const { rawPg: rp } = await import('./server/db.js');
       const [bout] = await rp.unsafe(`
-        SELECT id, tournament_id, round_number, match_index, player_a, player_b, winner_address, is_complete
+        SELECT id, tournament_id, round_number, match_index, player_a, player_b,
+               winner_address, is_complete, firebase_battle_id
         FROM dfk_tournament_bouts WHERE id = $1 AND tournament_id = $2
       `, [Number(boutId), tournamentId]);
 
       if (!bout) return res.status(404).json({ ok: false, error: 'Bout not found' });
 
-      const idToken = await getFirebaseIdToken();
-
-      // Try multiple battle ID formats — we don't have a confirmed mapping yet
-      const candidateIds = [
-        `${tournamentId}-${boutId}`,
-        `${tournamentId}-${bout.round_number}-${bout.match_index}`,
-        `tournament-${tournamentId}-round-${bout.round_number}-match-${bout.match_index}`,
-      ];
-
-      let turns = null;
-      let foundBattleId = null;
-      let rawDocCount = 0;
-
-      for (const candidateId of candidateIds) {
-        try {
-          const data = await fetchFirestoreSubcollection(idToken, `battles/${candidateId}/battle-logs`);
-          const docs = (data.documents || []).map(parseFirestoreDoc).filter(Boolean);
-          if (docs.length > 0) {
-            turns = docs.sort((a, b) => (Number(a.turn ?? a._id) || 0) - (Number(b.turn ?? b._id) || 0));
-            foundBattleId = candidateId;
-            rawDocCount = docs.length;
-            break;
-          }
-        } catch (_e) { /* try next format */ }
+      const logResult = await fetchBattleLogForBout(tournamentId, bout);
+      if (!logResult) {
+        return res.json({ ok: true, battleId: null, turns: null, rawDocCount: 0, candidatesTried: _battleCandidateIds(tournamentId, bout.id, bout.round_number, bout.match_index) });
       }
-
-      const result = { battleId: foundBattleId, turns, rawDocCount, candidatesTried: candidateIds };
-      if (turns !== null) _battleLogCache.set(boutKey, result);
-      res.json({ ok: true, ...result });
+      res.json({ ok: true, ...logResult });
     } catch (err) {
       console.error('[BattleLog] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
@@ -10867,7 +10908,7 @@ async function startAdminWebServer() {
       const [bout] = await rp.unsafe(`
         SELECT id, tournament_id, tournament_name, round_number, match_index,
                player_a, player_b, player_a_name, player_b_name,
-               winner_address, is_complete, tournament_format
+               winner_address, is_complete, tournament_format, firebase_battle_id
         FROM dfk_tournament_bouts
         WHERE id = $1 AND tournament_id = $2
       `, [Number(boutId), tournamentId]);
@@ -10901,38 +10942,22 @@ async function startAdminWebServer() {
         ? (bout.player_b_name || loserAddr.slice(0, 8) + '…')
         : (bout.player_a_name || loserAddr.slice(0, 8) + '…');
 
-      const targetName = target === 'winner' ? winnerName : loserName;
-      const targetAddress = target === 'winner' ? winnerAddr : loserAddr;
-
-      // Try to fetch battle log for richer context
+      // Try to fetch battle log via shared helper (uses cache + DB stored ID)
       let battleLogSummary = null;
       let hadBattleLog = false;
       try {
-        const idToken = await getFirebaseIdToken();
-        const candidateIds = [
-          `${tournamentId}-${boutId}`,
-          `${tournamentId}-${bout.round_number}-${bout.match_index}`,
-        ];
-        for (const candidateId of candidateIds) {
-          try {
-            const data = await fetchFirestoreSubcollection(idToken, `battles/${candidateId}/battle-logs`);
-            const docs = (data.documents || []).map(parseFirestoreDoc).filter(Boolean);
-            if (docs.length > 0) {
-              const sorted = docs.sort((a, b) => (Number(a.turn ?? a._id) || 0) - (Number(b.turn ?? b._id) || 0));
-              // Summarize first 12 turns to stay within token limits
-              battleLogSummary = sorted.slice(0, 12).map(d => {
-                const parts = [];
-                if (d.turn !== undefined) parts.push(`T${d.turn}`);
-                if (d.actorClass || d.actor) parts.push(d.actorClass || d.actor);
-                if (d.skillName || d.action) parts.push(d.skillName || d.action);
-                if (d.damage !== undefined) parts.push(`${d.damage}dmg`);
-                if (d.targetClass || d.target) parts.push(`→${d.targetClass || d.target}`);
-                return parts.join(' ');
-              }).join('; ');
-              hadBattleLog = true;
-              break;
-            }
-          } catch (_e) { /* try next */ }
+        const logResult = await fetchBattleLogForBout(tournamentId, bout);
+        if (logResult?.turns?.length > 0) {
+          battleLogSummary = logResult.turns.slice(0, 12).map(d => {
+            const parts = [];
+            if (d.turn !== undefined) parts.push(`T${d.turn}`);
+            if (d.actorClass || d.actor) parts.push(d.actorClass || d.actor);
+            if (d.skillName || d.action) parts.push(d.skillName || d.action);
+            if (d.damage !== undefined) parts.push(`${d.damage}dmg`);
+            if (d.targetClass || d.target) parts.push(`→${d.targetClass || d.target}`);
+            return parts.join(' ');
+          }).join('; ');
+          hadBattleLog = true;
         }
       } catch (_firebaseErr) { /* battle log optional — silent fail */ }
 

@@ -3,6 +3,7 @@ import { useLocation, useParams } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft, Zap, Users, Shield, Trophy, ChevronDown, Star, RefreshCw, Activity,
+  ScrollText, FlaskConical, Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -68,6 +69,29 @@ interface BoutHero {
   active1: string | null;
   active2: string | null;
   is_winner_side: boolean;
+}
+
+interface BattleLogTurn {
+  _id: string;
+  turn?: number;
+  actor?: string;
+  actorClass?: string;
+  action?: string;
+  skillName?: string;
+  damage?: number;
+  healing?: number;
+  target?: string;
+  targetClass?: string;
+  result?: string;
+  [key: string]: unknown;
+}
+
+interface BattleLogResult {
+  ok: boolean;
+  battleId: string | null;
+  turns: BattleLogTurn[] | null;
+  rawDocCount: number;
+  candidatesTried?: string[];
 }
 
 interface HistoryBout {
@@ -351,6 +375,103 @@ function computeBoutPrediction(heroesA: BoutHero[], heroesB: BoutHero[]): { pctA
 // ─── Per-player coaching state ─────────────────────────────────────────────────
 
 interface CoachResult { analysis: string | null; hadBattleLog?: boolean; loading: boolean; error?: string; }
+interface BattleLogState { data: BattleLogResult | null; loading: boolean; error?: string; open: boolean; }
+
+// ─── Battle Log Viewer ────────────────────────────────────────────────────────
+
+function BattleLogViewer({ tournamentId, boutId }: { tournamentId: string; boutId: number }) {
+  const [state, setState] = useState<BattleLogState>({ data: null, loading: false, open: false });
+
+  const load = async () => {
+    if (state.data !== null) { setState(s => ({ ...s, open: !s.open })); return; }
+    setState(s => ({ ...s, loading: true, open: true }));
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-battle-log?boutId=${boutId}`);
+      const data: BattleLogResult = await res.json();
+      setState({ data, loading: false, open: true });
+    } catch (err: any) {
+      setState(s => ({ ...s, loading: false, error: err.message, open: true }));
+    }
+  };
+
+  const turns = state.data?.turns ?? [];
+  const hasTurns = turns.length > 0;
+  const battleId = state.data?.battleId;
+
+  return (
+    <div className="border-t border-border/40">
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/20 transition-colors"
+        onClick={load}
+        data-testid={`btn-battle-log-${boutId}`}
+      >
+        <ScrollText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        <span className="text-xs text-muted-foreground flex-1">Battle Log</span>
+        {state.data !== null && (
+          hasTurns
+            ? <span className="text-[10px] text-green-400">{turns.length} turns · Firebase</span>
+            : <span className="text-[10px] text-muted-foreground/60">Not available</span>
+        )}
+        {state.loading && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />}
+        <ChevronDown className={`w-3 h-3 text-muted-foreground transition-transform ${state.open ? 'rotate-180' : ''}`} />
+      </button>
+      {state.open && (
+        <div className="px-3 pb-3">
+          {state.loading && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              <RefreshCw className="w-3 h-3 animate-spin" />Fetching battle log from Firebase…
+            </div>
+          )}
+          {state.error && <p className="text-xs text-destructive py-1">{state.error}</p>}
+          {state.data && !hasTurns && (
+            <div className="text-xs text-muted-foreground py-1">
+              <p>No turn data found for this bout in Firebase.</p>
+              {state.data.candidatesTried && (
+                <p className="text-[10px] mt-1 text-muted-foreground/50">
+                  Tried {state.data.candidatesTried.length} ID formats.
+                </p>
+              )}
+            </div>
+          )}
+          {hasTurns && (
+            <div className="space-y-0.5 max-h-52 overflow-y-auto">
+              {battleId && (
+                <p className="text-[10px] text-muted-foreground/50 mb-1.5 font-mono break-all">
+                  ID: {battleId}
+                </p>
+              )}
+              <div className="grid text-[11px]" style={{ gridTemplateColumns: 'auto 1fr auto auto' }}>
+                <div className="contents text-muted-foreground/50 font-medium uppercase tracking-wide text-[9px] pb-1">
+                  <span className="pr-2">T#</span>
+                  <span>Actor → Target</span>
+                  <span className="px-2">Skill</span>
+                  <span>Dmg/Heal</span>
+                </div>
+                {turns.map((t, i) => (
+                  <div key={i} className={`contents ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                    <span className="pr-2 text-muted-foreground/60 font-mono tabular-nums">{t.turn ?? i + 1}</span>
+                    <span className="text-foreground/80 truncate">
+                      {t.actorClass || t.actor || '?'}
+                      {(t.targetClass || t.target) && (
+                        <span className="text-muted-foreground"> → {t.targetClass || t.target}</span>
+                      )}
+                    </span>
+                    <span className="px-2 text-muted-foreground/70 truncate max-w-[80px]">
+                      {t.skillName || t.action || '—'}
+                    </span>
+                    <span className={t.damage ? 'text-red-400 tabular-nums' : t.healing ? 'text-green-400 tabular-nums' : 'text-muted-foreground/40'}>
+                      {t.damage != null ? `-${t.damage}` : t.healing != null ? `+${t.healing}` : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Fight History Section ─────────────────────────────────────────────────────
 
@@ -447,6 +568,11 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }: {
               </div>
             ))}
           </div>
+
+          {/* Battle log viewer */}
+          {bout.isComplete && (
+            <BattleLogViewer tournamentId={tournamentId} boutId={bout.id} />
+          )}
 
           {/* Pre-fight prediction vs actual result */}
           {prediction && bout.isComplete && (
@@ -730,6 +856,159 @@ export default function TournamentMatchupPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Section 5: Firebase Battle Log Probe (admin dev tool) */}
+      <FirebaseProbePanel />
     </div>
+  );
+}
+
+// ─── Firebase Probe Panel ─────────────────────────────────────────────────────
+
+interface ProbeState {
+  sampleIds: string[] | null;
+  sampleLoading: boolean;
+  sampleError?: string;
+  directId: string;
+  directResult: { rawDocCount: number; fieldKeys: string[]; firstDoc: Record<string, unknown> | null } | null;
+  directLoading: boolean;
+  directError?: string;
+  open: boolean;
+}
+
+function FirebaseProbePanel() {
+  const [state, setState] = useState<ProbeState>({
+    sampleIds: null, sampleLoading: false,
+    directId: '', directResult: null, directLoading: false,
+    open: false,
+  });
+
+  const loadSamples = async () => {
+    setState(s => ({ ...s, sampleLoading: true, sampleError: undefined }));
+    try {
+      const res = await fetch('/api/admin/firebase/battle-log-probe');
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setState(s => ({ ...s, sampleIds: data.sampleIds ?? [], sampleLoading: false }));
+    } catch (err: any) {
+      setState(s => ({ ...s, sampleLoading: false, sampleError: err.message }));
+    }
+  };
+
+  const probeId = async () => {
+    if (!state.directId.trim()) return;
+    setState(s => ({ ...s, directLoading: true, directError: undefined, directResult: null }));
+    try {
+      const res = await fetch(`/api/admin/firebase/battle-log-probe?battleId=${encodeURIComponent(state.directId.trim())}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setState(s => ({ ...s, directLoading: false, directResult: { rawDocCount: data.rawDocCount, fieldKeys: data.fieldKeys ?? [], firstDoc: data.firstDoc } }));
+    } catch (err: any) {
+      setState(s => ({ ...s, directLoading: false, directError: err.message }));
+    }
+  };
+
+  return (
+    <Card className="border-border/40">
+      <button
+        className="w-full flex items-center gap-2 p-4 text-left hover:bg-muted/10 transition-colors rounded-md"
+        onClick={() => setState(s => ({ ...s, open: !s.open }))}
+        data-testid="btn-firebase-probe-toggle"
+      >
+        <FlaskConical className="w-4 h-4 text-muted-foreground shrink-0" />
+        <span className="text-sm font-medium text-muted-foreground flex-1">Firebase Battle Log Probe</span>
+        <Badge variant="outline" className="text-[9px] text-muted-foreground/60">Admin Dev Tool</Badge>
+        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${state.open ? 'rotate-180' : ''}`} />
+      </button>
+      {state.open && (
+        <CardContent className="pt-0 space-y-4">
+          {/* Part 1: List sample IDs from Firebase to discover the ID format */}
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground font-medium">List sample battle IDs from Firestore (reveals the format DFK uses)</p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={loadSamples}
+              disabled={state.sampleLoading}
+              data-testid="btn-probe-list-samples"
+            >
+              {state.sampleLoading
+                ? <><RefreshCw className="w-3 h-3 mr-1.5 animate-spin" />Loading…</>
+                : <><Search className="w-3 h-3 mr-1.5" />List Sample IDs</>
+              }
+            </Button>
+            {state.sampleError && <p className="text-xs text-destructive">{state.sampleError}</p>}
+            {state.sampleIds !== null && (
+              <div className="rounded-md border border-border/40 bg-muted/10 p-2.5">
+                {state.sampleIds.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No documents found in battles collection.</p>
+                ) : (
+                  <>
+                    <p className="text-[10px] text-muted-foreground/60 mb-1.5">{state.sampleIds.length} sample ID(s) found:</p>
+                    <div className="space-y-0.5">
+                      {state.sampleIds.map(id => (
+                        <button
+                          key={id}
+                          className="block text-xs font-mono text-foreground/80 hover:text-foreground transition-colors text-left w-full hover:bg-muted/30 px-1 rounded"
+                          onClick={() => setState(s => ({ ...s, directId: id }))}
+                          data-testid={`probe-sample-id-${id}`}
+                        >
+                          {id}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Part 2: Direct probe a specific ID */}
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground font-medium">Probe a specific battle ID to inspect its schema</p>
+            <div className="flex gap-2">
+              <input
+                className="flex-1 text-xs bg-muted/20 border border-border/50 rounded-md px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Enter battle ID…"
+                value={state.directId}
+                onChange={e => setState(s => ({ ...s, directId: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && probeId()}
+                data-testid="input-probe-battle-id"
+              />
+              <Button size="sm" variant="outline" onClick={probeId} disabled={state.directLoading || !state.directId.trim()} data-testid="btn-probe-direct">
+                {state.directLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <FlaskConical className="w-3 h-3" />}
+              </Button>
+            </div>
+            {state.directError && <p className="text-xs text-destructive">{state.directError}</p>}
+            {state.directResult && (
+              <div className="rounded-md border border-border/40 bg-muted/10 p-2.5 space-y-1.5">
+                <p className="text-xs">
+                  <span className="text-muted-foreground">Docs found: </span>
+                  <span className={state.directResult.rawDocCount > 0 ? 'text-green-400 font-medium' : 'text-muted-foreground'}>{state.directResult.rawDocCount}</span>
+                </p>
+                {state.directResult.fieldKeys.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-muted-foreground/60 mb-1">Field keys in first doc:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {state.directResult.fieldKeys.map(k => (
+                        <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-muted/30 text-foreground/70 font-mono">{k}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {state.directResult.firstDoc && (
+                  <details className="text-[10px] text-muted-foreground/60">
+                    <summary className="cursor-pointer hover:text-muted-foreground">First doc raw values</summary>
+                    <pre className="mt-1 overflow-auto max-h-32 text-[9px] leading-relaxed">
+                      {JSON.stringify(state.directResult.firstDoc, null, 2)}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      )}
+    </Card>
   );
 }

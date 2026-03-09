@@ -17524,7 +17524,7 @@ const createLucideIcon = (iconName, iconNode) => {
   Component.displayName = toPascalCase(iconName);
   return Component;
 };
-const __iconNode$1U = [
+const __iconNode$1V = [
   [
     "path",
     {
@@ -17533,58 +17533,58 @@ const __iconNode$1U = [
     }
   ]
 ];
-const Activity = createLucideIcon("activity", __iconNode$1U);
-const __iconNode$1T = [
+const Activity = createLucideIcon("activity", __iconNode$1V);
+const __iconNode$1U = [
   ["rect", { width: "20", height: "5", x: "2", y: "3", rx: "1", key: "1wp1u1" }],
   ["path", { d: "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8", key: "1s80jp" }],
   ["path", { d: "M10 12h4", key: "a56b0p" }]
 ];
-const Archive = createLucideIcon("archive", __iconNode$1T);
-const __iconNode$1S = [
+const Archive = createLucideIcon("archive", __iconNode$1U);
+const __iconNode$1T = [
   ["path", { d: "m7 7 10 10", key: "1fmybs" }],
   ["path", { d: "M17 7v10H7", key: "6fjiku" }]
 ];
-const ArrowDownRight = createLucideIcon("arrow-down-right", __iconNode$1S);
-const __iconNode$1R = [
+const ArrowDownRight = createLucideIcon("arrow-down-right", __iconNode$1T);
+const __iconNode$1S = [
   ["path", { d: "M12 5v14", key: "s699le" }],
   ["path", { d: "m19 12-7 7-7-7", key: "1idqje" }]
 ];
-const ArrowDown = createLucideIcon("arrow-down", __iconNode$1R);
-const __iconNode$1Q = [
+const ArrowDown = createLucideIcon("arrow-down", __iconNode$1S);
+const __iconNode$1R = [
   ["path", { d: "M8 3 4 7l4 4", key: "9rb6wj" }],
   ["path", { d: "M4 7h16", key: "6tx8e3" }],
   ["path", { d: "m16 21 4-4-4-4", key: "siv7j2" }],
   ["path", { d: "M20 17H4", key: "h6l3hr" }]
 ];
-const ArrowLeftRight = createLucideIcon("arrow-left-right", __iconNode$1Q);
-const __iconNode$1P = [
+const ArrowLeftRight = createLucideIcon("arrow-left-right", __iconNode$1R);
+const __iconNode$1Q = [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
   ["path", { d: "M19 12H5", key: "x3x0zl" }]
 ];
-const ArrowLeft = createLucideIcon("arrow-left", __iconNode$1P);
-const __iconNode$1O = [
+const ArrowLeft = createLucideIcon("arrow-left", __iconNode$1Q);
+const __iconNode$1P = [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ];
-const ArrowRight = createLucideIcon("arrow-right", __iconNode$1O);
-const __iconNode$1N = [
+const ArrowRight = createLucideIcon("arrow-right", __iconNode$1P);
+const __iconNode$1O = [
   ["path", { d: "m21 16-4 4-4-4", key: "f6ql7i" }],
   ["path", { d: "M17 20V4", key: "1ejh1v" }],
   ["path", { d: "m3 8 4-4 4 4", key: "11wl7u" }],
   ["path", { d: "M7 4v16", key: "1glfcx" }]
 ];
-const ArrowUpDown = createLucideIcon("arrow-up-down", __iconNode$1N);
-const __iconNode$1M = [
+const ArrowUpDown = createLucideIcon("arrow-up-down", __iconNode$1O);
+const __iconNode$1N = [
   ["path", { d: "M7 7h10v10", key: "1tivn9" }],
   ["path", { d: "M7 17 17 7", key: "1vkiza" }]
 ];
-const ArrowUpRight = createLucideIcon("arrow-up-right", __iconNode$1M);
-const __iconNode$1L = [
+const ArrowUpRight = createLucideIcon("arrow-up-right", __iconNode$1N);
+const __iconNode$1M = [
   ["path", { d: "m5 12 7-7 7 7", key: "hav0vg" }],
   ["path", { d: "M12 19V5", key: "x0mq9r" }]
 ];
-const ArrowUp = createLucideIcon("arrow-up", __iconNode$1L);
-const __iconNode$1K = [
+const ArrowUp = createLucideIcon("arrow-up", __iconNode$1M);
+const __iconNode$1L = [
   [
     "path",
     {
@@ -17594,8 +17594,8 @@ const __iconNode$1K = [
   ],
   ["circle", { cx: "12", cy: "8", r: "6", key: "1vp47v" }]
 ];
-const Award = createLucideIcon("award", __iconNode$1K);
-const __iconNode$1J = [
+const Award = createLucideIcon("award", __iconNode$1L);
+const __iconNode$1K = [
   ["path", { d: "M17 11h1a3 3 0 0 1 0 6h-1", key: "1yp76v" }],
   ["path", { d: "M9 12v6", key: "1u1cab" }],
   ["path", { d: "M13 12v6", key: "1sugkk" }],
@@ -17608,8 +17608,8 @@ const __iconNode$1J = [
   ],
   ["path", { d: "M5 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8", key: "19jb7n" }]
 ];
-const Beer = createLucideIcon("beer", __iconNode$1J);
-const __iconNode$1I = [
+const Beer = createLucideIcon("beer", __iconNode$1K);
+const __iconNode$1J = [
   ["path", { d: "M12 7v14", key: "1akyts" }],
   [
     "path",
@@ -17619,8 +17619,8 @@ const __iconNode$1I = [
     }
   ]
 ];
-const BookOpen = createLucideIcon("book-open", __iconNode$1I);
-const __iconNode$1H = [
+const BookOpen = createLucideIcon("book-open", __iconNode$1J);
+const __iconNode$1I = [
   ["path", { d: "M12 8V4H8", key: "hb8ula" }],
   ["rect", { width: "16", height: "12", x: "4", y: "8", rx: "2", key: "enze0r" }],
   ["path", { d: "M2 14h2", key: "vft8re" }],
@@ -17628,8 +17628,8 @@ const __iconNode$1H = [
   ["path", { d: "M15 13v2", key: "1xurst" }],
   ["path", { d: "M9 13v2", key: "rq6x2g" }]
 ];
-const Bot = createLucideIcon("bot", __iconNode$1H);
-const __iconNode$1G = [
+const Bot = createLucideIcon("bot", __iconNode$1I);
+const __iconNode$1H = [
   ["path", { d: "M12 18V5", key: "adv99a" }],
   ["path", { d: "M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4", key: "1e3is1" }],
   ["path", { d: "M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5", key: "1gqd8o" }],
@@ -17639,8 +17639,8 @@ const __iconNode$1G = [
   ["path", { d: "M6 18a4 4 0 0 1-2-7.464", key: "k1g0md" }],
   ["path", { d: "M6.003 5.125a4 4 0 0 0-2.526 5.77", key: "q97ue3" }]
 ];
-const Brain = createLucideIcon("brain", __iconNode$1G);
-const __iconNode$1F = [
+const Brain = createLucideIcon("brain", __iconNode$1H);
+const __iconNode$1G = [
   ["rect", { width: "16", height: "20", x: "4", y: "2", rx: "2", key: "1nb95v" }],
   ["line", { x1: "8", x2: "16", y1: "6", y2: "6", key: "x4nwl0" }],
   ["line", { x1: "16", x2: "16", y1: "14", y2: "18", key: "wjye3r" }],
@@ -17652,15 +17652,15 @@ const __iconNode$1F = [
   ["path", { d: "M12 18h.01", key: "mhygvu" }],
   ["path", { d: "M8 18h.01", key: "lrp35t" }]
 ];
-const Calculator = createLucideIcon("calculator", __iconNode$1F);
-const __iconNode$1E = [
+const Calculator = createLucideIcon("calculator", __iconNode$1G);
+const __iconNode$1F = [
   ["path", { d: "M8 2v4", key: "1cmpym" }],
   ["path", { d: "M16 2v4", key: "4m81vk" }],
   ["rect", { width: "18", height: "18", x: "3", y: "4", rx: "2", key: "1hopcy" }],
   ["path", { d: "M3 10h18", key: "8toen8" }]
 ];
-const Calendar = createLucideIcon("calendar", __iconNode$1E);
-const __iconNode$1D = [
+const Calendar = createLucideIcon("calendar", __iconNode$1F);
+const __iconNode$1E = [
   [
     "path",
     {
@@ -17672,15 +17672,15 @@ const __iconNode$1D = [
   ["path", { d: "M16 14v.5", key: "1lajdz" }],
   ["path", { d: "M11.25 16.25h1.5L12 17l-.75-.75Z", key: "12kq1m" }]
 ];
-const Cat = createLucideIcon("cat", __iconNode$1D);
-const __iconNode$1C = [
+const Cat = createLucideIcon("cat", __iconNode$1E);
+const __iconNode$1D = [
   ["path", { d: "M3 3v16a2 2 0 0 0 2 2h16", key: "c24i48" }],
   ["path", { d: "M18 17V9", key: "2bz60n" }],
   ["path", { d: "M13 17V5", key: "1frdt8" }],
   ["path", { d: "M8 17v-3", key: "17ska0" }]
 ];
-const ChartColumn = createLucideIcon("chart-column", __iconNode$1C);
-const __iconNode$1B = [
+const ChartColumn = createLucideIcon("chart-column", __iconNode$1D);
+const __iconNode$1C = [
   [
     "path",
     {
@@ -17690,73 +17690,73 @@ const __iconNode$1B = [
   ],
   ["path", { d: "M21.21 15.89A10 10 0 1 1 8 2.83", key: "k2fpak" }]
 ];
-const ChartPie = createLucideIcon("chart-pie", __iconNode$1B);
-const __iconNode$1A = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]];
-const Check = createLucideIcon("check", __iconNode$1A);
-const __iconNode$1z = [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]];
-const ChevronDown = createLucideIcon("chevron-down", __iconNode$1z);
-const __iconNode$1y = [["path", { d: "m15 18-6-6 6-6", key: "1wnfg3" }]];
-const ChevronLeft = createLucideIcon("chevron-left", __iconNode$1y);
-const __iconNode$1x = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
-const ChevronRight$1 = createLucideIcon("chevron-right", __iconNode$1x);
-const __iconNode$1w = [["path", { d: "m18 15-6-6-6 6", key: "153udz" }]];
-const ChevronUp = createLucideIcon("chevron-up", __iconNode$1w);
-const __iconNode$1v = [
+const ChartPie = createLucideIcon("chart-pie", __iconNode$1C);
+const __iconNode$1B = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]];
+const Check = createLucideIcon("check", __iconNode$1B);
+const __iconNode$1A = [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]];
+const ChevronDown = createLucideIcon("chevron-down", __iconNode$1A);
+const __iconNode$1z = [["path", { d: "m15 18-6-6 6-6", key: "1wnfg3" }]];
+const ChevronLeft = createLucideIcon("chevron-left", __iconNode$1z);
+const __iconNode$1y = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
+const ChevronRight$1 = createLucideIcon("chevron-right", __iconNode$1y);
+const __iconNode$1x = [["path", { d: "m18 15-6-6-6 6", key: "153udz" }]];
+const ChevronUp = createLucideIcon("chevron-up", __iconNode$1x);
+const __iconNode$1w = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "12", x2: "12", y1: "8", y2: "12", key: "1pkeuh" }],
   ["line", { x1: "12", x2: "12.01", y1: "16", y2: "16", key: "4dfq90" }]
 ];
-const CircleAlert = createLucideIcon("circle-alert", __iconNode$1v);
-const __iconNode$1u = [
+const CircleAlert = createLucideIcon("circle-alert", __iconNode$1w);
+const __iconNode$1v = [
   ["path", { d: "M21.801 10A10 10 0 1 1 17 3.335", key: "yps3ct" }],
   ["path", { d: "m9 11 3 3L22 4", key: "1pflzl" }]
 ];
-const CircleCheckBig = createLucideIcon("circle-check-big", __iconNode$1u);
-const __iconNode$1t = [
+const CircleCheckBig = createLucideIcon("circle-check-big", __iconNode$1v);
+const __iconNode$1u = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ];
-const CircleCheck = createLucideIcon("circle-check", __iconNode$1t);
-const __iconNode$1s = [
+const CircleCheck = createLucideIcon("circle-check", __iconNode$1u);
+const __iconNode$1t = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8", key: "1h4pet" }],
   ["path", { d: "M12 18V6", key: "zqpxq5" }]
 ];
-const CircleDollarSign = createLucideIcon("circle-dollar-sign", __iconNode$1s);
-const __iconNode$1r = [
+const CircleDollarSign = createLucideIcon("circle-dollar-sign", __iconNode$1t);
+const __iconNode$1s = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m15 9-6 6", key: "1uzhvr" }],
   ["path", { d: "m9 9 6 6", key: "z0biqf" }]
 ];
-const CircleX = createLucideIcon("circle-x", __iconNode$1r);
-const __iconNode$1q = [["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]];
-const Circle = createLucideIcon("circle", __iconNode$1q);
-const __iconNode$1p = [
+const CircleX = createLucideIcon("circle-x", __iconNode$1s);
+const __iconNode$1r = [["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]];
+const Circle = createLucideIcon("circle", __iconNode$1r);
+const __iconNode$1q = [
   ["path", { d: "M12 6v6l4 2", key: "mmk7yg" }],
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
 ];
-const Clock = createLucideIcon("clock", __iconNode$1p);
-const __iconNode$1o = [
+const Clock = createLucideIcon("clock", __iconNode$1q);
+const __iconNode$1p = [
   ["circle", { cx: "8", cy: "8", r: "6", key: "3yglwk" }],
   ["path", { d: "M18.09 10.37A6 6 0 1 1 10.34 18", key: "t5s6rm" }],
   ["path", { d: "M7 6h1v4", key: "1obek4" }],
   ["path", { d: "m16.71 13.88.7.71-2.82 2.82", key: "1rbuyh" }]
 ];
-const Coins = createLucideIcon("coins", __iconNode$1o);
-const __iconNode$1n = [
+const Coins = createLucideIcon("coins", __iconNode$1p);
+const __iconNode$1o = [
   ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
   ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
 ];
-const Copy = createLucideIcon("copy", __iconNode$1n);
-const __iconNode$1m = [
+const Copy = createLucideIcon("copy", __iconNode$1o);
+const __iconNode$1n = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "22", x2: "18", y1: "12", y2: "12", key: "l9bcsi" }],
   ["line", { x1: "6", x2: "2", y1: "12", y2: "12", key: "13hhkx" }],
   ["line", { x1: "12", x2: "12", y1: "6", y2: "2", key: "10w3f3" }],
   ["line", { x1: "12", x2: "12", y1: "22", y2: "18", key: "15g9kq" }]
 ];
-const Crosshair = createLucideIcon("crosshair", __iconNode$1m);
-const __iconNode$1l = [
+const Crosshair = createLucideIcon("crosshair", __iconNode$1n);
+const __iconNode$1m = [
   [
     "path",
     {
@@ -17766,14 +17766,14 @@ const __iconNode$1l = [
   ],
   ["path", { d: "M5 21h14", key: "11awu3" }]
 ];
-const Crown = createLucideIcon("crown", __iconNode$1l);
-const __iconNode$1k = [
+const Crown = createLucideIcon("crown", __iconNode$1m);
+const __iconNode$1l = [
   ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3", key: "msslwz" }],
   ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5", key: "1wlel7" }],
   ["path", { d: "M3 12A9 3 0 0 0 21 12", key: "mv7ke4" }]
 ];
-const Database = createLucideIcon("database", __iconNode$1k);
-const __iconNode$1j = [
+const Database = createLucideIcon("database", __iconNode$1l);
+const __iconNode$1k = [
   [
     "path",
     {
@@ -17782,8 +17782,8 @@ const __iconNode$1j = [
     }
   ]
 ];
-const Diamond = createLucideIcon("diamond", __iconNode$1j);
-const __iconNode$1i = [
+const Diamond = createLucideIcon("diamond", __iconNode$1k);
+const __iconNode$1j = [
   ["path", { d: "m10 16 1.5 1.5", key: "11lckj" }],
   ["path", { d: "m14 8-1.5-1.5", key: "1ohn8i" }],
   ["path", { d: "M15 2c-1.798 1.998-2.518 3.995-2.807 5.993", key: "80uv8i" }],
@@ -17796,13 +17796,13 @@ const __iconNode$1i = [
   ["path", { d: "m7 18 2.891 2.891", key: "1sisit" }],
   ["path", { d: "M9 22c1.798-1.998 2.518-3.995 2.807-5.993", key: "q3hbxp" }]
 ];
-const Dna = createLucideIcon("dna", __iconNode$1i);
-const __iconNode$1h = [
+const Dna = createLucideIcon("dna", __iconNode$1j);
+const __iconNode$1i = [
   ["line", { x1: "12", x2: "12", y1: "2", y2: "22", key: "7eqyqh" }],
   ["path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", key: "1b0p4s" }]
 ];
-const DollarSign = createLucideIcon("dollar-sign", __iconNode$1h);
-const __iconNode$1g = [
+const DollarSign = createLucideIcon("dollar-sign", __iconNode$1i);
+const __iconNode$1h = [
   [
     "path",
     {
@@ -17818,8 +17818,8 @@ const __iconNode$1g = [
     }
   ]
 ];
-const Droplets = createLucideIcon("droplets", __iconNode$1g);
-const __iconNode$1f = [
+const Droplets = createLucideIcon("droplets", __iconNode$1h);
+const __iconNode$1g = [
   [
     "path",
     {
@@ -17838,14 +17838,14 @@ const __iconNode$1f = [
   ],
   ["path", { d: "m9.6 14.4 4.8-4.8", key: "6umqxw" }]
 ];
-const Dumbbell = createLucideIcon("dumbbell", __iconNode$1f);
-const __iconNode$1e = [
+const Dumbbell = createLucideIcon("dumbbell", __iconNode$1g);
+const __iconNode$1f = [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ];
-const ExternalLink = createLucideIcon("external-link", __iconNode$1e);
-const __iconNode$1d = [
+const ExternalLink = createLucideIcon("external-link", __iconNode$1f);
+const __iconNode$1e = [
   [
     "path",
     {
@@ -17863,8 +17863,8 @@ const __iconNode$1d = [
   ],
   ["path", { d: "m2 2 20 20", key: "1ooewy" }]
 ];
-const EyeOff = createLucideIcon("eye-off", __iconNode$1d);
-const __iconNode$1c = [
+const EyeOff = createLucideIcon("eye-off", __iconNode$1e);
+const __iconNode$1d = [
   [
     "path",
     {
@@ -17874,8 +17874,8 @@ const __iconNode$1c = [
   ],
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ];
-const Eye = createLucideIcon("eye", __iconNode$1c);
-const __iconNode$1b = [
+const Eye = createLucideIcon("eye", __iconNode$1d);
+const __iconNode$1c = [
   [
     "path",
     {
@@ -17886,8 +17886,8 @@ const __iconNode$1b = [
   ["path", { d: "M14 2v5a1 1 0 0 0 1 1h5", key: "wfsgrz" }],
   ["path", { d: "m9 15 2 2 4-4", key: "1grp1n" }]
 ];
-const FileCheck = createLucideIcon("file-check", __iconNode$1b);
-const __iconNode$1a = [
+const FileCheck = createLucideIcon("file-check", __iconNode$1c);
+const __iconNode$1b = [
   [
     "path",
     {
@@ -17900,8 +17900,8 @@ const __iconNode$1a = [
   ["path", { d: "M16 13H8", key: "t4e002" }],
   ["path", { d: "M16 17H8", key: "z1uh3a" }]
 ];
-const FileText = createLucideIcon("file-text", __iconNode$1a);
-const __iconNode$19 = [
+const FileText = createLucideIcon("file-text", __iconNode$1b);
+const __iconNode$1a = [
   [
     "path",
     {
@@ -17927,8 +17927,8 @@ const __iconNode$19 = [
     { d: "m16.01 17.93-.23 1.4A2 2 0 0 1 13.8 21H9.5a5.96 5.96 0 0 0 1.49-3.98", key: "1zlm23" }
   ]
 ];
-const Fish = createLucideIcon("fish", __iconNode$19);
-const __iconNode$18 = [
+const Fish = createLucideIcon("fish", __iconNode$1a);
+const __iconNode$19 = [
   [
     "path",
     {
@@ -17937,8 +17937,8 @@ const __iconNode$18 = [
     }
   ]
 ];
-const Flame = createLucideIcon("flame", __iconNode$18);
-const __iconNode$17 = [
+const Flame = createLucideIcon("flame", __iconNode$19);
+const __iconNode$18 = [
   [
     "path",
     {
@@ -17949,8 +17949,8 @@ const __iconNode$17 = [
   ["path", { d: "M6.453 15h11.094", key: "3shlmq" }],
   ["path", { d: "M8.5 2h7", key: "csnxdl" }]
 ];
-const FlaskConical = createLucideIcon("flask-conical", __iconNode$17);
-const __iconNode$16 = [
+const FlaskConical = createLucideIcon("flask-conical", __iconNode$18);
+const __iconNode$17 = [
   [
     "path",
     {
@@ -17959,8 +17959,8 @@ const __iconNode$16 = [
     }
   ]
 ];
-const Funnel = createLucideIcon("funnel", __iconNode$16);
-const __iconNode$15 = [
+const Funnel = createLucideIcon("funnel", __iconNode$17);
+const __iconNode$16 = [
   ["path", { d: "M10.5 3 8 9l4 13 4-13-2.5-6", key: "b3dvk1" }],
   [
     "path",
@@ -17971,8 +17971,8 @@ const __iconNode$15 = [
   ],
   ["path", { d: "M2 9h20", key: "16fsjt" }]
 ];
-const Gem = createLucideIcon("gem", __iconNode$15);
-const __iconNode$14 = [
+const Gem = createLucideIcon("gem", __iconNode$16);
+const __iconNode$15 = [
   ["rect", { x: "3", y: "8", width: "18", height: "4", rx: "1", key: "bkv52" }],
   ["path", { d: "M12 8v13", key: "1c76mn" }],
   ["path", { d: "M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7", key: "6wjy6b" }],
@@ -17984,14 +17984,14 @@ const __iconNode$14 = [
     }
   ]
 ];
-const Gift = createLucideIcon("gift", __iconNode$14);
-const __iconNode$13 = [
+const Gift = createLucideIcon("gift", __iconNode$15);
+const __iconNode$14 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", key: "13o1zl" }],
   ["path", { d: "M2 12h20", key: "9i4pu4" }]
 ];
-const Globe = createLucideIcon("globe", __iconNode$13);
-const __iconNode$12 = [
+const Globe = createLucideIcon("globe", __iconNode$14);
+const __iconNode$13 = [
   ["path", { d: "m15 12-9.373 9.373a1 1 0 0 1-3.001-3L12 9", key: "1hayfq" }],
   ["path", { d: "m18 15 4-4", key: "16gjal" }],
   [
@@ -18002,32 +18002,32 @@ const __iconNode$12 = [
     }
   ]
 ];
-const Hammer = createLucideIcon("hammer", __iconNode$12);
-const __iconNode$11 = [
+const Hammer = createLucideIcon("hammer", __iconNode$13);
+const __iconNode$12 = [
   ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
   ["path", { d: "M12 7v5l4 2", key: "1fdv2h" }]
 ];
-const History = createLucideIcon("history", __iconNode$11);
-const __iconNode$10 = [
+const History = createLucideIcon("history", __iconNode$12);
+const __iconNode$11 = [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "1m3agn" }],
   ["circle", { cx: "9", cy: "9", r: "2", key: "af1f0g" }],
   ["path", { d: "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21", key: "1xmnt7" }]
 ];
-const Image$1 = createLucideIcon("image", __iconNode$10);
-const __iconNode$$ = [
+const Image$1 = createLucideIcon("image", __iconNode$11);
+const __iconNode$10 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 16v-4", key: "1dtifu" }],
   ["path", { d: "M12 8h.01", key: "e9boi3" }]
 ];
-const Info = createLucideIcon("info", __iconNode$$);
-const __iconNode$_ = [
+const Info = createLucideIcon("info", __iconNode$10);
+const __iconNode$$ = [
   ["path", { d: "m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4", key: "g0fldk" }],
   ["path", { d: "m21 2-9.6 9.6", key: "1j0ho8" }],
   ["circle", { cx: "7.5", cy: "15.5", r: "5.5", key: "yqb3hr" }]
 ];
-const Key = createLucideIcon("key", __iconNode$_);
-const __iconNode$Z = [
+const Key = createLucideIcon("key", __iconNode$$);
+const __iconNode$_ = [
   ["path", { d: "M10 18v-7", key: "wt116b" }],
   [
     "path",
@@ -18041,22 +18041,22 @@ const __iconNode$Z = [
   ["path", { d: "M3 22h18", key: "8prr45" }],
   ["path", { d: "M6 18v-7", key: "1ivflk" }]
 ];
-const Landmark = createLucideIcon("landmark", __iconNode$Z);
-const __iconNode$Y = [
+const Landmark = createLucideIcon("landmark", __iconNode$_);
+const __iconNode$Z = [
   ["rect", { width: "7", height: "9", x: "3", y: "3", rx: "1", key: "10lvy0" }],
   ["rect", { width: "7", height: "5", x: "14", y: "3", rx: "1", key: "16une8" }],
   ["rect", { width: "7", height: "9", x: "14", y: "12", rx: "1", key: "1hutg5" }],
   ["rect", { width: "7", height: "5", x: "3", y: "16", rx: "1", key: "ldoo1y" }]
 ];
-const LayoutDashboard = createLucideIcon("layout-dashboard", __iconNode$Y);
-const __iconNode$X = [
+const LayoutDashboard = createLucideIcon("layout-dashboard", __iconNode$Z);
+const __iconNode$Y = [
   ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1", key: "1g98yp" }],
   ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
   ["rect", { width: "7", height: "7", x: "14", y: "14", rx: "1", key: "nxv5o0" }],
   ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1", key: "1bb6yr" }]
 ];
-const LayoutGrid = createLucideIcon("layout-grid", __iconNode$X);
-const __iconNode$W = [
+const LayoutGrid = createLucideIcon("layout-grid", __iconNode$Y);
+const __iconNode$X = [
   [
     "path",
     {
@@ -18066,8 +18066,8 @@ const __iconNode$W = [
   ],
   ["path", { d: "M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12", key: "mt58a7" }]
 ];
-const Leaf = createLucideIcon("leaf", __iconNode$W);
-const __iconNode$V = [
+const Leaf = createLucideIcon("leaf", __iconNode$X);
+const __iconNode$W = [
   [
     "path",
     {
@@ -18078,13 +18078,13 @@ const __iconNode$V = [
   ["path", { d: "M9 18h6", key: "x1upvd" }],
   ["path", { d: "M10 22h4", key: "ceow96" }]
 ];
-const Lightbulb = createLucideIcon("lightbulb", __iconNode$V);
-const __iconNode$U = [
+const Lightbulb = createLucideIcon("lightbulb", __iconNode$W);
+const __iconNode$V = [
   ["path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", key: "1cjeqo" }],
   ["path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71", key: "19qd67" }]
 ];
-const Link = createLucideIcon("link", __iconNode$U);
-const __iconNode$T = [
+const Link = createLucideIcon("link", __iconNode$V);
+const __iconNode$U = [
   ["path", { d: "M3 5h.01", key: "18ugdj" }],
   ["path", { d: "M3 12h.01", key: "nlz23k" }],
   ["path", { d: "M3 19h.01", key: "noohij" }],
@@ -18092,32 +18092,32 @@ const __iconNode$T = [
   ["path", { d: "M8 12h13", key: "1za7za" }],
   ["path", { d: "M8 19h13", key: "m83p4d" }]
 ];
-const List$1 = createLucideIcon("list", __iconNode$T);
-const __iconNode$S = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]];
-const LoaderCircle = createLucideIcon("loader-circle", __iconNode$S);
-const __iconNode$R = [
+const List$1 = createLucideIcon("list", __iconNode$U);
+const __iconNode$T = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]];
+const LoaderCircle = createLucideIcon("loader-circle", __iconNode$T);
+const __iconNode$S = [
   ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
   ["path", { d: "M7 11V7a5 5 0 0 1 9.9-1", key: "1mm8w8" }]
 ];
-const LockOpen = createLucideIcon("lock-open", __iconNode$R);
-const __iconNode$Q = [
+const LockOpen = createLucideIcon("lock-open", __iconNode$S);
+const __iconNode$R = [
   ["path", { d: "m10 17 5-5-5-5", key: "1bsop3" }],
   ["path", { d: "M15 12H3", key: "6jk70r" }],
   ["path", { d: "M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4", key: "u53s6r" }]
 ];
-const LogIn = createLucideIcon("log-in", __iconNode$Q);
-const __iconNode$P = [
+const LogIn = createLucideIcon("log-in", __iconNode$R);
+const __iconNode$Q = [
   ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
   ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
 ];
-const Lock = createLucideIcon("lock", __iconNode$P);
-const __iconNode$O = [
+const Lock = createLucideIcon("lock", __iconNode$Q);
+const __iconNode$P = [
   ["path", { d: "m16 17 5-5-5-5", key: "1bji2h" }],
   ["path", { d: "M21 12H9", key: "dn1m92" }],
   ["path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4", key: "1uf3rs" }]
 ];
-const LogOut = createLucideIcon("log-out", __iconNode$O);
-const __iconNode$N = [
+const LogOut = createLucideIcon("log-out", __iconNode$P);
+const __iconNode$O = [
   [
     "path",
     {
@@ -18127,8 +18127,8 @@ const __iconNode$N = [
   ],
   ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
 ];
-const MapPin = createLucideIcon("map-pin", __iconNode$N);
-const __iconNode$M = [
+const MapPin = createLucideIcon("map-pin", __iconNode$O);
+const __iconNode$N = [
   [
     "path",
     {
@@ -18142,14 +18142,14 @@ const __iconNode$M = [
   ["circle", { cx: "12", cy: "17", r: "5", key: "qbz8iq" }],
   ["path", { d: "M12 18v-2h-.5", key: "fawc4q" }]
 ];
-const Medal = createLucideIcon("medal", __iconNode$M);
-const __iconNode$L = [
+const Medal = createLucideIcon("medal", __iconNode$N);
+const __iconNode$M = [
   ["path", { d: "M4 5h16", key: "1tepv9" }],
   ["path", { d: "M4 12h16", key: "1lakjw" }],
   ["path", { d: "M4 19h16", key: "1djgab" }]
 ];
-const Menu = createLucideIcon("menu", __iconNode$L);
-const __iconNode$K = [
+const Menu = createLucideIcon("menu", __iconNode$M);
+const __iconNode$L = [
   [
     "path",
     {
@@ -18158,8 +18158,8 @@ const __iconNode$K = [
     }
   ]
 ];
-const MessageCircle = createLucideIcon("message-circle", __iconNode$K);
-const __iconNode$J = [
+const MessageCircle = createLucideIcon("message-circle", __iconNode$L);
+const __iconNode$K = [
   [
     "path",
     {
@@ -18169,14 +18169,14 @@ const __iconNode$J = [
   ],
   ["path", { d: "m15 5 4 4", key: "1mk7zo" }]
 ];
-const Pencil = createLucideIcon("pencil", __iconNode$J);
-const __iconNode$I = [
+const Pencil = createLucideIcon("pencil", __iconNode$K);
+const __iconNode$J = [
   ["line", { x1: "19", x2: "5", y1: "5", y2: "19", key: "1x9vlm" }],
   ["circle", { cx: "6.5", cy: "6.5", r: "2.5", key: "4mh3h7" }],
   ["circle", { cx: "17.5", cy: "17.5", r: "2.5", key: "1mdrzq" }]
 ];
-const Percent = createLucideIcon("percent", __iconNode$I);
-const __iconNode$H = [
+const Percent = createLucideIcon("percent", __iconNode$J);
+const __iconNode$I = [
   ["path", { d: "m14 13-8.381 8.38a1 1 0 0 1-3.001-3L11 9.999", key: "1lw9ds" }],
   [
     "path",
@@ -18200,8 +18200,8 @@ const __iconNode$H = [
     }
   ]
 ];
-const Pickaxe = createLucideIcon("pickaxe", __iconNode$H);
-const __iconNode$G = [
+const Pickaxe = createLucideIcon("pickaxe", __iconNode$I);
+const __iconNode$H = [
   [
     "path",
     {
@@ -18210,26 +18210,26 @@ const __iconNode$G = [
     }
   ]
 ];
-const Play = createLucideIcon("play", __iconNode$G);
-const __iconNode$F = [
+const Play = createLucideIcon("play", __iconNode$H);
+const __iconNode$G = [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ];
-const Plus = createLucideIcon("plus", __iconNode$F);
-const __iconNode$E = [
+const Plus = createLucideIcon("plus", __iconNode$G);
+const __iconNode$F = [
   ["path", { d: "M12 2v10", key: "mnfbl" }],
   ["path", { d: "M18.4 6.6a9 9 0 1 1-12.77.04", key: "obofu9" }]
 ];
-const Power = createLucideIcon("power", __iconNode$E);
-const __iconNode$D = [
+const Power = createLucideIcon("power", __iconNode$F);
+const __iconNode$E = [
   ["path", { d: "M16.247 7.761a6 6 0 0 1 0 8.478", key: "1fwjs5" }],
   ["path", { d: "M19.075 4.933a10 10 0 0 1 0 14.134", key: "ehdyv1" }],
   ["path", { d: "M4.925 19.067a10 10 0 0 1 0-14.134", key: "1q22gi" }],
   ["path", { d: "M7.753 16.239a6 6 0 0 1 0-8.478", key: "r2q7qm" }],
   ["circle", { cx: "12", cy: "12", r: "2", key: "1c9p78" }]
 ];
-const Radio = createLucideIcon("radio", __iconNode$D);
-const __iconNode$C = [
+const Radio = createLucideIcon("radio", __iconNode$E);
+const __iconNode$D = [
   [
     "path",
     { d: "M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z", key: "q3az6g" }
@@ -18237,15 +18237,15 @@ const __iconNode$C = [
   ["path", { d: "M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8", key: "1h4pet" }],
   ["path", { d: "M12 17.5v-11", key: "1jc1ny" }]
 ];
-const Receipt = createLucideIcon("receipt", __iconNode$C);
-const __iconNode$B = [
+const Receipt = createLucideIcon("receipt", __iconNode$D);
+const __iconNode$C = [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
   ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ];
-const RefreshCw = createLucideIcon("refresh-cw", __iconNode$B);
-const __iconNode$A = [
+const RefreshCw = createLucideIcon("refresh-cw", __iconNode$C);
+const __iconNode$B = [
   [
     "path",
     {
@@ -18263,13 +18263,13 @@ const __iconNode$A = [
   ["path", { d: "M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0", key: "1f8sc4" }],
   ["path", { d: "M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5", key: "qeys4" }]
 ];
-const Rocket = createLucideIcon("rocket", __iconNode$A);
-const __iconNode$z = [
+const Rocket = createLucideIcon("rocket", __iconNode$B);
+const __iconNode$A = [
   ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
 ];
-const RotateCcw = createLucideIcon("rotate-ccw", __iconNode$z);
-const __iconNode$y = [
+const RotateCcw = createLucideIcon("rotate-ccw", __iconNode$A);
+const __iconNode$z = [
   [
     "path",
     {
@@ -18280,15 +18280,28 @@ const __iconNode$y = [
   ["path", { d: "M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7", key: "1ydtos" }],
   ["path", { d: "M7 3v4a1 1 0 0 0 1 1h7", key: "t51u73" }]
 ];
-const Save = createLucideIcon("save", __iconNode$y);
-const __iconNode$x = [
+const Save = createLucideIcon("save", __iconNode$z);
+const __iconNode$y = [
   ["path", { d: "m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z", key: "7g6ntu" }],
   ["path", { d: "m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z", key: "ijws7r" }],
   ["path", { d: "M7 21h10", key: "1b0cd5" }],
   ["path", { d: "M12 3v18", key: "108xh3" }],
   ["path", { d: "M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2", key: "3gwbw2" }]
 ];
-const Scale = createLucideIcon("scale", __iconNode$x);
+const Scale = createLucideIcon("scale", __iconNode$y);
+const __iconNode$x = [
+  ["path", { d: "M15 12h-5", key: "r7krc0" }],
+  ["path", { d: "M15 8h-5", key: "1khuty" }],
+  ["path", { d: "M19 17V5a2 2 0 0 0-2-2H4", key: "zz82l3" }],
+  [
+    "path",
+    {
+      d: "M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3",
+      key: "1ph1d7"
+    }
+  ]
+];
+const ScrollText = createLucideIcon("scroll-text", __iconNode$x);
 const __iconNode$w = [
   ["path", { d: "m21 21-4.34-4.34", key: "14j7rj" }],
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }]
@@ -90206,6 +90219,87 @@ function computeBoutPrediction(heroesA, heroesB) {
   const pctA = Math.round(sA / tot * 100);
   return { pctA, pctB: 100 - pctA };
 }
+function BattleLogViewer({ tournamentId, boutId }) {
+  const [state, setState] = reactExports.useState({ data: null, loading: false, open: false });
+  const load = async () => {
+    if (state.data !== null) {
+      setState((s2) => ({ ...s2, open: !s2.open }));
+      return;
+    }
+    setState((s2) => ({ ...s2, loading: true, open: true }));
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-battle-log?boutId=${boutId}`);
+      const data = await res.json();
+      setState({ data, loading: false, open: true });
+    } catch (err) {
+      setState((s2) => ({ ...s2, loading: false, error: err.message, open: true }));
+    }
+  };
+  const turns = state.data?.turns ?? [];
+  const hasTurns = turns.length > 0;
+  const battleId = state.data?.battleId;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        className: "w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/20 transition-colors",
+        onClick: load,
+        "data-testid": `btn-battle-log-${boutId}`,
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(ScrollText, { className: "w-3.5 h-3.5 text-muted-foreground shrink-0" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground flex-1", children: "Battle Log" }),
+          state.data !== null && (hasTurns ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-green-400", children: [
+            turns.length,
+            " turns · Firebase"
+          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[10px] text-muted-foreground/60", children: "Not available" })),
+          state.loading && /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 animate-spin text-muted-foreground" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { className: `w-3 h-3 text-muted-foreground transition-transform ${state.open ? "rotate-180" : ""}` })
+        ]
+      }
+    ),
+    state.open && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "px-3 pb-3", children: [
+      state.loading && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs text-muted-foreground py-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 animate-spin" }),
+        "Fetching battle log from Firebase…"
+      ] }),
+      state.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive py-1", children: state.error }),
+      state.data && !hasTurns && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-muted-foreground py-1", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "No turn data found for this bout in Firebase." }),
+        state.data.candidatesTried && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] mt-1 text-muted-foreground/50", children: [
+          "Tried ",
+          state.data.candidatesTried.length,
+          " ID formats."
+        ] })
+      ] }),
+      hasTurns && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-0.5 max-h-52 overflow-y-auto", children: [
+        battleId && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] text-muted-foreground/50 mb-1.5 font-mono break-all", children: [
+          "ID: ",
+          battleId
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid text-[11px]", style: { gridTemplateColumns: "auto 1fr auto auto" }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "contents text-muted-foreground/50 font-medium uppercase tracking-wide text-[9px] pb-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "pr-2", children: "T#" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Actor → Target" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "px-2", children: "Skill" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Dmg/Heal" })
+          ] }),
+          turns.map((t, i) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `contents ${i % 2 === 0 ? "" : "bg-muted/5"}`, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "pr-2 text-muted-foreground/60 font-mono tabular-nums", children: t.turn ?? i + 1 }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-foreground/80 truncate", children: [
+              t.actorClass || t.actor || "?",
+              (t.targetClass || t.target) && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
+                " → ",
+                t.targetClass || t.target
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "px-2 text-muted-foreground/70 truncate max-w-[80px]", children: t.skillName || t.action || "—" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: t.damage ? "text-red-400 tabular-nums" : t.healing ? "text-green-400 tabular-nums" : "text-muted-foreground/40", children: t.damage != null ? `-${t.damage}` : t.healing != null ? `+${t.healing}` : "—" })
+          ] }, i))
+        ] })
+      ] })
+    ] })
+  ] });
+}
 function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }) {
   const [open, setOpen] = reactExports.useState(false);
   const [winnerCoach, setWinnerCoach] = reactExports.useState(null);
@@ -90288,6 +90382,7 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }) {
           ] })
         ] }, i)) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: "No heroes indexed" })
       ] }, name)) }),
+      bout.isComplete && /* @__PURE__ */ jsxRuntimeExports.jsx(BattleLogViewer, { tournamentId, boutId: bout.id }),
       prediction && bout.isComplete && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40 px-3 py-2.5 space-y-2", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] font-semibold uppercase tracking-wide text-muted-foreground", children: "Pre-fight Prediction vs Result" }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1", children: [
@@ -90524,6 +90619,127 @@ function TournamentMatchupPage() {
         },
         bout.id
       )) }) })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(FirebaseProbePanel, {})
+  ] });
+}
+function FirebaseProbePanel() {
+  const [state, setState] = reactExports.useState({
+    sampleIds: null,
+    sampleLoading: false,
+    directId: "",
+    directResult: null,
+    directLoading: false,
+    open: false
+  });
+  const loadSamples = async () => {
+    setState((s2) => ({ ...s2, sampleLoading: true, sampleError: void 0 }));
+    try {
+      const res = await fetch("/api/admin/firebase/battle-log-probe");
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setState((s2) => ({ ...s2, sampleIds: data.sampleIds ?? [], sampleLoading: false }));
+    } catch (err) {
+      setState((s2) => ({ ...s2, sampleLoading: false, sampleError: err.message }));
+    }
+  };
+  const probeId = async () => {
+    if (!state.directId.trim()) return;
+    setState((s2) => ({ ...s2, directLoading: true, directError: void 0, directResult: null }));
+    try {
+      const res = await fetch(`/api/admin/firebase/battle-log-probe?battleId=${encodeURIComponent(state.directId.trim())}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setState((s2) => ({ ...s2, directLoading: false, directResult: { rawDocCount: data.rawDocCount, fieldKeys: data.fieldKeys ?? [], firstDoc: data.firstDoc } }));
+    } catch (err) {
+      setState((s2) => ({ ...s2, directLoading: false, directError: err.message }));
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { className: "border-border/40", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        className: "w-full flex items-center gap-2 p-4 text-left hover:bg-muted/10 transition-colors rounded-md",
+        onClick: () => setState((s2) => ({ ...s2, open: !s2.open })),
+        "data-testid": "btn-firebase-probe-toggle",
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(FlaskConical, { className: "w-4 h-4 text-muted-foreground shrink-0" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-medium text-muted-foreground flex-1", children: "Firebase Battle Log Probe" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-[9px] text-muted-foreground/60", children: "Admin Dev Tool" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { className: `w-4 h-4 text-muted-foreground transition-transform ${state.open ? "rotate-180" : ""}` })
+        ]
+      }
+    ),
+    state.open && /* @__PURE__ */ jsxRuntimeExports.jsxs(CardContent, { className: "pt-0 space-y-4", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground font-medium", children: "List sample battle IDs from Firestore (reveals the format DFK uses)" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          Button,
+          {
+            size: "sm",
+            variant: "outline",
+            onClick: loadSamples,
+            disabled: state.sampleLoading,
+            "data-testid": "btn-probe-list-samples",
+            children: state.sampleLoading ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 mr-1.5 animate-spin" }),
+              "Loading…"
+            ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Search, { className: "w-3 h-3 mr-1.5" }),
+              "List Sample IDs"
+            ] })
+          }
+        ),
+        state.sampleError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive", children: state.sampleError }),
+        state.sampleIds !== null && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "rounded-md border border-border/40 bg-muted/10 p-2.5", children: state.sampleIds.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: "No documents found in battles collection." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] text-muted-foreground/60 mb-1.5", children: [
+            state.sampleIds.length,
+            " sample ID(s) found:"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-0.5", children: state.sampleIds.map((id) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "block text-xs font-mono text-foreground/80 hover:text-foreground transition-colors text-left w-full hover:bg-muted/30 px-1 rounded",
+              onClick: () => setState((s2) => ({ ...s2, directId: id })),
+              "data-testid": `probe-sample-id-${id}`,
+              children: id
+            },
+            id
+          )) })
+        ] }) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground font-medium", children: "Probe a specific battle ID to inspect its schema" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              className: "flex-1 text-xs bg-muted/20 border border-border/50 rounded-md px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring",
+              placeholder: "Enter battle ID…",
+              value: state.directId,
+              onChange: (e) => setState((s2) => ({ ...s2, directId: e.target.value })),
+              onKeyDown: (e) => e.key === "Enter" && probeId(),
+              "data-testid": "input-probe-battle-id"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { size: "sm", variant: "outline", onClick: probeId, disabled: state.directLoading || !state.directId.trim(), "data-testid": "btn-probe-direct", children: state.directLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 animate-spin" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(FlaskConical, { className: "w-3 h-3" }) })
+        ] }),
+        state.directError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive", children: state.directError }),
+        state.directResult && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-border/40 bg-muted/10 p-2.5 space-y-1.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground", children: "Docs found: " }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: state.directResult.rawDocCount > 0 ? "text-green-400 font-medium" : "text-muted-foreground", children: state.directResult.rawDocCount })
+          ] }),
+          state.directResult.fieldKeys.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] text-muted-foreground/60 mb-1", children: "Field keys in first doc:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1", children: state.directResult.fieldKeys.map((k2) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[10px] px-1.5 py-0.5 rounded bg-muted/30 text-foreground/70 font-mono", children: k2 }, k2)) })
+          ] }),
+          state.directResult.firstDoc && /* @__PURE__ */ jsxRuntimeExports.jsxs("details", { className: "text-[10px] text-muted-foreground/60", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("summary", { className: "cursor-pointer hover:text-muted-foreground", children: "First doc raw values" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { className: "mt-1 overflow-auto max-h-32 text-[9px] leading-relaxed", children: JSON.stringify(state.directResult.firstDoc, null, 2) })
+          ] })
+        ] })
+      ] })
     ] })
   ] });
 }
