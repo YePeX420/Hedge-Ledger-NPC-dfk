@@ -47,16 +47,19 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **DFK Internal Tournament API**: Firebase-authenticated endpoint at `api.defikingdoms.com/tournaments/active` for bracket tournament data.
 
 ## Battle Inventory / Budget System
-- `battleInventory` (bitmask) and `battleBudget` (max items per player per match) are stored in `bracket_json->'tournament'` for all indexed brackets.
+- `battleInventory` (bitmask) and `battleBudget` (budget-pts per player per match) are stored in `bracket_json->'tournament'` for all indexed brackets.
 - `decodeBattleInventory(mask)` in `bot.js` decodes the bitmask to item names (bits 0–7 = None/Small HP/Medium HP/Large HP/Full HP/Small MP/Medium MP/Large MP Potions).
 - `battleInventory=60` (bits 2–5 = Medium HP, Large HP, Full HP, Small MP) and `battleBudget=11` are consistent across tournaments 2004, 2005, 2136.
+- **Budget is POINTS not item count**: each item costs its `weight` in pts (2=Minor, 3=Large, 4=Major, 8=Full HP Restore); `totalBattleBudget=11` is the point cap.
 - `matchup-history` endpoint returns `battleBudget`, `battleInventory`, `allowedItems` (decoded names).
-- The matchup page Fight History section shows a "Battle Budget: N items per player / Allowed: …" row in the card header.
-- `bout-live-coach` and `bout-analysis` AI prompts include the decoded budget and per-player items-used context.
-- `extractItemsUsed(turns, playerA, playerB)` in `bot.js` scans Firebase turns for consumable-use actions (pattern-matched by action/type fields); returns per-player used item lists.
+- The matchup page Fight History section shows a "Battle Budget: N budget-pts per player / Allowed: …" row in the card header.
+- `bout-live-coach` and `bout-analysis` AI prompts include HP context (`hpCtx`), inventory context (`inventoryCtx`), and budget-pts framing.
+- `extractItemsUsed(turns, playerA, playerB)` in `bot.js` uses `attackConfig.attackId` / `move.attackId` (correct Firebase fields). Self-learning: logs `[PotionMap]` when potion turn detected to build address→name map.
 
 ## Firebase Battle Log UX
 - `BattleLogViewer` auto-fetches silently on mount when a `BoutCard` opens (no second click required).
 - Empty state now shows: `indexedFirebaseId` (the Firebase ID that was tried) or, if not indexed, an amber warning "Tournament not in Firebase index".
-- `bout-battle-log` endpoint returns `indexedFirebaseId` (from `_tournamentFirebaseIdMap`) and `isIndexed` flag.
+- `bout-battle-log` endpoint returns `indexedFirebaseId`, `isIndexed`, `heroHpSnapshot`, and `playerInventory`.
+- **heroHpSnapshot**: Per-hero live HP/MP from latest turn's `beforeDeckStates`. Color-coded in UI: green ≥60%, amber 30–59%, red <30% (CRITICAL). Mapped side 1→sideA, -1→sideB, slot 0/1/2.
+- **playerInventory**: Per-player consumable inventory from `battle.playersData[side].battleBudget.availableItems` in first turn. Shows item tier labels and pts used/total. Both displayed as panels in the BattleLogViewer when data is loaded.
 - Battle log `isIndexed: true` confirmed for tournament 2136 (Firebase ID: `1088-5-tournament-2136`); turn data fetched successfully (live bouts show real-time turn count).

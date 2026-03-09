@@ -93,6 +93,31 @@ interface BattleLogItemUse {
   turn?: number | null;
 }
 
+interface HeroHpEntry {
+  slot: number;
+  heroId: string | null;
+  heroClass: string | null;
+  currentHp: number | null;
+  currentMp: number | null;
+  maxHp: number | null;
+  maxMp: number | null;
+  hpPct: number | null;
+}
+
+interface PlayerInventoryEntry {
+  name: string;
+  address: string;
+  weight: number;
+  qty: number;
+}
+
+interface PlayerInventorySide {
+  usedBudget: number;
+  totalBudget: number | null;
+  usedItems: unknown[];
+  items: PlayerInventoryEntry[];
+}
+
 interface BattleLogResult {
   ok: boolean;
   battleId: string | null;
@@ -102,6 +127,8 @@ interface BattleLogResult {
   indexedFirebaseId?: string | null;
   isIndexed?: boolean;
   itemsUsed?: { a: BattleLogItemUse[]; b: BattleLogItemUse[] } | null;
+  heroHpSnapshot?: { sideA: HeroHpEntry[]; sideB: HeroHpEntry[] } | null;
+  playerInventory?: { sideA: PlayerInventorySide | null; sideB: PlayerInventorySide | null } | null;
 }
 
 interface HistoryResponse {
@@ -498,6 +525,61 @@ function BattleLogViewer({
           )}
           {hasTurns && (
             <div className="space-y-0.5 max-h-52 overflow-y-auto">
+              {/* Hero HP snapshot */}
+              {state.data?.heroHpSnapshot && (
+                <div className="mb-2 pb-1.5 border-b border-border/30">
+                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Current HP</p>
+                  {(['sideA', 'sideB'] as const).map(sideKey => {
+                    const heroes = state.data!.heroHpSnapshot![sideKey] ?? [];
+                    if (!heroes.length) return null;
+                    const label = sideKey === 'sideA' ? 'A' : 'B';
+                    return (
+                      <div key={sideKey} className="flex flex-wrap gap-x-2 gap-y-0.5">
+                        <span className="text-[9px] text-muted-foreground/50 w-3">
+                          {label}:
+                        </span>
+                        {heroes.map((h, i) => {
+                          const pct = h.hpPct;
+                          const color = pct != null && pct < 30 ? 'text-red-400' : pct != null && pct < 60 ? 'text-amber-400' : 'text-green-400/80';
+                          return (
+                            <span key={i} className={`text-[10px] ${color}`}>
+                              {h.heroClass ?? `Hero${i + 1}`} {h.currentHp}/{h.maxHp}
+                              {pct != null && <span className="text-[9px] opacity-70"> ({pct}%)</span>}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {/* Player inventory */}
+              {state.data?.playerInventory && (state.data.playerInventory.sideA || state.data.playerInventory.sideB) && (
+                <div className="mb-2 pb-1.5 border-b border-border/30">
+                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Consumable Inventory</p>
+                  {(['sideA', 'sideB'] as const).map(sideKey => {
+                    const inv = state.data!.playerInventory![sideKey];
+                    if (!inv || !inv.items.length) return null;
+                    const label = sideKey === 'sideA' ? 'A' : 'B';
+                    const usedPct = inv.totalBudget ? Math.round(inv.usedBudget / inv.totalBudget * 100) : 0;
+                    return (
+                      <div key={sideKey} className="flex flex-wrap gap-x-2 gap-y-0.5 items-start">
+                        <span className="text-[9px] text-muted-foreground/50 mt-0.5 w-3">{label}:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {inv.items.map((item, i) => (
+                            <span key={i} className="text-[10px] text-blue-300/70">
+                              {item.qty}×{item.name}
+                            </span>
+                          ))}
+                          <span className="text-[9px] text-muted-foreground/40">
+                            [{inv.usedBudget}/{inv.totalBudget ?? '?'}pts{usedPct > 0 ? ` (${usedPct}% used)` : ''}]
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {/* Items used summary row */}
               {state.data?.itemsUsed && (state.data.itemsUsed.a.length > 0 || state.data.itemsUsed.b.length > 0) && (
                 <div className="flex gap-3 mb-1.5 text-[10px]">
@@ -506,7 +588,7 @@ function BattleLogViewer({
                     if (!used.length) return null;
                     return (
                       <span key={side} className="text-blue-400/80">
-                        Side {side.toUpperCase()}: {used.length}{battleBudget != null ? `/${battleBudget}` : ''} items used
+                        Side {side.toUpperCase()}: {used.length}{battleBudget != null ? ` items used (${battleBudget} budget-pts total)` : ' items used'}
                       </span>
                     );
                   })}
@@ -1008,7 +1090,7 @@ export default function TournamentMatchupPage() {
                 {histData.battleBudget != null && (
                   <p className="text-[11px] text-muted-foreground">
                     <span className="font-medium text-foreground/70">Battle Budget:</span>{' '}
-                    {histData.battleBudget} items per player
+                    {histData.battleBudget} budget-pts per player
                   </p>
                 )}
                 {histData.allowedItems && histData.allowedItems.length > 0 && (

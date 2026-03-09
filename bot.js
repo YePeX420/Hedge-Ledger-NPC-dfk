@@ -10947,7 +10947,78 @@ async function startAdminWebServer() {
         return res.json({ ok: true, battleId: null, turns: null, rawDocCount: 0, candidatesTried, indexedFirebaseId, isIndexed });
       }
       const itemsUsed = extractItemsUsed(logResult.turns, bout.player_a, bout.player_b);
-      res.json({ ok: true, ...logResult, indexedFirebaseId, isIndexed, itemsUsed });
+
+      // ── heroHpSnapshot: live HP from latest turn's beforeDeckStates ─────────
+      let heroHpSnapshot = null;
+      try {
+        const latestTurn = logResult.turns.reduce((a, b) =>
+          ((a.currentTurnCount ?? 0) >= (b.currentTurnCount ?? 0) ? a : b), logResult.turns[0]);
+        const deckStates = latestTurn?.beforeDeckStates;
+        if (deckStates) {
+          const boutHeroes = await rp.unsafe(
+            `SELECT side, hero_id, main_class, sub_class, hp, mp FROM dfk_bout_heroes WHERE bout_id = $1 ORDER BY side, hero_id`,
+            [Number(boutId)]
+          );
+          const heroMap = { a: boutHeroes.filter(h => h.side === 'a'), b: boutHeroes.filter(h => h.side === 'b') };
+          const parseSlots = (fbSide, ourSide) => {
+            const sideData = deckStates[String(fbSide)] ?? {};
+            return Object.entries(sideData).map(([slot, state], idx) => {
+              const hero = heroMap[ourSide]?.[idx] ?? null;
+              const maxHp = hero?.hp ?? null;
+              const maxMp = hero?.mp ?? null;
+              const currentHp = state?.health ?? null;
+              const currentMp = state?.mana ?? null;
+              return {
+                slot: parseInt(slot),
+                heroId: hero?.hero_id ?? null,
+                heroClass: hero?.main_class ?? null,
+                currentHp,
+                currentMp,
+                maxHp,
+                maxMp,
+                hpPct: (maxHp && currentHp != null) ? Math.round(currentHp / maxHp * 100) : null,
+              };
+            });
+          };
+          heroHpSnapshot = {
+            sideA: parseSlots(1, 'a'),
+            sideB: parseSlots(-1, 'b'),
+          };
+        }
+      } catch (_hpErr) { console.warn('[BattleLog] heroHpSnapshot failed:', _hpErr.message); }
+
+      // ── playerInventory: per-player potion inventory from first turn ─────────
+      let playerInventory = null;
+      try {
+        const firstTurn = logResult.turns.reduce((a, b) =>
+          ((a.currentTurnCount ?? 0) <= (b.currentTurnCount ?? 0) ? a : b), logResult.turns[0]);
+        const pd = firstTurn?.battle?.playersData;
+        if (pd) {
+          const WEIGHT_LABEL = { 2: 'Minor item', 3: 'Large item', 4: 'Major item', 8: 'Full HP Restore' };
+          const parseInventory = (sideData) => {
+            if (!sideData) return null;
+            const bb = sideData.battleBudget ?? {};
+            const items = (bb.availableItems ?? []).map(it => ({
+              name: WEIGHT_LABEL[it.weight] ?? `Item (${it.weight}pt)`,
+              address: it.address,
+              weight: it.weight,
+              qty: it.quantity ?? it.qty ?? 1,
+            }));
+            return {
+              usedBudget: bb.usedBudget ?? 0,
+              totalBudget: bb.totalBattleBudget ?? null,
+              usedItems: bb.usedItems ?? [],
+              items,
+            };
+          };
+          playerInventory = {
+            sideA: parseInventory(pd['1'] ?? pd[1] ?? null),
+            sideB: parseInventory(pd['-1'] ?? pd[-1] ?? null),
+          };
+        }
+      } catch (_invErr) { console.warn('[BattleLog] playerInventory failed:', _invErr.message); }
+
+      res.json({ ok: true, ...logResult, indexedFirebaseId, isIndexed, itemsUsed, heroHpSnapshot, playerInventory });
     } catch (err) {
       console.error('[BattleLog] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
@@ -10974,22 +11045,39 @@ async function startAdminWebServer() {
     const addrA = (playerAAddr || '').toLowerCase();
     const addrB = (playerBAddr || '').toLowerCase();
     for (const t of turns) {
-      const action = (t.action || t.type || t.skillName || '').toLowerCase();
-      const isConsumable = action.includes('potion') || action.includes('consumable')
-        || action.includes('useitem') || action.includes('use_item')
-        || action.includes('drink') || action === 'item' || action === 'heal_potion';
+      // Firebase turns use attackConfig.attackId / move.attackId — not t.action
+      const attackId = (t.attackConfig?.attackId || t.move?.attackId || t.action || t.type || t.skillName || '').toLowerCase();
+      const isConsumable = attackId.includes('potion') || attackId.includes('consumable')
+        || attackId.includes('healthpotion') || attackId.includes('manapotion')
+        || attackId.includes('fullhealth') || attackId.includes('fullmana')
+        || attackId.includes('useitem') || attackId.includes('use_item')
+        || attackId.includes('drink') || attackId === 'item' || attackId === 'heal_potion';
       if (!isConsumable) continue;
-      const actorAddr = ((t.actorAddress || t.actor || '')).toLowerCase();
+
+      // Self-learning: log address→name mapping when a potion turn is detected
+      const budget = t.battle?.playersData?.['1']?.battleBudget || t.battle?.playersData?.['-1']?.battleBudget;
+      const usedItems = budget?.usedItems ?? [];
+      if (usedItems.length > 0) {
+        console.log(`[PotionMap] Detected potion use — attackId: ${attackId}, usedItems: ${JSON.stringify(usedItems)}`);
+      }
+
+      // Side detection: Firebase turn.side = 1 (sideA) or -1 (sideB)
+      const fbSide = t.turn?.side;
       let side = null;
-      if (addrA && actorAddr === addrA) side = 'a';
-      else if (addrB && actorAddr === addrB) side = 'b';
-      else if (t.side === 'a' || t.side === 'b') side = t.side;
-      else side = 'a'; // default to side a if unknown
+      if (fbSide === 1) side = 'a';
+      else if (fbSide === -1) side = 'b';
+      else {
+        const actorAddr = (t.actorAddress || t.actor || '').toLowerCase();
+        if (addrA && actorAddr === addrA) side = 'a';
+        else if (addrB && actorAddr === addrB) side = 'b';
+        else if (t.side === 'a' || t.side === 'b') side = t.side;
+        else side = 'a';
+      }
       result[side].push({
         heroId: t.actorHeroId ?? t.heroId ?? null,
         itemType: t.itemType ?? null,
-        itemName: t.itemName ?? action,
-        turn: t.turn ?? null,
+        itemName: t.attackConfig?.attackId || t.move?.attackId || t.itemName || attackId,
+        turn: t.currentTurnCount ?? t.turn ?? null,
       });
     }
     if (!result.a.length && !result.b.length) return null;
@@ -11111,7 +11199,7 @@ async function startAdminWebServer() {
       const heroRows = await rp.unsafe(`
         SELECT side, player_address, main_class, level, rarity,
                strength, dexterity, agility, intelligence, vitality, endurance,
-               passive1, passive2, active1, active2, is_winner_side
+               passive1, passive2, active1, active2, is_winner_side, hp, mp
         FROM dfk_bout_heroes
         WHERE bout_id = $1
         ORDER BY side, hero_id
@@ -11135,19 +11223,68 @@ async function startAdminWebServer() {
       // Try to fetch battle log via shared helper (uses cache + DB stored ID)
       let battleLogSummary = null;
       let hadBattleLog = false;
+      let finalHpCtx = '';
+      let analysisInventoryCtx = '';
       try {
         const logResult = await fetchBattleLogForBout(tournamentId, bout);
         if (logResult?.turns?.length > 0) {
           battleLogSummary = logResult.turns.slice(0, 12).map(d => {
+            const attackId = d.attackConfig?.attackId || d.move?.attackId || d.skillName || d.action || '?';
             const parts = [];
-            if (d.turn !== undefined) parts.push(`T${d.turn}`);
-            if (d.actorClass || d.actor) parts.push(d.actorClass || d.actor);
-            if (d.skillName || d.action) parts.push(d.skillName || d.action);
-            if (d.damage !== undefined) parts.push(`${d.damage}dmg`);
-            if (d.targetClass || d.target) parts.push(`→${d.targetClass || d.target}`);
+            if (d.currentTurnCount != null) parts.push(`T${d.currentTurnCount}`);
+            parts.push(attackId);
+            if (d.damage != null) parts.push(`${d.damage}dmg`);
             return parts.join(' ');
           }).join('; ');
           hadBattleLog = true;
+
+          // Extract final HP state from last turn's beforeDeckStates
+          try {
+            const lastTurn = logResult.turns.reduce((a, b) =>
+              ((a.currentTurnCount ?? 0) >= (b.currentTurnCount ?? 0) ? a : b), logResult.turns[0]);
+            const ds = lastTurn?.beforeDeckStates;
+            if (ds) {
+              const fmtSide = (fbSide, heroes) => {
+                const sideData = ds[String(fbSide)] ?? {};
+                return Object.entries(sideData).map(([, state], idx) => {
+                  const h = heroes[idx];
+                  const cls = h?.main_class ?? `Hero${idx + 1}`;
+                  const cur = state?.health ?? '?';
+                  const max = h?.hp ?? '?';
+                  const pct = (h?.hp && state?.health != null) ? Math.round(state.health / h.hp * 100) : null;
+                  return `${cls} ${cur}/${max}hp${pct != null ? `(${pct}%)` : ''}`;
+                }).join(', ');
+              };
+              finalHpCtx = ` Final HP state — ${winnerName}: ${fmtSide(winnerAddr === playerAAddr ? 1 : -1, winnerSide)} | ${loserName}: ${fmtSide(winnerAddr === playerAAddr ? -1 : 1, loserSide)}.`;
+            }
+          } catch (_) {}
+
+          // Extract inventory context
+          try {
+            const firstTurn = logResult.turns.reduce((a, b) =>
+              ((a.currentTurnCount ?? 0) <= (b.currentTurnCount ?? 0) ? a : b), logResult.turns[0]);
+            const pd = firstTurn?.battle?.playersData;
+            if (pd) {
+              const WEIGHT_LABEL = { 2: 'Minor(2pt)', 3: 'Large(3pt)', 4: 'Major(4pt)', 8: 'FullHP(8pt)' };
+              const fmtInv = (sideData, name) => {
+                if (!sideData) return null;
+                const bb = sideData.battleBudget ?? {};
+                const used = bb.usedBudget ?? 0;
+                const total = bb.totalBattleBudget ?? '?';
+                const items = (bb.availableItems ?? []);
+                if (!items.length) return null;
+                const summary = items.map(it => `${it.quantity ?? 1}×${WEIGHT_LABEL[it.weight] ?? `Item(${it.weight}pt)`}`).join(', ');
+                return `${name}: ${summary} [${used}/${total}pts used]`;
+              };
+              const winPd = winnerAddr === playerAAddr ? (pd['1'] ?? pd[1]) : (pd['-1'] ?? pd[-1]);
+              const losPd = winnerAddr === playerAAddr ? (pd['-1'] ?? pd[-1]) : (pd['1'] ?? pd[1]);
+              const winInv = fmtInv(winPd, winnerName);
+              const losInv = fmtInv(losPd, loserName);
+              if (winInv || losInv) {
+                analysisInventoryCtx = ` Consumable inventory (each player had ${pd['1']?.battleBudget?.totalBattleBudget ?? '?'} budget-pts) — ${[winInv, losInv].filter(Boolean).join(' | ')}.`;
+              }
+            }
+          } catch (_) {}
         }
       } catch (_firebaseErr) { /* battle log optional — silent fail */ }
 
@@ -11158,14 +11295,14 @@ async function startAdminWebServer() {
 
       const baseContext = `Tournament: ${bout.tournament_name || 'Unknown'} (Format: ${bout.tournament_format || '?'}). Round ${bout.round_number}, Match ${bout.match_index + 1}. ${winnerName} defeated ${loserName}. Winning team: ${heroSummary(winnerSide)}. Losing team: ${heroSummary(loserSide)}.`;
       const battleCtx = hadBattleLog && battleLogSummary
-        ? ` Combat sequence (first turns): ${battleLogSummary}.`
-        : ' Note: Turn-by-turn battle log data is not available via public API, so advice is based on hero stats and team composition.';
+        ? ` Combat sequence (first turns — attackId format): ${battleLogSummary}.${finalHpCtx}${analysisInventoryCtx}`
+        : ' Note: Turn-by-turn battle log data is not available, so advice is based on hero stats and team composition.';
 
       let prompt;
       if (target === 'winner') {
         prompt = `${baseContext}${battleCtx} In 3-4 sentences, give coaching advice to ${winnerName} on what made their team effective and what weaknesses in their composition they should address to stay competitive in future rounds. Be specific about stats, passives, or team synergies.`;
       } else {
-        prompt = `${baseContext}${battleCtx} In 3-4 sentences, provide specific and actionable tactical coaching advice for ${loserName}. Focus on hero selection, stat priorities, passive synergies, or team composition changes that could improve their odds next time.`;
+        prompt = `${baseContext}${battleCtx} In 3-4 sentences, provide specific and actionable tactical coaching advice for ${loserName}. Focus on hero selection, stat priorities, passive synergies, or team composition changes that could improve their odds next time. If any heroes were critically low on HP, comment on whether consumable usage (budget-pts system) could have changed the outcome.`;
       }
 
       let analysis = null;
@@ -11301,19 +11438,75 @@ async function startAdminWebServer() {
           const bBud = bRow.bb != null ? parseInt(bRow.bb) : null;
           if (bBud != null || bInv != null) {
             const itemList = (bInv != null && !isNaN(bInv)) ? decodeBattleInventory(bInv).join(', ') : 'unknown';
-            budgetCtx = `Battle consumable budget: each player may use up to ${bBud ?? '?'} items total per match. Allowed items: ${itemList}.`;
+            budgetCtx = `Battle consumable budget: each player has ${bBud ?? '?'} budget-pts to spend per match (each item costs its listed pts). Allowed item types: ${itemList}.`;
             if (hadBattleLog) {
               const usedMap = extractItemsUsed(logResult.turns, bout.player_a, bout.player_b);
               if (usedMap) {
                 const myCt = (usedMap[perspective] || []).length;
                 const oppCt = (usedMap[perspective === 'a' ? 'b' : 'a'] || []).length;
-                const myRem = bBud != null ? bBud - myCt : '?';
-                budgetCtx += ` ${myName} has used ${myCt} item(s) (${myRem} remaining). ${oppName} has used ${oppCt} item(s).`;
+                budgetCtx += ` ${myName} has used ${myCt} consumable(s). ${oppName} has used ${oppCt} consumable(s).`;
               }
             }
           }
         }
       } catch (_be) { console.warn('[LiveCoach] Budget context failed:', _be.message); }
+
+      // ── Live hero HP context from Firebase deck states ───────────────────────
+      let hpCtx = '';
+      let inventoryCtx = '';
+      if (hadBattleLog) {
+        try {
+          const latestTurn = logResult.turns.reduce((a, b) =>
+            ((a.currentTurnCount ?? 0) >= (b.currentTurnCount ?? 0) ? a : b), logResult.turns[0]);
+          const ds = latestTurn?.beforeDeckStates;
+          if (ds) {
+            const fmtSide = (fbSide, heroes) => {
+              const sideData = ds[String(fbSide)] ?? {};
+              return Object.entries(sideData).map(([, state], idx) => {
+                const h = heroes[idx];
+                const cls = h?.main_class ?? `Hero${idx + 1}`;
+                const cur = state?.health ?? '?';
+                const max = h?.hp ?? '?';
+                const pct = (h?.hp && state?.health != null) ? Math.round(state.health / h.hp * 100) : null;
+                const flag = pct != null && pct < 30 ? ' ⚠CRITICAL' : '';
+                const mp = state?.mana != null ? ` MP:${state.mana}/${h?.mp ?? '?'}` : '';
+                return `${cls} HP:${cur}/${max}${pct != null ? `(${pct}%)` : ''}${flag}${mp}`;
+              }).join(', ');
+            };
+            const myHeroesArr  = heroRows.filter(h => h.side === perspective);
+            const oppHeroesArr = heroRows.filter(h => h.side !== perspective);
+            const myFbSide  = perspective === 'a' ? 1 : -1;
+            const oppFbSide = perspective === 'a' ? -1 : 1;
+            hpCtx = `Current hero HP — ${myName}: ${fmtSide(myFbSide, myHeroesArr)} | ${oppName}: ${fmtSide(oppFbSide, oppHeroesArr)}.`;
+          }
+        } catch (_hpE) { console.warn('[LiveCoach] hpCtx failed:', _hpE.message); }
+
+        try {
+          const firstTurn = logResult.turns.reduce((a, b) =>
+            ((a.currentTurnCount ?? 0) <= (b.currentTurnCount ?? 0) ? a : b), logResult.turns[0]);
+          const pd = firstTurn?.battle?.playersData;
+          if (pd) {
+            const WEIGHT_LABEL = { 2: 'Minor(2pt)', 3: 'Large(3pt)', 4: 'Major(4pt)', 8: 'FullHP(8pt)' };
+            const fmtInv = (sideData, name) => {
+              if (!sideData) return null;
+              const bb = sideData.battleBudget ?? {};
+              const used = bb.usedBudget ?? 0;
+              const total = bb.totalBattleBudget ?? '?';
+              const items = (bb.availableItems ?? []);
+              if (!items.length) return null;
+              const summary = items.map(it => `${it.quantity ?? 1}×${WEIGHT_LABEL[it.weight] ?? `Item(${it.weight}pt)`}`).join(', ');
+              return `${name}: ${summary} [${used}/${total}pts used]`;
+            };
+            const myPd  = perspective === 'a' ? (pd['1'] ?? pd[1]) : (pd['-1'] ?? pd[-1]);
+            const oppPd = perspective === 'a' ? (pd['-1'] ?? pd[-1]) : (pd['1'] ?? pd[1]);
+            const myInv  = fmtInv(myPd, myName);
+            const oppInv = fmtInv(oppPd, oppName);
+            if (myInv || oppInv) {
+              inventoryCtx = `Player consumable inventory — ${[myInv, oppInv].filter(Boolean).join(' | ')}.`;
+            }
+          }
+        } catch (_invE) { console.warn('[LiveCoach] inventoryCtx failed:', _invE.message); }
+      }
 
       const isLive = !bout.is_complete;
       const prompt = [
@@ -11327,11 +11520,13 @@ async function startAdminWebServer() {
         oppTeamSummary,
         ``,
         battleCtx.trim(),
+        hpCtx ? `\n${hpCtx}` : '',
+        inventoryCtx ? `\n${inventoryCtx}` : '',
         budgetCtx ? `\n${budgetCtx}` : '',
         ``,
         isLive
-          ? `Based on the current battle state, give 3-4 sentences of tactical advice for ${myName}: which hero should act next, which skill to use, which target to prioritize, and whether using a consumable potion is strategically worthwhile given the HP levels and budget remaining. Reference specific skill names and stats. Be direct and actionable.`
-          : `Analyse what happened in this completed bout for ${myName}. In 3-4 sentences: what key decisions were made, what skills were most impactful, whether potion usage was optimal, and what should ${myName} learn for next time.`,
+          ? `Based on the current battle state, give 3-4 sentences of tactical advice for ${myName}: which hero should act next, which skill to use, which target to prioritize, and whether using a consumable (considering HP levels, item costs vs budget remaining, and strategic timing) is worthwhile. Reference specific hero classes, skill names, and HP percentages. Be direct and actionable.`
+          : `Analyse what happened in this completed bout for ${myName}. In 3-4 sentences: what key decisions were made, what skills were most impactful, whether consumable usage (given the budget-pts system) was optimal, and what should ${myName} learn for next time.`,
       ].join('\n');
 
       let analysis = null;

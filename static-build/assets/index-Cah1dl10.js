@@ -90303,6 +90303,67 @@ function BattleLogViewer({
         ] })
       ] }),
       hasTurns && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-0.5 max-h-52 overflow-y-auto", children: [
+        state.data?.heroHpSnapshot && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-2 pb-1.5 border-b border-border/30", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5", children: "Current HP" }),
+          ["sideA", "sideB"].map((sideKey) => {
+            const heroes = state.data.heroHpSnapshot[sideKey] ?? [];
+            if (!heroes.length) return null;
+            const label = sideKey === "sideA" ? "A" : "B";
+            return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-x-2 gap-y-0.5", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[9px] text-muted-foreground/50 w-3", children: [
+                label,
+                ":"
+              ] }),
+              heroes.map((h, i) => {
+                const pct = h.hpPct;
+                const color2 = pct != null && pct < 30 ? "text-red-400" : pct != null && pct < 60 ? "text-amber-400" : "text-green-400/80";
+                return /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `text-[10px] ${color2}`, children: [
+                  h.heroClass ?? `Hero${i + 1}`,
+                  " ",
+                  h.currentHp,
+                  "/",
+                  h.maxHp,
+                  pct != null && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[9px] opacity-70", children: [
+                    " (",
+                    pct,
+                    "%)"
+                  ] })
+                ] }, i);
+              })
+            ] }, sideKey);
+          })
+        ] }),
+        state.data?.playerInventory && (state.data.playerInventory.sideA || state.data.playerInventory.sideB) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-2 pb-1.5 border-b border-border/30", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5", children: "Consumable Inventory" }),
+          ["sideA", "sideB"].map((sideKey) => {
+            const inv = state.data.playerInventory[sideKey];
+            if (!inv || !inv.items.length) return null;
+            const label = sideKey === "sideA" ? "A" : "B";
+            const usedPct = inv.totalBudget ? Math.round(inv.usedBudget / inv.totalBudget * 100) : 0;
+            return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-x-2 gap-y-0.5 items-start", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[9px] text-muted-foreground/50 mt-0.5 w-3", children: [
+                label,
+                ":"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1", children: [
+                inv.items.map((item, i) => /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-blue-300/70", children: [
+                  item.qty,
+                  "×",
+                  item.name
+                ] }, i)),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[9px] text-muted-foreground/40", children: [
+                  "[",
+                  inv.usedBudget,
+                  "/",
+                  inv.totalBudget ?? "?",
+                  "pts",
+                  usedPct > 0 ? ` (${usedPct}% used)` : "",
+                  "]"
+                ] })
+              ] })
+            ] }, sideKey);
+          })
+        ] }),
         state.data?.itemsUsed && (state.data.itemsUsed.a.length > 0 || state.data.itemsUsed.b.length > 0) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex gap-3 mb-1.5 text-[10px]", children: ["a", "b"].map((side) => {
           const used = state.data.itemsUsed[side] ?? [];
           if (!used.length) return null;
@@ -90311,8 +90372,7 @@ function BattleLogViewer({
             side.toUpperCase(),
             ": ",
             used.length,
-            battleBudget != null ? `/${battleBudget}` : "",
-            " items used"
+            battleBudget != null ? ` items used (${battleBudget} budget-pts total)` : " items used"
           ] }, side);
         }) }),
         battleId && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] text-muted-foreground/50 mb-1.5 font-mono break-all", children: [
@@ -90758,7 +90818,7 @@ function TournamentMatchupPage() {
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-medium text-foreground/70", children: "Battle Budget:" }),
             " ",
             histData.battleBudget,
-            " items per player"
+            " budget-pts per player"
           ] }),
           histData.allowedItems && histData.allowedItems.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] text-muted-foreground/60", children: [
             "Allowed: ",
