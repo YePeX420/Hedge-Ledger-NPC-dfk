@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useLocation } from 'wouter';
-import { History, ArrowLeft, Trophy, ChevronLeft, ChevronRight, Search, Filter, Users, Swords } from 'lucide-react';
+import { History, ArrowLeft, Trophy, ChevronLeft, ChevronRight, Search, Swords, CheckCircle2, XCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -66,6 +66,25 @@ interface BoutDetailResponse {
   ok: boolean;
   bout: Bout;
   heroes: BoutHero[];
+}
+
+interface BoutPrediction {
+  boutId: number;
+  winPctA: number;
+  winPctB: number;
+  predictedWinnerIsA: boolean;
+  factors?: {
+    init: number;
+    dps: number;
+    surv: number;
+    comp: number;
+    experience: number;
+  };
+}
+
+interface PredictionsResponse {
+  ok: boolean;
+  predictions: BoutPrediction[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -152,13 +171,64 @@ function boutHeroToMatchContext(h: BoutHero, allHeroes: BoutHero[]): MatchContex
   };
 }
 
+// ─── Prediction Badge ─────────────────────────────────────────────────────────
+
+function PredictionBadge({
+  prediction,
+  winnerIsA,
+  isComplete,
+}: {
+  prediction: BoutPrediction | undefined;
+  winnerIsA: boolean | null;
+  isComplete: boolean;
+}) {
+  if (!prediction) return null;
+
+  const { winPctA, winPctB, predictedWinnerIsA } = prediction;
+  const aIsHigher = winPctA >= winPctB;
+
+  const correct = isComplete && winnerIsA !== null
+    ? predictedWinnerIsA === winnerIsA
+    : null;
+
+  return (
+    <div className="flex items-center gap-1.5 justify-end" data-testid="prediction-badge">
+      <span className={`text-xs font-medium tabular-nums ${aIsHigher ? 'text-foreground' : 'text-muted-foreground'}`}>
+        {winPctA.toFixed(1)}%
+      </span>
+      <span className="text-xs text-muted-foreground/50">/</span>
+      <span className={`text-xs font-medium tabular-nums ${!aIsHigher ? 'text-foreground' : 'text-muted-foreground'}`}>
+        {winPctB.toFixed(1)}%
+      </span>
+      {correct === true && (
+        <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+      )}
+      {correct === false && (
+        <XCircle className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+      )}
+    </div>
+  );
+}
+
 // ─── Bout List ────────────────────────────────────────────────────────────────
 
-function BoutRow({ bout, onClick }: { bout: Bout; onClick: () => void }) {
+function BoutRow({
+  bout,
+  prediction,
+  onClick,
+}: {
+  bout: Bout;
+  prediction?: BoutPrediction;
+  onClick: () => void;
+}) {
   const nameA = displayName(bout.player_a, bout.player_a_name);
   const nameB = displayName(bout.player_b, bout.player_b_name);
-  const winnerIsA = bout.winner_address?.toLowerCase() === bout.player_a?.toLowerCase();
-  const winnerIsB = bout.winner_address?.toLowerCase() === bout.player_b?.toLowerCase();
+  const winnerIsA = bout.winner_address
+    ? bout.winner_address.toLowerCase() === bout.player_a?.toLowerCase()
+    : null;
+  const winnerIsB = bout.winner_address
+    ? bout.winner_address.toLowerCase() === bout.player_b?.toLowerCase()
+    : null;
 
   return (
     <div
@@ -183,17 +253,21 @@ function BoutRow({ bout, onClick }: { bout: Bout; onClick: () => void }) {
             {nameB}
           </span>
         </div>
-        {bout.tournament_name && (
-          <p className="text-xs text-muted-foreground truncate mt-0.5">{bout.tournament_name}</p>
-        )}
+        <div className="flex items-center gap-2 mt-0.5">
+          {bout.tournament_name && (
+            <p className="text-xs text-muted-foreground truncate">{bout.tournament_name}</p>
+          )}
+          {bout.tournament_format && (
+            <span className="text-xs text-muted-foreground/50 shrink-0">{bout.tournament_format}</span>
+          )}
+        </div>
       </div>
-      <div className="shrink-0 text-right hidden sm:block">
-        {bout.tournament_format && (
-          <Badge variant="secondary" className="text-xs mr-1">{bout.tournament_format}</Badge>
-        )}
-        {!bout.is_complete && (
-          <Badge variant="outline" className="text-xs text-muted-foreground">TBD</Badge>
-        )}
+      <div className="shrink-0 w-28 hidden sm:block">
+        <PredictionBadge
+          prediction={prediction}
+          winnerIsA={winnerIsA}
+          isComplete={bout.is_complete}
+        />
       </div>
       <div className="text-xs text-muted-foreground shrink-0 hidden md:block w-36 text-right">
         {formatDate(bout.captured_at)}
@@ -465,6 +539,25 @@ export default function FightHistoryPage() {
     },
   });
 
+  const boutIds = useMemo(() => data?.bouts?.map(b => b.id) ?? [], [data?.bouts]);
+
+  const { data: predData } = useQuery({
+    queryKey: ['/api/admin/bouts/predictions', boutIds],
+    queryFn: async () => {
+      if (!boutIds.length) return { ok: true, predictions: [] } as PredictionsResponse;
+      const res = await fetch(`/api/admin/bouts/predictions?ids=${boutIds.join(',')}`);
+      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      return res.json() as Promise<PredictionsResponse>;
+    },
+    enabled: boutIds.length > 0,
+  });
+
+  const predictionMap = useMemo(() => {
+    const map: Record<number, BoutPrediction> = {};
+    for (const p of predData?.predictions ?? []) map[p.boutId] = p;
+    return map;
+  }, [predData]);
+
   function applySearch() {
     setAppliedPlayer(searchPlayer);
     setAppliedTournament(filterTournament);
@@ -566,7 +659,7 @@ export default function FightHistoryPage() {
         <div className="flex items-center gap-3 px-4 py-2 border-b border-border/40 text-xs font-medium text-muted-foreground uppercase tracking-wide">
           <div className="w-24 shrink-0">Round</div>
           <div className="flex-1">Match</div>
-          <div className="shrink-0 hidden sm:block w-28 text-right">Format</div>
+          <div className="shrink-0 hidden sm:block w-28 text-right">Prediction</div>
           <div className="shrink-0 hidden md:block w-36 text-right">Date</div>
         </div>
 
@@ -593,6 +686,7 @@ export default function FightHistoryPage() {
               <BoutRow
                 key={bout.id}
                 bout={bout}
+                prediction={predictionMap[bout.id]}
                 onClick={() => setSelectedBoutId(bout.id)}
               />
             ))}

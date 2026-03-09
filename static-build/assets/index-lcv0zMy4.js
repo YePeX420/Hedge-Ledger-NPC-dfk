@@ -18538,7 +18538,7 @@ const __iconNode$5 = [
   ["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87", key: "kshegd" }],
   ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }]
 ];
-const Users = createLucideIcon("users", __iconNode$5);
+const Users$1 = createLucideIcon("users", __iconNode$5);
 const __iconNode$4 = [
   [
     "path",
@@ -26799,7 +26799,7 @@ const summonItems = [
   { href: "/admin/summon-sniper", label: "Summon Sniper", icon: Target }
 ];
 const ecosystemItems = [
-  { href: "/admin/users", label: "Users", icon: Users },
+  { href: "/admin/users", label: "Users", icon: Users$1 },
   { href: "/admin/value-allocation", label: "Value Allocation", icon: ChartPie },
   { href: "/admin/tokens", label: "Token Registry", icon: Coins },
   { href: "/admin/bridge", label: "Bridge", icon: ArrowLeftRight },
@@ -27253,7 +27253,7 @@ function AdminDashboard() {
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs(CardHeader, { className: "flex flex-row items-center justify-between gap-2 pb-2", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(CardTitle, { className: "text-sm font-medium", children: "Total Players" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "h-4 w-4 text-muted-foreground" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "h-4 w-4 text-muted-foreground" })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: isLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx(Skeleton, { className: "h-8 w-20" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-2xl font-bold", "data-testid": "stat-total-players", children: overview?.players.total ?? 0 }),
@@ -59106,7 +59106,7 @@ function CoverageDetailsPage() {
           name: "Team Wallets",
           jewel: coverage.teamWallets.total,
           percentage: 0,
-          icon: Users,
+          icon: Users$1,
           color: COLORS["Team Wallets"],
           contracts: teamContracts.sort((a2, b) => b.jewel - a2.jewel)
         });
@@ -59993,7 +59993,7 @@ const categoryIcons$2 = {
   economy_strategy: Coins,
   profession_specialization: Pickaxe,
   ownership_collection: Crown,
-  behavior_engagement: Users,
+  behavior_engagement: Users$1,
   seasonal_events: Calendar,
   prestige_overall: Star,
   summoning_prestige: Sparkles
@@ -62794,7 +62794,7 @@ function PoolListItem({ pool, isSelected, onSelect }) {
             getStateBadge(pool.state)
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-sm text-muted-foreground", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "w-3 h-3" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-3 h-3" }),
             pool.currentEntries,
             "/",
             pool.maxEntries
@@ -63485,7 +63485,7 @@ function LevelRacerAdmin() {
           /* @__PURE__ */ jsxRuntimeExports.jsx(Separator, {}),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("h4", { className: "font-medium mb-2 flex items-center gap-2", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "w-4 h-4" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-4 h-4" }),
               "Entries (",
               poolDetails.entries.length,
               "/",
@@ -64105,7 +64105,7 @@ function ExtractorsAnalysis() {
       /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between gap-4 flex-wrap", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "flex items-center gap-2", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "h-5 w-5" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "h-5 w-5" }),
             "All Extractors"
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(CardDescription, { children: "Wallets that have extracted more value than they brought in (net extracted > $100)" })
@@ -64694,7 +64694,7 @@ function PoolDetailPage() {
         /* @__PURE__ */ jsxRuntimeExports.jsxs(CardHeader, { className: "flex flex-row items-center justify-between gap-2", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "flex items-center gap-2", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "h-5 w-5" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "h-5 w-5" }),
               "All Gardeners List"
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs(CardDescription, { className: "flex items-center gap-2 flex-wrap", children: [
@@ -66633,7 +66633,7 @@ function AdminJeweler() {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-sm font-medium text-muted-foreground flex items-center gap-2", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "w-4 h-4" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-4 h-4" }),
           "Total Stakers"
         ] }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-2xl font-bold", "data-testid": "text-total-stakers", children: statsLoading ? "..." : (stats?.totalStakers || 0).toLocaleString() }) })
@@ -67274,7 +67274,7 @@ function AdminGardeningQuest() {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-sm font-medium text-muted-foreground flex items-center gap-2", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "w-4 h-4" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-4 h-4" }),
             "Unique Heroes"
           ] }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs(CardContent, { children: [
@@ -73069,7 +73069,7 @@ function SummonSniper() {
                 onClick: () => setSearchMode("tavern"),
                 "data-testid": "badge-mode-tavern",
                 children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "h-3.5 w-3.5 mr-1.5" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "h-3.5 w-3.5 mr-1.5" }),
                   "Two from Tavern"
                 ]
               }
@@ -84841,7 +84841,7 @@ function TournamentsTab() {
           restrictionLine && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: `text-xs leading-tight ${realmInfo ? realmInfo.color : "text-muted-foreground"}`, children: restrictionLine }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/60", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "flex items-center gap-1.5", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "w-3 h-3" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-3 h-3" }),
               s2.boutCount,
               " ",
               s2.boutCount !== 1 ? "bouts" : "bout"
@@ -87557,7 +87557,7 @@ function TournamentSession({ sessionKey }) {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-4 text-sm text-muted-foreground", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "flex items-center gap-1", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "w-3.5 h-3.5" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-3.5 h-3.5" }),
             bouts.length,
             " bouts"
           ] }),
@@ -89369,7 +89369,7 @@ function PlayersTab({ players, maxEntrants, totalEntrants }) {
   const [selectedHero, setSelectedHero] = reactExports.useState(null);
   if (players.length === 0) {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-center py-12", "data-testid": "section-players-empty", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "w-10 h-10 text-muted-foreground/30 mx-auto mb-3" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-10 h-10 text-muted-foreground/30 mx-auto mb-3" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "font-medium", children: "No players have registered yet" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground mt-1", children: "Player wallets and hero teams will appear here once they enter." })
     ] });
@@ -89730,7 +89730,7 @@ function TournamentBracketPage({ id }) {
       ] }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(TabsContent, { value: "players", className: "mt-5", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-base flex items-center gap-2", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "w-4 h-4" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-4 h-4" }),
           "Players"
         ] }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(PlayersTab, { players, maxEntrants: t.maxEntrants, totalEntrants: t.entrantsClaimed }) })
@@ -89829,11 +89829,38 @@ function boutHeroToMatchContext(h, allHeroes) {
     ownLeadershipCount
   };
 }
-function BoutRow({ bout, onClick }) {
+function PredictionBadge({
+  prediction,
+  winnerIsA,
+  isComplete
+}) {
+  if (!prediction) return null;
+  const { winPctA, winPctB, predictedWinnerIsA } = prediction;
+  const aIsHigher = winPctA >= winPctB;
+  const correct = isComplete && winnerIsA !== null ? predictedWinnerIsA === winnerIsA : null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 justify-end", "data-testid": "prediction-badge", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `text-xs font-medium tabular-nums ${aIsHigher ? "text-foreground" : "text-muted-foreground"}`, children: [
+      winPctA.toFixed(1),
+      "%"
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground/50", children: "/" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `text-xs font-medium tabular-nums ${!aIsHigher ? "text-foreground" : "text-muted-foreground"}`, children: [
+      winPctB.toFixed(1),
+      "%"
+    ] }),
+    correct === true && /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheck, { className: "w-3.5 h-3.5 text-green-500 shrink-0" }),
+    correct === false && /* @__PURE__ */ jsxRuntimeExports.jsx(CircleX, { className: "w-3.5 h-3.5 text-muted-foreground/50 shrink-0" })
+  ] });
+}
+function BoutRow({
+  bout,
+  prediction,
+  onClick
+}) {
   const nameA = displayName(bout.player_a, bout.player_a_name);
   const nameB = displayName(bout.player_b, bout.player_b_name);
-  const winnerIsA = bout.winner_address?.toLowerCase() === bout.player_a?.toLowerCase();
-  const winnerIsB = bout.winner_address?.toLowerCase() === bout.player_b?.toLowerCase();
+  const winnerIsA = bout.winner_address ? bout.winner_address.toLowerCase() === bout.player_a?.toLowerCase() : null;
+  const winnerIsB = bout.winner_address ? bout.winner_address.toLowerCase() === bout.player_b?.toLowerCase() : null;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
@@ -89854,12 +89881,19 @@ function BoutRow({ bout, onClick }) {
               nameB
             ] })
           ] }),
-          bout.tournament_name && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground truncate mt-0.5", children: bout.tournament_name })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 mt-0.5", children: [
+            bout.tournament_name && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground truncate", children: bout.tournament_name }),
+            bout.tournament_format && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground/50 shrink-0", children: bout.tournament_format })
+          ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "shrink-0 text-right hidden sm:block", children: [
-          bout.tournament_format && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "secondary", className: "text-xs mr-1", children: bout.tournament_format }),
-          !bout.is_complete && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-xs text-muted-foreground", children: "TBD" })
-        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "shrink-0 w-28 hidden sm:block", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          PredictionBadge,
+          {
+            prediction,
+            winnerIsA,
+            isComplete: bout.is_complete
+          }
+        ) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs text-muted-foreground shrink-0 hidden md:block w-36 text-right", children: formatDate(bout.captured_at) })
       ]
     }
@@ -90082,6 +90116,22 @@ function FightHistoryPage() {
       return res.json();
     }
   });
+  const boutIds = reactExports.useMemo(() => data?.bouts?.map((b) => b.id) ?? [], [data?.bouts]);
+  const { data: predData } = useQuery({
+    queryKey: ["/api/admin/bouts/predictions", boutIds],
+    queryFn: async () => {
+      if (!boutIds.length) return { ok: true, predictions: [] };
+      const res = await fetch(`/api/admin/bouts/predictions?ids=${boutIds.join(",")}`);
+      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      return res.json();
+    },
+    enabled: boutIds.length > 0
+  });
+  const predictionMap = reactExports.useMemo(() => {
+    const map2 = {};
+    for (const p of predData?.predictions ?? []) map2[p.boutId] = p;
+    return map2;
+  }, [predData]);
   function applySearch() {
     setAppliedPlayer(searchPlayer);
     setAppliedTournament(filterTournament);
@@ -90165,7 +90215,7 @@ function FightHistoryPage() {
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3 px-4 py-2 border-b border-border/40 text-xs font-medium text-muted-foreground uppercase tracking-wide", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-24 shrink-0", children: "Round" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1", children: "Match" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "shrink-0 hidden sm:block w-28 text-right", children: "Format" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "shrink-0 hidden sm:block w-28 text-right", children: "Prediction" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "shrink-0 hidden md:block w-36 text-right", children: "Date" })
       ] }),
       isLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-px py-2", children: Array.from({ length: 10 }).map((_, i) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-12 mx-4 bg-muted/30 animate-pulse rounded mb-1" }, i)) }) : !data?.bouts?.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-center py-12", "data-testid": "section-empty", children: [
@@ -90177,6 +90227,7 @@ function FightHistoryPage() {
         BoutRow,
         {
           bout,
+          prediction: predictionMap[bout.id],
           onClick: () => setSelectedBoutId(bout.id)
         },
         bout.id
@@ -91089,7 +91140,7 @@ function AccountPage() {
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { "data-testid": "card-profile", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-lg flex items-center gap-2", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { className: "h-5 w-5" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "h-5 w-5" }),
           "Profile"
         ] }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs(CardContent, { className: "space-y-3 text-sm", children: [
@@ -91324,7 +91375,7 @@ function AccountPage() {
   ] }) });
 }
 const categoryIcons$1 = {
-  heroes: Users,
+  heroes: Users$1,
   hunting: Sword,
   pvp: Flame,
   summoning: Sparkles,
@@ -91532,7 +91583,7 @@ const categoryIcons = {
   economy_strategy: Coins,
   profession_specialization: Pickaxe,
   ownership_collection: Crown,
-  behavior_engagement: Users,
+  behavior_engagement: Users$1,
   seasonal_events: Calendar,
   prestige_overall: Star,
   summoning_prestige: Sparkles,

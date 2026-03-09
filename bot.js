@@ -15976,6 +15976,158 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
     }
   });
 
+  // GET /api/admin/bouts/predictions?ids=1,2,3 — bulk pre-fight win probability for fight history
+  app.get('/api/admin/bouts/predictions', isAdmin, async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const idsParam = req.query.ids;
+      if (!idsParam) return res.json({ ok: true, predictions: [] });
+      const ids = String(idsParam).split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+      if (!ids.length) return res.json({ ok: true, predictions: [] });
+
+      const [heroes, boutRows] = await Promise.all([
+        rawPg.unsafe(
+          `SELECT bout_id, side, player_address,
+                  strength, agility, intelligence, endurance, luck,
+                  hp, passive1, passive2, main_class, effective_dps_mult
+           FROM dfk_bout_heroes WHERE bout_id = ANY($1) ORDER BY bout_id, side`,
+          [ids]
+        ),
+        rawPg.unsafe(
+          `SELECT id, player_a, player_b FROM dfk_tournament_bouts WHERE id = ANY($1)`,
+          [ids]
+        ),
+      ]);
+
+      // Historical win/loss records for involved players
+      const allAddrs = [...new Set(boutRows.flatMap(b => [b.player_a, b.player_b]).filter(Boolean))];
+      const playerRecords = {};
+      if (allAddrs.length) {
+        const lowerAddrs = allAddrs.map(a => a.toLowerCase());
+        const histRows = await rawPg.unsafe(`
+          SELECT addr, SUM(wins)::int AS wins, SUM(losses)::int AS losses FROM (
+            SELECT LOWER(player_a) AS addr,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_a) THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_b) THEN 1 ELSE 0 END) AS losses
+            FROM dfk_tournament_bouts WHERE LOWER(player_a) = ANY($1) GROUP BY LOWER(player_a)
+            UNION ALL
+            SELECT LOWER(player_b) AS addr,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_b) THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_a) THEN 1 ELSE 0 END) AS losses
+            FROM dfk_tournament_bouts WHERE LOWER(player_b) = ANY($1) GROUP BY LOWER(player_b)
+          ) sub GROUP BY addr
+        `, [lowerAddrs]);
+        for (const r of histRows) playerRecords[r.addr] = { wins: r.wins, losses: r.losses };
+      }
+
+      // Group heroes by bout_id -> side
+      const byBout = {};
+      for (const h of heroes) {
+        if (!byBout[h.bout_id]) byBout[h.bout_id] = { a: [], b: [] };
+        byBout[h.bout_id][h.side].push(h);
+      }
+
+      // Prediction helpers
+      const HEALER_CLASSES = new Set(['Priest', 'Paladin', 'Druid', 'Shaman']);
+      const PASSIVE_SURV = { 28: 0.15, 25: 0.06, 1: 0.02 };
+      const PASSIVE_DPS  = { 19: 0.03, 24: 0.04, 0: 0.02, 2: 0.01 };
+
+      function heroProfile(h) {
+        const AGI = h.agility ?? 10, LCK = h.luck ?? 10;
+        const STR = h.strength ?? 10, INT = h.intelligence ?? 10, END = h.endurance ?? 10;
+        const p1 = parseInt(h.passive1) || -1;
+        const p2 = parseInt(h.passive2) || -1;
+        return {
+          initMin:      2 * (AGI - LCK / 2),
+          initMax:      2 * (AGI + LCK / 2),
+          hp:           h.hp ?? 100,
+          pdef:         END * 0.5,
+          eva:          AGI / 200,
+          dpsRaw:       (STR + INT * 0.7) * parseFloat(h.effective_dps_mult ?? 1),
+          survScore:    (PASSIVE_SURV[p1] ?? 0) + (PASSIVE_SURV[p2] ?? 0),
+          dpsScore:     (PASSIVE_DPS[p1]  ?? 0) + (PASSIVE_DPS[p2]  ?? 0),
+          isHealer:     HEALER_CLASSES.has(h.main_class),
+          hasLeadership: p1 === 16 || p2 === 16,
+        };
+      }
+
+      function simInitWinPct(pA, pB, samples = 2000) {
+        let wins = 0;
+        for (let i = 0; i < samples; i++) {
+          const iA = Math.max(...pA.map(p => p.initMin + Math.random() * (p.initMax - p.initMin)));
+          const iB = Math.max(...pB.map(p => p.initMin + Math.random() * (p.initMax - p.initMin)));
+          if (iA > iB) wins++;
+        }
+        return wins / samples;
+      }
+
+      function teamCompScore(profiles) {
+        const healerBonus    = profiles.some(p => p.isHealer)      ? 0.10 : 0;
+        const leadershipBonus = profiles.filter(p => p.hasLeadership).length * 0.05;
+        return Math.min(1, 0.5 + healerBonus + leadershipBonus);
+      }
+
+      function playerExpFactor(addr) {
+        if (!addr) return 0.5;
+        const rec = playerRecords[addr.toLowerCase()];
+        if (!rec) return 0.5;
+        const total = rec.wins + rec.losses;
+        if (total < 3) return 0.5;
+        const confidence = Math.min(total, 10) / 10;
+        return 0.5 + (rec.wins / total - 0.5) * confidence;
+      }
+
+      function toPct(a, total) { return total === 0 ? 0.5 : a / total; }
+
+      const predictions = [];
+      for (const bout of boutRows) {
+        const sides = byBout[bout.id];
+        if (!sides || !sides.a.length || !sides.b.length) continue;
+        const pA = sides.a.map(heroProfile);
+        const pB = sides.b.map(heroProfile);
+
+        const initA  = simInitWinPct(pA, pB);
+        const dpsA   = pA.reduce((s, p) => s + p.dpsRaw, 0);
+        const dpsB   = pB.reduce((s, p) => s + p.dpsRaw, 0);
+        const survA  = pA.reduce((s, p) => s + p.hp + p.pdef * 5 + p.eva * 200, 0);
+        const survB  = pB.reduce((s, p) => s + p.hp + p.pdef * 5 + p.eva * 200, 0);
+        const pasDA  = pA.reduce((s, p) => s + p.dpsScore, 0);
+        const pasDB  = pB.reduce((s, p) => s + p.dpsScore, 0);
+        const compA  = teamCompScore(pA);
+        const compB  = teamCompScore(pB);
+        const expA   = playerExpFactor(bout.player_a);
+        const expB   = playerExpFactor(bout.player_b);
+
+        const rawA = 0.25 * initA
+                   + 0.30 * toPct(dpsA, dpsA + dpsB)
+                   + 0.20 * toPct(survA, survA + survB)
+                   + 0.10 * toPct(pasDA, pasDA + pasDB)
+                   + 0.10 * toPct(compA, compA + compB)
+                   + 0.05 * toPct(expA, expA + expB);
+
+        const winPctA = Math.round(rawA * 1000) / 10;
+        predictions.push({
+          boutId: bout.id,
+          winPctA,
+          winPctB: Math.round((1 - rawA) * 1000) / 10,
+          predictedWinnerIsA: winPctA >= 50,
+          factors: {
+            init: Math.round(initA * 1000) / 10,
+            dps:  Math.round(toPct(dpsA, dpsA + dpsB) * 1000) / 10,
+            surv: Math.round(toPct(survA, survA + survB) * 1000) / 10,
+            comp: Math.round(toPct(compA, compA + compB) * 1000) / 10,
+            experience: Math.round(toPct(expA, expA + expB) * 1000) / 10,
+          },
+        });
+      }
+
+      res.json({ ok: true, predictions });
+    } catch (err) {
+      console.error('[BoutPredictions] error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // GET /api/admin/bouts/:boutId — single bout with full hero detail
   app.get('/api/admin/bouts/:boutId', isAdmin, async (req, res) => {
     try {
