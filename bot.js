@@ -10582,23 +10582,115 @@ async function startAdminWebServer() {
       const winPctA = Math.round(rawA * 1000) / 10;
       const winPctB = Math.round((1 - rawA) * 1000) / 10;
 
-      res.json({
-        ok: true,
-        winPctA,
-        winPctB,
-        nameA,
-        nameB,
-        factors: {
-          init:       Math.round(initA * 1000) / 10,
-          dps:        Math.round(toPct(effDpsA, effDpsA + effDpsB) * 1000) / 10,
-          surv:       Math.round(toPct(survA, survA + survB) * 1000) / 10,
-          passiveDps: Math.round(toPct(pasDA, pasDA + pasDB) * 1000) / 10,
-          comp:       Math.round(toPct(compA, compA + compB) * 1000) / 10,
-          experience: Math.round(toPct(expA, expA + expB) * 1000) / 10,
-        },
-      });
+      const factors = {
+        init:       Math.round(initA * 1000) / 10,
+        dps:        Math.round(toPct(effDpsA, effDpsA + effDpsB) * 1000) / 10,
+        surv:       Math.round(toPct(survA, survA + survB) * 1000) / 10,
+        passiveDps: Math.round(toPct(pasDA, pasDA + pasDB) * 1000) / 10,
+        comp:       Math.round(toPct(compA, compA + compB) * 1000) / 10,
+        experience: Math.round(toPct(expA, expA + expB) * 1000) / 10,
+      };
+
+      // AI narrative via GPT-4o-mini
+      let narrative = null;
+      try {
+        const heroSummary = (heroes, name) => heroes.map(h =>
+          `${h.mainClassStr ?? 'Hero'} Lv${h.level} (STR${h.strength} INT${h.intelligence} VIT${h.vitality} END${h.endurance}${h.passive1 ? ` P1:${h.passive1}` : ''}${h.passive2 ? ` P2:${h.passive2}` : ''})`
+        ).join(', ');
+        const prompt = [
+          `You are a DeFi Kingdoms PvP analyst. Provide a 3-sentence strategic matchup assessment.`,
+          `Tournament format: ${tournament.format || 'standard'}. Best-of: ${tournament.bestOf}.`,
+          `${nameA} (${winPctA}% win chance): ${heroSummary(heroesA, nameA)}`,
+          `${nameB} (${winPctB}% win chance): ${heroSummary(heroesB, nameB)}`,
+          `Key factors: ${nameA} leads in ${Object.entries(factors).filter(([,v]) => v >= 50).map(([k]) => k).join(', ') || 'none'}. `,
+          `Give tactical advice: mention the biggest advantage, main threat from the opponent, and one key strategic recommendation.`,
+          `Keep it concise and direct. No markdown.`,
+        ].join('\n');
+        const aiResp = await openai.chat.completions.create({
+          model: OPENAI_MODEL,
+          max_tokens: 180,
+          messages: [{ role: 'user', content: prompt }],
+        });
+        narrative = aiResp.choices?.[0]?.message?.content?.trim() ?? null;
+      } catch (_) { /* narrative stays null */ }
+
+      res.json({ ok: true, winPctA, winPctB, nameA, nameB, factors, narrative });
     } catch (err) {
       console.error('[AI Matchup] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/tournament/bracket/:id/matchup-history — past indexed bouts for a specific match
+  app.get('/api/admin/tournament/bracket/:id/matchup-history', isAdmin, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
+      const { slotA, slotB } = req.query;
+      if (!slotA || !slotB) return res.status(400).json({ ok: false, error: 'slotA and slotB required' });
+
+      const cached = _bracketDetailCache.get(tournamentId);
+      if (!cached) return res.status(404).json({ ok: false, error: 'Tournament not in cache — load the bracket page first' });
+
+      const { players } = cached.data;
+      const pA = players.find(p => p.partyIndex === parseInt(slotA));
+      const pB = players.find(p => p.partyIndex === parseInt(slotB));
+      if (!pA || !pB) return res.status(404).json({ ok: false, error: 'Players not found for those slot indices' });
+
+      const addrA = pA.address.toLowerCase();
+      const addrB = pB.address.toLowerCase();
+      const { rawPg: rp } = await import('./server/db.js');
+
+      const boutRows = await rp.unsafe(`
+        SELECT id, tournament_id, tournament_name, round_number, match_index,
+               player_a, player_b, player_a_name, player_b_name,
+               winner_address, is_complete, tournament_format, captured_at
+        FROM dfk_tournament_bouts
+        WHERE tournament_id = $1
+          AND (
+            (LOWER(player_a) = $2 AND LOWER(player_b) = $3)
+            OR (LOWER(player_a) = $3 AND LOWER(player_b) = $2)
+          )
+        ORDER BY round_number, match_index
+      `, [String(tournamentId), addrA, addrB]);
+
+      if (boutRows.length === 0) return res.json({ ok: true, bouts: [] });
+
+      const boutIds = boutRows.map(r => r.id);
+      const heroRows = await rp.unsafe(`
+        SELECT bout_id, side, player_address, is_winner_side,
+               hero_id, normalized_hero_id, main_class, level, rarity,
+               strength, intelligence, vitality, endurance,
+               active1, active2, passive1, passive2
+        FROM dfk_bout_heroes
+        WHERE bout_id = ANY($1)
+        ORDER BY bout_id, side, hero_id
+      `, [boutIds]);
+
+      const byBout = {};
+      for (const h of heroRows) {
+        if (!byBout[h.bout_id]) byBout[h.bout_id] = { a: [], b: [] };
+        byBout[h.bout_id][h.side === 'a' ? 'a' : 'b'].push(h);
+      }
+
+      const bouts = boutRows.map(b => ({
+        id: b.id,
+        roundNumber: b.round_number,
+        matchIndex: b.match_index,
+        playerA: b.player_a,
+        playerAName: b.player_a_name,
+        playerB: b.player_b,
+        playerBName: b.player_b_name,
+        winnerAddress: b.winner_address,
+        isComplete: b.is_complete,
+        capturedAt: b.captured_at,
+        heroesA: byBout[b.id]?.a ?? [],
+        heroesB: byBout[b.id]?.b ?? [],
+      }));
+
+      res.json({ ok: true, bouts });
+    } catch (err) {
+      console.error('[Matchup History] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
     }
   });
