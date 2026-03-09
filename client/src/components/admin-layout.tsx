@@ -95,14 +95,10 @@ const tavernItems: NavItem[] = [
 
 // ─── Combat ────────────────────────────────────────────────────────────────
 const combatItems: NavItem[] = [
-  { href: '/admin/combat-toolkit', label: 'Hero Combat Toolkit', icon: Swords },
-  { href: '/admin/pvp-matchup', label: 'PVP Matchup Tool', icon: Target },
   { href: '/admin/tournament', label: 'DFK Tournaments', icon: Medal },
   { href: '/admin/fight-history', label: 'Fight History', icon: History },
-  { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Shield },
   { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: ShoppingBag },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: TrendingDown },
-  { href: '/admin/hedge/combat-sync', label: 'Hedge: Combat Sync', icon: RefreshCw },
 ];
 
 // ─── Summon ────────────────────────────────────────────────────────────────
@@ -123,8 +119,11 @@ const ecosystemItems: NavItem[] = [
 
 // ─── Unfinished / WIP ──────────────────────────────────────────────────────
 const unfinishedItems: NavItem[] = [
-  { href: '/admin/quest-optimizer', label: 'Quest Optimizer', icon: Dumbbell },
+  { href: '/admin/combat-toolkit', label: 'Hero Combat Toolkit', icon: Swords },
+  { href: '/admin/pvp-matchup', label: 'PVP Matchup Tool', icon: Target },
   { href: '/admin/battle-ready', label: 'Battle-Ready Heroes', icon: Shield },
+  { href: '/admin/hedge/combat-sync', label: 'Hedge: Combat Sync', icon: RefreshCw },
+  { href: '/admin/quest-optimizer', label: 'Quest Optimizer', icon: Dumbbell },
   { href: '/admin/market-intel', label: 'Market Intel', icon: TrendingUp },
   { href: '/admin/profit-tracker', label: 'Profit Tracker', icon: DollarSign },
   { href: '/admin/challenges', label: 'Challenges', icon: Trophy },

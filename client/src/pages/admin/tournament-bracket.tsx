@@ -317,6 +317,15 @@ function MatchupModal({ match, players, slotMap, nameMap, onClose, onHeroSelect 
   );
 }
 
+// ─── Bracket layout constants ─────────────────────────────────────────────────
+const MATCH_H = 82;   // px — height of each match card
+const MATCH_GAP = 8;  // px — gap between cards in the first round
+
+function formatRoundTime(tournamentStartTime: number, roundLengthMinutes: number, roundIndex: number): string {
+  const ts = tournamentStartTime + roundIndex * roundLengthMinutes * 60;
+  return new Date(ts * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
 function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex, onMatchClick }: {
   match: BracketMatch;
   slotMap: Record<number, string>;
@@ -328,23 +337,67 @@ function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex, onMatchCli
   const hasPlayers = match.slotA !== 0 || match.slotB !== 0;
   return (
     <div
-      className={`flex flex-col gap-0.5 w-44 ${hasPlayers && onMatchClick ? 'cursor-pointer hover-elevate rounded' : ''}`}
+      className={`flex flex-col w-44 border border-border/60 rounded-md bg-muted/20 overflow-hidden ${hasPlayers && onMatchClick ? 'cursor-pointer hover-elevate' : ''}`}
+      style={{ height: MATCH_H }}
       data-testid={`match-r${roundIndex}-m${matchIndex}`}
       onClick={() => hasPlayers && onMatchClick?.(match)}
     >
-      <PlayerSlot slotId={match.slotA} slotMap={slotMap} nameMap={nameMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotA} />
+      <div className="flex-1 flex items-center">
+        <PlayerSlot slotId={match.slotA} slotMap={slotMap} nameMap={nameMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotA} />
+      </div>
       <div className="border-t border-border/40 mx-2" />
-      <PlayerSlot slotId={match.slotB} slotMap={slotMap} nameMap={nameMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotB} />
+      <div className="flex-1 flex items-center">
+        <PlayerSlot slotId={match.slotB} slotMap={slotMap} nameMap={nameMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotB} />
+      </div>
     </div>
+  );
+}
+
+function BracketConnector({ matchesInRound, totalHeight, width = 40 }: {
+  matchesInRound: number;
+  totalHeight: number;
+  width?: number;
+}) {
+  const outputCount = matchesInRound / 2;
+  const lines: React.ReactNode[] = [];
+
+  for (let j = 0; j < outputCount; j++) {
+    const topY = ((2 * j * 2) + 1) * totalHeight / (2 * matchesInRound);
+    const botY = ((2 * j * 2 + 2) + 1) * totalHeight / (2 * matchesInRound);
+    const outY = (topY + botY) / 2;
+    const mid = width / 2;
+
+    lines.push(
+      <g key={j}>
+        <line x1={0} y1={topY} x2={mid} y2={topY} />
+        <line x1={0} y1={botY} x2={mid} y2={botY} />
+        <line x1={mid} y1={topY} x2={mid} y2={botY} />
+        <line x1={mid} y1={outY} x2={width} y2={outY} />
+      </g>
+    );
+  }
+
+  return (
+    <svg
+      width={width}
+      height={totalHeight}
+      style={{ flexShrink: 0 }}
+      overflow="visible"
+    >
+      <g stroke="hsl(var(--border))" strokeWidth="1.5" fill="none">
+        {lines}
+      </g>
+    </svg>
   );
 }
 
 const ROUND_LABELS = ['Round of 8', 'Semifinal', 'Final'];
 
-function BracketTab({ bracket, players, champion }: {
+function BracketTab({ bracket, players, champion, tournament }: {
   bracket: BracketData;
   players: PlayerEntry[];
   champion: number;
+  tournament: TournamentDetail;
 }) {
   const [selectedMatch, setSelectedMatch] = useState<BracketMatch | null>(null);
   const [selectedHero, setSelectedHero] = useState<HeroDetail | null>(null);
@@ -358,6 +411,12 @@ function BracketTab({ bracket, players, champion }: {
   }
 
   const hasAnyPlayer = bracket.rounds[0]?.some(m => m.slotA !== 0 || m.slotB !== 0);
+
+  const N = bracket.rounds[0]?.length ?? 1;
+  const totalH = N * MATCH_H + (N - 1) * MATCH_GAP;
+
+  // Header height so all column headers align
+  const HEADER_H = 56;
 
   return (
     <div className="space-y-4">
@@ -378,30 +437,72 @@ function BracketTab({ bracket, players, champion }: {
         </p>
       )}
       <div className="overflow-x-auto">
-        <div className="flex items-center gap-8 min-w-max pb-4">
+        <div className="flex items-end gap-0 min-w-max pb-4">
           {bracket.rounds.map((round, ri) => (
-            <div key={ri} className="flex flex-col gap-1">
-              <p className="text-xs text-muted-foreground text-center mb-2 font-medium uppercase tracking-wide">
-                {ROUND_LABELS[ri] ?? `Round ${ri + 1}`}
-              </p>
-              <div
-                className="flex flex-col"
-                style={{ gap: ri === 0 ? '8px' : ri === 1 ? '88px' : '184px', justifyContent: 'space-around', alignItems: 'center' }}
-              >
-                {round.map((match, mi) => (
-                  <MatchCard key={mi} match={match} slotMap={slotMap} nameMap={nameMap} roundIndex={ri} matchIndex={mi} onMatchClick={setSelectedMatch} />
-                ))}
+            <div key={ri} style={{ display: 'contents' }}>
+              {/* Round column */}
+              <div className="flex flex-col items-center">
+                {/* Round header pill */}
+                <div
+                  className="flex flex-col items-center justify-center w-44 rounded-md bg-muted/50 border border-border/60 px-3 py-2 mb-4 text-center"
+                  style={{ height: HEADER_H }}
+                >
+                  <span className="text-xs font-semibold uppercase tracking-wide">
+                    {ROUND_LABELS[ri] ?? `Round ${ri + 1}`}
+                  </span>
+                  {tournament.tournamentStartTime > 0 && tournament.roundLengthMinutes > 0 && (
+                    <span className="text-[11px] text-muted-foreground mt-0.5">
+                      {formatRoundTime(tournament.tournamentStartTime, tournament.roundLengthMinutes, ri)}
+                    </span>
+                  )}
+                </div>
+                {/* Match cards — evenly distributed across total height */}
+                <div
+                  className="flex flex-col items-center justify-evenly"
+                  style={{ height: totalH }}
+                >
+                  {round.map((match, mi) => (
+                    <MatchCard key={mi} match={match} slotMap={slotMap} nameMap={nameMap} roundIndex={ri} matchIndex={mi} onMatchClick={setSelectedMatch} />
+                  ))}
+                </div>
               </div>
+
+              {/* Connector SVG between this round and the next */}
+              {ri < bracket.rounds.length - 1 && (
+                <div style={{ marginTop: HEADER_H + 16 }}>
+                  <BracketConnector matchesInRound={round.length} totalHeight={totalH} width={40} />
+                </div>
+              )}
             </div>
           ))}
 
+          {/* Single horizontal connector from last round to champion */}
+          {bracket.rounds.length > 0 && (
+            <div style={{ marginTop: HEADER_H + 16 }}>
+              <svg width={32} height={totalH} style={{ flexShrink: 0 }} overflow="visible">
+                <line
+                  x1={0} y1={totalH / 2}
+                  x2={32} y2={totalH / 2}
+                  stroke="hsl(var(--border))" strokeWidth="1.5" fill="none"
+                />
+              </svg>
+            </div>
+          )}
+
           {/* Champion column */}
-          <div className="flex flex-col gap-1">
-            <p className="text-xs text-muted-foreground text-center mb-2 font-medium uppercase tracking-wide">
-              Champion
-            </p>
-            <div className="flex flex-col items-center justify-center h-full gap-2">
-              <div className="flex items-center gap-2 px-3 py-3 rounded w-44 border border-yellow-500/30 bg-yellow-500/10">
+          <div className="flex flex-col items-center">
+            <div
+              className="flex flex-col items-center justify-center w-44 rounded-md bg-yellow-500/10 border border-yellow-500/30 px-3 py-2 mb-4 text-center"
+              style={{ height: HEADER_H }}
+            >
+              <Trophy className="w-4 h-4 text-yellow-400 mb-0.5" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-yellow-300">Champion</span>
+            </div>
+            <div
+              className="flex flex-col items-center justify-center"
+              style={{ height: totalH }}
+            >
+              <div className="flex items-center gap-2 px-3 py-3 rounded-md w-44 border border-yellow-500/30 bg-yellow-500/10" style={{ height: MATCH_H }}>
                 <Trophy className="w-4 h-4 text-yellow-400 shrink-0" />
                 {champion > 0 ? (
                   <>
@@ -1137,7 +1238,7 @@ export default function TournamentBracketPage({ id }: Props) {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <BracketTab bracket={bracket} players={players} champion={bracket.champion} />
+              <BracketTab bracket={bracket} players={players} champion={bracket.champion} tournament={t} />
             </CardContent>
           </Card>
         </TabsContent>

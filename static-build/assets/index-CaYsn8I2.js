@@ -26785,14 +26785,10 @@ const tavernItems = [
   { href: "/admin/tavern-indexer", label: "Tavern Indexer", icon: Database }
 ];
 const combatItems = [
-  { href: "/admin/combat-toolkit", label: "Hero Combat Toolkit", icon: Swords },
-  { href: "/admin/pvp-matchup", label: "PVP Matchup Tool", icon: Target },
   { href: "/admin/tournament", label: "DFK Tournaments", icon: Medal },
   { href: "/admin/fight-history", label: "Fight History", icon: History },
-  { href: "/admin/battle-ready", label: "Battle-Ready Heroes", icon: Shield },
   { href: "/admin/combat-pets", label: "Combat Pets Shop", icon: ShoppingBag },
-  { href: "/admin/pve-droprates", label: "PVE Drop Rates", icon: TrendingDown },
-  { href: "/admin/hedge/combat-sync", label: "Hedge: Combat Sync", icon: RefreshCw }
+  { href: "/admin/pve-droprates", label: "PVE Drop Rates", icon: TrendingDown }
 ];
 const summonItems = [
   { href: "/admin/summoning-calculator", label: "Summoning Calculator", icon: Dna },
@@ -26807,8 +26803,11 @@ const ecosystemItems = [
   { href: "/admin/user-access", label: "User Access", icon: UserCog }
 ];
 const unfinishedItems = [
-  { href: "/admin/quest-optimizer", label: "Quest Optimizer", icon: Dumbbell },
+  { href: "/admin/combat-toolkit", label: "Hero Combat Toolkit", icon: Swords },
+  { href: "/admin/pvp-matchup", label: "PVP Matchup Tool", icon: Target },
   { href: "/admin/battle-ready", label: "Battle-Ready Heroes", icon: Shield },
+  { href: "/admin/hedge/combat-sync", label: "Hedge: Combat Sync", icon: RefreshCw },
+  { href: "/admin/quest-optimizer", label: "Quest Optimizer", icon: Dumbbell },
   { href: "/admin/market-intel", label: "Market Intel", icon: TrendingUp },
   { href: "/admin/profit-tracker", label: "Profit Tracker", icon: DollarSign },
   { href: "/admin/challenges", label: "Challenges", icon: Trophy },
@@ -89116,24 +89115,59 @@ function MatchupModal({ match, players, slotMap, nameMap, onClose, onHeroSelect 
     ] })
   ] }) });
 }
+const MATCH_H = 82;
+const MATCH_GAP = 8;
+function formatRoundTime(tournamentStartTime, roundLengthMinutes, roundIndex) {
+  const ts = tournamentStartTime + roundIndex * roundLengthMinutes * 60;
+  return new Date(ts * 1e3).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" });
+}
 function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex, onMatchClick }) {
   const hasPlayers = match.slotA !== 0 || match.slotB !== 0;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
-      className: `flex flex-col gap-0.5 w-44 ${hasPlayers && onMatchClick ? "cursor-pointer hover-elevate rounded" : ""}`,
+      className: `flex flex-col w-44 border border-border/60 rounded-md bg-muted/20 overflow-hidden ${hasPlayers && onMatchClick ? "cursor-pointer hover-elevate" : ""}`,
+      style: { height: MATCH_H },
       "data-testid": `match-r${roundIndex}-m${matchIndex}`,
       onClick: () => hasPlayers && onMatchClick?.(match),
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(PlayerSlot, { slotId: match.slotA, slotMap, nameMap, winner: match.winner, isWinner: match.winner !== 0 && match.winner === match.slotA }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 flex items-center", children: /* @__PURE__ */ jsxRuntimeExports.jsx(PlayerSlot, { slotId: match.slotA, slotMap, nameMap, winner: match.winner, isWinner: match.winner !== 0 && match.winner === match.slotA }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border-t border-border/40 mx-2" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(PlayerSlot, { slotId: match.slotB, slotMap, nameMap, winner: match.winner, isWinner: match.winner !== 0 && match.winner === match.slotB })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 flex items-center", children: /* @__PURE__ */ jsxRuntimeExports.jsx(PlayerSlot, { slotId: match.slotB, slotMap, nameMap, winner: match.winner, isWinner: match.winner !== 0 && match.winner === match.slotB }) })
       ]
     }
   );
 }
+function BracketConnector({ matchesInRound, totalHeight, width = 40 }) {
+  const outputCount = matchesInRound / 2;
+  const lines = [];
+  for (let j = 0; j < outputCount; j++) {
+    const topY = (2 * j * 2 + 1) * totalHeight / (2 * matchesInRound);
+    const botY = (2 * j * 2 + 2 + 1) * totalHeight / (2 * matchesInRound);
+    const outY = (topY + botY) / 2;
+    const mid = width / 2;
+    lines.push(
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("g", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: 0, y1: topY, x2: mid, y2: topY }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: 0, y1: botY, x2: mid, y2: botY }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: mid, y1: topY, x2: mid, y2: botY }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: mid, y1: outY, x2: width, y2: outY })
+      ] }, j)
+    );
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "svg",
+    {
+      width,
+      height: totalHeight,
+      style: { flexShrink: 0 },
+      overflow: "visible",
+      children: /* @__PURE__ */ jsxRuntimeExports.jsx("g", { stroke: "hsl(var(--border))", strokeWidth: "1.5", fill: "none", children: lines })
+    }
+  );
+}
 const ROUND_LABELS = ["Round of 8", "Semifinal", "Final"];
-function BracketTab({ bracket, players, champion }) {
+function BracketTab({ bracket, players, champion, tournament }) {
   const [selectedMatch, setSelectedMatch] = reactExports.useState(null);
   const [selectedHero, setSelectedHero] = reactExports.useState(null);
   const slotMap = {};
@@ -89143,6 +89177,9 @@ function BracketTab({ bracket, players, champion }) {
     if (p.playerName) nameMap[p.partyIndex] = p.playerName;
   }
   const hasAnyPlayer = bracket.rounds[0]?.some((m) => m.slotA !== 0 || m.slotB !== 0);
+  const N = bracket.rounds[0]?.length ?? 1;
+  const totalH = N * MATCH_H + (N - 1) * MATCH_GAP;
+  const HEADER_H = 56;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-4", children: [
     selectedHero && /* @__PURE__ */ jsxRuntimeExports.jsx(HeroDetailModal, { hero: selectedHero, onClose: () => setSelectedHero(null) }),
     selectedMatch && /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -89160,36 +89197,78 @@ function BracketTab({ bracket, players, champion }) {
       }
     ),
     !hasAnyPlayer && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground text-center py-2", children: "No players have registered yet — bracket slots will fill once entries open." }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-8 min-w-max pb-4", children: [
-      bracket.rounds.map((round2, ri) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col gap-1", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground text-center mb-2 font-medium uppercase tracking-wide", children: ROUND_LABELS[ri] ?? `Round ${ri + 1}` }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-end gap-0 min-w-max pb-4", children: [
+      bracket.rounds.map((round2, ri) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "contents" }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col items-center", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
+            {
+              className: "flex flex-col items-center justify-center w-44 rounded-md bg-muted/50 border border-border/60 px-3 py-2 mb-4 text-center",
+              style: { height: HEADER_H },
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-semibold uppercase tracking-wide", children: ROUND_LABELS[ri] ?? `Round ${ri + 1}` }),
+                tournament.tournamentStartTime > 0 && tournament.roundLengthMinutes > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[11px] text-muted-foreground mt-0.5", children: formatRoundTime(tournament.tournamentStartTime, tournament.roundLengthMinutes, ri) })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
+            {
+              className: "flex flex-col items-center justify-evenly",
+              style: { height: totalH },
+              children: round2.map((match, mi) => /* @__PURE__ */ jsxRuntimeExports.jsx(MatchCard, { match, slotMap, nameMap, roundIndex: ri, matchIndex: mi, onMatchClick: setSelectedMatch }, mi))
+            }
+          )
+        ] }),
+        ri < bracket.rounds.length - 1 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: HEADER_H + 16 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(BracketConnector, { matchesInRound: round2.length, totalHeight: totalH, width: 40 }) })
+      ] }, ri)),
+      bracket.rounds.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: HEADER_H + 16 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: 32, height: totalH, style: { flexShrink: 0 }, overflow: "visible", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "line",
+        {
+          x1: 0,
+          y1: totalH / 2,
+          x2: 32,
+          y2: totalH / 2,
+          stroke: "hsl(var(--border))",
+          strokeWidth: "1.5",
+          fill: "none"
+        }
+      ) }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col items-center", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            className: "flex flex-col items-center justify-center w-44 rounded-md bg-yellow-500/10 border border-yellow-500/30 px-3 py-2 mb-4 text-center",
+            style: { height: HEADER_H },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-4 h-4 text-yellow-400 mb-0.5" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-semibold uppercase tracking-wide text-yellow-300", children: "Champion" })
+            ]
+          }
+        ),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "div",
           {
-            className: "flex flex-col",
-            style: { gap: ri === 0 ? "8px" : ri === 1 ? "88px" : "184px", justifyContent: "space-around", alignItems: "center" },
-            children: round2.map((match, mi) => /* @__PURE__ */ jsxRuntimeExports.jsx(MatchCard, { match, slotMap, nameMap, roundIndex: ri, matchIndex: mi, onMatchClick: setSelectedMatch }, mi))
+            className: "flex flex-col items-center justify-center",
+            style: { height: totalH },
+            children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 px-3 py-3 rounded-md w-44 border border-yellow-500/30 bg-yellow-500/10", style: { height: MATCH_H }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-4 h-4 text-yellow-400 shrink-0" }),
+              champion > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground w-4 shrink-0", children: [
+                  "#",
+                  champion
+                ] }),
+                slotMap[champion] ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-bold flex-1 min-w-0 truncate", children: nameMap[champion] || shortAddr$1(slotMap[champion]) }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(CopyButton, { text: slotMap[champion] })
+                ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs font-bold flex-1 min-w-0", children: [
+                  "Player ",
+                  champion
+                ] })
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground", children: "TBD" })
+            ] })
           }
         )
-      ] }, ri)),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col gap-1", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground text-center mb-2 font-medium uppercase tracking-wide", children: "Champion" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-col items-center justify-center h-full gap-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 px-3 py-3 rounded w-44 border border-yellow-500/30 bg-yellow-500/10", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-4 h-4 text-yellow-400 shrink-0" }),
-          champion > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground w-4 shrink-0", children: [
-              "#",
-              champion
-            ] }),
-            slotMap[champion] ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-bold flex-1 min-w-0 truncate", children: nameMap[champion] || shortAddr$1(slotMap[champion]) }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(CopyButton, { text: slotMap[champion] })
-            ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs font-bold flex-1 min-w-0", children: [
-              "Player ",
-              champion
-            ] })
-          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground", children: "TBD" })
-        ] }) })
       ] })
     ] }) })
   ] });
@@ -89789,7 +89868,7 @@ function TournamentBracketPage({ id }) {
           /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-4 h-4" }),
           "Tournament Bracket"
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(BracketTab, { bracket, players, champion: bracket.champion }) })
+        /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(BracketTab, { bracket, players, champion: bracket.champion, tournament: t }) })
       ] }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(TabsContent, { value: "details", className: "mt-5", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-base flex items-center gap-2", children: [
