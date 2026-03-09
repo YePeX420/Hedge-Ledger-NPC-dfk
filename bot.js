@@ -9516,6 +9516,19 @@ async function startAdminWebServer() {
         )
       `);
       await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_bout_battle_log_cache (
+          battle_id        TEXT PRIMARY KEY,
+          tournament_id    TEXT NOT NULL,
+          bout_num         INTEGER NOT NULL,
+          addr_a           TEXT,
+          addr_b           TEXT,
+          turns_json       JSONB NOT NULL,
+          pivotal_flags    JSONB,
+          player_inventory JSONB,
+          cached_at        TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await rawPg.unsafe(`
         CREATE TABLE IF NOT EXISTS dfk_tournament_bouts (
           id                SERIAL PRIMARY KEY,
           tournament_id     TEXT NOT NULL,
@@ -11098,6 +11111,21 @@ async function startAdminWebServer() {
         return res.status(400).json({ ok: false, error: 'boutNum must be 1–200' });
       }
       const battleId = `1088-${boutNum}-tournament-${tournamentId}`;
+      // Check cache first
+      try {
+        const { rawPg: rp } = await import('./server/db.js');
+        const cached = await rp.unsafe(`SELECT * FROM dfk_bout_battle_log_cache WHERE battle_id = $1`, [battleId]);
+        if (cached.length > 0) {
+          const row = cached[0];
+          return res.json({
+            ok: true, battleId, source: 'cache',
+            turns: row.turns_json,
+            rawDocCount: (row.turns_json || []).length,
+            playerInventory: row.player_inventory,
+            pivotalFlags: row.pivotal_flags || [],
+          });
+        }
+      } catch (_) {}
       let idToken;
       try { idToken = await getFirebaseIdToken(); } catch (authErr) {
         return res.status(500).json({ ok: false, error: 'Firebase auth failed: ' + authErr.message });
@@ -11134,7 +11162,9 @@ async function startAdminWebServer() {
           };
         }
       } catch (_) {}
-      res.json({ ok: true, battleId, turns, rawDocCount: docs.length, playerInventory });
+      const pivotalFlags = computePivotalFlags(turns);
+      cacheBattleLog({ battleId, tournamentId, boutNum, addrA: null, addrB: null, turns, pivotalFlags, playerInventory });
+      res.json({ ok: true, battleId, turns, rawDocCount: docs.length, playerInventory, pivotalFlags, source: 'firebase' });
     } catch (err) {
       console.error('[DirectLog] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
@@ -11151,6 +11181,29 @@ async function startAdminWebServer() {
       if (!addrA || !addrB) {
         return res.status(400).json({ ok: false, error: 'addrA and addrB are required' });
       }
+
+      // Check cache first — match by tournament + either player address
+      try {
+        const { rawPg: rp } = await import('./server/db.js');
+        const cached = await rp.unsafe(
+          `SELECT * FROM dfk_bout_battle_log_cache WHERE tournament_id = $1
+           AND ((addr_a = $2 AND addr_b = $3) OR (addr_a = $3 AND addr_b = $2))
+           ORDER BY cached_at DESC LIMIT 1`,
+          [tournamentId, addrA, addrB]
+        );
+        if (cached.length > 0) {
+          const row = cached[0];
+          return res.json({
+            ok: true, found: true, source: 'cache',
+            boutNum: row.bout_num,
+            battleId: row.battle_id,
+            turns: row.turns_json,
+            rawDocCount: (row.turns_json || []).length,
+            playerInventory: row.player_inventory,
+            pivotalFlags: row.pivotal_flags || [],
+          });
+        }
+      } catch (_) {}
 
       let idToken;
       try { idToken = await getFirebaseIdToken(); } catch (authErr) {
@@ -11215,7 +11268,12 @@ async function startAdminWebServer() {
         const results = await Promise.all(batchNums.map(tryBout));
         const found = results.find(r => r !== null);
         if (found) {
-          return res.json({ ok: true, found: true, ...found });
+          const pivotalFlags = computePivotalFlags(found.turns);
+          cacheBattleLog({
+            battleId: found.battleId, tournamentId, boutNum: found.boutNum,
+            addrA, addrB, turns: found.turns, pivotalFlags, playerInventory: found.playerInventory,
+          });
+          return res.json({ ok: true, found: true, ...found, pivotalFlags, source: 'firebase' });
         }
       }
 
@@ -11225,6 +11283,73 @@ async function startAdminWebServer() {
       res.status(500).json({ ok: false, error: err.message });
     }
   });
+
+  // ─── Pivotal move detection ───────────────────────────────────────────────────
+
+  function computePivotalFlags(turns) {
+    if (!turns || !turns.length) return [];
+    const calcTurnDmg = (t) => (t.attackOutcome?.outcomeUnits ?? []).reduce(
+      (s, u) => s + (u.damage?.physicalDamage || 0) + (u.damage?.magicalDamage || 0), 0
+    );
+    const damages = turns.map(calcTurnDmg);
+    const mean = damages.reduce((a, b) => a + b, 0) / damages.length;
+    const variance = damages.reduce((a, b) => a + (b - mean) ** 2, 0) / damages.length;
+    const stddev = Math.sqrt(variance);
+    const highThreshold = mean + stddev;
+
+    const pivotal = [];
+    turns.forEach((t, i) => {
+      const reasons = [];
+      const dmg = damages[i];
+      if (dmg > highThreshold && dmg > 0) reasons.push('High Damage');
+
+      const meta = t.metadataList ?? [];
+      if (meta.some(m => m.shouldCriticalStrike)) reasons.push('Critical Strike');
+
+      const units = t.attackOutcome?.outcomeUnits ?? [];
+      if (units.some(u => (u.trackers ?? []).length > 0)) reasons.push('Status Effect');
+
+      // Kill detection: hero had HP before, has 0 after
+      const before = t.beforeDeckStates ?? {};
+      const after = t.afterDeckStates ?? {};
+      let hasKill = false;
+      for (const side of ['1', '-1']) {
+        const beforeSide = before[side] ?? {};
+        const afterSide = after[side] ?? {};
+        for (const slot of Object.keys(afterSide)) {
+          const hp = afterSide[slot]?.health ?? afterSide[slot]?.baseCombatant?.hp;
+          const prevHp = beforeSide[slot]?.health ?? beforeSide[slot]?.baseCombatant?.hp;
+          if (hp === 0 && prevHp > 0) hasKill = true;
+        }
+      }
+      if (hasKill) reasons.push('Kill');
+
+      if (reasons.length > 0) {
+        pivotal.push({ turnCount: t.currentTurnCount ?? i + 1, reasons });
+      }
+    });
+    return pivotal;
+  }
+
+  // Shared helper to store battle log in cache
+  async function cacheBattleLog({ battleId, tournamentId, boutNum, addrA, addrB, turns, pivotalFlags, playerInventory }) {
+    try {
+      const { rawPg: rp } = await import('./server/db.js');
+      await rp.unsafe(
+        `INSERT INTO dfk_bout_battle_log_cache (battle_id, tournament_id, bout_num, addr_a, addr_b, turns_json, pivotal_flags, player_inventory)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (battle_id) DO UPDATE SET
+           turns_json = EXCLUDED.turns_json,
+           pivotal_flags = EXCLUDED.pivotal_flags,
+           player_inventory = EXCLUDED.player_inventory,
+           cached_at = NOW()`,
+        [battleId, tournamentId, boutNum, addrA || null, addrB || null,
+         JSON.stringify(turns), JSON.stringify(pivotalFlags), JSON.stringify(playerInventory)]
+      );
+    } catch (e) {
+      console.warn('[BattleLogCache] Write failed:', e.message);
+    }
+  }
 
   // ─── Battle inventory helpers ────────────────────────────────────────────────
 

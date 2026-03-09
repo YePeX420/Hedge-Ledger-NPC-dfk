@@ -1216,11 +1216,14 @@ interface DirectLogState {
   autoScanning: boolean;
   autoScanDone: boolean;
   autoScanFound: boolean;
+  expanded: boolean;
   error?: string;
   data: {
     battleId: string;
     turns: any[] | null;
     rawDocCount: number;
+    pivotalFlags?: { turnCount: number; reasons: string[] }[];
+    source?: string;
     playerInventory: {
       sideA: { items: { name: string; qty: number }[]; usedBudget: number; totalBudget: number | null } | null;
       sideB: { items: { name: string; qty: number }[]; usedBudget: number; totalBudget: number | null } | null;
@@ -1230,7 +1233,7 @@ interface DirectLogState {
 
 function DirectBattleLogSection({ tournamentId, addrA, addrB }: { tournamentId: string; addrA: string; addrB: string }) {
   const [state, setState] = useState<DirectLogState>({
-    boutNum: '', loading: false, autoScanning: false, autoScanDone: false, autoScanFound: false, data: null,
+    boutNum: '', loading: false, autoScanning: false, autoScanDone: false, autoScanFound: false, expanded: false, data: null,
   });
   const scanRanRef = useRef(false);
 
@@ -1247,7 +1250,7 @@ function DirectBattleLogSection({ tournamentId, addrA, addrB }: { tournamentId: 
           setState(s => ({
             ...s, autoScanning: false, autoScanDone: true, autoScanFound: true,
             boutNum: String(json.boutNum),
-            data: { battleId: json.battleId, turns: json.turns, rawDocCount: json.rawDocCount, playerInventory: json.playerInventory },
+            data: { battleId: json.battleId, turns: json.turns, rawDocCount: json.rawDocCount, playerInventory: json.playerInventory, pivotalFlags: json.pivotalFlags, source: json.source },
           }));
         } else {
           setState(s => ({ ...s, autoScanning: false, autoScanDone: true, autoScanFound: false }));
@@ -1266,7 +1269,7 @@ function DirectBattleLogSection({ tournamentId, addrA, addrB }: { tournamentId: 
       const res = await fetch(`/api/admin/tournament/${tournamentId}/firebase-direct-log?boutNum=${num}`);
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
-      setState(s => ({ ...s, loading: false, data: json }));
+      setState(s => ({ ...s, loading: false, data: { ...json, pivotalFlags: json.pivotalFlags, source: json.source } }));
     } catch (err: any) {
       setState(s => ({ ...s, loading: false, error: err.message }));
     }
@@ -1342,95 +1345,181 @@ function DirectBattleLogSection({ tournamentId, addrA, addrB }: { tournamentId: 
           <p className="text-sm text-muted-foreground">No Firebase data found for bout {state.boutNum}.</p>
         )}
 
-        {hasTurns && (
-          <div className="space-y-2">
-            {/* Player inventory */}
-            {state.data?.playerInventory && (state.data.playerInventory.sideA || state.data.playerInventory.sideB) && (
-              <div className="rounded-md border border-border/40 bg-muted/10 p-2 space-y-1">
-                <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50">Consumable Inventory</p>
-                {(['sideA', 'sideB'] as const).map(sideKey => {
-                  const inv = state.data!.playerInventory![sideKey];
-                  if (!inv || !inv.items.length) return null;
-                  const label = sideKey === 'sideA' ? 'A' : 'B';
-                  const usedPct = inv.totalBudget ? Math.round(inv.usedBudget / inv.totalBudget * 100) : 0;
-                  return (
-                    <div key={sideKey} className="flex flex-wrap gap-x-2 gap-y-0.5 items-start">
-                      <span className="text-[9px] text-muted-foreground/50 mt-0.5 w-3">{label}:</span>
-                      <div className="flex flex-wrap gap-1">
-                        {inv.items.map((item, i) => (
-                          <span key={i} className="text-[10px] text-blue-300/70">{item.qty}×{item.name}</span>
-                        ))}
-                        <span className="text-[9px] text-muted-foreground/40">
-                          [{inv.usedBudget}/{inv.totalBudget ?? '?'}pts{usedPct > 0 ? ` (${usedPct}% used)` : ''}]
-                        </span>
+        {hasTurns && (() => {
+          const pivotalMap = new Map((state.data?.pivotalFlags ?? []).map(p => [p.turnCount, p.reasons]));
+          const formatSkill = (id: string) => {
+            if (!id) return '—';
+            return id.replace(/([A-Z])/g, ' $1').trim().replace(/\s+Attack$/i, '').replace(/\s+/g, ' ');
+          };
+          const getHeroName = (beforeDeck: any, side: number | string, slot: number | string) => {
+            const sideKey = String(side);
+            const slotKey = String(slot);
+            return beforeDeck?.[sideKey]?.[slotKey]?.baseCombatant?.name
+              ?? beforeDeck?.[sideKey]?.[slotKey]?.name
+              ?? null;
+          };
+          const downloadFile = (content: string, name: string, type: string) => {
+            const blob = new Blob([content], { type });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = name; a.click();
+            URL.revokeObjectURL(url);
+          };
+          const exportJson = () => downloadFile(
+            JSON.stringify(turns, null, 2),
+            `battle-${state.data!.battleId}.json`,
+            'application/json'
+          );
+          const exportCsv = () => {
+            const rows = [['Turn#','Actor','Target','Skill','TotalDmg','IsPivotal','Reasons']];
+            turns.forEach((t) => {
+              const log = t.attackOutcome?.battleLog ?? '';
+              const actorM = log.match(/^\[(?:[A-Z]+:\s*)?([^\]]+)\]/);
+              const targetM = log.match(/(?:at|on)\s+\[(?:[A-Z]+:\s*)?([^\]]+)\]/);
+              const actor = actorM ? actorM[1].trim() : '';
+              const target = targetM ? targetM[1].trim() : '';
+              const skill = formatSkill(t.attackConfig?.attackId ?? '');
+              const dmg = (t.attackOutcome?.outcomeUnits ?? []).reduce((s: number, u: any) =>
+                s + (u.damage?.physicalDamage || 0) + (u.damage?.magicalDamage || 0), 0);
+              const tc = t.currentTurnCount;
+              const reasons = pivotalMap.get(tc) ?? [];
+              rows.push([String(tc), actor, target, skill, String(dmg), reasons.length > 0 ? 'yes' : 'no', reasons.join('; ')]);
+            });
+            downloadFile(rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n'), `battle-${state.data!.battleId}.csv`, 'text/csv');
+          };
+
+          return (
+            <div className="space-y-3">
+              {/* Inventory */}
+              {state.data?.playerInventory && (state.data.playerInventory.sideA || state.data.playerInventory.sideB) && (
+                <div className="rounded-md border border-border/40 bg-muted/10 p-2.5 space-y-1">
+                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-1">Consumable Inventory</p>
+                  {(['sideA', 'sideB'] as const).map(sideKey => {
+                    const inv = state.data!.playerInventory![sideKey];
+                    if (!inv || !inv.items.length) return null;
+                    const label = sideKey === 'sideA' ? 'A' : 'B';
+                    return (
+                      <div key={sideKey} className="flex flex-wrap gap-x-2 gap-y-0.5 items-start">
+                        <span className="text-[9px] text-muted-foreground/50 mt-0.5 w-3">{label}:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {inv.items.map((item, i) => (
+                            <span key={i} className="text-[10px] text-blue-300/70">{item.qty}×{item.name}</span>
+                          ))}
+                          <span className="text-[9px] text-muted-foreground/40">[{inv.usedBudget}/{inv.totalBudget ?? '?'}pts]</span>
+                        </div>
                       </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Turn list header with controls */}
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{turns.length} turns{pivotalMap.size > 0 ? ` · ${pivotalMap.size} pivotal` : ''}{state.data?.source === 'cache' ? ' · cached' : ''}</span>
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="outline" onClick={exportJson} data-testid="btn-export-json">
+                    <ExternalLink className="w-3 h-3 mr-1.5" />JSON
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={exportCsv} data-testid="btn-export-csv">
+                    <ExternalLink className="w-3 h-3 mr-1.5" />CSV
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setState(s => ({ ...s, expanded: !s.expanded }))} data-testid="btn-expand-log">
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${state.expanded ? 'rotate-180' : ''}`} />
+                    {state.expanded ? 'Collapse' : 'Expand'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Turn cards */}
+              <div className={`space-y-2 overflow-y-auto ${state.expanded ? 'max-h-none' : 'max-h-[520px]'}`}>
+                {turns.map((t, i) => {
+                  const tc = t.currentTurnCount ?? i + 1;
+                  const pivotReasons = pivotalMap.get(tc);
+                  const isPivotal = !!pivotReasons?.length;
+                  const log = t.attackOutcome?.battleLog ?? '';
+                  const skill = formatSkill(t.attackConfig?.attackId ?? '');
+                  const units: any[] = t.attackOutcome?.outcomeUnits ?? [];
+                  const actorSide = t.turn?.side ?? 1;
+                  const actorSlot = t.turn?.slot ?? 0;
+                  const actorName = getHeroName(t.beforeDeckStates, actorSide, actorSlot);
+
+                  return (
+                    <div
+                      key={i}
+                      className={`rounded-md border p-3 text-xs space-y-2 ${isPivotal ? 'border-amber-500/50 bg-amber-500/5' : 'border-border/30 bg-muted/5'}`}
+                      data-testid={`turn-card-${tc}`}
+                    >
+                      {/* Turn header */}
+                      <div className="flex items-start gap-2 flex-wrap">
+                        <span className="text-[10px] font-mono text-muted-foreground/60 shrink-0">Turn {tc}</span>
+                        {isPivotal && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/60 text-amber-400">Pivotal</Badge>
+                            {pivotReasons!.map(r => (
+                              <Badge key={r} variant="outline" className="text-[9px] px-1 py-0 border-amber-500/30 text-amber-400/70">{r}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Battle log description */}
+                      {log && (
+                        <p className="text-[11px] text-foreground/80 leading-snug">{log}</p>
+                      )}
+
+                      {/* Outcome units */}
+                      {units.map((unit, ui) => {
+                        const unitName = getHeroName(t.beforeDeckStates, unit.side, unit.slot);
+                        const isPlayerSide = unit.side === actorSide;
+                        const physDmg = unit.damage?.physicalDamage || 0;
+                        const magDmg = unit.damage?.magicalDamage || 0;
+                        const barrierDmg = unit.damage?.barrierDamage || 0;
+                        const fxIds = (unit.trackers ?? []).map((tr: any) =>
+                          (tr.trackerConfig?.trackerId ?? '').replace(/-passive-tracker$/, '').replace(/-tracker$/, '').replace(/-/g, ' ')
+                        ).filter(Boolean);
+                        const reactions = (unit.reactionLogs ?? []).filter((r: string) => r?.trim());
+                        if (!physDmg && !magDmg && !barrierDmg && !fxIds.length && !reactions.length) return null;
+                        return (
+                          <div key={ui} className="space-y-1 pl-2 border-l border-border/30">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${isPlayerSide ? 'border-green-500/40 text-green-400/80' : 'border-red-500/40 text-red-400/80'}`}>
+                                {isPlayerSide ? 'Player' : 'Enemy'}
+                              </Badge>
+                              {unitName && (
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border/40 text-muted-foreground">
+                                  P{Number(unit.slot) + 1}: {unitName}
+                                </Badge>
+                              )}
+                              {physDmg > 0 && (
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-red-500/40 text-red-400">PHYSICAL DMG: {physDmg}</Badge>
+                              )}
+                              {magDmg > 0 && (
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-purple-500/40 text-purple-400">MAGICAL DMG: {magDmg}</Badge>
+                              )}
+                              {barrierDmg > 0 && (
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-blue-500/40 text-blue-400">BARRIER: {barrierDmg}</Badge>
+                              )}
+                              {fxIds.map((fx: string, fi: number) => (
+                                <Badge key={fi} variant="outline" className="text-[9px] px-1.5 py-0 border-yellow-500/40 text-yellow-400 capitalize">FX: {fx}</Badge>
+                              ))}
+                            </div>
+                            {reactions.length > 0 && (
+                              <div className="text-[10px] text-muted-foreground/60 space-y-0.5">
+                                {reactions.map((r: string, ri: number) => (
+                                  <p key={ri}>{ri + 1}. {r}</p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
               </div>
-            )}
-
-            {/* Turn table */}
-            {(() => {
-              const parseActor = (log: string) => {
-                const m = log?.match(/^\[(?:[A-Z]+:\s*)?([^\]]+)\]/);
-                return m ? m[1].trim() : null;
-              };
-              const parseTarget = (log: string) => {
-                const m = log?.match(/(?:at|on)\s+\[(?:[A-Z]+:\s*)?([^\]]+)\]/);
-                return m ? m[1].trim() : null;
-              };
-              const formatSkill = (id: string) => {
-                if (!id) return '—';
-                return id
-                  .replace(/([A-Z])/g, ' $1').trim()
-                  .replace(/\s+Attack$/i, '')
-                  .replace(/\s+/g, ' ');
-              };
-              const calcDmg = (units: any[]) =>
-                (units ?? []).reduce((s: number, u: any) =>
-                  s + (u.damage?.physicalDamage || 0) + (u.damage?.magicalDamage || 0), 0);
-              const sideLabel = (side: number, slot: number) =>
-                `${side === 1 ? 'A' : 'B'}${slot + 1}`;
-
-              return (
-                <div className="max-h-72 overflow-y-auto rounded-md border border-border/40 bg-muted/5 p-2">
-                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-1">{turns.length} turns</p>
-                  <div className="grid text-[11px]" style={{ gridTemplateColumns: 'auto 1fr auto auto' }}>
-                    <div className="contents text-muted-foreground/50 font-medium uppercase tracking-wide text-[9px] pb-1">
-                      <span className="pr-2">T#</span>
-                      <span>Actor → Target</span>
-                      <span className="px-2">Skill</span>
-                      <span>Dmg</span>
-                    </div>
-                    {turns.map((t, i) => {
-                      const log = t.attackOutcome?.battleLog ?? '';
-                      const actor = parseActor(log) ?? sideLabel(t.turn?.side ?? 1, t.turn?.slot ?? 0);
-                      const target = parseTarget(log) ?? (t.move?.targetSide != null
-                        ? sideLabel(t.move.targetSide, t.move.targetSlot ?? 0)
-                        : null);
-                      const skill = formatSkill(t.attackConfig?.attackId ?? '');
-                      const dmg = calcDmg(t.attackOutcome?.outcomeUnits ?? []);
-                      return (
-                        <div key={i} className={`contents ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
-                          <span className="pr-2 text-muted-foreground/60 font-mono tabular-nums">{t.currentTurnCount ?? i + 1}</span>
-                          <span className="text-foreground/80 truncate">
-                            {actor}
-                            {target && <span className="text-muted-foreground"> → {target}</span>}
-                          </span>
-                          <span className="px-2 text-muted-foreground/70 truncate max-w-[100px]">{skill}</span>
-                          <span className={dmg > 0 ? 'text-red-400 tabular-nums' : 'text-muted-foreground/40'}>
-                            {dmg > 0 ? dmg : '—'}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        )}
+            </div>
+          );
+        })()}
       </CardContent>
     </Card>
   );
