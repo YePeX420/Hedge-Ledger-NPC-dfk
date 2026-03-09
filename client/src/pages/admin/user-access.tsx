@@ -26,7 +26,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Pencil, Trash2, RefreshCw, Eye, EyeOff, Calendar, Shield, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw, Eye, EyeOff, Calendar, Shield, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface DashboardUser {
   id: number;
@@ -44,45 +44,276 @@ interface DashboardUsersResponse {
   users: DashboardUser[];
 }
 
-const AVAILABLE_TABS = [
-  { id: 'quest-optimizer', label: 'Quest Optimizer', description: 'Hero quest recommendations' },
-  { id: 'ai-consultant', label: 'AI Consultant', description: 'AI-powered game advice' },
-  { id: 'yield-calculator', label: 'Yield Calculator', description: 'Garden LP yields' },
-  { id: 'yield-optimizer', label: 'Yield Optimizer', description: 'Optimal pool allocations' },
-  { id: 'summon-sniper', label: 'Summon Sniper', description: 'Breeding pair finder' },
-  { id: 'tavern-sniper', label: 'Tavern Sniper', description: 'Hero marketplace search' },
-  { id: 'gardening-calculator', label: 'Gardening Calculator', description: 'Garden rewards estimator' },
-  { id: 'combat-pets', label: 'Combat Pets Shop', description: 'Pet marketplace with top roll analysis' },
+interface ToolGroup {
+  id: string;
+  label: string;
+  description: string;
+  tabs: { id: string; label: string; description: string }[];
+}
+
+const TOOL_GROUPS: ToolGroup[] = [
+  {
+    id: 'heroes',
+    label: 'Hero Tools',
+    description: 'Hero analysis, quest optimization, and breeding',
+    tabs: [
+      { id: 'quest-optimizer', label: 'Quest Optimizer', description: 'Hero quest recommendations' },
+      { id: 'summon-sniper', label: 'Summon Sniper', description: 'Breeding pair finder' },
+      { id: 'tavern-sniper', label: 'Tavern Sniper', description: 'Hero marketplace search' },
+    ],
+  },
+  {
+    id: 'yield',
+    label: 'Yield & Garden',
+    description: 'Garden LP yield analysis and optimization',
+    tabs: [
+      { id: 'yield-calculator', label: 'Yield Calculator', description: 'Garden LP yields' },
+      { id: 'yield-optimizer', label: 'Yield Optimizer', description: 'Optimal pool allocations' },
+      { id: 'gardening-calculator', label: 'Gardening Calculator', description: 'Garden rewards estimator' },
+    ],
+  },
+  {
+    id: 'ai',
+    label: 'AI Tools',
+    description: 'AI-powered game advice and analysis',
+    tabs: [
+      { id: 'ai-consultant', label: 'AI Consultant', description: 'AI-powered game advice' },
+    ],
+  },
+  {
+    id: 'market',
+    label: 'Market & Pets',
+    description: 'Marketplace browsing and pet analysis',
+    tabs: [
+      { id: 'combat-pets', label: 'Combat Pets Shop', description: 'Pet marketplace with top roll analysis' },
+    ],
+  },
 ];
+
+const ALL_TABS = TOOL_GROUPS.flatMap(g => g.tabs);
+
+interface UserFormProps {
+  formData: {
+    username: string;
+    password: string;
+    displayName: string;
+    expiresAt: string;
+    allowedTabs: string[];
+  };
+  setFormData: React.Dispatch<React.SetStateAction<UserFormProps['formData']>>;
+  isEditing: boolean;
+  showPassword: boolean;
+  setShowPassword: (v: boolean) => void;
+}
+
+function UserFormContent({ formData, setFormData, isEditing, showPassword, setShowPassword }: UserFormProps) {
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
+    Object.fromEntries(TOOL_GROUPS.map(g => [g.id, true]))
+  );
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }));
+  };
+
+  const handleTabToggle = (tabId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      allowedTabs: prev.allowedTabs.includes(tabId)
+        ? prev.allowedTabs.filter(t => t !== tabId)
+        : [...prev.allowedTabs, tabId],
+    }));
+  };
+
+  const toggleGroupTabs = (group: ToolGroup) => {
+    const groupTabIds = group.tabs.map(t => t.id);
+    const allSelected = groupTabIds.every(id => formData.allowedTabs.includes(id));
+    if (allSelected) {
+      setFormData(prev => ({ ...prev, allowedTabs: prev.allowedTabs.filter(id => !groupTabIds.includes(id)) }));
+    } else {
+      setFormData(prev => ({ ...prev, allowedTabs: [...new Set([...prev.allowedTabs, ...groupTabIds])] }));
+    }
+  };
+
+  const selectAllTabs = () => setFormData(prev => ({ ...prev, allowedTabs: ALL_TABS.map(t => t.id) }));
+  const clearAllTabs = () => setFormData(prev => ({ ...prev, allowedTabs: [] }));
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="form-username">Username</Label>
+          <Input
+            id="form-username"
+            value={formData.username}
+            onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
+            placeholder="Enter username"
+            data-testid="input-user-username"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="form-displayName">Display Name (optional)</Label>
+          <Input
+            id="form-displayName"
+            value={formData.displayName}
+            onChange={(e) => setFormData(prev => ({ ...prev, displayName: e.target.value }))}
+            placeholder="Enter display name"
+            data-testid="input-user-displayname"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="form-password">
+          {isEditing ? 'New Password (leave blank to keep current)' : 'Password'}
+        </Label>
+        <div className="relative">
+          <Input
+            id="form-password"
+            type={showPassword ? 'text' : 'password'}
+            value={formData.password}
+            onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+            placeholder={isEditing ? 'Leave blank to keep current' : 'Enter password'}
+            data-testid="input-user-password"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-0 top-0 h-full"
+            onClick={() => setShowPassword(!showPassword)}
+          >
+            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="form-expiresAt">Access Expires (optional)</Label>
+        <div className="relative">
+          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            id="form-expiresAt"
+            type="date"
+            value={formData.expiresAt}
+            onChange={(e) => setFormData(prev => ({ ...prev, expiresAt: e.target.value }))}
+            className="pl-10"
+            data-testid="input-user-expires"
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">Leave empty for unlimited access</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>Tool Group Permissions</Label>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={selectAllTabs}>
+              Select All
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={clearAllTabs}>
+              Clear All
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {TOOL_GROUPS.map(group => {
+            const groupTabIds = group.tabs.map(t => t.id);
+            const selectedCount = groupTabIds.filter(id => formData.allowedTabs.includes(id)).length;
+            const allSelected = selectedCount === groupTabIds.length;
+            const someSelected = selectedCount > 0 && !allSelected;
+            const isExpanded = expandedGroups[group.id];
+
+            return (
+              <div key={group.id} className="border border-border/50 rounded-md overflow-hidden">
+                <div className="flex items-center gap-3 px-3 py-2.5 bg-muted/20 cursor-pointer" onClick={() => toggleGroup(group.id)}>
+                  <Checkbox
+                    id={`group-${group.id}`}
+                    checked={allSelected}
+                    data-state={someSelected ? 'indeterminate' : allSelected ? 'checked' : 'unchecked'}
+                    onCheckedChange={() => toggleGroupTabs(group)}
+                    onClick={(e) => e.stopPropagation()}
+                    data-testid={`checkbox-group-${group.id}`}
+                    className={someSelected ? 'opacity-70' : ''}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <label
+                        htmlFor={`group-${group.id}`}
+                        className="text-sm font-medium cursor-pointer"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {group.label}
+                      </label>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        {selectedCount}/{groupTabIds.length}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{group.description}</p>
+                  </div>
+                  {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+                </div>
+                {isExpanded && (
+                  <div className="px-3 py-2 space-y-2 bg-background/50">
+                    {group.tabs.map(tab => (
+                      <div key={tab.id} className="flex items-center space-x-3 pl-6">
+                        <Checkbox
+                          id={`tab-${tab.id}`}
+                          checked={formData.allowedTabs.includes(tab.id)}
+                          onCheckedChange={() => handleTabToggle(tab.id)}
+                          data-testid={`checkbox-tab-${tab.id}`}
+                        />
+                        <div className="flex-1">
+                          <label htmlFor={`tab-${tab.id}`} className="text-sm cursor-pointer">
+                            {tab.label}
+                          </label>
+                          <p className="text-xs text-muted-foreground">{tab.description}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function UserAccessManagement() {
   const { toast } = useToast();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<DashboardUser | null>(null);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<DashboardUser | null>(null);
-  
-  const [formData, setFormData] = useState({
+
+  const emptyForm = {
     username: '',
     password: '',
     displayName: '',
     expiresAt: '',
     allowedTabs: [] as string[],
-  });
-  const [showPassword, setShowPassword] = useState(false);
+  };
+
+  const [createFormData, setCreateFormData] = useState(emptyForm);
+  const [editFormData, setEditFormData] = useState(emptyForm);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
 
   const { data, isLoading, refetch, isRefetching } = useQuery<DashboardUsersResponse>({
     queryKey: ['/api/admin/dashboard-users'],
   });
 
   const createUserMutation = useMutation({
-    mutationFn: async (userData: typeof formData) => {
+    mutationFn: async (userData: typeof emptyForm) => {
       return apiRequest('POST', '/api/admin/dashboard-users', userData);
     },
     onSuccess: () => {
       toast({ title: 'Success', description: 'User created successfully' });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/dashboard-users'] });
       setIsCreateOpen(false);
-      resetForm();
+      setCreateFormData(emptyForm);
+      setShowCreatePassword(false);
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message || 'Failed to create user', variant: 'destructive' });
@@ -90,14 +321,15 @@ export default function UserAccessManagement() {
   });
 
   const updateUserMutation = useMutation({
-    mutationFn: async ({ id, ...userData }: { id: number } & typeof formData) => {
+    mutationFn: async ({ id, ...userData }: { id: number } & typeof emptyForm) => {
       return apiRequest('PATCH', `/api/admin/dashboard-users/${id}`, userData);
     },
     onSuccess: () => {
       toast({ title: 'Success', description: 'User updated successfully' });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/dashboard-users'] });
       setEditingUser(null);
-      resetForm();
+      setEditFormData(emptyForm);
+      setShowEditPassword(false);
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message || 'Failed to update user', variant: 'destructive' });
@@ -131,70 +363,45 @@ export default function UserAccessManagement() {
     },
   });
 
-  const resetForm = () => {
-    setFormData({
-      username: '',
-      password: '',
-      displayName: '',
-      expiresAt: '',
-      allowedTabs: [],
-    });
-    setShowPassword(false);
-  };
-
   const openEditDialog = (user: DashboardUser) => {
     setEditingUser(user);
-    setFormData({
+    setEditFormData({
       username: user.username,
       password: '',
       displayName: user.displayName || '',
       expiresAt: user.expiresAt ? new Date(user.expiresAt).toISOString().split('T')[0] : '',
       allowedTabs: user.allowedTabs || [],
     });
+    setShowEditPassword(false);
   };
 
-  const handleTabToggle = (tabId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      allowedTabs: prev.allowedTabs.includes(tabId)
-        ? prev.allowedTabs.filter(t => t !== tabId)
-        : [...prev.allowedTabs, tabId],
-    }));
-  };
-
-  const selectAllTabs = () => {
-    setFormData(prev => ({
-      ...prev,
-      allowedTabs: AVAILABLE_TABS.map(t => t.id),
-    }));
-  };
-
-  const clearAllTabs = () => {
-    setFormData(prev => ({
-      ...prev,
-      allowedTabs: [],
-    }));
-  };
-
-  const handleSubmit = () => {
-    if (!formData.username) {
+  const handleCreateSubmit = () => {
+    if (!createFormData.username) {
       toast({ title: 'Error', description: 'Username is required', variant: 'destructive' });
       return;
     }
-    if (!editingUser && !formData.password) {
+    if (!createFormData.password) {
       toast({ title: 'Error', description: 'Password is required for new users', variant: 'destructive' });
       return;
     }
-    if (formData.allowedTabs.length === 0) {
-      toast({ title: 'Error', description: 'Select at least one tab permission', variant: 'destructive' });
+    if (createFormData.allowedTabs.length === 0) {
+      toast({ title: 'Error', description: 'Select at least one tool permission', variant: 'destructive' });
       return;
     }
+    createUserMutation.mutate(createFormData);
+  };
 
-    if (editingUser) {
-      updateUserMutation.mutate({ id: editingUser.id, ...formData });
-    } else {
-      createUserMutation.mutate(formData);
+  const handleEditSubmit = () => {
+    if (!editingUser) return;
+    if (!editFormData.username) {
+      toast({ title: 'Error', description: 'Username is required', variant: 'destructive' });
+      return;
     }
+    if (editFormData.allowedTabs.length === 0) {
+      toast({ title: 'Error', description: 'Select at least one tool permission', variant: 'destructive' });
+      return;
+    }
+    updateUserMutation.mutate({ id: editingUser.id, ...editFormData });
   };
 
   const users = data?.users ?? [];
@@ -208,122 +415,27 @@ export default function UserAccessManagement() {
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
     return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
+      year: 'numeric', month: 'short', day: 'numeric',
     });
   };
 
-  const UserFormContent = () => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="username">Username</Label>
-          <Input
-            id="username"
-            value={formData.username}
-            onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
-            placeholder="Enter username"
-            data-testid="input-user-username"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="displayName">Display Name (optional)</Label>
-          <Input
-            id="displayName"
-            value={formData.displayName}
-            onChange={(e) => setFormData(prev => ({ ...prev, displayName: e.target.value }))}
-            placeholder="Enter display name"
-            data-testid="input-user-displayname"
-          />
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="password">
-          {editingUser ? 'New Password (leave blank to keep current)' : 'Password'}
-        </Label>
-        <div className="relative">
-          <Input
-            id="password"
-            type={showPassword ? 'text' : 'password'}
-            value={formData.password}
-            onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-            placeholder={editingUser ? 'Leave blank to keep current' : 'Enter password'}
-            data-testid="input-user-password"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="absolute right-0 top-0 h-full"
-            onClick={() => setShowPassword(!showPassword)}
-          >
-            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </Button>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="expiresAt">Access Expires (optional)</Label>
-        <div className="relative">
-          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            id="expiresAt"
-            type="date"
-            value={formData.expiresAt}
-            onChange={(e) => setFormData(prev => ({ ...prev, expiresAt: e.target.value }))}
-            className="pl-10"
-            data-testid="input-user-expires"
-          />
-        </div>
-        <p className="text-xs text-muted-foreground">Leave empty for unlimited access</p>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label>Tab Permissions</Label>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={selectAllTabs}>
-              Select All
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={clearAllTabs}>
-              Clear All
-            </Button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-2 border rounded-md p-3 bg-muted/20">
-          {AVAILABLE_TABS.map(tab => (
-            <div key={tab.id} className="flex items-center space-x-3">
-              <Checkbox
-                id={`tab-${tab.id}`}
-                checked={formData.allowedTabs.includes(tab.id)}
-                onCheckedChange={() => handleTabToggle(tab.id)}
-                data-testid={`checkbox-tab-${tab.id}`}
-              />
-              <div className="flex-1">
-                <label htmlFor={`tab-${tab.id}`} className="text-sm font-medium cursor-pointer">
-                  {tab.label}
-                </label>
-                <p className="text-xs text-muted-foreground">{tab.description}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+  const getTabGroupSummary = (tabs: string[]) => {
+    const groupLabels = TOOL_GROUPS.filter(g =>
+      g.tabs.some(t => tabs.includes(t.id))
+    ).map(g => g.label);
+    return groupLabels;
+  };
 
   return (
     <div className="p-6 space-y-6" data-testid="user-access-page">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold">User Access Management</h1>
           <p className="text-muted-foreground">
-            Create and manage dashboard user accounts with password authentication
+            Create and manage dashboard user accounts with password authentication and tool group permissions
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <Button
             onClick={() => refetch()}
             variant="outline"
@@ -335,7 +447,10 @@ export default function UserAccessManagement() {
           </Button>
           <Dialog open={isCreateOpen} onOpenChange={(open) => {
             setIsCreateOpen(open);
-            if (!open) resetForm();
+            if (!open) {
+              setCreateFormData(emptyForm);
+              setShowCreatePassword(false);
+            }
           }}>
             <DialogTrigger asChild>
               <Button data-testid="button-create-user">
@@ -343,20 +458,24 @@ export default function UserAccessManagement() {
                 Create User
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Create New User</DialogTitle>
                 <DialogDescription>
-                  Create a new dashboard user with password authentication and tab permissions.
+                  Create a new dashboard user with password authentication and tool group permissions.
                 </DialogDescription>
               </DialogHeader>
-              <UserFormContent />
+              <UserFormContent
+                formData={createFormData}
+                setFormData={setCreateFormData}
+                isEditing={false}
+                showPassword={showCreatePassword}
+                setShowPassword={setShowCreatePassword}
+              />
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                  Cancel
-                </Button>
+                <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
                 <Button
-                  onClick={handleSubmit}
+                  onClick={handleCreateSubmit}
                   disabled={createUserMutation.isPending}
                   data-testid="button-submit-create"
                 >
@@ -399,7 +518,7 @@ export default function UserAccessManagement() {
                     <TableHead>User</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Expires</TableHead>
-                    <TableHead>Allowed Tabs</TableHead>
+                    <TableHead>Tool Groups</TableHead>
                     <TableHead>Last Login</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -431,16 +550,14 @@ export default function UserAccessManagement() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap gap-1 max-w-[200px]">
-                          {(user.allowedTabs || []).slice(0, 3).map(tab => (
-                            <Badge key={tab} variant="outline" className="text-xs">
-                              {AVAILABLE_TABS.find(t => t.id === tab)?.label || tab}
+                        <div className="flex flex-wrap gap-1 max-w-[220px]">
+                          {getTabGroupSummary(user.allowedTabs || []).map(group => (
+                            <Badge key={group} variant="outline" className="text-xs">
+                              {group}
                             </Badge>
                           ))}
-                          {(user.allowedTabs || []).length > 3 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{user.allowedTabs.length - 3} more
-                            </Badge>
+                          {(user.allowedTabs || []).length === 0 && (
+                            <span className="text-xs text-muted-foreground">None</span>
                           )}
                         </div>
                       </TableCell>
@@ -454,23 +571,18 @@ export default function UserAccessManagement() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            onClick={() => toggleUserMutation.mutate({
-                              id: user.id,
-                              isActive: !user.isActive
-                            })}
+                            onClick={() => toggleUserMutation.mutate({ id: user.id, isActive: !user.isActive })}
                             data-testid={`button-toggle-${user.id}`}
+                            title={user.isActive ? 'Disable user' : 'Enable user'}
                           >
-                            {user.isActive ? (
-                              <EyeOff className="h-4 w-4" />
-                            ) : (
-                              <Eye className="h-4 w-4" />
-                            )}
+                            {user.isActive ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                           </Button>
                           <Button
                             size="icon"
                             variant="ghost"
                             onClick={() => openEditDialog(user)}
                             data-testid={`button-edit-${user.id}`}
+                            title="Edit user"
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -479,6 +591,7 @@ export default function UserAccessManagement() {
                             variant="ghost"
                             onClick={() => setDeleteConfirmUser(user)}
                             data-testid={`button-delete-${user.id}`}
+                            title="Delete user"
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -496,23 +609,28 @@ export default function UserAccessManagement() {
       <Dialog open={!!editingUser} onOpenChange={(open) => {
         if (!open) {
           setEditingUser(null);
-          resetForm();
+          setEditFormData(emptyForm);
+          setShowEditPassword(false);
         }
       }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>
-              Update user settings, password, or tab permissions.
+              Update user settings, password, or tool group permissions.
             </DialogDescription>
           </DialogHeader>
-          <UserFormContent />
+          <UserFormContent
+            formData={editFormData}
+            setFormData={setEditFormData}
+            isEditing={true}
+            showPassword={showEditPassword}
+            setShowPassword={setShowEditPassword}
+          />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingUser(null)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setEditingUser(null)}>Cancel</Button>
             <Button
-              onClick={handleSubmit}
+              onClick={handleEditSubmit}
               disabled={updateUserMutation.isPending}
               data-testid="button-submit-edit"
             >
@@ -534,9 +652,7 @@ export default function UserAccessManagement() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirmUser(null)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setDeleteConfirmUser(null)}>Cancel</Button>
             <Button
               variant="destructive"
               onClick={() => deleteConfirmUser && deleteUserMutation.mutate(deleteConfirmUser.id)}

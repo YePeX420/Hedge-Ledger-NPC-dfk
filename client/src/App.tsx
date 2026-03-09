@@ -556,12 +556,9 @@ function Router() {
         {() => <ChallengesPage />}
       </Route>
       
-      {/* Root redirects to admin */}
+      {/* Root — unified login landing */}
       <Route path="/">
-        {() => {
-          window.location.href = '/admin';
-          return null;
-        }}
+        {() => <UserLogin />}
       </Route>
       
       {/* Fallback to 404 */}
