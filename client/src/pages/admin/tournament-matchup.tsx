@@ -1200,7 +1200,7 @@ export default function TournamentMatchupPage() {
       </Card>
 
       {/* Section 5: Direct Battle Log */}
-      <DirectBattleLogSection tournamentId={tournamentId} />
+      <DirectBattleLogSection tournamentId={tournamentId} addrA={playerA?.address ?? ''} addrB={playerB?.address ?? ''} />
 
       {/* Section 6: Firebase Battle Log Probe (admin dev tool) */}
       <FirebaseProbePanel />
@@ -1213,6 +1213,9 @@ export default function TournamentMatchupPage() {
 interface DirectLogState {
   boutNum: string;
   loading: boolean;
+  autoScanning: boolean;
+  autoScanDone: boolean;
+  autoScanFound: boolean;
   error?: string;
   data: {
     battleId: string;
@@ -1225,8 +1228,35 @@ interface DirectLogState {
   } | null;
 }
 
-function DirectBattleLogSection({ tournamentId }: { tournamentId: string }) {
-  const [state, setState] = useState<DirectLogState>({ boutNum: '', loading: false, data: null });
+function DirectBattleLogSection({ tournamentId, addrA, addrB }: { tournamentId: string; addrA: string; addrB: string }) {
+  const [state, setState] = useState<DirectLogState>({
+    boutNum: '', loading: false, autoScanning: false, autoScanDone: false, autoScanFound: false, data: null,
+  });
+  const scanRanRef = useRef(false);
+
+  // Auto-scan when player addresses become available
+  useEffect(() => {
+    if (!addrA || !addrB || scanRanRef.current) return;
+    scanRanRef.current = true;
+    setState(s => ({ ...s, autoScanning: true, error: undefined }));
+    fetch(`/api/admin/tournament/${tournamentId}/scan-bout-for-players?addrA=${encodeURIComponent(addrA)}&addrB=${encodeURIComponent(addrB)}`)
+      .then(r => r.json())
+      .then(json => {
+        if (!json.ok) throw new Error(json.error);
+        if (json.found) {
+          setState(s => ({
+            ...s, autoScanning: false, autoScanDone: true, autoScanFound: true,
+            boutNum: String(json.boutNum),
+            data: { battleId: json.battleId, turns: json.turns, rawDocCount: json.rawDocCount, playerInventory: json.playerInventory },
+          }));
+        } else {
+          setState(s => ({ ...s, autoScanning: false, autoScanDone: true, autoScanFound: false }));
+        }
+      })
+      .catch(err => {
+        setState(s => ({ ...s, autoScanning: false, autoScanDone: true, autoScanFound: false, error: err.message }));
+      });
+  }, [addrA, addrB, tournamentId]);
 
   const fetchLog = async () => {
     const num = parseInt(state.boutNum, 10);
@@ -1248,9 +1278,21 @@ function DirectBattleLogSection({ tournamentId }: { tournamentId: string }) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
+        <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
           <ScrollText className="w-4 h-4" />
           Battle Log
+          {state.autoScanning && (
+            <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              Scanning Firebase for this matchup…
+            </span>
+          )}
+          {state.autoScanDone && state.autoScanFound && (
+            <span className="text-xs font-normal text-green-400/80">Auto-loaded bout {state.boutNum}</span>
+          )}
+          {state.autoScanDone && !state.autoScanFound && !state.autoScanning && (
+            <span className="text-xs font-normal text-muted-foreground/60">Not found automatically — enter bout # below</span>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1270,7 +1312,7 @@ function DirectBattleLogSection({ tournamentId }: { tournamentId: string }) {
             size="sm"
             variant="outline"
             onClick={fetchLog}
-            disabled={state.loading || !state.boutNum.trim()}
+            disabled={state.loading || state.autoScanning || !state.boutNum.trim()}
             data-testid="btn-direct-log-fetch"
           >
             {state.loading

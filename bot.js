@@ -11141,6 +11141,91 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/tournament/:id/scan-bout-for-players?addrA=X&addrB=Y
+  // Scans Firebase bout numbers 1–30 in parallel batches to find the bout matching both players
+  app.get('/api/admin/tournament/:id/scan-bout-for-players', isAdmin, async (req, res) => {
+    try {
+      const tournamentId = String(req.params.id);
+      const addrA = (req.query.addrA || '').toLowerCase().trim();
+      const addrB = (req.query.addrB || '').toLowerCase().trim();
+      if (!addrA || !addrB) {
+        return res.status(400).json({ ok: false, error: 'addrA and addrB are required' });
+      }
+
+      let idToken;
+      try { idToken = await getFirebaseIdToken(); } catch (authErr) {
+        return res.status(500).json({ ok: false, error: 'Firebase auth failed: ' + authErr.message });
+      }
+
+      const WEIGHT_LABEL = { 2: 'Minor item', 3: 'Large item', 4: 'Major item', 8: 'Full HP Restore' };
+      const parseInventory = (sideData) => {
+        if (!sideData) return null;
+        const bb = sideData.battleBudget ?? {};
+        const items = (bb.availableItems ?? []).map(it => ({
+          name: WEIGHT_LABEL[it.weight] ?? `Item (${it.weight}pt)`,
+          address: it.address,
+          weight: it.weight,
+          qty: it.quantity ?? it.qty ?? 1,
+        }));
+        return { usedBudget: bb.usedBudget ?? 0, totalBudget: bb.totalBattleBudget ?? null, usedItems: bb.usedItems ?? [], items };
+      };
+
+      const tryBout = async (boutNum) => {
+        const battleId = `1088-${boutNum}-tournament-${tournamentId}`;
+        try {
+          const data = await fetchFirestoreSubcollection(idToken, `battles/${battleId}/battle-logs`);
+          const docs = (data.documents || []).map(parseFirestoreDoc).filter(Boolean);
+          if (!docs.length) return null;
+          // Check if the player UIDs from playersData match either player address
+          // Firebase stores player wallet addresses in battle.playersData["1"].uid and ["-1"].uid
+          const firstDoc = docs[0];
+          const pd = firstDoc?.battle?.playersData;
+          const uidA = ((pd?.['1'] ?? pd?.[1])?.uid || '').toLowerCase();
+          const uidB = ((pd?.['-1'] ?? pd?.[-1])?.uid || '').toLowerCase();
+          const matched = (
+            (uidA === addrA || uidA === addrB) &&
+            (uidB === addrA || uidB === addrB) &&
+            uidA !== uidB
+          );
+          if (!matched) return null;
+          const turns = docs.sort((a, b) =>
+            (Number(a.currentTurnCount ?? a.turn ?? a._id) || 0) - (Number(b.currentTurnCount ?? b.turn ?? b._id) || 0)
+          );
+          let playerInventory = null;
+          try {
+            const pd = turns[0]?.battle?.playersData;
+            if (pd) {
+              playerInventory = {
+                sideA: parseInventory(pd['1'] ?? pd[1] ?? null),
+                sideB: parseInventory(pd['-1'] ?? pd[-1] ?? null),
+              };
+            }
+          } catch (_) {}
+          return { boutNum, battleId, turns, rawDocCount: docs.length, playerInventory };
+        } catch (_) {
+          return null;
+        }
+      };
+
+      // Scan bouts 1–30 in batches of 5
+      const BATCH_SIZE = 5;
+      for (let start = 1; start <= 30; start += BATCH_SIZE) {
+        const batchNums = [];
+        for (let n = start; n < start + BATCH_SIZE && n <= 30; n++) batchNums.push(n);
+        const results = await Promise.all(batchNums.map(tryBout));
+        const found = results.find(r => r !== null);
+        if (found) {
+          return res.json({ ok: true, found: true, ...found });
+        }
+      }
+
+      return res.json({ ok: true, found: false });
+    } catch (err) {
+      console.error('[ScanBout] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // ─── Battle inventory helpers ────────────────────────────────────────────────
 
   function decodeBattleInventory(mask) {
