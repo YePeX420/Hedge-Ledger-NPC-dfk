@@ -9534,10 +9534,17 @@ async function startAdminWebServer() {
       const roundLabels = ['QF', 'SF', 'Final'];
       const rounds = bracket.rounds ?? [];
 
+      const BYE_SLOT = 255; // on-chain sentinel for "no opponent / bye"
       for (let ri = 0; ri < rounds.length; ri++) {
         const matches = rounds[ri];
         for (let mi = 0; mi < matches.length; mi++) {
           const match = matches[mi];
+
+          // Skip bye bouts — one side is the phantom sentinel (no real player)
+          if (match.slotA === BYE_SLOT || match.slotB === BYE_SLOT) continue;
+          // Skip undetermined bouts — neither finalist is known yet (e.g. final before semis finish)
+          if (match.slotA === 0 && match.slotB === 0) continue;
+
           const pA = playerBySlot[match.slotA] ?? null;
           const pB = playerBySlot[match.slotB] ?? null;
 
@@ -9668,6 +9675,35 @@ async function startAdminWebServer() {
       console.log(`[FightArchive] Backfill complete — checked ${stored.length} stored brackets`);
     } catch (err) {
       console.warn('[FightArchive] Backfill error:', err.message);
+    }
+  })();
+
+  // One-time cleanup: purge and re-normalize any tournaments that were stored
+  // before the bye/undetermined skip logic was added. Safe to re-run — idempotent.
+  ;(async () => {
+    try {
+      await new Promise(r => setTimeout(r, 2000)); // let backfill finish first
+      const { rawPg: rp } = await import('./server/db.js');
+      const dirtyRows = await rp`
+        SELECT DISTINCT tournament_id FROM dfk_tournament_bouts
+        WHERE player_a IS NULL OR player_b IS NULL
+      `;
+      if (dirtyRows.length === 0) return;
+      const dirtyIds = dirtyRows.map(r => r.tournament_id);
+      console.log(`[FightArchive] Re-normalizing ${dirtyIds.length} tournament(s) with stale bye bouts: ${dirtyIds.join(', ')}`);
+      for (const tid of dirtyIds) {
+        await rp`DELETE FROM dfk_bout_heroes   WHERE tournament_id = ${tid}`;
+        await rp`DELETE FROM dfk_tournament_bouts WHERE tournament_id = ${tid}`;
+        const [bracketRow] = await rp`
+          SELECT bracket_json FROM dfk_completed_brackets WHERE tournament_id = ${tid}
+        `;
+        if (bracketRow?.bracket_json?.ok) {
+          await _normalizeBracketToBouts(tid, bracketRow.bracket_json);
+          console.log(`[FightArchive] Re-normalized tournament ${tid}`);
+        }
+      }
+    } catch (cleanupErr) {
+      console.warn('[FightArchive] Cleanup error:', cleanupErr.message);
     }
   })();
 
