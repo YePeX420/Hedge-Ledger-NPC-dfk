@@ -90133,7 +90133,7 @@ function InitiativeSection({ nameA, nameB, heroesA, heroesB }) {
     ] })
   ] });
 }
-function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers }) {
+function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers, onNarrativeGenerated }) {
   const [result, setResult] = reactExports.useState(null);
   const run = async () => {
     setResult({ loading: true });
@@ -90146,6 +90146,7 @@ function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers }) {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Analysis failed");
       setResult({ ...data, loading: false });
+      if (data.narrative && onNarrativeGenerated) onNarrativeGenerated(data.narrative);
     } catch (err) {
       setResult({ loading: false, error: err.message });
     }
@@ -90448,7 +90449,7 @@ function BattleLogViewer({
     ] })
   ] });
 }
-function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament, battleBudget }) {
+function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament, battleBudget, strategicNarrative }) {
   const [open, setOpen] = reactExports.useState(false);
   const [winnerCoach, setWinnerCoach] = reactExports.useState(null);
   const [loserCoach, setLoserCoach] = reactExports.useState(null);
@@ -90509,7 +90510,7 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
       const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-live-coach`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ boutId: bout.id, perspective })
+        body: JSON.stringify({ boutId: bout.id, perspective, strategicContext: strategicNarrative ?? void 0 })
       });
       const data = await res.json();
       if (!data.ok && data.error) throw new Error(data.error);
@@ -90808,6 +90809,7 @@ function TournamentMatchupPage() {
   const params = useParams();
   const [, navigate2] = useLocation();
   const [selectedHero, setSelectedHero] = reactExports.useState(null);
+  const [strategicNarrative, setStrategicNarrative] = reactExports.useState(null);
   const tournamentId = params.id;
   const slotA = parseInt(params.slotA ?? "0");
   const slotB = parseInt(params.slotB ?? "0");
@@ -90913,7 +90915,8 @@ function TournamentMatchupPage() {
         tournamentId,
         slotA,
         slotB,
-        hasBothPlayers
+        hasBothPlayers,
+        onNarrativeGenerated: setStrategicNarrative
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
@@ -90949,7 +90952,8 @@ function TournamentMatchupPage() {
           addrA: playerA?.address ?? "",
           addrB: playerB?.address ?? "",
           isLiveTournament: tournament?.stateLabel === "in_progress",
-          battleBudget: histData.battleBudget ?? null
+          battleBudget: histData.battleBudget ?? null,
+          strategicNarrative
         },
         bout.id
       )) }) })

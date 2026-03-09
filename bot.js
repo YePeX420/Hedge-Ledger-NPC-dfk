@@ -11708,7 +11708,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   app.post('/api/admin/tournament/bracket/:id/bout-live-coach', isAdmin, async (req, res) => {
     try {
       const tournamentId = String(req.params.id);
-      const { boutId, perspective = 'a' } = req.body;
+      const { boutId, perspective = 'a', strategicContext } = req.body;
       if (!boutId) return res.status(400).json({ ok: false, error: 'boutId required' });
 
       const { rawPg: rp } = await import('./server/db.js');
@@ -11883,6 +11883,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
       const prompt = [
         `You are a DeFi Kingdoms PvP tactical analyst for a${isLive ? ' LIVE' : ' completed'} battle.`,
         `Format: ${bout.tournament_format || 'standard'}, Round ${bout.round_number}, Match ${bout.match_index + 1}.`,
+        strategicContext ? `\nOverall strategic assessment for this matchup: ${strategicContext}\nKeep the following round-specific advice consistent with this strategy.` : '',
         ``,
         `${myName}'s team (advising them):`,
         myTeamSummary,

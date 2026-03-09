@@ -285,8 +285,9 @@ function InitiativeSection({ nameA, nameB, heroesA, heroesB }: {
 
 // ─── AI Prediction Section ────────────────────────────────────────────────────
 
-function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers }: {
+function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers, onNarrativeGenerated }: {
   tournamentId: string; slotA: number; slotB: number; hasBothPlayers: boolean;
+  onNarrativeGenerated?: (narrative: string) => void;
 }) {
   const [result, setResult] = useState<(AiMatchupResult & { loading?: boolean; error?: string }) | null>(null);
 
@@ -301,6 +302,7 @@ function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers }: {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Analysis failed');
       setResult({ ...data, loading: false });
+      if (data.narrative && onNarrativeGenerated) onNarrativeGenerated(data.narrative);
     } catch (err: any) {
       setResult({ loading: false, error: err.message } as any);
     }
@@ -634,13 +636,14 @@ function BattleLogViewer({
 
 // ─── Fight History Section ─────────────────────────────────────────────────────
 
-function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament, battleBudget }: {
+function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament, battleBudget, strategicNarrative }: {
   bout: HistoryBout;
   tournamentId: string;
   nameA: string; nameB: string;
   addrA: string; addrB: string;
   isLiveTournament: boolean;
   battleBudget?: number | null;
+  strategicNarrative?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [winnerCoach, setWinnerCoach] = useState<CoachResult | null>(null);
@@ -709,7 +712,7 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
       const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-live-coach`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ boutId: bout.id, perspective }),
+        body: JSON.stringify({ boutId: bout.id, perspective, strategicContext: strategicNarrative ?? undefined }),
       });
       const data = await res.json();
       if (!data.ok && data.error) throw new Error(data.error);
@@ -999,6 +1002,7 @@ export default function TournamentMatchupPage() {
   const params = useParams<{ id: string; slotA: string; slotB: string }>();
   const [, navigate] = useLocation();
   const [selectedHero, setSelectedHero] = useState<HeroDetail | null>(null);
+  const [strategicNarrative, setStrategicNarrative] = useState<string | null>(null);
 
   const tournamentId = params.id;
   const slotA = parseInt(params.slotA ?? '0');
@@ -1137,6 +1141,7 @@ export default function TournamentMatchupPage() {
         slotA={slotA}
         slotB={slotB}
         hasBothPlayers={hasBothPlayers}
+        onNarrativeGenerated={setStrategicNarrative}
       />
 
       {/* Section 4: Fight History */}
@@ -1192,6 +1197,7 @@ export default function TournamentMatchupPage() {
                   addrB={playerB?.address ?? ''}
                   isLiveTournament={tournament?.stateLabel === 'in_progress'}
                   battleBudget={histData.battleBudget ?? null}
+                  strategicNarrative={strategicNarrative}
                 />
               ))}
             </div>
