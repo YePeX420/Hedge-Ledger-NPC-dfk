@@ -1199,9 +1199,157 @@ export default function TournamentMatchupPage() {
         </CardContent>
       </Card>
 
-      {/* Section 5: Firebase Battle Log Probe (admin dev tool) */}
+      {/* Section 5: Direct Battle Log */}
+      <DirectBattleLogSection tournamentId={tournamentId} />
+
+      {/* Section 6: Firebase Battle Log Probe (admin dev tool) */}
       <FirebaseProbePanel />
     </div>
+  );
+}
+
+// ─── Direct Battle Log Section ────────────────────────────────────────────────
+
+interface DirectLogState {
+  boutNum: string;
+  loading: boolean;
+  error?: string;
+  data: {
+    battleId: string;
+    turns: any[] | null;
+    rawDocCount: number;
+    playerInventory: {
+      sideA: { items: { name: string; qty: number }[]; usedBudget: number; totalBudget: number | null } | null;
+      sideB: { items: { name: string; qty: number }[]; usedBudget: number; totalBudget: number | null } | null;
+    } | null;
+  } | null;
+}
+
+function DirectBattleLogSection({ tournamentId }: { tournamentId: string }) {
+  const [state, setState] = useState<DirectLogState>({ boutNum: '', loading: false, data: null });
+
+  const fetchLog = async () => {
+    const num = parseInt(state.boutNum, 10);
+    if (!num || num < 1) return;
+    setState(s => ({ ...s, loading: true, error: undefined, data: null }));
+    try {
+      const res = await fetch(`/api/admin/tournament/${tournamentId}/firebase-direct-log?boutNum=${num}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
+      setState(s => ({ ...s, loading: false, data: json }));
+    } catch (err: any) {
+      setState(s => ({ ...s, loading: false, error: err.message }));
+    }
+  };
+
+  const turns = state.data?.turns ?? [];
+  const hasTurns = turns.length > 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <ScrollText className="w-4 h-4" />
+          Battle Log
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            className="w-24 text-xs bg-muted/20 border border-border/50 rounded-md px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+            placeholder="Bout #"
+            type="number"
+            min="1"
+            max="200"
+            value={state.boutNum}
+            onChange={e => setState(s => ({ ...s, boutNum: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && fetchLog()}
+            data-testid="input-direct-log-bout-num"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={fetchLog}
+            disabled={state.loading || !state.boutNum.trim()}
+            data-testid="btn-direct-log-fetch"
+          >
+            {state.loading
+              ? <><RefreshCw className="w-3 h-3 mr-1.5 animate-spin" />Fetching…</>
+              : <><ScrollText className="w-3 h-3 mr-1.5" />Fetch Log</>
+            }
+          </Button>
+          {state.data && (
+            <span className="text-[10px] font-mono text-muted-foreground/60">{state.data.battleId}</span>
+          )}
+        </div>
+
+        {state.error && <p className="text-xs text-destructive">{state.error}</p>}
+
+        {state.data && !hasTurns && (
+          <p className="text-sm text-muted-foreground">No Firebase data found for bout {state.boutNum}.</p>
+        )}
+
+        {hasTurns && (
+          <div className="space-y-2">
+            {/* Player inventory */}
+            {state.data?.playerInventory && (state.data.playerInventory.sideA || state.data.playerInventory.sideB) && (
+              <div className="rounded-md border border-border/40 bg-muted/10 p-2 space-y-1">
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50">Consumable Inventory</p>
+                {(['sideA', 'sideB'] as const).map(sideKey => {
+                  const inv = state.data!.playerInventory![sideKey];
+                  if (!inv || !inv.items.length) return null;
+                  const label = sideKey === 'sideA' ? 'A' : 'B';
+                  const usedPct = inv.totalBudget ? Math.round(inv.usedBudget / inv.totalBudget * 100) : 0;
+                  return (
+                    <div key={sideKey} className="flex flex-wrap gap-x-2 gap-y-0.5 items-start">
+                      <span className="text-[9px] text-muted-foreground/50 mt-0.5 w-3">{label}:</span>
+                      <div className="flex flex-wrap gap-1">
+                        {inv.items.map((item, i) => (
+                          <span key={i} className="text-[10px] text-blue-300/70">{item.qty}×{item.name}</span>
+                        ))}
+                        <span className="text-[9px] text-muted-foreground/40">
+                          [{inv.usedBudget}/{inv.totalBudget ?? '?'}pts{usedPct > 0 ? ` (${usedPct}% used)` : ''}]
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Turn table */}
+            <div className="max-h-72 overflow-y-auto rounded-md border border-border/40 bg-muted/5 p-2">
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-1">{turns.length} turns</p>
+              <div className="grid text-[11px]" style={{ gridTemplateColumns: 'auto 1fr auto auto' }}>
+                <div className="contents text-muted-foreground/50 font-medium uppercase tracking-wide text-[9px] pb-1">
+                  <span className="pr-2">T#</span>
+                  <span>Actor → Target</span>
+                  <span className="px-2">Skill</span>
+                  <span>Dmg/Heal</span>
+                </div>
+                {turns.map((t, i) => (
+                  <div key={i} className={`contents ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                    <span className="pr-2 text-muted-foreground/60 font-mono tabular-nums">{t.currentTurnCount ?? t.turn ?? i + 1}</span>
+                    <span className="text-foreground/80 truncate">
+                      {t.actorClass || t.actor || '?'}
+                      {(t.targetClass || t.target) && (
+                        <span className="text-muted-foreground"> → {t.targetClass || t.target}</span>
+                      )}
+                    </span>
+                    <span className="px-2 text-muted-foreground/70 truncate max-w-[80px]">
+                      {t.skillName || t.action || '—'}
+                    </span>
+                    <span className={t.damage ? 'text-red-400 tabular-nums' : t.healing ? 'text-green-400 tabular-nums' : 'text-muted-foreground/40'}>
+                      {t.damage != null ? `-${t.damage}` : t.healing != null ? `+${t.healing}` : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

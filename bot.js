@@ -11088,6 +11088,59 @@ async function startAdminWebServer() {
     }
   });
 
+  // GET /api/admin/tournament/:id/firebase-direct-log?boutNum=N
+  // Direct Firebase log lookup by composing battleId = 1088-{boutNum}-tournament-{tournamentId}
+  app.get('/api/admin/tournament/:id/firebase-direct-log', isAdmin, async (req, res) => {
+    try {
+      const tournamentId = String(req.params.id);
+      const boutNum = parseInt(req.query.boutNum, 10);
+      if (!boutNum || boutNum < 1 || boutNum > 200) {
+        return res.status(400).json({ ok: false, error: 'boutNum must be 1–200' });
+      }
+      const battleId = `1088-${boutNum}-tournament-${tournamentId}`;
+      let idToken;
+      try { idToken = await getFirebaseIdToken(); } catch (authErr) {
+        return res.status(500).json({ ok: false, error: 'Firebase auth failed: ' + authErr.message });
+      }
+      const data = await fetchFirestoreSubcollection(idToken, `battles/${battleId}/battle-logs`);
+      const docs = (data.documents || []).map(parseFirestoreDoc).filter(Boolean);
+      if (!docs.length) {
+        return res.json({ ok: true, battleId, turns: null, rawDocCount: 0, playerInventory: null });
+      }
+      const turns = docs.sort((a, b) =>
+        (Number(a.currentTurnCount ?? a.turn ?? a._id) || 0) - (Number(b.currentTurnCount ?? b.turn ?? b._id) || 0)
+      );
+      // playerInventory from first turn
+      let playerInventory = null;
+      try {
+        const firstTurn = turns[0];
+        const pd = firstTurn?.battle?.playersData;
+        if (pd) {
+          const WEIGHT_LABEL = { 2: 'Minor item', 3: 'Large item', 4: 'Major item', 8: 'Full HP Restore' };
+          const parseInventory = (sideData) => {
+            if (!sideData) return null;
+            const bb = sideData.battleBudget ?? {};
+            const items = (bb.availableItems ?? []).map(it => ({
+              name: WEIGHT_LABEL[it.weight] ?? `Item (${it.weight}pt)`,
+              address: it.address,
+              weight: it.weight,
+              qty: it.quantity ?? it.qty ?? 1,
+            }));
+            return { usedBudget: bb.usedBudget ?? 0, totalBudget: bb.totalBattleBudget ?? null, usedItems: bb.usedItems ?? [], items };
+          };
+          playerInventory = {
+            sideA: parseInventory(pd['1'] ?? pd[1] ?? null),
+            sideB: parseInventory(pd['-1'] ?? pd[-1] ?? null),
+          };
+        }
+      } catch (_) {}
+      res.json({ ok: true, battleId, turns, rawDocCount: docs.length, playerInventory });
+    } catch (err) {
+      console.error('[DirectLog] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // ─── Battle inventory helpers ────────────────────────────────────────────────
 
   function decodeBattleInventory(mask) {
