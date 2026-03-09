@@ -45,3 +45,18 @@ The project is built with a Node.js backend using Discord.js for bot functionali
 *   **DeFi Kingdoms GraphQL API**: For accessing in-game data and analytics.
 *   **DFK Chain RPC (Crystalvale)**: For direct blockchain interaction and data retrieval.
 *   **DFK Internal Tournament API**: Firebase-authenticated endpoint at `api.defikingdoms.com/tournaments/active` for bracket tournament data.
+
+## Battle Inventory / Budget System
+- `battleInventory` (bitmask) and `battleBudget` (max items per player per match) are stored in `bracket_json->'tournament'` for all indexed brackets.
+- `decodeBattleInventory(mask)` in `bot.js` decodes the bitmask to item names (bits 0–7 = None/Small HP/Medium HP/Large HP/Full HP/Small MP/Medium MP/Large MP Potions).
+- `battleInventory=60` (bits 2–5 = Medium HP, Large HP, Full HP, Small MP) and `battleBudget=11` are consistent across tournaments 2004, 2005, 2136.
+- `matchup-history` endpoint returns `battleBudget`, `battleInventory`, `allowedItems` (decoded names).
+- The matchup page Fight History section shows a "Battle Budget: N items per player / Allowed: …" row in the card header.
+- `bout-live-coach` and `bout-analysis` AI prompts include the decoded budget and per-player items-used context.
+- `extractItemsUsed(turns, playerA, playerB)` in `bot.js` scans Firebase turns for consumable-use actions (pattern-matched by action/type fields); returns per-player used item lists.
+
+## Firebase Battle Log UX
+- `BattleLogViewer` auto-fetches silently on mount when a `BoutCard` opens (no second click required).
+- Empty state now shows: `indexedFirebaseId` (the Firebase ID that was tried) or, if not indexed, an amber warning "Tournament not in Firebase index".
+- `bout-battle-log` endpoint returns `indexedFirebaseId` (from `_tournamentFirebaseIdMap`) and `isIndexed` flag.
+- Battle log `isIndexed: true` confirmed for tournament 2136 (Firebase ID: `1088-5-tournament-2136`); turn data fetched successfully (live bouts show real-time turn count).

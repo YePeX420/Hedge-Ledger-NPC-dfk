@@ -90223,6 +90223,7 @@ function BattleLogViewer({
   tournamentId,
   boutId,
   isLive,
+  battleBudget,
   onLogLoaded
 }) {
   const [state, setState] = reactExports.useState({ data: null, loading: false, open: false });
@@ -90238,8 +90239,11 @@ function BattleLogViewer({
       setState((s2) => ({ ...s2, loading: false, error: err.message }));
     }
   };
+  reactExports.useEffect(() => {
+    fetchLog(true);
+  }, [boutId, tournamentId]);
   const toggle = () => {
-    if (state.data !== null) {
+    if (state.data !== null || state.loading) {
       setState((s2) => ({ ...s2, open: !s2.open }));
     } else {
       setState((s2) => ({ ...s2, open: true }));
@@ -90283,18 +90287,34 @@ function BattleLogViewer({
         "Fetching battle log from Firebase…"
       ] }),
       state.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive py-1", children: state.error }),
-      state.data && !hasTurns && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-muted-foreground py-1", children: [
+      state.data && !hasTurns && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-muted-foreground py-1.5 space-y-1", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
-          "No turn data found for this bout in Firebase yet.",
+          "No turn data found for this bout in Firebase.",
           isLive && " Refreshing every 15s…"
         ] }),
-        state.data.candidatesTried && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] mt-1 text-muted-foreground/50", children: [
-          "Tried ",
+        state.data.indexedFirebaseId ? /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] font-mono text-muted-foreground/50 break-all", children: [
+          "Tried: ",
+          state.data.indexedFirebaseId
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] text-amber-500/70", children: state.data.isIndexed === false ? "Tournament not in Firebase index — battle data may not be available yet." : "Firebase index not yet loaded — try the Firebase Probe panel below." }),
+        state.data.candidatesTried && state.data.candidatesTried.length > 0 && !state.data.indexedFirebaseId && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] text-muted-foreground/40", children: [
+          "Also tried ",
           state.data.candidatesTried.length,
-          " ID formats."
+          " fallback ID formats."
         ] })
       ] }),
       hasTurns && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-0.5 max-h-52 overflow-y-auto", children: [
+        state.data?.itemsUsed && (state.data.itemsUsed.a.length > 0 || state.data.itemsUsed.b.length > 0) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex gap-3 mb-1.5 text-[10px]", children: ["a", "b"].map((side) => {
+          const used = state.data.itemsUsed[side] ?? [];
+          if (!used.length) return null;
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-blue-400/80", children: [
+            "Side ",
+            side.toUpperCase(),
+            ": ",
+            used.length,
+            battleBudget != null ? `/${battleBudget}` : "",
+            " items used"
+          ] }, side);
+        }) }),
         battleId && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] text-muted-foreground/50 mb-1.5 font-mono break-all", children: [
           "ID: ",
           battleId
@@ -90323,7 +90343,7 @@ function BattleLogViewer({
     ] })
   ] });
 }
-function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament }) {
+function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament, battleBudget }) {
   const [open, setOpen] = reactExports.useState(false);
   const [winnerCoach, setWinnerCoach] = reactExports.useState(null);
   const [loserCoach, setLoserCoach] = reactExports.useState(null);
@@ -90430,6 +90450,7 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
           tournamentId,
           boutId: bout.id,
           isLive: isLiveTournament && !bout.isComplete,
+          battleBudget,
           onLogLoaded: setBattleLogHasData
         }
       ),
@@ -90726,10 +90747,24 @@ function TournamentMatchupPage() {
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-sm flex items-center gap-2", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-4 h-4" }),
-        "Fight History",
-        tournament?.stateLabel === "in_progress" && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-[9px] text-green-400 border-green-500/40 ml-1", children: "Live — refreshes every 20s" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-start justify-between gap-2 flex-wrap", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-sm flex items-center gap-2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-4 h-4" }),
+          "Fight History",
+          tournament?.stateLabel === "in_progress" && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-[9px] text-green-400 border-green-500/40 ml-1", children: "Live — refreshes every 20s" })
+        ] }),
+        histData && (histData.battleBudget != null || histData.allowedItems && histData.allowedItems.length > 0) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col items-end gap-0.5", children: [
+          histData.battleBudget != null && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[11px] text-muted-foreground", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-medium text-foreground/70", children: "Battle Budget:" }),
+            " ",
+            histData.battleBudget,
+            " items per player"
+          ] }),
+          histData.allowedItems && histData.allowedItems.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] text-muted-foreground/60", children: [
+            "Allowed: ",
+            histData.allowedItems.join(", ")
+          ] })
+        ] })
       ] }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: histLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-2", children: [1, 2].map((i) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-12 bg-muted animate-pulse rounded-md" }, i)) }) : !histData?.bouts?.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-sm text-muted-foreground py-2", children: [
         "No indexed bouts found for this matchup yet.",
@@ -90743,7 +90778,8 @@ function TournamentMatchupPage() {
           nameB,
           addrA: playerA?.address ?? "",
           addrB: playerB?.address ?? "",
-          isLiveTournament: tournament?.stateLabel === "in_progress"
+          isLiveTournament: tournament?.stateLabel === "in_progress",
+          battleBudget: histData.battleBudget ?? null
         },
         bout.id
       )) }) })

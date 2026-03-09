@@ -86,12 +86,30 @@ interface BattleLogTurn {
   [key: string]: unknown;
 }
 
+interface BattleLogItemUse {
+  heroId?: number | null;
+  itemType?: number | null;
+  itemName?: string | null;
+  turn?: number | null;
+}
+
 interface BattleLogResult {
   ok: boolean;
   battleId: string | null;
   turns: BattleLogTurn[] | null;
   rawDocCount: number;
   candidatesTried?: string[];
+  indexedFirebaseId?: string | null;
+  isIndexed?: boolean;
+  itemsUsed?: { a: BattleLogItemUse[]; b: BattleLogItemUse[] } | null;
+}
+
+interface HistoryResponse {
+  ok: boolean;
+  bouts: HistoryBout[];
+  battleBudget?: number | null;
+  battleInventory?: number | null;
+  allowedItems?: string[];
 }
 
 interface HistoryBout {
@@ -381,12 +399,13 @@ interface LiveCoachState { analysis: string | null; playerName?: string; hadBatt
 // ─── Battle Log Viewer ────────────────────────────────────────────────────────
 
 function BattleLogViewer({
-  tournamentId, boutId, isLive,
+  tournamentId, boutId, isLive, battleBudget,
   onLogLoaded,
 }: {
   tournamentId: string;
   boutId: number;
   isLive: boolean;
+  battleBudget?: number | null;
   onLogLoaded?: (hasData: boolean) => void;
 }) {
   const [state, setState] = useState<BattleLogState>({ data: null, loading: false, open: false });
@@ -404,8 +423,11 @@ function BattleLogViewer({
     }
   };
 
+  // Auto-fetch silently on mount so data is ready when user expands
+  useEffect(() => { fetchLog(true); }, [boutId, tournamentId]);
+
   const toggle = () => {
-    if (state.data !== null) {
+    if (state.data !== null || state.loading) {
       setState(s => ({ ...s, open: !s.open }));
     } else {
       setState(s => ({ ...s, open: true }));
@@ -454,17 +476,42 @@ function BattleLogViewer({
           )}
           {state.error && <p className="text-xs text-destructive py-1">{state.error}</p>}
           {state.data && !hasTurns && (
-            <div className="text-xs text-muted-foreground py-1">
-              <p>No turn data found for this bout in Firebase yet.{isLive && ' Refreshing every 15s…'}</p>
-              {state.data.candidatesTried && (
-                <p className="text-[10px] mt-1 text-muted-foreground/50">
-                  Tried {state.data.candidatesTried.length} ID formats.
+            <div className="text-xs text-muted-foreground py-1.5 space-y-1">
+              <p>No turn data found for this bout in Firebase.{isLive && ' Refreshing every 15s…'}</p>
+              {state.data.indexedFirebaseId ? (
+                <p className="text-[10px] font-mono text-muted-foreground/50 break-all">
+                  Tried: {state.data.indexedFirebaseId}
+                </p>
+              ) : (
+                <p className="text-[10px] text-amber-500/70">
+                  {state.data.isIndexed === false
+                    ? 'Tournament not in Firebase index — battle data may not be available yet.'
+                    : 'Firebase index not yet loaded — try the Firebase Probe panel below.'}
+                </p>
+              )}
+              {state.data.candidatesTried && state.data.candidatesTried.length > 0 && !state.data.indexedFirebaseId && (
+                <p className="text-[10px] text-muted-foreground/40">
+                  Also tried {state.data.candidatesTried.length} fallback ID formats.
                 </p>
               )}
             </div>
           )}
           {hasTurns && (
             <div className="space-y-0.5 max-h-52 overflow-y-auto">
+              {/* Items used summary row */}
+              {state.data?.itemsUsed && (state.data.itemsUsed.a.length > 0 || state.data.itemsUsed.b.length > 0) && (
+                <div className="flex gap-3 mb-1.5 text-[10px]">
+                  {(['a', 'b'] as const).map(side => {
+                    const used = state.data!.itemsUsed![side] ?? [];
+                    if (!used.length) return null;
+                    return (
+                      <span key={side} className="text-blue-400/80">
+                        Side {side.toUpperCase()}: {used.length}{battleBudget != null ? `/${battleBudget}` : ''} items used
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
               {battleId && (
                 <p className="text-[10px] text-muted-foreground/50 mb-1.5 font-mono break-all">
                   ID: {battleId}
@@ -505,12 +552,13 @@ function BattleLogViewer({
 
 // ─── Fight History Section ─────────────────────────────────────────────────────
 
-function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament }: {
+function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament, battleBudget }: {
   bout: HistoryBout;
   tournamentId: string;
   nameA: string; nameB: string;
   addrA: string; addrB: string;
   isLiveTournament: boolean;
+  battleBudget?: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const [winnerCoach, setWinnerCoach] = useState<CoachResult | null>(null);
@@ -626,6 +674,7 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
               tournamentId={tournamentId}
               boutId={bout.id}
               isLive={isLiveTournament && !bout.isComplete}
+              battleBudget={battleBudget}
               onLogLoaded={setBattleLogHasData}
             />
           )}
@@ -824,7 +873,7 @@ export default function TournamentMatchupPage() {
   const nameA = playerA?.playerName || shortAddr(playerA?.address) || `Slot #${slotA}`;
   const nameB = playerB?.playerName || shortAddr(playerB?.address) || `Slot #${slotB}`;
 
-  const { data: histData, isLoading: histLoading } = useQuery<{ ok: boolean; bouts: HistoryBout[] }>({
+  const { data: histData, isLoading: histLoading } = useQuery<HistoryResponse>({
     queryKey: ['/api/admin/tournament/bracket', tournamentId, 'matchup-history', slotA, slotB],
     queryFn: async () => {
       const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/matchup-history?slotA=${slotA}&slotB=${slotB}`);
@@ -944,15 +993,32 @@ export default function TournamentMatchupPage() {
       {/* Section 4: Fight History */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Shield className="w-4 h-4" />
-            Fight History
-            {tournament?.stateLabel === 'in_progress' && (
-              <Badge variant="outline" className="text-[9px] text-green-400 border-green-500/40 ml-1">
-                Live — refreshes every 20s
-              </Badge>
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Shield className="w-4 h-4" />
+              Fight History
+              {tournament?.stateLabel === 'in_progress' && (
+                <Badge variant="outline" className="text-[9px] text-green-400 border-green-500/40 ml-1">
+                  Live — refreshes every 20s
+                </Badge>
+              )}
+            </CardTitle>
+            {histData && (histData.battleBudget != null || (histData.allowedItems && histData.allowedItems.length > 0)) && (
+              <div className="flex flex-col items-end gap-0.5">
+                {histData.battleBudget != null && (
+                  <p className="text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground/70">Battle Budget:</span>{' '}
+                    {histData.battleBudget} items per player
+                  </p>
+                )}
+                {histData.allowedItems && histData.allowedItems.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground/60">
+                    Allowed: {histData.allowedItems.join(', ')}
+                  </p>
+                )}
+              </div>
             )}
-          </CardTitle>
+          </div>
         </CardHeader>
         <CardContent>
           {histLoading ? (
@@ -976,6 +1042,7 @@ export default function TournamentMatchupPage() {
                   addrA={playerA?.address ?? ''}
                   addrB={playerB?.address ?? ''}
                   isLiveTournament={tournament?.stateLabel === 'in_progress'}
+                  battleBudget={histData.battleBudget ?? null}
                 />
               ))}
             </div>

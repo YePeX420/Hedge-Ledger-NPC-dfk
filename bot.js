@@ -10939,16 +10939,62 @@ async function startAdminWebServer() {
 
       if (!bout) return res.status(404).json({ ok: false, error: 'Bout not found' });
 
+      const indexedFirebaseId = _tournamentFirebaseIdMap.get(tournamentId) ?? null;
+      const isIndexed = _tournamentFirebaseIdMap.has(tournamentId);
       const logResult = await fetchBattleLogForBout(tournamentId, bout);
       if (!logResult) {
-        return res.json({ ok: true, battleId: null, turns: null, rawDocCount: 0, candidatesTried: _battleCandidateIds(tournamentId, bout.id, bout.round_number, bout.match_index) });
+        const candidatesTried = _battleCandidateIds(tournamentId, bout.id, bout.round_number, bout.match_index);
+        return res.json({ ok: true, battleId: null, turns: null, rawDocCount: 0, candidatesTried, indexedFirebaseId, isIndexed });
       }
-      res.json({ ok: true, ...logResult });
+      const itemsUsed = extractItemsUsed(logResult.turns, bout.player_a, bout.player_b);
+      res.json({ ok: true, ...logResult, indexedFirebaseId, isIndexed, itemsUsed });
     } catch (err) {
       console.error('[BattleLog] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
     }
   });
+
+  // ─── Battle inventory helpers ────────────────────────────────────────────────
+
+  function decodeBattleInventory(mask) {
+    const ITEM_NAMES = {
+      0: 'None', 1: 'Small HP Potion', 2: 'Medium HP Potion', 3: 'Large HP Potion',
+      4: 'Full HP Potion', 5: 'Small MP Potion', 6: 'Medium MP Potion', 7: 'Large MP Potion',
+    };
+    const allowed = [];
+    for (let bit = 0; bit < 8; bit++) {
+      if ((mask >> bit) & 1) allowed.push(ITEM_NAMES[bit] ?? `Item(bit${bit})`);
+    }
+    return allowed;
+  }
+
+  function extractItemsUsed(turns, playerAAddr, playerBAddr) {
+    if (!turns || !turns.length) return null;
+    const result = { a: [], b: [] };
+    const addrA = (playerAAddr || '').toLowerCase();
+    const addrB = (playerBAddr || '').toLowerCase();
+    for (const t of turns) {
+      const action = (t.action || t.type || t.skillName || '').toLowerCase();
+      const isConsumable = action.includes('potion') || action.includes('consumable')
+        || action.includes('useitem') || action.includes('use_item')
+        || action.includes('drink') || action === 'item' || action === 'heal_potion';
+      if (!isConsumable) continue;
+      const actorAddr = ((t.actorAddress || t.actor || '')).toLowerCase();
+      let side = null;
+      if (addrA && actorAddr === addrA) side = 'a';
+      else if (addrB && actorAddr === addrB) side = 'b';
+      else if (t.side === 'a' || t.side === 'b') side = t.side;
+      else side = 'a'; // default to side a if unknown
+      result[side].push({
+        heroId: t.actorHeroId ?? t.heroId ?? null,
+        itemType: t.itemType ?? null,
+        itemName: t.itemName ?? action,
+        turn: t.turn ?? null,
+      });
+    }
+    if (!result.a.length && !result.b.length) return null;
+    return result;
+  }
 
   // GET /api/admin/tournament/bracket/:id/matchup-history — past indexed bouts for a specific match
   app.get('/api/admin/tournament/bracket/:id/matchup-history', isAdmin, async (req, res) => {
@@ -10983,7 +11029,22 @@ async function startAdminWebServer() {
         ORDER BY round_number, match_index
       `, [String(tournamentId), addrA, addrB]);
 
-      if (boutRows.length === 0) return res.json({ ok: true, bouts: [] });
+      // Fetch battle budget / inventory from bracket JSON
+      let battleBudget = null, battleInventory = null, allowedItems = [];
+      try {
+        const [budgetRow] = await rp.unsafe(`
+          SELECT bracket_json->'tournament'->>'battleInventory' AS battle_inventory,
+                 bracket_json->'tournament'->>'battleBudget' AS battle_budget
+          FROM dfk_completed_brackets WHERE tournament_id = $1 LIMIT 1
+        `, [String(tournamentId)]);
+        if (budgetRow) {
+          battleInventory = budgetRow.battle_inventory != null ? parseInt(budgetRow.battle_inventory) : null;
+          battleBudget = budgetRow.battle_budget != null ? parseInt(budgetRow.battle_budget) : null;
+          if (battleInventory != null && !isNaN(battleInventory)) allowedItems = decodeBattleInventory(battleInventory);
+        }
+      } catch (_be) { console.warn('[MatchupHistory] Budget fetch failed:', _be.message); }
+
+      if (boutRows.length === 0) return res.json({ ok: true, bouts: [], battleBudget, battleInventory, allowedItems });
 
       const boutIds = boutRows.map(r => r.id);
       const heroRows = await rp.unsafe(`
@@ -11017,7 +11078,7 @@ async function startAdminWebServer() {
         heroesB: byBout[b.id]?.b ?? [],
       }));
 
-      res.json({ ok: true, bouts });
+      res.json({ ok: true, bouts, battleBudget, battleInventory, allowedItems });
     } catch (err) {
       console.error('[Matchup History] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
@@ -11226,6 +11287,34 @@ async function startAdminWebServer() {
         battleCtx = ' No turn-by-turn battle log available yet — advise based on team composition and skills only.';
       }
 
+      // Fetch battle budget from bracket JSON
+      let budgetCtx = '';
+      try {
+        const { rawPg: rp2 } = await import('./server/db.js');
+        const [bRow] = await rp2.unsafe(`
+          SELECT bracket_json->'tournament'->>'battleInventory' AS bi,
+                 bracket_json->'tournament'->>'battleBudget' AS bb
+          FROM dfk_completed_brackets WHERE tournament_id = $1 LIMIT 1
+        `, [tournamentId]);
+        if (bRow) {
+          const bInv = bRow.bi != null ? parseInt(bRow.bi) : null;
+          const bBud = bRow.bb != null ? parseInt(bRow.bb) : null;
+          if (bBud != null || bInv != null) {
+            const itemList = (bInv != null && !isNaN(bInv)) ? decodeBattleInventory(bInv).join(', ') : 'unknown';
+            budgetCtx = `Battle consumable budget: each player may use up to ${bBud ?? '?'} items total per match. Allowed items: ${itemList}.`;
+            if (hadBattleLog) {
+              const usedMap = extractItemsUsed(logResult.turns, bout.player_a, bout.player_b);
+              if (usedMap) {
+                const myCt = (usedMap[perspective] || []).length;
+                const oppCt = (usedMap[perspective === 'a' ? 'b' : 'a'] || []).length;
+                const myRem = bBud != null ? bBud - myCt : '?';
+                budgetCtx += ` ${myName} has used ${myCt} item(s) (${myRem} remaining). ${oppName} has used ${oppCt} item(s).`;
+              }
+            }
+          }
+        }
+      } catch (_be) { console.warn('[LiveCoach] Budget context failed:', _be.message); }
+
       const isLive = !bout.is_complete;
       const prompt = [
         `You are a DeFi Kingdoms PvP tactical analyst for a${isLive ? ' LIVE' : ' completed'} battle.`,
@@ -11238,10 +11327,11 @@ async function startAdminWebServer() {
         oppTeamSummary,
         ``,
         battleCtx.trim(),
+        budgetCtx ? `\n${budgetCtx}` : '',
         ``,
         isLive
-          ? `Based on the current battle state, give 3-4 sentences of tactical advice for ${myName}: which hero should act next, which skill to use, which target to prioritize, and why. Reference specific skill names and stats. Be direct and actionable.`
-          : `Analyse what happened in this completed bout for ${myName}. In 3-4 sentences: what key decisions were made, what skills were most impactful, and what should ${myName} learn for next time.`,
+          ? `Based on the current battle state, give 3-4 sentences of tactical advice for ${myName}: which hero should act next, which skill to use, which target to prioritize, and whether using a consumable potion is strategically worthwhile given the HP levels and budget remaining. Reference specific skill names and stats. Be direct and actionable.`
+          : `Analyse what happened in this completed bout for ${myName}. In 3-4 sentences: what key decisions were made, what skills were most impactful, whether potion usage was optimal, and what should ${myName} learn for next time.`,
       ].join('\n');
 
       let analysis = null;
