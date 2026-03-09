@@ -57,8 +57,12 @@ interface BoutHero {
   dexterity: number;
   agility: number;
   intelligence: number;
+  wisdom: number;
   vitality: number;
   endurance: number;
+  luck: number;
+  hp: number;
+  mp: number;
   passive1: string | null;
   passive2: string | null;
   active1: string | null;
@@ -308,6 +312,46 @@ function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers }: {
   );
 }
 
+// ─── Client-side stat prediction ─────────────────────────────────────────────
+
+function computeBoutPrediction(heroesA: BoutHero[], heroesB: BoutHero[]): { pctA: number; pctB: number } | null {
+  if (!heroesA.length || !heroesB.length) return null;
+  const avg = (heroes: BoutHero[], fn: (h: BoutHero) => number) =>
+    heroes.reduce((s, h) => s + fn(h), 0) / heroes.length;
+  const offPassives = (heroes: BoutHero[]) =>
+    heroes.filter(h => h.passive1 != null || h.passive2 != null).length / heroes.length;
+  const uniqueClasses = (heroes: BoutHero[]) => new Set(heroes.map(h => h.main_class)).size / heroes.length;
+
+  const score = (side: BoutHero[], other: BoutHero[]) => {
+    const agiA = avg(side, h => h.agility); const agiB = avg(other, h => h.agility);
+    const strA = avg(side, h => h.strength); const strB = avg(other, h => h.strength);
+    const survA = avg(side, h => (h.vitality + h.endurance) / 2);
+    const survB = avg(other, h => (h.vitality + h.endurance) / 2);
+    const passA = offPassives(side); const passB = offPassives(other);
+    const compA = uniqueClasses(side); const compB = uniqueClasses(other);
+    const factors = [
+      { w: 0.25, a: agiA,   b: agiB   },
+      { w: 0.30, a: strA,   b: strB   },
+      { w: 0.20, a: survA,  b: survB  },
+      { w: 0.10, a: passA,  b: passB  },
+      { w: 0.15, a: compA,  b: compB  },
+    ];
+    return factors.reduce((s, f) => {
+      const tot = f.a + f.b;
+      return s + f.w * (tot > 0 ? f.a / tot : 0.5);
+    }, 0);
+  };
+  const sA = score(heroesA, heroesB);
+  const sB = score(heroesB, heroesA);
+  const tot = sA + sB;
+  const pctA = Math.round((sA / tot) * 100);
+  return { pctA, pctB: 100 - pctA };
+}
+
+// ─── Per-player coaching state ─────────────────────────────────────────────────
+
+interface CoachResult { analysis: string | null; hadBattleLog?: boolean; loading: boolean; error?: string; }
+
 // ─── Fight History Section ─────────────────────────────────────────────────────
 
 function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }: {
@@ -317,30 +361,34 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }: {
   addrA: string; addrB: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [analysis, setAnalysis] = useState<string | null>(null);
-  const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [winnerCoach, setWinnerCoach] = useState<CoachResult | null>(null);
+  const [loserCoach, setLoserCoach] = useState<CoachResult | null>(null);
 
   const winnerIsA = bout.winnerAddress &&
     bout.winnerAddress.toLowerCase() === addrA.toLowerCase();
   const winnerName = winnerIsA ? nameA : (bout.winnerAddress ? nameB : null);
+  const loserName  = winnerIsA ? nameB : (bout.winnerAddress ? nameA : null);
 
-  const runAnalysis = async () => {
-    setAnalysisLoading(true);
-    setAnalysisError(null);
+  const hasBothHeroes = bout.heroesA.length > 0 && bout.heroesB.length > 0;
+  const prediction = hasBothHeroes ? computeBoutPrediction(bout.heroesA, bout.heroesB) : null;
+  const predWinnerIsA = prediction && prediction.pctA >= 50;
+  const predictionCorrect = prediction && bout.isComplete && bout.winnerAddress &&
+    ((predWinnerIsA && winnerIsA) || (!predWinnerIsA && !winnerIsA));
+
+  const runCoach = async (target: 'winner' | 'loser') => {
+    const setState = target === 'winner' ? setWinnerCoach : setLoserCoach;
+    setState({ loading: true, analysis: null });
     try {
       const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-analysis`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ boutId: bout.id }),
+        body: JSON.stringify({ boutId: bout.id, target }),
       });
       const data = await res.json();
       if (!data.ok && data.error) throw new Error(data.error);
-      setAnalysis(data.analysis ?? 'No analysis available.');
+      setState({ loading: false, analysis: data.analysis ?? 'No analysis available.', hadBattleLog: data.hadBattleLog });
     } catch (err: any) {
-      setAnalysisError(err.message);
-    } finally {
-      setAnalysisLoading(false);
+      setState({ loading: false, analysis: null, error: err.message });
     }
   };
 
@@ -373,6 +421,7 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }: {
       </button>
       {open && (
         <div className="border-t border-border/40">
+          {/* Hero comparison grid */}
           <div className="grid grid-cols-2 divide-x divide-border/40">
             {[
               { name: nameA, heroes: bout.heroesA, isWinner: !!winnerIsA },
@@ -398,35 +447,95 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }: {
               </div>
             ))}
           </div>
-          {bout.isComplete && (
-            <div className="border-t border-border/40 p-3 space-y-2">
-              {!analysis && !analysisLoading && (
+
+          {/* Pre-fight prediction vs actual result */}
+          {prediction && bout.isComplete && (
+            <div className="border-t border-border/40 px-3 py-2.5 space-y-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Pre-fight Prediction vs Result</p>
+              <div className="space-y-1">
+                <div className="flex justify-between text-[11px]">
+                  <span className={prediction.pctA >= 50 ? 'text-green-400' : 'text-muted-foreground'}>{nameA} {prediction.pctA}%</span>
+                  <span className={prediction.pctB >= 50 ? 'text-green-400' : 'text-muted-foreground'}>{prediction.pctB}% {nameB}</span>
+                </div>
+                <div className="h-2.5 rounded-full overflow-hidden flex bg-muted">
+                  <div className="h-full bg-green-500/60 transition-all" style={{ width: `${prediction.pctA}%` }} />
+                  <div className="h-full bg-red-500/40 transition-all" style={{ width: `${prediction.pctB}%` }} />
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs">
+                {predictionCorrect ? (
+                  <span className="text-green-400 font-medium">Prediction correct</span>
+                ) : (
+                  <span className="text-amber-400 font-medium">Upset — {winnerName} won against the odds</span>
+                )}
+                <span className="text-muted-foreground/50">·</span>
+                <span className="text-muted-foreground">Actual winner: {winnerName}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Per-player coaching */}
+          {bout.isComplete && winnerName && loserName && (
+            <div className="border-t border-border/40 p-3 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
                 <Button
                   size="sm"
                   variant="outline"
-                  className="w-full text-xs"
-                  onClick={runAnalysis}
-                  data-testid={`btn-bout-analysis-${bout.id}`}
+                  className="text-xs"
+                  onClick={() => runCoach('winner')}
+                  disabled={winnerCoach?.loading}
+                  data-testid={`btn-coach-winner-${bout.id}`}
                 >
-                  <Zap className="w-3 h-3 mr-1.5" />
-                  Get Post-Match Coaching for Losing Team
+                  <Trophy className="w-3 h-3 mr-1.5 text-yellow-400" />
+                  Coach {winnerName}
                 </Button>
-              )}
-              {analysisLoading && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  Generating coaching analysis…
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs"
+                  onClick={() => runCoach('loser')}
+                  disabled={loserCoach?.loading}
+                  data-testid={`btn-coach-loser-${bout.id}`}
+                >
+                  <Shield className="w-3 h-3 mr-1.5 text-blue-400" />
+                  Coach {loserName}
+                </Button>
+              </div>
+
+              {winnerCoach?.loading && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <RefreshCw className="w-3 h-3 animate-spin" />Generating winner coaching…
                 </div>
               )}
-              {analysisError && <p className="text-xs text-destructive">{analysisError}</p>}
-              {analysis && (
+              {winnerCoach?.error && <p className="text-xs text-destructive">{winnerCoach.error}</p>}
+              {winnerCoach?.analysis && (
                 <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-400 mb-1.5 flex items-center gap-1.5">
-                    <Shield className="w-3 h-3" /> Coaching Advice
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-400 mb-1.5 flex items-center gap-1.5">
+                    <Trophy className="w-3 h-3" /> What worked for {winnerName}
+                    {winnerCoach.hadBattleLog && <span className="text-[9px] font-normal text-green-400/70 ml-1">· battle log included</span>}
                   </p>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{analysis}</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{winnerCoach.analysis}</p>
                 </div>
               )}
+
+              {loserCoach?.loading && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <RefreshCw className="w-3 h-3 animate-spin" />Generating improvement coaching…
+                </div>
+              )}
+              {loserCoach?.error && <p className="text-xs text-destructive">{loserCoach.error}</p>}
+              {loserCoach?.analysis && (
+                <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-400 mb-1.5 flex items-center gap-1.5">
+                    <Shield className="w-3 h-3" /> How {loserName} can improve
+                    {loserCoach.hadBattleLog && <span className="text-[9px] font-normal text-green-400/70 ml-1">· battle log included</span>}
+                  </p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{loserCoach.analysis}</p>
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground/40 italic">
+                Analysis based on hero stats and team composition. Turn-by-turn battle logs are fetched from DFK Firebase when available.
+              </p>
             </div>
           )}
         </div>

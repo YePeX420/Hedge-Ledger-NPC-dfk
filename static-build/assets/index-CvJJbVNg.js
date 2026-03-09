@@ -90172,29 +90172,65 @@ function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers }) {
     ] })
   ] });
 }
+function computeBoutPrediction(heroesA, heroesB) {
+  if (!heroesA.length || !heroesB.length) return null;
+  const avg = (heroes, fn) => heroes.reduce((s2, h) => s2 + fn(h), 0) / heroes.length;
+  const offPassives = (heroes) => heroes.filter((h) => h.passive1 != null || h.passive2 != null).length / heroes.length;
+  const uniqueClasses = (heroes) => new Set(heroes.map((h) => h.main_class)).size / heroes.length;
+  const score = (side, other) => {
+    const agiA = avg(side, (h) => h.agility);
+    const agiB = avg(other, (h) => h.agility);
+    const strA = avg(side, (h) => h.strength);
+    const strB = avg(other, (h) => h.strength);
+    const survA = avg(side, (h) => (h.vitality + h.endurance) / 2);
+    const survB = avg(other, (h) => (h.vitality + h.endurance) / 2);
+    const passA = offPassives(side);
+    const passB = offPassives(other);
+    const compA = uniqueClasses(side);
+    const compB = uniqueClasses(other);
+    const factors = [
+      { w: 0.25, a: agiA, b: agiB },
+      { w: 0.3, a: strA, b: strB },
+      { w: 0.2, a: survA, b: survB },
+      { w: 0.1, a: passA, b: passB },
+      { w: 0.15, a: compA, b: compB }
+    ];
+    return factors.reduce((s2, f) => {
+      const tot2 = f.a + f.b;
+      return s2 + f.w * (tot2 > 0 ? f.a / tot2 : 0.5);
+    }, 0);
+  };
+  const sA = score(heroesA, heroesB);
+  const sB = score(heroesB, heroesA);
+  const tot = sA + sB;
+  const pctA = Math.round(sA / tot * 100);
+  return { pctA, pctB: 100 - pctA };
+}
 function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }) {
   const [open, setOpen] = reactExports.useState(false);
-  const [analysis, setAnalysis] = reactExports.useState(null);
-  const [analysisLoading, setAnalysisLoading] = reactExports.useState(false);
-  const [analysisError, setAnalysisError] = reactExports.useState(null);
+  const [winnerCoach, setWinnerCoach] = reactExports.useState(null);
+  const [loserCoach, setLoserCoach] = reactExports.useState(null);
   const winnerIsA = bout.winnerAddress && bout.winnerAddress.toLowerCase() === addrA.toLowerCase();
   const winnerName = winnerIsA ? nameA : bout.winnerAddress ? nameB : null;
-  const runAnalysis = async () => {
-    setAnalysisLoading(true);
-    setAnalysisError(null);
+  const loserName = winnerIsA ? nameB : bout.winnerAddress ? nameA : null;
+  const hasBothHeroes = bout.heroesA.length > 0 && bout.heroesB.length > 0;
+  const prediction = hasBothHeroes ? computeBoutPrediction(bout.heroesA, bout.heroesB) : null;
+  const predWinnerIsA = prediction && prediction.pctA >= 50;
+  const predictionCorrect = prediction && bout.isComplete && bout.winnerAddress && (predWinnerIsA && winnerIsA || !predWinnerIsA && !winnerIsA);
+  const runCoach = async (target) => {
+    const setState = target === "winner" ? setWinnerCoach : setLoserCoach;
+    setState({ loading: true, analysis: null });
     try {
       const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-analysis`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ boutId: bout.id })
+        body: JSON.stringify({ boutId: bout.id, target })
       });
       const data = await res.json();
       if (!data.ok && data.error) throw new Error(data.error);
-      setAnalysis(data.analysis ?? "No analysis available.");
+      setState({ loading: false, analysis: data.analysis ?? "No analysis available.", hadBattleLog: data.hadBattleLog });
     } catch (err) {
-      setAnalysisError(err.message);
-    } finally {
-      setAnalysisLoading(false);
+      setState({ loading: false, analysis: null, error: err.message });
     }
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border border-border/50 rounded-md overflow-hidden", children: [
@@ -90252,33 +90288,105 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }) {
           ] })
         ] }, i)) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: "No heroes indexed" })
       ] }, name)) }),
-      bout.isComplete && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40 p-3 space-y-2", children: [
-        !analysis && !analysisLoading && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          Button,
-          {
-            size: "sm",
-            variant: "outline",
-            className: "w-full text-xs",
-            onClick: runAnalysis,
-            "data-testid": `btn-bout-analysis-${bout.id}`,
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3 h-3 mr-1.5" }),
-              "Get Post-Match Coaching for Losing Team"
-            ]
-          }
-        ),
-        analysisLoading && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs text-muted-foreground py-1", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 animate-spin" }),
-          "Generating coaching analysis…"
-        ] }),
-        analysisError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive", children: analysisError }),
-        analysis && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-amber-500/20 bg-amber-500/5 p-3", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs font-semibold uppercase tracking-wide text-amber-400 mb-1.5 flex items-center gap-1.5", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-3 h-3" }),
-            " Coaching Advice"
+      prediction && bout.isComplete && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40 px-3 py-2.5 space-y-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] font-semibold uppercase tracking-wide text-muted-foreground", children: "Pre-fight Prediction vs Result" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex justify-between text-[11px]", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: prediction.pctA >= 50 ? "text-green-400" : "text-muted-foreground", children: [
+              nameA,
+              " ",
+              prediction.pctA,
+              "%"
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: prediction.pctB >= 50 ? "text-green-400" : "text-muted-foreground", children: [
+              prediction.pctB,
+              "% ",
+              nameB
+            ] })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground leading-relaxed", children: analysis })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-2.5 rounded-full overflow-hidden flex bg-muted", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-full bg-green-500/60 transition-all", style: { width: `${prediction.pctA}%` } }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-full bg-red-500/40 transition-all", style: { width: `${prediction.pctB}%` } })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 text-xs", children: [
+          predictionCorrect ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-green-400 font-medium", children: "Prediction correct" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-amber-400 font-medium", children: [
+            "Upset — ",
+            winnerName,
+            " won against the odds"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground/50", children: "·" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
+            "Actual winner: ",
+            winnerName
+          ] })
         ] })
+      ] }),
+      bout.isComplete && winnerName && loserName && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40 p-3 space-y-3", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-2 gap-2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            Button,
+            {
+              size: "sm",
+              variant: "outline",
+              className: "text-xs",
+              onClick: () => runCoach("winner"),
+              disabled: winnerCoach?.loading,
+              "data-testid": `btn-coach-winner-${bout.id}`,
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-3 h-3 mr-1.5 text-yellow-400" }),
+                "Coach ",
+                winnerName
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            Button,
+            {
+              size: "sm",
+              variant: "outline",
+              className: "text-xs",
+              onClick: () => runCoach("loser"),
+              disabled: loserCoach?.loading,
+              "data-testid": `btn-coach-loser-${bout.id}`,
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-3 h-3 mr-1.5 text-blue-400" }),
+                "Coach ",
+                loserName
+              ]
+            }
+          )
+        ] }),
+        winnerCoach?.loading && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs text-muted-foreground", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 animate-spin" }),
+          "Generating winner coaching…"
+        ] }),
+        winnerCoach?.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive", children: winnerCoach.error }),
+        winnerCoach?.analysis && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-amber-500/20 bg-amber-500/5 p-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] font-semibold uppercase tracking-wide text-amber-400 mb-1.5 flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-3 h-3" }),
+            " What worked for ",
+            winnerName,
+            winnerCoach.hadBattleLog && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-normal text-green-400/70 ml-1", children: "· battle log included" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground leading-relaxed", children: winnerCoach.analysis })
+        ] }),
+        loserCoach?.loading && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs text-muted-foreground", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 animate-spin" }),
+          "Generating improvement coaching…"
+        ] }),
+        loserCoach?.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive", children: loserCoach.error }),
+        loserCoach?.analysis && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-blue-500/20 bg-blue-500/5 p-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] font-semibold uppercase tracking-wide text-blue-400 mb-1.5 flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-3 h-3" }),
+            " How ",
+            loserName,
+            " can improve",
+            loserCoach.hadBattleLog && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-normal text-green-400/70 ml-1", children: "· battle log included" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground leading-relaxed", children: loserCoach.analysis })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] text-muted-foreground/40 italic", children: "Analysis based on hero stats and team composition. Turn-by-turn battle logs are fetched from DFK Firebase when available." })
       ] })
     ] })
   ] });
