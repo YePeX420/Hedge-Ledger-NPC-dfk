@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
-import { ArrowLeft, Trophy, Medal, Copy, Check, Users, Gift, Info, RefreshCw, Shield, Sword, Zap, Star, X, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Trophy, Medal, Copy, Check, Users, Gift, Info, RefreshCw, Shield, Sword, Zap, Star, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -880,14 +880,64 @@ function HeroCard({ hero, index, onHeroClick }: { hero: HeroDetail; index: numbe
   );
 }
 
+// ─── Team ranking result types ────────────────────────────────────────────────
+
+interface TeamRankEntry {
+  address: string;
+  playerName: string | null;
+  partyIndex: number;
+  heroClasses: string[];
+  avgWinRate: number;
+  exp: number;
+  expRecord: { wins: number; losses: number } | null;
+  teamStats: { dps: number; surv: number; passiveDps: number; comp: number; initAvg: number };
+}
+
+interface RankResult {
+  rankings: TeamRankEntry[];
+  narrative: string | null;
+  playerCount: number;
+}
+
 // ─── Players tab ──────────────────────────────────────────────────────────────
 
-function PlayersTab({ players, maxEntrants, totalEntrants }: {
+const RANK_MEDALS = [
+  <Trophy className="w-3.5 h-3.5 text-yellow-400" />,
+  <Medal className="w-3.5 h-3.5 text-slate-300" />,
+  <Medal className="w-3.5 h-3.5 text-amber-600" />,
+];
+
+function PlayersTab({ players, maxEntrants, totalEntrants, tournamentId }: {
   players: PlayerEntry[];
   maxEntrants: number;
   totalEntrants: number;
+  tournamentId: string;
 }) {
   const [selectedHero, setSelectedHero] = useState<HeroDetail | null>(null);
+  const [rankResult, setRankResult] = useState<RankResult | null>(null);
+  const [rankLoading, setRankLoading] = useState(false);
+  const [rankError, setRankError] = useState<string | null>(null);
+  const [rankOpen, setRankOpen] = useState(true);
+
+  const eligibleCount = players.filter(p => p.heroes.length > 0).length;
+
+  const runRanking = async () => {
+    setRankLoading(true);
+    setRankError(null);
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/rank-teams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Ranking failed');
+      setRankResult(data);
+    } catch (err: any) {
+      setRankError(err.message);
+    } finally {
+      setRankLoading(false);
+    }
+  };
 
   if (players.length === 0) {
     return (
@@ -901,43 +951,161 @@ function PlayersTab({ players, maxEntrants, totalEntrants }: {
 
   const sorted = [...players].sort((a, b) => a.partyIndex - b.partyIndex);
 
+  // Build a rank position map from ranking results for badge display
+  const rankMap: Record<string, number> = {};
+  if (rankResult) {
+    rankResult.rankings.forEach((r, i) => { rankMap[r.address.toLowerCase()] = i; });
+  }
+
   return (
     <>
       {selectedHero && <HeroDetailModal hero={selectedHero} onClose={() => setSelectedHero(null)} />}
       <div className="space-y-4" data-testid="section-players">
-        <p className="text-sm text-muted-foreground">{totalEntrants} / {maxEntrants} players — click a hero for full stats</p>
-        {sorted.map((player, idx) => (
-          <div
-            key={player.address}
-            className="rounded-md border border-border/50 overflow-hidden"
-            data-testid={`card-player-${idx}`}
-          >
-            {/* Player header */}
-            <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 border-b border-border/40">
-              <span className="text-xs text-muted-foreground w-6 shrink-0">#{player.partyIndex + 1}</span>
-              {player.playerName && (
-                <span className="text-sm font-medium truncate flex-1 min-w-0">{player.playerName}</span>
-              )}
-              <span className="font-mono text-xs text-muted-foreground shrink-0">{shortAddr(player.address)}</span>
-              <CopyButton text={player.address} />
-            </div>
 
-            {/* Hero cards */}
-            <div className="p-3 space-y-3">
-              {player.heroes.length > 0 ? (
-                player.heroes.map((hero, hi) => (
-                  <HeroCard key={hero.id} hero={hero} index={hi} onHeroClick={setSelectedHero} />
-                ))
-              ) : player.heroIds.length > 0 ? (
-                <div className="text-xs text-muted-foreground py-2">
-                  Heroes: {player.heroIds.join(', ')} — loading details unavailable
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground py-2">No hero data available</div>
+        {/* AI Rank Teams panel */}
+        <div className="rounded-md border border-border/50 overflow-hidden">
+          <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 border-b border-border/40 flex-wrap gap-y-2">
+            <Zap className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+            <span className="text-sm font-medium flex-1 min-w-0">AI Team Power Ranking</span>
+            <div className="flex items-center gap-2 shrink-0">
+              {eligibleCount >= 2 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={runRanking}
+                  disabled={rankLoading}
+                  data-testid="btn-rank-teams"
+                >
+                  {rankLoading
+                    ? <><RefreshCw className="w-3 h-3 mr-1.5 animate-spin" />Ranking…</>
+                    : rankResult
+                    ? <><RefreshCw className="w-3 h-3 mr-1.5" />Re-rank</>
+                    : <><Zap className="w-3 h-3 mr-1.5 text-yellow-400" />Rank {eligibleCount} Teams</>
+                  }
+                </Button>
+              )}
+              {rankResult && (
+                <Button size="icon" variant="ghost" onClick={() => setRankOpen(v => !v)} data-testid="btn-rank-toggle">
+                  {rankOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </Button>
               )}
             </div>
           </div>
-        ))}
+
+          {rankError && (
+            <div className="px-4 py-3 text-sm text-destructive">{rankError}</div>
+          )}
+
+          {!rankResult && !rankLoading && !rankError && eligibleCount < 2 && (
+            <div className="px-4 py-3 text-sm text-muted-foreground">
+              {eligibleCount === 0 ? 'No teams with hero data yet.' : 'Need at least 2 teams with heroes to rank.'}
+            </div>
+          )}
+
+          {!rankResult && !rankLoading && !rankError && eligibleCount >= 2 && (
+            <div className="px-4 py-3 text-sm text-muted-foreground">
+              Click "Rank {eligibleCount} Teams" to score all entrants using the 6-factor prediction engine and get an AI-generated field assessment.
+            </div>
+          )}
+
+          {rankResult && rankOpen && (
+            <div className="divide-y divide-border/30">
+              {/* AI narrative */}
+              {rankResult.narrative && (
+                <div className="px-4 py-3 bg-blue-500/5 border-b border-blue-500/20">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-400 mb-1.5 flex items-center gap-1.5">
+                    <Star className="w-3 h-3" /> Field Assessment
+                  </p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{rankResult.narrative}</p>
+                </div>
+              )}
+
+              {/* Ranking rows */}
+              {rankResult.rankings.map((entry, i) => (
+                <div
+                  key={entry.address}
+                  className={`flex items-center gap-3 px-4 py-2.5 flex-wrap gap-y-1 ${i === 0 ? 'bg-yellow-500/5' : ''}`}
+                  data-testid={`row-rank-${i}`}
+                >
+                  <div className="w-5 shrink-0 flex items-center justify-center">
+                    {RANK_MEDALS[i] ?? <span className="text-xs text-muted-foreground font-mono">{i + 1}</span>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium truncate">
+                        {entry.playerName || shortAddr(entry.address)}
+                      </span>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {entry.heroClasses.map((cls, ci) => (
+                          <Badge key={ci} variant="secondary" className="text-[10px] px-1.5 py-0">{cls}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                    {entry.expRecord && (entry.expRecord.wins + entry.expRecord.losses) >= 3 && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Historical: {entry.expRecord.wins}W – {entry.expRecord.losses}L
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 flex items-center gap-2">
+                    <span className={`text-sm font-bold tabular-nums ${entry.avgWinRate >= 60 ? 'text-green-400' : entry.avgWinRate >= 50 ? 'text-muted-foreground' : 'text-red-400/70'}`}>
+                      {entry.avgWinRate}%
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">proj. win rate</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <p className="text-sm text-muted-foreground">{totalEntrants} / {maxEntrants} players — click a hero for full stats</p>
+
+        {sorted.map((player, idx) => {
+          const rankPos = rankMap[player.address.toLowerCase()];
+          const hasRank = rankResult != null && rankPos !== undefined;
+          return (
+            <div
+              key={player.address}
+              className="rounded-md border border-border/50 overflow-hidden"
+              data-testid={`card-player-${idx}`}
+            >
+              {/* Player header */}
+              <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 border-b border-border/40 flex-wrap gap-y-1">
+                <span className="text-xs text-muted-foreground w-6 shrink-0">#{player.partyIndex + 1}</span>
+                {player.playerName && (
+                  <span className="text-sm font-medium truncate flex-1 min-w-0">{player.playerName}</span>
+                )}
+                {hasRank && (
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] px-1.5 shrink-0 ${rankPos === 0 ? 'border-yellow-400/50 text-yellow-400' : rankPos === 1 ? 'border-slate-300/50 text-slate-300' : rankPos === 2 ? 'border-amber-600/50 text-amber-500' : 'border-border/50 text-muted-foreground'}`}
+                    data-testid={`badge-rank-${idx}`}
+                  >
+                    #{rankPos + 1} · {rankResult!.rankings[rankPos].avgWinRate}%
+                  </Badge>
+                )}
+                <span className="font-mono text-xs text-muted-foreground shrink-0">{shortAddr(player.address)}</span>
+                <CopyButton text={player.address} />
+              </div>
+
+              {/* Hero cards */}
+              <div className="p-3 space-y-3">
+                {player.heroes.length > 0 ? (
+                  player.heroes.map((hero, hi) => (
+                    <HeroCard key={hero.id} hero={hero} index={hi} onHeroClick={setSelectedHero} />
+                  ))
+                ) : player.heroIds.length > 0 ? (
+                  <div className="text-xs text-muted-foreground py-2">
+                    Heroes: {player.heroIds.join(', ')} — loading details unavailable
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground py-2">No hero data available</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </>
   );
@@ -1309,7 +1477,7 @@ export default function TournamentBracketPage({ id }: Props) {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <PlayersTab players={players} maxEntrants={t.maxEntrants} totalEntrants={t.entrantsClaimed} />
+              <PlayersTab players={players} maxEntrants={t.maxEntrants} totalEntrants={t.entrantsClaimed} tournamentId={id} />
             </CardContent>
           </Card>
         </TabsContent>

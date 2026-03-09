@@ -10675,6 +10675,172 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/tournament/bracket/:id/rank-teams — AI-powered team ranking for all entrants
+  app.post('/api/admin/tournament/bracket/:id/rank-teams', isAdmin, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
+
+      const cached = _bracketDetailCache.get(tournamentId);
+      if (!cached) return res.status(404).json({ ok: false, error: 'Tournament not in cache — load the bracket page first' });
+
+      const { players, tournament } = cached.data;
+      const eligible = players.filter(p => p.heroes && p.heroes.length > 0);
+      if (eligible.length < 2) return res.status(400).json({ ok: false, error: 'Need at least 2 players with hero data to rank' });
+
+      // Same prediction helpers as ai-matchup endpoint
+      const HEALER_CLASSES = new Set(['Priest', 'Paladin', 'Druid', 'Shaman']);
+      const PASSIVE_SURV = { 15: 0.15, 14: 0.06, 1: 0.02 };
+      const PASSIVE_DPS  = { 12: 0.03, 13: 0.04, 1: 0.01 };
+
+      function heroProfile(h) {
+        const AGI = h.agility ?? 10, LCK = h.luck ?? 10;
+        const STR = h.strength ?? 10, INT = h.intelligence ?? 10;
+        const VIT = h.vitality ?? 10, END = h.endurance ?? 10;
+        const p1 = Number(h.passive1 ?? -1), p2 = Number(h.passive2 ?? -1);
+        return {
+          initMin: 2 * (AGI - LCK / 2), initMax: 2 * (AGI + LCK / 2),
+          hp: VIT * 10 + END * 5, pdef: END * 0.5, eva: AGI / 200,
+          dpsRaw: STR + INT * 0.7,
+          survScore: (PASSIVE_SURV[p1] ?? 0) + (PASSIVE_SURV[p2] ?? 0),
+          dpsScore:  (PASSIVE_DPS[p1]  ?? 0) + (PASSIVE_DPS[p2]  ?? 0),
+          isHealer: HEALER_CLASSES.has(h.mainClassStr ?? ''),
+          hasLeadership: p1 === 9 || p2 === 9,
+          hasMenacing:   p1 === 11 || p2 === 11,
+        };
+      }
+
+      function teamScore(profiles) {
+        const ldBonus = Math.min(profiles.filter(p => p.hasLeadership).length * 0.05, 0.15);
+        const mnBonus = Math.min(profiles.filter(p => p.hasMenacing).length * 0.05, 0.15);
+        const rawDps  = profiles.reduce((s, p) => s + p.dpsRaw, 0);
+        const effDps  = rawDps * (1 + ldBonus); // self leadership bonus (menacing affects opponents)
+        const surv    = profiles.reduce((s, p) => s + (p.hp + p.pdef * 5 + p.eva * 200) * (1 + p.survScore), 0);
+        const passiveDps = profiles.reduce((s, p) => s + p.dpsScore, 0);
+        const hasHealer  = profiles.some(p => p.isHealer);
+        const comp = Math.min(1, 0.5 + (hasHealer ? 0.10 : 0) + ldBonus);
+        const initAvg = profiles.reduce((s, p) => s + (p.initMin + p.initMax) / 2, 0) / profiles.length;
+        return { effDps, surv, passiveDps, comp, initAvg, mnBonus, heroCount: profiles.length };
+      }
+
+      // Historical win rate lookup for all players
+      let expMap = {};
+      try {
+        const { rawPg: rp } = await import('./server/db.js');
+        const addrs = eligible.map(p => p.address.toLowerCase());
+        const histRows = await rp.unsafe(`
+          SELECT addr, SUM(wins)::int AS wins, SUM(losses)::int AS losses FROM (
+            SELECT LOWER(player_a) AS addr,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_a) THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_b) THEN 1 ELSE 0 END) AS losses
+            FROM dfk_tournament_bouts WHERE LOWER(player_a) = ANY($1) GROUP BY LOWER(player_a)
+            UNION ALL
+            SELECT LOWER(player_b) AS addr,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_b) THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_a) THEN 1 ELSE 0 END) AS losses
+            FROM dfk_tournament_bouts WHERE LOWER(player_b) = ANY($1) GROUP BY LOWER(player_b)
+          ) sub GROUP BY addr
+        `, [addrs]);
+        for (const r of histRows) expMap[r.addr] = { wins: r.wins, losses: r.losses };
+      } catch (_) {}
+
+      const calcExp = (addr) => {
+        const r = expMap[addr.toLowerCase()];
+        if (!r) return 0.5;
+        const total = r.wins + r.losses;
+        if (total < 3) return 0.5;
+        return 0.5 + (r.wins / total - 0.5) * Math.min(total, 10) / 10;
+      };
+
+      // Score every team — use average head-to-head score against all others
+      const teamScores = eligible.map(p => ({
+        player: p,
+        profiles: p.heroes.map(heroProfile),
+        exp: calcExp(p.address),
+      }));
+
+      // Round-robin: accumulate normalised win probability vs every opponent
+      const rankings = teamScores.map((me, i) => {
+        let totalScore = 0;
+        let opponents = 0;
+        const ms = teamScore(me.profiles);
+
+        for (let j = 0; j < teamScores.length; j++) {
+          if (i === j) continue;
+          const opp = teamScores[j];
+          const os = teamScore(opp.profiles);
+          // Apply menacing cross-debuff between this pair
+          const myEffDps  = ms.effDps  * (1 - os.mnBonus);
+          const oppEffDps = os.effDps  * (1 - ms.mnBonus);
+          const initWin = ms.initAvg > os.initAvg ? 0.6 : ms.initAvg < os.initAvg ? 0.4 : 0.5;
+          const f = (a, b) => (a + b) === 0 ? 0.5 : a / (a + b);
+          const raw = 0.25 * initWin
+                    + 0.30 * f(myEffDps, oppEffDps)
+                    + 0.20 * f(ms.surv, os.surv)
+                    + 0.10 * f(ms.passiveDps, os.passiveDps)
+                    + 0.10 * f(ms.comp, os.comp)
+                    + 0.05 * f(me.exp, opp.exp);
+          totalScore += raw;
+          opponents++;
+        }
+
+        const avgWinRate = opponents > 0 ? totalScore / opponents : 0.5;
+        const ms2 = teamScore(me.profiles);
+        return {
+          address: me.player.address,
+          playerName: me.player.playerName,
+          partyIndex: me.player.partyIndex,
+          heroClasses: me.player.heroes.map(h => h.mainClassStr ?? 'Hero'),
+          avgWinRate: Math.round(avgWinRate * 1000) / 10,
+          exp: me.exp,
+          expRecord: expMap[me.player.address.toLowerCase()] ?? null,
+          teamStats: {
+            dps:       Math.round(ms2.effDps),
+            surv:      Math.round(ms2.surv),
+            passiveDps: Math.round(ms2.passiveDps * 100) / 100,
+            comp:      Math.round(ms2.comp * 100) / 100,
+            initAvg:   Math.round(ms2.initAvg * 10) / 10,
+          },
+        };
+      });
+
+      rankings.sort((a, b) => b.avgWinRate - a.avgWinRate);
+
+      // Brief AI narrative on the top two teams
+      let narrative = null;
+      try {
+        if (rankings.length >= 2) {
+          const top = rankings[0];
+          const sec = rankings[1];
+          const fmt = (r) => {
+            const p = eligible.find(p => p.address === r.address);
+            const name = r.playerName || r.address.slice(0, 6) + '…' + r.address.slice(-4);
+            const classes = (p?.heroes ?? []).map(h =>
+              `${h.mainClassStr ?? 'Hero'} Lv${h.level} (STR${h.strength} AGI${h.agility} VIT${h.vitality} END${h.endurance}${h.passive1 ? ` P1:${h.passive1}` : ''}${h.passive2 ? ` P2:${h.passive2}` : ''})`
+            ).join(', ');
+            return `${name} (${r.avgWinRate}% projected win rate): ${classes}`;
+          };
+          const prompt = [
+            `You are a DeFi Kingdoms PvP analyst. ${eligible.length} teams have entered tournament "${tournament.name || tournamentId}" (format: ${tournament.format || 'standard'}, best-of: ${tournament.bestOf}).`,
+            `Top-ranked team: ${fmt(top)}`,
+            `2nd-ranked team: ${fmt(sec)}`,
+            `In 2-3 sentences: explain why the top team leads the field (mention specific class strengths, passives, or stats), and identify the main threat to their dominance. Be direct, no markdown.`,
+          ].join('\n');
+          const aiResp = await openai.chat.completions.create({
+            model: OPENAI_MODEL, max_tokens: 160,
+            messages: [{ role: 'user', content: prompt }],
+          });
+          narrative = aiResp.choices?.[0]?.message?.content?.trim() ?? null;
+        }
+      } catch (_) {}
+
+      res.json({ ok: true, rankings, narrative, playerCount: eligible.length });
+    } catch (err) {
+      console.error('[RankTeams] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // ─── Firebase / DFK Battle Log Integration ───────────────────────────────────
   // DFK stores turn-by-turn battle logs in Firebase Firestore:
   //   Collection: battles/{battleId}/battle-logs (subcollection)
