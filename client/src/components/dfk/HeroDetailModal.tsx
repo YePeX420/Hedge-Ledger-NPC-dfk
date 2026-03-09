@@ -14,6 +14,7 @@ import {
   getPetBonusName,
   getPetStatLabel,
   ARMOR_RESIST_NAMES,
+  getAccessoryDisplayBonuses,
 } from '@/data/dfk-equipment-bonuses';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -206,9 +207,20 @@ function ArmorSlotDisplay({ armor }: { armor: HeroArmor }) {
 function AccessorySlotDisplay({ item, label }: { item: HeroAccessory; label: string }) {
   const displayName = item.itemName ?? `Accessory #${item.displayId}`;
   const rarityColor = RARITY_COLORS[item.rarity] ?? 'text-muted-foreground';
+  const bonuses = getAccessoryDisplayBonuses(
+    item.equipmentType,
+    item.bonus1, item.bonusScalar1,
+    item.bonus2, item.bonusScalar2,
+    item.bonus3, item.bonusScalar3,
+    item.bonus4, item.bonusScalar4,
+    item.bonus5, item.bonusScalar5,
+  );
   return (
     <EquipSlot label={label} icon={<Zap className="w-4 h-4" />}>
       <span className={`text-xs font-medium ${rarityColor}`}>{displayName}</span>
+      {bonuses.map((b, i) => (
+        <span key={i} className="text-xs text-muted-foreground ml-2">{b.label} {b.pct}</span>
+      ))}
       <div className="mt-0.5">
         <DurabilityBar current={item.durability} max={item.maxDurability} />
       </div>

@@ -109,6 +109,59 @@ export function getAccessoryBonusTable(equipmentType: number) {
   return null;
 }
 
+const ACCESSORY_EFFECT_LABELS: Record<string, string> = {
+  physAccuracy:        'p.Acc',
+  magicAccuracy:       'm.Acc',
+  blkChance:           'Blk%',
+  sblkChance:          'SBlk%',
+  blkReduction:        'BlkRed',
+  sblkReduction:       'SBlkRed',
+  speed:               'Spd',
+  evasion:             'Eva',
+  critDamage:          'Crit Dmg',
+  physDefPct:          'p.Def%',
+  magicDefPct:         'm.Def%',
+  physDefFlat:         'p.Def',
+  magicDefFlat:        'm.Def',
+  physAccuracyDown:    'p.Acc↓',
+  magicAccuracyDown:   'm.Acc↓',
+  physicalDamage:      'p.Dmg',
+  magicDamage:         'm.Dmg',
+  riposte:             'Riposte',
+  attackPct:           'Atk%',
+  spellPct:            'Spl%',
+  physDamageReduction: 'p.DR',
+  magicDamageReduction:'m.DR',
+  pullRes:             'PullRes',
+  pushRes:             'PushRes',
+};
+
+export function getAccessoryDisplayBonuses(
+  equipmentType: number,
+  bonus1: number, scalar1: number,
+  bonus2: number, scalar2: number,
+  bonus3: number, scalar3: number,
+  bonus4: number, scalar4: number,
+  bonus5: number, scalar5: number,
+): { label: string; pct: string }[] {
+  const table = getAccessoryBonusTable(equipmentType);
+  if (!table) return [];
+  const slots: [number, number][] = [
+    [bonus1, scalar1], [bonus2, scalar2], [bonus3, scalar3],
+    [bonus4, scalar4], [bonus5, scalar5],
+  ];
+  const result: { label: string; pct: string }[] = [];
+  for (const [code, scalar] of slots) {
+    if (!code) continue;
+    const effectKey = (table as Record<number, string>)[code];
+    if (!effectKey || effectKey.startsWith('__')) continue;
+    const label = ACCESSORY_EFFECT_LABELS[effectKey] ?? effectKey;
+    const pct = `${(scalar / 100).toFixed(1)}%`;
+    result.push({ label, pct });
+  }
+  return result;
+}
+
 /**
  * Official DFK encoding from weapon docs.
  * Raw values >= 128 encode a negative speed modifier.

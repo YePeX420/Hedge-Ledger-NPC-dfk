@@ -85043,7 +85043,7 @@ function ScheduledTournamentsTab() {
       ] }) }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheck, { className: "w-4 h-4 text-muted-foreground/60" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-medium", children: "Completed this session" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-medium", children: "Completed" }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground", children: [
             "(",
             completedTournaments.length,
@@ -87868,6 +87868,53 @@ function getAccessoryBonusTable(equipmentType) {
   if (equipmentType === 2 || equipmentType === 3) return OFFHAND_BONUS;
   return null;
 }
+const ACCESSORY_EFFECT_LABELS = {
+  physAccuracy: "p.Acc",
+  magicAccuracy: "m.Acc",
+  blkChance: "Blk%",
+  sblkChance: "SBlk%",
+  blkReduction: "BlkRed",
+  sblkReduction: "SBlkRed",
+  speed: "Spd",
+  evasion: "Eva",
+  critDamage: "Crit Dmg",
+  physDefPct: "p.Def%",
+  magicDefPct: "m.Def%",
+  physDefFlat: "p.Def",
+  magicDefFlat: "m.Def",
+  physAccuracyDown: "p.Acc↓",
+  magicAccuracyDown: "m.Acc↓",
+  physicalDamage: "p.Dmg",
+  magicDamage: "m.Dmg",
+  riposte: "Riposte",
+  attackPct: "Atk%",
+  spellPct: "Spl%",
+  physDamageReduction: "p.DR",
+  magicDamageReduction: "m.DR",
+  pullRes: "PullRes",
+  pushRes: "PushRes"
+};
+function getAccessoryDisplayBonuses(equipmentType, bonus1, scalar1, bonus2, scalar2, bonus3, scalar3, bonus4, scalar4, bonus5, scalar5) {
+  const table = getAccessoryBonusTable(equipmentType);
+  if (!table) return [];
+  const slots = [
+    [bonus1, scalar1],
+    [bonus2, scalar2],
+    [bonus3, scalar3],
+    [bonus4, scalar4],
+    [bonus5, scalar5]
+  ];
+  const result = [];
+  for (const [code, scalar] of slots) {
+    if (!code) continue;
+    const effectKey = table[code];
+    if (!effectKey || effectKey.startsWith("__")) continue;
+    const label = ACCESSORY_EFFECT_LABELS[effectKey] ?? effectKey;
+    const pct = `${(scalar / 100).toFixed(1)}%`;
+    result.push({ label, pct });
+  }
+  return result;
+}
 function decodeWeaponSpeedModifier(raw) {
   if (!raw) return 0;
   return (1 - 2 * Math.floor(raw / 128)) * (raw % 128);
@@ -88402,8 +88449,26 @@ function ArmorSlotDisplay$1({ armor }) {
 function AccessorySlotDisplay$1({ item, label }) {
   const displayName2 = item.itemName ?? `Accessory #${item.displayId}`;
   const rarityColor = RARITY_COLORS$2[item.rarity] ?? "text-muted-foreground";
+  const bonuses = getAccessoryDisplayBonuses(
+    item.equipmentType,
+    item.bonus1,
+    item.bonusScalar1,
+    item.bonus2,
+    item.bonusScalar2,
+    item.bonus3,
+    item.bonusScalar3,
+    item.bonus4,
+    item.bonusScalar4,
+    item.bonus5,
+    item.bonusScalar5
+  );
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(EquipSlot$1, { label, icon: /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-4 h-4" }), children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs font-medium ${rarityColor}`, children: displayName2 }),
+    bonuses.map((b, i) => /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground ml-2", children: [
+      b.label,
+      " ",
+      b.pct
+    ] }, i)),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mt-0.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DurabilityBar$1, { current: item.durability, max: item.maxDurability }) })
   ] });
 }
@@ -89705,6 +89770,7 @@ function shortAddr(addr) {
 }
 function displayName(addr, name) {
   if (name) return name;
+  if (!addr) return "TBD";
   return shortAddr(addr);
 }
 function formatDate(ts) {
