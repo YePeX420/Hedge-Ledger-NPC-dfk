@@ -90219,22 +90219,41 @@ function computeBoutPrediction(heroesA, heroesB) {
   const pctA = Math.round(sA / tot * 100);
   return { pctA, pctB: 100 - pctA };
 }
-function BattleLogViewer({ tournamentId, boutId }) {
+function BattleLogViewer({
+  tournamentId,
+  boutId,
+  isLive,
+  onLogLoaded
+}) {
   const [state, setState] = reactExports.useState({ data: null, loading: false, open: false });
-  const load = async () => {
-    if (state.data !== null) {
-      setState((s2) => ({ ...s2, open: !s2.open }));
-      return;
-    }
-    setState((s2) => ({ ...s2, loading: true, open: true }));
+  const intervalRef = reactExports.useRef(null);
+  const fetchLog = async (silent = false) => {
+    if (!silent) setState((s2) => ({ ...s2, loading: true }));
     try {
       const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-battle-log?boutId=${boutId}`);
       const data = await res.json();
-      setState({ data, loading: false, open: true });
+      setState((s2) => ({ ...s2, data, loading: false, open: s2.open || !silent }));
+      onLogLoaded?.((data.turns?.length ?? 0) > 0);
     } catch (err) {
-      setState((s2) => ({ ...s2, loading: false, error: err.message, open: true }));
+      setState((s2) => ({ ...s2, loading: false, error: err.message }));
     }
   };
+  const toggle = () => {
+    if (state.data !== null) {
+      setState((s2) => ({ ...s2, open: !s2.open }));
+    } else {
+      setState((s2) => ({ ...s2, open: true }));
+      fetchLog(false);
+    }
+  };
+  reactExports.useEffect(() => {
+    if (isLive && state.open) {
+      intervalRef.current = setInterval(() => fetchLog(true), 15e3);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [isLive, state.open, boutId, tournamentId]);
   const turns = state.data?.turns ?? [];
   const hasTurns = turns.length > 0;
   const battleId = state.data?.battleId;
@@ -90243,11 +90262,12 @@ function BattleLogViewer({ tournamentId, boutId }) {
       "button",
       {
         className: "w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/20 transition-colors",
-        onClick: load,
+        onClick: toggle,
         "data-testid": `btn-battle-log-${boutId}`,
         children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(ScrollText, { className: "w-3.5 h-3.5 text-muted-foreground shrink-0" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground flex-1", children: "Battle Log" }),
+          isLive && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-bold text-green-400 animate-pulse mr-1", children: "● Live" }),
           state.data !== null && (hasTurns ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-green-400", children: [
             turns.length,
             " turns · Firebase"
@@ -90258,13 +90278,16 @@ function BattleLogViewer({ tournamentId, boutId }) {
       }
     ),
     state.open && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "px-3 pb-3", children: [
-      state.loading && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs text-muted-foreground py-2", children: [
+      state.loading && !state.data && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs text-muted-foreground py-2", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 animate-spin" }),
         "Fetching battle log from Firebase…"
       ] }),
       state.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive py-1", children: state.error }),
       state.data && !hasTurns && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-muted-foreground py-1", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "No turn data found for this bout in Firebase." }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+          "No turn data found for this bout in Firebase yet.",
+          isLive && " Refreshing every 15s…"
+        ] }),
         state.data.candidatesTried && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] mt-1 text-muted-foreground/50", children: [
           "Tried ",
           state.data.candidatesTried.length,
@@ -90300,10 +90323,13 @@ function BattleLogViewer({ tournamentId, boutId }) {
     ] })
   ] });
 }
-function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }) {
+function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament }) {
   const [open, setOpen] = reactExports.useState(false);
   const [winnerCoach, setWinnerCoach] = reactExports.useState(null);
   const [loserCoach, setLoserCoach] = reactExports.useState(null);
+  const [liveCoachA, setLiveCoachA] = reactExports.useState(null);
+  const [liveCoachB, setLiveCoachB] = reactExports.useState(null);
+  const [battleLogHasData, setBattleLogHasData] = reactExports.useState(false);
   const winnerIsA = bout.winnerAddress && bout.winnerAddress.toLowerCase() === addrA.toLowerCase();
   const winnerName = winnerIsA ? nameA : bout.winnerAddress ? nameB : null;
   const loserName = winnerIsA ? nameB : bout.winnerAddress ? nameA : null;
@@ -90325,6 +90351,22 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }) {
       setState({ loading: false, analysis: data.analysis ?? "No analysis available.", hadBattleLog: data.hadBattleLog });
     } catch (err) {
       setState({ loading: false, analysis: null, error: err.message });
+    }
+  };
+  const runLiveCoach = async (perspective) => {
+    const setCoach = perspective === "a" ? setLiveCoachA : setLiveCoachB;
+    setCoach({ loading: true, analysis: null });
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-live-coach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ boutId: bout.id, perspective })
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) throw new Error(data.error);
+      setCoach({ loading: false, analysis: data.analysis ?? "No analysis available.", playerName: data.playerName, hadBattleLog: data.hadBattleLog, turnsCount: data.turnsCount });
+    } catch (err) {
+      setCoach({ loading: false, analysis: null, error: err.message });
     }
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border border-border/50 rounded-md overflow-hidden", children: [
@@ -90382,7 +90424,92 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }) {
           ] })
         ] }, i)) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: "No heroes indexed" })
       ] }, name)) }),
-      bout.isComplete && /* @__PURE__ */ jsxRuntimeExports.jsx(BattleLogViewer, { tournamentId, boutId: bout.id }),
+      (bout.isComplete || isLiveTournament) && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        BattleLogViewer,
+        {
+          tournamentId,
+          boutId: bout.id,
+          isLive: isLiveTournament && !bout.isComplete,
+          onLogLoaded: setBattleLogHasData
+        }
+      ),
+      isLiveTournament && !bout.isComplete && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40 p-3 space-y-3", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 mb-1", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3.5 h-3.5 text-yellow-400 shrink-0" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-semibold text-muted-foreground uppercase tracking-wide", children: "AI Tactical Advisor" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-bold text-green-400 animate-pulse ml-1", children: "● Live" }),
+          battleLogHasData && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] text-muted-foreground/50 ml-auto", children: "Battle log included" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-2 gap-2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              size: "sm",
+              variant: "outline",
+              className: "text-xs",
+              onClick: () => runLiveCoach("a"),
+              disabled: liveCoachA?.loading,
+              "data-testid": `btn-live-coach-a-${bout.id}`,
+              children: liveCoachA?.loading ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 mr-1.5 animate-spin" }),
+                "Advising…"
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3 h-3 mr-1.5 text-yellow-400" }),
+                "Advise ",
+                nameA
+              ] })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              size: "sm",
+              variant: "outline",
+              className: "text-xs",
+              onClick: () => runLiveCoach("b"),
+              disabled: liveCoachB?.loading,
+              "data-testid": `btn-live-coach-b-${bout.id}`,
+              children: liveCoachB?.loading ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 mr-1.5 animate-spin" }),
+                "Advising…"
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3 h-3 mr-1.5 text-yellow-400" }),
+                "Advise ",
+                nameB
+              ] })
+            }
+          )
+        ] }),
+        liveCoachA?.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive", children: liveCoachA.error }),
+        liveCoachA?.analysis && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-yellow-500/20 bg-yellow-500/5 p-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] font-semibold uppercase tracking-wide text-yellow-400 mb-1.5 flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3 h-3" }),
+            " Tactical advice for ",
+            liveCoachA.playerName ?? nameA,
+            liveCoachA.hadBattleLog && liveCoachA.turnsCount && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[9px] font-normal text-green-400/70 ml-1", children: [
+              "· ",
+              liveCoachA.turnsCount,
+              " turns analysed"
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground leading-relaxed", children: liveCoachA.analysis })
+        ] }),
+        liveCoachB?.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive", children: liveCoachB.error }),
+        liveCoachB?.analysis && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-yellow-500/20 bg-yellow-500/5 p-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] font-semibold uppercase tracking-wide text-yellow-400 mb-1.5 flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3 h-3" }),
+            " Tactical advice for ",
+            liveCoachB.playerName ?? nameB,
+            liveCoachB.hadBattleLog && liveCoachB.turnsCount && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[9px] font-normal text-green-400/70 ml-1", children: [
+              "· ",
+              liveCoachB.turnsCount,
+              " turns analysed"
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground leading-relaxed", children: liveCoachB.analysis })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] text-muted-foreground/40 italic", children: "Advice based on hero skill trees, stats, and passives. Battle log from Firebase included when available." })
+      ] }),
       prediction && bout.isComplete && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40 px-3 py-2.5 space-y-2", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] font-semibold uppercase tracking-wide text-muted-foreground", children: "Pre-fight Prediction vs Result" }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1", children: [
@@ -90615,7 +90742,8 @@ function TournamentMatchupPage() {
           nameA,
           nameB,
           addrA: playerA?.address ?? "",
-          addrB: playerB?.address ?? ""
+          addrB: playerB?.address ?? "",
+          isLiveTournament: tournament?.stateLabel === "in_progress"
         },
         bout.id
       )) }) })
@@ -90627,6 +90755,10 @@ function FirebaseProbePanel() {
   const [state, setState] = reactExports.useState({
     sampleIds: null,
     sampleLoading: false,
+    indexedCount: null,
+    indexSample: null,
+    reindexLoading: false,
+    reindexResult: null,
     directId: "",
     directResult: null,
     directLoading: false,
@@ -90638,9 +90770,32 @@ function FirebaseProbePanel() {
       const res = await fetch("/api/admin/firebase/battle-log-probe");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
-      setState((s2) => ({ ...s2, sampleIds: data.sampleIds ?? [], sampleLoading: false }));
+      setState((s2) => ({
+        ...s2,
+        sampleIds: data.sampleIds ?? [],
+        sampleLoading: false,
+        indexedCount: data.indexedCount ?? null,
+        indexSample: data.indexSample ?? null
+      }));
     } catch (err) {
       setState((s2) => ({ ...s2, sampleLoading: false, sampleError: err.message }));
+    }
+  };
+  const reindex = async () => {
+    setState((s2) => ({ ...s2, reindexLoading: true, reindexResult: null }));
+    try {
+      const res = await fetch("/api/admin/firebase/reindex-battles", { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setState((s2) => ({
+        ...s2,
+        reindexLoading: false,
+        reindexResult: `Indexed ${data.indexed} tournaments`,
+        indexedCount: data.indexed,
+        indexSample: data.sample ?? null
+      }));
+    } catch (err) {
+      setState((s2) => ({ ...s2, reindexLoading: false, reindexResult: `Error: ${err.message}` }));
     }
   };
   const probeId = async () => {
@@ -90671,6 +90826,36 @@ function FirebaseProbePanel() {
       }
     ),
     state.open && /* @__PURE__ */ jsxRuntimeExports.jsxs(CardContent, { className: "pt-0 space-y-4", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground font-medium", children: "Re-index Firebase battle IDs (builds in-memory tournament→firebaseId map)" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 flex-wrap", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              size: "sm",
+              variant: "outline",
+              onClick: reindex,
+              disabled: state.reindexLoading,
+              "data-testid": "btn-reindex-battles",
+              children: state.reindexLoading ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 mr-1.5 animate-spin" }),
+                "Indexing…"
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Database, { className: "w-3 h-3 mr-1.5" }),
+                "Re-index All Battles"
+              ] })
+            }
+          ),
+          state.reindexResult && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs ${state.reindexResult.startsWith("Error") ? "text-destructive" : "text-green-400"}`, children: state.reindexResult })
+        ] }),
+        state.indexedCount !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-border/40 bg-muted/10 p-2.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] text-muted-foreground/60 mb-1.5", children: [
+            state.indexedCount,
+            " tournament(s) indexed. Sample mappings:"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-0.5", children: (state.indexSample ?? []).map((entry) => /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] font-mono text-foreground/70", children: entry }, entry)) })
+        ] })
+      ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-2", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground font-medium", children: "List sample battle IDs from Firestore (reveals the format DFK uses)" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(

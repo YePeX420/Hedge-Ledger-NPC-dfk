@@ -10729,13 +10729,25 @@ async function startAdminWebServer() {
   // In-memory cache for battle logs (immutable once complete)
   const _battleLogCache = new Map(); // `${tournamentId}-${boutId}` → { turns, battleId, rawDocCount }
 
+  // In-memory map built at startup: tournamentId (string) → full Firebase battle document ID
+  // e.g. "1977" → "1088-1-tournament-1977"
+  const _tournamentFirebaseIdMap = new Map();
+
   // Build candidate Firestore battle ID list given bout metadata
+  // The map is checked first so we skip all guessing if we've already indexed the battles collection.
   function _battleCandidateIds(tournamentId, boutId, roundNumber, matchIndex) {
     const tid = String(tournamentId);
     const bid = String(boutId);
     const rn  = String(roundNumber);
     const mi  = String(matchIndex);
-    return [
+    const candidates = [];
+    // Primary: use the indexed map if we have an entry for this tournament
+    if (_tournamentFirebaseIdMap.has(tid)) {
+      candidates.push(_tournamentFirebaseIdMap.get(tid));
+    }
+    // Fallback guesses in descending likelihood order based on observed DFK format
+    candidates.push(
+      `tournament-${tid}`,
       `${tid}-${bid}`,
       `${tid}-${rn}-${mi}`,
       `tournament-${tid}-round-${rn}-match-${mi}`,
@@ -10744,7 +10756,8 @@ async function startAdminWebServer() {
       `battle_${tid}_${rn}_${mi}`,
       `${rn}_${mi}`,
       `bout_${bid}`,
-    ];
+    );
+    return candidates;
   }
 
   // Shared helper: fetch battle log for a bout row. Checks cache, then DB stored ID, then all candidates.
@@ -10753,27 +10766,42 @@ async function startAdminWebServer() {
     const boutKey = `${tournamentId}-${boutRow.id}`;
     if (_battleLogCache.has(boutKey)) return _battleLogCache.get(boutKey);
 
-    const idToken = await getFirebaseIdToken();
+    let idToken;
+    try {
+      idToken = await getFirebaseIdToken();
+    } catch (authErr) {
+      console.error('[BattleLog] Firebase auth failed for bout', boutRow.id, ':', authErr.message);
+      return null;
+    }
 
     // If a confirmed ID is already stored, only try that one
     if (boutRow.firebase_battle_id) {
       try {
         const data = await fetchFirestoreSubcollection(idToken, `battles/${boutRow.firebase_battle_id}/battle-logs`);
         const docs = (data.documents || []).map(parseFirestoreDoc).filter(Boolean);
+        console.log('[BattleLog] Stored ID', boutRow.firebase_battle_id, '→ docs:', docs.length);
         if (docs.length > 0) {
           const turns = docs.sort((a, b) => (Number(a.turn ?? a._id) || 0) - (Number(b.turn ?? b._id) || 0));
           const result = { turns, battleId: boutRow.firebase_battle_id, rawDocCount: docs.length };
           _battleLogCache.set(boutKey, result);
           return result;
         }
-      } catch (_e) { /* fall through to full candidate search */ }
+      } catch (_e) { console.warn('[BattleLog] Stored ID fetch failed:', _e.message); }
+    }
+
+    // Lazy-index Firebase battle IDs if the map hasn't been populated yet
+    if (_tournamentFirebaseIdMap.size === 0) {
+      console.log('[BattleLog] Map empty — triggering lazy index of Firebase battles...');
+      try { await _indexFirebaseBattleIds(); } catch (_ie) { console.warn('[BattleLog] Lazy index failed:', _ie.message); }
     }
 
     const candidates = _battleCandidateIds(tournamentId, boutRow.id, boutRow.round_number, boutRow.match_index);
+    console.log('[BattleLog] Searching bout', boutRow.id, '— candidates:', candidates.join(', '));
     for (const candidateId of candidates) {
       try {
         const data = await fetchFirestoreSubcollection(idToken, `battles/${candidateId}/battle-logs`);
         const docs = (data.documents || []).map(parseFirestoreDoc).filter(Boolean);
+        console.log('[BattleLog] Tried', candidateId, '→ docs:', docs.length);
         if (docs.length > 0) {
           const turns = docs.sort((a, b) => (Number(a.turn ?? a._id) || 0) - (Number(b.turn ?? b._id) || 0));
           const result = { turns, battleId: candidateId, rawDocCount: docs.length };
@@ -10787,10 +10815,75 @@ async function startAdminWebServer() {
           })();
           return result;
         }
-      } catch (_e) { /* try next */ }
+      } catch (_e) {
+        console.log('[BattleLog] Tried', candidateId, '→ error:', _e.message?.slice(0, 80));
+      }
     }
+    console.warn('[BattleLog] No Firebase match for bout', boutRow.id, '— tried all', candidates.length, 'candidates');
     return null;
   }
+
+  // Helper: fetch all battle document IDs from Firebase (pages through the list) and populate _tournamentFirebaseIdMap
+  async function _indexFirebaseBattleIds() {
+    const idToken = await getFirebaseIdToken();
+    const base = `https://firestore.googleapis.com/v1/projects/${DFK_FIREBASE_PROJECT_ID}/databases/combat-engine/documents`;
+    let pageToken = null;
+    let totalIndexed = 0;
+    let sampleIds = [];
+    do {
+      const url = `${base}/battles?pageSize=300${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${idToken}` } });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        console.warn('[BattleLog] Firebase list failed:', resp.status, txt.slice(0, 200));
+        break;
+      }
+      const data = await resp.json();
+      const docs = (data.documents || []);
+      for (const doc of docs) {
+        const docId = doc.name?.split('/').pop();
+        if (!docId) continue;
+        if (sampleIds.length < 10) sampleIds.push(docId);
+        // Parse tournament ID from formats like "1088-1-tournament-1977" or "tournament-1977"
+        const m = docId.match(/tournament-(\d+)/);
+        if (m) {
+          const tid = m[1];
+          if (!_tournamentFirebaseIdMap.has(tid)) {
+            _tournamentFirebaseIdMap.set(tid, docId);
+            totalIndexed++;
+          }
+        }
+      }
+      pageToken = data.nextPageToken ?? null;
+    } while (pageToken);
+
+    if (sampleIds.length > 0) {
+      console.log('[BattleLog] Sample Firebase battle IDs (for format discovery):', sampleIds.join(', '));
+      console.log(`[BattleLog] Indexed ${totalIndexed} tournament→firebaseId mappings`);
+    } else {
+      console.log('[BattleLog] Firebase battles collection empty or unreachable — no IDs indexed');
+    }
+  }
+
+  // Startup probe: build Firebase tournament ID map 30s after boot
+  setTimeout(async () => {
+    try {
+      await _indexFirebaseBattleIds();
+    } catch (e) {
+      console.log('[BattleLog] Startup probe failed:', e.message);
+    }
+  }, 30000);
+
+  // POST /api/admin/firebase/reindex-battles — manually re-build _tournamentFirebaseIdMap
+  app.post('/api/admin/firebase/reindex-battles', isAdmin, async (req, res) => {
+    try {
+      _tournamentFirebaseIdMap.clear();
+      await _indexFirebaseBattleIds();
+      res.json({ ok: true, indexed: _tournamentFirebaseIdMap.size, sample: [..._tournamentFirebaseIdMap.entries()].slice(0, 5).map(([k,v]) => `${k}→${v}`) });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
 
   // GET /api/admin/firebase/battle-log-probe — discovery endpoint to learn battle ID format
   app.get('/api/admin/firebase/battle-log-probe', isAdmin, async (req, res) => {
@@ -10817,7 +10910,13 @@ async function startAdminWebServer() {
       }
       const listData = await listResp.json();
       const ids = (listData.documents || []).map(d => d.name?.split('/').pop()).filter(Boolean);
-      return res.json({ ok: true, sampleIds: ids.slice(0, 25), nextPageToken: listData.nextPageToken ?? null });
+      return res.json({
+        ok: true,
+        sampleIds: ids.slice(0, 25),
+        nextPageToken: listData.nextPageToken ?? null,
+        indexedCount: _tournamentFirebaseIdMap.size,
+        indexSample: [..._tournamentFirebaseIdMap.entries()].slice(0, 10).map(([k,v]) => `${k}→${v}`),
+      });
     } catch (err) {
       console.error('[Firebase Probe] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
@@ -11031,6 +11130,138 @@ async function startAdminWebServer() {
       res.json({ ok: true, analysis, target, targetName, targetAddress, loserAddress: loserAddr, loserName, hadBattleLog });
     } catch (err) {
       console.error('[BoutAnalysis] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // POST /api/admin/tournament/bracket/:id/bout-live-coach — AI tactical advice for an in-progress bout
+  // Body: { boutId, perspective: 'a' | 'b' }
+  app.post('/api/admin/tournament/bracket/:id/bout-live-coach', isAdmin, async (req, res) => {
+    try {
+      const tournamentId = String(req.params.id);
+      const { boutId, perspective = 'a' } = req.body;
+      if (!boutId) return res.status(400).json({ ok: false, error: 'boutId required' });
+
+      const { rawPg: rp } = await import('./server/db.js');
+
+      // Fetch bout metadata
+      const [bout] = await rp.unsafe(`
+        SELECT id, tournament_id, round_number, match_index, player_a, player_b,
+               player_a_name, player_b_name, winner_address, is_complete, tournament_format, firebase_battle_id
+        FROM dfk_tournament_bouts WHERE id = $1 AND tournament_id = $2
+      `, [Number(boutId), tournamentId]);
+      if (!bout) return res.status(404).json({ ok: false, error: 'Bout not found' });
+
+      // Fetch heroes for both sides
+      const heroRows = await rp.unsafe(`
+        SELECT side, hero_id, main_class, sub_class, level, rarity,
+               strength, dexterity, agility, intelligence, wisdom, vitality, endurance, luck,
+               hp, mp, active1, active2, passive1, passive2
+        FROM dfk_bout_heroes WHERE bout_id = $1 ORDER BY side, hero_id
+      `, [Number(boutId)]);
+
+      const sidesHeroes = { a: heroRows.filter(h => h.side === 'a'), b: heroRows.filter(h => h.side === 'b') };
+      const myHeroes  = sidesHeroes[perspective] ?? [];
+      const oppHeroes = sidesHeroes[perspective === 'a' ? 'b' : 'a'] ?? [];
+
+      const myName  = perspective === 'a'
+        ? (bout.player_a_name || (bout.player_a || '').slice(0, 8) + '…')
+        : (bout.player_b_name || (bout.player_b || '').slice(0, 8) + '…');
+      const oppName = perspective === 'a'
+        ? (bout.player_b_name || (bout.player_b || '').slice(0, 8) + '…')
+        : (bout.player_a_name || (bout.player_a || '').slice(0, 8) + '…');
+
+      // Inline condensed skill knowledge (most impactful skills for tactical advice)
+      const SKILL_NOTES = {
+        'Poisoned Blade': 'physical dmg + DoT poison', 'Blinding Winds': 'AGI debuff on target',
+        'Heal': 'restore ally HP (INT-based)', 'Cleanse': 'remove debuffs from ally',
+        'Iron Skin': 'DEF buff self/ally', 'Speed': 'AGI buff self/ally',
+        'Critical Aim': 'crit rate up, next attack crits', 'Deathmark': 'execute debuff — target takes +50% dmg',
+        'Exhaust': 'MP drain on target', 'Daze': 'confusion CC on target',
+        'Explosion': 'high magical AOE all enemies', 'Hardened Shield': 'heavy DEF buff self',
+        'Stun': 'skip target next turn', 'Second Wind': 'self-heal + remove stun',
+        'Resurrection': 'revive fallen ally at low HP',
+      };
+      const PASSIVE_NOTES = {
+        'Duelist': '+dmg when 1v1', 'Clutch': 'bonus action when low HP', 'Foresight': '+dodge chance',
+        'Headstrong': 'CC-immune', 'Clear Vision': '+crit rate', 'Fearless': '+dmg when outnumbered',
+        'Chatterbox': 'apply debuffs with attacks', 'Stalwart': '+HP regen per turn',
+        'Leadership': '+5% team ATK per hero (stacks to +15%)', 'Efficient': 'reduce MP cost of skills',
+        'Menacing': 'reduce enemy team ATK -5% per hero (stacks)', 'Toxic': 'attacks have poison chance',
+        'Giant Slayer': '+dmg vs high-HP targets', 'Last Stand': '+stats below 30% HP',
+        'Second Life': 'survive fatal hit once at 1 HP',
+      };
+
+      const heroSummaryLine = (h) => {
+        const a1 = _ACTIVE_SKILL_NAMES[parseInt(h.active1)] ?? h.active1 ?? '?';
+        const a2 = _ACTIVE_SKILL_NAMES[parseInt(h.active2)] ?? h.active2 ?? '?';
+        const p1 = h.passive1 ?? null; const p2 = h.passive2 ?? null;
+        const skillNote1 = SKILL_NOTES[a1] ? `${a1}(${SKILL_NOTES[a1]})` : a1;
+        const skillNote2 = SKILL_NOTES[a2] ? `${a2}(${SKILL_NOTES[a2]})` : a2;
+        const pasNotes = [p1, p2].filter(Boolean).map(p => PASSIVE_NOTES[p] ? `${p}(${PASSIVE_NOTES[p]})` : p).join(', ');
+        return `${h.main_class}/${h.sub_class} Lv${h.level} STR${h.strength} AGI${h.agility} INT${h.intelligence} VIT${h.vitality} HP${h.hp} MP${h.mp} — skills: ${skillNote1}, ${skillNote2}${pasNotes ? '; passives: ' + pasNotes : ''}`;
+      };
+
+      const myTeamSummary  = myHeroes.map(heroSummaryLine).join('\n');
+      const oppTeamSummary = oppHeroes.map(heroSummaryLine).join('\n');
+
+      // Fetch battle log (may be null for live matches)
+      const logResult = await fetchBattleLogForBout(tournamentId, bout);
+      const hadBattleLog = !!(logResult?.turns?.length);
+      let battleCtx = '';
+      if (hadBattleLog) {
+        const recentTurns = logResult.turns.slice(-15); // last 15 turns most relevant
+        const turnLines = recentTurns.map(t => {
+          const parts = [];
+          if (t.turn !== undefined) parts.push(`T${t.turn}`);
+          if (t.actorClass || t.actor) parts.push(t.actorClass || t.actor);
+          if (t.skillName || t.action) parts.push(t.skillName || t.action);
+          if (t.damage != null) parts.push(`${t.damage}dmg`);
+          if (t.healing != null) parts.push(`+${t.healing}heal`);
+          if (t.targetClass || t.target) parts.push(`→${t.targetClass || t.target}`);
+          return parts.join(' ');
+        }).join('; ');
+        battleCtx = ` Battle log so far (${logResult.turns.length} turns, showing last ${recentTurns.length}): ${turnLines}.`;
+      } else {
+        battleCtx = ' No turn-by-turn battle log available yet — advise based on team composition and skills only.';
+      }
+
+      const isLive = !bout.is_complete;
+      const prompt = [
+        `You are a DeFi Kingdoms PvP tactical analyst for a${isLive ? ' LIVE' : ' completed'} battle.`,
+        `Format: ${bout.tournament_format || 'standard'}, Round ${bout.round_number}, Match ${bout.match_index + 1}.`,
+        ``,
+        `${myName}'s team (advising them):`,
+        myTeamSummary,
+        ``,
+        `Opponent ${oppName}'s team:`,
+        oppTeamSummary,
+        ``,
+        battleCtx.trim(),
+        ``,
+        isLive
+          ? `Based on the current battle state, give 3-4 sentences of tactical advice for ${myName}: which hero should act next, which skill to use, which target to prioritize, and why. Reference specific skill names and stats. Be direct and actionable.`
+          : `Analyse what happened in this completed bout for ${myName}. In 3-4 sentences: what key decisions were made, what skills were most impactful, and what should ${myName} learn for next time.`,
+      ].join('\n');
+
+      let analysis = null;
+      try {
+        const { default: OpenAI } = await import('openai');
+        const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const completion = await oai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 300,
+          temperature: 0.7,
+        });
+        analysis = completion.choices[0]?.message?.content?.trim() ?? null;
+      } catch (aiErr) {
+        console.warn('[LiveCoach] OpenAI call failed:', aiErr.message);
+      }
+
+      res.json({ ok: true, analysis, perspective, playerName: myName, hadBattleLog, turnsCount: logResult?.turns?.length ?? 0 });
+    } catch (err) {
+      console.error('[LiveCoach] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
     }
   });

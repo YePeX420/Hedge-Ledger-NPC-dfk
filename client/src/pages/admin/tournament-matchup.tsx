@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft, Zap, Users, Shield, Trophy, ChevronDown, Star, RefreshCw, Activity,
-  ScrollText, FlaskConical, Search,
+  ScrollText, FlaskConical, Search, Database,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -376,23 +376,50 @@ function computeBoutPrediction(heroesA: BoutHero[], heroesB: BoutHero[]): { pctA
 
 interface CoachResult { analysis: string | null; hadBattleLog?: boolean; loading: boolean; error?: string; }
 interface BattleLogState { data: BattleLogResult | null; loading: boolean; error?: string; open: boolean; }
+interface LiveCoachState { analysis: string | null; playerName?: string; hadBattleLog?: boolean; turnsCount?: number; loading: boolean; error?: string; }
 
 // ─── Battle Log Viewer ────────────────────────────────────────────────────────
 
-function BattleLogViewer({ tournamentId, boutId }: { tournamentId: string; boutId: number }) {
+function BattleLogViewer({
+  tournamentId, boutId, isLive,
+  onLogLoaded,
+}: {
+  tournamentId: string;
+  boutId: number;
+  isLive: boolean;
+  onLogLoaded?: (hasData: boolean) => void;
+}) {
   const [state, setState] = useState<BattleLogState>({ data: null, loading: false, open: false });
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const load = async () => {
-    if (state.data !== null) { setState(s => ({ ...s, open: !s.open })); return; }
-    setState(s => ({ ...s, loading: true, open: true }));
+  const fetchLog = async (silent = false) => {
+    if (!silent) setState(s => ({ ...s, loading: true }));
     try {
       const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-battle-log?boutId=${boutId}`);
       const data: BattleLogResult = await res.json();
-      setState({ data, loading: false, open: true });
+      setState(s => ({ ...s, data, loading: false, open: s.open || !silent }));
+      onLogLoaded?.((data.turns?.length ?? 0) > 0);
     } catch (err: any) {
-      setState(s => ({ ...s, loading: false, error: err.message, open: true }));
+      setState(s => ({ ...s, loading: false, error: err.message }));
     }
   };
+
+  const toggle = () => {
+    if (state.data !== null) {
+      setState(s => ({ ...s, open: !s.open }));
+    } else {
+      setState(s => ({ ...s, open: true }));
+      fetchLog(false);
+    }
+  };
+
+  // Live auto-refresh every 15s when open and live
+  useEffect(() => {
+    if (isLive && state.open) {
+      intervalRef.current = setInterval(() => fetchLog(true), 15000);
+    }
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [isLive, state.open, boutId, tournamentId]);
 
   const turns = state.data?.turns ?? [];
   const hasTurns = turns.length > 0;
@@ -402,11 +429,14 @@ function BattleLogViewer({ tournamentId, boutId }: { tournamentId: string; boutI
     <div className="border-t border-border/40">
       <button
         className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/20 transition-colors"
-        onClick={load}
+        onClick={toggle}
         data-testid={`btn-battle-log-${boutId}`}
       >
         <ScrollText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         <span className="text-xs text-muted-foreground flex-1">Battle Log</span>
+        {isLive && (
+          <span className="text-[9px] font-bold text-green-400 animate-pulse mr-1">● Live</span>
+        )}
         {state.data !== null && (
           hasTurns
             ? <span className="text-[10px] text-green-400">{turns.length} turns · Firebase</span>
@@ -417,7 +447,7 @@ function BattleLogViewer({ tournamentId, boutId }: { tournamentId: string; boutI
       </button>
       {state.open && (
         <div className="px-3 pb-3">
-          {state.loading && (
+          {state.loading && !state.data && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
               <RefreshCw className="w-3 h-3 animate-spin" />Fetching battle log from Firebase…
             </div>
@@ -425,7 +455,7 @@ function BattleLogViewer({ tournamentId, boutId }: { tournamentId: string; boutI
           {state.error && <p className="text-xs text-destructive py-1">{state.error}</p>}
           {state.data && !hasTurns && (
             <div className="text-xs text-muted-foreground py-1">
-              <p>No turn data found for this bout in Firebase.</p>
+              <p>No turn data found for this bout in Firebase yet.{isLive && ' Refreshing every 15s…'}</p>
               {state.data.candidatesTried && (
                 <p className="text-[10px] mt-1 text-muted-foreground/50">
                   Tried {state.data.candidatesTried.length} ID formats.
@@ -475,15 +505,19 @@ function BattleLogViewer({ tournamentId, boutId }: { tournamentId: string; boutI
 
 // ─── Fight History Section ─────────────────────────────────────────────────────
 
-function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }: {
+function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament }: {
   bout: HistoryBout;
   tournamentId: string;
   nameA: string; nameB: string;
   addrA: string; addrB: string;
+  isLiveTournament: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [winnerCoach, setWinnerCoach] = useState<CoachResult | null>(null);
   const [loserCoach, setLoserCoach] = useState<CoachResult | null>(null);
+  const [liveCoachA, setLiveCoachA] = useState<LiveCoachState | null>(null);
+  const [liveCoachB, setLiveCoachB] = useState<LiveCoachState | null>(null);
+  const [battleLogHasData, setBattleLogHasData] = useState(false);
 
   const winnerIsA = bout.winnerAddress &&
     bout.winnerAddress.toLowerCase() === addrA.toLowerCase();
@@ -510,6 +544,23 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }: {
       setState({ loading: false, analysis: data.analysis ?? 'No analysis available.', hadBattleLog: data.hadBattleLog });
     } catch (err: any) {
       setState({ loading: false, analysis: null, error: err.message });
+    }
+  };
+
+  const runLiveCoach = async (perspective: 'a' | 'b') => {
+    const setCoach = perspective === 'a' ? setLiveCoachA : setLiveCoachB;
+    setCoach({ loading: true, analysis: null });
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-live-coach`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ boutId: bout.id, perspective }),
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) throw new Error(data.error);
+      setCoach({ loading: false, analysis: data.analysis ?? 'No analysis available.', playerName: data.playerName, hadBattleLog: data.hadBattleLog, turnsCount: data.turnsCount });
+    } catch (err: any) {
+      setCoach({ loading: false, analysis: null, error: err.message });
     }
   };
 
@@ -569,9 +620,83 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }: {
             ))}
           </div>
 
-          {/* Battle log viewer */}
-          {bout.isComplete && (
-            <BattleLogViewer tournamentId={tournamentId} boutId={bout.id} />
+          {/* Battle log viewer — shown for completed bouts AND live in-progress bouts */}
+          {(bout.isComplete || isLiveTournament) && (
+            <BattleLogViewer
+              tournamentId={tournamentId}
+              boutId={bout.id}
+              isLive={isLiveTournament && !bout.isComplete}
+              onLogLoaded={setBattleLogHasData}
+            />
+          )}
+
+          {/* Live AI tactical advisor — only for in-progress bouts */}
+          {isLiveTournament && !bout.isComplete && (
+            <div className="border-t border-border/40 p-3 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <Zap className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">AI Tactical Advisor</span>
+                <span className="text-[9px] font-bold text-green-400 animate-pulse ml-1">● Live</span>
+                {battleLogHasData && (
+                  <span className="text-[9px] text-muted-foreground/50 ml-auto">Battle log included</span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs"
+                  onClick={() => runLiveCoach('a')}
+                  disabled={liveCoachA?.loading}
+                  data-testid={`btn-live-coach-a-${bout.id}`}
+                >
+                  {liveCoachA?.loading
+                    ? <><RefreshCw className="w-3 h-3 mr-1.5 animate-spin" />Advising…</>
+                    : <><Zap className="w-3 h-3 mr-1.5 text-yellow-400" />Advise {nameA}</>
+                  }
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs"
+                  onClick={() => runLiveCoach('b')}
+                  disabled={liveCoachB?.loading}
+                  data-testid={`btn-live-coach-b-${bout.id}`}
+                >
+                  {liveCoachB?.loading
+                    ? <><RefreshCw className="w-3 h-3 mr-1.5 animate-spin" />Advising…</>
+                    : <><Zap className="w-3 h-3 mr-1.5 text-yellow-400" />Advise {nameB}</>
+                  }
+                </Button>
+              </div>
+              {liveCoachA?.error && <p className="text-xs text-destructive">{liveCoachA.error}</p>}
+              {liveCoachA?.analysis && (
+                <div className="rounded-md border border-yellow-500/20 bg-yellow-500/5 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-yellow-400 mb-1.5 flex items-center gap-1.5">
+                    <Zap className="w-3 h-3" /> Tactical advice for {liveCoachA.playerName ?? nameA}
+                    {liveCoachA.hadBattleLog && liveCoachA.turnsCount && (
+                      <span className="text-[9px] font-normal text-green-400/70 ml-1">· {liveCoachA.turnsCount} turns analysed</span>
+                    )}
+                  </p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{liveCoachA.analysis}</p>
+                </div>
+              )}
+              {liveCoachB?.error && <p className="text-xs text-destructive">{liveCoachB.error}</p>}
+              {liveCoachB?.analysis && (
+                <div className="rounded-md border border-yellow-500/20 bg-yellow-500/5 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-yellow-400 mb-1.5 flex items-center gap-1.5">
+                    <Zap className="w-3 h-3" /> Tactical advice for {liveCoachB.playerName ?? nameB}
+                    {liveCoachB.hadBattleLog && liveCoachB.turnsCount && (
+                      <span className="text-[9px] font-normal text-green-400/70 ml-1">· {liveCoachB.turnsCount} turns analysed</span>
+                    )}
+                  </p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{liveCoachB.analysis}</p>
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground/40 italic">
+                Advice based on hero skill trees, stats, and passives. Battle log from Firebase included when available.
+              </p>
+            </div>
           )}
 
           {/* Pre-fight prediction vs actual result */}
@@ -850,6 +975,7 @@ export default function TournamentMatchupPage() {
                   nameB={nameB}
                   addrA={playerA?.address ?? ''}
                   addrB={playerB?.address ?? ''}
+                  isLiveTournament={tournament?.stateLabel === 'in_progress'}
                 />
               ))}
             </div>
@@ -869,6 +995,10 @@ interface ProbeState {
   sampleIds: string[] | null;
   sampleLoading: boolean;
   sampleError?: string;
+  indexedCount: number | null;
+  indexSample: string[] | null;
+  reindexLoading: boolean;
+  reindexResult: string | null;
   directId: string;
   directResult: { rawDocCount: number; fieldKeys: string[]; firstDoc: Record<string, unknown> | null } | null;
   directLoading: boolean;
@@ -879,6 +1009,8 @@ interface ProbeState {
 function FirebaseProbePanel() {
   const [state, setState] = useState<ProbeState>({
     sampleIds: null, sampleLoading: false,
+    indexedCount: null, indexSample: null,
+    reindexLoading: false, reindexResult: null,
     directId: '', directResult: null, directLoading: false,
     open: false,
   });
@@ -889,9 +1021,33 @@ function FirebaseProbePanel() {
       const res = await fetch('/api/admin/firebase/battle-log-probe');
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
-      setState(s => ({ ...s, sampleIds: data.sampleIds ?? [], sampleLoading: false }));
+      setState(s => ({
+        ...s,
+        sampleIds: data.sampleIds ?? [],
+        sampleLoading: false,
+        indexedCount: data.indexedCount ?? null,
+        indexSample: data.indexSample ?? null,
+      }));
     } catch (err: any) {
       setState(s => ({ ...s, sampleLoading: false, sampleError: err.message }));
+    }
+  };
+
+  const reindex = async () => {
+    setState(s => ({ ...s, reindexLoading: true, reindexResult: null }));
+    try {
+      const res = await fetch('/api/admin/firebase/reindex-battles', { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setState(s => ({
+        ...s,
+        reindexLoading: false,
+        reindexResult: `Indexed ${data.indexed} tournaments`,
+        indexedCount: data.indexed,
+        indexSample: data.sample ?? null,
+      }));
+    } catch (err: any) {
+      setState(s => ({ ...s, reindexLoading: false, reindexResult: `Error: ${err.message}` }));
     }
   };
 
@@ -922,6 +1078,40 @@ function FirebaseProbePanel() {
       </button>
       {state.open && (
         <CardContent className="pt-0 space-y-4">
+          {/* Part 0: Re-index — fetch all Firebase battle IDs and build tournament→ID map */}
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground font-medium">Re-index Firebase battle IDs (builds in-memory tournament→firebaseId map)</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={reindex}
+                disabled={state.reindexLoading}
+                data-testid="btn-reindex-battles"
+              >
+                {state.reindexLoading
+                  ? <><RefreshCw className="w-3 h-3 mr-1.5 animate-spin" />Indexing…</>
+                  : <><Database className="w-3 h-3 mr-1.5" />Re-index All Battles</>
+                }
+              </Button>
+              {state.reindexResult && (
+                <span className={`text-xs ${state.reindexResult.startsWith('Error') ? 'text-destructive' : 'text-green-400'}`}>
+                  {state.reindexResult}
+                </span>
+              )}
+            </div>
+            {state.indexedCount !== null && (
+              <div className="rounded-md border border-border/40 bg-muted/10 p-2.5">
+                <p className="text-[10px] text-muted-foreground/60 mb-1.5">{state.indexedCount} tournament(s) indexed. Sample mappings:</p>
+                <div className="space-y-0.5">
+                  {(state.indexSample ?? []).map(entry => (
+                    <p key={entry} className="text-[10px] font-mono text-foreground/70">{entry}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Part 1: List sample IDs from Firebase to discover the ID format */}
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground font-medium">List sample battle IDs from Firestore (reveals the format DFK uses)</p>
