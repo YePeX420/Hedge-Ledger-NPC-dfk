@@ -135,7 +135,7 @@ const unfinishedItems: NavItem[] = [
 // ─── Always-visible top-level items ────────────────────────────────────────
 const topItems: NavItem[] = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/ai-consultant', label: 'AI Consultant', icon: Bot },
+  { href: '/admin/ai-consultant', label: 'Master AI Consultant', icon: Bot },
 ];
 
 // ─── Reusable flyout component ─────────────────────────────────────────────

@@ -26830,7 +26830,7 @@ const unfinishedItems = [
 ];
 const topItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/ai-consultant", label: "AI Consultant", icon: Bot }
+  { href: "/admin/ai-consultant", label: "Master AI Consultant", icon: Bot }
 ];
 function FlyoutMenu({ label, icon: GroupIcon, items, groupKey, location: location2, onNavClick }) {
   const [open, setOpen] = reactExports.useState(false);
@@ -76420,12 +76420,33 @@ function AdminPVPMatchup() {
   ] });
 }
 const SUGGESTED_QUESTIONS = [
-  "How does the hero breeding system work in DeFi Kingdoms?",
-  "What determines a hero's combat power?",
-  "Explain the Summon Sniper feature and how it finds optimal pairs",
-  "What data does the Tavern Indexer track?",
-  "How do profession bonuses work for questing?",
-  "What's the difference between stat genes and visual genes?"
+  {
+    category: "Live Bouts & Tournaments",
+    questions: [
+      "What live tournament bouts are happening right now?",
+      "Give me a full breakdown of tournament 2136",
+      "Who won the most recent completed tournament?",
+      "Analyze the current bout state — who has the advantage?"
+    ]
+  },
+  {
+    category: "Hero Optimization",
+    questions: [
+      "How does the hero breeding system work in DeFi Kingdoms?",
+      "What determines a hero's combat power in PVP?",
+      "Explain how the Summon Sniper finds optimal pairs",
+      "How do profession bonuses affect quest XP and rewards?"
+    ]
+  },
+  {
+    category: "Yield & Gardening",
+    questions: [
+      "How does the Yield Calculator compute pool APR?",
+      "What's the difference between locked and unlocked CRYSTAL rewards?",
+      "Which pools currently have the best APR?",
+      "How does the Gardening Calculator factor in pet bonuses?"
+    ]
+  }
 ];
 function AIConsultant() {
   const [messages, setMessages] = reactExports.useState([]);
@@ -76442,12 +76463,20 @@ function AIConsultant() {
       const response = await apiRequest("POST", "/api/admin/ai-consultant/chat", {
         message: userMessage,
         history: messages.slice(-10)
-        // Send last 10 messages for context
       });
       return response.json();
     },
     onSuccess: (data) => {
-      setMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.response,
+          boutDetected: data.boutDetected,
+          liveDetected: data.liveDetected,
+          walletDetected: data.walletDetected
+        }
+      ]);
     },
     onError: (error) => {
       setMessages((prev) => [
@@ -76476,12 +76505,12 @@ function AIConsultant() {
     setMessages([]);
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full max-h-[calc(100vh-120px)]", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between mb-4", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between mb-4 flex-wrap gap-2", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Bot, { className: "h-5 w-5 text-primary" }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "text-2xl font-bold", children: "AI Consultant" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground", children: "Your DeFi Kingdoms expert with deep project knowledge" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground", children: "Master AI — live tournament data, wallet analysis, and all platform tools" })
         ] })
       ] }),
       messages.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(
@@ -76499,24 +76528,24 @@ function AIConsultant() {
       )
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { className: "flex-1 flex flex-col overflow-hidden", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { className: "flex-1 overflow-y-auto p-4 space-y-4", children: messages.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-full flex flex-col items-center justify-center text-center p-8", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { className: "flex-1 overflow-y-auto p-4 space-y-4", children: messages.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-full flex flex-col items-center justify-center text-center p-6", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { className: "h-12 w-12 text-primary/30 mb-4" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "text-lg font-semibold mb-2", children: "Welcome to the AI Consultant" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-muted-foreground mb-6 max-w-md", children: "I'm an AI with deep knowledge of DeFi Kingdoms mechanics, hero stats, breeding, questing, and this Hedge Ledger project. Ask me anything!" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "w-full max-w-2xl", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground mb-3", children: "Try asking:" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-2 justify-center", children: SUGGESTED_QUESTIONS.map((q, idx) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "text-lg font-semibold mb-2", children: "Master AI Consultant" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-muted-foreground mb-6 max-w-lg", children: "I have real-time access to live tournament data, wallet hero analysis, and all Hedge Ledger tools. Ask me about anything — live bouts, hero optimization, yield, summoning, or game mechanics." }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-full max-w-3xl space-y-5 text-left", children: SUGGESTED_QUESTIONS.map((group, gIdx) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2", children: group.category }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-2", children: group.questions.map((q, qIdx) => /* @__PURE__ */ jsxRuntimeExports.jsx(
             Badge,
             {
               variant: "outline",
               className: "cursor-pointer hover-elevate py-2 px-3 text-sm",
               onClick: () => handleSuggestedQuestion(q),
-              "data-testid": `suggested-question-${idx}`,
+              "data-testid": `suggested-question-${gIdx}-${qIdx}`,
               children: q
             },
-            idx
+            qIdx
           )) })
-        ] })
+        ] }, gIdx)) })
       ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
         messages.map((msg, idx) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "div",
@@ -76524,15 +76553,31 @@ function AIConsultant() {
             className: `flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`,
             "data-testid": `message-${msg.role}-${idx}`,
             children: [
-              msg.role === "assistant" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Bot, { className: "h-4 w-4 text-primary" }) }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "div",
-                {
-                  className: `max-w-[80%] rounded-lg px-4 py-3 ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`,
-                  children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "whitespace-pre-wrap text-sm", children: msg.content })
-                }
-              ),
-              msg.role === "user" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-8 w-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0", children: /* @__PURE__ */ jsxRuntimeExports.jsx(User, { className: "h-4 w-4" }) })
+              msg.role === "assistant" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Bot, { className: "h-4 w-4 text-primary" }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `max-w-[80%] flex flex-col gap-1.5 ${msg.role === "user" ? "items-end" : "items-start"}`, children: [
+                msg.role === "assistant" && (msg.boutDetected || msg.walletDetected) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1", children: [
+                  msg.liveDetected && /* @__PURE__ */ jsxRuntimeExports.jsxs(Badge, { variant: "outline", className: "text-xs gap-1 no-default-active-elevate", "data-testid": "badge-live-data", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { className: "h-3 w-3 text-green-500" }),
+                    "Live data"
+                  ] }),
+                  msg.boutDetected && !msg.liveDetected && /* @__PURE__ */ jsxRuntimeExports.jsxs(Badge, { variant: "outline", className: "text-xs gap-1 no-default-active-elevate", "data-testid": "badge-tournament-data", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(Swords, { className: "h-3 w-3 text-primary" }),
+                    "Tournament data loaded"
+                  ] }),
+                  msg.walletDetected && /* @__PURE__ */ jsxRuntimeExports.jsxs(Badge, { variant: "outline", className: "text-xs gap-1 no-default-active-elevate", "data-testid": "badge-wallet-data", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(Wallet, { className: "h-3 w-3 text-primary" }),
+                    "Wallet data loaded"
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "div",
+                  {
+                    className: `rounded-lg px-4 py-3 ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "whitespace-pre-wrap text-sm", children: msg.content })
+                  }
+                )
+              ] }),
+              msg.role === "user" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-8 w-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0 mt-1", children: /* @__PURE__ */ jsxRuntimeExports.jsx(User, { className: "h-4 w-4" }) })
             ]
           },
           idx
@@ -76551,7 +76596,7 @@ function AIConsultant() {
               value: input,
               onChange: (e) => setInput(e.target.value),
               onKeyDown: handleKeyDown,
-              placeholder: "Ask about DeFi Kingdoms, heroes, breeding, or this project...",
+              placeholder: "Ask about live bouts, tournaments, hero optimization, yield, or any game mechanic...",
               className: "resize-none min-h-[60px]",
               disabled: chatMutation.isPending,
               "data-testid": "input-chat-message"

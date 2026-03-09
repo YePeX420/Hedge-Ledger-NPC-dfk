@@ -16354,43 +16354,77 @@ async function startAdminWebServer() {
   // Admin-only AI chat with deep project knowledge for DeFi Kingdoms consultation
   // ============================================================================
 
-  const AI_CONSULTANT_PROMPT = `You are the AI Consultant for Hedge Ledger, a comprehensive DeFi Kingdoms analytics platform. You have deep expertise in:
+  const AI_CONSULTANT_PROMPT = `You are the Master AI Consultant for Hedge Ledger — a comprehensive DeFi Kingdoms analytics platform. You have real-time access to live game data, tournament results, wallet analysis, and all platform tools. You are the single point of truth for everything DeFi Kingdoms and Hedge Ledger.
 
 **DeFi Kingdoms Game Mechanics:**
-- Hero Stats: STR, DEX, AGI, VIT, END, INT, WIS, LCK affect quest rewards and combat
-- Breeding/Summoning: Genes, stat boosting, class inheritance, trait scoring
-- Professions: Mining, Gardening, Foraging, Fishing - bonuses based on profession stat match
-- Combat: PVP/PVE mechanics, combat power calculations, stat contributions
-- Quests: Stamina usage, reward formulas, profession bonuses
-- Gardens: LP yield farming, pool mechanics, CRYSTAL/JADE rewards
+- Hero Stats: STR, DEX, AGI, VIT, END, INT, WIS, LCK — affect quest rewards, combat power, and breeding
+- Breeding/Summoning: Gene inheritance, stat boosting, class probability, trait scores, summon costs
+- Professions: Mining (STR+END), Gardening (WIS+VIT), Fishing (AGI+LCK), Foraging (DEX+INT) — gene match gives bonus XP
+- Training Quests: Only stats 40–50 are trainable; stat 40=53%, stat 45=60%, stat 50=68% success rate
+- Combat: PVP 1v1/3v3/6v6 bracket tournaments. Stats drive damage/defense. Active skills (Poisoned Blade, Blinding Winds, Heal, Cleanse, Iron Skin, Speed, Critical Aim, Deathmark, Exhaust, Daze, Explosion, Hardened Shield, Stun, Second Wind, Resurrection) and passive skills affect matchups
+- Gardens: LP yield farming — CRYSTAL/JADE rewards, locked vs unlocked splits, pool APR calculations
 - Realms: Crystalvale (DFK Chain, CRYSTAL), Serendale (Klaytn, JADE), Sundered Isles (Metis, JEWEL)
+- Transcendence (Divine Altar): Burn heroes for Divine Essence. Multiplier tier = Nx DE output. Regen chance = probability tier resets to 1 after burn. Rerolled heroes (stat-optimized via Meditation Circle) are stronger combat and questing candidates
 
-**Hedge Ledger Project Features:**
-- Yield Calculator: Pool APR calculations with locked/unlocked rewards
-- Yield Optimizer: Recommends optimal pool allocation based on wallet holdings
-- Summon Sniper: Finds optimal hero pairs for breeding, calculates summoning probabilities
-- Tavern Sniper: Searches marketplace heroes by filters, Level/Cost sorting for bargain hunting
-- Tavern Indexer: Tracks hero listings across realms with combat stats, trait scores
-- PVE Drop Rates: Tracks quest drops, calculates expected values
-- Battle-Ready Heroes: Indexes tournament-ready heroes for PVP leagues
-- Gardening Quest Indexer: Tracks LP staking rewards and quest efficiency
-- Bridge Analytics: Monitors cross-chain token flows
-- Combat Ingestion: Parses on-chain combat logs for analytics
+**Hedge Ledger Tools — FINISHED AND OPERATIONAL:**
 
-**Technical Context:**
-- Built with Node.js, Discord.js, Express, React, PostgreSQL (Drizzle ORM)
-- Uses DeFi Kingdoms GraphQL API for game data
-- Direct blockchain RPC access for on-chain data
-- AI-powered Discord bot with character personality
+*Gardening & Yield:*
+- Pools: Live LP pool data with APR, staker counts, TVL. Pool Indexers V1/V2/Harmony track all historical LP events
+- Gardening Quest Indexer: Tracks LP staking quest rewards per hero, efficiency analysis
+- Gardening Calculator: Computes per-hero gardening yield including pet bonuses
+- Yield Calculator: Pool APR with locked/unlocked CRYSTAL/JADE reward splits
+- Jeweler: Tracks xJEWEL staking APR and depositor leaderboard
 
-You can answer questions about:
-1. DeFi Kingdoms game mechanics and strategies
-2. How features in this project work
-3. Ideas for new features or improvements
-4. Technical implementation suggestions
-5. Hero optimization strategies
+*Tavern & Hero Market:*
+- Tavern Sniper: Live search of all tavern listings filtered by class/rarity/level/stats/profession gene
+- Bargain Hunter: Finds underpriced heroes sorted by price-to-power ratio
+- Dark Bargain Hunter: Advanced bargain finder with combat stat scoring
+- Hero Score Calculator: Scores heroes using a weighted stat formula for Divine Altar evaluation
+- Hero Price Tool: Price history and valuation for individual heroes
+- Combat Pets Shop: Lists pets available for sale in the auction house (on-chain verified)
+- Tavern Indexer: Historical hero listing archive with stats, trait scores, time-on-market
+- Wallet Activity: Recent tavern buy/sell activity for any wallet
 
-Be helpful, accurate, and conversational. When discussing game mechanics, cite specific formulas or stats when relevant. For project features, explain how they work and how users can benefit from them.`;
+*Summoning:*
+- Summoning Calculator: Calculates class/gene probabilities for any parent pair
+- Summon Sniper: Finds optimal hero pairs for target class/profession/trait outcomes
+
+*Combat & PVP Tournaments:*
+- DFK Tournaments: Full multi-level tournament browser — bracket view, session view, bout detail, visual single-elimination bracket, battle inventory, players, rewards. Live and completed tournaments from both on-chain and Firebase data
+- Fight History Archive: Normalized fight archive with side-by-side team display, per-hero stats, equipment, DPS multipliers, Leadership/Menacing passive context
+- Firebase Battle Log: Turn-by-turn bout replay with live hero HP snapshots (color-coded: green ≥60%, amber 30–59%, red <30% CRITICAL) and per-player potion inventory
+- Battle Budget System: Budget = POINTS (not item count). totalBattleBudget=11 pts per player; item weights: Minor HP=2, Large HP=3, Major HP=4, Full HP Restore=8. Decoded inventory shows allowed items from battleInventory bitmask
+- Shared Hero Detail Modal: Detailed hero stats, equipment, combat profile with Leadership/Menacing match context banner
+
+*Analytics & Finance:*
+- Bridge Analytics: Cross-chain token flow monitoring, LayerZero bridge events, price reconciliation
+- Value Allocation / TVL Dashboard: Token TVL breakdown across pools
+- Token Registry: Maps all DFK token contracts, prices, metadata
+- PVE Drop Rates: Multi-chain drop rate tracking for questing rewards
+- Patrol Rewards: Patrol quest reward indexer
+
+*AI & Optimization:*
+- Quest Optimizer: Analyzes any wallet's heroes and recommends optimal quest assignments (profession vs training) based on stats, genes, and efficiency
+- AI Consultant (this tool): Conversational AI with live data access — wallet analysis, tournament status, hero optimization, bout coaching, game strategy
+
+**LIVE DATA CAPABILITIES:**
+When context blocks prefixed with LIVE DATA are injected below, use them as authoritative real-time information. They may include:
+- TOURNAMENT BRACKET DATA: Hero lineups, round scores, winner status, battle budget/inventory for a specific tournament
+- LIVE BATTLES: Currently active battles from DFK GraphQL API with hero rosters, glory data, constraints
+- HERO HP SNAPSHOT: Per-hero live HP/MP percentages from the latest Firebase battle turn (use for tactical analysis)
+- PLAYER INVENTORY: Per-player remaining potion budget from Firebase (use to advise on remaining resources)
+- WALLET ANALYSIS: Hero counts, class distribution, quest scores, transcendence multiplier data
+
+**When live data is present, always:**
+1. Lead with the real numbers — don't say "I don't have data" when context is provided
+2. For tournament questions: describe lineups, scores, winner, hero classes/levels/HP state
+3. For bout analysis: assess HP percentages, flag CRITICAL heroes (<30%), evaluate remaining potion budget, predict likely outcome
+4. For wallet questions: recommend specific hero IDs with their actual scores
+5. For "what's live": summarize active battles with player names, glory, hero compositions
+
+**When no live data is available for a question**, clearly say so and direct the user to the relevant tool on the dashboard.
+
+Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vague summaries when specifics are available.`;
 
   app.post('/api/admin/ai-consultant/chat', isAdmin, async (req, res) => {
     try {
@@ -16587,6 +16621,172 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
         }
       }
 
+      // ── Bout / Tournament context detection ─────────────────────────────
+      let boutContext = '';
+      let boutDetected = false;
+      let liveDetected = false;
+
+      try {
+        const boutKeywords = /\b(bout|tournament|battle|match|bracket|fight|vs|versus|pvp|opponent|live|glory|round|player)\b/i;
+        const hasBoutKeywords = boutKeywords.test(allText);
+
+        // Detect explicit tournament ID (4-digit number likely referencing a tournament)
+        const tournamentIdRegex = /\b(t(?:ournament)?[- ]?#?\s*)?([12]\d{3})\b/gi;
+        let tidMatch;
+        const detectedTids = new Set();
+        while ((tidMatch = tournamentIdRegex.exec(allText)) !== null) {
+          const candidate = parseInt(tidMatch[2]);
+          if (candidate >= 1000 && candidate <= 9999) detectedTids.add(candidate);
+        }
+
+        if (detectedTids.size > 0) {
+          // Fetch bracket data for detected tournament IDs (up to 2)
+          const { rawPg: rp } = await import('./server/db.js');
+          for (const tid of [...detectedTids].slice(0, 2)) {
+            try {
+              // Try cache first, then DB
+              let bracketData = _bracketDetailCache.get(tid)?.data;
+              if (!bracketData) {
+                const [stored] = await rp.unsafe(`
+                  SELECT bracket_json FROM dfk_completed_brackets WHERE tournament_id = $1 LIMIT 1
+                `, [String(tid)]);
+                if (stored?.bracket_json?.ok) bracketData = stored.bracket_json;
+              }
+
+              if (bracketData) {
+                boutDetected = true;
+                const t = bracketData.tournament || {};
+                const players = bracketData.players || [];
+                const bracket = bracketData.bracket || {};
+                const champion = bracket.champion || 0;
+                const format = t.maxHeroCount ? `${t.maxHeroCount}v${t.maxHeroCount}` : (t.format || 'unknown');
+                const allowedItems = typeof decodeBattleInventory === 'function' && t.battleInventory != null
+                  ? decodeBattleInventory(Number(t.battleInventory)).join(', ') || 'None'
+                  : 'Unknown';
+
+                const playerLines = players.map(p => {
+                  const heroSummary = (p.heroes || []).map(h =>
+                    `#${h.normalizedId || h.id} ${h.mainClassStr || '?'} L${h.level || '?'} (${h.rarity === 0 ? 'Common' : h.rarity === 1 ? 'Uncommon' : h.rarity === 2 ? 'Rare' : h.rarity === 3 ? 'Legendary' : h.rarity === 4 ? 'Mythic' : '?'})`
+                  ).join(', ') || 'No heroes loaded';
+                  return `  Slot ${p.partyIndex}: ${p.name || p.address} [${p.address?.slice(0,8)}...] — ${heroSummary}`;
+                }).join('\n');
+
+                // Fetch Firebase HP snapshot if available
+                let hpSection = '';
+                const firebaseId = _tournamentFirebaseIdMap.get(tid);
+                if (firebaseId) {
+                  try {
+                    const { fetchFirebaseBattleLog } = await import('./src/services/firebase.js');
+                    const logResult = await fetchFirebaseBattleLog(firebaseId);
+                    if (logResult?.turns?.length > 0) {
+                      const lastTurn = logResult.turns[logResult.turns.length - 1];
+                      const states = lastTurn?.beforeDeckStates || {};
+                      const hpLines = [];
+                      for (const [side, slots] of Object.entries(states)) {
+                        const sideLetter = side === '1' ? 'A' : 'B';
+                        for (const [slot, heroState] of Object.entries(slots || {})) {
+                          const hp = heroState?.health ?? null;
+                          const mp = heroState?.mana ?? null;
+                          const hpPct = hp !== null && heroState?.maxHealth ? Math.round(hp / heroState.maxHealth * 100) : null;
+                          const flag = hpPct !== null && hpPct < 30 ? ' ⚠CRITICAL' : '';
+                          if (hpPct !== null) hpLines.push(`    Side${sideLetter} Slot${slot}: ${hpPct}% HP${flag}${mp !== null ? `, MP:${Math.round(mp)}` : ''}`);
+                        }
+                      }
+                      if (hpLines.length > 0) hpSection = `\nLIVE HP STATE (from Firebase turn ${logResult.turns.length}):\n${hpLines.join('\n')}`;
+                    }
+                  } catch (_fbe) { /* firebase optional */ }
+                }
+
+                boutContext += `
+[LIVE DATA — TOURNAMENT ${tid}]
+Format: ${format} | Status: ${champion > 0 ? 'COMPLETE — Champion hero #' + champion : 'In Progress or Pending'}
+Battle Budget: ${t.battleBudget ?? 'N/A'} budget-pts per player | Allowed Items: ${allowedItems}
+Min Level: ${t.minLevel ?? '?'} | Max Level: ${t.maxLevel ?? '?'}
+Glory Bout: ${t.gloryBout ? 'Yes' : 'No'}
+
+PLAYERS (${players.length} registered):
+${playerLines || 'No player data available'}
+${hpSection}
+---
+`;
+              } else {
+                boutContext += `\n[LIVE DATA] Tournament ${tid}: Not found in database. It may not have been indexed yet.\n`;
+              }
+            } catch (tidErr) {
+              console.warn(`[AI Consultant] Tournament ${tid} fetch error:`, tidErr.message);
+            }
+          }
+        }
+
+        // Live battles query if user asks about "live" bouts without specific ID
+        if (!boutDetected && hasBoutKeywords && /\b(live|current|active|right now|happening|ongoing)\b/i.test(allText)) {
+          liveDetected = true;
+          boutDetected = true;
+          try {
+            let liveBattles = null;
+            const now = Date.now();
+            if (_liveTournamentCache.data && (now - _liveTournamentCache.ts) < 120_000) {
+              liveBattles = _liveTournamentCache.data;
+            } else {
+              const liveResp = await fetch('https://api.defikingdoms.com/graphql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: LIVE_BATTLES_QUERY, variables: { first: 20, skip: 0 } }),
+                signal: AbortSignal.timeout(8000),
+              });
+              if (liveResp.ok) {
+                const liveJson = await liveResp.json();
+                liveBattles = liveJson.data?.battles || [];
+                _liveTournamentCache.data = liveBattles;
+                _liveTournamentCache.ts = now;
+              }
+            }
+
+            if (liveBattles && liveBattles.length > 0) {
+              const statusOf = b => {
+                if (b.battleState === 5 && b.winner) return 'completed';
+                const ZERO = '0x0000000000000000000000000000000000000000';
+                return (b.opponent?.id && b.opponent.id !== ZERO) ? 'in_progress' : 'open';
+              };
+              const active = liveBattles.filter(b => statusOf(b) !== 'completed').slice(0, 8);
+              const completed = liveBattles.filter(b => statusOf(b) === 'completed').slice(0, 5);
+
+              const summarizeBattle = b => {
+                const status = statusOf(b);
+                const heroCount = (b.hostHeroes?.length || 0);
+                const format = heroCount > 0 ? `${heroCount}v${heroCount}` : 'unknown';
+                const hostName = b.host?.name || b.host?.id?.slice(0,8) || '?';
+                const oppName = b.opponent?.name || b.opponent?.id?.slice(0,8) || (status === 'open' ? '[OPEN - no opponent]' : '?');
+                const glory = b.gloryBout ? ` | Glory: host ${b.hostGlories ?? '?'} vs opp ${b.opponentGlories ?? '?'}` : '';
+                const winnerStr = b.winner ? ` — Winner: ${b.winner.name || b.winner.id?.slice(0,8)}` : '';
+                const hostHeroes = (b.hostHeroes || []).slice(0, 3).map(h => `${h.mainClassStr} L${h.level}`).join(', ');
+                const oppHeroes = (b.opponentHeroes || []).slice(0, 3).map(h => `${h.mainClassStr} L${h.level}`).join(', ');
+                return `  Battle #${b.id} [${status.toUpperCase()}] ${format}: ${hostName} vs ${oppName}${glory}${winnerStr}\n    Host heroes: ${hostHeroes || 'unknown'} | Opp heroes: ${oppHeroes || 'unknown'}`;
+              };
+
+              boutContext += `
+[LIVE DATA — ACTIVE BATTLES (fetched ${new Date().toUTCString()})]
+${active.length} active / ${completed.length} recently completed shown:
+
+ACTIVE:
+${active.map(summarizeBattle).join('\n') || 'None'}
+
+RECENTLY COMPLETED:
+${completed.map(summarizeBattle).join('\n') || 'None'}
+---
+`;
+            } else {
+              boutContext += `\n[LIVE DATA] No active battles found in the DFK GraphQL API at this time.\n`;
+            }
+          } catch (liveErr) {
+            console.warn('[AI Consultant] Live battles fetch error:', liveErr.message);
+            boutContext += `\n[LIVE DATA] Could not fetch live battles: ${liveErr.message}\n`;
+          }
+        }
+      } catch (boutErr) {
+        console.warn('[AI Consultant] Bout context error:', boutErr.message);
+      }
+
       const messages = [
         { role: 'system', content: AI_CONSULTANT_PROMPT },
         { role: 'system', content: HEDGE_PROMPT } // Include full Hedge knowledge
@@ -16595,6 +16795,11 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
       // Inject wallet context if available
       if (walletContext) {
         messages.push({ role: 'system', content: walletContext });
+      }
+
+      // Inject bout/tournament context if available
+      if (boutContext) {
+        messages.push({ role: 'system', content: boutContext });
       }
 
       // Add conversation history
@@ -16617,7 +16822,7 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
       const response = completion.choices?.[0]?.message?.content?.trim() || 
         "I couldn't generate a response. Please try again.";
 
-      res.json({ response, walletDetected: !!walletAddress });
+      res.json({ response, walletDetected: !!walletAddress, boutDetected, liveDetected });
     } catch (err) {
       console.error('[AI Consultant] Error:', err);
       res.status(500).json({ error: 'Failed to generate response' });
