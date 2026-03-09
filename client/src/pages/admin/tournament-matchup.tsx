@@ -1371,34 +1371,64 @@ function DirectBattleLogSection({ tournamentId, addrA, addrB }: { tournamentId: 
             )}
 
             {/* Turn table */}
-            <div className="max-h-72 overflow-y-auto rounded-md border border-border/40 bg-muted/5 p-2">
-              <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-1">{turns.length} turns</p>
-              <div className="grid text-[11px]" style={{ gridTemplateColumns: 'auto 1fr auto auto' }}>
-                <div className="contents text-muted-foreground/50 font-medium uppercase tracking-wide text-[9px] pb-1">
-                  <span className="pr-2">T#</span>
-                  <span>Actor → Target</span>
-                  <span className="px-2">Skill</span>
-                  <span>Dmg/Heal</span>
-                </div>
-                {turns.map((t, i) => (
-                  <div key={i} className={`contents ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
-                    <span className="pr-2 text-muted-foreground/60 font-mono tabular-nums">{t.currentTurnCount ?? t.turn ?? i + 1}</span>
-                    <span className="text-foreground/80 truncate">
-                      {t.actorClass || t.actor || '?'}
-                      {(t.targetClass || t.target) && (
-                        <span className="text-muted-foreground"> → {t.targetClass || t.target}</span>
-                      )}
-                    </span>
-                    <span className="px-2 text-muted-foreground/70 truncate max-w-[80px]">
-                      {t.skillName || t.action || '—'}
-                    </span>
-                    <span className={t.damage ? 'text-red-400 tabular-nums' : t.healing ? 'text-green-400 tabular-nums' : 'text-muted-foreground/40'}>
-                      {t.damage != null ? `-${t.damage}` : t.healing != null ? `+${t.healing}` : '—'}
-                    </span>
+            {(() => {
+              const parseActor = (log: string) => {
+                const m = log?.match(/^\[(?:[A-Z]+:\s*)?([^\]]+)\]/);
+                return m ? m[1].trim() : null;
+              };
+              const parseTarget = (log: string) => {
+                const m = log?.match(/(?:at|on)\s+\[(?:[A-Z]+:\s*)?([^\]]+)\]/);
+                return m ? m[1].trim() : null;
+              };
+              const formatSkill = (id: string) => {
+                if (!id) return '—';
+                return id
+                  .replace(/([A-Z])/g, ' $1').trim()
+                  .replace(/\s+Attack$/i, '')
+                  .replace(/\s+/g, ' ');
+              };
+              const calcDmg = (units: any[]) =>
+                (units ?? []).reduce((s: number, u: any) =>
+                  s + (u.damage?.physicalDamage || 0) + (u.damage?.magicalDamage || 0), 0);
+              const sideLabel = (side: number, slot: number) =>
+                `${side === 1 ? 'A' : 'B'}${slot + 1}`;
+
+              return (
+                <div className="max-h-72 overflow-y-auto rounded-md border border-border/40 bg-muted/5 p-2">
+                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-1">{turns.length} turns</p>
+                  <div className="grid text-[11px]" style={{ gridTemplateColumns: 'auto 1fr auto auto' }}>
+                    <div className="contents text-muted-foreground/50 font-medium uppercase tracking-wide text-[9px] pb-1">
+                      <span className="pr-2">T#</span>
+                      <span>Actor → Target</span>
+                      <span className="px-2">Skill</span>
+                      <span>Dmg</span>
+                    </div>
+                    {turns.map((t, i) => {
+                      const log = t.attackOutcome?.battleLog ?? '';
+                      const actor = parseActor(log) ?? sideLabel(t.turn?.side ?? 1, t.turn?.slot ?? 0);
+                      const target = parseTarget(log) ?? (t.move?.targetSide != null
+                        ? sideLabel(t.move.targetSide, t.move.targetSlot ?? 0)
+                        : null);
+                      const skill = formatSkill(t.attackConfig?.attackId ?? '');
+                      const dmg = calcDmg(t.attackOutcome?.outcomeUnits ?? []);
+                      return (
+                        <div key={i} className={`contents ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                          <span className="pr-2 text-muted-foreground/60 font-mono tabular-nums">{t.currentTurnCount ?? i + 1}</span>
+                          <span className="text-foreground/80 truncate">
+                            {actor}
+                            {target && <span className="text-muted-foreground"> → {target}</span>}
+                          </span>
+                          <span className="px-2 text-muted-foreground/70 truncate max-w-[100px]">{skill}</span>
+                          <span className={dmg > 0 ? 'text-red-400 tabular-nums' : 'text-muted-foreground/40'}>
+                            {dmg > 0 ? dmg : '—'}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </CardContent>
