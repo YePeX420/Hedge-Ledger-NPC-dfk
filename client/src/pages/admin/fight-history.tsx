@@ -91,6 +91,7 @@ function shortAddr(addr: string | null | undefined): string {
 
 function displayName(addr: string | null | undefined, name: string | null | undefined): string {
   if (name) return name;
+  if (!addr) return 'TBD';
   return shortAddr(addr);
 }
 

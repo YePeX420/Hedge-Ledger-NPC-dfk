@@ -959,7 +959,7 @@ function ScheduledTournamentsTab() {
               <>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-muted-foreground/60" />
-                  <span className="text-sm font-medium">Completed this session</span>
+                  <span className="text-sm font-medium">Completed</span>
                   <span className="text-xs text-muted-foreground">({completedTournaments.length})</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

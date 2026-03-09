@@ -9781,26 +9781,78 @@ async function startAdminWebServer() {
     const page  = Math.max(0, parseInt(req.query.page) || 0);
     try {
       const { rawPg } = await import('./server/db.js');
-      const [countRow] = await rawPg`SELECT COUNT(*)::int AS total FROM dfk_completed_tournaments`;
-      const rows = await rawPg`
+
+      // Primary source: dfk_completed_tournaments (written by transition tracker)
+      const dtRows = await rawPg`
         SELECT snapshot_json, completed_at, state_label, tournament_id, name
         FROM dfk_completed_tournaments
         ORDER BY completed_at DESC
-        LIMIT ${limit} OFFSET ${page * limit}
       `;
-      const tournaments = rows.map(r =>
-        r.snapshot_json ? { ...r.snapshot_json } : {
+      const coveredIds = new Set(dtRows.map(r => String(r.tournament_id)));
+      const fromDt = dtRows.map(r =>
+        r.snapshot_json ? { ...r.snapshot_json, stateLabel: 'completed', completedAt: Number(r.completed_at) } : {
           id: r.tournament_id,
           name: r.name,
-          stateLabel: r.state_label,
+          stateLabel: 'completed',
           completedAt: Number(r.completed_at),
         }
       );
+
+      // Secondary source: dfk_completed_brackets (written when bracket page is viewed)
+      // Fill in any tournaments not already captured via the tracker
+      const bracketRows = await rawPg`
+        SELECT tournament_id, bracket_json, captured_at
+        FROM dfk_completed_brackets
+        WHERE is_final = true
+        ORDER BY captured_at DESC
+      `;
+      const fromBrackets = bracketRows
+        .filter(r => !coveredIds.has(String(r.tournament_id)) && r.bracket_json?.tournament)
+        .map(r => {
+          const t = r.bracket_json.tournament;
+          return {
+            id: String(r.tournament_id),
+            name: t.name ?? `Tournament #${r.tournament_id}`,
+            stateLabel: 'completed',
+            tournamentType: t.tournamentType ?? null,
+            tournamentState: t.tournamentState ?? null,
+            tournamentStartTime: t.tournamentStartTime ?? null,
+            entryPeriodStart: t.entryPeriodStart ?? null,
+            entriesCloseInSeconds: null,
+            entriesOpenInSeconds: null,
+            entrants: t.entrants ?? null,
+            entrantsClaimed: t.entrantsClaimed ?? null,
+            maxEntrants: t.maxEntrants ?? 8,
+            partyCount: t.partyCount ?? null,
+            format: t.format ?? null,
+            realm: t.realm ?? null,
+            minLevel: t.minLevel ?? null,
+            maxLevel: t.maxLevel ?? null,
+            minRarity: t.minRarity ?? null,
+            allUniqueClasses: t.allUniqueClasses ?? false,
+            noTripleClasses: t.noTripleClasses ?? false,
+            onlyPJ: t.onlyPJ ?? false,
+            onlyBannermen: t.onlyBannermen ?? false,
+            gloryBout: t.gloryBout ?? false,
+            rounds: t.rounds ?? null,
+            bestOf: t.bestOf ?? null,
+            currentRound: t.currentRound ?? null,
+            tournamentHosted: t.tournamentHosted ?? false,
+            hostedBy: t.hostedBy ?? null,
+            completedAt: Number(r.captured_at),
+          };
+        });
+
+      // Merge, sort by completedAt descending, paginate
+      const all = [...fromDt, ...fromBrackets].sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
+      const total = all.length;
+      const tournaments = all.slice(page * limit, (page + 1) * limit);
+
       return res.json({
         ok: true,
         tournaments,
         count: tournaments.length,
-        total: countRow?.total ?? 0,
+        total,
         tracking: _trackerPrevIds.size > 0,
       });
     } catch (_dbErr) {
