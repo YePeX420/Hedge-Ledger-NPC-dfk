@@ -212,6 +212,99 @@ const dmContext = new Map();
 // State machine TTL: 30 minutes for optimization flow
 const DM_STATE_TTL_MS = 30 * 60 * 1000;
 
+// ============================================================
+// Module-level live battles cache (accessible from Discord DM handler)
+// ============================================================
+const _discordBattleCache = { data: null, ts: 0 };
+const _DISCORD_BATTLE_CACHE_TTL = 60_000; // 1 minute
+
+const _DISCORD_BATTLE_QUERY = `
+  query LiveBattles($first: Int!) {
+    battles(first: $first, skip: 0, orderBy: id, orderDirection: desc) {
+      id battleState
+      host { id name }
+      opponent { id name }
+      winner { id name }
+      battleStartTime
+      gloryBout hostGlories opponentGlories
+      minLevel maxLevel minRarity maxRarity
+      allUniqueClasses noTripleClasses privateBattle
+      hostHeroes { id normalizedId mainClassStr subClassStr level rarity }
+      opponentHeroes { id normalizedId mainClassStr subClassStr level rarity }
+    }
+  }
+`;
+
+async function fetchLiveBattlesForDiscord() {
+  const now = Date.now();
+  if (_discordBattleCache.data && (now - _discordBattleCache.ts) < _DISCORD_BATTLE_CACHE_TTL) {
+    return _discordBattleCache.data;
+  }
+  const response = await fetch('https://api.defikingdoms.com/graphql', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: _DISCORD_BATTLE_QUERY, variables: { first: 30 } }),
+    signal: AbortSignal.timeout(8_000),
+  });
+  const json = await response.json();
+  const battles = (json.data?.battles || []).map(b => {
+    const ZERO = '0x0000000000000000000000000000000000000000';
+    const hasOpponent = b.opponent?.id && b.opponent.id !== ZERO;
+    let status = 'open';
+    if (b.battleState === 5 && b.winner) status = 'completed';
+    else if (hasOpponent) status = 'in_progress';
+    return { ...b, status };
+  });
+  _discordBattleCache.data = battles;
+  _discordBattleCache.ts = now;
+  return battles;
+}
+
+function formatBattlesForDiscordContext(battles) {
+  const active = battles.filter(b => b.status === 'in_progress');
+  const open = battles.filter(b => b.status === 'open');
+  const recent = battles.filter(b => b.status === 'completed').slice(0, 5);
+
+  const lines = ['[LIVE DFK BATTLE DATA — fetched from DFK GraphQL just now]'];
+
+  if (active.length === 0 && open.length === 0) {
+    lines.push('No battles are currently active or waiting for opponents.');
+  } else {
+    if (active.length > 0) {
+      lines.push(`\nIN PROGRESS (${active.length} battles):`);
+      for (const b of active) {
+        const hostClasses = (b.hostHeroes || []).map(h => h.mainClassStr).join(', ') || 'unknown';
+        const oppClasses = (b.opponentHeroes || []).map(h => h.mainClassStr).join(', ') || 'unknown';
+        const gloryStr = b.gloryBout ? ` | Glory: ${b.hostGlories ?? '?'} vs ${b.opponentGlories ?? '?'}` : '';
+        const constraints = [
+          b.minLevel > 1 ? `Lv${b.minLevel}+` : '',
+          b.allUniqueClasses ? 'AllUnique' : '',
+          b.noTripleClasses ? 'NoTriple' : '',
+        ].filter(Boolean).join(' ');
+        lines.push(`• Battle #${b.id}: ${b.host?.name || 'Unknown'} [${hostClasses}] vs ${b.opponent?.name || 'Unknown'} [${oppClasses}]${gloryStr}${constraints ? ' | ' + constraints : ''}`);
+      }
+    }
+    if (open.length > 0) {
+      lines.push(`\nWAITING FOR OPPONENT (${open.length} open):`);
+      for (const b of open.slice(0, 5)) {
+        const hostClasses = (b.hostHeroes || []).map(h => h.mainClassStr).join(', ') || 'unknown';
+        const constraints = [b.minLevel > 1 ? `Lv${b.minLevel}+` : '', b.allUniqueClasses ? 'AllUnique' : ''].filter(Boolean).join(' ');
+        lines.push(`• Battle #${b.id}: ${b.host?.name || 'Unknown'} [${hostClasses}] waiting${constraints ? ' | ' + constraints : ''}`);
+      }
+    }
+  }
+
+  if (recent.length > 0) {
+    lines.push(`\nRECENTLY COMPLETED:`);
+    for (const b of recent) {
+      lines.push(`• Battle #${b.id}: ${b.host?.name || 'Unknown'} vs ${b.opponent?.name || 'Unknown'} — Winner: ${b.winner?.name || 'Unknown'}`);
+    }
+  }
+
+  lines.push('\nUse this real data to answer the user\'s question. Do NOT say you lack live data.');
+  return lines.join('\n');
+}
+
 function getDmState(userId) {
   const ctx = dmContext.get(userId);
   if (!ctx) return { state: DM_STATES.IDLE };
@@ -1400,6 +1493,19 @@ client.on(Events.GuildMemberAdd, async (member) => {
               console.error(`❌ Error fetching hero data:`, heroError);
               await message.reply(`I had trouble pulling that hero from the chain. Try again in a bit.`);
               return;
+            }
+          }
+
+          // 🏆 BATTLE/TOURNAMENT INTENT — inject live data if user is asking about battles
+          const battleIntentRegex = /\b(battle|tournament|fight|pvp|match|glory|watch|who.*playing|live.*battle|active.*battle|happening|fighting|bout|duel|which.*battle)\b/i;
+          if (battleIntentRegex.test(message.content)) {
+            try {
+              const liveBattles = await fetchLiveBattlesForDiscord();
+              const battleCtx = formatBattlesForDiscordContext(liveBattles);
+              enrichedContent += `\n\n${battleCtx}`;
+              console.log(`[Discord] Injected live battle data into context (${liveBattles.length} battles)`);
+            } catch (battleFetchErr) {
+              console.warn('[Discord] Could not fetch live battles for context:', battleFetchErr.message);
             }
           }
 
