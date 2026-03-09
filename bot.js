@@ -9570,6 +9570,26 @@ async function startAdminWebServer() {
       await rawPg.unsafe(`
         ALTER TABLE dfk_tournament_bouts ADD COLUMN IF NOT EXISTS firebase_battle_id TEXT
       `);
+      // Deduplicate any existing double-inserted hero rows, then add unique constraint
+      // (heroes were being inserted again on every bracket page load because ON CONFLICT DO NOTHING
+      //  requires a unique constraint to function — this migration adds it idempotently)
+      try {
+        await rawPg.unsafe(`
+          DELETE FROM dfk_bout_heroes
+          WHERE id NOT IN (
+            SELECT MIN(id) FROM dfk_bout_heroes GROUP BY bout_id, hero_id
+          )
+        `);
+        await rawPg.unsafe(`
+          ALTER TABLE dfk_bout_heroes
+          ADD CONSTRAINT dfk_bout_heroes_bout_hero_uniq UNIQUE (bout_id, hero_id)
+        `);
+        console.log('[FightArchive] Added UNIQUE(bout_id, hero_id) constraint — duplicates cleaned');
+      } catch (constraintErr) {
+        if (!constraintErr.message?.includes('already exists')) {
+          console.warn('[FightArchive] Constraint migration note:', constraintErr.message);
+        }
+      }
 
       // Seed in-memory completed list from DB so history survives restarts
       const rows = await rawPg`
@@ -10460,13 +10480,23 @@ async function startAdminWebServer() {
       const tournamentId = parseInt(req.params.id);
       if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
 
-      const { playerAAddr, playerBAddr } = req.body;
-      if (!playerAAddr || !playerBAddr) return res.status(400).json({ ok: false, error: 'playerAAddr and playerBAddr required' });
+      let { playerAAddr, playerBAddr, slotA, slotB } = req.body;
 
       const cached = _bracketDetailCache.get(tournamentId);
       if (!cached) return res.status(404).json({ ok: false, error: 'Tournament not in cache — load the bracket page first' });
 
       const { players, tournament } = cached.data;
+
+      // Resolve addresses from slot (partyIndex) numbers if addresses weren't provided directly
+      if (!playerAAddr && slotA !== undefined) {
+        const pA = players.find(p => p.partyIndex === Number(slotA));
+        if (pA) playerAAddr = pA.address;
+      }
+      if (!playerBAddr && slotB !== undefined) {
+        const pB = players.find(p => p.partyIndex === Number(slotB));
+        if (pB) playerBAddr = pB.address;
+      }
+      if (!playerAAddr || !playerBAddr) return res.status(400).json({ ok: false, error: 'Could not resolve both players — provide playerAAddr/playerBAddr or valid slotA/slotB' });
 
       const playerA = players.find(p => p.address.toLowerCase() === playerAAddr.toLowerCase());
       const playerB = players.find(p => p.address.toLowerCase() === playerBAddr.toLowerCase());
@@ -10996,6 +11026,8 @@ async function startAdminWebServer() {
         console.warn('[BoutAnalysis] OpenAI call failed:', aiErr.message);
       }
 
+      const targetName    = target === 'winner' ? winnerName : loserName;
+      const targetAddress = target === 'winner' ? winnerAddr : loserAddr;
       res.json({ ok: true, analysis, target, targetName, targetAddress, loserAddress: loserAddr, loserName, hadBattleLog });
     } catch (err) {
       console.error('[BoutAnalysis] Error:', err.message);
