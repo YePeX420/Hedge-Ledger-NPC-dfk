@@ -414,311 +414,6 @@ function BracketConnector({ matchesInRound, totalHeight, width = 40 }: {
   );
 }
 
-// ─── Matchup Analysis Panel ───────────────────────────────────────────────────
-
-interface BoutHeroSummary {
-  hero_id: string;
-  main_class: string;
-  level: number;
-  rarity: number;
-  strength: number;
-  intelligence: number;
-  vitality: number;
-  endurance: number;
-  passive1: string | null;
-  passive2: string | null;
-}
-
-interface HistoryBout {
-  id: number;
-  roundNumber: number;
-  matchIndex: number;
-  playerA: string;
-  playerAName: string | null;
-  playerB: string;
-  playerBName: string | null;
-  winnerAddress: string | null;
-  isComplete: boolean;
-  capturedAt: number | null;
-  heroesA: BoutHeroSummary[];
-  heroesB: BoutHeroSummary[];
-}
-
-function HeroStatRow({ hero, onView }: { hero: HeroDetail; onView: () => void }) {
-  const rarityColor = RARITY_COLORS[hero.rarity] ?? 'text-muted-foreground';
-  return (
-    <div className="flex items-center gap-2 py-1.5 border-b border-border/30 last:border-0">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className={`text-xs font-semibold ${rarityColor}`}>{hero.mainClassStr}</span>
-          <span className="text-[10px] text-muted-foreground">Lv{hero.level}</span>
-          {hero.passive1 === 9 && <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-400">Lead</span>}
-          {hero.passive1 === 11 && <span className="text-[9px] px-1 rounded bg-red-500/20 text-red-400">Menacing</span>}
-          {hero.passive2 === 9 && <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-400">Lead</span>}
-          {hero.passive2 === 11 && <span className="text-[9px] px-1 rounded bg-red-500/20 text-red-400">Menacing</span>}
-        </div>
-        <div className="flex gap-2 mt-0.5 text-[10px] text-muted-foreground">
-          <span>STR {hero.strength}</span>
-          <span>INT {hero.intelligence}</span>
-          <span>VIT {hero.vitality}</span>
-          <span>END {hero.endurance}</span>
-        </div>
-      </div>
-      <Button variant="ghost" size="sm" className="text-[10px] px-2 shrink-0" onClick={onView}>Stats</Button>
-    </div>
-  );
-}
-
-function MatchupAnalysisPanel({ match, tournamentId, players, slotMap, nameMap, tournament, onClose, onHeroSelect }: {
-  match: BracketMatch;
-  tournamentId: string;
-  players: PlayerEntry[];
-  slotMap: Record<number, string>;
-  nameMap: Record<number, string>;
-  tournament: TournamentDetail;
-  onClose: () => void;
-  onHeroSelect: (hero: HeroDetail) => void;
-}) {
-  const [aiResult, setAiResult] = useState<(AiMatchupResult & { narrative?: string | null; loading?: boolean; error?: string }) | null>(null);
-  const [expandedBouts, setExpandedBouts] = useState<Set<number>>(new Set());
-
-  const playerA = players.find(p => p.partyIndex === match.slotA) ?? null;
-  const playerB = players.find(p => p.partyIndex === match.slotB) ?? null;
-
-  const slotLabel = (slotId: number) => nameMap[slotId] || shortAddr(slotMap[slotId]) || `Slot #${slotId}`;
-  const nameA = slotLabel(match.slotA);
-  const nameB = slotLabel(match.slotB);
-
-  const { data: histData, isLoading: histLoading } = useQuery<{ ok: boolean; bouts: HistoryBout[] }>({
-    queryKey: ['/api/admin/tournament/bracket', tournamentId, 'matchup-history', match.slotA, match.slotB],
-    queryFn: async () => {
-      const r = await fetch(`/api/admin/tournament/bracket/${tournamentId}/matchup-history?slotA=${match.slotA}&slotB=${match.slotB}`);
-      return r.json();
-    },
-    refetchInterval: tournament.stateLabel === 'in_progress' ? 20000 : false,
-  });
-
-  const runAnalysis = async () => {
-    const addrA = slotMap[match.slotA];
-    const addrB = slotMap[match.slotB];
-    if (!addrA || !addrB) return;
-    setAiResult({ loading: true } as any);
-    try {
-      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/ai-matchup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerAAddr: addrA, playerBAddr: addrB }),
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'Analysis failed');
-      setAiResult({ ...data, loading: false });
-    } catch (err: any) {
-      setAiResult({ loading: false, error: err.message } as any);
-    }
-  };
-
-  const toggleBout = (id: number) => {
-    setExpandedBouts(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const hasBothPlayers = slotMap[match.slotA] && slotMap[match.slotB];
-
-  return (
-    <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent className="max-w-5xl" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-yellow-400" />
-            Matchup Analysis — {nameA} vs {nameB}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-6 pt-1">
-
-          {/* ── Section 1: AI Prediction ──────────────────────────────── */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5" /> Win Prediction
-              </h3>
-              <Button
-                size="sm"
-                onClick={runAnalysis}
-                disabled={aiResult?.loading || !hasBothPlayers}
-                data-testid="btn-run-prediction"
-              >
-                <Zap className="w-3.5 h-3.5 mr-1.5" />
-                {aiResult?.loading ? 'Analyzing...' : aiResult ? 'Re-run' : 'Run Prediction'}
-              </Button>
-            </div>
-            {!hasBothPlayers && (
-              <p className="text-sm text-muted-foreground">Both players must be registered and have hero data loaded before running a prediction.</p>
-            )}
-            {aiResult?.error && <p className="text-sm text-destructive">{aiResult.error}</p>}
-            {aiResult && !aiResult.loading && !aiResult.error && (
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-sm font-semibold">
-                    <span className="text-green-400">{aiResult.nameA} — {aiResult.winPctA}%</span>
-                    <span className="text-red-400">{aiResult.winPctB}% — {aiResult.nameB}</span>
-                  </div>
-                  <div className="h-4 rounded-full overflow-hidden flex bg-muted">
-                    <div className="h-full bg-green-500 transition-all duration-700" style={{ width: `${aiResult.winPctA}%` }} />
-                    <div className="h-full bg-red-500 transition-all duration-700" style={{ width: `${aiResult.winPctB}%` }} />
-                  </div>
-                </div>
-                {aiResult.factors && (
-                  <div className="rounded-md bg-muted/20 p-3 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Factor Breakdown</p>
-                    {([
-                      { label: 'Initiative',     key: 'init',       weight: 25 },
-                      { label: 'Effective DPS',  key: 'dps',        weight: 30 },
-                      { label: 'Survivability',  key: 'surv',       weight: 20 },
-                      { label: 'Passive DPS',    key: 'passiveDps', weight: 10 },
-                      { label: 'Team Comp',      key: 'comp',       weight: 10 },
-                      { label: 'Experience',     key: 'experience', weight:  5 },
-                    ] as { label: string; key: keyof typeof aiResult.factors; weight: number }[]).map(({ label, key, weight }) => {
-                      const aVal = aiResult.factors![key];
-                      const bVal = Math.round((100 - aVal) * 10) / 10;
-                      const aHigher = aVal >= 50;
-                      return (
-                        <div key={key} className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-xs text-muted-foreground truncate">{label}</span>
-                            <span className="text-[10px] text-muted-foreground/60 shrink-0">{weight}%</span>
-                          </div>
-                          <span className={`text-xs font-mono tabular-nums ${aHigher ? 'text-green-400' : 'text-muted-foreground'}`}>{aVal.toFixed(1)}%</span>
-                          <span className={`text-xs font-mono tabular-nums ${!aHigher ? 'text-green-400' : 'text-muted-foreground'}`}>{bVal.toFixed(1)}%</span>
-                        </div>
-                      );
-                    })}
-                    <div className="pt-1 border-t border-border/40 flex justify-between text-[10px] text-muted-foreground/50">
-                      <span>{aiResult.nameA}</span>
-                      <span>{aiResult.nameB}</span>
-                    </div>
-                  </div>
-                )}
-                {aiResult.narrative && (
-                  <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-400 mb-1.5 flex items-center gap-1.5">
-                      <Star className="w-3 h-3" /> Strategic Assessment
-                    </p>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{aiResult.narrative}</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* ── Section 2: Team Comparison ───────────────────────────── */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5" /> Team Comparison
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { player: playerA, name: nameA, slot: match.slotA },
-                { player: playerB, name: nameB, slot: match.slotB },
-              ].map(({ player, name, slot }) => (
-                <div key={slot} className="rounded-md border border-border/50 overflow-hidden">
-                  <div className="px-3 py-2 bg-muted/30 border-b border-border/40">
-                    <p className="text-xs font-semibold truncate">{name}</p>
-                    {slotMap[slot] && (
-                      <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{shortAddr(slotMap[slot])}</p>
-                    )}
-                  </div>
-                  <div className="p-2">
-                    {player?.heroes && player.heroes.length > 0 ? (
-                      player.heroes.map((hero) => (
-                        <HeroStatRow key={hero.id} hero={hero} onView={() => onHeroSelect(hero)} />
-                      ))
-                    ) : (
-                      <p className="text-xs text-muted-foreground py-2 text-center">No hero data loaded</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Section 3: Fight History ──────────────────────────────── */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5" /> Fight History
-              {tournament.stateLabel === 'in_progress' && (
-                <span className="text-[9px] font-normal text-green-400 ml-1 animate-pulse">● Live</span>
-              )}
-            </h3>
-            {histLoading ? (
-              <p className="text-sm text-muted-foreground">Loading fight history...</p>
-            ) : !histData?.bouts || histData.bouts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No previous encounters indexed for this matchup.</p>
-            ) : (
-              <div className="space-y-2">
-                {histData.bouts.map((bout) => {
-                  const winnerIsA = bout.winnerAddress && slotMap[match.slotA] &&
-                    bout.winnerAddress.toLowerCase() === slotMap[match.slotA].toLowerCase();
-                  const winnerIsB = bout.winnerAddress && slotMap[match.slotB] &&
-                    bout.winnerAddress.toLowerCase() === slotMap[match.slotB].toLowerCase();
-                  const winnerName = winnerIsA ? nameA : winnerIsB ? nameB : (bout.winnerAddress ? shortAddr(bout.winnerAddress) : '—');
-                  const expanded = expandedBouts.has(bout.id);
-                  return (
-                    <div key={bout.id} className="rounded-md border border-border/50 overflow-hidden">
-                      <button
-                        className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/30 transition-colors"
-                        onClick={() => toggleBout(bout.id)}
-                        data-testid={`bout-row-${bout.id}`}
-                      >
-                        <span className="text-xs text-muted-foreground w-20 shrink-0">
-                          Rd {bout.roundNumber + 1} · #{bout.matchIndex + 1}
-                        </span>
-                        {bout.isComplete ? (
-                          <span className="flex items-center gap-1 text-xs font-medium text-green-400 shrink-0">
-                            <Trophy className="w-3 h-3" /> {winnerName}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground shrink-0">In progress</span>
-                        )}
-                        <span className="text-xs text-muted-foreground ml-auto">
-                          {bout.heroesA.length}v{bout.heroesB.length} heroes
-                        </span>
-                        <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                      </button>
-                      {expanded && (
-                        <div className="grid grid-cols-2 gap-0 border-t border-border/40">
-                          {[
-                            { heroes: bout.heroesA, name: nameA, isWinner: !!winnerIsA },
-                            { heroes: bout.heroesB, name: nameB, isWinner: !!winnerIsB },
-                          ].map(({ heroes, name: tName, isWinner }, ti) => (
-                            <div key={ti} className={`p-2 ${ti === 0 ? 'border-r border-border/40' : ''}`}>
-                              <p className={`text-[10px] font-semibold mb-1 ${isWinner ? 'text-green-400' : 'text-muted-foreground'}`}>
-                                {isWinner && <Trophy className="w-2.5 h-2.5 inline mr-0.5" />}{tName}
-                              </p>
-                              {heroes.map((h) => (
-                                <div key={h.hero_id} className="text-[10px] text-muted-foreground py-0.5">
-                                  {h.main_class} Lv{h.level}
-                                </div>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 const ROUND_LABELS = ['Round of 8', 'Semifinal', 'Final'];
 
@@ -729,9 +424,9 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }: {
   tournament: TournamentDetail;
   tournamentId: string;
 }) {
+  const [, navigate] = useLocation();
   const [selectedMatch, setSelectedMatch] = useState<BracketMatch | null>(null);
   const [selectedHero, setSelectedHero] = useState<HeroDetail | null>(null);
-  const [selectedAnalysis, setSelectedAnalysis] = useState<BracketMatch | null>(null);
 
   // Build slot map: partyIndex (0-based, matches getBracket() raw values) → address
   const slotMap: Record<number, string> = {};
@@ -750,6 +445,10 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }: {
   // Header height so all column headers align
   const HEADER_H = 56;
 
+  const handleAnalyze = (match: BracketMatch) => {
+    navigate(`/admin/tournament/bracket/${tournamentId}/matchup/${match.slotA}/${match.slotB}`);
+  };
+
   return (
     <div className="space-y-4">
       {selectedHero && <HeroDetailModal hero={selectedHero} onClose={() => setSelectedHero(null)} />}
@@ -761,18 +460,6 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }: {
           nameMap={nameMap}
           onClose={() => setSelectedMatch(null)}
           onHeroSelect={hero => { setSelectedMatch(null); setSelectedHero(hero); }}
-        />
-      )}
-      {selectedAnalysis && (
-        <MatchupAnalysisPanel
-          match={selectedAnalysis}
-          tournamentId={tournamentId}
-          players={players}
-          slotMap={slotMap}
-          nameMap={nameMap}
-          tournament={tournament}
-          onClose={() => setSelectedAnalysis(null)}
-          onHeroSelect={hero => { setSelectedAnalysis(null); setSelectedHero(hero); }}
         />
       )}
       {!hasAnyPlayer && (
@@ -814,7 +501,7 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }: {
                       roundIndex={ri}
                       matchIndex={mi}
                       onMatchClick={setSelectedMatch}
-                      onAnalyze={ri === 0 ? setSelectedAnalysis : undefined}
+                      onAnalyze={ri === 0 ? handleAnalyze : undefined}
                     />
                   ))}
                 </div>

@@ -10695,6 +10695,90 @@ async function startAdminWebServer() {
     }
   });
 
+  // POST /api/admin/tournament/bracket/:id/bout-analysis — GPT-4o-mini coaching for losing team
+  app.post('/api/admin/tournament/bracket/:id/bout-analysis', isAdmin, async (req, res) => {
+    try {
+      const tournamentId = String(req.params.id);
+      const { boutId } = req.body;
+      if (!boutId) return res.status(400).json({ ok: false, error: 'boutId required' });
+
+      const { rawPg: rp } = await import('./server/db.js');
+
+      const [bout] = await rp.unsafe(`
+        SELECT id, tournament_id, tournament_name, round_number, match_index,
+               player_a, player_b, player_a_name, player_b_name,
+               winner_address, is_complete, tournament_format
+        FROM dfk_tournament_bouts
+        WHERE id = $1 AND tournament_id = $2
+      `, [Number(boutId), tournamentId]);
+
+      if (!bout) return res.status(404).json({ ok: false, error: 'Bout not found' });
+      if (!bout.is_complete || !bout.winner_address) {
+        return res.json({ ok: false, error: 'Bout is not yet complete' });
+      }
+
+      const heroRows = await rp.unsafe(`
+        SELECT side, player_address, main_class, level, rarity,
+               strength, dexterity, agility, intelligence, vitality, endurance,
+               passive1, passive2, active1, active2, is_winner_side
+        FROM dfk_bout_heroes
+        WHERE bout_id = $1
+        ORDER BY side, hero_id
+      `, [Number(boutId)]);
+
+      const sideA = heroRows.filter(h => h.side === 'a');
+      const sideB = heroRows.filter(h => h.side === 'b');
+      const winnerAddr = bout.winner_address.toLowerCase();
+      const playerAAddr = (bout.player_a || '').toLowerCase();
+
+      const winnerSide = winnerAddr === playerAAddr ? sideA : sideB;
+      const loserSide  = winnerAddr === playerAAddr ? sideB : sideA;
+      const winnerName = winnerAddr === playerAAddr
+        ? (bout.player_a_name || winnerAddr.slice(0, 8) + '…')
+        : (bout.player_b_name || winnerAddr.slice(0, 8) + '…');
+      const loserAddr  = winnerAddr === playerAAddr ? (bout.player_b || '') : (bout.player_a || '');
+      const loserName  = winnerAddr === playerAAddr
+        ? (bout.player_b_name || loserAddr.slice(0, 8) + '…')
+        : (bout.player_a_name || loserAddr.slice(0, 8) + '…');
+
+      const heroSummary = (heroes) => heroes.map(h =>
+        `${h.main_class} Lv${h.level} (STR${h.strength}/AGI${h.agility}/VIT${h.vitality}/END${h.endurance}` +
+        `${h.passive1 ? `, P1:${h.passive1}` : ''}${h.passive2 ? `, P2:${h.passive2}` : ''})`
+      ).join('; ');
+
+      const prompt = `Tournament: ${bout.tournament_name || 'Unknown'} (Format: ${bout.tournament_format || '?'}).` +
+        ` Round ${bout.round_number}, Match ${bout.match_index + 1}.` +
+        ` ${winnerName} defeated ${loserName}.` +
+        ` Winning team: ${heroSummary(winnerSide)}.` +
+        ` Losing team: ${heroSummary(loserSide)}.` +
+        ` In 3-4 sentences, provide specific and actionable tactical coaching advice for ${loserName}.` +
+        ` Focus on hero selection, stat priorities, passive synergies, or team composition changes that could improve their odds next time.`;
+
+      let analysis = null;
+      try {
+        const { OpenAI } = await import('openai');
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'You are an expert DeFi Kingdoms PvP tournament coach. Give concise, practical advice.' },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 250,
+          temperature: 0.7,
+        });
+        analysis = completion.choices[0]?.message?.content?.trim() ?? null;
+      } catch (aiErr) {
+        console.warn('[BoutAnalysis] OpenAI call failed:', aiErr.message);
+      }
+
+      res.json({ ok: true, analysis, loserAddress: loserAddr, loserName });
+    } catch (err) {
+      console.error('[BoutAnalysis] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // GET /api/admin/tournament/private-bouts — individual private challenge bouts
   app.get("/api/admin/tournament/private-bouts", isAdmin, async (req, res) => {
     try {

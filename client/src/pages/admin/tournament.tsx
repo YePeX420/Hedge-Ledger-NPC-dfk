@@ -699,6 +699,7 @@ interface ScheduledTournament {
   currentRound: number | null;
   tournamentHosted: boolean;
   hostedBy: string | null;
+  completedAt?: number;
 }
 
 function formatCloseCountdown(seconds: number | null): string {
@@ -814,8 +815,15 @@ function ScheduledTournamentsTab() {
           <p className="text-xs text-muted-foreground">
             {isUpcoming
               ? `Opens: ${formatTournamentDateTime(t.entryPeriodStart)}`
-              : `Starts: ${formatTournamentDateTime(t.tournamentStartTime)}`}
+              : (isInProgress || t.stateLabel === 'completed' || t.stateLabel === 'cancelled')
+                ? `Started: ${formatTournamentDateTime(t.tournamentStartTime)}`
+                : `Starts: ${formatTournamentDateTime(t.tournamentStartTime)}`}
           </p>
+          {t.stateLabel === 'completed' && t.completedAt && (
+            <p className="text-xs text-muted-foreground">
+              Completed: {formatTournamentDateTime(Math.round(t.completedAt / 1000))}
+            </p>
+          )}
 
           <div>
             <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-md ${badge.className}`}>

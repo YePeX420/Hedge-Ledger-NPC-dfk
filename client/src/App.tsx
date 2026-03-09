@@ -57,6 +57,7 @@ import AdminTournament from "@/pages/admin/tournament";
 import AdminTournamentDetail from "@/pages/admin/tournament-detail";
 import TournamentSession from "@/pages/admin/tournament-session";
 import TournamentBracketPage from "@/pages/admin/tournament-bracket";
+import TournamentMatchupPage from "@/pages/admin/tournament-matchup";
 import FightHistoryPage from "@/pages/admin/fight-history";
 import UserAccessManagement from "@/pages/admin/user-access";
 import UserLogin from "@/pages/user-login";
@@ -334,6 +335,14 @@ function Router() {
         {(params) => (
           <ProtectedAdminPage>
             <TournamentSession sessionKey={params.sessionKey} />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
+      <Route path="/admin/tournament/bracket/:id/matchup/:slotA/:slotB">
+        {(params) => (
+          <ProtectedAdminPage>
+            <TournamentMatchupPage />
           </ProtectedAdminPage>
         )}
       </Route>

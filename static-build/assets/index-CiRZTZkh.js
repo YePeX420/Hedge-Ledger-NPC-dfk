@@ -69961,7 +69961,7 @@ function calculateHeroTraitScore(hero) {
   return getAbilityTierPoints(hero.active1) + getAbilityTierPoints(hero.active2) + getAbilityTierPoints(hero.passive1) + getAbilityTierPoints(hero.passive2);
 }
 const RARITY_NAMES$5 = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"];
-const RARITY_COLORS$a = ["text-gray-500", "text-green-500", "text-blue-500", "text-orange-500", "text-purple-500"];
+const RARITY_COLORS$b = ["text-gray-500", "text-green-500", "text-blue-500", "text-orange-500", "text-purple-500"];
 const CLASS_NAMES = {
   0: "Warrior",
   1: "Knight",
@@ -70915,7 +70915,7 @@ function BattleReadyAdmin() {
               hero.sub_class && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground", children: hero.sub_class })
             ] }) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: hero.level ?? "?" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$a[hero.rarity ?? 0] || "", children: RARITY_NAMES$5[hero.rarity ?? 0] || hero.rarity }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$b[hero.rarity ?? 0] || "", children: RARITY_NAMES$5[hero.rarity ?? 0] || hero.rarity }) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono text-xs", children: hero.effDps.toFixed(1) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono text-xs", children: hero.surv }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1", children: passiveBadges.length > 0 ? passiveBadges.map((p, i) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-[10px] px-1 rounded border ${p.className}`, children: p.label }, i)) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground", children: "—" }) }) }),
@@ -71223,7 +71223,7 @@ function BattleReadyAdmin() {
                   "Lv ",
                   hero.level,
                   " | ",
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$a[hero.rarity], children: RARITY_NAMES$5[hero.rarity] })
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$b[hero.rarity], children: RARITY_NAMES$5[hero.rarity] })
                 ] }),
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-muted-foreground", children: [
                   "STR:",
@@ -71452,7 +71452,7 @@ function BattleReadyAdmin() {
                     ] }) }),
                     /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: hero.level }),
                     /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1", children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$a[hero.rarity] || "", children: RARITY_NAMES$5[hero.rarity] || hero.rarity }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$b[hero.rarity] || "", children: RARITY_NAMES$5[hero.rarity] || hero.rarity }),
                       hero.summonStone && /* @__PURE__ */ jsxRuntimeExports.jsxs(
                         Badge,
                         {
@@ -71873,7 +71873,7 @@ function getSkillTierColor(skillName) {
 function isMutationTier(tier) {
   return tier.startsWith("A") || tier.startsWith("E") || tier.startsWith("X");
 }
-const RARITY_COLORS$9 = {
+const RARITY_COLORS$a = {
   0: "bg-gray-500",
   1: "bg-green-500",
   2: "bg-blue-500",
@@ -72014,14 +72014,14 @@ function GeneticsTable({ genetics, title }) {
     ] }) })
   ] });
 }
-function HeroCard$3({ hero, genetics }) {
+function HeroCard$4({ hero, genetics }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between gap-2", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-lg", children: [
         "Hero #",
         hero.normalizedId
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: RARITY_COLORS$9[hero.rarity], children: hero.rarityName })
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: RARITY_COLORS$a[hero.rarity], children: hero.rarityName })
     ] }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(CardContent, { className: "space-y-4", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-2 gap-2 text-sm", children: [
@@ -72270,8 +72270,8 @@ function SummoningCalculator() {
       ] }),
       result && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid md:grid-cols-2 gap-4", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard$3, { hero: result.parent1, genetics: result.genetics1 }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard$3, { hero: result.parent2, genetics: result.genetics2 })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard$4, { hero: result.parent1, genetics: result.genetics1 }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard$4, { hero: result.parent2, genetics: result.genetics2 })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs(CardHeader, { children: [
@@ -74555,7 +74555,7 @@ function TavernSniper() {
         ] })
       ] }),
       allHeroes.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(Card, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { className: "py-12 text-center text-muted-foreground", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "No heroes match your filters. Try adjusting your search criteria." }) }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid gap-3 md:grid-cols-2 lg:grid-cols-3", children: allHeroes.slice(0, 50).map((item, idx) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-        HeroCard$2,
+        HeroCard$3,
         {
           hero: item.hero,
           burn: item.burn,
@@ -74574,7 +74574,7 @@ function TavernSniper() {
     ] })
   ] });
 }
-function HeroCard$2({
+function HeroCard$3({
   hero,
   burn,
   rank,
@@ -76561,7 +76561,7 @@ function AIConsultant() {
     ] })
   ] });
 }
-const RARITY_COLORS$8 = ["text-muted-foreground", "text-green-500", "text-blue-500", "text-orange-500", "text-purple-500"];
+const RARITY_COLORS$9 = ["text-muted-foreground", "text-green-500", "text-blue-500", "text-orange-500", "text-purple-500"];
 const QUEST_ICONS = {
   Mining: Pickaxe,
   Gardening: Sprout,
@@ -76721,7 +76721,7 @@ function QuestOptimizer() {
               const isTraining = hero.bestQuestType === "training";
               return /* @__PURE__ */ jsxRuntimeExports.jsxs(TableRow, { "data-testid": `row-hero-${hero.id}`, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono", children: hero.id }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$8[hero.rarity], children: hero.class }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$9[hero.rarity], children: hero.class }) }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: hero.level }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1", children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx(Icon2, { className: "h-4 w-4" }),
@@ -78292,7 +78292,7 @@ function TavernIndexerAdmin() {
     ] })
   ] });
 }
-const RARITY_COLORS$7 = {
+const RARITY_COLORS$8 = {
   Common: "text-muted-foreground",
   Uncommon: "text-green-500",
   Rare: "text-blue-500",
@@ -78608,7 +78608,7 @@ function TavernWalletActivity() {
                       row.subClass
                     ] })
                   ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-medium", children: row.petName || "Pet" }) }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$7[row.rarity || ""] || "", children: row.rarity || "—" }) }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$8[row.rarity || ""] || "", children: row.rarity || "—" }) }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2.5 text-center", children: row.level ?? "—" }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2.5", children: row.tokenId ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
                     "a",
@@ -78681,7 +78681,7 @@ const RARITY_NAMES$3 = {
   3: "Legendary",
   4: "Mythic"
 };
-const RARITY_COLORS$6 = {
+const RARITY_COLORS$7 = {
   0: "bg-gray-500",
   1: "bg-green-500",
   2: "bg-blue-500",
@@ -78994,7 +78994,7 @@ function MarketIntelPage() {
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono text-xs", children: sale.hero_id })
             ] }) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1", children: [
-              sale.rarity !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `w-2 h-2 rounded-full ${RARITY_COLORS$6[sale.rarity]}` }),
+              sale.rarity !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `w-2 h-2 rounded-full ${RARITY_COLORS$7[sale.rarity]}` }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: sale.main_class || "-" })
             ] }) }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs(TableCell, { children: [
@@ -79024,7 +79024,7 @@ function MarketIntelPage() {
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 flex-wrap", children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-xs", children: metric.realm.toUpperCase() }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-medium", children: metric.main_class }),
-                  metric.rarity !== void 0 && metric.rarity !== null && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$6[metric.rarity]} text-xs`, children: RARITY_NAMES$3[metric.rarity] })
+                  metric.rarity !== void 0 && metric.rarity !== null && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$7[metric.rarity]} text-xs`, children: RARITY_NAMES$3[metric.rarity] })
                 ] }),
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-4", children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-right", children: [
@@ -79278,7 +79278,7 @@ function MarketIntelPage() {
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableBody, { children: priceResult.recentSales.map((sale, idx) => /* @__PURE__ */ jsxRuntimeExports.jsxs(TableRow, { children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono text-xs", children: sale.heroId }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: sale.mainClass || "-" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: sale.rarity !== void 0 && sale.rarity !== null && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$6[sale.rarity]} text-xs`, children: RARITY_NAMES$3[sale.rarity] }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: sale.rarity !== void 0 && sale.rarity !== null && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$7[sale.rarity]} text-xs`, children: RARITY_NAMES$3[sale.rarity] }) }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: sale.level || "-" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsxs(TableCell, { className: "font-medium", children: [
                   sale.price.toFixed(2),
@@ -79301,7 +79301,7 @@ const RARITY_NAMES$2 = {
   3: "Legendary",
   4: "Mythic"
 };
-const RARITY_COLORS$5 = {
+const RARITY_COLORS$6 = {
   0: "bg-gray-500",
   1: "bg-green-500",
   2: "bg-blue-500",
@@ -79545,7 +79545,7 @@ function HeroPricePage() {
         priceResult && priceResult.ok && hero && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-6 space-y-4", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3 flex-wrap", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", children: hero.realm === "cv" ? "Crystalvale" : "Sundered Isles" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: RARITY_COLORS$5[hero.rarity], children: hero.rarityName }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: RARITY_COLORS$6[hero.rarity], children: hero.rarityName }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-lg", children: hero.mainClass }),
             hero.subClass && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
               "/ ",
@@ -79868,7 +79868,7 @@ function HeroPricePage() {
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableBody, { children: comps.map((sale, idx) => /* @__PURE__ */ jsxRuntimeExports.jsxs(TableRow, { "data-testid": `row-comp-${idx}`, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "font-mono text-xs", children: sale.heroId }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: sale.mainClass || "-" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: sale.rarity !== void 0 && sale.rarity !== null && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$5[sale.rarity]} text-xs`, children: RARITY_NAMES$2[sale.rarity] }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: sale.rarity !== void 0 && sale.rarity !== null && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$6[sale.rarity]} text-xs`, children: RARITY_NAMES$2[sale.rarity] }) }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: sale.level || "-" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: sale.generation ?? "-" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1 text-xs", children: [
@@ -80016,7 +80016,7 @@ function HeroPricePage() {
                 /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: h.mainClass }),
                 h.subClass && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs text-muted-foreground", children: h.subClass })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$5[h.rarity] || ""} text-xs`, children: h.rarityName || RARITY_NAMES$2[h.rarity] || "?" }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$6[h.rarity] || ""} text-xs`, children: h.rarityName || RARITY_NAMES$2[h.rarity] || "?" }) }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: h.level }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: h.generation }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { className: "text-xs", children: h.profession || "-" }),
@@ -80189,7 +80189,7 @@ function HeroPricePage() {
                       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: h.mainClass }),
                       h.subClass && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs text-muted-foreground", children: h.subClass })
                     ] }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$5[h.rarity]} text-xs`, children: h.rarityName }) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: `${RARITY_COLORS$6[h.rarity]} text-xs`, children: h.rarityName }) }),
                     /* @__PURE__ */ jsxRuntimeExports.jsx(TableCell, { children: h.level }),
                     /* @__PURE__ */ jsxRuntimeExports.jsxs(TableCell, { className: "font-medium", children: [
                       formatPrice2(h.listingPrice),
@@ -85034,7 +85034,11 @@ function ScheduledTournamentsTab() {
             "Hosted By: ",
             t.hostedBy
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: isUpcoming ? `Opens: ${formatTournamentDateTime(t.entryPeriodStart)}` : `Starts: ${formatTournamentDateTime(t.tournamentStartTime)}` }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: isUpcoming ? `Opens: ${formatTournamentDateTime(t.entryPeriodStart)}` : isInProgress || t.stateLabel === "completed" || t.stateLabel === "cancelled" ? `Started: ${formatTournamentDateTime(t.tournamentStartTime)}` : `Starts: ${formatTournamentDateTime(t.tournamentStartTime)}` }),
+          t.stateLabel === "completed" && t.completedAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs text-muted-foreground", children: [
+            "Completed: ",
+            formatTournamentDateTime(Math.round(t.completedAt / 1e3))
+          ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `inline-block text-xs font-semibold px-3 py-1 rounded-md ${badge.className}`, children: badge.label }) }),
           isUpcoming && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-sm text-muted-foreground", children: [
@@ -85139,7 +85143,7 @@ function ScheduledTournamentsTab() {
     ] })
   ] });
 }
-function shortAddr$2(addr) {
+function shortAddr$3(addr) {
   if (!addr) return "—";
   if (addr.length <= 12) return addr;
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -85186,11 +85190,11 @@ function PrivateBoutsTab() {
           ] }),
           restrictionLine && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: `text-xs leading-tight ${realmInfo ? realmInfo.color : "text-muted-foreground"}`, children: restrictionLine }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs text-muted-foreground leading-snug", children: [
-            shortAddr$2(b.hostPlayer),
+            shortAddr$3(b.hostPlayer),
             " ",
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground/50", children: "vs" }),
             " ",
-            shortAddr$2(b.opponentPlayer)
+            shortAddr$3(b.opponentPlayer)
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/60", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "flex items-center gap-1.5", children: [
@@ -86686,7 +86690,7 @@ function hasFullCodex(mainClass) {
   return FULL_CODEX_CLASSES.has(mainClass);
 }
 const RARITY_LABELS$1 = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"];
-const RARITY_COLORS$4 = ["text-muted-foreground", "text-green-500", "text-blue-500", "text-orange-500", "text-purple-500"];
+const RARITY_COLORS$5 = ["text-muted-foreground", "text-green-500", "text-blue-500", "text-orange-500", "text-purple-500"];
 const REALM_LABELS = { cv: "Crystalvale", sd: "Sundered Isles", metis: "Metis" };
 const FORMAT_LABELS = { "1v1": "1v1", "3v3": "3v3", "6v6": "6v6" };
 const ACTIVE_RARITY = {
@@ -86748,7 +86752,7 @@ function StatRow({ label, value }) {
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono font-medium", children: value })
   ] });
 }
-function HeroCard$1({ hero, isWinner }) {
+function HeroCard$2({ hero, isWinner }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { className: `${isWinner ? "border-green-500/40 bg-green-500/5" : ""}`, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs(CardHeader, { className: "pb-2", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between gap-2 flex-wrap", children: [
@@ -86761,7 +86765,7 @@ function HeroCard$1({ hero, isWinner }) {
           isWinner && /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-3 h-3 text-green-500" })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1 flex-wrap", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: `text-xs ${RARITY_COLORS$4[hero.rarity]}`, children: RARITY_LABELS$1[hero.rarity] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: `text-xs ${RARITY_COLORS$5[hero.rarity]}`, children: RARITY_LABELS$1[hero.rarity] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs(Badge, { variant: "outline", className: "text-xs", children: [
             "Lv ",
             hero.level
@@ -86854,7 +86858,7 @@ function CompHeroRow({ hero, side }) {
         "Lv ",
         hero.level
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs ${RARITY_COLORS$4[hero.rarity]}`, children: RARITY_LABELS$1[hero.rarity] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs ${RARITY_COLORS$5[hero.rarity]}`, children: RARITY_LABELS$1[hero.rarity] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs font-mono text-muted-foreground ml-auto", children: [
         "#",
         hero.heroId
@@ -87087,7 +87091,7 @@ function AdminTournamentDetail({ id }) {
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-mono text-muted-foreground", children: truncAddr$1(tournament.hostPlayer) })
             ] }),
-            hostPlacements.length > 0 ? hostPlacements.map((p, i) => /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard$1, { hero: p.snapshot, isWinner: !!isHostWin }, i)) : /* @__PURE__ */ jsxRuntimeExports.jsx(Card, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { className: "py-8 text-center text-sm text-muted-foreground", children: "No hero snapshot data indexed for this player" }) })
+            hostPlacements.length > 0 ? hostPlacements.map((p, i) => /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard$2, { hero: p.snapshot, isWinner: !!isHostWin }, i)) : /* @__PURE__ */ jsxRuntimeExports.jsx(Card, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { className: "py-8 text-center text-sm text-muted-foreground", children: "No hero snapshot data indexed for this player" }) })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-3", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2", children: [
@@ -87097,7 +87101,7 @@ function AdminTournamentDetail({ id }) {
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-mono text-muted-foreground", children: truncAddr$1(tournament.opponentPlayer) })
             ] }),
-            opponentPlacements.length > 0 ? opponentPlacements.map((p, i) => /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard$1, { hero: p.snapshot, isWinner: !isHostWin && !!tournament.winnerPlayer }, i)) : /* @__PURE__ */ jsxRuntimeExports.jsx(Card, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { className: "py-8 text-center text-sm text-muted-foreground", children: "No hero snapshot data indexed for this player" }) })
+            opponentPlacements.length > 0 ? opponentPlacements.map((p, i) => /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard$2, { hero: p.snapshot, isWinner: !isHostWin && !!tournament.winnerPlayer }, i)) : /* @__PURE__ */ jsxRuntimeExports.jsx(Card, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { className: "py-8 text-center text-sm text-muted-foreground", children: "No hero snapshot data indexed for this player" }) })
           ] })
         ] }),
         (tournament.hostGlories ?? 0) + (tournament.opponentGlories ?? 0) > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
@@ -87452,7 +87456,7 @@ function ChevronRight({ className }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { className, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor", strokeWidth: 2, children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", d: "M9 5l7 7-7 7" }) });
 }
 const RARITY_LABELS = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"];
-const RARITY_COLORS$3 = ["text-muted-foreground", "text-green-500", "text-blue-500", "text-orange-500", "text-purple-500"];
+const RARITY_COLORS$4 = ["text-muted-foreground", "text-green-500", "text-blue-500", "text-orange-500", "text-purple-500"];
 const CLASS_COLORS = {
   Warrior: "bg-red-500/15 text-red-400",
   Knight: "bg-yellow-500/15 text-yellow-400",
@@ -87632,7 +87636,7 @@ function TournamentSession({ sessionKey }) {
               "–",
               firstBout.levelMax ?? "∞"
             ] }),
-            firstBout?.rarityMin != null && firstBout.rarityMin > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(Badge, { variant: "outline", className: RARITY_COLORS$3[firstBout.rarityMin], children: [
+            firstBout?.rarityMin != null && firstBout.rarityMin > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(Badge, { variant: "outline", className: RARITY_COLORS$4[firstBout.rarityMin], children: [
               RARITY_LABELS[firstBout.rarityMin],
               "+"
             ] }),
@@ -88422,7 +88426,7 @@ function computeEquipmentBonuses(hero) {
   return acc;
 }
 const RARITY_NAMES$1 = { 0: "Common", 1: "Uncommon", 2: "Rare", 3: "Legendary", 4: "Mythic" };
-const RARITY_COLORS$2 = {
+const RARITY_COLORS$3 = {
   0: "text-muted-foreground",
   1: "text-green-400",
   2: "text-blue-400",
@@ -88503,7 +88507,7 @@ function EquipSlot$1({ label, icon, children }) {
 function WeaponSlotDisplay$1({ weapon, label }) {
   const typeName = WEAPON_TYPE_NAMES$1[weapon.weaponType] ?? `Type ${weapon.weaponType}`;
   const displayName2 = weapon.itemName ?? `${typeName} #${weapon.displayId}`;
-  const rarityColor = RARITY_COLORS$2[weapon.rarity] ?? "text-muted-foreground";
+  const rarityColor = RARITY_COLORS$3[weapon.rarity] ?? "text-muted-foreground";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(EquipSlot$1, { label, icon: /* @__PURE__ */ jsxRuntimeExports.jsx(Sword, { className: "w-4 h-4" }), children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs font-medium ${rarityColor}`, children: displayName2 }),
     weapon.baseDamage > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground ml-2", children: [
@@ -88516,7 +88520,7 @@ function WeaponSlotDisplay$1({ weapon, label }) {
 function ArmorSlotDisplay$1({ armor }) {
   const typeName = ARMOR_TYPE_NAMES$1[armor.armorType] ?? `Type ${armor.armorType}`;
   const displayName2 = armor.itemName ?? `${typeName} Armor #${armor.displayId}`;
-  const rarityColor = RARITY_COLORS$2[armor.rarity] ?? "text-muted-foreground";
+  const rarityColor = RARITY_COLORS$3[armor.rarity] ?? "text-muted-foreground";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(EquipSlot$1, { label: "Armor", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-4 h-4" }), children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs font-medium ${rarityColor}`, children: displayName2 }),
     armor.rawPhysDefense > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground ml-2", children: [
@@ -88532,7 +88536,7 @@ function ArmorSlotDisplay$1({ armor }) {
 }
 function AccessorySlotDisplay$1({ item, label }) {
   const displayName2 = item.itemName ?? `Accessory #${item.displayId}`;
-  const rarityColor = RARITY_COLORS$2[item.rarity] ?? "text-muted-foreground";
+  const rarityColor = RARITY_COLORS$3[item.rarity] ?? "text-muted-foreground";
   const bonuses = getAccessoryDisplayBonuses(
     item.equipmentType,
     item.bonus1,
@@ -88685,7 +88689,7 @@ function HeroDetailModal({
         "#",
         hero.normalizedId || hero.id
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$2[hero.rarity], children: RARITY_NAMES$1[hero.rarity] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: RARITY_COLORS$3[hero.rarity], children: RARITY_NAMES$1[hero.rarity] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: hero.mainClassStr }),
       hero.subClassStr && hero.subClassStr !== hero.mainClassStr && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
         "/ ",
@@ -88912,7 +88916,7 @@ function HeroDetailModal({
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1", children: "Pet" }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Star, { className: "w-3.5 h-3.5 text-amber-400" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `font-medium ${RARITY_COLORS$2[hero.pet.rarity] ?? ""}`, children: hero.pet.name }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `font-medium ${RARITY_COLORS$3[hero.pet.rarity] ?? ""}`, children: hero.pet.name }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground", children: RARITY_NAMES$1[hero.pet.rarity] ?? "" }),
         hero.pet.combatBonus > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
           "— ",
@@ -88963,7 +88967,7 @@ const STATE_CONFIG = {
   cancelled: { label: "Cancelled", className: "bg-red-600/15 text-red-400 border border-red-600/30" }
 };
 const RARITY_NAMES = { 0: "Common", 1: "Uncommon", 2: "Rare", 3: "Legendary", 4: "Mythic" };
-const RARITY_COLORS$1 = {
+const RARITY_COLORS$2 = {
   0: "text-muted-foreground",
   1: "text-green-400",
   2: "text-blue-400",
@@ -88994,7 +88998,7 @@ const ARMOR_TYPE_NAMES = {
   1: "Medium",
   2: "Heavy"
 };
-function shortAddr$1(addr) {
+function shortAddr$2(addr) {
   if (!addr) return "?";
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
@@ -89042,7 +89046,7 @@ function PlayerSlot({ slotId, slotMap, nameMap, winner, isWinner }) {
           slotId
         ] }),
         addr ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs flex-1 min-w-0 truncate", children: name || shortAddr$1(addr) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs flex-1 min-w-0 truncate", children: name || shortAddr$2(addr) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(CopyButton, { text: addr })
         ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground flex-1 min-w-0", children: [
           "Player ",
@@ -89063,7 +89067,7 @@ function MatchupModal({ match, players, slotMap, nameMap, onClose, onHeroSelect 
     const addr = slotMap[slotId];
     const name = nameMap[slotId];
     if (!addr && !name) return slotId === 0 ? "TBD" : `Slot #${slotId}`;
-    return name || shortAddr$1(addr);
+    return name || shortAddr$2(addr);
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsx(Dialog, { open: true, onOpenChange: (o) => !o && onClose(), children: /* @__PURE__ */ jsxRuntimeExports.jsxs(DialogContent, { className: "max-w-sm", "data-testid": "modal-matchup", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(DialogHeader, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(DialogTitle, { children: [
@@ -89192,262 +89196,11 @@ function BracketConnector({ matchesInRound, totalHeight, width = 40 }) {
     }
   );
 }
-function HeroStatRow({ hero, onView }) {
-  const rarityColor = RARITY_COLORS$1[hero.rarity] ?? "text-muted-foreground";
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 py-1.5 border-b border-border/30 last:border-0", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex-1 min-w-0", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 flex-wrap", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs font-semibold ${rarityColor}`, children: hero.mainClassStr }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-muted-foreground", children: [
-          "Lv",
-          hero.level
-        ] }),
-        hero.passive1 === 9 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] px-1 rounded bg-amber-500/20 text-amber-400", children: "Lead" }),
-        hero.passive1 === 11 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] px-1 rounded bg-red-500/20 text-red-400", children: "Menacing" }),
-        hero.passive2 === 9 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] px-1 rounded bg-amber-500/20 text-amber-400", children: "Lead" }),
-        hero.passive2 === 11 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] px-1 rounded bg-red-500/20 text-red-400", children: "Menacing" })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 mt-0.5 text-[10px] text-muted-foreground", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-          "STR ",
-          hero.strength
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-          "INT ",
-          hero.intelligence
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-          "VIT ",
-          hero.vitality
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-          "END ",
-          hero.endurance
-        ] })
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", size: "sm", className: "text-[10px] px-2 shrink-0", onClick: onView, children: "Stats" })
-  ] });
-}
-function MatchupAnalysisPanel({ match, tournamentId, players, slotMap, nameMap, tournament, onClose, onHeroSelect }) {
-  const [aiResult, setAiResult] = reactExports.useState(null);
-  const [expandedBouts, setExpandedBouts] = reactExports.useState(/* @__PURE__ */ new Set());
-  const playerA = players.find((p) => p.partyIndex === match.slotA) ?? null;
-  const playerB = players.find((p) => p.partyIndex === match.slotB) ?? null;
-  const slotLabel = (slotId) => nameMap[slotId] || shortAddr$1(slotMap[slotId]) || `Slot #${slotId}`;
-  const nameA = slotLabel(match.slotA);
-  const nameB = slotLabel(match.slotB);
-  const { data: histData, isLoading: histLoading } = useQuery({
-    queryKey: ["/api/admin/tournament/bracket", tournamentId, "matchup-history", match.slotA, match.slotB],
-    queryFn: async () => {
-      const r2 = await fetch(`/api/admin/tournament/bracket/${tournamentId}/matchup-history?slotA=${match.slotA}&slotB=${match.slotB}`);
-      return r2.json();
-    },
-    refetchInterval: tournament.stateLabel === "in_progress" ? 2e4 : false
-  });
-  const runAnalysis = async () => {
-    const addrA = slotMap[match.slotA];
-    const addrB = slotMap[match.slotB];
-    if (!addrA || !addrB) return;
-    setAiResult({ loading: true });
-    try {
-      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/ai-matchup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerAAddr: addrA, playerBAddr: addrB })
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Analysis failed");
-      setAiResult({ ...data, loading: false });
-    } catch (err) {
-      setAiResult({ loading: false, error: err.message });
-    }
-  };
-  const toggleBout = (id) => {
-    setExpandedBouts((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-  const hasBothPlayers = slotMap[match.slotA] && slotMap[match.slotB];
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(Dialog, { open: true, onOpenChange: (o) => !o && onClose(), children: /* @__PURE__ */ jsxRuntimeExports.jsxs(DialogContent, { className: "max-w-5xl", style: { maxHeight: "90vh", overflowY: "auto" }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(DialogHeader, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(DialogTitle, { className: "flex items-center gap-2", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-4 h-4 text-yellow-400" }),
-      "Matchup Analysis — ",
-      nameA,
-      " vs ",
-      nameB
-    ] }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-6 pt-1", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-3", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between gap-3 flex-wrap", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("h3", { className: "text-sm font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3.5 h-3.5" }),
-            " Win Prediction"
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            Button,
-            {
-              size: "sm",
-              onClick: runAnalysis,
-              disabled: aiResult?.loading || !hasBothPlayers,
-              "data-testid": "btn-run-prediction",
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3.5 h-3.5 mr-1.5" }),
-                aiResult?.loading ? "Analyzing..." : aiResult ? "Re-run" : "Run Prediction"
-              ]
-            }
-          )
-        ] }),
-        !hasBothPlayers && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground", children: "Both players must be registered and have hero data loaded before running a prediction." }),
-        aiResult?.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-destructive", children: aiResult.error }),
-        aiResult && !aiResult.loading && !aiResult.error && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-3", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex justify-between text-sm font-semibold", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-green-400", children: [
-                aiResult.nameA,
-                " — ",
-                aiResult.winPctA,
-                "%"
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-red-400", children: [
-                aiResult.winPctB,
-                "% — ",
-                aiResult.nameB
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-4 rounded-full overflow-hidden flex bg-muted", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-full bg-green-500 transition-all duration-700", style: { width: `${aiResult.winPctA}%` } }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-full bg-red-500 transition-all duration-700", style: { width: `${aiResult.winPctB}%` } })
-            ] })
-          ] }),
-          aiResult.factors && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md bg-muted/20 p-3 space-y-2", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs font-semibold uppercase tracking-wide text-muted-foreground", children: "Factor Breakdown" }),
-            [
-              { label: "Initiative", key: "init", weight: 25 },
-              { label: "Effective DPS", key: "dps", weight: 30 },
-              { label: "Survivability", key: "surv", weight: 20 },
-              { label: "Passive DPS", key: "passiveDps", weight: 10 },
-              { label: "Team Comp", key: "comp", weight: 10 },
-              { label: "Experience", key: "experience", weight: 5 }
-            ].map(({ label, key, weight }) => {
-              const aVal = aiResult.factors[key];
-              const bVal = Math.round((100 - aVal) * 10) / 10;
-              const aHigher = aVal >= 50;
-              return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-[1fr_auto_auto] items-center gap-2", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 min-w-0", children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground truncate", children: label }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-muted-foreground/60 shrink-0", children: [
-                    weight,
-                    "%"
-                  ] })
-                ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `text-xs font-mono tabular-nums ${aHigher ? "text-green-400" : "text-muted-foreground"}`, children: [
-                  aVal.toFixed(1),
-                  "%"
-                ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `text-xs font-mono tabular-nums ${!aHigher ? "text-green-400" : "text-muted-foreground"}`, children: [
-                  bVal.toFixed(1),
-                  "%"
-                ] })
-              ] }, key);
-            }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "pt-1 border-t border-border/40 flex justify-between text-[10px] text-muted-foreground/50", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: aiResult.nameA }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: aiResult.nameB })
-            ] })
-          ] }),
-          aiResult.narrative && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-blue-500/20 bg-blue-500/5 p-3", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs font-semibold uppercase tracking-wide text-blue-400 mb-1.5 flex items-center gap-1.5", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Star, { className: "w-3 h-3" }),
-              " Strategic Assessment"
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground leading-relaxed", children: aiResult.narrative })
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-3", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("h3", { className: "text-sm font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-3.5 h-3.5" }),
-          " Team Comparison"
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid grid-cols-2 gap-4", children: [
-          { player: playerA, name: nameA, slot: match.slotA },
-          { player: playerB, name: nameB, slot: match.slotB }
-        ].map(({ player, name, slot }) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-border/50 overflow-hidden", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "px-3 py-2 bg-muted/30 border-b border-border/40", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs font-semibold truncate", children: name }),
-            slotMap[slot] && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] text-muted-foreground font-mono mt-0.5", children: shortAddr$1(slotMap[slot]) })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "p-2", children: player?.heroes && player.heroes.length > 0 ? player.heroes.map((hero) => /* @__PURE__ */ jsxRuntimeExports.jsx(HeroStatRow, { hero, onView: () => onHeroSelect(hero) }, hero.id)) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground py-2 text-center", children: "No hero data loaded" }) })
-        ] }, slot)) })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-3", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("h3", { className: "text-sm font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-3.5 h-3.5" }),
-          " Fight History",
-          tournament.stateLabel === "in_progress" && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-normal text-green-400 ml-1 animate-pulse", children: "● Live" })
-        ] }),
-        histLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground", children: "Loading fight history..." }) : !histData?.bouts || histData.bouts.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground", children: "No previous encounters indexed for this matchup." }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-2", children: histData.bouts.map((bout) => {
-          const winnerIsA = bout.winnerAddress && slotMap[match.slotA] && bout.winnerAddress.toLowerCase() === slotMap[match.slotA].toLowerCase();
-          const winnerIsB = bout.winnerAddress && slotMap[match.slotB] && bout.winnerAddress.toLowerCase() === slotMap[match.slotB].toLowerCase();
-          const winnerName = winnerIsA ? nameA : winnerIsB ? nameB : bout.winnerAddress ? shortAddr$1(bout.winnerAddress) : "—";
-          const expanded = expandedBouts.has(bout.id);
-          return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-border/50 overflow-hidden", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "button",
-              {
-                className: "w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/30 transition-colors",
-                onClick: () => toggleBout(bout.id),
-                "data-testid": `bout-row-${bout.id}`,
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground w-20 shrink-0", children: [
-                    "Rd ",
-                    bout.roundNumber + 1,
-                    " · #",
-                    bout.matchIndex + 1
-                  ] }),
-                  bout.isComplete ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "flex items-center gap-1 text-xs font-medium text-green-400 shrink-0", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-3 h-3" }),
-                    " ",
-                    winnerName
-                  ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground shrink-0", children: "In progress" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground ml-auto", children: [
-                    bout.heroesA.length,
-                    "v",
-                    bout.heroesB.length,
-                    " heroes"
-                  ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { className: `w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${expanded ? "rotate-180" : ""}` })
-                ]
-              }
-            ),
-            expanded && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid grid-cols-2 gap-0 border-t border-border/40", children: [
-              { heroes: bout.heroesA, name: nameA, isWinner: !!winnerIsA },
-              { heroes: bout.heroesB, name: nameB, isWinner: !!winnerIsB }
-            ].map(({ heroes, name: tName, isWinner }, ti) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `p-2 ${ti === 0 ? "border-r border-border/40" : ""}`, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: `text-[10px] font-semibold mb-1 ${isWinner ? "text-green-400" : "text-muted-foreground"}`, children: [
-                isWinner && /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-2.5 h-2.5 inline mr-0.5" }),
-                tName
-              ] }),
-              heroes.map((h) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[10px] text-muted-foreground py-0.5", children: [
-                h.main_class,
-                " Lv",
-                h.level
-              ] }, h.hero_id))
-            ] }, ti)) })
-          ] }, bout.id);
-        }) })
-      ] })
-    ] })
-  ] }) });
-}
 const ROUND_LABELS = ["Round of 8", "Semifinal", "Final"];
 function BracketTab({ bracket, players, champion, tournament, tournamentId }) {
+  const [, navigate2] = useLocation();
   const [selectedMatch, setSelectedMatch] = reactExports.useState(null);
   const [selectedHero, setSelectedHero] = reactExports.useState(null);
-  const [selectedAnalysis, setSelectedAnalysis] = reactExports.useState(null);
   const slotMap = {};
   const nameMap = {};
   for (const p of players) {
@@ -89458,6 +89211,9 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }) {
   const N = bracket.rounds[0]?.length ?? 1;
   const totalH = N * MATCH_H_R0 + (N - 1) * MATCH_GAP;
   const HEADER_H = 56;
+  const handleAnalyze = (match) => {
+    navigate2(`/admin/tournament/bracket/${tournamentId}/matchup/${match.slotA}/${match.slotB}`);
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-4", children: [
     selectedHero && /* @__PURE__ */ jsxRuntimeExports.jsx(HeroDetailModal, { hero: selectedHero, onClose: () => setSelectedHero(null) }),
     selectedMatch && /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -89470,22 +89226,6 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }) {
         onClose: () => setSelectedMatch(null),
         onHeroSelect: (hero) => {
           setSelectedMatch(null);
-          setSelectedHero(hero);
-        }
-      }
-    ),
-    selectedAnalysis && /* @__PURE__ */ jsxRuntimeExports.jsx(
-      MatchupAnalysisPanel,
-      {
-        match: selectedAnalysis,
-        tournamentId,
-        players,
-        slotMap,
-        nameMap,
-        tournament,
-        onClose: () => setSelectedAnalysis(null),
-        onHeroSelect: (hero) => {
-          setSelectedAnalysis(null);
           setSelectedHero(hero);
         }
       }
@@ -89519,7 +89259,7 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }) {
                   roundIndex: ri,
                   matchIndex: mi,
                   onMatchClick: setSelectedMatch,
-                  onAnalyze: ri === 0 ? setSelectedAnalysis : void 0
+                  onAnalyze: ri === 0 ? handleAnalyze : void 0
                 },
                 mi
               ))
@@ -89565,7 +89305,7 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }) {
                   champion
                 ] }),
                 slotMap[champion] ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-bold flex-1 min-w-0 truncate", children: nameMap[champion] || shortAddr$1(slotMap[champion]) }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-bold flex-1 min-w-0 truncate", children: nameMap[champion] || shortAddr$2(slotMap[champion]) }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx(CopyButton, { text: slotMap[champion] })
                 ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs font-bold flex-1 min-w-0", children: [
                   "Player ",
@@ -89627,7 +89367,7 @@ function DetailsTab({ t }) {
           DetailRow,
           {
             label: "Hosted By",
-            value: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono text-xs", children: `${t.hostTierLabel} — ${shortAddr$1(t.hostAddress)}` })
+            value: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono text-xs", children: `${t.hostTierLabel} — ${shortAddr$2(t.hostAddress)}` })
           }
         ),
         t.tournamentSponsored && /* @__PURE__ */ jsxRuntimeExports.jsx(DetailRow, { label: "Sponsored", value: /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-xs", children: "Yes" }) })
@@ -89685,7 +89425,7 @@ function EquipSlot({ label, icon, children }) {
 function WeaponSlotDisplay({ weapon, label }) {
   const typeName = WEAPON_TYPE_NAMES[weapon.weaponType] ?? `Type ${weapon.weaponType}`;
   const displayName2 = weapon.itemName ?? `${typeName} #${weapon.displayId}`;
-  const rarityColor = RARITY_COLORS$1[weapon.rarity] ?? "text-muted-foreground";
+  const rarityColor = RARITY_COLORS$2[weapon.rarity] ?? "text-muted-foreground";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(EquipSlot, { label, icon: /* @__PURE__ */ jsxRuntimeExports.jsx(Sword, { className: "w-4 h-4" }), children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs font-medium ${rarityColor}`, children: displayName2 }),
     weapon.baseDamage > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground ml-2", children: [
@@ -89698,7 +89438,7 @@ function WeaponSlotDisplay({ weapon, label }) {
 function ArmorSlotDisplay({ armor }) {
   const typeName = ARMOR_TYPE_NAMES[armor.armorType] ?? `Type ${armor.armorType}`;
   const displayName2 = armor.itemName ?? `${typeName} Armor #${armor.displayId}`;
-  const rarityColor = RARITY_COLORS$1[armor.rarity] ?? "text-muted-foreground";
+  const rarityColor = RARITY_COLORS$2[armor.rarity] ?? "text-muted-foreground";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(EquipSlot, { label: "Armor", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-4 h-4" }), children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs font-medium ${rarityColor}`, children: displayName2 }),
     armor.rawPhysDefense > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground ml-2", children: [
@@ -89714,13 +89454,13 @@ function ArmorSlotDisplay({ armor }) {
 }
 function AccessorySlotDisplay({ item, label }) {
   const displayName2 = item.itemName ?? `Accessory #${item.displayId}`;
-  const rarityColor = RARITY_COLORS$1[item.rarity] ?? "text-muted-foreground";
+  const rarityColor = RARITY_COLORS$2[item.rarity] ?? "text-muted-foreground";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(EquipSlot, { label, icon: /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-4 h-4" }), children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs font-medium ${rarityColor}`, children: displayName2 }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mt-0.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DurabilityBar, { current: item.durability, max: item.maxDurability }) })
   ] });
 }
-function HeroCard({ hero, index: index2, onHeroClick }) {
+function HeroCard$1({ hero, index: index2, onHeroClick }) {
   const active1 = getActiveSkill(hero.active1);
   const active2 = getActiveSkill(hero.active2);
   const passive1 = getPassiveSkill(hero.passive1);
@@ -89743,7 +89483,7 @@ function HeroCard({ hero, index: index2, onHeroClick }) {
             "Lv ",
             hero.level
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs font-medium ${RARITY_COLORS$1[hero.rarity] ?? ""}`, children: RARITY_NAMES[hero.rarity] ?? `Rarity ${hero.rarity}` }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs font-medium ${RARITY_COLORS$2[hero.rarity] ?? ""}`, children: RARITY_NAMES[hero.rarity] ?? `Rarity ${hero.rarity}` }),
           hero.pjStatus === "pj" && /* @__PURE__ */ jsxRuntimeExports.jsxs(Badge, { variant: "outline", className: "text-xs px-1.5 py-0", children: [
             "PJ ",
             hero.pjLevel
@@ -89809,7 +89549,7 @@ function HeroCard({ hero, index: index2, onHeroClick }) {
         ] }),
         hero.pet && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs", "data-testid": `pet-${hero.id}`, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(Star, { className: "w-3.5 h-3.5 text-amber-400 shrink-0" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `font-medium ${RARITY_COLORS$1[hero.pet.rarity] ?? ""}`, children: hero.pet.name }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `font-medium ${RARITY_COLORS$2[hero.pet.rarity] ?? ""}`, children: hero.pet.name }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground", children: RARITY_NAMES[hero.pet.rarity] ?? "" }),
           hero.pet.combatBonus > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
             "— ",
@@ -89866,10 +89606,10 @@ function PlayersTab({ players, maxEntrants, totalEntrants }) {
                 player.partyIndex + 1
               ] }),
               player.playerName && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-medium truncate flex-1 min-w-0", children: player.playerName }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono text-xs text-muted-foreground shrink-0", children: shortAddr$1(player.address) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono text-xs text-muted-foreground shrink-0", children: shortAddr$2(player.address) }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(CopyButton, { text: player.address })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "p-3 space-y-3", children: player.heroes.length > 0 ? player.heroes.map((hero, hi) => /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard, { hero, index: hi, onHeroClick: setSelectedHero }, hero.id)) : player.heroIds.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-muted-foreground py-2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "p-3 space-y-3", children: player.heroes.length > 0 ? player.heroes.map((hero, hi) => /* @__PURE__ */ jsxRuntimeExports.jsx(HeroCard$1, { hero, index: hi, onHeroClick: setSelectedHero }, hero.id)) : player.heroIds.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-muted-foreground py-2", children: [
               "Heroes: ",
               player.heroIds.join(", "),
               " — loading details unavailable"
@@ -89929,7 +89669,7 @@ function AiAnalysisTab({ tournamentId, bracket, players }) {
     slotMap[p.partyIndex] = p.address;
     if (p.playerName) nameMap[p.partyIndex] = p.playerName;
   }
-  const displayName2 = (slotId) => nameMap[slotId] || shortAddr$1(slotMap[slotId] ?? null);
+  const displayName2 = (slotId) => nameMap[slotId] || shortAddr$2(slotMap[slotId] ?? null);
   const round2 = bracket.rounds[selectedRound] ?? [];
   const matchesWithPlayers = round2.filter(
     (m) => m.slotA > 0 && m.slotB > 0 && slotMap[m.slotA] && slotMap[m.slotB]
@@ -90204,6 +89944,479 @@ function TournamentBracketPage({ id }) {
         ] }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(AiAnalysisTab, { tournamentId: String(t.id), bracket, players }) })
       ] }) })
+    ] })
+  ] });
+}
+const RARITY_COLORS$1 = {
+  0: "text-muted-foreground",
+  1: "text-green-400",
+  2: "text-blue-400",
+  3: "text-purple-400",
+  4: "text-amber-400"
+};
+function shortAddr$1(addr) {
+  if (!addr) return "—";
+  if (addr.length <= 12) return addr;
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+function HeroCard({ hero, onViewStats }) {
+  const [open, setOpen] = reactExports.useState(false);
+  const rarityColor = RARITY_COLORS$1[hero.rarity] ?? "text-muted-foreground";
+  const hasLeadership = hero.passive1 === 9 || hero.passive2 === 9;
+  const hasMenacing = hero.passive1 === 11 || hero.passive2 === 11;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border border-border/50 rounded-md overflow-hidden", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        className: "w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/30 transition-colors",
+        onClick: () => setOpen((v) => !v),
+        "data-testid": `hero-toggle-${hero.id}`,
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex-1 min-w-0", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 flex-wrap", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-sm font-semibold ${rarityColor}`, children: hero.mainClassStr }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs text-muted-foreground", children: [
+                "Lv",
+                hero.level
+              ] }),
+              hasLeadership && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] px-1 rounded bg-amber-500/20 text-amber-400 font-medium", children: "Lead" }),
+              hasMenacing && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] px-1 rounded bg-red-500/20 text-red-400 font-medium", children: "Menacing" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 text-[10px] text-muted-foreground mt-0.5", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                "AGI ",
+                hero.agility
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                "STR ",
+                hero.strength
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                "VIT ",
+                hero.vitality
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { className: `w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${open ? "rotate-180" : ""}` })
+        ]
+      }
+    ),
+    open && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40 px-3 py-2.5 space-y-2.5 bg-muted/10", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid grid-cols-4 gap-1 text-xs", children: [
+        ["STR", hero.strength],
+        ["DEX", hero.dexterity],
+        ["AGI", hero.agility],
+        ["INT", hero.intelligence],
+        ["WIS", hero.wisdom],
+        ["VIT", hero.vitality],
+        ["END", hero.endurance],
+        ["LCK", hero.luck]
+      ].map(([label, val]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col items-center rounded-md bg-muted/30 py-1", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] text-muted-foreground uppercase tracking-wide", children: label }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-semibold text-xs", children: val })
+      ] }, label)) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-3 text-xs text-muted-foreground", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          "HP ",
+          hero.hp
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          "MP ",
+          hero.mp
+        ] })
+      ] }),
+      (hero.activeSkill1 || hero.activeSkill2 || hero.passiveSkill1 || hero.passiveSkill2) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs space-y-0.5 text-muted-foreground", children: [
+        hero.activeSkill1 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-foreground/70", children: "Active:" }),
+          " ",
+          hero.activeSkill1,
+          hero.activeSkill2 ? `, ${hero.activeSkill2}` : ""
+        ] }),
+        (hero.passiveSkill1 || hero.passiveSkill2) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-foreground/70", children: "Passive:" }),
+          " ",
+          [hero.passiveSkill1, hero.passiveSkill2].filter(Boolean).join(", ")
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", size: "sm", className: "w-full text-xs", onClick: onViewStats, "data-testid": `btn-view-stats-${hero.id}`, children: "View Full Stats" })
+    ] })
+  ] });
+}
+function InitiativeSection({ nameA, nameB, heroesA, heroesB }) {
+  const sorted = (heroes) => [...heroes].sort((a2, b) => b.agility - a2.agility);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-sm flex items-center gap-2", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Activity, { className: "w-4 h-4 text-blue-400" }),
+      "Predicted Initiative Order",
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[10px] font-normal text-muted-foreground ml-auto", children: "Based on AGI (highest acts first)" })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(CardContent, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid grid-cols-2 gap-4", children: [
+        { name: nameA, heroes: sorted(heroesA) },
+        { name: nameB, heroes: sorted(heroesB) }
+      ].map(({ name, heroes }) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs font-semibold mb-2 truncate", children: name }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-1", children: heroes.map((h, idx) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-muted-foreground w-4 shrink-0", children: [
+            "#",
+            idx + 1
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-medium", children: h.mainClassStr }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground text-[10px]", children: [
+            "Lv",
+            h.level
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "ml-auto text-blue-400 font-mono tabular-nums shrink-0", children: [
+            "AGI ",
+            h.agility
+          ] })
+        ] }, h.id)) })
+      ] }, name)) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] text-muted-foreground mt-3 italic", children: "Actual DFK combat turn sequences require direct combat log access, which is not available via public API. This is a stat-based approximation." })
+    ] })
+  ] });
+}
+function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers }) {
+  const [result, setResult] = reactExports.useState(null);
+  const run = async () => {
+    setResult({ loading: true });
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/ai-matchup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slotA, slotB })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Analysis failed");
+      setResult({ ...data, loading: false });
+    } catch (err) {
+      setResult({ loading: false, error: err.message });
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between gap-3 flex-wrap", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-sm flex items-center gap-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-4 h-4 text-yellow-400" }),
+        "AI Win Prediction"
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Button, { size: "sm", onClick: run, disabled: result?.loading || !hasBothPlayers, "data-testid": "btn-run-prediction", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3.5 h-3.5 mr-1.5" }),
+        result?.loading ? "Analyzing…" : result && !result.error ? "Re-run" : "Run Prediction"
+      ] })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(CardContent, { className: "space-y-3", children: [
+      !hasBothPlayers && !result && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground", children: "Both players must have hero data loaded to run a prediction." }),
+      result?.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-destructive", children: result.error }),
+      result && !result.loading && !result.error && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex justify-between text-sm font-semibold", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-green-400", children: [
+              result.nameA,
+              " — ",
+              result.winPctA,
+              "%"
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-red-400", children: [
+              result.winPctB,
+              "% — ",
+              result.nameB
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-4 rounded-full overflow-hidden flex bg-muted", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-full bg-green-500 transition-all duration-700", style: { width: `${result.winPctA}%` } }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-full bg-red-500 transition-all duration-700", style: { width: `${result.winPctB}%` } })
+          ] })
+        ] }),
+        result.factors && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md bg-muted/20 p-3 space-y-2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1", children: "Factor Breakdown" }),
+          [
+            { label: "Initiative", key: "init", weight: 25 },
+            { label: "Effective DPS", key: "dps", weight: 30 },
+            { label: "Survivability", key: "surv", weight: 20 },
+            { label: "Passive DPS", key: "passiveDps", weight: 10 },
+            { label: "Team Comp", key: "comp", weight: 10 },
+            { label: "Experience", key: "experience", weight: 5 }
+          ].map(({ label, key, weight }) => {
+            const aVal = result.factors[key];
+            const bVal = Math.round((100 - aVal) * 10) / 10;
+            return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-[1fr_auto_auto] items-center gap-2", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 min-w-0", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground truncate", children: label }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-muted-foreground/60 shrink-0", children: [
+                  weight,
+                  "%"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `text-xs font-mono tabular-nums ${aVal >= 50 ? "text-green-400" : "text-muted-foreground"}`, children: [
+                aVal.toFixed(1),
+                "%"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `text-xs font-mono tabular-nums ${bVal >= 50 ? "text-green-400" : "text-muted-foreground"}`, children: [
+                bVal.toFixed(1),
+                "%"
+              ] })
+            ] }, key);
+          }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "pt-1 border-t border-border/40 flex justify-between text-[10px] text-muted-foreground/50", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: result.nameA }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: result.nameB })
+          ] })
+        ] }),
+        result.narrative && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-blue-500/20 bg-blue-500/5 p-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs font-semibold uppercase tracking-wide text-blue-400 mb-1.5 flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Star, { className: "w-3 h-3" }),
+            " Strategic Assessment"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground leading-relaxed", children: result.narrative })
+        ] })
+      ] })
+    ] })
+  ] });
+}
+function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB }) {
+  const [open, setOpen] = reactExports.useState(false);
+  const [analysis, setAnalysis] = reactExports.useState(null);
+  const [analysisLoading, setAnalysisLoading] = reactExports.useState(false);
+  const [analysisError, setAnalysisError] = reactExports.useState(null);
+  const winnerIsA = bout.winnerAddress && bout.winnerAddress.toLowerCase() === addrA.toLowerCase();
+  const winnerName = winnerIsA ? nameA : bout.winnerAddress ? nameB : null;
+  const runAnalysis = async () => {
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ boutId: bout.id })
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) throw new Error(data.error);
+      setAnalysis(data.analysis ?? "No analysis available.");
+    } catch (err) {
+      setAnalysisError(err.message);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border border-border/50 rounded-md overflow-hidden", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        className: "w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/30 transition-colors",
+        onClick: () => setOpen((v) => !v),
+        "data-testid": `bout-card-${bout.id}`,
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col gap-0.5 shrink-0", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-xs font-medium", children: [
+              "Rd ",
+              bout.roundNumber
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-muted-foreground", children: [
+              "Match #",
+              bout.matchIndex + 1
+            ] })
+          ] }),
+          bout.isComplete ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 flex-1 min-w-0", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-3 h-3 text-yellow-400 shrink-0" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-medium text-green-400 truncate", children: winnerName ?? shortAddr$1(bout.winnerAddress) })
+          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm text-muted-foreground flex-1", children: "In Progress" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 shrink-0", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-muted-foreground", children: [
+              bout.heroesA.length,
+              "v",
+              bout.heroesB.length
+            ] }),
+            !bout.isComplete && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-bold text-green-400 animate-pulse", children: "● LIVE" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { className: `w-3.5 h-3.5 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}` })
+          ] })
+        ]
+      }
+    ),
+    open && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid grid-cols-2 divide-x divide-border/40", children: [
+        { name: nameA, heroes: bout.heroesA, isWinner: !!winnerIsA },
+        { name: nameB, heroes: bout.heroesB, isWinner: !winnerIsA && !!bout.winnerAddress }
+      ].map(({ name, heroes, isWinner }) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-3", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: `text-xs font-semibold mb-2 truncate ${isWinner ? "text-green-400" : "text-muted-foreground"}`, children: [
+          isWinner && /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-2.5 h-2.5 inline mr-1" }),
+          name
+        ] }),
+        heroes.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-1", children: heroes.map((h, i) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-muted-foreground flex items-center gap-1.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-medium text-foreground/80", children: h.main_class }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            "Lv",
+            h.level
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px]", children: [
+            "AGI ",
+            h.agility
+          ] })
+        ] }, i)) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: "No heroes indexed" })
+      ] }, name)) }),
+      bout.isComplete && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40 p-3 space-y-2", children: [
+        !analysis && !analysisLoading && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          Button,
+          {
+            size: "sm",
+            variant: "outline",
+            className: "w-full text-xs",
+            onClick: runAnalysis,
+            "data-testid": `btn-bout-analysis-${bout.id}`,
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3 h-3 mr-1.5" }),
+              "Get Post-Match Coaching for Losing Team"
+            ]
+          }
+        ),
+        analysisLoading && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 text-xs text-muted-foreground py-1", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-3 h-3 animate-spin" }),
+          "Generating coaching analysis…"
+        ] }),
+        analysisError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive", children: analysisError }),
+        analysis && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-amber-500/20 bg-amber-500/5 p-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs font-semibold uppercase tracking-wide text-amber-400 mb-1.5 flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-3 h-3" }),
+            " Coaching Advice"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground leading-relaxed", children: analysis })
+        ] })
+      ] })
+    ] })
+  ] });
+}
+function TournamentMatchupPage() {
+  const params = useParams();
+  const [, navigate2] = useLocation();
+  const [selectedHero, setSelectedHero] = reactExports.useState(null);
+  const tournamentId = params.id;
+  const slotA = parseInt(params.slotA ?? "0");
+  const slotB = parseInt(params.slotB ?? "0");
+  const { data: bracketData, isLoading: bracketLoading, refetch, isFetching } = useQuery({
+    queryKey: ["/api/admin/tournament/bracket", tournamentId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}`);
+      if (!res.ok) throw new Error("Failed to load bracket");
+      return res.json();
+    }
+  });
+  const tournament = bracketData?.tournament;
+  const players = bracketData?.players ?? [];
+  const playerA = players.find((p) => p.partyIndex === slotA) ?? null;
+  const playerB = players.find((p) => p.partyIndex === slotB) ?? null;
+  const nameA = playerA?.playerName || shortAddr$1(playerA?.address) || `Slot #${slotA}`;
+  const nameB = playerB?.playerName || shortAddr$1(playerB?.address) || `Slot #${slotB}`;
+  const { data: histData, isLoading: histLoading } = useQuery({
+    queryKey: ["/api/admin/tournament/bracket", tournamentId, "matchup-history", slotA, slotB],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/matchup-history?slotA=${slotA}&slotB=${slotB}`);
+      return res.json();
+    },
+    enabled: !!bracketData,
+    refetchInterval: tournament?.stateLabel === "in_progress" ? 2e4 : false
+  });
+  const hasBothPlayers = !!(playerA?.heroes?.length && playerB?.heroes?.length);
+  if (bracketLoading) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-6 max-w-5xl mx-auto", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-8 w-48 bg-muted animate-pulse rounded-md mb-6" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-4", children: [1, 2, 3].map((i) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-32 bg-muted animate-pulse rounded-md" }, i)) })
+    ] });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-6 space-y-5 max-w-5xl mx-auto", children: [
+    selectedHero && /* @__PURE__ */ jsxRuntimeExports.jsx(HeroDetailModal, { hero: selectedHero, onClose: () => setSelectedHero(null) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3 flex-wrap", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        Button,
+        {
+          variant: "ghost",
+          size: "sm",
+          onClick: () => navigate2(`/admin/tournament/bracket/${tournamentId}`),
+          "data-testid": "button-back",
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(ArrowLeft, { className: "w-4 h-4 mr-1.5" }),
+            "Back to Bracket"
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex-1 min-w-0", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("h1", { className: "text-xl font-bold truncate", children: [
+          nameA,
+          " ",
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground font-normal", children: "vs" }),
+          " ",
+          nameB
+        ] }),
+        tournament && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs text-muted-foreground mt-0.5", children: [
+          tournament.name,
+          tournament.stateLabel === "in_progress" && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ml-2 text-green-400 font-semibold animate-pulse", children: "● Live" })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Button, { variant: "outline", size: "sm", onClick: () => refetch(), disabled: isFetching, "data-testid": "button-refresh", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: `w-3.5 h-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}` }),
+        "Refresh"
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-sm flex items-center gap-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Users$1, { className: "w-4 h-4" }),
+        "Team Comparison"
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid grid-cols-2 gap-4", children: [
+        { player: playerA, name: nameA, slot: slotA },
+        { player: playerB, name: nameB, slot: slotB }
+      ].map(({ player, name, slot }) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm font-semibold truncate", children: name }),
+          player?.address && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] text-muted-foreground font-mono mt-0.5", children: shortAddr$1(player.address) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-2", children: player?.heroes && player.heroes.length > 0 ? player.heroes.map((hero) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+          HeroCard,
+          {
+            hero,
+            onViewStats: () => setSelectedHero(hero)
+          },
+          hero.id
+        )) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground py-2", children: player ? "No hero data loaded yet." : "Player not registered yet." }) })
+      ] }, slot)) }) })
+    ] }),
+    hasBothPlayers && /* @__PURE__ */ jsxRuntimeExports.jsx(
+      InitiativeSection,
+      {
+        nameA,
+        nameB,
+        heroesA: playerA.heroes,
+        heroesB: playerB.heroes
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      AiPredictionSection,
+      {
+        tournamentId,
+        slotA,
+        slotB,
+        hasBothPlayers
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(CardHeader, { className: "pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(CardTitle, { className: "text-sm flex items-center gap-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Shield, { className: "w-4 h-4" }),
+        "Fight History",
+        tournament?.stateLabel === "in_progress" && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-[9px] text-green-400 border-green-500/40 ml-1", children: "Live — refreshes every 20s" })
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { children: histLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-2", children: [1, 2].map((i) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-12 bg-muted animate-pulse rounded-md" }, i)) }) : !histData?.bouts?.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-sm text-muted-foreground py-2", children: [
+        "No indexed bouts found for this matchup yet.",
+        tournament?.stateLabel === "in_progress" && " Check back as rounds complete."
+      ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-2", children: histData.bouts.map((bout) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+        BoutCard,
+        {
+          bout,
+          tournamentId,
+          nameA,
+          nameB,
+          addrA: playerA?.address ?? "",
+          addrB: playerB?.address ?? ""
+        },
+        bout.id
+      )) }) })
     ] })
   ] });
 }
@@ -92345,6 +92558,7 @@ function Router() {
     /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/admin/hero-score", children: () => /* @__PURE__ */ jsxRuntimeExports.jsx(ProtectedAdminPage, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(HeroScoreCalculator, {}) }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/admin/pvp-matchup", children: () => /* @__PURE__ */ jsxRuntimeExports.jsx(ProtectedAdminPage, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(AdminPVPMatchup, {}) }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/admin/tournaments/session/:sessionKey", children: (params) => /* @__PURE__ */ jsxRuntimeExports.jsx(ProtectedAdminPage, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(TournamentSession, { sessionKey: params.sessionKey }) }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/admin/tournament/bracket/:id/matchup/:slotA/:slotB", children: (params) => /* @__PURE__ */ jsxRuntimeExports.jsx(ProtectedAdminPage, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(TournamentMatchupPage, {}) }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/admin/tournament/bracket/:id", children: (params) => /* @__PURE__ */ jsxRuntimeExports.jsx(ProtectedAdminPage, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(TournamentBracketPage, { id: params.id }) }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/admin/tournament/:id", children: (params) => /* @__PURE__ */ jsxRuntimeExports.jsx(ProtectedAdminPage, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(AdminTournamentDetail, { id: params.id }) }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/admin/tournament", children: () => /* @__PURE__ */ jsxRuntimeExports.jsx(ProtectedAdminPage, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(AdminTournament, {}) }) }),
