@@ -10319,6 +10319,12 @@ async function startAdminWebServer() {
         else if (onChainState === 4) stateLabel = 'cancelled';
         else if (onChainState === 2 || entryPeriodStart <= nowSec) stateLabel = 'accepting_entries';
 
+        // Override: if the bracket has a champion, the tournament is definitively completed.
+        // DFK removes completed tournaments from active lists but doesn't always set on-chain
+        // state to a distinct "completed" value, so we infer completion from the champion slot.
+        const bracket = decodeBracketData(rawBracket.length >= 15 ? rawBracket : Array(15).fill(0));
+        if (bracket.champion > 0 && stateLabel !== 'cancelled') stateLabel = 'completed';
+
         const tournamentType = Number(t.tournamentType);
         const hostAddress = h.hostAddress !== '0x0000000000000000000000000000000000000000' ? h.hostAddress : null;
         const hostTier = Number(h.tier);
@@ -10371,7 +10377,6 @@ async function startAdminWebServer() {
           tournamentSponsored: Boolean(t.tournamentSponsored),
         };
 
-        const bracket = decodeBracketData(rawBracket.length >= 15 ? rawBracket : Array(15).fill(0));
         const rewardTiers = formatRewardTiers(allRoundRewards, sponsorship ? {
           sponsorshipAmounts: sponsorship.sponsorshipAmounts,
           tokenAddress: sponsorship.tokenAddress,

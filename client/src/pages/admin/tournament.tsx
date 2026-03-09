@@ -819,7 +819,8 @@ function ScheduledTournamentsTab() {
                 ? `Started: ${formatTournamentDateTime(t.tournamentStartTime)}`
                 : `Starts: ${formatTournamentDateTime(t.tournamentStartTime)}`}
           </p>
-          {t.stateLabel === 'completed' && t.completedAt && (
+          {t.stateLabel === 'completed' && t.completedAt &&
+            t.completedAt > ((t.tournamentStartTime ?? 0) * 1000) && (
             <p className="text-xs text-muted-foreground">
               Completed: {formatTournamentDateTime(Math.round(t.completedAt / 1000))}
             </p>

@@ -337,7 +337,8 @@ function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex, onMatchCli
   onAnalyze?: (match: BracketMatch) => void;
 }) {
   const hasPlayers = match.slotA !== 0 || match.slotB !== 0;
-  const cardH = roundIndex === 0 ? MATCH_H_R0 : MATCH_H;
+  const hasBothPlayers = match.slotA > 0 && match.slotB > 0;
+  const cardH = MATCH_H_R0;
   return (
     <div
       className="flex flex-col w-44 border border-border/60 rounded-md bg-muted/20 overflow-hidden"
@@ -357,21 +358,23 @@ function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex, onMatchCli
           <PlayerSlot slotId={match.slotB} slotMap={slotMap} nameMap={nameMap} winner={match.winner} isWinner={match.winner !== 0 && match.winner === match.slotB} />
         </div>
       </div>
-      {roundIndex === 0 && (
-        <>
-          <div className="border-t border-border/40" />
-          <div className="flex items-center justify-center px-2" style={{ height: cardH - MATCH_H - 1 }}>
-            <button
-              className="w-full text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1 py-1"
-              onClick={() => onAnalyze?.(match)}
-              data-testid={`btn-analyze-matchup-r0-m${matchIndex}`}
-            >
-              <Zap className="w-2.5 h-2.5" />
-              Analyze Matchup
-            </button>
-          </div>
-        </>
-      )}
+      <div className="border-t border-border/40" />
+      <div className="flex items-center justify-center px-2" style={{ height: cardH - MATCH_H - 1 }}>
+        {onAnalyze && hasBothPlayers ? (
+          <button
+            className="w-full text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1 py-1"
+            onClick={() => onAnalyze(match)}
+            data-testid={`btn-analyze-matchup-r${roundIndex}-m${matchIndex}`}
+          >
+            <Zap className="w-2.5 h-2.5" />
+            Analyze Matchup
+          </button>
+        ) : (
+          <span className="text-[10px] text-muted-foreground/30 italic select-none">
+            {!hasBothPlayers && hasPlayers ? 'Bye' : ''}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -501,7 +504,7 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }: {
                       roundIndex={ri}
                       matchIndex={mi}
                       onMatchClick={setSelectedMatch}
-                      onAnalyze={ri === 0 ? handleAnalyze : undefined}
+                      onAnalyze={handleAnalyze}
                     />
                   ))}
                 </div>

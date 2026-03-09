@@ -85035,7 +85035,7 @@ function ScheduledTournamentsTab() {
             t.hostedBy
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: isUpcoming ? `Opens: ${formatTournamentDateTime(t.entryPeriodStart)}` : isInProgress || t.stateLabel === "completed" || t.stateLabel === "cancelled" ? `Started: ${formatTournamentDateTime(t.tournamentStartTime)}` : `Starts: ${formatTournamentDateTime(t.tournamentStartTime)}` }),
-          t.stateLabel === "completed" && t.completedAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs text-muted-foreground", children: [
+          t.stateLabel === "completed" && t.completedAt && t.completedAt > (t.tournamentStartTime ?? 0) * 1e3 && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs text-muted-foreground", children: [
             "Completed: ",
             formatTournamentDateTime(Math.round(t.completedAt / 1e3))
           ] }),
@@ -89128,7 +89128,8 @@ function formatRoundTime(tournamentStartTime, roundLengthMinutes, roundIndex) {
 }
 function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex, onMatchClick, onAnalyze }) {
   const hasPlayers = match.slotA !== 0 || match.slotB !== 0;
-  const cardH = roundIndex === 0 ? MATCH_H_R0 : MATCH_H;
+  const hasBothPlayers = match.slotA > 0 && match.slotB > 0;
+  const cardH = MATCH_H_R0;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
@@ -89149,21 +89150,19 @@ function MatchCard({ match, slotMap, nameMap, roundIndex, matchIndex, onMatchCli
             ]
           }
         ),
-        roundIndex === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border-t border-border/40" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex items-center justify-center px-2", style: { height: cardH - MATCH_H - 1 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              className: "w-full text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1 py-1",
-              onClick: () => onAnalyze?.(match),
-              "data-testid": `btn-analyze-matchup-r0-m${matchIndex}`,
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-2.5 h-2.5" }),
-                "Analyze Matchup"
-              ]
-            }
-          ) })
-        ] })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border-t border-border/40" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex items-center justify-center px-2", style: { height: cardH - MATCH_H - 1 }, children: onAnalyze && hasBothPlayers ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: "w-full text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1 py-1",
+            onClick: () => onAnalyze(match),
+            "data-testid": `btn-analyze-matchup-r${roundIndex}-m${matchIndex}`,
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-2.5 h-2.5" }),
+              "Analyze Matchup"
+            ]
+          }
+        ) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[10px] text-muted-foreground/30 italic select-none", children: !hasBothPlayers && hasPlayers ? "Bye" : "" }) })
       ]
     }
   );
@@ -89259,7 +89258,7 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }) {
                   roundIndex: ri,
                   matchIndex: mi,
                   onMatchClick: setSelectedMatch,
-                  onAnalyze: ri === 0 ? handleAnalyze : void 0
+                  onAnalyze: handleAnalyze
                 },
                 mi
               ))
