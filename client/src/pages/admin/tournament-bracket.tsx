@@ -96,24 +96,19 @@ interface PlayerEntry {
   playerName: string | null;
 }
 
-interface AiHeroProfile {
-  id: string | number;
-  mainClass: string;
-  level: number;
-  STR: number; DEX: number; AGI: number; INT: number;
-  WIS: number; VIT: number; END: number; LCK: number;
-  pDef: number; mDef: number; pRed: number; mRed: number;
-  hasArmor: boolean;
-}
-
 interface AiMatchupResult {
   winPctA: number;
   winPctB: number;
-  initPctA: number;
-  defSource: 'armor' | 'vit_end_proxy';
-  analysis: string;
-  teamA: { name: string; address: string; heroes: AiHeroProfile[] };
-  teamB: { name: string; address: string; heroes: AiHeroProfile[] };
+  nameA: string;
+  nameB: string;
+  factors: {
+    init: number;
+    dps: number;
+    surv: number;
+    passiveDps: number;
+    comp: number;
+    experience: number;
+  };
 }
 
 interface BracketDetailResponse {
@@ -961,7 +956,7 @@ function AiAnalysisTab({ tournamentId, bracket, players }: {
                       data-testid={`btn-analyze-${key}`}
                     >
                       <Zap className="w-3.5 h-3.5 mr-1.5" />
-                      {result?.loading ? 'Analyzing...' : result ? 'Re-analyze' : 'Analyze'}
+                      {result?.loading ? 'Running...' : result ? 'Re-run' : 'Get Prediction'}
                     </Button>
                   </div>
 
@@ -976,8 +971,8 @@ function AiAnalysisTab({ tournamentId, bracket, players }: {
                       {/* Win bar */}
                       <div className="space-y-1.5">
                         <div className="flex justify-between text-xs font-medium">
-                          <span className="text-green-400">{nameA} — {result.winPctA}%</span>
-                          <span className="text-red-400">{result.winPctB}% — {nameB}</span>
+                          <span className="text-green-400">{result.nameA} — {result.winPctA}%</span>
+                          <span className="text-red-400">{result.winPctB}% — {result.nameB}</span>
                         </div>
                         <div className="h-3 rounded-full overflow-hidden flex bg-muted">
                           <div
@@ -989,50 +984,44 @@ function AiAnalysisTab({ tournamentId, bracket, players }: {
                             style={{ width: `${result.winPctB}%` }}
                           />
                         </div>
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <p className="text-xs text-muted-foreground">
-                            Initiative: {nameA} {result.initPctA}% / {nameB} {100 - result.initPctA}%
-                          </p>
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${result.defSource === 'armor' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-500'}`}>
-                            {result.defSource === 'armor' ? 'Armor defense data' : 'No armor — VIT/END proxy'}
-                          </span>
-                        </div>
                       </div>
 
-                      {/* Per-hero defense breakdown */}
-                      {result.defSource === 'armor' && (
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {/* 6-factor breakdown */}
+                      {result.factors && (
+                        <div className="rounded-md bg-muted/20 p-3 space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Factor Breakdown</p>
                           {([
-                            { label: nameA, heroes: result.teamA?.heroes ?? [] },
-                            { label: nameB, heroes: result.teamB?.heroes ?? [] },
-                          ] as { label: string; heroes: AiHeroProfile[] }[]).map(({ label, heroes }) => (
-                            <div key={label} className="rounded-md bg-muted/20 p-2.5 space-y-1.5">
-                              <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-                              {heroes.map((h, hi) => (
-                                <div key={hi} className="text-xs flex items-center gap-2 flex-wrap">
-                                  <span className="text-muted-foreground shrink-0">{h.mainClass} Lv{h.level}</span>
-                                  {h.hasArmor ? (
-                                    <>
-                                      <span>P.DEF <span className="font-mono">{h.pDef.toFixed(1)}</span></span>
-                                      <span className="text-muted-foreground">({h.pRed.toFixed(1)}% red)</span>
-                                      <span>M.DEF <span className="font-mono">{h.mDef.toFixed(1)}</span></span>
-                                      <span className="text-muted-foreground">({h.mRed.toFixed(1)}% red)</span>
-                                    </>
-                                  ) : (
-                                    <span className="text-muted-foreground italic">no armor</span>
-                                  )}
+                            { label: 'Initiative',    key: 'init',       weight: 25 },
+                            { label: 'Effective DPS', key: 'dps',        weight: 30 },
+                            { label: 'Survivability', key: 'surv',       weight: 20 },
+                            { label: 'Passive DPS',   key: 'passiveDps', weight: 10 },
+                            { label: 'Team Comp',     key: 'comp',       weight: 10 },
+                            { label: 'Experience',    key: 'experience', weight:  5 },
+                          ] as { label: string; key: keyof typeof result.factors; weight: number }[]).map(({ label, key, weight }) => {
+                            const aVal = result.factors[key];
+                            const bVal = Math.round((100 - aVal) * 10) / 10;
+                            const aHigher = aVal >= 50;
+                            return (
+                              <div key={key} className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="text-xs text-muted-foreground truncate">{label}</span>
+                                  <span className="text-[10px] text-muted-foreground/60 shrink-0">{weight}%</span>
                                 </div>
-                              ))}
-                            </div>
-                          ))}
+                                <span className={`text-xs font-mono tabular-nums ${aHigher ? 'text-green-400' : 'text-muted-foreground'}`}>
+                                  {aVal.toFixed(1)}%
+                                </span>
+                                <span className={`text-xs font-mono tabular-nums ${!aHigher ? 'text-green-400' : 'text-muted-foreground'}`}>
+                                  {bVal.toFixed(1)}%
+                                </span>
+                              </div>
+                            );
+                          })}
+                          <div className="pt-1 border-t border-border/40 flex justify-between text-[10px] text-muted-foreground/50">
+                            <span>{result.nameA}</span>
+                            <span>{result.nameB}</span>
+                          </div>
                         </div>
                       )}
-
-                      {/* AI analysis */}
-                      <div className="rounded-md bg-muted/30 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Analysis</p>
-                        <p className="text-sm leading-relaxed">{result.analysis}</p>
-                      </div>
                     </div>
                   )}
                 </CardContent>

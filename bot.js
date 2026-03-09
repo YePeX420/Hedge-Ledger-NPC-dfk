@@ -9929,9 +9929,11 @@ async function startAdminWebServer() {
     }
   });
 
+  // Shared bracket detail cache — used by both GET /bracket/:id and POST /bracket/:id/ai-matchup
+  const _bracketDetailCache = new Map();
+
   // GET /api/admin/tournament/bracket/:id — full bracket detail (on-chain)
   {
-    const _bracketDetailCache = new Map();
     const BRACKET_ABI_EXT = [
       'function getTournament(uint256 _tournamentId) view returns (tuple(uint256 tournamentStartTime, uint256 rounds, uint256 roundLength, uint256 setupTime, uint256 shotClockDuration, uint256 bankedShotClockTime, uint256 shotClockPenaltyMode, uint256 shotClockForfeitCount, uint256 suddenDeathMode, uint256 bestOf, uint256 entrants, uint256 entrantsClaimed, uint256 durabilityPerRound, uint256 lossExperience, uint256 winExperience, uint256 currentRound, uint256 remainingBoutsInRound, uint8 tournamentType, uint8 state, bool autoRandom, bool tournamentSponsored, bool tournamentHosted))',
       'function getTournamentEntrySettings(uint256 _tournamentId) view returns (tuple(uint256 entryFee, uint256 entryFeeDecimals, uint256 entryPeriodStart, uint256 minRank, uint256 maxRank, uint256 minRarity, uint256 maxRarity, uint256 battleInventory, uint256 battleBudget, uint256 minHeroStatScore, uint256 maxHeroStatScore, uint256 minTeamStatScore, uint256 maxTeamStatScore, uint256 minLevel, uint256 maxLevel, uint256 excludedClasses, uint256 excludedConsumables, uint256 excludedOrigin, uint256 partyCount, uint256 maxTraitTier, uint256 maxHeroTraitScore, uint256 maxTeamTraitScore, bool allUniqueClasses, bool noTripleClasses, bool onlyPJ, bool requiresQualifierTokens, bool requiresEquipmentQualifiers, bool requiresStateQualifiers, bool onlyBannermen, bool requiresEquipmentRestrictions))',
@@ -10378,127 +10380,141 @@ async function startAdminWebServer() {
       const playerB = players.find(p => p.address.toLowerCase() === playerBAddr.toLowerCase());
       if (!playerA || !playerB) return res.status(404).json({ ok: false, error: 'One or both players not found in tournament' });
 
-      // Combat formula helpers
-      function heroProfile(h, avgLevel) {
-        const STR = h.strength ?? 10, DEX = h.dexterity ?? 10, AGI = h.agility ?? 10;
-        const INT = h.intelligence ?? 10, WIS = h.wisdom ?? 10, VIT = h.vitality ?? 10;
-        const END = h.endurance ?? 10, LCK = h.luck ?? 10;
-        const level = h.level ?? 1;
-        const initMin = 2 * (AGI - LCK / 2);
-        const initMax = 2 * (AGI + LCK / 2);
-        // Armor-derived defense (same formula as HeroDetailModal frontend)
-        const rawPDef = Number(h.armor?.rawPhysDefense ?? 0);
-        const pDefScalar = Number(h.armor?.physDefScalar ?? 0);
-        const rawMDef = Number(h.armor?.rawMagicDefense ?? 0);
-        const mDefScalar = Number(h.armor?.magicDefScalar ?? 0);
-        const pDefScalarMax = Number(h.armor?.pDefScalarMax ?? rawPDef * 2);
-        const mDefScalarMax = Number(h.armor?.mDefScalarMax ?? rawMDef * 2);
-        const pDef = rawPDef + Math.min((pDefScalar / 100) * END, pDefScalarMax);
-        const mDef = rawMDef + Math.min((mDefScalar / 100) * WIS, mDefScalarMax);
-        const pRed = pDef > 0 ? (pDef / (pDef + 100) * 100) : 0;
-        const mRed = mDef > 0 ? (mDef / (mDef + 100) * 100) : 0;
-        const hasArmor = !!h.armor;
-        return { STR, DEX, AGI, INT, WIS, VIT, END, LCK, initMin, initMax, level,
-          pDef, mDef, pRed, mRed, hasArmor,
-          mainClass: h.mainClassStr, id: h.normalizedId || h.id };
+      // ── 6-factor prediction engine (same weights as fight history) ──────────
+      // Bracket passive IDs (from PASSIVE_MAP): 9=Leadership, 11=Menacing,
+      // 12=Toxic, 13=GiantSlayer, 14=LastStand, 15=SecondLife, 1=Duelist
+      const HEALER_CLASSES = new Set(['Priest', 'Paladin', 'Druid', 'Shaman']);
+      const PASSIVE_SURV_BRACKET = { 15: 0.15, 14: 0.06, 1: 0.02 };
+      const PASSIVE_DPS_BRACKET  = { 12: 0.03, 13: 0.04, 1: 0.01 };
+
+      function heroProfile(h) {
+        const AGI = h.agility ?? 10, LCK = h.luck ?? 10;
+        const STR = h.strength ?? 10, INT = h.intelligence ?? 10;
+        const VIT = h.vitality ?? 10, END = h.endurance ?? 10;
+        const p1 = Number(h.passive1 ?? -1);
+        const p2 = Number(h.passive2 ?? -1);
+        const hasLeadership = p1 === 9 || p2 === 9;
+        const hasMenacing   = p1 === 11 || p2 === 11;
+        return {
+          initMin: 2 * (AGI - LCK / 2),
+          initMax: 2 * (AGI + LCK / 2),
+          hp:      VIT * 10 + END * 5,
+          pdef:    END * 0.5,
+          eva:     AGI / 200,
+          dpsRaw:  STR + INT * 0.7,
+          survScore: (PASSIVE_SURV_BRACKET[p1] ?? 0) + (PASSIVE_SURV_BRACKET[p2] ?? 0),
+          dpsScore:  (PASSIVE_DPS_BRACKET[p1]  ?? 0) + (PASSIVE_DPS_BRACKET[p2]  ?? 0),
+          isHealer: HEALER_CLASSES.has(h.mainClassStr ?? ''),
+          hasLeadership,
+          hasMenacing,
+        };
       }
-      function simInitWinPct(profilesA, profilesB, samples = 4000) {
+
+      function simInitWinPct(pA, pB, samples = 4000) {
         let wins = 0;
         for (let i = 0; i < samples; i++) {
-          const initA = Math.max(...profilesA.map(p => p.initMin + Math.random() * (p.initMax - p.initMin)));
-          const initB = Math.max(...profilesB.map(p => p.initMin + Math.random() * (p.initMax - p.initMin)));
-          if (initA > initB) wins++;
+          const iA = Math.max(...pA.map(p => p.initMin + Math.random() * (p.initMax - p.initMin)));
+          const iB = Math.max(...pB.map(p => p.initMin + Math.random() * (p.initMax - p.initMin)));
+          if (iA > iB) wins++;
         }
         return wins / samples;
       }
-      function teamScore(profiles, stat) { return profiles.reduce((s, p) => s + (p[stat] ?? 0), 0); }
+
+      function teamCompScore(profiles) {
+        const healerBonus     = profiles.some(p => p.isHealer) ? 0.10 : 0;
+        const leadershipBonus = Math.min(profiles.filter(p => p.hasLeadership).length * 0.05, 0.15);
+        return Math.min(1, 0.5 + healerBonus + leadershipBonus);
+      }
+
+      function toPct(a, total) { return total === 0 ? 0.5 : a / total; }
 
       const heroesA = playerA.heroes || [];
       const heroesB = playerB.heroes || [];
-      const allHeroes = [...heroesA, ...heroesB];
-      const avgLevel = allHeroes.length > 0
-        ? allHeroes.reduce((s, h) => s + (h.level ?? 1), 0) / allHeroes.length : 1;
-
-      const profilesA = heroesA.map(h => heroProfile(h, avgLevel));
-      const profilesB = heroesB.map(h => heroProfile(h, avgLevel));
-
-      if (profilesA.length === 0 || profilesB.length === 0) {
+      if (heroesA.length === 0 || heroesB.length === 0) {
         return res.status(400).json({ ok: false, error: 'Both players must have hero data loaded' });
       }
 
-      const initPctA = simInitWinPct(profilesA, profilesB);
-      const strA = teamScore(profilesA, 'STR'), strB = teamScore(profilesB, 'STR');
-      const intA = teamScore(profilesA, 'INT'), intB = teamScore(profilesB, 'INT');
-      const pDefA = teamScore(profilesA, 'pDef'), pDefB = teamScore(profilesB, 'pDef');
-      const mDefA = teamScore(profilesA, 'mDef'), mDefB = teamScore(profilesB, 'mDef');
-      // Fall back to VIT/END proxy when no armor data is available
-      const vitA = teamScore(profilesA, 'VIT'), vitB = teamScore(profilesB, 'VIT');
-      const endA = teamScore(profilesA, 'END'), endB = teamScore(profilesB, 'END');
-      const armoredA = profilesA.filter(p => p.hasArmor).length;
-      const armoredB = profilesB.filter(p => p.hasArmor).length;
-      const useArmorDef = (armoredA + armoredB) > 0;
-      const totalStr = strA + strB || 1, totalInt = intA + intB || 1;
-      const totalVit = vitA + vitB || 1, totalEnd = endA + endB || 1;
-      const totalPDef = pDefA + pDefB || 1, totalMDef = mDefA + mDefB || 1;
-      const physPctA = strA / totalStr;
-      const magPctA = intA / totalInt;
-      const defPctA = useArmorDef
-        ? ((pDefA / totalPDef) + (mDefA / totalMDef)) / 2
-        : ((vitA / totalVit) + (endA / totalEnd)) / 2;
-      const winPctA = 0.35 * initPctA + 0.25 * physPctA + 0.2 * magPctA + 0.2 * defPctA;
-      const winPctB = 1 - winPctA;
+      const profilesA = heroesA.map(heroProfile);
+      const profilesB = heroesB.map(heroProfile);
+
+      // Leadership/Menacing cross-team DPS adjustments
+      const ldA = Math.min(profilesA.filter(p => p.hasLeadership).length * 0.05, 0.15);
+      const ldB = Math.min(profilesB.filter(p => p.hasLeadership).length * 0.05, 0.15);
+      const mnA = Math.min(profilesA.filter(p => p.hasMenacing).length * 0.05, 0.15); // debuffs B
+      const mnB = Math.min(profilesB.filter(p => p.hasMenacing).length * 0.05, 0.15); // debuffs A
+
+      const rawDpsA = profilesA.reduce((s, p) => s + p.dpsRaw, 0);
+      const rawDpsB = profilesB.reduce((s, p) => s + p.dpsRaw, 0);
+      const effDpsA = rawDpsA * (1 + ldA) * (1 - mnB);
+      const effDpsB = rawDpsB * (1 + ldB) * (1 - mnA);
+
+      const survA = profilesA.reduce((s, p) => s + (p.hp + p.pdef * 5 + p.eva * 200) * (1 + p.survScore), 0);
+      const survB = profilesB.reduce((s, p) => s + (p.hp + p.pdef * 5 + p.eva * 200) * (1 + p.survScore), 0);
+      const pasDA = profilesA.reduce((s, p) => s + p.dpsScore, 0);
+      const pasDB = profilesB.reduce((s, p) => s + p.dpsScore, 0);
+      const compA = teamCompScore(profilesA);
+      const compB = teamCompScore(profilesB);
 
       const nameA = playerA.playerName || playerA.address.slice(0, 6) + '...' + playerA.address.slice(-4);
       const nameB = playerB.playerName || playerB.address.slice(0, 6) + '...' + playerB.address.slice(-4);
 
-      const describeTeam = (profiles, name) => {
-        const classes = profiles.map(p => p.mainClass || 'Unknown').join(', ');
-        const n = profiles.length || 1;
-        const avgStr = Math.round(teamScore(profiles, 'STR') / n);
-        const avgInt = Math.round(teamScore(profiles, 'INT') / n);
-        const avgVit = Math.round(teamScore(profiles, 'VIT') / n);
-        const avgAgi = Math.round(teamScore(profiles, 'AGI') / n);
-        const avgPDef = (teamScore(profiles, 'pDef') / n).toFixed(1);
-        const avgMDef = (teamScore(profiles, 'mDef') / n).toFixed(1);
-        const avgPRed = (teamScore(profiles, 'pRed') / n).toFixed(1);
-        const avgMRed = (teamScore(profiles, 'mRed') / n).toFixed(1);
-        const armoredCount = profiles.filter(p => p.hasArmor).length;
-        const defStr = armoredCount > 0
-          ? ` P.DEF:${avgPDef}(${avgPRed}%dmgRed) M.DEF:${avgMDef}(${avgMRed}%dmgRed)`
-          : ' (no armor data)';
-        return `${name} [${classes}] Avg STR:${avgStr} INT:${avgInt} VIT:${avgVit} AGI:${avgAgi}${defStr}`;
-      };
-
-      const prompt = `You are a DeFi Kingdoms PvP combat analyst. Analyze this bracket tournament matchup and give win probabilities.\n\nTeam A: ${describeTeam(profilesA, nameA)}\nTeam B: ${describeTeam(profilesB, nameB)}\n\nFormula-estimated initiative win% for A: ${Math.round(initPctA * 100)}%\nOverall formula win estimate: A ${Math.round(winPctA * 100)}% vs B ${Math.round(winPctB * 100)}%\n\nProvide:\n1. Your assessed win probability for each team (must sum to 100%)\n2. Key matchup factors (2-3 sentences)\n3. Which team you favor and why\n\nRespond in JSON: { "winPctA": number, "winPctB": number, "analysis": "string" }`;
-
-      let aiResult = null;
+      // Player experience factor from historical bouts
+      let expA = 0.5, expB = 0.5;
       try {
-        const { default: OpenAI } = await import('openai');
-        const openai = new OpenAI();
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          response_format: { type: 'json_object' },
-          max_tokens: 300,
-        });
-        const raw = completion.choices[0]?.message?.content;
-        if (raw) aiResult = JSON.parse(raw);
-      } catch (aiErr) {
-        console.warn('[AI Matchup] OpenAI call failed:', aiErr.message);
-      }
+        const { rawPg: rp } = await import('./server/db.js');
+        const addrs = [playerA.address.toLowerCase(), playerB.address.toLowerCase()];
+        const histRows = await rp.unsafe(`
+          SELECT addr, SUM(wins)::int AS wins, SUM(losses)::int AS losses FROM (
+            SELECT LOWER(player_a) AS addr,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_a) THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_b) THEN 1 ELSE 0 END) AS losses
+            FROM dfk_tournament_bouts WHERE LOWER(player_a) = ANY($1) GROUP BY LOWER(player_a)
+            UNION ALL
+            SELECT LOWER(player_b) AS addr,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_b) THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN is_complete AND LOWER(winner_address)=LOWER(player_a) THEN 1 ELSE 0 END) AS losses
+            FROM dfk_tournament_bouts WHERE LOWER(player_b) = ANY($1) GROUP BY LOWER(player_b)
+          ) sub GROUP BY addr
+        `, [addrs]);
+        const rec = {};
+        for (const r of histRows) rec[r.addr] = { wins: r.wins, losses: r.losses };
+        const calcExp = (addr) => {
+          const r = rec[addr.toLowerCase()];
+          if (!r) return 0.5;
+          const total = r.wins + r.losses;
+          if (total < 3) return 0.5;
+          return 0.5 + (r.wins / total - 0.5) * Math.min(total, 10) / 10;
+        };
+        expA = calcExp(playerA.address);
+        expB = calcExp(playerB.address);
+      } catch (_) {}
 
-      const finalWinPctA = aiResult?.winPctA ?? Math.round(winPctA * 100);
-      const finalWinPctB = aiResult?.winPctB ?? Math.round(winPctB * 100);
+      const initA = simInitWinPct(profilesA, profilesB);
+
+      const rawA = 0.25 * initA
+                 + 0.30 * toPct(effDpsA, effDpsA + effDpsB)
+                 + 0.20 * toPct(survA, survA + survB)
+                 + 0.10 * toPct(pasDA, pasDA + pasDB)
+                 + 0.10 * toPct(compA, compA + compB)
+                 + 0.05 * toPct(expA, expA + expB);
+
+      const winPctA = Math.round(rawA * 1000) / 10;
+      const winPctB = Math.round((1 - rawA) * 1000) / 10;
 
       res.json({
         ok: true,
-        winPctA: finalWinPctA,
-        winPctB: finalWinPctB,
-        initPctA: Math.round(initPctA * 100),
-        defSource: useArmorDef ? 'armor' : 'vit_end_proxy',
-        analysis: aiResult?.analysis ?? `Formula estimate: ${nameA} ${Math.round(winPctA * 100)}% vs ${nameB} ${Math.round(winPctB * 100)}%`,
-        teamA: { name: nameA, address: playerA.address, heroes: profilesA },
-        teamB: { name: nameB, address: playerB.address, heroes: profilesB },
+        winPctA,
+        winPctB,
+        nameA,
+        nameB,
+        factors: {
+          init:       Math.round(initA * 1000) / 10,
+          dps:        Math.round(toPct(effDpsA, effDpsA + effDpsB) * 1000) / 10,
+          surv:       Math.round(toPct(survA, survA + survB) * 1000) / 10,
+          passiveDps: Math.round(toPct(pasDA, pasDA + pasDB) * 1000) / 10,
+          comp:       Math.round(toPct(compA, compA + compB) * 1000) / 10,
+          experience: Math.round(toPct(expA, expA + expB) * 1000) / 10,
+        },
       });
     } catch (err) {
       console.error('[AI Matchup] Error:', err.message);

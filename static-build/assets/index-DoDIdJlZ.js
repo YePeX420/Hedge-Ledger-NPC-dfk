@@ -89525,7 +89525,7 @@ function AiAnalysisTab({ tournamentId, bracket, players }) {
               "data-testid": `btn-analyze-${key}`,
               children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { className: "w-3.5 h-3.5 mr-1.5" }),
-                result?.loading ? "Analyzing..." : result ? "Re-analyze" : "Analyze"
+                result?.loading ? "Running..." : result ? "Re-run" : "Get Prediction"
               ]
             }
           )
@@ -89535,7 +89535,7 @@ function AiAnalysisTab({ tournamentId, bracket, players }) {
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex justify-between text-xs font-medium", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-green-400", children: [
-                nameA,
+                result.nameA,
                 " — ",
                 result.winPctA,
                 "%"
@@ -89543,7 +89543,7 @@ function AiAnalysisTab({ tournamentId, bracket, players }) {
               /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-red-400", children: [
                 result.winPctB,
                 "% — ",
-                nameB
+                result.nameB
               ] })
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-3 rounded-full overflow-hidden flex bg-muted", children: [
@@ -89561,58 +89561,43 @@ function AiAnalysisTab({ tournamentId, bracket, players }) {
                   style: { width: `${result.winPctB}%` }
                 }
               )
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between flex-wrap gap-2", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs text-muted-foreground", children: [
-                "Initiative: ",
-                nameA,
-                " ",
-                result.initPctA,
-                "% / ",
-                nameB,
-                " ",
-                100 - result.initPctA,
-                "%"
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-xs px-1.5 py-0.5 rounded ${result.defSource === "armor" ? "bg-green-500/10 text-green-400" : "bg-yellow-500/10 text-yellow-500"}`, children: result.defSource === "armor" ? "Armor defense data" : "No armor — VIT/END proxy" })
             ] })
           ] }),
-          result.defSource === "armor" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid grid-cols-1 gap-2 sm:grid-cols-2", children: [
-            { label: nameA, heroes: result.teamA?.heroes ?? [] },
-            { label: nameB, heroes: result.teamB?.heroes ?? [] }
-          ].map(({ label, heroes }) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md bg-muted/20 p-2.5 space-y-1.5", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs font-semibold text-muted-foreground", children: label }),
-            heroes.map((h, hi) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs flex items-center gap-2 flex-wrap", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground shrink-0", children: [
-                h.mainClass,
-                " Lv",
-                h.level
-              ] }),
-              h.hasArmor ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                  "P.DEF ",
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono", children: h.pDef.toFixed(1) })
+          result.factors && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md bg-muted/20 p-3 space-y-2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs font-semibold uppercase tracking-wide text-muted-foreground", children: "Factor Breakdown" }),
+            [
+              { label: "Initiative", key: "init", weight: 25 },
+              { label: "Effective DPS", key: "dps", weight: 30 },
+              { label: "Survivability", key: "surv", weight: 20 },
+              { label: "Passive DPS", key: "passiveDps", weight: 10 },
+              { label: "Team Comp", key: "comp", weight: 10 },
+              { label: "Experience", key: "experience", weight: 5 }
+            ].map(({ label, key: key2, weight }) => {
+              const aVal = result.factors[key2];
+              const bVal = Math.round((100 - aVal) * 10) / 10;
+              const aHigher = aVal >= 50;
+              return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-[1fr_auto_auto] items-center gap-2", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 min-w-0", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs text-muted-foreground truncate", children: label }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-muted-foreground/60 shrink-0", children: [
+                    weight,
+                    "%"
+                  ] })
                 ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
-                  "(",
-                  h.pRed.toFixed(1),
-                  "% red)"
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `text-xs font-mono tabular-nums ${aHigher ? "text-green-400" : "text-muted-foreground"}`, children: [
+                  aVal.toFixed(1),
+                  "%"
                 ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                  "M.DEF ",
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono", children: h.mDef.toFixed(1) })
-                ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
-                  "(",
-                  h.mRed.toFixed(1),
-                  "% red)"
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `text-xs font-mono tabular-nums ${!aHigher ? "text-green-400" : "text-muted-foreground"}`, children: [
+                  bVal.toFixed(1),
+                  "%"
                 ] })
-              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground italic", children: "no armor" })
-            ] }, hi))
-          ] }, label)) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md bg-muted/30 p-3", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5", children: "Analysis" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm leading-relaxed", children: result.analysis })
+              ] }, key2);
+            }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "pt-1 border-t border-border/40 flex justify-between text-[10px] text-muted-foreground/50", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: result.nameA }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: result.nameB })
+            ] })
           ] })
         ] })
       ] }) }, key);
