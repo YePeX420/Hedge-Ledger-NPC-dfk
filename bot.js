@@ -10657,7 +10657,7 @@ async function startAdminWebServer() {
   }
 
   async function fetchFirestoreSubcollection(idToken, collectionPath) {
-    const base = `https://firestore.googleapis.com/v1/projects/${DFK_FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+    const base = `https://firestore.googleapis.com/v1/projects/${DFK_FIREBASE_PROJECT_ID}/databases/combat-engine/documents`;
     const url = `${base}/${collectionPath}`;
     const resp = await fetch(url, { headers: { Authorization: `Bearer ${idToken}` } });
     if (!resp.ok) {
