@@ -1215,8 +1215,9 @@ interface ProbeState {
   indexSample: string[] | null;
   reindexLoading: boolean;
   reindexResult: string | null;
-  directId: string;
-  directResult: { rawDocCount: number; fieldKeys: string[]; firstDoc: Record<string, unknown> | null } | null;
+  probeTournamentId: string;
+  probeBoutNum: string;
+  directResult: { rawDocCount: number; fieldKeys: string[]; firstDoc: Record<string, unknown> | null; triedId?: string } | null;
   directLoading: boolean;
   directError?: string;
   open: boolean;
@@ -1227,7 +1228,8 @@ function FirebaseProbePanel() {
     sampleIds: null, sampleLoading: false,
     indexedCount: null, indexSample: null,
     reindexLoading: false, reindexResult: null,
-    directId: '', directResult: null, directLoading: false,
+    probeTournamentId: '', probeBoutNum: '',
+    directResult: null, directLoading: false,
     open: false,
   });
 
@@ -1268,13 +1270,14 @@ function FirebaseProbePanel() {
   };
 
   const probeId = async () => {
-    if (!state.directId.trim()) return;
+    if (!state.probeTournamentId.trim() || !state.probeBoutNum.trim()) return;
+    const composedId = `1088-${state.probeBoutNum.trim()}-tournament-${state.probeTournamentId.trim()}`;
     setState(s => ({ ...s, directLoading: true, directError: undefined, directResult: null }));
     try {
-      const res = await fetch(`/api/admin/firebase/battle-log-probe?battleId=${encodeURIComponent(state.directId.trim())}`);
+      const res = await fetch(`/api/admin/firebase/battle-log-probe?battleId=${encodeURIComponent(composedId)}`);
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
-      setState(s => ({ ...s, directLoading: false, directResult: { rawDocCount: data.rawDocCount, fieldKeys: data.fieldKeys ?? [], firstDoc: data.firstDoc } }));
+      setState(s => ({ ...s, directLoading: false, directResult: { rawDocCount: data.rawDocCount, fieldKeys: data.fieldKeys ?? [], firstDoc: data.firstDoc, triedId: composedId } }));
     } catch (err: any) {
       setState(s => ({ ...s, directLoading: false, directError: err.message }));
     }
@@ -1369,25 +1372,44 @@ function FirebaseProbePanel() {
             )}
           </div>
 
-          {/* Part 2: Direct probe a specific ID */}
+          {/* Part 2: Probe by tournament ID + bout number */}
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground font-medium">Probe a specific battle ID to inspect its schema</p>
-            <div className="flex gap-2">
+            <p className="text-xs text-muted-foreground font-medium">Probe by tournament ID + bout number</p>
+            <p className="text-[10px] text-muted-foreground/50">Composes: <span className="font-mono">1088-&#123;bout&#125;-tournament-&#123;id&#125;</span></p>
+            <div className="flex gap-2 flex-wrap">
               <input
-                className="flex-1 text-xs bg-muted/20 border border-border/50 rounded-md px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-                placeholder="Enter battle ID…"
-                value={state.directId}
-                onChange={e => setState(s => ({ ...s, directId: e.target.value }))}
+                className="w-28 text-xs bg-muted/20 border border-border/50 rounded-md px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Tournament ID"
+                type="number"
+                min="1"
+                value={state.probeTournamentId}
+                onChange={e => setState(s => ({ ...s, probeTournamentId: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && probeId()}
-                data-testid="input-probe-battle-id"
+                data-testid="input-probe-tournament-id"
               />
-              <Button size="sm" variant="outline" onClick={probeId} disabled={state.directLoading || !state.directId.trim()} data-testid="btn-probe-direct">
+              <input
+                className="w-20 text-xs bg-muted/20 border border-border/50 rounded-md px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Bout #"
+                type="number"
+                min="1"
+                max="50"
+                value={state.probeBoutNum}
+                onChange={e => setState(s => ({ ...s, probeBoutNum: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && probeId()}
+                data-testid="input-probe-bout-num"
+              />
+              <Button size="sm" variant="outline" onClick={probeId} disabled={state.directLoading || !state.probeTournamentId.trim() || !state.probeBoutNum.trim()} data-testid="btn-probe-direct">
                 {state.directLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <FlaskConical className="w-3 h-3" />}
               </Button>
             </div>
             {state.directError && <p className="text-xs text-destructive">{state.directError}</p>}
             {state.directResult && (
               <div className="rounded-md border border-border/40 bg-muted/10 p-2.5 space-y-1.5">
+                {state.directResult.triedId && (
+                  <p className="text-[10px] text-muted-foreground/60">
+                    Tried: <span className="font-mono text-foreground/70">{state.directResult.triedId}</span>
+                  </p>
+                )}
                 <p className="text-xs">
                   <span className="text-muted-foreground">Docs found: </span>
                   <span className={state.directResult.rawDocCount > 0 ? 'text-green-400 font-medium' : 'text-muted-foreground'}>{state.directResult.rawDocCount}</span>
