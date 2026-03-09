@@ -90452,6 +90452,7 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
   const [open, setOpen] = reactExports.useState(false);
   const [winnerCoach, setWinnerCoach] = reactExports.useState(null);
   const [loserCoach, setLoserCoach] = reactExports.useState(null);
+  const [upsetAnalysis, setUpsetAnalysis] = reactExports.useState(null);
   const [liveCoachA, setLiveCoachA] = reactExports.useState(null);
   const [liveCoachB, setLiveCoachB] = reactExports.useState(null);
   const [battleLogHasData, setBattleLogHasData] = reactExports.useState(false);
@@ -90476,6 +90477,29 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
       setState({ loading: false, analysis: data.analysis ?? "No analysis available.", hadBattleLog: data.hadBattleLog });
     } catch (err) {
       setState({ loading: false, analysis: null, error: err.message });
+    }
+  };
+  const runUpsetAnalysis = async () => {
+    setUpsetAnalysis({ loading: true, analysis: null });
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ boutId: bout.id, target: "upset" })
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) throw new Error(data.error);
+      setUpsetAnalysis({
+        loading: false,
+        analysis: data.analysis ?? "No analysis available.",
+        hadBattleLog: data.hadBattleLog,
+        underdogName: data.underdogName,
+        favoriteName: data.favoriteName,
+        underdogPct: data.underdogPct,
+        favoritePct: data.favoritePct
+      });
+    } catch (err) {
+      setUpsetAnalysis({ loading: false, analysis: null, error: err.message });
     }
   };
   const runLiveCoach = async (perspective) => {
@@ -90514,7 +90538,8 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
           ] }),
           bout.isComplete ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 flex-1 min-w-0", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Trophy, { className: "w-3 h-3 text-yellow-400 shrink-0" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-medium text-green-400 truncate", children: winnerName ?? shortAddr$1(bout.winnerAddress) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-medium text-green-400 truncate", children: winnerName ?? shortAddr$1(bout.winnerAddress) }),
+            prediction && !predictionCorrect && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "outline", className: "text-amber-400 border-amber-400/40 text-[9px] px-1 shrink-0", children: "UPSET" })
           ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm text-muted-foreground flex-1", children: "In Progress" }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 shrink-0", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] text-muted-foreground", children: [
@@ -90657,17 +90682,57 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-full bg-red-500/40 transition-all", style: { width: `${prediction.pctB}%` } })
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 text-xs", children: [
-          predictionCorrect ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-green-400 font-medium", children: "Prediction correct" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-amber-400 font-medium", children: [
-            "Upset — ",
-            winnerName,
-            " won against the odds"
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 flex-wrap", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1.5 text-xs", children: [
+            predictionCorrect ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-green-400 font-medium", children: "Prediction correct" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-amber-400 font-medium flex items-center gap-1", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(TriangleAlert, { className: "w-3 h-3" }),
+              "Upset — ",
+              winnerName,
+              " won against the odds"
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground/50", children: "·" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
+              "Actual winner: ",
+              winnerName
+            ] })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted-foreground/50", children: "·" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted-foreground", children: [
-            "Actual winner: ",
-            winnerName
-          ] })
+          !predictionCorrect && /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              size: "sm",
+              variant: "outline",
+              className: "text-[10px] h-6 px-2 text-amber-400 border-amber-400/40",
+              onClick: runUpsetAnalysis,
+              disabled: upsetAnalysis?.loading,
+              "data-testid": `btn-upset-analysis-${bout.id}`,
+              children: upsetAnalysis?.loading ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { className: "w-2.5 h-2.5 mr-1 animate-spin" }),
+                "Analyzing…"
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(TriangleAlert, { className: "w-2.5 h-2.5 mr-1" }),
+                "Analyze Upset"
+              ] })
+            }
+          )
+        ] }),
+        upsetAnalysis?.error && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-destructive", children: upsetAnalysis.error }),
+        upsetAnalysis?.analysis && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-1.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] font-semibold uppercase tracking-wide text-amber-400 flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TriangleAlert, { className: "w-3 h-3" }),
+            "Upset Analysis",
+            upsetAnalysis.hadBattleLog && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-normal text-green-400/70 ml-1", children: "· battle log included" })
+          ] }),
+          upsetAnalysis.underdogName && upsetAnalysis.favoriteName && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] text-muted-foreground/70", children: [
+            upsetAnalysis.underdogName,
+            " (",
+            upsetAnalysis.underdogPct,
+            "% predicted) defeated ",
+            upsetAnalysis.favoriteName,
+            " (",
+            upsetAnalysis.favoritePct,
+            "% predicted)"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground leading-relaxed", children: upsetAnalysis.analysis })
         ] })
       ] }),
       bout.isComplete && winnerName && loserName && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-border/40 p-3 space-y-3", children: [

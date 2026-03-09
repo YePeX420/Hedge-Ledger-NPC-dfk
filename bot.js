@@ -11298,8 +11298,47 @@ async function startAdminWebServer() {
         ? ` Combat sequence (first turns — attackId format): ${battleLogSummary}.${finalHpCtx}${analysisInventoryCtx}`
         : ' Note: Turn-by-turn battle log data is not available, so advice is based on hero stats and team composition.';
 
+      // Compute client-side-equivalent prediction (agility 25%, strength 30%, vit+end avg 20%, passive% 10%, class diversity 15%)
+      const _predictedPct = (heroes) => {
+        if (!heroes.length) return 0;
+        const avg = (fn) => heroes.reduce((s, h) => s + fn(h), 0) / heroes.length;
+        return {
+          agi: avg(h => h.agility || 0),
+          str: avg(h => h.strength || 0),
+          surv: avg(h => ((h.vitality || 0) + (h.endurance || 0)) / 2),
+          pass: heroes.filter(h => h.passive1 != null || h.passive2 != null).length / heroes.length,
+          comp: new Set(heroes.map(h => h.main_class)).size / heroes.length,
+        };
+      };
+      const _score = (s, o) => {
+        const f = [
+          { w: 0.25, a: s.agi,  b: o.agi  },
+          { w: 0.30, a: s.str,  b: o.str  },
+          { w: 0.20, a: s.surv, b: o.surv },
+          { w: 0.10, a: s.pass, b: o.pass },
+          { w: 0.15, a: s.comp, b: o.comp },
+        ];
+        return f.reduce((acc, x) => acc + x.w * (x.a + x.b > 0 ? x.a / (x.a + x.b) : 0.5), 0);
+      };
+      const _statsA = _predictedPct(sideA); const _statsB = _predictedPct(sideB);
+      const _sA = _score(_statsA, _statsB); const _sB = _score(_statsB, _statsA);
+      const _predPctA = Math.round((_sA / (_sA + _sB)) * 100);
+      const _predPctB = 100 - _predPctA;
+      const _predictedWinnerIsA = _predPctA >= 50;
+      const _actualWinnerIsA = winnerAddr === playerAAddr;
+      const _isUpset = _actualWinnerIsA !== _predictedWinnerIsA;
+      const _underdogName  = _actualWinnerIsA ? (bout.player_a_name || winnerAddr.slice(0,8)+'…') : (bout.player_b_name || loserAddr.slice(0,8)+'…');
+      const _favoriteName  = _actualWinnerIsA ? (bout.player_b_name || loserAddr.slice(0,8)+'…') : (bout.player_a_name || winnerAddr.slice(0,8)+'…');
+      const _underdogPct   = _actualWinnerIsA ? _predPctA : _predPctB;
+      const _favoritePct   = _actualWinnerIsA ? _predPctB : _predPctA;
+
       let prompt;
-      if (target === 'winner') {
+      if (target === 'upset') {
+        prompt = `UPSET ANALYSIS — DeFi Kingdoms PvP Tournament.
+${baseContext}
+Pre-fight model predicted ${_favoriteName} would win with ${_favoritePct}% probability, but ${_underdogName} (${_underdogPct}% predicted) won instead.${battleCtx}
+In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_underdogName} overcome the stat disadvantage — cite specific class skills, passive synergies, or survivability traits that neutralized the favorite's edge. (2) WHERE did ${_favoriteName} make critical mistakes — poor target priority, failure to use consumables at the right moment, or stat weaknesses exploited by the opponent. (3) What was the key turning-point or momentum shift (reference turn numbers and HP values if battle log data is available). Be concrete and tactical.`;
+      } else if (target === 'winner') {
         prompt = `${baseContext}${battleCtx} In 3-4 sentences, give coaching advice to ${winnerName} on what made their team effective and what weaknesses in their composition they should address to stay competitive in future rounds. Be specific about stats, passives, or team synergies.`;
       } else {
         prompt = `${baseContext}${battleCtx} In 3-4 sentences, provide specific and actionable tactical coaching advice for ${loserName}. Focus on hero selection, stat priorities, passive synergies, or team composition changes that could improve their odds next time. If any heroes were critically low on HP, comment on whether consumable usage (budget-pts system) could have changed the outcome.`;
@@ -11325,7 +11364,13 @@ async function startAdminWebServer() {
 
       const targetName    = target === 'winner' ? winnerName : loserName;
       const targetAddress = target === 'winner' ? winnerAddr : loserAddr;
-      res.json({ ok: true, analysis, target, targetName, targetAddress, loserAddress: loserAddr, loserName, hadBattleLog });
+      res.json({
+        ok: true, analysis, target, targetName, targetAddress,
+        loserAddress: loserAddr, loserName, hadBattleLog,
+        isUpset: _isUpset,
+        underdogName: _underdogName, favoriteName: _favoriteName,
+        underdogPct: _underdogPct, favoritePct: _favoritePct,
+      });
     } catch (err) {
       console.error('[BoutAnalysis] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });

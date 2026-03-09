@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ArrowLeft, Zap, Users, Shield, Trophy, ChevronDown, Star, RefreshCw, Activity,
+  ArrowLeft, Zap, Users, Shield, Trophy, ChevronDown, Star, RefreshCw, Activity, AlertTriangle,
   ScrollText, FlaskConical, Search, Database,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -645,6 +645,7 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
   const [open, setOpen] = useState(false);
   const [winnerCoach, setWinnerCoach] = useState<CoachResult | null>(null);
   const [loserCoach, setLoserCoach] = useState<CoachResult | null>(null);
+  const [upsetAnalysis, setUpsetAnalysis] = useState<(CoachResult & { underdogName?: string; favoriteName?: string; underdogPct?: number; favoritePct?: number }) | null>(null);
   const [liveCoachA, setLiveCoachA] = useState<LiveCoachState | null>(null);
   const [liveCoachB, setLiveCoachB] = useState<LiveCoachState | null>(null);
   const [battleLogHasData, setBattleLogHasData] = useState(false);
@@ -674,6 +675,30 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
       setState({ loading: false, analysis: data.analysis ?? 'No analysis available.', hadBattleLog: data.hadBattleLog });
     } catch (err: any) {
       setState({ loading: false, analysis: null, error: err.message });
+    }
+  };
+
+  const runUpsetAnalysis = async () => {
+    setUpsetAnalysis({ loading: true, analysis: null });
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/bout-analysis`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ boutId: bout.id, target: 'upset' }),
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) throw new Error(data.error);
+      setUpsetAnalysis({
+        loading: false,
+        analysis: data.analysis ?? 'No analysis available.',
+        hadBattleLog: data.hadBattleLog,
+        underdogName: data.underdogName,
+        favoriteName: data.favoriteName,
+        underdogPct: data.underdogPct,
+        favoritePct: data.favoritePct,
+      });
+    } catch (err: any) {
+      setUpsetAnalysis({ loading: false, analysis: null, error: err.message });
     }
   };
 
@@ -709,6 +734,9 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
             <Trophy className="w-3 h-3 text-yellow-400 shrink-0" />
             <span className="text-sm font-medium text-green-400 truncate">{winnerName ?? shortAddr(bout.winnerAddress)}</span>
+            {prediction && !predictionCorrect && (
+              <Badge variant="outline" className="text-amber-400 border-amber-400/40 text-[9px] px-1 shrink-0">UPSET</Badge>
+            )}
           </div>
         ) : (
           <span className="text-sm text-muted-foreground flex-1">In Progress</span>
@@ -844,15 +872,54 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
                   <div className="h-full bg-red-500/40 transition-all" style={{ width: `${prediction.pctB}%` }} />
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 text-xs">
-                {predictionCorrect ? (
-                  <span className="text-green-400 font-medium">Prediction correct</span>
-                ) : (
-                  <span className="text-amber-400 font-medium">Upset — {winnerName} won against the odds</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 text-xs">
+                  {predictionCorrect ? (
+                    <span className="text-green-400 font-medium">Prediction correct</span>
+                  ) : (
+                    <span className="text-amber-400 font-medium flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      Upset — {winnerName} won against the odds
+                    </span>
+                  )}
+                  <span className="text-muted-foreground/50">·</span>
+                  <span className="text-muted-foreground">Actual winner: {winnerName}</span>
+                </div>
+                {!predictionCorrect && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-[10px] h-6 px-2 text-amber-400 border-amber-400/40"
+                    onClick={runUpsetAnalysis}
+                    disabled={upsetAnalysis?.loading}
+                    data-testid={`btn-upset-analysis-${bout.id}`}
+                  >
+                    {upsetAnalysis?.loading
+                      ? <><RefreshCw className="w-2.5 h-2.5 mr-1 animate-spin" />Analyzing…</>
+                      : <><AlertTriangle className="w-2.5 h-2.5 mr-1" />Analyze Upset</>}
+                  </Button>
                 )}
-                <span className="text-muted-foreground/50">·</span>
-                <span className="text-muted-foreground">Actual winner: {winnerName}</span>
               </div>
+              {upsetAnalysis?.error && (
+                <p className="text-xs text-destructive">{upsetAnalysis.error}</p>
+              )}
+              {upsetAnalysis?.analysis && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-400 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3 h-3" />
+                    Upset Analysis
+                    {upsetAnalysis.hadBattleLog && (
+                      <span className="text-[9px] font-normal text-green-400/70 ml-1">· battle log included</span>
+                    )}
+                  </p>
+                  {upsetAnalysis.underdogName && upsetAnalysis.favoriteName && (
+                    <p className="text-[10px] text-muted-foreground/70">
+                      {upsetAnalysis.underdogName} ({upsetAnalysis.underdogPct}% predicted) defeated {upsetAnalysis.favoriteName} ({upsetAnalysis.favoritePct}% predicted)
+                    </p>
+                  )}
+                  <p className="text-sm text-muted-foreground leading-relaxed">{upsetAnalysis.analysis}</p>
+                </div>
+              )}
             </div>
           )}
 
