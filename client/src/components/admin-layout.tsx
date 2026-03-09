@@ -253,7 +253,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       {/* Sidebar */}
       <aside className={`
         fixed lg:static inset-y-0 left-0 z-50
-        w-64 border-r bg-card flex flex-col
+        w-64 border-r bg-popover flex flex-col
         transform transition-transform duration-200 ease-in-out
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
@@ -446,7 +446,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile header */}
-        <header className="lg:hidden flex items-center gap-3 p-3 border-b bg-card">
+        <header className="lg:hidden flex items-center gap-3 p-3 border-b bg-popover">
           <Button
             variant="ghost"
             size="icon"
