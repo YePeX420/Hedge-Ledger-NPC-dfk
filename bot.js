@@ -10640,7 +10640,7 @@ async function startAdminWebServer() {
         init:       Math.round(initA * 1000) / 10,
         dps:        Math.round(toPct(effDpsA, effDpsA + effDpsB) * 1000) / 10,
         surv:       Math.round(toPct(survA, survA + survB) * 1000) / 10,
-        passiveDps: Math.round(toPct(pasDA, pasDA + pasDB) * 1000) / 10,
+        synergy:    Math.round(toPct(pasDA, pasDA + pasDB) * 1000) / 10,
         comp:       Math.round(toPct(compA, compA + compB) * 1000) / 10,
         experience: Math.round(toPct(expA, expA + expB) * 1000) / 10,
       };
@@ -10675,6 +10675,203 @@ async function startAdminWebServer() {
     }
   });
 
+  // ─── Shared ranking helpers (rank-teams + player-tips) ──────────────────────
+
+  // Decode weapon speed modifier: raw>=128 → negative (raw=133 → -5)
+  function _decodeWeaponSpeed(raw) {
+    if (!raw) return 0;
+    return (1 - 2 * Math.floor(raw / 128)) * (raw % 128);
+  }
+
+  // Weapon bonus code → effect key (subset relevant to combat scoring)
+  const _WEAPON_BONUS = {
+    22: 'critDamage', 23: 'critStrikeChance', 33: 'physicalDamage', 32: 'magicDamage',
+    30: 'physAndMagicDefDown', 20: 'blkChance', 21: 'sblkChance',
+  };
+  const _ARMOR_BONUS = {
+    7: 'speed', 8: 'evasion', 29: 'physDefPct', 30: 'magicDefPct',
+    33: 'physicalDamage', 34: 'magicDamage', 57: 'critStrikeChance',
+  };
+  const _ACCESSORY_BONUS = {
+    5: 'speed', 6: 'evasion', 27: 'physDefPct', 28: 'magicDefPct',
+    29: 'critDamage', 30: 'lifesteal', 26: 'critDamage',
+  };
+  const _OFFHAND_BONUS = { 5: 'speed', 6: 'evasion', 27: 'physDefPct', 28: 'magicDefPct' };
+
+  function _applySlots(slots, table, acc) {
+    for (const [code, scalar] of slots) {
+      if (!code) continue;
+      const k = table[code];
+      if (k) acc[k] = (acc[k] ?? 0) + scalar / 10_000;
+    }
+  }
+
+  // Aggregate equipment + pet bonuses into a flat bonus object relevant to scoring
+  function _heroCombatExtras(h) {
+    const acc = {
+      speedBonus: 0, critBonus: 0, physDmgPct: 0, magDmgPct: 0,
+      physDefPct: 0, magDefPct: 0, evaBonus: 0, weaponDmg: 0,
+      armorPDef: 0, armorMDef: 0, armorEva: 0,
+    };
+
+    if (h.weapon1) {
+      acc.weaponDmg += h.weapon1.baseDamage ?? 0;
+      acc.speedBonus += _decodeWeaponSpeed(h.weapon1.speedModifier ?? 0);
+      _applySlots([[h.weapon1.bonus1, h.weapon1.bonusScalar1],[h.weapon1.bonus2,h.weapon1.bonusScalar2],[h.weapon1.bonus3,h.weapon1.bonusScalar3],[h.weapon1.bonus4,h.weapon1.bonusScalar4]], _WEAPON_BONUS, acc);
+    }
+    if (h.weapon2) {
+      acc.weaponDmg += (h.weapon2.baseDamage ?? 0) * 0.5; // off-weapon at reduced weight
+      acc.speedBonus += _decodeWeaponSpeed(h.weapon2.speedModifier ?? 0);
+      _applySlots([[h.weapon2.bonus1, h.weapon2.bonusScalar1],[h.weapon2.bonus2,h.weapon2.bonusScalar2],[h.weapon2.bonus3,h.weapon2.bonusScalar3],[h.weapon2.bonus4,h.weapon2.bonusScalar4]], _WEAPON_BONUS, acc);
+    }
+    if (h.armor) {
+      const a = h.armor;
+      const WIS = h.wisdom ?? 10, END = h.endurance ?? 10;
+      const rawPD = a.rawPhysDefense ?? 0;
+      const rawMD = a.rawMagicDefense ?? 0;
+      const pDefMax = a.pDefScalarMax ?? rawPD * 2;
+      const mDefMax = a.mDefScalarMax ?? rawMD * 2;
+      acc.armorPDef = rawPD + Math.min((a.physDefScalar ?? 0) / 100 * END, pDefMax);
+      acc.armorMDef = rawMD + Math.min((a.magicDefScalar ?? 0) / 100 * WIS, mDefMax);
+      acc.armorEva  = a.evasion ?? 0;
+      _applySlots([[a.bonus1,a.bonusScalar1],[a.bonus2,a.bonusScalar2],[a.bonus3,a.bonusScalar3],[a.bonus4,a.bonusScalar4],[a.bonus5,a.bonusScalar5]], _ARMOR_BONUS, acc);
+    }
+    for (const item of [h.accessory, h.offhand1, h.offhand2].filter(Boolean)) {
+      const tbl = item.equipmentType === 1 ? _ACCESSORY_BONUS : _OFFHAND_BONUS;
+      _applySlots([[item.bonus1,item.bonusScalar1],[item.bonus2,item.bonusScalar2],[item.bonus3,item.bonusScalar3],[item.bonus4,item.bonusScalar4],[item.bonus5,item.bonusScalar5]], tbl, acc);
+    }
+
+    // Pet bonuses
+    if (h.pet && h.pet.combatBonus) {
+      const raw = h.pet.combatBonus;
+      const base = raw <= 79 ? raw : raw <= 158 ? raw - 79 : raw - 159;
+      const val = (h.pet.combatBonusScalar ?? 0) / 10_000;
+      const PET_MAP = {
+        2:'blkChance',3:'sblkChance',4:'recoveryChance',5:'magDefPct',6:'physDefPct',
+        7:'critStrikeChance',8:'physDmgPct',9:'magDmgPct',25:'evaBonus',26:'speedBonus',
+        46:'physAcc',47:'magAcc',48:'omniDef',50:'lifesteal',63:'magDmgRed',64:'physDmgRed',
+      };
+      const eff = PET_MAP[base];
+      if (eff === 'omniDef') { acc.physDefPct += val; acc.magDefPct += val; }
+      else if (eff) acc[eff] = (acc[eff] ?? 0) + val;
+    }
+
+    return acc;
+  }
+
+  // Skill name tables (same as _ACTIVE_SKILL_NAMES / _PASSIVE_SKILL_NAMES)
+  const _RANK_ACTIVE = {0:'Poisoned Blade',1:'Blinding Winds',2:'Heal',3:'Cleanse',4:'Iron Skin',5:'Speed',6:'Critical Aim',7:'Deathmark',16:'Exhaust',17:'Daze',18:'Explosion',19:'Hardened Shield',24:'Stun',25:'Second Wind',28:'Resurrection'};
+  const _RANK_PASSIVE = {0:'Duelist',1:'Clutch',2:'Foresight',3:'Headstrong',4:'Clear Vision',5:'Fearless',6:'Chatterbox',7:'Stalwart',16:'Leadership',17:'Efficient',18:'Menacing',19:'Toxic',24:'Giant Slayer',25:'Last Stand',28:'Second Life'};
+
+  // Skill role weights: { dps, surv, cc, heal, buff, debuff }
+  const _SKILL_ROLES = {
+    'Poisoned Blade': { dps: 0.15, debuff: 0.05 },
+    'Blinding Winds': { debuff: 0.20 },
+    'Heal':           { heal: 0.30 },
+    'Cleanse':        { heal: 0.10, surv: 0.15 },
+    'Iron Skin':      { surv: 0.25, buff: 0.10 },
+    'Speed':          { buff: 0.20 },
+    'Critical Aim':   { dps: 0.20, buff: 0.10 },
+    'Deathmark':      { dps: 0.25, debuff: 0.15 },
+    'Exhaust':        { debuff: 0.15 },
+    'Daze':           { cc: 0.25 },
+    'Explosion':      { dps: 0.30 },
+    'Hardened Shield':{ surv: 0.30, buff: 0.10 },
+    'Stun':           { cc: 0.30 },
+    'Second Wind':    { surv: 0.20, heal: 0.10 },
+    'Resurrection':   { heal: 0.40, surv: 0.20 },
+    'Duelist':        { dps: 0.10 },
+    'Clutch':         { surv: 0.10, dps: 0.05 },
+    'Foresight':      { surv: 0.10 },
+    'Headstrong':     { surv: 0.15, cc: -0.10 },
+    'Clear Vision':   { dps: 0.08 },
+    'Fearless':       { dps: 0.12 },
+    'Chatterbox':     { debuff: 0.08 },
+    'Stalwart':       { surv: 0.12 },
+    'Leadership':     { buff: 0.25, dps: 0.10 },
+    'Efficient':      { buff: 0.05 },
+    'Menacing':       { debuff: 0.25 },
+    'Toxic':          { dps: 0.08, debuff: 0.08 },
+    'Giant Slayer':   { dps: 0.12 },
+    'Last Stand':     { surv: 0.15, dps: 0.08 },
+    'Second Life':    { surv: 0.25 },
+  };
+
+  // Known power combos: [skillA, skillB] → synergy bonus
+  const _SKILL_COMBOS = [
+    [['Explosion', 'Deathmark'], 0.12],   // AoE amplified burst
+    [['Speed', 'Critical Aim'], 0.08],     // Initiative → crit burst
+    [['Heal', 'Resurrection'], 0.10],      // Full sustain package
+    [['Heal', 'Cleanse'], 0.06],           // Sustain + debuff clear
+    [['Stun', 'Deathmark'], 0.09],         // CC into execute
+    [['Leadership', 'Explosion'], 0.10],   // Amplified AoE
+    [['Blinding Winds', 'Poisoned Blade'], 0.05], // Debuff stack
+    [['Iron Skin', 'Hardened Shield'], 0.08], // Double tank
+    [['Second Life', 'Last Stand'], 0.07], // Dual survival passives
+    [['Menacing', 'Deathmark'], 0.08],     // Debuff → execute combo
+  ];
+
+  function _heroSkillNames(h) {
+    const a1 = _RANK_ACTIVE[Number(h.active1)]  ?? null;
+    const a2 = _RANK_ACTIVE[Number(h.active2)]  ?? null;
+    const p1 = _RANK_PASSIVE[Number(h.passive1)] ?? null;
+    const p2 = _RANK_PASSIVE[Number(h.passive2)] ?? null;
+    return [a1, a2, p1, p2].filter(Boolean);
+  }
+
+  function _teamSynergyScore(heroes) {
+    const allSkills = new Set(heroes.flatMap(_heroSkillNames));
+    // Role coverage bonus
+    let totals = { dps:0, surv:0, cc:0, heal:0, buff:0, debuff:0 };
+    for (const sk of allSkills) {
+      const r = _SKILL_ROLES[sk] ?? {};
+      for (const [k, v] of Object.entries(r)) {
+        if (totals[k] !== undefined) totals[k] += v;
+      }
+    }
+    // Diminishing returns on each role dimension
+    const roleScore = Object.values(totals).reduce((s, v) => s + Math.min(v, 0.4), 0);
+    // Coverage bonus: reward having at least one in each of 3+ roles
+    const roleDiversity = Object.values(totals).filter(v => v > 0).length;
+    const diversityBonus = roleDiversity >= 4 ? 0.10 : roleDiversity >= 3 ? 0.05 : 0;
+    // Combo bonuses
+    let comboBonus = 0;
+    for (const [[skA, skB], bonus] of _SKILL_COMBOS) {
+      if (allSkills.has(skA) && allSkills.has(skB)) comboBonus += bonus;
+    }
+    return Math.min(roleScore * 0.25 + diversityBonus + Math.min(comboBonus, 0.15), 0.35);
+  }
+
+  // Recommend front/back positioning for each hero
+  function _heroPosition(h) {
+    const VIT = h.vitality ?? 0, END = h.endurance ?? 0;
+    const skills = _heroSkillNames(h);
+    const isTank = skills.some(s => ['Iron Skin','Hardened Shield'].includes(s))
+                 || (VIT + END) >= 45;
+    const isBackline = skills.some(s => ['Explosion','Daze','Exhaust'].includes(s))
+                     || (h.intelligence ?? 0) >= 25;
+    if (isTank) return 'front';
+    if (isBackline) return 'back';
+    return (VIT + END) >= 35 ? 'front' : 'back';
+  }
+
+  // Build full hero summary string for AI prompts
+  function _heroSummaryFull(h) {
+    const extras = _heroCombatExtras(h);
+    const skills = _heroSkillNames(h);
+    const pos = _heroPosition(h);
+    const cls = h.mainClassStr ?? 'Hero';
+    const equipStr = [
+      extras.weaponDmg > 0 ? `wpn+${Math.round(extras.weaponDmg)}dmg` : '',
+      extras.speedBonus !== 0 ? `spd${extras.speedBonus > 0 ? '+' : ''}${extras.speedBonus}` : '',
+      extras.armorPDef > 0 ? `pDef+${Math.round(extras.armorPDef)}` : '',
+      (extras.physDefPct + extras.armorPDef / 200) > 0.01 ? `physDef+${Math.round((extras.physDefPct)*100)}%` : '',
+      extras.critBonus > 0.005 ? `crit+${Math.round(extras.critBonus*100)}%` : '',
+      h.pet ? `pet:${h.pet.name || 'Pet'}` : '',
+    ].filter(Boolean).join(' ');
+    return `${cls} Lv${h.level} [${pos}] STR${h.strength} AGI${h.agility} VIT${h.vitality} END${h.endurance} INT${h.intelligence} | skills:${skills.join('+')||'none'} | ${equipStr || 'no equip'}`;
+  }
+
   // POST /api/admin/tournament/bracket/:id/rank-teams — AI-powered team ranking for all entrants
   app.post('/api/admin/tournament/bracket/:id/rank-teams', isAdmin, async (req, res) => {
     try {
@@ -10688,25 +10885,47 @@ async function startAdminWebServer() {
       const eligible = players.filter(p => p.heroes && p.heroes.length > 0);
       if (eligible.length < 2) return res.status(400).json({ ok: false, error: 'Need at least 2 players with hero data to rank' });
 
-      // Same prediction helpers as ai-matchup endpoint
       const HEALER_CLASSES = new Set(['Priest', 'Paladin', 'Druid', 'Shaman']);
       const PASSIVE_SURV = { 15: 0.15, 14: 0.06, 1: 0.02 };
-      const PASSIVE_DPS  = { 12: 0.03, 13: 0.04, 1: 0.01 };
 
       function heroProfile(h) {
         const AGI = h.agility ?? 10, LCK = h.luck ?? 10;
         const STR = h.strength ?? 10, INT = h.intelligence ?? 10;
         const VIT = h.vitality ?? 10, END = h.endurance ?? 10;
         const p1 = Number(h.passive1 ?? -1), p2 = Number(h.passive2 ?? -1);
+        const ex = _heroCombatExtras(h);
+
+        // Effective initiative: base AGI ± weapon speed, and equipment speed bonuses
+        const effAGI = AGI + ex.speedBonus * 2;
+        const initMin = 2 * (effAGI - LCK / 2);
+        const initMax = 2 * (effAGI + LCK / 2);
+
+        // DPS: base STR/INT + weapon base damage + equipment dmg% bonuses + crit factor
+        const basePhysDps = STR + ex.weaponDmg * 0.4; // weapon contributes ~40% of stat weight
+        const baseMagDps  = INT * 0.7;
+        const dpsRaw = (basePhysDps + baseMagDps)
+          * (1 + (ex.physDmgPct ?? 0) + (ex.magDmgPct ?? 0))
+          * (1 + (ex.critBonus ?? 0) * 0.5); // crit increases effective DPS
+
+        // Survivability: HP + computed armor defense + evasion + pct bonuses
+        const hp      = VIT * 10 + END * 5;
+        const pdef    = ex.armorPDef + END * 0.3; // armor + base END contribution
+        const mdef    = ex.armorMDef;
+        const evaBase = AGI / 200 + (ex.armorEva ?? 0) / 100 + (ex.evaBonus ?? 0);
+        const survPctBonus = (PASSIVE_SURV[p1] ?? 0) + (PASSIVE_SURV[p2] ?? 0)
+                           + (ex.physDefPct ?? 0) * 0.5 + (ex.magDefPct ?? 0) * 0.5;
+
         return {
-          initMin: 2 * (AGI - LCK / 2), initMax: 2 * (AGI + LCK / 2),
-          hp: VIT * 10 + END * 5, pdef: END * 0.5, eva: AGI / 200,
-          dpsRaw: STR + INT * 0.7,
-          survScore: (PASSIVE_SURV[p1] ?? 0) + (PASSIVE_SURV[p2] ?? 0),
-          dpsScore:  (PASSIVE_DPS[p1]  ?? 0) + (PASSIVE_DPS[p2]  ?? 0),
+          initMin, initMax,
+          hp, pdef, mdef, eva: evaBase,
+          dpsRaw,
+          survScore: survPctBonus,
+          dpsScore: 0, // passive DPS now folded into dpsRaw via skill synergy
           isHealer: HEALER_CLASSES.has(h.mainClassStr ?? ''),
-          hasLeadership: p1 === 9 || p2 === 9,
-          hasMenacing:   p1 === 11 || p2 === 11,
+          hasLeadership: p1 === 16 || p2 === 16,
+          hasMenacing:   p1 === 18 || p2 === 18,
+          // pass through for team synergy
+          heroRef: h,
         };
       }
 
@@ -10714,16 +10933,16 @@ async function startAdminWebServer() {
         const ldBonus = Math.min(profiles.filter(p => p.hasLeadership).length * 0.05, 0.15);
         const mnBonus = Math.min(profiles.filter(p => p.hasMenacing).length * 0.05, 0.15);
         const rawDps  = profiles.reduce((s, p) => s + p.dpsRaw, 0);
-        const effDps  = rawDps * (1 + ldBonus); // self leadership bonus (menacing affects opponents)
-        const surv    = profiles.reduce((s, p) => s + (p.hp + p.pdef * 5 + p.eva * 200) * (1 + p.survScore), 0);
-        const passiveDps = profiles.reduce((s, p) => s + p.dpsScore, 0);
+        const effDps  = rawDps * (1 + ldBonus);
+        const surv    = profiles.reduce((s, p) => s + (p.hp + p.pdef * 5 + p.mdef * 3 + p.eva * 200) * (1 + p.survScore), 0);
         const hasHealer  = profiles.some(p => p.isHealer);
-        const comp = Math.min(1, 0.5 + (hasHealer ? 0.10 : 0) + ldBonus);
+        const synergyBonus = _teamSynergyScore(profiles.map(p => p.heroRef));
+        const comp = Math.min(1, 0.5 + (hasHealer ? 0.10 : 0) + ldBonus + synergyBonus * 0.5);
         const initAvg = profiles.reduce((s, p) => s + (p.initMin + p.initMax) / 2, 0) / profiles.length;
-        return { effDps, surv, passiveDps, comp, initAvg, mnBonus, heroCount: profiles.length };
+        return { effDps, surv, passiveDps: synergyBonus, comp, initAvg, mnBonus, synergyBonus };
       }
 
-      // Historical win rate lookup for all players
+      // Historical win rate lookup
       let expMap = {};
       try {
         const { rawPg: rp } = await import('./server/db.js');
@@ -10752,40 +10971,39 @@ async function startAdminWebServer() {
         return 0.5 + (r.wins / total - 0.5) * Math.min(total, 10) / 10;
       };
 
-      // Score every team — use average head-to-head score against all others
       const teamScores = eligible.map(p => ({
         player: p,
         profiles: p.heroes.map(heroProfile),
         exp: calcExp(p.address),
       }));
 
-      // Round-robin: accumulate normalised win probability vs every opponent
+      // Round-robin projected win rates
       const rankings = teamScores.map((me, i) => {
-        let totalScore = 0;
-        let opponents = 0;
+        let totalScore = 0, opponents = 0;
         const ms = teamScore(me.profiles);
-
         for (let j = 0; j < teamScores.length; j++) {
           if (i === j) continue;
           const opp = teamScores[j];
           const os = teamScore(opp.profiles);
-          // Apply menacing cross-debuff between this pair
-          const myEffDps  = ms.effDps  * (1 - os.mnBonus);
-          const oppEffDps = os.effDps  * (1 - ms.mnBonus);
+          const myEffDps  = ms.effDps * (1 - os.mnBonus);
+          const oppEffDps = os.effDps * (1 - ms.mnBonus);
           const initWin = ms.initAvg > os.initAvg ? 0.6 : ms.initAvg < os.initAvg ? 0.4 : 0.5;
           const f = (a, b) => (a + b) === 0 ? 0.5 : a / (a + b);
-          const raw = 0.25 * initWin
+          const raw = 0.20 * initWin
                     + 0.30 * f(myEffDps, oppEffDps)
                     + 0.20 * f(ms.surv, os.surv)
-                    + 0.10 * f(ms.passiveDps, os.passiveDps)
-                    + 0.10 * f(ms.comp, os.comp)
+                    + 0.15 * f(ms.comp, os.comp)
+                    + 0.10 * f(ms.passiveDps + 0.01, os.passiveDps + 0.01)
                     + 0.05 * f(me.exp, opp.exp);
           totalScore += raw;
           opponents++;
         }
-
         const avgWinRate = opponents > 0 ? totalScore / opponents : 0.5;
         const ms2 = teamScore(me.profiles);
+        const positioning = me.player.heroes.map(h => ({
+          class: h.mainClassStr ?? 'Hero',
+          position: _heroPosition(h),
+        }));
         return {
           address: me.player.address,
           playerName: me.player.playerName,
@@ -10794,10 +11012,11 @@ async function startAdminWebServer() {
           avgWinRate: Math.round(avgWinRate * 1000) / 10,
           exp: me.exp,
           expRecord: expMap[me.player.address.toLowerCase()] ?? null,
+          positioning,
           teamStats: {
             dps:       Math.round(ms2.effDps),
             surv:      Math.round(ms2.surv),
-            passiveDps: Math.round(ms2.passiveDps * 100) / 100,
+            synergy:   Math.round(ms2.synergyBonus * 100),
             comp:      Math.round(ms2.comp * 100) / 100,
             initAvg:   Math.round(ms2.initAvg * 10) / 10,
           },
@@ -10806,28 +11025,25 @@ async function startAdminWebServer() {
 
       rankings.sort((a, b) => b.avgWinRate - a.avgWinRate);
 
-      // Brief AI narrative on the top two teams
+      // AI narrative with full context: equipment + pets + skills + positioning
       let narrative = null;
       try {
         if (rankings.length >= 2) {
-          const top = rankings[0];
-          const sec = rankings[1];
-          const fmt = (r) => {
+          const fmtTeam = (r) => {
             const p = eligible.find(p => p.address === r.address);
-            const name = r.playerName || r.address.slice(0, 6) + '…' + r.address.slice(-4);
-            const classes = (p?.heroes ?? []).map(h =>
-              `${h.mainClassStr ?? 'Hero'} Lv${h.level} (STR${h.strength} AGI${h.agility} VIT${h.vitality} END${h.endurance}${h.passive1 ? ` P1:${h.passive1}` : ''}${h.passive2 ? ` P2:${h.passive2}` : ''})`
-            ).join(', ');
-            return `${name} (${r.avgWinRate}% projected win rate): ${classes}`;
+            const name = r.playerName || r.address.slice(0, 8) + '…';
+            const heroes = (p?.heroes ?? []).map(_heroSummaryFull).join(' | ');
+            return `${name} (${r.avgWinRate}% proj.): ${heroes}`;
           };
+          const allTeams = rankings.map((r, i) => `#${i+1} ${fmtTeam(r)}`).join('\n');
           const prompt = [
-            `You are a DeFi Kingdoms PvP analyst. ${eligible.length} teams have entered tournament "${tournament.name || tournamentId}" (format: ${tournament.format || 'standard'}, best-of: ${tournament.bestOf}).`,
-            `Top-ranked team: ${fmt(top)}`,
-            `2nd-ranked team: ${fmt(sec)}`,
-            `In 2-3 sentences: explain why the top team leads the field (mention specific class strengths, passives, or stats), and identify the main threat to their dominance. Be direct, no markdown.`,
+            `You are a DeFi Kingdoms PvP analyst. ${eligible.length} teams entered "${tournament.name || tournamentId}" (format: ${tournament.format || 'standard'}, best-of: ${tournament.bestOf}).`,
+            `Ranking factors include: base stats, weapon damage, weapon speed modifier, armor defense, pet bonuses, skill tree roles, team synergy combos, positioning, and historical record.`,
+            `\nAll teams (ranked):\n${allTeams}`,
+            `\nIn 2-3 sentences: explain why the top team leads (cite equipment, skills, or synergies), and identify the main threat to them. No markdown.`,
           ].join('\n');
           const aiResp = await openai.chat.completions.create({
-            model: OPENAI_MODEL, max_tokens: 160,
+            model: OPENAI_MODEL, max_tokens: 200,
             messages: [{ role: 'user', content: prompt }],
           });
           narrative = aiResp.choices?.[0]?.message?.content?.trim() ?? null;
@@ -10837,6 +11053,79 @@ async function startAdminWebServer() {
       res.json({ ok: true, rankings, narrative, playerCount: eligible.length });
     } catch (err) {
       console.error('[RankTeams] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // POST /api/admin/tournament/bracket/:id/player-tips — per-player AI tactical tips
+  app.post('/api/admin/tournament/bracket/:id/player-tips', isAdmin, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
+      const { address } = req.body;
+      if (!address) return res.status(400).json({ ok: false, error: 'address required' });
+
+      const cached = _bracketDetailCache.get(tournamentId);
+      if (!cached) return res.status(404).json({ ok: false, error: 'Tournament not in cache' });
+
+      const { players, tournament } = cached.data;
+      const player = players.find(p => p.address.toLowerCase() === address.toLowerCase());
+      if (!player) return res.status(404).json({ ok: false, error: 'Player not found' });
+      if (!player.heroes || player.heroes.length === 0)
+        return res.status(400).json({ ok: false, error: 'No hero data available for this player' });
+
+      const playerName = player.playerName || address.slice(0, 6) + '…' + address.slice(-4);
+      const heroLines = player.heroes.map((h, i) => {
+        const pos = _heroPosition(h);
+        const skills = _heroSkillNames(h);
+        const ex = _heroCombatExtras(h);
+        const equipNotes = [
+          h.weapon1?.itemName   ?? (h.weapon1 ? `Weapon(${h.weapon1.baseDamage}dmg)` : ''),
+          h.armor?.itemName     ?? (h.armor ? `Armor(pDef${Math.round(ex.armorPDef)})` : ''),
+          h.accessory?.itemName ?? '',
+          h.pet ? `${h.pet.name || 'Pet'}(${(h.pet.combatBonusScalar/100).toFixed(1)}% bonus)` : '',
+        ].filter(Boolean).join(', ');
+        return `Hero ${i+1}: ${h.mainClassStr ?? 'Hero'} Lv${h.level} | Recommended: ${pos}-line | Stats: STR${h.strength} AGI${h.agility} VIT${h.vitality} END${h.endurance} INT${h.intelligence} | Skills: ${skills.join(', ') || 'none'} | Equipment: ${equipNotes || 'none'}`;
+      }).join('\n');
+
+      const synergyBonus = _teamSynergyScore(player.heroes);
+      const allSkills = new Set(player.heroes.flatMap(_heroSkillNames));
+      const hasBurst = allSkills.has('Explosion') || allSkills.has('Deathmark');
+      const hasSustain = allSkills.has('Heal') || allSkills.has('Resurrection') || allSkills.has('Second Wind');
+      const hasCc = allSkills.has('Stun') || allSkills.has('Daze');
+      const compNotes = [
+        hasBurst ? 'burst damage' : '',
+        hasSustain ? 'sustain' : '',
+        hasCc ? 'crowd control' : '',
+        synergyBonus > 0.15 ? 'strong skill combos' : '',
+      ].filter(Boolean).join(', ') || 'no clear specialisation';
+
+      const prompt = [
+        `You are a DeFi Kingdoms PvP tournament coach. Give tactical advice for ${playerName}'s team in tournament "${tournament.name || tournamentId}" (format: ${tournament.format || 'standard'}, best-of: ${tournament.bestOf}).`,
+        `\nTeam composition (${player.heroes.length} heroes, strengths: ${compNotes}):\n${heroLines}`,
+        `\nProvide 4 short, numbered tactical tips covering:`,
+        `1. Recommended hero order/positioning and why (front-to-back priority)`,
+        `2. Turn-1 skill sequence — which hero acts first and what skill to open with`,
+        `3. Key skill combo to land in this comp and the turn-by-turn setup for it`,
+        `4. When and which consumable potion to use based on HP pools and durability`,
+        `Be direct and specific. Reference hero classes and skill names. No markdown.`,
+      ].join('\n');
+
+      let tips = null;
+      try {
+        const aiResp = await openai.chat.completions.create({
+          model: OPENAI_MODEL, max_tokens: 280,
+          messages: [{ role: 'user', content: prompt }],
+        });
+        tips = aiResp.choices?.[0]?.message?.content?.trim() ?? null;
+      } catch (aiErr) {
+        console.warn('[PlayerTips] OpenAI failed:', aiErr.message);
+      }
+
+      if (!tips) return res.status(500).json({ ok: false, error: 'AI tips unavailable' });
+      res.json({ ok: true, tips, playerName, synergyScore: Math.round(synergyBonus * 100) });
+    } catch (err) {
+      console.error('[PlayerTips] Error:', err.message);
       res.status(500).json({ ok: false, error: err.message });
     }
   });

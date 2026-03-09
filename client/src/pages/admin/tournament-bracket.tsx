@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
-import { ArrowLeft, Trophy, Medal, Copy, Check, Users, Gift, Info, RefreshCw, Shield, Sword, Zap, Star, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Trophy, Medal, Copy, Check, Users, Gift, Info, RefreshCw, Shield, Sword, Zap, Star, X, ChevronDown, ChevronUp, Lightbulb } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -105,7 +105,7 @@ interface AiMatchupResult {
     init: number;
     dps: number;
     surv: number;
-    passiveDps: number;
+    synergy: number;
     comp: number;
     experience: number;
   };
@@ -890,7 +890,8 @@ interface TeamRankEntry {
   avgWinRate: number;
   exp: number;
   expRecord: { wins: number; losses: number } | null;
-  teamStats: { dps: number; surv: number; passiveDps: number; comp: number; initAvg: number };
+  positioning: { class: string; position: 'front' | 'back' }[];
+  teamStats: { dps: number; surv: number; synergy: number; comp: number; initAvg: number };
 }
 
 interface RankResult {
@@ -918,6 +919,7 @@ function PlayersTab({ players, maxEntrants, totalEntrants, tournamentId }: {
   const [rankLoading, setRankLoading] = useState(false);
   const [rankError, setRankError] = useState<string | null>(null);
   const [rankOpen, setRankOpen] = useState(true);
+  const [tipsMap, setTipsMap] = useState<Record<string, { loading: boolean; text: string | null; error?: string }>>({});
 
   const eligibleCount = players.filter(p => p.heroes.length > 0).length;
 
@@ -936,6 +938,23 @@ function PlayersTab({ players, maxEntrants, totalEntrants, tournamentId }: {
       setRankError(err.message);
     } finally {
       setRankLoading(false);
+    }
+  };
+
+  const fetchTips = async (address: string) => {
+    if (tipsMap[address.toLowerCase()]?.loading) return;
+    setTipsMap(prev => ({ ...prev, [address.toLowerCase()]: { loading: true, text: null } }));
+    try {
+      const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/player-tips`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Tips unavailable');
+      setTipsMap(prev => ({ ...prev, [address.toLowerCase()]: { loading: false, text: data.tips } }));
+    } catch (err: any) {
+      setTipsMap(prev => ({ ...prev, [address.toLowerCase()]: { loading: false, text: null, error: err.message } }));
     }
   };
 
@@ -966,7 +985,12 @@ function PlayersTab({ players, maxEntrants, totalEntrants, tournamentId }: {
         <div className="rounded-md border border-border/50 overflow-hidden">
           <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 border-b border-border/40 flex-wrap gap-y-2">
             <Zap className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
-            <span className="text-sm font-medium flex-1 min-w-0">AI Team Power Ranking</span>
+            <div className="flex-1 min-w-0">
+              <span className="text-sm font-medium">AI Team Power Ranking</span>
+              {rankResult && (
+                <span className="ml-2 text-[10px] text-muted-foreground">equipment · pets · skills · positioning factored</span>
+              )}
+            </div>
             <div className="flex items-center gap-2 shrink-0">
               {eligibleCount >= 2 && (
                 <Button
@@ -1036,16 +1060,35 @@ function PlayersTab({ players, maxEntrants, totalEntrants, tournamentId }: {
                         {entry.playerName || shortAddr(entry.address)}
                       </span>
                       <div className="flex items-center gap-1 flex-wrap">
-                        {entry.heroClasses.map((cls, ci) => (
-                          <Badge key={ci} variant="secondary" className="text-[10px] px-1.5 py-0">{cls}</Badge>
-                        ))}
+                        {entry.positioning && entry.positioning.length > 0
+                          ? entry.positioning.map((hp, ci) => (
+                              <Badge
+                                key={ci}
+                                variant="secondary"
+                                className={`text-[10px] px-1.5 py-0 ${hp.position === 'front' ? 'bg-orange-500/15 text-orange-300 border-orange-500/20' : 'bg-blue-500/15 text-blue-300 border-blue-500/20'}`}
+                                title={`Recommended: ${hp.position}-line`}
+                              >
+                                {hp.class}
+                              </Badge>
+                            ))
+                          : entry.heroClasses.map((cls, ci) => (
+                              <Badge key={ci} variant="secondary" className="text-[10px] px-1.5 py-0">{cls}</Badge>
+                            ))
+                        }
                       </div>
                     </div>
-                    {entry.expRecord && (entry.expRecord.wins + entry.expRecord.losses) >= 3 && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        Historical: {entry.expRecord.wins}W – {entry.expRecord.losses}L
-                      </p>
-                    )}
+                    <div className="flex items-center gap-3 mt-0.5">
+                      {entry.expRecord && (entry.expRecord.wins + entry.expRecord.losses) >= 3 && (
+                        <p className="text-[10px] text-muted-foreground">
+                          {entry.expRecord.wins}W–{entry.expRecord.losses}L record
+                        </p>
+                      )}
+                      {entry.teamStats.synergy > 0 && (
+                        <p className="text-[10px] text-purple-400/80">
+                          {entry.teamStats.synergy}% synergy
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <div className="shrink-0 flex items-center gap-2">
                     <span className={`text-sm font-bold tabular-nums ${entry.avgWinRate >= 60 ? 'text-green-400' : entry.avgWinRate >= 50 ? 'text-muted-foreground' : 'text-red-400/70'}`}>
@@ -1102,6 +1145,61 @@ function PlayersTab({ players, maxEntrants, totalEntrants, tournamentId }: {
                 ) : (
                   <div className="text-xs text-muted-foreground py-2">No hero data available</div>
                 )}
+
+                {/* AI Tips section */}
+                {player.heroes.length > 0 && (() => {
+                  const tipsKey = player.address.toLowerCase();
+                  const tips = tipsMap[tipsKey];
+                  return (
+                    <div className="border-t border-border/30 pt-3">
+                      {!tips || (!tips.loading && !tips.text && !tips.error) ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-[11px] h-7 text-blue-400 hover:text-blue-300"
+                          onClick={() => fetchTips(player.address)}
+                          data-testid={`btn-tips-${idx}`}
+                        >
+                          <Lightbulb className="w-3 h-3 mr-1.5" />
+                          Get AI Tactical Tips
+                        </Button>
+                      ) : tips.loading ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          Analysing team composition…
+                        </div>
+                      ) : tips.error ? (
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-destructive">{tips.error}</p>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-[11px] h-7 text-muted-foreground"
+                            onClick={() => fetchTips(player.address)}
+                          >
+                            Retry
+                          </Button>
+                        </div>
+                      ) : tips.text ? (
+                        <div className="rounded-md bg-blue-500/8 border border-blue-500/20 px-3 py-2.5">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <Lightbulb className="w-3 h-3 text-blue-400 shrink-0" />
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-400">AI Tactical Tips</span>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="ml-auto h-5 w-5"
+                              onClick={() => setTipsMap(prev => ({ ...prev, [tipsKey]: { loading: false, text: null } }))}
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">{tips.text}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           );
@@ -1306,7 +1404,7 @@ function AiAnalysisTab({ tournamentId, bracket, players }: {
                             { label: 'Initiative',    key: 'init',       weight: 25 },
                             { label: 'Effective DPS', key: 'dps',        weight: 30 },
                             { label: 'Survivability', key: 'surv',       weight: 20 },
-                            { label: 'Passive DPS',   key: 'passiveDps', weight: 10 },
+                            { label: 'Skill Synergy', key: 'synergy',    weight: 10 },
                             { label: 'Team Comp',     key: 'comp',       weight: 10 },
                             { label: 'Experience',    key: 'experience', weight:  5 },
                           ] as { label: string; key: keyof typeof result.factors; weight: number }[]).map(({ label, key, weight }) => {
