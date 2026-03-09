@@ -9678,6 +9678,31 @@ async function startAdminWebServer() {
     }
   })();
 
+  // Re-fetch brackets that were snapshotted too early (is_final=true but champion=0 — no winner recorded).
+  // This handles tournaments that completed between polls or while the app was down.
+  ;(async () => {
+    try {
+      await new Promise(r => setTimeout(r, 5000)); // let server fully boot first
+      const { rawPg: rp } = await import('./server/db.js');
+      const stale = await rp`
+        SELECT tournament_id
+        FROM dfk_completed_brackets
+        WHERE is_final = true
+          AND (bracket_json->'bracket'->>'champion')::int = 0
+      `;
+      if (stale.length === 0) return;
+      console.log(`[FightArchive] Found ${stale.length} bracket(s) with no champion — triggering re-fetch: ${stale.map(r => r.tournament_id).join(', ')}`);
+      for (const row of stale) {
+        try {
+          await new Promise(r => setTimeout(r, 5000)); // stagger to avoid RPC hammering
+          _triggerBracketSnapshot(row.tournament_id);
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.warn('[FightArchive] Champion re-fetch error:', err.message);
+    }
+  })();
+
   // One-time cleanup: purge and re-normalize any tournaments that were stored
   // before the bye/undetermined skip logic was added. Safe to re-run — idempotent.
   ;(async () => {
@@ -9999,14 +10024,17 @@ async function startAdminWebServer() {
           SELECT bracket_json, is_final FROM dfk_completed_brackets WHERE tournament_id = ${String(tournamentId)}
         `;
         if (stored?.bracket_json?.ok) {
-          if (stored.is_final) {
-            // Definitive completed snapshot — serve from DB, no on-chain needed
+          const champion = stored.bracket_json?.bracket?.champion ?? 0;
+          if (stored.is_final && champion > 0) {
+            // Definitive completed snapshot with a known champion — serve from DB, no on-chain needed
             const data = stored.bracket_json;
             _bracketDetailCache.set(tournamentId, { data, ts: Date.now() - 50_000 }); // short TTL so live data takes over if it becomes active again
             return res.json(data);
           }
-          // In-progress snapshot exists but not final — fall through to on-chain;
-          // if on-chain fails we'll fall back to the snapshot below
+          // is_final=true but champion=0 means the snapshot was captured before the tournament
+          // actually finished — fall through to on-chain to fetch the real terminal state.
+          // In-progress snapshot (is_final=false) also falls through to on-chain;
+          // if on-chain fails we'll fall back to the snapshot below.
         }
       } catch (_dbReadErr) { /* non-fatal — proceed to on-chain */ }
 
