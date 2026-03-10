@@ -26,6 +26,7 @@ import {
   BarChart3,
   Database,
   Trophy,
+  History,
   Layers,
   DollarSign,
   Leaf,
@@ -158,6 +159,12 @@ const TAB_CONFIG: Record<string, { label: string; icon: any; href: string; descr
     icon: Trophy,
     href: '/user/dfk-tournaments',
     description: 'Tournament browser and bracket viewer'
+  },
+  'previous-tournaments': {
+    label: 'Previous Tournaments',
+    icon: History,
+    href: '/user/previous-tournaments',
+    description: 'Completed tournament archive'
   },
   'fight-history': {
     label: 'Fight History',

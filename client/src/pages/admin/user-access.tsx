@@ -104,6 +104,7 @@ const TOOL_GROUPS: ToolGroup[] = [
     tabs: [
       { id: 'level-racer', label: 'Level Racer', description: 'Class-based leveling competition' },
       { id: 'dfk-tournaments', label: 'DFK Tournaments', description: 'Tournament browser and bracket viewer' },
+      { id: 'previous-tournaments', label: 'Previous Tournaments', description: 'Completed tournament archive' },
       { id: 'fight-history', label: 'Fight History', description: 'Indexed bout archive and analysis' },
     ],
   },

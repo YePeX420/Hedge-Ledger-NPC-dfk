@@ -59,6 +59,7 @@ import TournamentSession from "@/pages/admin/tournament-session";
 import TournamentBracketPage from "@/pages/admin/tournament-bracket";
 import TournamentMatchupPage from "@/pages/admin/tournament-matchup";
 import FightHistoryPage from "@/pages/admin/fight-history";
+import PreviousTournamentsPage from "@/pages/admin/previous-tournaments";
 import UserAccessManagement from "@/pages/admin/user-access";
 import UserLogin from "@/pages/user-login";
 import UserDashboardPage from "@/pages/user/dashboard";
@@ -79,11 +80,13 @@ function ProtectedAdminPage({ children }: { children: React.ReactNode }) {
   );
 }
 
-function UserToolRoute({ tab, children }: { tab: string; children: React.ReactNode }) {
+function UserToolRoute({ tab, children }: { tab: string | string[]; children: React.ReactNode }) {
   const [, setLocation] = (window as any).__wouter_setLocation
     ? [(null as any), (window as any).__wouter_setLocation]
     : [null, null];
   const [status, setStatus] = useState<'loading' | 'allowed' | 'denied' | 'unauthed'>('loading');
+
+  const tabKey = Array.isArray(tab) ? tab.join(',') : tab;
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/user/session`, { credentials: 'include' })
@@ -91,10 +94,11 @@ function UserToolRoute({ tab, children }: { tab: string; children: React.ReactNo
       .then(data => {
         if (!data.success) { setStatus('unauthed'); return; }
         const allowed: string[] = data.user.allowedTabs || [];
-        setStatus(allowed.includes(tab) ? 'allowed' : 'denied');
+        const tabs = Array.isArray(tab) ? tab : [tab];
+        setStatus(tabs.some(t => allowed.includes(t)) ? 'allowed' : 'denied');
       })
       .catch(() => setStatus('unauthed'));
-  }, [tab]);
+  }, [tabKey]);
 
   if (status === 'loading') {
     return (
@@ -422,6 +426,14 @@ function Router() {
           </ProtectedAdminPage>
         )}
       </Route>
+
+      <Route path="/admin/previous-tournaments">
+        {() => (
+          <ProtectedAdminPage>
+            <PreviousTournamentsPage />
+          </ProtectedAdminPage>
+        )}
+      </Route>
       
       <Route path="/admin/ai-consultant">
         {() => (
@@ -649,16 +661,19 @@ function Router() {
         {() => <UserToolRoute tab="dfk-tournaments"><AdminTournament /></UserToolRoute>}
       </Route>
       <Route path="/user/dfk-tournaments/session/:sessionKey">
-        {(params) => <UserToolRoute tab="dfk-tournaments"><TournamentSession sessionKey={params.sessionKey} /></UserToolRoute>}
+        {(params) => <UserToolRoute tab={['dfk-tournaments', 'previous-tournaments']}><TournamentSession sessionKey={params.sessionKey} /></UserToolRoute>}
       </Route>
       <Route path="/user/dfk-tournament/bracket/:id/matchup/:slotA/:slotB">
-        {() => <UserToolRoute tab="dfk-tournaments"><TournamentMatchupPage /></UserToolRoute>}
+        {() => <UserToolRoute tab={['dfk-tournaments', 'previous-tournaments']}><TournamentMatchupPage /></UserToolRoute>}
       </Route>
       <Route path="/user/dfk-tournament/bracket/:id">
-        {(params) => <UserToolRoute tab="dfk-tournaments"><TournamentBracketPage id={params.id} /></UserToolRoute>}
+        {(params) => <UserToolRoute tab={['dfk-tournaments', 'previous-tournaments']}><TournamentBracketPage id={params.id} /></UserToolRoute>}
       </Route>
       <Route path="/user/dfk-tournament/:id">
-        {(params) => <UserToolRoute tab="dfk-tournaments"><AdminTournamentDetail id={params.id} /></UserToolRoute>}
+        {(params) => <UserToolRoute tab={['dfk-tournaments', 'previous-tournaments']}><AdminTournamentDetail id={params.id} /></UserToolRoute>}
+      </Route>
+      <Route path="/user/previous-tournaments">
+        {() => <UserToolRoute tab="previous-tournaments"><PreviousTournamentsPage /></UserToolRoute>}
       </Route>
       <Route path="/user/fight-history">
         {() => <UserToolRoute tab="fight-history"><FightHistoryPage /></UserToolRoute>}
