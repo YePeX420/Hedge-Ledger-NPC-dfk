@@ -63,6 +63,7 @@ import PreviousTournamentsPage from "@/pages/admin/previous-tournaments";
 import UserAccessManagement from "@/pages/admin/user-access";
 import UserLogin from "@/pages/user-login";
 import UserDashboardPage from "@/pages/user/dashboard";
+import { UserLayout } from "@/components/user-layout";
 import AccountPage from "@/pages/account";
 import LeaderboardsPage from "@/pages/leaderboards";
 import ChallengesPage from "@/pages/challenges";
@@ -80,11 +81,15 @@ function ProtectedAdminPage({ children }: { children: React.ReactNode }) {
   );
 }
 
+interface UserSession {
+  allowedTabs: string[];
+  username: string;
+  displayName: string | null;
+}
+
 function UserToolRoute({ tab, children }: { tab: string | string[]; children: React.ReactNode }) {
-  const [, setLocation] = (window as any).__wouter_setLocation
-    ? [(null as any), (window as any).__wouter_setLocation]
-    : [null, null];
   const [status, setStatus] = useState<'loading' | 'allowed' | 'denied' | 'unauthed'>('loading');
+  const [userInfo, setUserInfo] = useState<UserSession | null>(null);
 
   const tabKey = Array.isArray(tab) ? tab.join(',') : tab;
 
@@ -95,6 +100,7 @@ function UserToolRoute({ tab, children }: { tab: string | string[]; children: Re
         if (!data.success) { setStatus('unauthed'); return; }
         const allowed: string[] = data.user.allowedTabs || [];
         const tabs = Array.isArray(tab) ? tab : [tab];
+        setUserInfo({ allowedTabs: allowed, username: data.user.username, displayName: data.user.displayName });
         setStatus(tabs.some(t => allowed.includes(t)) ? 'allowed' : 'denied');
       })
       .catch(() => setStatus('unauthed'));
@@ -111,18 +117,25 @@ function UserToolRoute({ tab, children }: { tab: string | string[]; children: Re
     window.location.href = '/user/login';
     return null;
   }
+
+  const username = userInfo?.displayName || userInfo?.username || 'Member';
+  const allowedTabs = userInfo?.allowedTabs || [];
+
   if (status === 'denied') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <div className="text-xl font-semibold">Access Denied</div>
-        <p className="text-muted-foreground text-sm">You don't have permission to use this tool.</p>
-        <button className="underline text-sm text-muted-foreground" onClick={() => { window.location.href = '/user/dashboard'; }}>
-          Back to Dashboard
-        </button>
-      </div>
+      <UserLayout allowedTabs={allowedTabs} username={username}>
+        <div className="flex flex-col items-center justify-center min-h-full gap-4 p-12">
+          <div className="text-xl font-semibold">Access Denied</div>
+          <p className="text-muted-foreground text-sm">You don't have permission to use this tool.</p>
+        </div>
+      </UserLayout>
     );
   }
-  return <>{children}</>;
+  return (
+    <UserLayout allowedTabs={allowedTabs} username={username}>
+      {children}
+    </UserLayout>
+  );
 }
 
 function Router() {

@@ -3931,38 +3931,43 @@ async function startAdminWebServer() {
   // User authentication middleware (any logged-in user)
   async function isUser(req, res, next) {
     try {
-      const sessionToken = req.cookies.session_token;
-      
-      if (!sessionToken) {
-        return res.status(401).json({ error: 'Not authenticated' });
+      if (isOAuthBypassEnabled()) {
+        req.user = { userId: 'bypass-admin', username: 'Bypass Admin', avatar: null };
+        return next();
       }
 
-      // Fetch session from database
-      const sessions = await db
-        .select()
-        .from(adminSessions)
-        .where(eq(adminSessions.sessionToken, sessionToken));
-
-      if (!sessions || sessions.length === 0) {
-        return res.status(401).json({ error: 'Not authenticated' });
+      // Accept Discord OAuth admin session (session_token)
+      const adminToken = req.cookies.session_token;
+      if (adminToken) {
+        const sessions = await db
+          .select()
+          .from(adminSessions)
+          .where(eq(adminSessions.sessionToken, adminToken));
+        if (sessions && sessions.length > 0) {
+          const session = sessions[0];
+          if (new Date(session.expiresAt) >= new Date()) {
+            req.user = { userId: session.discordId, username: session.username, avatar: session.avatar };
+            return next();
+          }
+        }
       }
 
-      const session = sessions[0];
-
-      // Check expiration
-      if (new Date(session.expiresAt) < new Date()) {
-        await db
-          .delete(adminSessions)
-          .where(eq(adminSessions.sessionToken, sessionToken));
-        return res.status(401).json({ error: 'Session expired' });
+      // Accept dashboard user session (user_session)
+      const userToken = req.cookies.user_session;
+      if (userToken) {
+        const [userSession] = await db.select().from(dashboardUserSessions)
+          .where(eq(dashboardUserSessions.sessionToken, userToken)).limit(1);
+        if (userSession && new Date(userSession.expiresAt) >= new Date()) {
+          const [user] = await db.select().from(dashboardUsers)
+            .where(eq(dashboardUsers.id, userSession.userId)).limit(1);
+          if (user && user.isActive && (!user.expiresAt || new Date(user.expiresAt) >= new Date())) {
+            req.user = { userId: `dashboard-${user.id}`, username: user.username, avatar: null };
+            return next();
+          }
+        }
       }
 
-      req.user = {
-        userId: session.discordId,
-        username: session.username,
-        avatar: session.avatar,
-      };
-      next();
+      return res.status(401).json({ error: 'Not authenticated' });
     } catch (err) {
       console.error('❌ User middleware error:', err);
       res.status(500).json({ error: 'Authentication check failed' });
@@ -8446,7 +8451,7 @@ async function startAdminWebServer() {
   // ===========================================
 
   // POST /api/admin/gardening-calc/calculate - Calculate expected gardening rewards (single hero)
-  app.post('/api/admin/gardening-calc/calculate', isAdmin, async (req, res) => {
+  app.post('/api/admin/gardening-calc/calculate', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { calculateGardeningRewards } = await import('./src/services/gardeningCalculator.js');
       const result = await calculateGardeningRewards(req.body);
@@ -8458,7 +8463,7 @@ async function startAdminWebServer() {
   });
 
   // POST /api/admin/gardening-calc/calculate-dual - Calculate rewards for two heroes (JEWEL + CRYSTAL)
-  app.post('/api/admin/gardening-calc/calculate-dual', isAdmin, async (req, res) => {
+  app.post('/api/admin/gardening-calc/calculate-dual', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { calculateDualHeroRewards } = await import('./src/services/gardeningCalculator.js');
       const result = await calculateDualHeroRewards(req.body);
@@ -8470,7 +8475,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-calc/reward-fund - Get current Quest Reward Fund balances
-  app.get('/api/admin/gardening-calc/reward-fund', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-calc/reward-fund', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { getQuestRewardFundBalances } = await import('./src/services/gardeningCalculator.js');
       const balances = await getQuestRewardFundBalances(true);
@@ -8482,7 +8487,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-calc/pool-allocation/:poolId - Get pool allocation percentage
-  app.get('/api/admin/gardening-calc/pool-allocation/:poolId', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-calc/pool-allocation/:poolId', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { getPoolAllocation, POOL_NAMES } = await import('./src/services/gardeningCalculator.js');
       const poolId = parseInt(req.params.poolId);
@@ -8568,7 +8573,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-calc/hero/:heroId - Fetch hero stats by ID
-  app.get('/api/admin/gardening-calc/hero/:heroId', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-calc/hero/:heroId', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { getHeroStatsById } = await import('./src/services/gardeningCalculator.js');
       const result = await getHeroStatsById(req.params.heroId);
@@ -8580,7 +8585,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-calc/pet/:petId - Fetch pet bonuses by ID
-  app.get('/api/admin/gardening-calc/pet/:petId', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-calc/pet/:petId', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { getPetBonusesById } = await import('./src/services/gardeningCalculator.js');
       const result = await getPetBonusesById(req.params.petId);
@@ -8592,7 +8597,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-calc/wallet/:address/positions - Get all LP positions for a wallet
-  app.get('/api/admin/gardening-calc/wallet/:address/positions', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-calc/wallet/:address/positions', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { getUserPoolPositions } = await import('./src/services/gardeningCalculator.js');
       const result = await getUserPoolPositions(req.params.address);
@@ -8604,7 +8609,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-calc/wallet/:address/questing-heroes - Get active questing heroes with expected yields
-  app.get('/api/admin/gardening-calc/wallet/:address/questing-heroes', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-calc/wallet/:address/questing-heroes', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { getWalletQuestingHeroes } = await import('./src/services/gardeningCalculator.js');
       const result = await getWalletQuestingHeroes(req.params.address);
@@ -8616,7 +8621,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-calc/validate/:heroId/:poolId/:wallet - Validate expected yield for a hero
-  app.get('/api/admin/gardening-calc/validate/:heroId/:poolId/:wallet', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-calc/validate/:heroId/:poolId/:wallet', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { validateHeroYield } = await import('./src/services/gardeningCalculator.js');
       const result = await validateHeroYield(req.params.heroId, parseInt(req.params.poolId), req.params.wallet);
@@ -8628,7 +8633,7 @@ async function startAdminWebServer() {
   });
 
   // POST /api/admin/gardening-calc/yield-projection - Calculate expected yields across all pools for a given investment
-  app.post('/api/admin/gardening-calc/yield-projection', isAdmin, async (req, res) => {
+  app.post('/api/admin/gardening-calc/yield-projection', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { 
         getQuestRewardFundBalances, 
@@ -8740,7 +8745,7 @@ async function startAdminWebServer() {
   });
 
   // POST /api/admin/gardening-calc/optimize - Optimize pool allocation for maximum yield
-  app.post('/api/admin/gardening-calc/optimize', isAdmin, async (req, res) => {
+  app.post('/api/admin/gardening-calc/optimize', isAdminOrHasTab('yield-calculator', 'gardening-calculator'), async (req, res) => {
     try {
       const { optimizeGardenAllocation } = await import('./src/services/gardeningCalculator.js');
       
@@ -9072,7 +9077,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/battle-ready/recommendations - Get battle-ready hero recommendations
-  app.get("/api/admin/battle-ready/recommendations", isAdmin, async (req, res) => {
+  app.get("/api/admin/battle-ready/recommendations", isAdminOrHasTab('battle-ready'), async (req, res) => {
     try {
       const mainClass = req.query.mainClass;
       const levelMin = req.query.levelMin ? parseInt(req.query.levelMin) : undefined;
@@ -9097,7 +9102,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/battle-ready/class-profiles - Get all class stat profiles based on winning heroes
-  app.get("/api/admin/battle-ready/class-profiles", isAdmin, async (req, res) => {
+  app.get("/api/admin/battle-ready/class-profiles", isAdminOrHasTab('battle-ready'), async (req, res) => {
     try {
       const { getAllClassStatProfiles } = await import("./src/etl/ingestion/tournamentIndexer.js");
       const profiles = await getAllClassStatProfiles();
@@ -9109,7 +9114,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/battle-ready/class-profile/:class - Get stat profile for a specific class
-  app.get("/api/admin/battle-ready/class-profile/:class", isAdmin, async (req, res) => {
+  app.get("/api/admin/battle-ready/class-profile/:class", isAdminOrHasTab('battle-ready'), async (req, res) => {
     try {
       const mainClass = req.params.class;
       const limit = req.query.limit ? parseInt(req.query.limit) : 50;
@@ -9125,7 +9130,7 @@ async function startAdminWebServer() {
   });
 
   // POST /api/admin/battle-ready/find-similar - Find similar winning heroes based on a target hero's stats
-  app.post("/api/admin/battle-ready/find-similar", isAdmin, async (req, res) => {
+  app.post("/api/admin/battle-ready/find-similar", isAdminOrHasTab('battle-ready'), async (req, res) => {
     try {
       const { targetClass, targetStats, levelMin, levelMax, rarityMin, rarityMax, minSimilarity, limit } = req.body;
       
@@ -9151,7 +9156,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/battle-ready/hero-fight-records?heroIds=id1,id2,...
-  app.get('/api/admin/battle-ready/hero-fight-records', isAdmin, async (req, res) => {
+  app.get('/api/admin/battle-ready/hero-fight-records', isAdminOrHasTab('battle-ready'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const raw = req.query.heroIds;
@@ -9184,7 +9189,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/battle-ready/top-heroes-from-archive?limit=20&minBouts=2
-  app.get('/api/admin/battle-ready/top-heroes-from-archive', isAdmin, async (req, res) => {
+  app.get('/api/admin/battle-ready/top-heroes-from-archive', isAdminOrHasTab('battle-ready'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const limit = Math.min(parseInt(req.query.limit) || 20, 100);
@@ -13308,7 +13313,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   // ============================================================================
 
   // GET /api/admin/tavern-indexer/hero/:heroId - Look up a specific hero
-  app.get("/api/admin/tavern-indexer/hero/:heroId", isAdmin, async (req, res) => {
+  app.get("/api/admin/tavern-indexer/hero/:heroId", isAdminOrHasTab('tavern-indexer'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const heroId = req.params.heroId;
@@ -13329,7 +13334,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/tavern-indexer/status - Get indexer status
-  app.get("/api/admin/tavern-indexer/status", isAdmin, async (req, res) => {
+  app.get("/api/admin/tavern-indexer/status", isAdminOrHasTab('tavern-indexer'), async (req, res) => {
     try {
       const { getIndexerStatus, getIndexerProgress, getTavernStats } = await import("./src/etl/ingestion/tavernIndexer.js");
       
@@ -13588,7 +13593,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/tavern-indexer/heroes - Get indexed heroes with filters
-  app.get("/api/admin/tavern-indexer/heroes", isAdmin, async (req, res) => {
+  app.get("/api/admin/tavern-indexer/heroes", isAdminOrHasTab('tavern-indexer'), async (req, res) => {
     try {
       const { getTavernHeroes } = await import("./src/etl/ingestion/tavernIndexer.js");
       
@@ -13635,7 +13640,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/tavern-indexer/genes-status - Get gene backfill status
-  app.get("/api/admin/tavern-indexer/genes-status", isAdmin, async (req, res) => {
+  app.get("/api/admin/tavern-indexer/genes-status", isAdminOrHasTab('tavern-indexer'), async (req, res) => {
     try {
       const { getGeneBackfillStatus, getGenesStats, getAutoContinueStatus } = await import("./src/etl/ingestion/tavernIndexer.js");
       
@@ -13739,7 +13744,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   // ============================================================================
 
   // GET /api/admin/market-intel/status - Get sale ingestion status
-  app.get("/api/admin/market-intel/status", isAdmin, async (req, res) => {
+  app.get("/api/admin/market-intel/status", isAdminOrHasTab('market-intel'), async (req, res) => {
     try {
       const { getSaleIngestionStatus, getSalesStats } = await import("./src/etl/ingestion/saleIngestionService.js");
       
@@ -13833,7 +13838,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/market-intel/recent-sales - Get recent sales with hero data
-  app.get("/api/admin/market-intel/recent-sales", isAdmin, async (req, res) => {
+  app.get("/api/admin/market-intel/recent-sales", isAdminOrHasTab('market-intel'), async (req, res) => {
     try {
       const { getRecentSales } = await import("./src/etl/ingestion/saleIngestionService.js");
       
@@ -13850,7 +13855,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/market-intel/demand-metrics - Get demand metrics by cohort
-  app.get("/api/admin/market-intel/demand-metrics", isAdmin, async (req, res) => {
+  app.get("/api/admin/market-intel/demand-metrics", isAdminOrHasTab('market-intel'), async (req, res) => {
     try {
       const { getDemandMetrics } = await import("./src/etl/ingestion/saleIngestionService.js");
       
@@ -13865,7 +13870,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/market-intel/price-recommendation - Get hero price recommendation
-  app.get("/api/admin/market-intel/price-recommendation", isAdmin, async (req, res) => {
+  app.get("/api/admin/market-intel/price-recommendation", isAdminOrHasTab('market-intel'), async (req, res) => {
     try {
       const { getHeroPriceRecommendation } = await import("./src/etl/ingestion/saleIngestionService.js");
       
@@ -13888,7 +13893,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/market-intel/hero-price/:heroId - Get price estimate for a specific hero by ID
-  app.get("/api/admin/market-intel/hero-price/:heroId", isAdmin, async (req, res) => {
+  app.get("/api/admin/market-intel/hero-price/:heroId", isAdminOrHasTab('market-intel'), async (req, res) => {
     try {
       const { getHeroPriceByHeroId } = await import("./src/etl/ingestion/saleIngestionService.js");
       
@@ -13901,7 +13906,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // POST /api/admin/market-intel/hero-price-narrative - AI reasoning narrative for hero price
-  app.post("/api/admin/market-intel/hero-price-narrative", isAdmin, async (req, res) => {
+  app.post("/api/admin/market-intel/hero-price-narrative", isAdminOrHasTab('market-intel'), async (req, res) => {
     try {
       const { generatePriceNarrative } = await import("./src/etl/ingestion/saleIngestionService.js");
       const priceResult = req.body;
@@ -13917,7 +13922,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // POST /api/admin/market-intel/confidence-summaries - AI confidence justifications for flippable heroes
-  app.post("/api/admin/market-intel/confidence-summaries", isAdmin, async (req, res) => {
+  app.post("/api/admin/market-intel/confidence-summaries", isAdminOrHasTab('market-intel'), async (req, res) => {
     try {
       const { generateConfidenceSummaries } = await import("./src/etl/ingestion/saleIngestionService.js");
       const { heroes } = req.body;
@@ -13934,7 +13939,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/market-intel/flippable-heroes - Find underpriced heroes for flipping
-  app.get("/api/admin/market-intel/flippable-heroes", isAdmin, async (req, res) => {
+  app.get("/api/admin/market-intel/flippable-heroes", isAdminOrHasTab('market-intel'), async (req, res) => {
     try {
       const { findFlippableHeroes } = await import("./src/etl/ingestion/saleIngestionService.js");
       
@@ -13956,7 +13961,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/market-intel/wallet-price/:address - Price all heroes in a wallet
-  app.get("/api/admin/market-intel/wallet-price/:address", isAdmin, async (req, res) => {
+  app.get("/api/admin/market-intel/wallet-price/:address", isAdminOrHasTab('market-intel'), async (req, res) => {
     try {
       const address = req.params.address;
       if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
@@ -14616,7 +14621,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
     });
   }
 
-  app.get('/api/admin/combat-pets', isAdmin, (req, res) => {
+  app.get('/api/admin/combat-pets', isAdminOrHasTab('combat-pets'), (req, res) => {
     const forceRefresh = req.query.refresh === 'true';
     serveCombatPets(res, forceRefresh);
   });
@@ -14658,7 +14663,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   // ============================================================================
 
   // GET /api/admin/profit-tracker/sessions - Get summon sessions
-  app.get("/api/admin/profit-tracker/sessions", isAdmin, async (req, res) => {
+  app.get("/api/admin/profit-tracker/sessions", isAdminOrHasTab('profit-tracker'), async (req, res) => {
     try {
       const wallet = req.query.wallet || null;
       const status = req.query.status || null;
@@ -14758,7 +14763,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/profit-tracker/conversion-metrics - Get conversion metrics
-  app.get("/api/admin/profit-tracker/conversion-metrics", isAdmin, async (req, res) => {
+  app.get("/api/admin/profit-tracker/conversion-metrics", isAdminOrHasTab('profit-tracker'), async (req, res) => {
     try {
       const realm = req.query.realm || null;
       
@@ -14789,7 +14794,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/profit-tracker/roi-summary - Get ROI summary
-  app.get("/api/admin/profit-tracker/roi-summary", isAdmin, async (req, res) => {
+  app.get("/api/admin/profit-tracker/roi-summary", isAdminOrHasTab('profit-tracker'), async (req, res) => {
     try {
       const wallet = req.query.wallet || null;
       
@@ -14836,7 +14841,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   // ============================================================================
 
   // GET /api/admin/summoning/hero/:id - Get hero with decoded genetics
-  app.get("/api/admin/summoning/hero/:id", isAdmin, async (req, res) => {
+  app.get("/api/admin/summoning/hero/:id", isAdminOrHasTab('summoning-calculator'), async (req, res) => {
     try {
       const heroId = req.params.id;
       
@@ -14897,7 +14902,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // POST /api/admin/summoning/calculate - Calculate summoning probabilities
-  app.post("/api/admin/summoning/calculate", isAdmin, async (req, res) => {
+  app.post("/api/admin/summoning/calculate", isAdminOrHasTab('summoning-calculator'), async (req, res) => {
     try {
       const { hero1Id, hero2Id } = req.body;
       
@@ -14978,7 +14983,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   // ============================================================================
 
   // GET /api/admin/bargain-cache - Get cached bargain hunter pairs (fast)
-  app.get("/api/admin/bargain-cache", isAdmin, async (req, res) => {
+  app.get("/api/admin/bargain-cache", isAdminOrHasTab('bargain-hunter', 'dark-bargain-hunter'), async (req, res) => {
     try {
       const { getCachedBargainPairs, refreshBargainHunterCache, getCacheStatus } = await import('./src/etl/ingestion/bargainHunterCache.js');
       
@@ -15041,7 +15046,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
   
   // GET /api/admin/bargain-cache/status - Get cache status (is building, last run, etc)
-  app.get("/api/admin/bargain-cache/status", isAdmin, async (req, res) => {
+  app.get("/api/admin/bargain-cache/status", isAdminOrHasTab('bargain-hunter', 'dark-bargain-hunter'), async (req, res) => {
     try {
       const { getCacheStatus } = await import('./src/etl/ingestion/bargainHunterCache.js');
       const status = await getCacheStatus();
@@ -15053,7 +15058,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/sniper/filters - Get available filter options
-  app.get("/api/admin/sniper/filters", isAdmin, async (req, res) => {
+  app.get("/api/admin/sniper/filters", isAdminOrHasTab('tavern-sniper', 'summon-sniper'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const { CLASSES } = await import('./src/data/summoningGenetics.js');
@@ -15146,7 +15151,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   const SNIPER_PRICE_CACHE_TTL = 5 * 60 * 1000;
 
   // POST /api/admin/sniper/search - Find optimal hero pairs
-  app.post("/api/admin/sniper/search", isAdmin, async (req, res) => {
+  app.post("/api/admin/sniper/search", isAdminOrHasTab('tavern-sniper', 'summon-sniper'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const { getHeroById, getAllHeroesByOwner } = await import('./onchain-data.js');
@@ -17661,7 +17666,7 @@ When context blocks prefixed with LIVE DATA are injected below, use them as auth
 
 Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vague summaries when specifics are available.`;
 
-  app.post('/api/admin/ai-consultant/chat', isAdmin, async (req, res) => {
+  app.post('/api/admin/ai-consultant/chat', isAdminOrHasTab('ai-consultant'), async (req, res) => {
     try {
       const { message, history = [] } = req.body;
       
@@ -18595,7 +18600,7 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
     return baseXP / staminaCost;
   }
 
-  app.get('/api/admin/quest-optimizer', isAdmin, async (req, res) => {
+  app.get('/api/admin/quest-optimizer', isAdminOrHasTab('quest-optimizer'), async (req, res) => {
     const { wallet } = req.query;
 
     if (!wallet || typeof wallet !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
