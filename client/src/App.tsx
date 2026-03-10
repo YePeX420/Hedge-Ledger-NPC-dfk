@@ -645,7 +645,25 @@ function Router() {
       <Route path="/user/profit-tracker">
         {() => <UserToolRoute tab="profit-tracker"><AdminProfitTracker /></UserToolRoute>}
       </Route>
-      
+      <Route path="/user/dfk-tournaments">
+        {() => <UserToolRoute tab="dfk-tournaments"><AdminTournament /></UserToolRoute>}
+      </Route>
+      <Route path="/user/dfk-tournaments/session/:sessionKey">
+        {(params) => <UserToolRoute tab="dfk-tournaments"><TournamentSession sessionKey={params.sessionKey} /></UserToolRoute>}
+      </Route>
+      <Route path="/user/dfk-tournament/bracket/:id/matchup/:slotA/:slotB">
+        {() => <UserToolRoute tab="dfk-tournaments"><TournamentMatchupPage /></UserToolRoute>}
+      </Route>
+      <Route path="/user/dfk-tournament/bracket/:id">
+        {(params) => <UserToolRoute tab="dfk-tournaments"><TournamentBracketPage id={params.id} /></UserToolRoute>}
+      </Route>
+      <Route path="/user/dfk-tournament/:id">
+        {(params) => <UserToolRoute tab="dfk-tournaments"><AdminTournamentDetail id={params.id} /></UserToolRoute>}
+      </Route>
+      <Route path="/user/fight-history">
+        {() => <UserToolRoute tab="fight-history"><FightHistoryPage /></UserToolRoute>}
+      </Route>
+
       {/* Public leaderboards page */}
       <Route path="/leaderboards/:key">
         {() => <LeaderboardsPage />}

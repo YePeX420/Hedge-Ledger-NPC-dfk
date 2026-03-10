@@ -1000,7 +1000,8 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
 
 export default function TournamentMatchupPage() {
   const params = useParams<{ id: string; slotA: string; slotB: string }>();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user/dfk-tournament' : '/admin/tournament';
   const [selectedHero, setSelectedHero] = useState<HeroDetail | null>(null);
   const [strategicNarrative, setStrategicNarrative] = useState<string | null>(null);
 
@@ -1058,7 +1059,7 @@ export default function TournamentMatchupPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate(`/admin/tournament/bracket/${tournamentId}`)}
+          onClick={() => navigate(`${basePath}/bracket/${tournamentId}`)}
           data-testid="button-back"
         >
           <ArrowLeft className="w-4 h-4 mr-1.5" />

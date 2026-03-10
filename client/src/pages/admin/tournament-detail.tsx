@@ -410,7 +410,9 @@ function CompHeroRow({ hero, side }: { hero: HeroCompData; side: 'host' | 'oppon
 }
 
 export default function AdminTournamentDetail({ id }: { id: string }) {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user/dfk-tournament' : '/admin/tournament';
+  const baseListPath = location.startsWith('/user/') ? '/user/dfk-tournaments' : '/admin/tournament';
   const tournamentId = parseInt(id);
 
   const { data: detailData, isLoading: detailLoading, error: detailError } = useQuery({
@@ -483,7 +485,7 @@ export default function AdminTournamentDetail({ id }: { id: string }) {
   if (detailError || !detailData?.ok) return (
     <div className="p-6">
       <p className="text-destructive">Bout not found or not yet indexed.</p>
-      <Button variant="outline" onClick={() => navigate('/admin/tournament')} className="mt-4">
+      <Button variant="outline" onClick={() => navigate(baseListPath)} className="mt-4">
         <ArrowLeft className="w-4 h-4 mr-2" />Back
       </Button>
     </div>
@@ -515,7 +517,7 @@ export default function AdminTournamentDetail({ id }: { id: string }) {
     <div className="p-6 space-y-6 max-w-7xl mx-auto" data-testid="page-tournament-detail">
       {/* Header */}
       <div className="space-y-2">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tournament')} className="-ml-2">
+        <Button variant="ghost" size="sm" onClick={() => navigate(baseListPath)} className="-ml-2">
           <ArrowLeft className="w-4 h-4 mr-1" /> All Bouts
         </Button>
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -846,7 +848,7 @@ export default function AdminTournamentDetail({ id }: { id: string }) {
                       {similarBouts.slice(0, 15).map(s => {
                         const sHostWin = s.winnerPlayer && s.hostPlayer && s.winnerPlayer.toLowerCase() === s.hostPlayer.toLowerCase();
                         return (
-                          <TableRow key={s.tournamentId} className="cursor-pointer hover-elevate" onClick={() => navigate(`/admin/tournament/${s.tournamentId}`)}>
+                          <TableRow key={s.tournamentId} className="cursor-pointer hover-elevate" onClick={() => navigate(`${basePath}/${s.tournamentId}`)}>
                             <TableCell className="font-mono text-xs">#{s.tournamentId}</TableCell>
                             <TableCell className="text-xs text-muted-foreground">{s.startTime ? new Date(s.startTime).toLocaleDateString() : '—'}</TableCell>
                             <TableCell className="font-mono text-xs">{s.hostPlayer ? `${s.hostPlayer.slice(0, 6)}…` : '—'}</TableCell>

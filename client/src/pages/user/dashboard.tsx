@@ -153,6 +153,18 @@ const TAB_CONFIG: Record<string, { label: string; icon: any; href: string; descr
     href: '/user/level-racer',
     description: 'Class-based leveling competition'
   },
+  'dfk-tournaments': {
+    label: 'DFK Tournaments',
+    icon: Trophy,
+    href: '/user/dfk-tournaments',
+    description: 'Tournament browser and bracket viewer'
+  },
+  'fight-history': {
+    label: 'Fight History',
+    icon: Swords,
+    href: '/user/fight-history',
+    description: 'Indexed bout archive and analysis'
+  },
   'tavern-indexer': {
     label: 'Tavern Indexer',
     icon: Database,

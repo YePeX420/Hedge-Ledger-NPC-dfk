@@ -420,12 +420,13 @@ function BracketConnector({ matchesInRound, totalHeight, width = 40 }: {
 
 const ROUND_LABELS = ['Round of 8', 'Semifinal', 'Final'];
 
-function BracketTab({ bracket, players, champion, tournament, tournamentId }: {
+function BracketTab({ bracket, players, champion, tournament, tournamentId, basePath }: {
   bracket: BracketData;
   players: PlayerEntry[];
   champion: number;
   tournament: TournamentDetail;
   tournamentId: string;
+  basePath: string;
 }) {
   const [, navigate] = useLocation();
   const [selectedMatch, setSelectedMatch] = useState<BracketMatch | null>(null);
@@ -449,7 +450,7 @@ function BracketTab({ bracket, players, champion, tournament, tournamentId }: {
   const HEADER_H = 56;
 
   const handleAnalyze = (match: BracketMatch) => {
-    navigate(`/admin/tournament/bracket/${tournamentId}/matchup/${match.slotA}/${match.slotB}`);
+    navigate(`${basePath}/bracket/${tournamentId}/matchup/${match.slotA}/${match.slotB}`);
   };
 
   return (
@@ -1451,7 +1452,9 @@ interface Props {
 }
 
 export default function TournamentBracketPage({ id }: Props) {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user/dfk-tournament' : '/admin/tournament';
+  const baseListPath = location.startsWith('/user/') ? '/user/dfk-tournaments' : '/admin/tournament';
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['/api/admin/tournament/bracket', id],
@@ -1476,7 +1479,7 @@ export default function TournamentBracketPage({ id }: Props) {
   if (error || !data?.ok) {
     return (
       <div className="p-6 max-w-6xl mx-auto">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tournament')} className="mb-4" data-testid="button-back">
+        <Button variant="ghost" size="sm" onClick={() => navigate(baseListPath)} className="mb-4" data-testid="button-back">
           <ArrowLeft className="w-4 h-4 mr-1.5" /> Back
         </Button>
         <Card>
@@ -1500,7 +1503,7 @@ export default function TournamentBracketPage({ id }: Props) {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 flex-wrap">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tournament')} data-testid="button-back">
+          <Button variant="ghost" size="sm" onClick={() => navigate(baseListPath)} data-testid="button-back">
             <ArrowLeft className="w-4 h-4 mr-1.5" /> Back
           </Button>
           <h1 className="text-xl font-bold" data-testid="heading-tournament-name">{t.name}</h1>
@@ -1547,7 +1550,7 @@ export default function TournamentBracketPage({ id }: Props) {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <BracketTab bracket={bracket} players={players} champion={bracket.champion} tournament={t} tournamentId={id} />
+              <BracketTab bracket={bracket} players={players} champion={bracket.champion} tournament={t} tournamentId={id} basePath={basePath} />
             </CardContent>
           </Card>
         </TabsContent>

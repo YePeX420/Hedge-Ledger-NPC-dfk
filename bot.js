@@ -3883,6 +3883,51 @@ async function startAdminWebServer() {
     }
   }
 
+  // Middleware factory: accepts either admin Discord OAuth session OR
+  // a dashboard user session where allowedTabs includes tabId
+  function isAdminOrHasTab(tabId) {
+    return async function(req, res, next) {
+      try {
+        if (isOAuthBypassEnabled()) {
+          req.user = { userId: 'bypass-admin', username: 'Bypass Admin', avatar: null };
+          return next();
+        }
+        // Try admin Discord session first
+        const adminToken = req.cookies.session_token;
+        if (adminToken) {
+          const sessions = await db.select().from(adminSessions).where(eq(adminSessions.sessionToken, adminToken));
+          if (sessions && sessions.length > 0) {
+            const session = sessions[0];
+            if (new Date(session.expiresAt) >= new Date() && ADMIN_USER_IDS.includes(session.discordId)) {
+              req.user = { userId: session.discordId, username: session.username, avatar: session.avatar };
+              return next();
+            }
+          }
+        }
+        // Try dashboard user session with tab permission
+        const userToken = req.cookies.user_session;
+        if (userToken) {
+          const [userSession] = await db.select().from(dashboardUserSessions)
+            .where(eq(dashboardUserSessions.sessionToken, userToken)).limit(1);
+          if (userSession && new Date(userSession.expiresAt) >= new Date()) {
+            const [user] = await db.select().from(dashboardUsers)
+              .where(eq(dashboardUsers.id, userSession.userId)).limit(1);
+            if (user && user.isActive && (!user.expiresAt || new Date(user.expiresAt) >= new Date())) {
+              if (Array.isArray(user.allowedTabs) && user.allowedTabs.includes(tabId)) {
+                req.user = { userId: `dashboard-${user.id}`, username: user.username, avatar: null };
+                return next();
+              }
+            }
+          }
+        }
+        return res.status(401).json({ error: 'Not authenticated or insufficient permissions' });
+      } catch (err) {
+        console.error(`[TabAuth:${tabId}] error:`, err);
+        res.status(500).json({ error: 'Authentication check failed' });
+      }
+    };
+  }
+
   // User authentication middleware (any logged-in user)
   async function isUser(req, res, next) {
     try {
@@ -8851,7 +8896,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/tournament/recent - Get recent indexed battles/tournaments
-  app.get("/api/admin/tournament/recent", isAdmin, async (req, res) => {
+  app.get("/api/admin/tournament/recent", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const limit = parseInt(req.query.limit) || 20;
       const { getRecentTournaments } = await import("./src/etl/ingestion/tournamentIndexer.js");
@@ -8931,7 +8976,7 @@ async function startAdminWebServer() {
     return 'in_progress';
   }
 
-  app.get("/api/admin/tournament/live", isAdmin, async (req, res) => {
+  app.get("/api/admin/tournament/live", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const now = Date.now();
       const forceRefresh = req.query.refresh === '1';
@@ -9503,7 +9548,7 @@ async function startAdminWebServer() {
   }
 
   // GET /api/admin/tournament/sessions — groups pvp_tournaments by signature + 72h windows
-  app.get("/api/admin/tournament/sessions", isAdmin, async (req, res) => {
+  app.get("/api/admin/tournament/sessions", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const rows = await rawPg.unsafe(`
@@ -10053,7 +10098,7 @@ async function startAdminWebServer() {
   }
 
   // GET /api/admin/tournament/scheduled — DFK bracket tournaments from internal API
-  app.get("/api/admin/tournament/scheduled", isAdmin, async (req, res) => {
+  app.get("/api/admin/tournament/scheduled", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const forceRefresh = req.query.refresh === '1';
       const { fetchActiveTournaments } = await import('./src/services/dfkTournamentApi.js');
@@ -10069,7 +10114,7 @@ async function startAdminWebServer() {
 
   // GET /api/admin/tournament/completed — completed tournaments.
   // Reads from DB (persisted history) with in-memory fallback.
-  app.get('/api/admin/tournament/completed', isAdmin, async (req, res) => {
+  app.get('/api/admin/tournament/completed', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.count) || 50));
     const page  = Math.max(0, parseInt(req.query.page) || 0);
     try {
@@ -10243,7 +10288,7 @@ async function startAdminWebServer() {
       return tiers.reverse();
     }
 
-    app.get("/api/admin/tournament/bracket/:id", isAdmin, async (req, res) => {
+    app.get("/api/admin/tournament/bracket/:id", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
       const tournamentId = parseInt(req.params.id);
       if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
 
@@ -10600,7 +10645,7 @@ async function startAdminWebServer() {
   }
 
   // POST /api/admin/tournament/bracket/:id/ai-matchup — AI matchup analysis for bracket players
-  app.post('/api/admin/tournament/bracket/:id/ai-matchup', isAdmin, async (req, res) => {
+  app.post('/api/admin/tournament/bracket/:id/ai-matchup', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.id);
       if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
@@ -10985,7 +11030,7 @@ async function startAdminWebServer() {
   }
 
   // POST /api/admin/tournament/bracket/:id/rank-teams — AI-powered team ranking for all entrants
-  app.post('/api/admin/tournament/bracket/:id/rank-teams', isAdmin, async (req, res) => {
+  app.post('/api/admin/tournament/bracket/:id/rank-teams', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.id);
       if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
@@ -11170,7 +11215,7 @@ async function startAdminWebServer() {
   });
 
   // POST /api/admin/tournament/bracket/:id/player-tips — per-player AI tactical tips
-  app.post('/api/admin/tournament/bracket/:id/player-tips', isAdmin, async (req, res) => {
+  app.post('/api/admin/tournament/bracket/:id/player-tips', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.id);
       if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
@@ -11566,7 +11611,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/tournament/bracket/:id/bout-battle-log?boutId=X
-  app.get('/api/admin/tournament/bracket/:id/bout-battle-log', isAdmin, async (req, res) => {
+  app.get('/api/admin/tournament/bracket/:id/bout-battle-log', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = String(req.params.id);
       const { boutId } = req.query;
@@ -11670,7 +11715,7 @@ async function startAdminWebServer() {
 
   // GET /api/admin/tournament/:id/firebase-direct-log?boutNum=N
   // Direct Firebase log lookup by composing battleId = 1088-{boutNum}-tournament-{tournamentId}
-  app.get('/api/admin/tournament/:id/firebase-direct-log', isAdmin, async (req, res) => {
+  app.get('/api/admin/tournament/:id/firebase-direct-log', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = String(req.params.id);
       const boutNum = parseInt(req.query.boutNum, 10);
@@ -11740,7 +11785,7 @@ async function startAdminWebServer() {
 
   // GET /api/admin/tournament/:id/scan-bout-for-players?addrA=X&addrB=Y
   // Scans Firebase bout numbers 1–30 in parallel batches to find the bout matching both players
-  app.get('/api/admin/tournament/:id/scan-bout-for-players', isAdmin, async (req, res) => {
+  app.get('/api/admin/tournament/:id/scan-bout-for-players', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = String(req.params.id);
       const addrA = (req.query.addrA || '').toLowerCase().trim();
@@ -11978,7 +12023,7 @@ async function startAdminWebServer() {
   }
 
   // GET /api/admin/tournament/bracket/:id/matchup-history — past indexed bouts for a specific match
-  app.get('/api/admin/tournament/bracket/:id/matchup-history', isAdmin, async (req, res) => {
+  app.get('/api/admin/tournament/bracket/:id/matchup-history', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.id);
       if (isNaN(tournamentId)) return res.status(400).json({ ok: false, error: 'Invalid tournament ID' });
@@ -12068,7 +12113,7 @@ async function startAdminWebServer() {
 
   // POST /api/admin/tournament/bracket/:id/bout-analysis — GPT-4o-mini coaching per player
   // Body: { boutId, target?: 'winner' | 'loser' }  (default: 'loser' for backward compat)
-  app.post('/api/admin/tournament/bracket/:id/bout-analysis', isAdmin, async (req, res) => {
+  app.post('/api/admin/tournament/bracket/:id/bout-analysis', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = String(req.params.id);
       const { boutId, target = 'loser' } = req.body;
@@ -12272,7 +12317,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
 
   // POST /api/admin/tournament/bracket/:id/bout-live-coach — AI tactical advice for an in-progress bout
   // Body: { boutId, perspective: 'a' | 'b' }
-  app.post('/api/admin/tournament/bracket/:id/bout-live-coach', isAdmin, async (req, res) => {
+  app.post('/api/admin/tournament/bracket/:id/bout-live-coach', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = String(req.params.id);
       const { boutId, perspective = 'a', strategicContext } = req.body;
@@ -12491,7 +12536,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/tournament/private-bouts — individual private challenge bouts
-  app.get("/api/admin/tournament/private-bouts", isAdmin, async (req, res) => {
+  app.get("/api/admin/tournament/private-bouts", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const rows = await rawPg.unsafe(`
@@ -12549,7 +12594,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/tournament/sessions/:sessionKey/bouts — bouts for a session
-  app.get("/api/admin/tournament/sessions/:sessionKey/bouts", isAdmin, async (req, res) => {
+  app.get("/api/admin/tournament/sessions/:sessionKey/bouts", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const { sessionKey } = req.params;
@@ -12608,7 +12653,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/tournament/:id/comp-data — live-fallback comp analysis data
-  app.get("/api/admin/tournament/:id/comp-data", isAdmin, async (req, res) => {
+  app.get("/api/admin/tournament/:id/comp-data", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const tournamentId = parseInt(req.params.id);
@@ -12728,7 +12773,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/tournament/:id - Get full tournament details with restrictions
-  app.get("/api/admin/tournament/:id", isAdmin, async (req, res) => {
+  app.get("/api/admin/tournament/:id", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.id);
       if (isNaN(tournamentId)) {
@@ -12750,7 +12795,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/tournament/by-signature/:signature - Get tournaments by signature
-  app.get("/api/admin/tournament/by-signature/:signature", isAdmin, async (req, res) => {
+  app.get("/api/admin/tournament/by-signature/:signature", isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const signature = decodeURIComponent(req.params.signature);
       const limit = req.query.limit ? parseInt(req.query.limit) : 50;
@@ -17931,7 +17976,7 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
   // ============================================================================
 
   // GET /api/admin/tournament/:id/predict — run combat formula on indexed bout
-  app.get('/api/admin/tournament/:id/predict', isAdmin, async (req, res) => {
+  app.get('/api/admin/tournament/:id/predict', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const { getTournamentDetails } = await import('./src/etl/ingestion/tournamentIndexer.js');
       const details = await getTournamentDetails(parseInt(req.params.id));
@@ -18160,7 +18205,7 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
   });
 
   // GET /api/admin/tournament/class-winrates — class matchup win rates from historical data
-  app.get('/api/admin/tournament/class-winrates', isAdmin, async (req, res) => {
+  app.get('/api/admin/tournament/class-winrates', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       // Win rate per main class combo (class of winner hero vs class of loser hero)
@@ -18212,7 +18257,7 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
   });
 
   // GET /api/admin/tournament/browse — browse bouts with filters and pagination
-  app.get('/api/admin/tournament/browse', isAdmin, async (req, res) => {
+  app.get('/api/admin/tournament/browse', isAdminOrHasTab('dfk-tournaments'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const limit = Math.min(parseInt(req.query.limit) || 50, 200);
@@ -18254,7 +18299,7 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
   // ============================================================================
 
   // GET /api/admin/bouts — paginated fight list with filters
-  app.get('/api/admin/bouts', isAdmin, async (req, res) => {
+  app.get('/api/admin/bouts', isAdminOrHasTab('fight-history'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const page     = Math.max(1, parseInt(req.query.page)  || 1);
@@ -18311,7 +18356,7 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
   });
 
   // GET /api/admin/bouts/predictions?ids=1,2,3 — bulk pre-fight win probability for fight history
-  app.get('/api/admin/bouts/predictions', isAdmin, async (req, res) => {
+  app.get('/api/admin/bouts/predictions', isAdminOrHasTab('fight-history'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const idsParam = req.query.ids;
@@ -18463,7 +18508,7 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
   });
 
   // GET /api/admin/bouts/:boutId — single bout with full hero detail
-  app.get('/api/admin/bouts/:boutId', isAdmin, async (req, res) => {
+  app.get('/api/admin/bouts/:boutId', isAdminOrHasTab('fight-history'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const boutId = parseInt(req.params.boutId);

@@ -272,7 +272,8 @@ function RefreshCountdown({ cachedAt, ttl, onRefresh }: { cachedAt: number; ttl:
 // ─── Live tab ─────────────────────────────────────────────────────────────────
 
 function LiveTab() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user/dfk-tournament' : '/admin/tournament';
   const [forceRefresh, setForceRefresh] = useState(0);
 
   const { data, isLoading, error } = useQuery({
@@ -363,7 +364,7 @@ function LiveTab() {
             <LiveBoutCard
               key={b.id}
               b={b}
-              onClick={() => navigate(`/admin/tournament/${b.id}`)}
+              onClick={() => navigate(`${basePath}/${b.id}`)}
             />
           ))}
         </div>
@@ -385,7 +386,8 @@ function LiveTab() {
 // ─── History tab ──────────────────────────────────────────────────────────────
 
 function HistoryTab() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user/dfk-tournament' : '/admin/tournament';
   const [filters, setFilters] = useState({
     format: 'all',
     glory_bout: false,
@@ -485,7 +487,7 @@ function HistoryTab() {
               const isHostWin = t.winnerPlayer && t.hostPlayer &&
                 t.winnerPlayer.toLowerCase() === t.hostPlayer.toLowerCase();
               return (
-                <Card key={t.id} className="hover-elevate cursor-pointer" data-testid={`card-bout-${t.tournamentId}`} onClick={() => navigate(`/admin/tournament/${t.tournamentId}`)}>
+                <Card key={t.id} className="hover-elevate cursor-pointer" data-testid={`card-bout-${t.tournamentId}`} onClick={() => navigate(`${basePath}/${t.tournamentId}`)}>
                   <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
                     <div className="space-y-1.5 flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -586,7 +588,9 @@ function formatSessionDate(start: string | null): string {
 }
 
 function TournamentsTab() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user/dfk-tournament' : '/admin/tournament';
+  const baseListPath = location.startsWith('/user/') ? '/user/dfk-tournaments' : '/admin/tournaments';
 
   const { data, isLoading } = useQuery({
     queryKey: ['/api/admin/tournament/sessions'],
@@ -633,7 +637,7 @@ function TournamentsTab() {
             key={s.sessionKey}
             className="hover-elevate cursor-pointer"
             data-testid={`card-session-${s.sessionKey}`}
-            onClick={() => navigate(`/admin/tournaments/session/${encodeURIComponent(s.sessionKey)}`)}
+            onClick={() => navigate(`${baseListPath}/session/${encodeURIComponent(s.sessionKey)}`)}
           >
             <CardContent className="p-5 flex flex-col gap-3">
               {/* Header: name + format */}
@@ -798,7 +802,7 @@ function ScheduledTournamentsTab() {
         key={t.id}
         className={`hover-elevate cursor-pointer ${liveHighlight ? 'border-green-500/50 bg-green-500/5' : ''}`}
         data-testid={`card-tournament-${t.id}`}
-        onClick={() => navigate(`/admin/tournament/bracket/${t.id}`)}
+        onClick={() => navigate(`${basePath}/bracket/${t.id}`)}
       >
         <CardContent className="p-5 flex flex-col gap-3">
           <div className="flex items-start justify-between gap-3">
@@ -1012,7 +1016,8 @@ function shortAddr(addr: string | null): string {
 }
 
 function PrivateBoutsTab() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user/dfk-tournament' : '/admin/tournament';
 
   const { data, isLoading } = useQuery({
     queryKey: ['/api/admin/tournament/private-bouts'],
@@ -1064,7 +1069,7 @@ function PrivateBoutsTab() {
             key={b.tournamentId}
             className="hover-elevate cursor-pointer"
             data-testid={`card-private-bout-${b.tournamentId}`}
-            onClick={() => navigate(`/admin/tournament/${b.tournamentId}`)}
+            onClick={() => navigate(`${basePath}/${b.tournamentId}`)}
           >
             <CardContent className="p-5 flex flex-col gap-3">
               {/* Header: name + format */}
