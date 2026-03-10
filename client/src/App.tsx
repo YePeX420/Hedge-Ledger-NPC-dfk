@@ -698,6 +698,58 @@ function Router() {
         {() => <UserToolRoute tab="fight-history"><FightHistoryPage /></UserToolRoute>}
       </Route>
 
+      {/* Yield & Garden */}
+      <Route path="/user/gardening-quest">
+        {() => <UserToolRoute tab="gardening-quest"><AdminGardeningQuest /></UserToolRoute>}
+      </Route>
+
+      {/* Market & Tavern */}
+      <Route path="/user/hero-score">
+        {() => <UserToolRoute tab="hero-score"><AdminHeroScore /></UserToolRoute>}
+      </Route>
+      <Route path="/user/hero-price">
+        {() => <UserToolRoute tab="hero-price"><AdminHeroPrice /></UserToolRoute>}
+      </Route>
+      <Route path="/user/tavern-wallet-activity">
+        {() => <UserToolRoute tab="tavern-wallet-activity"><AdminTavernWalletActivity /></UserToolRoute>}
+      </Route>
+
+      {/* Competitive */}
+      <Route path="/user/pve-droprates">
+        {() => <UserToolRoute tab="pve-droprates"><AdminPVEDropRates /></UserToolRoute>}
+      </Route>
+
+      {/* Ecosystem */}
+      <Route path="/user/value-allocation">
+        {() => <UserToolRoute tab="value-allocation"><AdminValueAllocation /></UserToolRoute>}
+      </Route>
+      <Route path="/user/tokens">
+        {() => <UserToolRoute tab="tokens"><AdminTokens /></UserToolRoute>}
+      </Route>
+      <Route path="/user/bridge">
+        {() => <UserToolRoute tab="bridge"><AdminBridgeAnalytics /></UserToolRoute>}
+      </Route>
+      <Route path="/user/extractors">
+        {() => <UserToolRoute tab="extractors"><AdminExtractors /></UserToolRoute>}
+      </Route>
+      <Route path="/user/users">
+        {() => <UserToolRoute tab="users"><AdminUsers /></UserToolRoute>}
+      </Route>
+
+      {/* Indexers */}
+      <Route path="/user/jeweler">
+        {() => <UserToolRoute tab="jeweler"><AdminJeweler /></UserToolRoute>}
+      </Route>
+      <Route path="/user/pool-indexer">
+        {() => <UserToolRoute tab="pool-indexer"><AdminPoolIndexer /></UserToolRoute>}
+      </Route>
+      <Route path="/user/pool-indexer-v1">
+        {() => <UserToolRoute tab="pool-indexer-v1"><AdminPoolIndexerV1 /></UserToolRoute>}
+      </Route>
+      <Route path="/user/pool-indexer-harmony">
+        {() => <UserToolRoute tab="pool-indexer-harmony"><AdminPoolIndexerHarmony /></UserToolRoute>}
+      </Route>
+
       {/* Public leaderboards page */}
       <Route path="/leaderboards/:key">
         {() => <LeaderboardsPage />}

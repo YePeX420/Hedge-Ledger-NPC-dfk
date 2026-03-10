@@ -4762,7 +4762,7 @@ async function startAdminWebServer() {
   // /api/user/settings/:discordId – per-user Hedge settings (admin-only for now)
 
   // GET /api/admin/users - Fast paginated list using cached dfkSnapshot only
-  app.get("/api/admin/users", isAdmin, async (req, res) => {
+  app.get("/api/admin/users", isAdminOrHasTab('users'), async (req, res) => {
     try {
       const page = Math.max(parseInt(req.query.page) || 1, 1);
       const pageSize = Math.min(Math.max(parseInt(req.query.pageSize) || 25, 1), 100);
@@ -5788,7 +5788,7 @@ async function startAdminWebServer() {
   let bridgeIndexerRunning = false;
 
   // GET /api/admin/bridge/overview - Bridge analytics overview
-  app.get('/api/admin/bridge/overview', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/overview', isAdminOrHasTab('bridge','value-allocation','extractors'), async (req, res) => {
     try {
       const [eventStats, metricsStats, latestBlock] = await Promise.all([
         db.select({
@@ -5836,7 +5836,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/extractors - Get top extractors
-  app.get('/api/admin/bridge/extractors', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/extractors', isAdminOrHasTab('bridge','extractors'), async (req, res) => {
     try {
       const limit = parseInt(req.query.limit) || 50;
       const extractors = await getTopExtractors(limit);
@@ -5848,7 +5848,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/events - Recent bridge events
-  app.get('/api/admin/bridge/events', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/events', isAdminOrHasTab('bridge'), async (req, res) => {
     try {
       const limit = parseInt(req.query.limit) || 100;
       const events = await db.select()
@@ -5863,7 +5863,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/wallet/:wallet - Wallet bridge details
-  app.get('/api/admin/bridge/wallet/:wallet', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/wallet/:wallet', isAdminOrHasTab('bridge'), async (req, res) => {
     try {
       const { wallet } = req.params;
       const [summary, events] = await Promise.all([
@@ -5933,7 +5933,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/indexer-status - Check if indexer is running
-  app.get('/api/admin/bridge/indexer-status', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/indexer-status', isAdminOrHasTab('bridge'), async (req, res) => {
     res.json({ running: bridgeIndexerRunning });
   });
 
@@ -5949,7 +5949,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/prices - Get current token prices
-  app.get('/api/admin/bridge/prices', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/prices', isAdminOrHasTab('bridge'), async (req, res) => {
     try {
       const prices = await fetchBridgePrices();
       res.json(prices);
@@ -5960,7 +5960,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/value-breakdown - Get DFK Chain value distribution
-  app.get('/api/admin/bridge/value-breakdown', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/value-breakdown', isAdminOrHasTab('bridge','value-allocation'), async (req, res) => {
     try {
       console.log('[API] Fetching DFK Chain value breakdown...');
       const breakdown = await getValueBreakdown();
@@ -5973,7 +5973,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/cex-liquidity - Get CEX order book liquidity for JEWEL
-  app.get('/api/admin/bridge/cex-liquidity', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/cex-liquidity', isAdminOrHasTab('bridge','value-allocation'), async (req, res) => {
     try {
       let bandPercent = parseInt(req.query.band) || 2;
       // Validate band is reasonable (1-10%)
@@ -5995,7 +5995,7 @@ async function startAdminWebServer() {
   // ============================================================================
 
   // GET /api/admin/tokens - List all tokens in registry
-  app.get('/api/admin/tokens', isAdmin, async (req, res) => {
+  app.get('/api/admin/tokens', isAdminOrHasTab('tokens'), async (req, res) => {
     try {
       const tokens = await getAllTokens();
       res.json({ tokens, count: tokens.length });
@@ -6019,7 +6019,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/tokens/map - Get address -> symbol mapping
-  app.get('/api/admin/tokens/map', isAdmin, async (req, res) => {
+  app.get('/api/admin/tokens/map', isAdminOrHasTab('tokens'), async (req, res) => {
     try {
       const map = await getTokenAddressMap();
       res.json(map);
@@ -6509,7 +6509,7 @@ async function startAdminWebServer() {
   // =====================================================
 
   // GET /api/admin/pve/status - Get detailed PVE indexer status (admin)
-  app.get("/api/admin/pve/status", isAdmin, async (req, res) => {
+  app.get("/api/admin/pve/status", isAdminOrHasTab('pve-droprates'), async (req, res) => {
     try {
       const status = await getPVEIndexerStatus();
       const liveProgress = getPVEIndexerLiveProgress();
@@ -6521,7 +6521,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/pve/items - Debug endpoint to review item classifications
-  app.get("/api/admin/pve/items", isAdmin, async (req, res) => {
+  app.get("/api/admin/pve/items", isAdminOrHasTab('pve-droprates'), async (req, res) => {
     try {
       // Get all loot items with their classification and drop counts
       const items = await db.execute(sql`
@@ -6684,7 +6684,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/sync-progress - Get historical sync progress
-  app.get('/api/admin/bridge/sync-progress', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/sync-progress', isAdminOrHasTab('bridge'), async (req, res) => {
     try {
       const progress = await getIndexerProgress();
       const latestBlock = await getBridgeLatestBlock();
@@ -6745,7 +6745,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/batch-progress - Get live progress of current batch
-  app.get('/api/admin/bridge/batch-progress', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/batch-progress', isAdminOrHasTab('bridge'), async (req, res) => {
     try {
       const progress = getCurrentBatchProgress();
       res.json(progress);
@@ -6773,7 +6773,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/bridge/price-enrichment/status - Get parallel price enrichment status
-  app.get('/api/admin/bridge/price-enrichment/status', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/price-enrichment/status', isAdminOrHasTab('bridge'), async (req, res) => {
     try {
       const unpricedCount = await getUnpricedEventCount();
       const status = getParallelEnrichmentStatus();
@@ -6849,7 +6849,7 @@ async function startAdminWebServer() {
   };
 
   // GET /api/admin/bridge/parallel-sync/status - Get parallel sync status
-  app.get('/api/admin/bridge/parallel-sync/status', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/parallel-sync/status', isAdminOrHasTab('bridge'), async (req, res) => {
     try {
       const latestBlock = await getBridgeLatestBlock();
       const mainProgress = await getIndexerProgress('bridge_sync');
@@ -7059,7 +7059,7 @@ async function startAdminWebServer() {
   let layerZeroIndexerRunning = false;
   
   // GET /api/admin/bridge/layerzero/status - Get LayerZero indexer status
-  app.get('/api/admin/bridge/layerzero/status', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/layerzero/status', isAdminOrHasTab('bridge'), async (req, res) => {
     try {
       const { getLayerZeroStats } = await import('./bridge-tracker/indexLayerZeroEvents.js');
       const stats = await getLayerZeroStats();
@@ -7113,7 +7113,7 @@ async function startAdminWebServer() {
   // TVL RECONCILIATION API
   // ============================================================================
 
-  app.get('/api/admin/bridge/tvl-reconciliation', isAdmin, async (req, res) => {
+  app.get('/api/admin/bridge/tvl-reconciliation', isAdminOrHasTab('bridge','value-allocation'), async (req, res) => {
     try {
       const flowByChain = await db.execute(sql`
         SELECT 
@@ -7517,7 +7517,7 @@ async function startAdminWebServer() {
   // ============================================================================
   
   // GET /api/admin/pool-indexer/status - Get all indexer progress
-  app.get('/api/admin/pool-indexer/status', isAdmin, async (req, res) => {
+  app.get('/api/admin/pool-indexer/status', isAdminOrHasTab('pool-indexer'), async (req, res) => {
     try {
       const { getAllSwapIndexerProgress, getAllSwapLiveProgress, getSwapAutoRunStatus } = await import('./src/etl/ingestion/poolSwapIndexer.js');
       const { getAllRewardIndexerProgress, getAllRewardLiveProgress, getRewardAutoRunStatus } = await import('./src/etl/ingestion/poolRewardIndexer.js');
@@ -7769,7 +7769,7 @@ async function startAdminWebServer() {
   });
   
   // GET /api/admin/pool-indexer/unified/status - Get unified indexer worker status
-  app.get('/api/admin/pool-indexer/unified/status', isAdmin, async (req, res) => {
+  app.get('/api/admin/pool-indexer/unified/status', isAdminOrHasTab('pool-indexer'), async (req, res) => {
     try {
       const { 
         getUnifiedAutoRunStatus, 
@@ -7794,7 +7794,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/pool-indexer/unified/stakers/:pid - Get stakers for a pool
-  app.get('/api/admin/pool-indexer/unified/stakers/:pid', isAdmin, async (req, res) => {
+  app.get('/api/admin/pool-indexer/unified/stakers/:pid', isAdminOrHasTab('pool-indexer'), async (req, res) => {
     try {
       const pid = parseInt(req.params.pid);
       if (isNaN(pid) || pid < 0) {
@@ -7814,7 +7814,7 @@ async function startAdminWebServer() {
   // ============================================================================
 
   // GET /api/admin/pool-indexer-v1/status - Get V1 indexer status
-  app.get('/api/admin/pool-indexer-v1/status', isAdmin, async (req, res) => {
+  app.get('/api/admin/pool-indexer-v1/status', isAdminOrHasTab('pool-indexer-v1'), async (req, res) => {
     try {
       const {
         getAllUnifiedIndexerProgressV1,
@@ -7985,7 +7985,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/pool-indexer-v1/stakers/:pid - Get V1 stakers for a pool
-  app.get('/api/admin/pool-indexer-v1/stakers/:pid', isAdmin, async (req, res) => {
+  app.get('/api/admin/pool-indexer-v1/stakers/:pid', isAdminOrHasTab('pool-indexer-v1'), async (req, res) => {
     try {
       const pid = parseInt(req.params.pid);
       if (isNaN(pid) || pid < 0) {
@@ -8001,7 +8001,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/pool-indexer-v1/totals - Get V1 staked totals for all pools
-  app.get('/api/admin/pool-indexer-v1/totals', isAdmin, async (req, res) => {
+  app.get('/api/admin/pool-indexer-v1/totals', isAdminOrHasTab('pool-indexer-v1'), async (req, res) => {
     try {
       const { getAllV1StakedTotals } = await import('./src/etl/ingestion/poolUnifiedIndexerV1.js');
       const totals = await getAllV1StakedTotals();
@@ -8017,7 +8017,7 @@ async function startAdminWebServer() {
   // ============================================================================
 
   // GET /api/admin/pool-indexer-harmony/status - Get Harmony indexer status
-  app.get('/api/admin/pool-indexer-harmony/status', isAdmin, async (req, res) => {
+  app.get('/api/admin/pool-indexer-harmony/status', isAdminOrHasTab('pool-indexer-harmony'), async (req, res) => {
     try {
       const { 
         getHarmonyPoolStats, 
@@ -8136,7 +8136,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/pool-indexer-harmony/stakers/:pid - Get Harmony stakers for a pool
-  app.get('/api/admin/pool-indexer-harmony/stakers/:pid', isAdmin, async (req, res) => {
+  app.get('/api/admin/pool-indexer-harmony/stakers/:pid', isAdminOrHasTab('pool-indexer-harmony'), async (req, res) => {
     try {
       const pid = parseInt(req.params.pid);
       if (isNaN(pid) || pid < 0) {
@@ -8172,7 +8172,7 @@ async function startAdminWebServer() {
   // ============================================================================
 
   // GET /api/admin/jeweler/status - Get Jeweler indexer status and stats
-  app.get('/api/admin/jeweler/status', isAdmin, async (req, res) => {
+  app.get('/api/admin/jeweler/status', isAdminOrHasTab('jeweler'), async (req, res) => {
     try {
       const { getJewelerStats } = await import('./src/etl/ingestion/jewelerIndexer.js');
       const stats = await getJewelerStats();
@@ -8220,7 +8220,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/jeweler/leaderboard - Get top cJEWEL stakers
-  app.get('/api/admin/jeweler/leaderboard', isAdmin, async (req, res) => {
+  app.get('/api/admin/jeweler/leaderboard', isAdminOrHasTab('jeweler'), async (req, res) => {
     try {
       const limit = parseInt(req.query.limit) || 50;
       const { getJewelerLeaderboard } = await import('./src/etl/ingestion/jewelerIndexer.js');
@@ -8233,7 +8233,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/jeweler/apr - Get Jeweler APR data
-  app.get('/api/admin/jeweler/apr', isAdmin, async (req, res) => {
+  app.get('/api/admin/jeweler/apr', isAdminOrHasTab('jeweler'), async (req, res) => {
     try {
       const { getJewelerAPR, getJewelerRatio } = await import('./src/etl/ingestion/jewelerIndexer.js');
       const [aprData, ratioData] = await Promise.all([getJewelerAPR(), getJewelerRatio()]);
@@ -8261,7 +8261,7 @@ async function startAdminWebServer() {
   // =========================================================================
 
   // GET /api/admin/gardening-quest/status - Get indexer status and stats
-  app.get('/api/admin/gardening-quest/status', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-quest/status', isAdminOrHasTab('gardening-quest'), async (req, res) => {
     try {
       const { getGardeningQuestStatus } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
       const status = await getGardeningQuestStatus();
@@ -8309,7 +8309,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-quest/hero/:heroId - Get rewards for a specific hero
-  app.get('/api/admin/gardening-quest/hero/:heroId', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-quest/hero/:heroId', isAdminOrHasTab('gardening-quest'), async (req, res) => {
     try {
       const heroId = parseInt(req.params.heroId);
       const limit = parseInt(req.query.limit) || 100;
@@ -8326,7 +8326,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-quest/player/:player - Get rewards for a specific player
-  app.get('/api/admin/gardening-quest/player/:player', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-quest/player/:player', isAdminOrHasTab('gardening-quest'), async (req, res) => {
     try {
       const player = req.params.player;
       const limit = parseInt(req.query.limit) || 100;
@@ -8340,7 +8340,7 @@ async function startAdminWebServer() {
   });
 
   // GET /api/admin/gardening-quest/pool/:poolId - Get rewards for a specific pool
-  app.get('/api/admin/gardening-quest/pool/:poolId', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-quest/pool/:poolId', isAdminOrHasTab('gardening-quest'), async (req, res) => {
     try {
       const poolId = parseInt(req.params.poolId);
       const limit = parseInt(req.query.limit) || 100;
@@ -8384,7 +8384,7 @@ async function startAdminWebServer() {
   });
   
   // GET /api/admin/gardening-quest/expedition-zero-hero-stats - Check for expedition records with hero_id=0 that need reprocessing
-  app.get('/api/admin/gardening-quest/expedition-zero-hero-stats', isAdmin, async (req, res) => {
+  app.get('/api/admin/gardening-quest/expedition-zero-hero-stats', isAdminOrHasTab('gardening-quest'), async (req, res) => {
     try {
       const { getExpeditionZeroHeroRecords, getEarliestExpeditionZeroHeroBlock } = await import('./src/etl/ingestion/gardeningQuestIndexer.js');
       const records = await getExpeditionZeroHeroRecords();
@@ -12816,7 +12816,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // GET /api/admin/tavern/wallet-activity - Hero & pet buy/sell/held history from DFK GraphQL
-  app.get("/api/admin/tavern/wallet-activity", isAdmin, async (req, res) => {
+  app.get("/api/admin/tavern/wallet-activity", isAdminOrHasTab('tavern-wallet-activity'), async (req, res) => {
     try {
       const address = (req.query.address || '').trim().toLowerCase();
       if (!address || !/^0x[a-f0-9]{40}$/.test(address)) {
@@ -17941,7 +17941,7 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
 
   // POST /api/admin/divine-altar/multiplier — proxy to DFK multiplier API
   // Maps unkeyed array response to named fields per knowledgebase §4
-  app.post('/api/admin/divine-altar/multiplier', isAdmin, async (req, res) => {
+  app.post('/api/admin/divine-altar/multiplier', isAdminOrHasTab('hero-score'), async (req, res) => {
     try {
       const body = req.body || {};
       const response = await fetch('https://api.defikingdoms.com/divine_essence_multiplier', {

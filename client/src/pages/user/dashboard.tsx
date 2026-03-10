@@ -31,6 +31,15 @@ import {
   DollarSign,
   Leaf,
   Droplets,
+  Sprout,
+  Star,
+  ArrowLeftRight,
+  PieChart,
+  Coins,
+  Users,
+  Activity,
+  Gem,
+  TrendingDown,
 } from 'lucide-react';
 
 interface UserSession {
@@ -184,6 +193,90 @@ const TAB_CONFIG: Record<string, { label: string; icon: any; href: string; descr
     icon: Database,
     href: '/user/tavern-indexer',
     description: 'Live hero listing indexer'
+  },
+  'gardening-quest': {
+    label: 'Gardening Quest',
+    icon: Sprout,
+    href: '/user/gardening-quest',
+    description: 'Gardening quest indexer and rewards'
+  },
+  'hero-score': {
+    label: 'Hero Score Calc',
+    icon: Star,
+    href: '/user/hero-score',
+    description: 'Hero score and divine altar multiplier'
+  },
+  'hero-price': {
+    label: 'Hero Price Tool',
+    icon: DollarSign,
+    href: '/user/hero-price',
+    description: 'AI-powered hero valuation and flip finder'
+  },
+  'tavern-wallet-activity': {
+    label: 'Wallet Activity',
+    icon: Activity,
+    href: '/user/tavern-wallet-activity',
+    description: 'Tavern buy/sell history for a wallet'
+  },
+  'pve-droprates': {
+    label: 'PVE Drop Rates',
+    icon: TrendingDown,
+    href: '/user/pve-droprates',
+    description: 'Multi-chain PVE loot drop rate tracker'
+  },
+  'value-allocation': {
+    label: 'Value Allocation',
+    icon: PieChart,
+    href: '/user/value-allocation',
+    description: 'TVL and value breakdown dashboard'
+  },
+  'tokens': {
+    label: 'Token Registry',
+    icon: Coins,
+    href: '/user/tokens',
+    description: 'Token list and metadata sync'
+  },
+  'bridge': {
+    label: 'Bridge Analytics',
+    icon: ArrowLeftRight,
+    href: '/user/bridge',
+    description: 'Cross-chain bridge flow tracker'
+  },
+  'extractors': {
+    label: 'Extractors',
+    icon: TrendingDown,
+    href: '/user/extractors',
+    description: 'Bridge extractor activity'
+  },
+  'users': {
+    label: 'Players / Users',
+    icon: Users,
+    href: '/user/users',
+    description: 'Player profile and wallet browser'
+  },
+  'jeweler': {
+    label: 'Jeweler',
+    icon: Gem,
+    href: '/user/jeweler',
+    description: 'Jeweler staking indexer and leaderboard'
+  },
+  'pool-indexer': {
+    label: 'Pool Indexer V2',
+    icon: Database,
+    href: '/user/pool-indexer',
+    description: 'Unified pool staker indexer'
+  },
+  'pool-indexer-v1': {
+    label: 'Pool Indexer V1',
+    icon: Database,
+    href: '/user/pool-indexer-v1',
+    description: 'Legacy pool staker indexer'
+  },
+  'pool-indexer-harmony': {
+    label: 'Pool Indexer Harmony',
+    icon: Database,
+    href: '/user/pool-indexer-harmony',
+    description: 'Harmony chain pool indexer'
   },
 };
 

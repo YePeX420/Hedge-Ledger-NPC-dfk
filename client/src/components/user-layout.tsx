@@ -29,6 +29,15 @@ import {
   Sparkles,
   ShoppingBag,
   Droplets,
+  Sprout,
+  Star,
+  ArrowLeftRight,
+  PieChart,
+  Coins,
+  Users,
+  Activity,
+  Gem,
+  TrendingDown,
 } from 'lucide-react';
 
 interface NavItem {
@@ -61,6 +70,20 @@ const TAB_NAV: Record<string, NavItem> = {
   'previous-tournaments': { href: '/user/previous-tournaments', label: 'Previous Tournaments', icon: History },
   'fight-history': { href: '/user/fight-history', label: 'Fight History', icon: Swords },
   'tavern-indexer': { href: '/user/tavern-indexer', label: 'Tavern Indexer', icon: Database },
+  'gardening-quest': { href: '/user/gardening-quest', label: 'Gardening Quest', icon: Sprout },
+  'hero-score': { href: '/user/hero-score', label: 'Hero Score Calc', icon: Star },
+  'hero-price': { href: '/user/hero-price', label: 'Hero Price Tool', icon: DollarSign },
+  'tavern-wallet-activity': { href: '/user/tavern-wallet-activity', label: 'Wallet Activity', icon: Activity },
+  'pve-droprates': { href: '/user/pve-droprates', label: 'PVE Drop Rates', icon: TrendingDown },
+  'value-allocation': { href: '/user/value-allocation', label: 'Value Allocation', icon: PieChart },
+  'tokens': { href: '/user/tokens', label: 'Token Registry', icon: Coins },
+  'bridge': { href: '/user/bridge', label: 'Bridge Analytics', icon: ArrowLeftRight },
+  'extractors': { href: '/user/extractors', label: 'Extractors', icon: TrendingDown },
+  'users': { href: '/user/users', label: 'Players / Users', icon: Users },
+  'jeweler': { href: '/user/jeweler', label: 'Jeweler', icon: Gem },
+  'pool-indexer': { href: '/user/pool-indexer', label: 'Pool Indexer V2', icon: Database },
+  'pool-indexer-v1': { href: '/user/pool-indexer-v1', label: 'Pool Indexer V1', icon: Database },
+  'pool-indexer-harmony': { href: '/user/pool-indexer-harmony', label: 'Pool Indexer Harmony', icon: Database },
 };
 
 interface UserLayoutProps {

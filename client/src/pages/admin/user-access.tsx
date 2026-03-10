@@ -77,6 +77,7 @@ const TOOL_GROUPS: ToolGroup[] = [
       { id: 'yield-calculator', label: 'Yield Calculator', description: 'Garden LP yields' },
       { id: 'yield-optimizer', label: 'Yield Optimizer', description: 'Optimal pool allocations' },
       { id: 'gardening-calculator', label: 'Gardening Calculator', description: 'Garden rewards estimator' },
+      { id: 'gardening-quest', label: 'Gardening Quest', description: 'Gardening quest indexer and rewards' },
       { id: 'patrol-rewards', label: 'Patrol Rewards', description: 'Patrol quest reward tracker' },
       { id: 'profit-tracker', label: 'Profit Tracker', description: 'Wallet profit and loss tracking' },
     ],
@@ -91,11 +92,14 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     id: 'market',
-    label: 'Market & Pets',
-    description: 'Marketplace browsing, market intelligence, and pet analysis',
+    label: 'Market & Tavern',
+    description: 'Marketplace browsing, market intelligence, hero pricing, and pet analysis',
     tabs: [
       { id: 'combat-pets', label: 'Combat Pets Shop', description: 'Pet marketplace with top roll analysis' },
       { id: 'market-intel', label: 'Market Intel', description: 'Sales analytics and demand metrics' },
+      { id: 'hero-score', label: 'Hero Score Calc', description: 'Hero score and divine altar multiplier' },
+      { id: 'hero-price', label: 'Hero Price Tool', description: 'AI-powered hero valuation and flip finder' },
+      { id: 'tavern-wallet-activity', label: 'Wallet Activity', description: 'Tavern buy/sell history for a wallet' },
     ],
   },
   {
@@ -107,6 +111,19 @@ const TOOL_GROUPS: ToolGroup[] = [
       { id: 'dfk-tournaments', label: 'DFK Tournaments', description: 'Tournament browser and bracket viewer' },
       { id: 'previous-tournaments', label: 'Previous Tournaments', description: 'Completed tournament archive' },
       { id: 'fight-history', label: 'Fight History', description: 'Indexed bout archive and analysis' },
+      { id: 'pve-droprates', label: 'PVE Drop Rates', description: 'Multi-chain PVE loot drop rate tracker' },
+    ],
+  },
+  {
+    id: 'ecosystem',
+    label: 'Ecosystem',
+    description: 'Chain analytics, bridge flows, token registry, and player data',
+    tabs: [
+      { id: 'value-allocation', label: 'Value Allocation', description: 'TVL and value breakdown dashboard' },
+      { id: 'tokens', label: 'Token Registry', description: 'Token list and metadata sync' },
+      { id: 'bridge', label: 'Bridge Analytics', description: 'Cross-chain bridge flow tracker' },
+      { id: 'extractors', label: 'Extractors', description: 'Bridge extractor activity' },
+      { id: 'users', label: 'Players / Users', description: 'Player profile and wallet browser' },
     ],
   },
   {
@@ -115,6 +132,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     description: 'Live on-chain data indexing tools',
     tabs: [
       { id: 'tavern-indexer', label: 'Tavern Indexer', description: 'Live hero listing indexer' },
+      { id: 'jeweler', label: 'Jeweler', description: 'Jeweler staking indexer and leaderboard' },
+      { id: 'pool-indexer', label: 'Pool Indexer V2', description: 'Unified pool staker indexer' },
+      { id: 'pool-indexer-v1', label: 'Pool Indexer V1', description: 'Legacy pool staker indexer' },
+      { id: 'pool-indexer-harmony', label: 'Pool Indexer Harmony', description: 'Harmony chain pool indexer' },
     ],
   },
 ];
