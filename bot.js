@@ -1496,17 +1496,23 @@ client.on(Events.GuildMemberAdd, async (member) => {
             }
           }
 
-          // 🏆 BATTLE/TOURNAMENT INTENT — inject live data if user is asking about battles
-          const battleIntentRegex = /\b(battle|tournament|fight|pvp|match|glory|watch|who.*playing|live.*battle|active.*battle|happening|fighting|bout|duel|which.*battle)\b/i;
-          if (battleIntentRegex.test(message.content)) {
-            try {
-              const liveBattles = await fetchLiveBattlesForDiscord();
-              const battleCtx = formatBattlesForDiscordContext(liveBattles);
-              enrichedContent += `\n\n${battleCtx}`;
-              console.log(`[Discord] Injected live battle data into context (${liveBattles.length} battles)`);
-            } catch (battleFetchErr) {
-              console.warn('[Discord] Could not fetch live battles for context:', battleFetchErr.message);
-            }
+          // Inject all relevant DFK context (tournament, live battles, fight history) in parallel
+          try {
+            const msgText = message.content;
+            const [tCtx, lCtx, hCtx] = await Promise.all([
+              buildTournamentContext(msgText),
+              buildLiveBattleContext(msgText),
+              buildFightHistoryContext(msgText),
+            ]);
+            const injected = [];
+            if (tCtx.detected)  { enrichedContent += `\n\n${tCtx.context}`;  injected.push('tournament'); }
+            // Live only if no tournament ID found (avoids redundant noise)
+            if (lCtx.detected && !tCtx.detected) { enrichedContent += `\n\n${lCtx.context}`; injected.push('live-battles'); }
+            // Fight history only if neither tournament ID nor live fired
+            if (hCtx.detected && !tCtx.detected && !lCtx.detected) { enrichedContent += `\n\n${hCtx.context}`; injected.push('fight-history'); }
+            if (injected.length > 0) console.log(`[Discord] Injected context: ${injected.join(', ')}`);
+          } catch (ctxErr) {
+            console.warn('[Discord] Context injection error:', ctxErr.message);
           }
 
           // Fallback: send to OpenAI (askHedge)
@@ -17282,6 +17288,257 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
 
   // ============================================================================
+  // ============================================================================
+  // SHARED AI CONTEXT BUILDERS
+  // Used by both the Web AI Consultant route and the Discord DM handler.
+  // Defined here (inside the same closure as _bracketDetailCache etc.) so both
+  // call sites have access at runtime.
+  // ============================================================================
+
+  // Build context for a specific tournament ID mentioned in the text
+  const buildTournamentContext = async (allText) => {
+    const tournamentIdRegex = /\b(t(?:ournament)?[- ]?#?\s*)?([12]\d{3})\b/gi;
+    let tidMatch;
+    const detectedTids = new Set();
+    while ((tidMatch = tournamentIdRegex.exec(allText)) !== null) {
+      const candidate = parseInt(tidMatch[2]);
+      if (candidate >= 1000 && candidate <= 9999) detectedTids.add(candidate);
+    }
+    if (detectedTids.size === 0) return { context: '', detected: false };
+
+    const { rawPg: rp } = await import('./server/db.js');
+    const contextLines = [];
+    const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+
+    for (const tid of [...detectedTids].slice(0, 2)) {
+      try {
+        let bracketData = _bracketDetailCache.get(tid)?.data;
+        if (!bracketData) {
+          const [stored] = await rp.unsafe(
+            `SELECT bracket_json FROM dfk_completed_brackets WHERE tournament_id = $1 LIMIT 1`,
+            [String(tid)]
+          );
+          if (stored?.bracket_json?.ok) bracketData = stored.bracket_json;
+        }
+
+        if (bracketData) {
+          const t = bracketData.tournament || {};
+          const players = bracketData.players || [];
+          const bracket = bracketData.bracket || {};
+          const champion = bracket.champion || 0;
+          const format = t.maxHeroCount ? `${t.maxHeroCount}v${t.maxHeroCount}` : (t.format || 'unknown');
+          const allowedItems = typeof decodeBattleInventory === 'function' && t.battleInventory != null
+            ? decodeBattleInventory(Number(t.battleInventory)).join(', ') || 'None'
+            : 'Unknown';
+
+          const playerLines = players.map(p => {
+            const heroSummary = (p.heroes || []).map(h =>
+              `#${h.normalizedId || h.id} ${h.mainClassStr || '?'} L${h.level || '?'} (${RARITY_NAMES[h.rarity] ?? '?'})`
+            ).join(', ') || 'No heroes loaded';
+            return `  Slot ${p.partyIndex}: ${p.name || p.address} [${p.address?.slice(0, 8)}...] — ${heroSummary}`;
+          }).join('\n');
+
+          let hpSection = '';
+          const firebaseId = (_tournamentFirebaseIdMap.get(String(tid)) ?? [])[0] ?? null;
+          if (firebaseId) {
+            try {
+              const { fetchFirebaseBattleLog } = await import('./src/services/firebase.js');
+              const logResult = await fetchFirebaseBattleLog(firebaseId);
+              if (logResult?.turns?.length > 0) {
+                const lastTurn = logResult.turns[logResult.turns.length - 1];
+                const states = lastTurn?.beforeDeckStates || {};
+                const hpLines = [];
+                for (const [side, slots] of Object.entries(states)) {
+                  const sideLetter = side === '1' ? 'A' : 'B';
+                  for (const [slot, heroState] of Object.entries(slots || {})) {
+                    const hp = heroState?.health ?? null;
+                    const mp = heroState?.mana ?? null;
+                    const hpPct = hp !== null && heroState?.maxHealth
+                      ? Math.round(hp / heroState.maxHealth * 100) : null;
+                    const flag = hpPct !== null && hpPct < 30 ? ' ⚠CRITICAL' : '';
+                    if (hpPct !== null) hpLines.push(
+                      `    Side${sideLetter} Slot${slot}: ${hpPct}% HP${flag}${mp !== null ? `, MP:${Math.round(mp)}` : ''}`
+                    );
+                  }
+                }
+                if (hpLines.length > 0)
+                  hpSection = `\nLIVE HP STATE (from Firebase turn ${logResult.turns.length}):\n${hpLines.join('\n')}`;
+              }
+            } catch (_fbe) { /* firebase optional */ }
+          }
+
+          contextLines.push(`[TOURNAMENT ${tid}]
+Format: ${format} | Status: ${champion > 0 ? 'COMPLETE — Champion hero #' + champion : 'In Progress or Pending'}
+Battle Budget: ${t.battleBudget ?? 'N/A'} budget-pts per player | Allowed Items: ${allowedItems}
+Min Level: ${t.minLevel ?? '?'} | Max Level: ${t.maxLevel ?? '?'}
+Glory Bout: ${t.gloryBout ? 'Yes' : 'No'}
+
+PLAYERS (${players.length} registered):
+${playerLines || 'No player data available'}${hpSection}
+---`);
+        } else {
+          contextLines.push(`[Tournament ${tid}: Not found in database. It may not have been indexed yet.]`);
+        }
+      } catch (tidErr) {
+        console.warn(`[buildTournamentContext] Tournament ${tid} error:`, tidErr.message);
+      }
+    }
+
+    return {
+      context: contextLines.join('\n\n'),
+      detected: contextLines.length > 0,
+    };
+  };
+
+  // Build context for live/active battles (GraphQL)
+  // Only fires when user is explicitly asking about what's happening RIGHT NOW.
+  // Questions about past fights ("most interesting fight today", "any upsets?") go to buildFightHistoryContext instead.
+  const buildLiveBattleContext = async (allText) => {
+    const livePresenceKeywords = /\b(live|current|active|right now|happening|ongoing|watching|now|currently|at the moment)\b/i;
+    if (!livePresenceKeywords.test(allText)) {
+      return { context: '', detected: false, isLive: false };
+    }
+    // Also require some battle-related intent (no trailing \b so plurals like "battles/fights/bouts" match)
+    const battleKeywords = /\b(battle|tournament|fight|pvp|match|glory|bout|playing)/i;
+    if (!battleKeywords.test(allText)) {
+      return { context: '', detected: false, isLive: false };
+    }
+    try {
+      const battles = await fetchLiveBattlesForDiscord();
+      if (!battles || battles.length === 0) {
+        return {
+          context: '[LIVE DATA] No active battles found in the DFK GraphQL API at this time.',
+          detected: true,
+          isLive: true,
+        };
+      }
+      return {
+        context: formatBattlesForDiscordContext(battles),
+        detected: true,
+        isLive: true,
+      };
+    } catch (err) {
+      console.warn('[buildLiveBattleContext] Error:', err.message);
+      return {
+        context: `[LIVE DATA] Could not fetch live battles: ${err.message}`,
+        detected: true,
+        isLive: true,
+      };
+    }
+  };
+
+  // Build context from the indexed fight archive (dfk_tournament_bouts)
+  const buildFightHistoryContext = async (allText) => {
+    // No trailing \b so plurals (upsets, fights, bouts, battles) match too
+    const historyKeywords = /\b(interesting|upset|today|recent|best.*fight|fight.*today|most.*exciting|highlight|recap|yesterday|who.*won|of.*the.*day|any.*fight|fight.*happen|how.*go|fight.*histor|past.*fight|what.*happen)/i;
+    const boutKeywords = /\b(bout|battle|fight|tournament|match|pvp)/i;
+    if (!historyKeywords.test(allText) || !boutKeywords.test(allText)) {
+      return { context: '', detected: false };
+    }
+    try {
+      const { rawPg: rp } = await import('./server/db.js');
+      const rows = await rp.unsafe(`
+        SELECT b.id, b.tournament_id, b.tournament_name, b.round_number, b.match_index,
+               b.player_a_name, b.player_b_name, b.winner_address, b.tournament_format,
+               b.captured_at,
+               json_agg(json_build_object(
+                 'side',     bh.side,
+                 'winner',   bh.is_winner_side,
+                 'class',    bh.main_class,
+                 'level',    bh.level,
+                 'rarity',   bh.rarity,
+                 'dps_mult', ROUND(bh.effective_dps_mult::numeric, 3)
+               ) ORDER BY bh.side, bh.id) AS heroes
+        FROM dfk_tournament_bouts b
+        JOIN dfk_bout_heroes bh ON bh.bout_id = b.id
+        WHERE b.is_complete = true
+        GROUP BY b.id
+        ORDER BY b.captured_at DESC
+        LIMIT 30
+      `);
+
+      if (!rows || rows.length === 0) {
+        return { context: '[FIGHT ARCHIVE] No completed indexed bouts found yet.', detected: true };
+      }
+
+      const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
+
+      // Score each bout for interestingness
+      const scored = rows.map(b => {
+        const heroes = Array.isArray(b.heroes) ? b.heroes : [];
+        let score = 0;
+
+        for (const h of heroes) {
+          if (h.rarity === 3) score += 3;   // Legendary
+          if (h.rarity === 4) score += 5;   // Mythic
+        }
+        if ((b.round_number || 0) >= 3) score += 2;  // Late round
+
+        // Upset: winner side had lower avg dps_mult
+        const winnerHeroes = heroes.filter(h => h.winner === true || h.winner === 'true');
+        const loserHeroes  = heroes.filter(h => h.winner === false || h.winner === 'false');
+        if (winnerHeroes.length > 0 && loserHeroes.length > 0) {
+          const winAvg  = winnerHeroes.reduce((a, h) => a + (parseFloat(h.dps_mult) || 1), 0) / winnerHeroes.length;
+          const loseAvg = loserHeroes.reduce((a, h) => a + (parseFloat(h.dps_mult) || 1), 0) / loserHeroes.length;
+          if (winAvg < loseAvg - 0.1) score += 3;
+        }
+
+        // Class diversity
+        const classes = new Set(heroes.map(h => h.class).filter(Boolean));
+        score += Math.min(classes.size, 4);
+
+        return { ...b, heroes, score };
+      });
+
+      scored.sort((a, b) => b.score - a.score);
+      const top5 = scored.slice(0, 5);
+
+      const boutLines = top5.map(b => {
+        const heroes = b.heroes || [];
+        const sideA = heroes.filter(h => h.side === 'A' || h.side === 'sideA');
+        const sideB = heroes.filter(h => h.side === 'B' || h.side === 'sideB');
+
+        const formatSide = side => side.map(h =>
+          `${h.class || '?'} L${h.level ?? '?'} (${RARITY_NAMES[h.rarity] ?? '?'})`
+        ).join(', ') || 'unknown';
+
+        const winnerHeroes = heroes.filter(h => h.winner === true || h.winner === 'true');
+        const loserHeroes  = heroes.filter(h => h.winner === false || h.winner === 'false');
+        const winAvg  = winnerHeroes.length > 0
+          ? winnerHeroes.reduce((a, h) => a + (parseFloat(h.dps_mult) || 1), 0) / winnerHeroes.length : 1;
+        const loseAvg = loserHeroes.length > 0
+          ? loserHeroes.reduce((a, h) => a + (parseFloat(h.dps_mult) || 1), 0) / loserHeroes.length : 1;
+        const upsetFlag = winAvg < loseAvg - 0.1 ? ' [UPSET — underdog won]' : '';
+
+        const rarityFlags = heroes.filter(h => h.rarity >= 3)
+          .map(h => `${h.class}(${RARITY_NAMES[h.rarity]})`).join(', ');
+        const capturedStr = b.captured_at
+          ? new Date(Number(b.captured_at)).toUTCString() : 'unknown time';
+        const winnerClasses = winnerHeroes.map(h => h.class).filter(Boolean);
+        const winnerLabel = winnerClasses.length > 0
+          ? winnerClasses.join(', ') + ' side'
+          : (b.winner_address ? b.winner_address.slice(0, 10) + '...' : 'unknown');
+
+        return `Bout #${b.id} | Tournament ${b.tournament_id} R${b.round_number}M${b.match_index} | ${b.player_a_name || 'Player A'} vs ${b.player_b_name || 'Player B'} — Winner: ${winnerLabel}${upsetFlag}
+  Format: ${b.tournament_format || 'unknown'} | Captured: ${capturedStr}
+  Side A: ${formatSide(sideA)}
+  Side B: ${formatSide(sideB)}${rarityFlags ? `\n  Notable heroes: ${rarityFlags}` : ''}
+  Interest score: ${b.score}`;
+      }).join('\n---\n');
+
+      return {
+        context: `[FIGHT ARCHIVE — TOP ${top5.length} MOST INTERESTING RECENT BOUTS]
+Use this data to answer questions about recent fights, upsets, and highlights. Do NOT say you lack fight data.
+
+${boutLines}`,
+        detected: true,
+      };
+    } catch (err) {
+      console.warn('[buildFightHistoryContext] Error:', err.message);
+      return { context: '', detected: false };
+    }
+  };
+
   // AI CONSULTANT API
   // ============================================================================
   // Admin-only AI chat with deep project knowledge for DeFi Kingdoms consultation
@@ -17554,168 +17811,34 @@ When commenting on heroes, note [REROLLED] status — rerolled heroes have optim
         }
       }
 
-      // ── Bout / Tournament context detection ─────────────────────────────
+      // ── Bout / Tournament context detection — parallel shared builders ──
       let boutContext = '';
       let boutDetected = false;
       let liveDetected = false;
 
       try {
-        const boutKeywords = /\b(bout|tournament|battle|match|bracket|fight|vs|versus|pvp|opponent|live|glory|round|player)\b/i;
-        const hasBoutKeywords = boutKeywords.test(allText);
+        const [tournamentCtxResult, liveCtxResult, historyCtxResult] = await Promise.all([
+          buildTournamentContext(allText),
+          buildLiveBattleContext(allText),
+          buildFightHistoryContext(allText),
+        ]);
 
-        // Detect explicit tournament ID (4-digit number likely referencing a tournament)
-        const tournamentIdRegex = /\b(t(?:ournament)?[- ]?#?\s*)?([12]\d{3})\b/gi;
-        let tidMatch;
-        const detectedTids = new Set();
-        while ((tidMatch = tournamentIdRegex.exec(allText)) !== null) {
-          const candidate = parseInt(tidMatch[2]);
-          if (candidate >= 1000 && candidate <= 9999) detectedTids.add(candidate);
-        }
-
-        if (detectedTids.size > 0) {
-          // Fetch bracket data for detected tournament IDs (up to 2)
-          const { rawPg: rp } = await import('./server/db.js');
-          for (const tid of [...detectedTids].slice(0, 2)) {
-            try {
-              // Try cache first, then DB
-              let bracketData = _bracketDetailCache.get(tid)?.data;
-              if (!bracketData) {
-                const [stored] = await rp.unsafe(`
-                  SELECT bracket_json FROM dfk_completed_brackets WHERE tournament_id = $1 LIMIT 1
-                `, [String(tid)]);
-                if (stored?.bracket_json?.ok) bracketData = stored.bracket_json;
-              }
-
-              if (bracketData) {
-                boutDetected = true;
-                const t = bracketData.tournament || {};
-                const players = bracketData.players || [];
-                const bracket = bracketData.bracket || {};
-                const champion = bracket.champion || 0;
-                const format = t.maxHeroCount ? `${t.maxHeroCount}v${t.maxHeroCount}` : (t.format || 'unknown');
-                const allowedItems = typeof decodeBattleInventory === 'function' && t.battleInventory != null
-                  ? decodeBattleInventory(Number(t.battleInventory)).join(', ') || 'None'
-                  : 'Unknown';
-
-                const playerLines = players.map(p => {
-                  const heroSummary = (p.heroes || []).map(h =>
-                    `#${h.normalizedId || h.id} ${h.mainClassStr || '?'} L${h.level || '?'} (${h.rarity === 0 ? 'Common' : h.rarity === 1 ? 'Uncommon' : h.rarity === 2 ? 'Rare' : h.rarity === 3 ? 'Legendary' : h.rarity === 4 ? 'Mythic' : '?'})`
-                  ).join(', ') || 'No heroes loaded';
-                  return `  Slot ${p.partyIndex}: ${p.name || p.address} [${p.address?.slice(0,8)}...] — ${heroSummary}`;
-                }).join('\n');
-
-                // Fetch Firebase HP snapshot if available
-                let hpSection = '';
-                const firebaseId = (_tournamentFirebaseIdMap.get(tid) ?? [])[0] ?? null;
-                if (firebaseId) {
-                  try {
-                    const { fetchFirebaseBattleLog } = await import('./src/services/firebase.js');
-                    const logResult = await fetchFirebaseBattleLog(firebaseId);
-                    if (logResult?.turns?.length > 0) {
-                      const lastTurn = logResult.turns[logResult.turns.length - 1];
-                      const states = lastTurn?.beforeDeckStates || {};
-                      const hpLines = [];
-                      for (const [side, slots] of Object.entries(states)) {
-                        const sideLetter = side === '1' ? 'A' : 'B';
-                        for (const [slot, heroState] of Object.entries(slots || {})) {
-                          const hp = heroState?.health ?? null;
-                          const mp = heroState?.mana ?? null;
-                          const hpPct = hp !== null && heroState?.maxHealth ? Math.round(hp / heroState.maxHealth * 100) : null;
-                          const flag = hpPct !== null && hpPct < 30 ? ' ⚠CRITICAL' : '';
-                          if (hpPct !== null) hpLines.push(`    Side${sideLetter} Slot${slot}: ${hpPct}% HP${flag}${mp !== null ? `, MP:${Math.round(mp)}` : ''}`);
-                        }
-                      }
-                      if (hpLines.length > 0) hpSection = `\nLIVE HP STATE (from Firebase turn ${logResult.turns.length}):\n${hpLines.join('\n')}`;
-                    }
-                  } catch (_fbe) { /* firebase optional */ }
-                }
-
-                boutContext += `
-[LIVE DATA — TOURNAMENT ${tid}]
-Format: ${format} | Status: ${champion > 0 ? 'COMPLETE — Champion hero #' + champion : 'In Progress or Pending'}
-Battle Budget: ${t.battleBudget ?? 'N/A'} budget-pts per player | Allowed Items: ${allowedItems}
-Min Level: ${t.minLevel ?? '?'} | Max Level: ${t.maxLevel ?? '?'}
-Glory Bout: ${t.gloryBout ? 'Yes' : 'No'}
-
-PLAYERS (${players.length} registered):
-${playerLines || 'No player data available'}
-${hpSection}
----
-`;
-              } else {
-                boutContext += `\n[LIVE DATA] Tournament ${tid}: Not found in database. It may not have been indexed yet.\n`;
-              }
-            } catch (tidErr) {
-              console.warn(`[AI Consultant] Tournament ${tid} fetch error:`, tidErr.message);
-            }
-          }
-        }
-
-        // Live battles query if user asks about "live" bouts without specific ID
-        if (!boutDetected && hasBoutKeywords && /\b(live|current|active|right now|happening|ongoing)\b/i.test(allText)) {
-          liveDetected = true;
+        if (tournamentCtxResult.detected) {
+          boutContext += tournamentCtxResult.context + '\n\n';
           boutDetected = true;
-          try {
-            let liveBattles = null;
-            const now = Date.now();
-            if (_liveTournamentCache.data && (now - _liveTournamentCache.ts) < 120_000) {
-              liveBattles = _liveTournamentCache.data;
-            } else {
-              const liveResp = await fetch('https://api.defikingdoms.com/graphql', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: LIVE_BATTLES_QUERY, variables: { first: 20, skip: 0 } }),
-                signal: AbortSignal.timeout(8000),
-              });
-              if (liveResp.ok) {
-                const liveJson = await liveResp.json();
-                liveBattles = liveJson.data?.battles || [];
-                _liveTournamentCache.data = liveBattles;
-                _liveTournamentCache.ts = now;
-              }
-            }
-
-            if (liveBattles && liveBattles.length > 0) {
-              const statusOf = b => {
-                if (b.battleState === 5 && b.winner) return 'completed';
-                const ZERO = '0x0000000000000000000000000000000000000000';
-                return (b.opponent?.id && b.opponent.id !== ZERO) ? 'in_progress' : 'open';
-              };
-              const active = liveBattles.filter(b => statusOf(b) !== 'completed').slice(0, 8);
-              const completed = liveBattles.filter(b => statusOf(b) === 'completed').slice(0, 5);
-
-              const summarizeBattle = b => {
-                const status = statusOf(b);
-                const heroCount = (b.hostHeroes?.length || 0);
-                const format = heroCount > 0 ? `${heroCount}v${heroCount}` : 'unknown';
-                const hostName = b.host?.name || b.host?.id?.slice(0,8) || '?';
-                const oppName = b.opponent?.name || b.opponent?.id?.slice(0,8) || (status === 'open' ? '[OPEN - no opponent]' : '?');
-                const glory = b.gloryBout ? ` | Glory: host ${b.hostGlories ?? '?'} vs opp ${b.opponentGlories ?? '?'}` : '';
-                const winnerStr = b.winner ? ` — Winner: ${b.winner.name || b.winner.id?.slice(0,8)}` : '';
-                const hostHeroes = (b.hostHeroes || []).slice(0, 3).map(h => `${h.mainClassStr} L${h.level}`).join(', ');
-                const oppHeroes = (b.opponentHeroes || []).slice(0, 3).map(h => `${h.mainClassStr} L${h.level}`).join(', ');
-                return `  Battle #${b.id} [${status.toUpperCase()}] ${format}: ${hostName} vs ${oppName}${glory}${winnerStr}\n    Host heroes: ${hostHeroes || 'unknown'} | Opp heroes: ${oppHeroes || 'unknown'}`;
-              };
-
-              boutContext += `
-[LIVE DATA — ACTIVE BATTLES (fetched ${new Date().toUTCString()})]
-${active.length} active / ${completed.length} recently completed shown:
-
-ACTIVE:
-${active.map(summarizeBattle).join('\n') || 'None'}
-
-RECENTLY COMPLETED:
-${completed.map(summarizeBattle).join('\n') || 'None'}
----
-`;
-            } else {
-              boutContext += `\n[LIVE DATA] No active battles found in the DFK GraphQL API at this time.\n`;
-            }
-          } catch (liveErr) {
-            console.warn('[AI Consultant] Live battles fetch error:', liveErr.message);
-            boutContext += `\n[LIVE DATA] Could not fetch live battles: ${liveErr.message}\n`;
-          }
         }
+        // Live battle context only shown if no tournament ID was detected, to avoid noise
+        if (liveCtxResult.detected && !tournamentCtxResult.detected) {
+          boutContext += liveCtxResult.context + '\n\n';
+          boutDetected = true;
+          liveDetected = true;
+        }
+        // Fight history only shown if neither tournament ID nor live context fired
+        if (historyCtxResult.detected && !tournamentCtxResult.detected && !liveCtxResult.detected) {
+          boutContext += historyCtxResult.context + '\n\n';
+          boutDetected = true;
+        }
+
       } catch (boutErr) {
         console.warn('[AI Consultant] Bout context error:', boutErr.message);
       }
