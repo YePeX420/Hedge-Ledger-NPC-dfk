@@ -44,7 +44,8 @@ interface PoolsResponse {
 }
 
 export default function AdminPools() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user' : '/admin';
   const [sortField, setSortField] = useState<SortField>("tvl");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   
@@ -136,7 +137,7 @@ export default function AdminPools() {
   };
 
   const handleRowClick = (pid: number) => {
-    setLocation(`/admin/pools/${pid}`);
+    setLocation(`${basePath}/pools/${pid}`);
   };
 
   return (

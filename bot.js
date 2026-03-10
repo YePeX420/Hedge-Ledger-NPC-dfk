@@ -7321,7 +7321,7 @@ async function startAdminWebServer() {
   // ============================================================================
   
   // GET /api/admin/pools - Get all pools with basic APR data
-  app.get('/api/admin/pools', isAdmin, async (req, res) => {
+  app.get('/api/admin/pools', isAdminOrHasTab('pools'), async (req, res) => {
     try {
       const cached = getCachedPoolAnalytics();
       
@@ -7390,7 +7390,7 @@ async function startAdminWebServer() {
   
   // GET /api/admin/pools/:pid/all-stakers - Get ALL wallets staked in a pool from indexed DB
   // NOTE: This route MUST be registered before /api/admin/pools/:pid to avoid route conflicts
-  app.get('/api/admin/pools/:pid/all-stakers', isAdmin, async (req, res) => {
+  app.get('/api/admin/pools/:pid/all-stakers', isAdminOrHasTab('pools'), async (req, res) => {
     try {
       const pid = parseInt(req.params.pid);
       console.log(`[HTTP] GET /api/admin/pools/${pid}/all-stakers`);
@@ -16712,7 +16712,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
   
   // GET /api/admin/pools/:pid - Get detailed pool data with APR breakdown
-  app.get('/api/admin/pools/:pid', isAdmin, async (req, res) => {
+  app.get('/api/admin/pools/:pid', isAdminOrHasTab('pools'), async (req, res) => {
     try {
       const pid = parseInt(req.params.pid);
       
@@ -16789,7 +16789,7 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   });
   
   // GET /api/admin/pools/:pid/providers - Get top LP providers for a pool
-  app.get('/api/admin/pools/:pid/providers', isAdmin, async (req, res) => {
+  app.get('/api/admin/pools/:pid/providers', isAdminOrHasTab('pools'), async (req, res) => {
     try {
       const pid = parseInt(req.params.pid);
       const limit = parseInt(req.query.limit) || 20;

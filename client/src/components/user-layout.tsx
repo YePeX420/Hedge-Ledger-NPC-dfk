@@ -28,6 +28,7 @@ import {
   BarChart3,
   Sparkles,
   ShoppingBag,
+  Droplets,
 } from 'lucide-react';
 
 interface NavItem {
@@ -37,6 +38,7 @@ interface NavItem {
 }
 
 const TAB_NAV: Record<string, NavItem> = {
+  'pools': { href: '/user/pools', label: 'Pools', icon: Droplets },
   'quest-optimizer': { href: '/user/quest-optimizer', label: 'Quest Optimizer', icon: Dumbbell },
   'ai-consultant': { href: '/user/ai-consultant', label: 'AI Consultant', icon: Bot },
   'yield-calculator': { href: '/user/yield-calculator', label: 'Yield Calculator', icon: TrendingUp },

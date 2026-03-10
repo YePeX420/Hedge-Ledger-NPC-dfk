@@ -73,6 +73,7 @@ const TOOL_GROUPS: ToolGroup[] = [
     label: 'Yield & Garden',
     description: 'Garden LP yield analysis and optimization',
     tabs: [
+      { id: 'pools', label: 'Pools', description: 'Liquidity pool analytics and staker data' },
       { id: 'yield-calculator', label: 'Yield Calculator', description: 'Garden LP yields' },
       { id: 'yield-optimizer', label: 'Yield Optimizer', description: 'Optimal pool allocations' },
       { id: 'gardening-calculator', label: 'Gardening Calculator', description: 'Garden rewards estimator' },

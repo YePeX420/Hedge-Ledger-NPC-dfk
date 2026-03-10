@@ -30,6 +30,7 @@ import {
   Layers,
   DollarSign,
   Leaf,
+  Droplets,
 } from 'lucide-react';
 
 interface UserSession {
@@ -57,6 +58,12 @@ const TAB_CONFIG: Record<string, { label: string; icon: any; href: string; descr
     icon: Bot, 
     href: '/user/ai-consultant',
     description: 'Get AI-powered game advice'
+  },
+  'pools': {
+    label: 'Pools',
+    icon: Droplets,
+    href: '/user/pools',
+    description: 'Liquidity pool analytics and staker data'
   },
   'yield-calculator': { 
     label: 'Yield Calculator', 

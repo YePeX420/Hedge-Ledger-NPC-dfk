@@ -619,6 +619,12 @@ function Router() {
       <Route path="/user/ai-consultant">
         {() => <UserToolRoute tab="ai-consultant"><AdminAIConsultant /></UserToolRoute>}
       </Route>
+      <Route path="/user/pools/:pid">
+        {() => <UserToolRoute tab="pools"><PoolDetailPage /></UserToolRoute>}
+      </Route>
+      <Route path="/user/pools">
+        {() => <UserToolRoute tab="pools"><AdminPools /></UserToolRoute>}
+      </Route>
       <Route path="/user/yield-calculator">
         {() => <UserToolRoute tab="yield-calculator"><AdminYieldCalculator /></UserToolRoute>}
       </Route>

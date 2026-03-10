@@ -139,7 +139,8 @@ interface AutoRunStatus {
 
 export default function PoolDetailPage() {
   const { pid } = useParams<{ pid: string }>();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user' : '/admin';
   const { toast } = useToast();
   const [workerCount, setWorkerCount] = useState<number>(4);
   const [autoRunInterval, setAutoRunInterval] = useState<string>("300000"); // 5 min default
@@ -365,7 +366,7 @@ export default function PoolDetailPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setLocation("/admin/pools")}
+            onClick={() => setLocation(`${basePath}/pools`)}
             data-testid="button-back"
           >
             <ArrowLeft className="h-4 w-4" />
