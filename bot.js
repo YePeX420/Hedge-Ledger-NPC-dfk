@@ -10344,17 +10344,15 @@ async function startAdminWebServer() {
           SELECT bracket_json, is_final FROM dfk_completed_brackets WHERE tournament_id = ${String(tournamentId)}
         `;
         if (stored?.bracket_json?.ok) {
-          const champion = stored.bracket_json?.bracket?.champion ?? 0;
-          if (stored.is_final && champion > 0) {
-            // Definitive completed snapshot with a known champion — serve from DB, no on-chain needed
+          if (stored.is_final) {
+            // Completed/cancelled tournament — on-chain slot is zeroed, DB is the only source.
+            // Serve regardless of whether champion is known; on-chain fetch would fail anyway.
             const data = stored.bracket_json;
-            _bracketDetailCache.set(tournamentId, { data, ts: Date.now() - 50_000 }); // short TTL so live data takes over if it becomes active again
+            _bracketDetailCache.set(tournamentId, { data, ts: Date.now() - 50_000 });
             return res.json(data);
           }
-          // is_final=true but champion=0 means the snapshot was captured before the tournament
-          // actually finished — fall through to on-chain to fetch the real terminal state.
-          // In-progress snapshot (is_final=false) also falls through to on-chain;
-          // if on-chain fails we'll fall back to the snapshot below.
+          // In-progress snapshot (is_final=false) — fall through to on-chain for fresh data;
+          // if on-chain fails the catch block will return the stored snapshot as fallback.
         }
       } catch (_dbReadErr) { /* non-fatal — proceed to on-chain */ }
 
@@ -10680,6 +10678,17 @@ async function startAdminWebServer() {
         res.json(responseData);
       } catch (err) {
         console.error(`[BracketDetail] Error for tournament ${tournamentId}:`, err.message);
+        // Fallback: if on-chain fetch failed and we have a stored DB snapshot, serve that.
+        try {
+          const { rawPg: rp } = await import('./server/db.js');
+          const [stored] = await rp`
+            SELECT bracket_json FROM dfk_completed_brackets WHERE tournament_id = ${String(tournamentId)}
+          `;
+          if (stored?.bracket_json?.ok) {
+            console.warn(`[BracketDetail] Serving DB fallback for tournament ${tournamentId} after on-chain error`);
+            return res.json(stored.bracket_json);
+          }
+        } catch (_) { /* fallback failed too — return original error */ }
         res.status(500).json({ ok: false, error: err.message });
       }
     });
