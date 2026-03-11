@@ -743,7 +743,8 @@ const STATE_BADGE: Record<string, { label: string; className: string }> = {
 };
 
 function ScheduledTournamentsTab() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  const basePath = location.startsWith('/user/') ? '/user/dfk-tournament' : '/admin/tournament';
   const [showCompleted, setShowCompleted] = useState(false);
 
   const { data, isLoading, refetch } = useQuery({
