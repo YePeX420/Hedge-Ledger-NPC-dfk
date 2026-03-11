@@ -6,3 +6,9 @@ id = "pQxG7Jgbkh3RxfF8yXeGg"
 uri = "file://docs/combat-stat-formulas.md"
 type = "text"
 title = "DFK Combat Stat Formulas"
+
+[[outputs]]
+id = "CJb2y_oBg01I2t9Nr4Gld"
+uri = "file://docs/pet-combat-bonuses.md"
+type = "text"
+title = "DFK Pet Combat Bonus System"
