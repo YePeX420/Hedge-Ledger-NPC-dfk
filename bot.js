@@ -9741,6 +9741,42 @@ async function startAdminWebServer() {
           created_at              TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      // Matchup AI predictions table
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_matchup_predictions (
+          id                    SERIAL PRIMARY KEY,
+          tournament_id         TEXT NOT NULL,
+          slot_a                INT  NOT NULL,
+          slot_b                INT  NOT NULL,
+          win_pct_a             NUMERIC(5,2),
+          win_pct_b             NUMERIC(5,2),
+          predicted_winner_slot INT,
+          factors               JSONB,
+          narrative             TEXT,
+          player_a_name         TEXT,
+          player_b_name         TEXT,
+          player_a_address      TEXT,
+          player_b_address      TEXT,
+          actual_winner_slot    INT,
+          was_correct           BOOLEAN,
+          resolved_at           TIMESTAMPTZ,
+          predicted_at          TIMESTAMPTZ DEFAULT NOW(),
+          created_at            TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(tournament_id, slot_a, slot_b)
+        )
+      `);
+      // Idempotent column additions for matchup predictions (safe to re-run)
+      for (const col of [
+        'ALTER TABLE dfk_matchup_predictions ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ',
+        'ALTER TABLE dfk_matchup_predictions ADD COLUMN IF NOT EXISTS predicted_at TIMESTAMPTZ DEFAULT NOW()',
+        'ALTER TABLE dfk_matchup_predictions ADD COLUMN IF NOT EXISTS player_a_name TEXT',
+        'ALTER TABLE dfk_matchup_predictions ADD COLUMN IF NOT EXISTS player_b_name TEXT',
+        'ALTER TABLE dfk_matchup_predictions ADD COLUMN IF NOT EXISTS player_a_address TEXT',
+        'ALTER TABLE dfk_matchup_predictions ADD COLUMN IF NOT EXISTS player_b_address TEXT',
+      ]) {
+        await rawPg.unsafe(col);
+      }
+
       // Add firebase_battle_id column if it doesn't exist yet (idempotent migration)
       await rawPg.unsafe(`
         ALTER TABLE dfk_tournament_bouts ADD COLUMN IF NOT EXISTS firebase_battle_id TEXT
@@ -10830,9 +10866,76 @@ async function startAdminWebServer() {
         narrative = aiResp.choices?.[0]?.message?.content?.trim() ?? null;
       } catch (_) { /* narrative stays null */ }
 
-      res.json({ ok: true, winPctA, winPctB, nameA, nameB, factors, narrative });
+      // Auto-save prediction to DB (upsert — one record per matchup)
+      const predictedWinnerSlot = winPctA >= 50 ? Number(slotA) : Number(slotB);
+      try {
+        const { rawPg: rp2 } = await import('./server/db.js');
+        await rp2.unsafe(`
+          INSERT INTO dfk_matchup_predictions
+            (tournament_id, slot_a, slot_b, win_pct_a, win_pct_b, predicted_winner_slot,
+             factors, narrative, player_a_address, player_b_address, player_a_name, player_b_name, predicted_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, NOW())
+          ON CONFLICT (tournament_id, slot_a, slot_b) DO UPDATE SET
+            win_pct_a = EXCLUDED.win_pct_a, win_pct_b = EXCLUDED.win_pct_b,
+            predicted_winner_slot = EXCLUDED.predicted_winner_slot,
+            factors = EXCLUDED.factors, narrative = EXCLUDED.narrative,
+            player_a_name = EXCLUDED.player_a_name, player_b_name = EXCLUDED.player_b_name,
+            predicted_at = EXCLUDED.predicted_at,
+            actual_winner_slot = NULL, was_correct = NULL, resolved_at = NULL
+        `, [
+          tournamentId, Number(slotA), Number(slotB), winPctA, winPctB, predictedWinnerSlot,
+          JSON.stringify(factors), narrative,
+          playerA.address, playerB.address, nameA, nameB,
+        ]);
+      } catch (saveErr) {
+        console.warn('[AI Matchup] Failed to save prediction:', saveErr.message);
+      }
+
+      res.json({ ok: true, winPctA, winPctB, nameA, nameB, factors, narrative, predictedAt: new Date().toISOString() });
     } catch (err) {
       console.error('[AI Matchup] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/tournament/bracket/:id/matchup-prediction — fetch saved prediction for a matchup
+  app.get('/api/admin/tournament/bracket/:id/matchup-prediction', isAdminOrHasTab('dfk-tournaments', 'previous-tournaments'), async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      const slotA = parseInt(req.query.slotA ?? '0');
+      const slotB = parseInt(req.query.slotB ?? '0');
+      if (isNaN(tournamentId) || isNaN(slotA) || isNaN(slotB)) return res.status(400).json({ ok: false, error: 'Invalid params' });
+      const { rawPg: rp } = await import('./server/db.js');
+      const rows = await rp.unsafe(
+        `SELECT * FROM dfk_matchup_predictions WHERE tournament_id=$1 AND slot_a=$2 AND slot_b=$3 LIMIT 1`,
+        [tournamentId, slotA, slotB]
+      );
+      if (!rows.length) return res.json({ ok: true, prediction: null });
+      res.json({ ok: true, prediction: rows[0] });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // PATCH /api/admin/tournament/bracket/:id/matchup-prediction — resolve a prediction with actual winner
+  app.patch('/api/admin/tournament/bracket/:id/matchup-prediction', isAdminOrHasTab('dfk-tournaments', 'previous-tournaments'), async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      const { slotA, slotB, actualWinnerSlot } = req.body;
+      if (isNaN(tournamentId) || slotA == null || slotB == null || actualWinnerSlot == null) {
+        return res.status(400).json({ ok: false, error: 'Invalid params' });
+      }
+      const { rawPg: rp } = await import('./server/db.js');
+      const rows = await rp.unsafe(
+        `UPDATE dfk_matchup_predictions
+         SET actual_winner_slot=$1, was_correct=(predicted_winner_slot=$1), resolved_at=NOW()
+         WHERE tournament_id=$2 AND slot_a=$3 AND slot_b=$4
+         RETURNING *`,
+        [actualWinnerSlot, tournamentId, Number(slotA), Number(slotB)]
+      );
+      if (!rows.length) return res.json({ ok: false, error: 'Prediction not found' });
+      res.json({ ok: true, prediction: rows[0] });
+    } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }
   });

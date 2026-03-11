@@ -3,7 +3,7 @@ import { useLocation, useParams } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft, Zap, Users, Shield, Trophy, ChevronDown, Star, RefreshCw, Activity, AlertTriangle,
-  ScrollText, FlaskConical, Search, Database, ExternalLink,
+  ScrollText, FlaskConical, Search, Database, ExternalLink, Radio, CheckCircle2, XCircle, Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,10 +43,29 @@ interface AiMatchupResult {
   nameA: string;
   nameB: string;
   narrative?: string | null;
+  predictedAt?: string | null;
   factors: {
     init: number; dps: number; surv: number;
     passiveDps: number; comp: number; experience: number;
   };
+}
+
+interface SavedPrediction {
+  id: number;
+  tournament_id: number;
+  slot_a: number;
+  slot_b: number;
+  win_pct_a: number;
+  win_pct_b: number;
+  predicted_winner_slot: number;
+  factors: Record<string, number>;
+  narrative: string | null;
+  player_a_name: string | null;
+  player_b_name: string | null;
+  actual_winner_slot: number | null;
+  was_correct: boolean | null;
+  predicted_at: string;
+  resolved_at: string | null;
 }
 
 interface BoutHero {
@@ -285,13 +304,31 @@ function InitiativeSection({ nameA, nameB, heroesA, heroesB }: {
 
 // ─── AI Prediction Section ────────────────────────────────────────────────────
 
-function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers, onNarrativeGenerated }: {
+function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers, onNarrativeGenerated, winnerSlot }: {
   tournamentId: string; slotA: number; slotB: number; hasBothPlayers: boolean;
   onNarrativeGenerated?: (narrative: string) => void;
+  winnerSlot?: number | null;
 }) {
   const [result, setResult] = useState<(AiMatchupResult & { loading?: boolean; error?: string }) | null>(null);
+  const [saved, setSaved] = useState<SavedPrediction | null>(null);
+  const [savedLoading, setSavedLoading] = useState(true);
+  const hasAutoRun = useRef(false);
 
-  const run = async () => {
+  // Load any existing saved prediction on mount
+  useEffect(() => {
+    setSavedLoading(true);
+    fetch(`/api/admin/tournament/bracket/${tournamentId}/matchup-prediction?slotA=${slotA}&slotB=${slotB}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok && data.prediction) setSaved(data.prediction);
+      })
+      .catch(() => {})
+      .finally(() => setSavedLoading(false));
+  }, [tournamentId, slotA, slotB]);
+
+  const run = async (isAuto = false) => {
+    if (isAuto && hasAutoRun.current) return;
+    if (isAuto) hasAutoRun.current = true;
     setResult({ loading: true } as any);
     try {
       const res = await fetch(`/api/admin/tournament/bracket/${tournamentId}/ai-matchup`, {
@@ -302,11 +339,54 @@ function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers, onNar
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Analysis failed');
       setResult({ ...data, loading: false });
+      // Refresh saved state from DB after auto-save
+      const sv = await fetch(`/api/admin/tournament/bracket/${tournamentId}/matchup-prediction?slotA=${slotA}&slotB=${slotB}`);
+      const svData = await sv.json();
+      if (svData.ok && svData.prediction) setSaved(svData.prediction);
       if (data.narrative && onNarrativeGenerated) onNarrativeGenerated(data.narrative);
     } catch (err: any) {
       setResult({ loading: false, error: err.message } as any);
     }
   };
+
+  // Auto-run when both players are loaded (only once per mount)
+  useEffect(() => {
+    if (hasBothPlayers && !hasAutoRun.current && !savedLoading) {
+      run(true);
+    }
+  }, [hasBothPlayers, savedLoading]);
+
+  // Resolve prediction when match result is available
+  useEffect(() => {
+    if (winnerSlot == null || !saved || saved.actual_winner_slot != null) return;
+    fetch(`/api/admin/tournament/bracket/${tournamentId}/matchup-prediction`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slotA, slotB, actualWinnerSlot: winnerSlot }),
+    })
+      .then(r => r.json())
+      .then(data => { if (data.ok) setSaved(data.prediction); })
+      .catch(() => {});
+  }, [winnerSlot, saved]);
+
+  const display = result && !result.loading && !result.error ? result
+    : saved ? {
+        winPctA: Number(saved.win_pct_a), winPctB: Number(saved.win_pct_b),
+        nameA: saved.player_a_name ?? `Slot #${slotA}`,
+        nameB: saved.player_b_name ?? `Slot #${slotB}`,
+        narrative: saved.narrative,
+        factors: saved.factors as any,
+        predictedAt: saved.predicted_at,
+      } : null;
+
+  const FACTORS = [
+    { label: 'Initiative',    key: 'init',       weight: 25 },
+    { label: 'Effective DPS', key: 'dps',        weight: 30 },
+    { label: 'Survivability', key: 'surv',       weight: 20 },
+    { label: 'Passive DPS',   key: 'synergy',    weight: 10 },
+    { label: 'Team Comp',     key: 'comp',       weight: 10 },
+    { label: 'Experience',    key: 'experience', weight:  5 },
+  ];
 
   return (
     <Card>
@@ -315,42 +395,79 @@ function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers, onNar
           <CardTitle className="text-sm flex items-center gap-2">
             <Zap className="w-4 h-4 text-yellow-400" />
             AI Win Prediction
+            {result?.loading && (
+              <span className="text-[10px] font-normal text-muted-foreground flex items-center gap-1">
+                <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Analyzing…
+              </span>
+            )}
+            {saved && !result?.loading && (
+              <span className="text-[10px] font-normal text-muted-foreground/60 flex items-center gap-1">
+                <Save className="w-2.5 h-2.5" /> Saved
+              </span>
+            )}
           </CardTitle>
-          <Button size="sm" onClick={run} disabled={result?.loading || !hasBothPlayers} data-testid="btn-run-prediction">
-            <Zap className="w-3.5 h-3.5 mr-1.5" />
-            {result?.loading ? 'Analyzing…' : result && !result.error ? 'Re-run' : 'Run Prediction'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {saved?.was_correct === true && (
+              <Badge className="text-[10px] bg-green-500/20 text-green-400 border-green-500/30 gap-1">
+                <CheckCircle2 className="w-2.5 h-2.5" /> Correct
+              </Badge>
+            )}
+            {saved?.was_correct === false && (
+              <Badge className="text-[10px] bg-amber-500/20 text-amber-400 border-amber-500/30 gap-1">
+                <XCircle className="w-2.5 h-2.5" /> Upset
+              </Badge>
+            )}
+            <Button
+              size="sm" variant="outline"
+              onClick={() => run(false)}
+              disabled={result?.loading || !hasBothPlayers}
+              data-testid="btn-run-prediction"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${result?.loading ? 'animate-spin' : ''}`} />
+              {result?.loading ? 'Analyzing…' : display ? 'Re-run' : 'Run Now'}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {!hasBothPlayers && !result && (
-          <p className="text-sm text-muted-foreground">Both players must have hero data loaded to run a prediction.</p>
+        {!hasBothPlayers && !display && !result?.loading && (
+          <p className="text-sm text-muted-foreground">Waiting for both players to have hero data loaded…</p>
         )}
         {result?.error && <p className="text-sm text-destructive">{result.error}</p>}
-        {result && !result.loading && !result.error && (
+        {display && (
           <>
             <div className="space-y-1.5">
               <div className="flex justify-between text-sm font-semibold">
-                <span className="text-green-400">{result.nameA} — {result.winPctA}%</span>
-                <span className="text-red-400">{result.winPctB}% — {result.nameB}</span>
+                <span className={display.winPctA >= 50 ? 'text-green-400' : 'text-muted-foreground'}>
+                  {display.nameA} — {display.winPctA}%
+                </span>
+                <span className={display.winPctB >= 50 ? 'text-green-400' : 'text-muted-foreground'}>
+                  {display.winPctB}% — {display.nameB}
+                </span>
               </div>
               <div className="h-4 rounded-full overflow-hidden flex bg-muted">
-                <div className="h-full bg-green-500 transition-all duration-700" style={{ width: `${result.winPctA}%` }} />
-                <div className="h-full bg-red-500 transition-all duration-700" style={{ width: `${result.winPctB}%` }} />
+                <div className="h-full bg-green-500 transition-all duration-700" style={{ width: `${display.winPctA}%` }} />
+                <div className="h-full bg-red-500/70 transition-all duration-700" style={{ width: `${display.winPctB}%` }} />
               </div>
+              {display.predictedAt && (
+                <p className="text-[10px] text-muted-foreground/50 text-right">
+                  Predicted {new Date(display.predictedAt).toLocaleString()}
+                  {saved?.actual_winner_slot != null && (
+                    <span className="ml-2">
+                      · Actual winner: Slot #{saved.actual_winner_slot}
+                      {saved.was_correct
+                        ? <span className="text-green-400 ml-1">✓ Correct</span>
+                        : <span className="text-amber-400 ml-1">✗ Upset</span>}
+                    </span>
+                  )}
+                </p>
+              )}
             </div>
-            {result.factors && (
+            {display.factors && (
               <div className="rounded-md bg-muted/20 p-3 space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Factor Breakdown</p>
-                {([
-                  { label: 'Initiative',    key: 'init',       weight: 25 },
-                  { label: 'Effective DPS', key: 'dps',        weight: 30 },
-                  { label: 'Survivability', key: 'surv',       weight: 20 },
-                  { label: 'Passive DPS',   key: 'passiveDps', weight: 10 },
-                  { label: 'Team Comp',     key: 'comp',       weight: 10 },
-                  { label: 'Experience',    key: 'experience', weight:  5 },
-                ] as { label: string; key: keyof typeof result.factors; weight: number }[]).map(({ label, key, weight }) => {
-                  const aVal = result.factors![key];
+                {FACTORS.map(({ label, key, weight }) => {
+                  const aVal = Number(display.factors?.[key] ?? 50);
                   const bVal = Math.round((100 - aVal) * 10) / 10;
                   return (
                     <div key={key} className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
@@ -364,16 +481,16 @@ function AiPredictionSection({ tournamentId, slotA, slotB, hasBothPlayers, onNar
                   );
                 })}
                 <div className="pt-1 border-t border-border/40 flex justify-between text-[10px] text-muted-foreground/50">
-                  <span>{result.nameA}</span><span>{result.nameB}</span>
+                  <span>{display.nameA}</span><span>{display.nameB}</span>
                 </div>
               </div>
             )}
-            {result.narrative && (
+            {display.narrative && (
               <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-blue-400 mb-1.5 flex items-center gap-1.5">
                   <Star className="w-3 h-3" /> Strategic Assessment
                 </p>
-                <p className="text-sm text-muted-foreground leading-relaxed">{result.narrative}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{display.narrative}</p>
               </div>
             )}
           </>
@@ -1016,9 +1133,12 @@ export default function TournamentMatchupPage() {
       if (!res.ok) throw new Error('Failed to load bracket');
       return res.json();
     },
+    refetchInterval: (data) =>
+      (data as BracketDetailResponse | undefined)?.tournament?.stateLabel === 'in_progress' ? 20000 : false,
   });
 
   const tournament = bracketData?.tournament;
+  const isLive = tournament?.stateLabel === 'in_progress';
   const players = bracketData?.players ?? [];
 
   const playerA = players.find(p => p.partyIndex === slotA) ?? null;
@@ -1034,10 +1154,20 @@ export default function TournamentMatchupPage() {
       return res.json();
     },
     enabled: !!bracketData,
-    refetchInterval: tournament?.stateLabel === 'in_progress' ? 20000 : false,
+    refetchInterval: isLive ? 20000 : false,
   });
 
   const hasBothPlayers = !!(playerA?.heroes?.length && playerB?.heroes?.length);
+
+  // Derive winner slot from completed bouts in fight history
+  const winnerSlot = (() => {
+    const bouts = histData?.bouts ?? [];
+    const completed = bouts.find(b => b.isComplete && b.winnerAddress);
+    if (!completed) return null;
+    if (playerA?.address && completed.winnerAddress?.toLowerCase() === playerA.address.toLowerCase()) return slotA;
+    if (playerB?.address && completed.winnerAddress?.toLowerCase() === playerB.address.toLowerCase()) return slotB;
+    return null;
+  })();
 
   if (bracketLoading) {
     return (
@@ -1070,17 +1200,19 @@ export default function TournamentMatchupPage() {
             {nameA} <span className="text-muted-foreground font-normal">vs</span> {nameB}
           </h1>
           {tournament && (
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
               {tournament.name}
-              {tournament.stateLabel === 'in_progress' && (
-                <span className="ml-2 text-green-400 font-semibold animate-pulse">● Live</span>
+              {isLive && (
+                <span className="text-green-400 font-semibold flex items-center gap-1">
+                  <Radio className="w-3 h-3 animate-pulse" /> Live · refreshes every 20s
+                </span>
               )}
             </p>
           )}
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} data-testid="button-refresh">
           <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isFetching ? 'animate-spin' : ''}`} />
-          Refresh
+          {isFetching ? 'Refreshing…' : 'Refresh'}
         </Button>
       </div>
 
@@ -1143,6 +1275,7 @@ export default function TournamentMatchupPage() {
         slotB={slotB}
         hasBothPlayers={hasBothPlayers}
         onNarrativeGenerated={setStrategicNarrative}
+        winnerSlot={winnerSlot}
       />
 
       {/* Section 4: Fight History */}
@@ -1152,9 +1285,9 @@ export default function TournamentMatchupPage() {
             <CardTitle className="text-sm flex items-center gap-2">
               <Shield className="w-4 h-4" />
               Fight History
-              {tournament?.stateLabel === 'in_progress' && (
-                <Badge variant="outline" className="text-[9px] text-green-400 border-green-500/40 ml-1">
-                  Live — refreshes every 20s
+              {isLive && (
+                <Badge variant="outline" className="text-[9px] text-green-400 border-green-500/40 ml-1 gap-1">
+                  <Radio className="w-2.5 h-2.5 animate-pulse" /> Live — refreshes every 20s
                 </Badge>
               )}
             </CardTitle>
