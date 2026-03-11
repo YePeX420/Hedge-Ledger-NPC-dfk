@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "pQxG7Jgbkh3RxfF8yXeGg"
+uri = "file://docs/combat-stat-formulas.md"
+type = "text"
+title = "DFK Combat Stat Formulas"
