@@ -255,29 +255,45 @@ export default function PveHunts() {
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
               Active Zones ({zones.length})
             </p>
-            {zones.map((zone) => (
-              <Card
-                key={zone.activity.id}
-                data-testid={`zone-card-${zone.activity.id}`}
-                className={`cursor-pointer transition-colors ${selectedZone?.activity.id === zone.activity.id ? 'border-primary bg-accent/30' : 'hover-elevate'}`}
-                onClick={() => { setSelectedZone(zone); setActiveTab('party'); }}
-              >
-                <CardContent className="p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm truncate">{zone.activity.name}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline" className="text-[10px]">
-                          {CHAIN_LABELS[zone.activity.chain_id] || `Chain ${zone.activity.chain_id}`}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">{zone.heroes.length} heroes</span>
+            {zones.map((zone) => {
+              const partyEta = (() => {
+                const now = Math.floor(Date.now() / 1000);
+                const maxFull = Math.max(...zone.heroes.map(h => h.staminaFullAt || 0));
+                if (maxFull <= now) return 'All Ready';
+                return formatTimeUntil(maxFull);
+              })();
+              const heroIds = zone.heroes.map(h => `#${h.normalizedId || h.id}`);
+              return (
+                <Card
+                  key={zone.activity.id}
+                  data-testid={`zone-card-${zone.activity.id}`}
+                  className={`cursor-pointer transition-colors ${selectedZone?.activity.id === zone.activity.id ? 'border-primary bg-accent/30' : 'hover-elevate'}`}
+                  onClick={() => { setSelectedZone(zone); setActiveTab('party'); }}
+                >
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{zone.activity.name}</p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-[10px]">
+                            {CHAIN_LABELS[zone.activity.chain_id] || `Chain ${zone.activity.chain_id}`}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">{zone.heroes.length} heroes</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/70 mt-1 truncate font-mono">
+                          {heroIds.join(', ')}
+                        </p>
+                        <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground/60">
+                          <Clock className="w-3 h-3" />
+                          <span>Party ETA: {partyEta}</span>
+                        </div>
                       </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
                     </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
             <p className="text-xs text-muted-foreground/60 mt-3 px-1">
               {data.totalHeroes} total heroes in wallet
             </p>

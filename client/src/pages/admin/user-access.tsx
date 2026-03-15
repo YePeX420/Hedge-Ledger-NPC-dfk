@@ -112,6 +112,7 @@ const TOOL_GROUPS: ToolGroup[] = [
       { id: 'previous-tournaments', label: 'Previous Tournaments', description: 'Completed tournament archive' },
       { id: 'fight-history', label: 'Fight History', description: 'Indexed bout archive and analysis' },
       { id: 'pve-droprates', label: 'PVE Drop Rates', description: 'Multi-chain PVE loot drop rate tracker' },
+      { id: 'pve-hunts', label: 'PVE Hunt Tracker', description: 'Live hunt expedition tracker with party analysis' },
     ],
   },
   {

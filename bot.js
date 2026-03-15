@@ -19162,37 +19162,55 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       return res.status(400).json({ error: 'zone and heroes[] required' });
     }
     try {
-      const heroSummary = heroes.map(h =>
-        `Hero #${h.normalizedId || h.id}: Lv${h.level} ${h.mainClassStr}/${h.subClassStr || '?'}, ` +
-        `STR:${h.strength} DEX:${h.dexterity} AGI:${h.agility} INT:${h.intelligence} WIS:${h.wisdom} VIT:${h.vitality} END:${h.endurance} LCK:${h.luck}, ` +
-        `HP:${h.hp} MP:${h.mp}, Profession:${h.professionStr || '?'}, Rarity:${h.rarity || 0}`
-      ).join('\n');
+      const avgLevel = heroes.reduce((s, h) => s + (h.level || 1), 0) / heroes.length;
+      const heroSummary = heroes.map(h => {
+        const agi = h.agility || 0, lck = h.luck || 0, dex = h.dexterity || 0;
+        const vit = h.vitality || 0, end = h.endurance || 0, int = h.intelligence || 0;
+        const speed = Math.round(agi * 1.7 * avgLevel / 100);
+        const eva = Math.round((agi * 1.5 + lck * 0.5) * avgLevel / 10000);
+        const blk = Math.round((dex * 1.5 + lck * 0.5) * avgLevel / 10000);
+        const sblk = Math.round((int * 1.5 + lck * 0.5) * avgLevel / 10000);
+        const pred = Math.round((end * 1.0 + agi * 0.5) * avgLevel / 5);
+        const mred = Math.round((int * 1.0 + end * 0.5) * avgLevel / 5);
+        return [
+          `Hero #${h.normalizedId || h.id}: Lv${h.level} ${h.mainClassStr}/${h.subClassStr || '?'} (Rarity:${h.rarity || 0}, Prof:${h.professionStr || '?'})`,
+          `  Stats: STR:${h.strength} DEX:${dex} AGI:${agi} INT:${int} WIS:${h.wisdom || 0} VIT:${vit} END:${end} LCK:${lck}`,
+          `  HP:${h.hp} MP:${h.mp}`,
+          `  Combat: SPEED:${speed} EVA:${eva} BLK:${blk} SBLK:${sblk} P.RED:${pred} M.RED:${mred}`,
+        ].join('\n');
+      }).join('\n\n');
 
       const encounterSummary = (recentEncounters || []).length > 0
         ? (() => {
             const wins = recentEncounters.filter(e => e.result === 'WIN').length;
+            const losses = recentEncounters.filter(e => e.result === 'LOSS').length;
+            const flees = recentEncounters.filter(e => e.result === 'FLEE').length;
             const total = recentEncounters.length;
             const enemies = [...new Set(recentEncounters.map(e => e.enemy_id || e.enemyId))];
-            return `Recent ${total} encounters: ${wins}/${total} wins (${((wins/total)*100).toFixed(0)}%). Enemies faced: ${enemies.join(', ')}.`;
+            const lowHpCount = recentEncounters.filter(e => e.surviving_hero_hp != null && e.surviving_hero_hp < 30).length;
+            return `Recent ${total} encounters: ${wins}W/${losses}L/${flees}F (${((wins/total)*100).toFixed(0)}% win rate). Enemies faced: ${enemies.join(', ')}.${lowHpCount > 0 ? ` ${lowHpCount} fights ended with critical HP (<30%).` : ''}`;
           })()
         : 'No recent encounter data available.';
 
+      const chainLabel = zone.activity?.chain_id === 53935 ? 'Crystalvale (DFK)' : zone.activity?.chain_id === 8217 ? 'Serendale (Klaytn)' : `Chain ${zone.activity?.chain_id}`;
       const prompt = [
-        `You are a DeFi Kingdoms PvE hunt advisor. Analyze this party's fitness for their current hunt zone.`,
+        `You are a DeFi Kingdoms PvE hunt advisor. Analyze this party's combat fitness for their current hunt zone.`,
         ``,
-        `Zone: ${zone.activity?.name || 'Unknown'} (Activity ID: ${zone.activity?.activity_id || '?'}, Chain: ${zone.activity?.chain_id || '?'})`,
+        `Zone: ${zone.activity?.name || 'Unknown'} (Activity ID: ${zone.activity?.activity_id || '?'}, ${chainLabel})`,
         ``,
-        `Party (${heroes.length} heroes):`,
+        `Party (${heroes.length} heroes, avg level ${avgLevel.toFixed(1)}):`,
         heroSummary,
+        ``,
+        `Combat stat notes: SPEED=turn priority, EVA=dodge chance, BLK=physical block, SBLK=spell block, P.RED=physical damage reduction, M.RED=magic damage reduction.`,
         ``,
         encounterSummary,
         ``,
         `Give 3-5 bullet points covering:`,
-        `1. Overall party fitness for this zone`,
-        `2. Weakest hero and why`,
+        `1. Overall party combat fitness for this zone (consider defensive stats, HP pools, damage output)`,
+        `2. Weakest hero and why (cite specific combat stats)`,
         `3. Stamina/rest strategy`,
-        `4. Whether to re-queue here or switch zones`,
-        `5. Any hero swaps that would improve results`,
+        `4. Whether to re-queue here or switch zones based on win rate and survivability`,
+        `5. Any hero swaps that would improve party composition`,
         `Be direct and specific. Reference hero IDs and classes.`,
       ].join('\n');
 
