@@ -400,7 +400,10 @@ export default function PveHunts() {
                               data-testid={`encounter-row-${enc.id}`}
                               className="flex flex-wrap items-center gap-2 p-2 rounded-md bg-muted/30 text-sm"
                             >
-                              <span className="font-medium min-w-[120px]">{formatEnemyName(enc.enemy_id)}</span>
+                              <span className="font-medium min-w-[120px]">
+                                {formatEnemyName(enc.enemy_id)}
+                                <span className="text-[10px] text-muted-foreground/50 ml-1 font-mono">{enc.enemy_id}</span>
+                              </span>
                               <Badge
                                 variant={enc.result === 'WIN' ? 'default' : 'destructive'}
                                 className="text-[10px]"
