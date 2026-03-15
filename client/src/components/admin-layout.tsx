@@ -100,6 +100,7 @@ const combatItems: NavItem[] = [
   { href: '/admin/fight-history', label: 'Fight History', icon: History },
   { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: ShoppingBag },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: TrendingDown },
+  { href: '/admin/pve-hunts', label: 'PVE Hunt Tracker', icon: Swords },
 ];
 
 // ─── Summon ────────────────────────────────────────────────────────────────

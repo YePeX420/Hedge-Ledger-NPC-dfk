@@ -19078,6 +19078,141 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
   });
 
   // ============================================================================
+  // PVE HUNT TRACKER API
+  // ============================================================================
+
+  app.get('/api/admin/pve/live-hunts', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+    const { wallet } = req.query;
+    if (!wallet || typeof wallet !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+      return res.status(400).json({ error: 'Valid wallet address required' });
+    }
+    try {
+      const { getAllHeroesByOwner } = await import('./onchain-data.js');
+      const { rawPg } = await import('./server/db.js');
+
+      const [heroes, activities] = await Promise.all([
+        getAllHeroesByOwner(wallet),
+        rawPg.unsafe(`SELECT * FROM pve_activities WHERE activity_type = 'hunt'`)
+      ]);
+
+      const activityByAddr = {};
+      for (const a of activities) {
+        activityByAddr[a.contract_address.toLowerCase()] = a;
+      }
+
+      const zones = {};
+      for (const hero of (heroes || [])) {
+        const quest = (hero.currentQuest || '').toLowerCase();
+        if (!quest || quest === '0x0000000000000000000000000000000000000000') continue;
+        const activity = activityByAddr[quest];
+        if (!activity) continue;
+        const key = activity.id;
+        if (!zones[key]) {
+          zones[key] = { activity, heroes: [] };
+        }
+        zones[key].heroes.push(hero);
+      }
+
+      res.json({ wallet, zones: Object.values(zones), totalHeroes: (heroes || []).length });
+    } catch (err) {
+      console.error('[PVE Hunts] Error:', err.message);
+      res.status(500).json({ error: 'Failed to fetch live hunts: ' + err.message });
+    }
+  });
+
+  app.get('/api/admin/pve/hunt-encounters', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+    const { wallet, activityId, limit: limitStr } = req.query;
+    if (!wallet || typeof wallet !== 'string') {
+      return res.status(400).json({ error: 'wallet required' });
+    }
+    const limit = Math.min(Math.max(parseInt(limitStr) || 30, 1), 100);
+    try {
+      const { rawPg } = await import('./server/db.js');
+      let rows;
+      if (activityId) {
+        const activity = await rawPg.unsafe(`SELECT * FROM pve_activities WHERE id = $1`, [activityId]);
+        if (activity.length === 0) return res.json({ encounters: [] });
+        const realmMap = { 53935: 'dfk', 8217: 'klaytn' };
+        const realm = realmMap[activity[0].chain_id] || 'dfk';
+        rows = await rawPg.unsafe(`
+          SELECT * FROM hunting_encounters
+          WHERE LOWER(wallet_address) = LOWER($1)
+            AND realm = $2
+          ORDER BY encountered_at DESC
+          LIMIT $3
+        `, [wallet, realm, limit]);
+      } else {
+        rows = await rawPg.unsafe(`
+          SELECT * FROM hunting_encounters
+          WHERE LOWER(wallet_address) = LOWER($1)
+          ORDER BY encountered_at DESC
+          LIMIT $2
+        `, [wallet, limit]);
+      }
+      res.json({ encounters: rows });
+    } catch (err) {
+      console.error('[PVE Hunts] Encounters error:', err.message);
+      res.status(500).json({ error: 'Failed to fetch encounters: ' + err.message });
+    }
+  });
+
+  app.post('/api/admin/pve/hunt-ai-analysis', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+    const { wallet, zone, heroes, recentEncounters } = req.body;
+    if (!zone || !heroes || !Array.isArray(heroes)) {
+      return res.status(400).json({ error: 'zone and heroes[] required' });
+    }
+    try {
+      const heroSummary = heroes.map(h =>
+        `Hero #${h.normalizedId || h.id}: Lv${h.level} ${h.mainClassStr}/${h.subClassStr || '?'}, ` +
+        `STR:${h.strength} DEX:${h.dexterity} AGI:${h.agility} INT:${h.intelligence} WIS:${h.wisdom} VIT:${h.vitality} END:${h.endurance} LCK:${h.luck}, ` +
+        `HP:${h.hp} MP:${h.mp}, Profession:${h.professionStr || '?'}, Rarity:${h.rarity || 0}`
+      ).join('\n');
+
+      const encounterSummary = (recentEncounters || []).length > 0
+        ? (() => {
+            const wins = recentEncounters.filter(e => e.result === 'WIN').length;
+            const total = recentEncounters.length;
+            const enemies = [...new Set(recentEncounters.map(e => e.enemy_id || e.enemyId))];
+            return `Recent ${total} encounters: ${wins}/${total} wins (${((wins/total)*100).toFixed(0)}%). Enemies faced: ${enemies.join(', ')}.`;
+          })()
+        : 'No recent encounter data available.';
+
+      const prompt = [
+        `You are a DeFi Kingdoms PvE hunt advisor. Analyze this party's fitness for their current hunt zone.`,
+        ``,
+        `Zone: ${zone.activity?.name || 'Unknown'} (Activity ID: ${zone.activity?.activity_id || '?'}, Chain: ${zone.activity?.chain_id || '?'})`,
+        ``,
+        `Party (${heroes.length} heroes):`,
+        heroSummary,
+        ``,
+        encounterSummary,
+        ``,
+        `Give 3-5 bullet points covering:`,
+        `1. Overall party fitness for this zone`,
+        `2. Weakest hero and why`,
+        `3. Stamina/rest strategy`,
+        `4. Whether to re-queue here or switch zones`,
+        `5. Any hero swaps that would improve results`,
+        `Be direct and specific. Reference hero IDs and classes.`,
+      ].join('\n');
+
+      const { default: OpenAI } = await import('openai');
+      const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const completion = await oai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 400,
+        temperature: 0.7,
+      });
+      const analysis = completion.choices[0]?.message?.content?.trim() ?? null;
+      res.json({ ok: true, analysis });
+    } catch (err) {
+      console.error('[PVE Hunts] AI analysis error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // ============================================================================
   // LEAGUE SIGNUP API
   // ============================================================================
   // Challenge league signup endpoints with smurf detection integration
