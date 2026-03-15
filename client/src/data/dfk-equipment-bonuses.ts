@@ -8,7 +8,13 @@
 // ─── Bonus Maps ───────────────────────────────────────────────────────────────
 
 export const WEAPON_BONUS = {
-  // Code 19: Daze proc chance on channeling enemies — not a stat modifier, display-only tooltip
+  // TODO: Code 19 = Daze proc chance on channeling enemies (confirmed from DFK WeaponCore source).
+  // It is NOT a stat modifier — it triggers a Daze status effect, not a percentage bonus to any
+  // combat stat. Gore Staff bonus1=19 scalar=280 means 28% Daze chance on channeling targets.
+  // This should be surfaced as a weapon tooltip annotation in the UI, not fed into stat totals.
+  // Residual REC gap (~2.2%) and Speed gap (~1.1) on hero #300659 are NOT caused by code 19.
+  // REC gap likely comes from an unidentified armor recovery scalar or pet recovery contribution.
+  // Speed gap likely comes from pet speed bonus rounding differences (fractional vs integer).
   20: 'blkChance',
   21: 'sblkChance',
   22: 'critDamage',
