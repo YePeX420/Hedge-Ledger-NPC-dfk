@@ -581,15 +581,15 @@ function BattleLogViewer({
     }
   };
 
-  // Live auto-refresh every 15s when open and live
+  // Live auto-refresh every 5s when open and live
   useEffect(() => {
     if (isLive && state.open) {
-      intervalRef.current = setInterval(() => fetchLog(true), 15000);
+      intervalRef.current = setInterval(() => fetchLog(true), 5000);
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [isLive, state.open, boutId, tournamentId]);
 
-  const turns = state.data?.turns ?? [];
+  const turns = [...(state.data?.turns ?? [])].reverse();
   const hasTurns = turns.length > 0;
   const battleId = state.data?.battleId;
 
@@ -623,7 +623,7 @@ function BattleLogViewer({
           {state.error && <p className="text-xs text-destructive py-1">{state.error}</p>}
           {state.data && !hasTurns && (
             <div className="text-xs text-muted-foreground py-1.5 space-y-1">
-              <p>No turn data found for this bout in Firebase.{isLive && ' Refreshing every 15s…'}</p>
+              <p>No turn data found for this bout in Firebase.{isLive && ' Refreshing every 5s…'}</p>
               {state.data.indexedFirebaseId ? (
                 <p className="text-[10px] font-mono text-muted-foreground/50 break-all">
                   Tried: {state.data.indexedFirebaseId}
@@ -643,7 +643,7 @@ function BattleLogViewer({
             </div>
           )}
           {hasTurns && (
-            <div className="space-y-0.5 max-h-52 overflow-y-auto">
+            <div className={`space-y-0.5 overflow-y-auto ${isLive ? '' : 'max-h-52'}`}>
               {/* Hero HP snapshot */}
               {state.data?.heroHpSnapshot && (
                 <div className="mb-2 pb-1.5 border-b border-border/30">
