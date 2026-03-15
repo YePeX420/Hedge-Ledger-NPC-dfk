@@ -1,0 +1,237 @@
+I checked the six heroes from tournament #2013, bout #1 against both your dark app screens and the beige DFK replay screens.
+
+The biggest thing to separate is this:
+
+The beige DFK panel is a **live in-battle snapshot**, not a pure static card. You can see that because HP/MP are already changed and several heroes have active FX icons. So some mismatches are real formula bugs in the app, and some are just missing **combat-state overlays** on top of otherwise-correct base stats.
+
+DFK’s official combat docs also matter here: active traits are one-use battle actions, while passive traits apply while the hero is present. Relevant effects for this bout are: **Iron Skin** = 15% less physical damage taken for 80 ticks, **Speed** = 20% Haste and +500 Initiative, **Blind** = -25% accuracy, **Exhaust** = 50% slow for one turn, **Foresight** = +3% EVA, **Headstrong / Clear Vision / Chatterbox** = +2.5% SER plus +32.5% to Daze / Blind / Silence resistance respectively, **Giant Slayer** = conditional damage only, and **Last Stand** only triggers after dropping below 30% HP, then grants Unstoppable and +300% P.DEF / M.DEF for 15 ticks. ([DeFi Kingdoms][1])
+
+## What is definitely wrong in the app
+
+1. **Your helper functions are using the wrong level input.**
+   The coefficients in your markdown are mostly fine, but the DFK UI is matching **effective level = heroLevel - 1** for displayed dynamic scores and for the stat-score helpers used by BLK / SBLK / REC / SER / EVA / Speed.
+
+   Example: hero **#791530** shows AGI dynamic score **5.6%** in DFK, while your app shows **5.2%**. Using your exact coefficient set at **level 9** gives ~**5.58%**, which matches DFK. The same pattern repeats across all six heroes.
+
+2. **P.RED and M.RED are off by a factor of 2 in the app.**
+   This one is already called out in your markdown, and the screenshots confirm it.
+
+   * DFK is using **P.RED = P.DEF / 5**
+   * DFK is using **M.RED = M.DEF / 5**
+
+   Then live effects stack on top of that. So for **#791530**:
+
+   * P.DEF = 54.7
+   * Base P.RED = 54.7 / 5 = **10.94**
+   * DFK shows **25.94**
+   * the extra **+15** is exactly **Iron Skin** being active in the replay snapshot.
+
+   Same thing on **#300659**:
+
+   * 49.2 / 5 = **9.84**
+   * DFK shows **24.84**
+   * again, **+15 Iron Skin**.
+
+3. **You are not fully layering live combat effects onto the replay snapshot.**
+   That matters for:
+
+   * **#791530** and **#300659** P.RED because of **Iron Skin**
+   * likely **#774450** speed because **Speed** can spike initiative/speed state
+   * heroes with weird replay-only values like **#243282 EVA -1.64** or altered speed, which should not be used as pure baseline calibration.
+
+4. **Passive trait resolution is probably failing exactly the way your markdown says.**
+   Your note about `Number(hero.passive1)` silently breaking string-name passives fits these screenshots very well.
+   If passive lookup fails, you lose things like:
+
+   * **Foresight** on **#791530** (+3 EVA)
+   * **Headstrong** on **#243282 / #791530 / #765191 / #788278** (+2.5 SER)
+   * **Chatterbox** on **#765191 / #300659** (+2.5 SER)
+   * **Clear Vision** on **#788278** (+2.5 SER)
+
+5. **Offhand support is incomplete.**
+   Hero **#243282** is the clearest proof.
+
+   * App P.DEF = **116.25**
+   * DFK P.DEF = **141.3**
+   * Delta = **25.05**
+
+   END is **25**.
+   That strongly suggests the **Squire’s Shield** is adding about **+100% of END to P.DEF**, and the app is not applying that offhand contribution.
+
+6. **Feather Duster EVA is being ignored.**
+   This is the cleanest pattern in the whole set.
+
+   All four Feather Duster users are short by almost exactly **+5 EVA** in the app after you account for level-9 bases and passives:
+
+   * **#791530**: DFK 13.28 vs base+Foresight ≈ 8.17 → missing **~5.11**
+   * **#765191**: DFK 8.44 vs base ≈ 3.39 → missing **~5.05**
+   * **#300659**: DFK 8.22 vs base ≈ 3.21 → missing **~5.01**
+   * **#788278**: DFK 8.23 vs base ≈ 3.14 → missing **~5.09**
+
+   That lines up almost perfectly with your markdown note that armor EVA is being divided by **1,000,000** instead of **10,000**.
+
+7. **Feather Duster is also contributing REC that the app is undercounting.**
+   The same four Feather Duster users are all low on REC by about **2.5–3.6 points**, which matches your markdown suspicion around armor code **41 / recoveryChance**.
+
+8. **Gore Staff handling is still incomplete.**
+   Both Gore Staff heroes, **#791530** and **#300659**, are still badly low on **BLK / SBLK / REC** even after fixing level input and passives.
+   That matches your own note that weapon bonus **code 19** is still unmapped.
+
+9. **Primary-arms formulas are a separate unresolved gap.**
+   Your markdown is mostly about vitals, but the screenshots show your app is still off on:
+
+   * Attack / Spell
+   * P.ACC / M.ACC
+   * CSC / CDM / CHC
+
+   The clearest examples are:
+
+   * **#765191** app 37 / 71 vs DFK 68 / 103
+   * **#788278** app 35 / 70 vs DFK 58 / 98
+   * **#774450** app Attack 57 vs DFK 70
+
+   So even after the vitals fixes, you still need a separate pass for primary-arms formulas.
+
+## Hero-by-hero audit
+
+**#243282 Knight / Thief**
+
+* P.DEF gap is almost certainly **missing offhand shield math**.
+* P.RED fixes cleanly with **/5**.
+* BLK / SBLK are also undercounted, and the same hero is the strongest evidence that **offhand block support** is missing too.
+* DFK speed and EVA here are clearly **live-state values**, not safe baseline calibration points.
+
+**#791530 Priest / Ninja**
+
+* P.DEF and M.DEF are already correct.
+* P.RED mismatch is explained by **/5 + active Iron Skin**.
+* M.RED mismatch is explained by **/5**.
+* Dynamic scores fit once you use **effective level 9**.
+* Remaining BLK / SBLK / REC gap points to **Gore Staff code 19** plus the Feather Duster REC issue.
+* EVA is low in the app because it is missing both the proper **Foresight +3** and the apparent **Feather Duster +5 EVA** layer. ([DeFi Kingdoms][1])
+
+**#765191 Wizard / Scholar**
+
+* P.DEF / M.DEF are fine.
+* P.RED / M.RED are the same factor-of-2 bug.
+* SER should include **Headstrong + Chatterbox = +5 SER**.
+* SBLK gets much closer once you use level 9.
+* EVA is again missing the same apparent **Feather Duster +5**.
+* Primary arms are still materially low.
+
+**#774450 Pirate / Knight**
+
+* P.DEF / M.DEF are fine.
+* P.RED / M.RED are factor-of-2 bug.
+* Giant Slayer and Last Stand do **not** change static vitals unless their conditions are met.
+* This hero is a bad baseline calibration target for speed because the replay snapshot likely includes live state from **Speed** and other FX. ([DeFi Kingdoms][1])
+* Attack / P.ACC / CSC / CDM / CHC are still off, so primary-arms formulas remain incomplete.
+
+**#300659 Priest / Scholar**
+
+* P.DEF / M.DEF are fine.
+* P.RED is again **/5 + Iron Skin active**.
+* M.RED is **/5**.
+* Chatterbox should be adding **+2.5 SER** and Silence resistance.
+* BLK / SBLK / REC undercount again points at the **Gore Staff + Feather Duster** combination. ([DeFi Kingdoms][1])
+
+**#788278 Wizard / Knight**
+
+* P.DEF / M.DEF are fine.
+* P.RED / M.RED need **/5**.
+* SER should include **Clear Vision + Headstrong = +5 SER**.
+* EVA again looks short by the same Feather Duster-sized amount.
+* Speed is already close enough that this looks more like **weapon-speed / state layering** than a broken core coefficient.
+* Primary arms still need separate work.
+
+## Trait impact across this bout
+
+These are the passive/active trait effects that matter to the sheet values you’re comparing:
+
+* **Headstrong**: #243282, #791530, #765191, #788278
+  Should add **+2.5 SER** and **+32.5 Daze resist**. ([DeFi Kingdoms][1])
+
+* **Foresight**: #791530
+  Should add **+3 EVA**. ([DeFi Kingdoms][1])
+
+* **Chatterbox**: #765191, #300659
+  Should add **+2.5 SER** and **+32.5 Silence resist**. ([DeFi Kingdoms][1])
+
+* **Clear Vision**: #788278
+  Should add **+2.5 SER** and **+32.5 Blind resist**. ([DeFi Kingdoms][1])
+
+* **Giant Slayer**: #774450
+  Conditional damage only; it should not change the static vitals card by itself. ([DeFi Kingdoms][1])
+
+* **Last Stand**: #243282, #774450, #300659
+  Conditional only; once triggered below 30% HP, it massively changes live P.DEF/M.DEF. It should not be baked into baseline stats. ([DeFi Kingdoms][1])
+
+* **Iron Skin**: #791530, #300659
+  This one directly explains the **+15 P.RED** on those two replay snapshots. ([DeFi Kingdoms][1])
+
+* **Speed**: #774450, #788278
+  This is a live-state effect, not a base-card stat, so replay speed can diverge from baseline once it has been cast. ([DeFi Kingdoms][1])
+
+## Equipment impact across these six heroes
+
+What looks correct already:
+
+* Armor raw-defense + stat-scalar structure for **Feather Duster** and **Wishbone Breastplate**
+* Most M.DEF values
+* Most P.DEF values except the shielded Knight/Thief
+
+What still looks missing or wrong:
+
+* **Offhand shield contributions** on #243282
+* **Feather Duster EVA**
+* **Feather Duster REC**
+* **Gore Staff code 19**
+* weapon bonus divisor **/1000 instead of /10000**
+* some pet bonus mapping
+* all primary-arms formulas
+
+## Patch order I would use
+
+```ts
+const effectiveLevel = Math.max(hero.level - 1, 1);
+
+// dynamic scores
+dyn = singleStatScore(stat, effectiveLevel, coeff);
+
+// base secondary stats
+blkBase  = doubleStatScore(DEX, LCK, effectiveLevel, blkCoeff);
+sblkBase = doubleStatScore(INT, LCK, effectiveLevel, sblkCoeff);
+recBase  = doubleStatScore(VIT, LCK, effectiveLevel, recCoeff);
+serBase  = doubleStatScore(END, LCK, effectiveLevel, serCoeff);
+evaBase  = doubleStatScore(AGI, LCK, effectiveLevel, evaCoeff);
+spdBase  = singleStatScore(AGI, effectiveLevel, speedCoeff);
+
+// defenses
+pRed = pDef / 5;
+mRed = mDef / 5;
+
+// live overlays
+if (ironSkinActive) pRed += 15;
+
+// then add passives, armor, accessory, pet, weapon, offhand
+// and only after that apply replay-state buffs/debuffs
+```
+
+My confidence is highest on these fixes:
+
+* **effective level = level - 1**
+* **P.RED / M.RED = DEF / 5**
+* **Feather Duster EVA missing**
+* **offhand shield missing**
+* **Iron Skin explaining the two boosted P.RED snapshots**
+
+The parts that still need one more reverse-engineering pass are:
+
+* exact **Gore Staff code 19**
+* exact **Feather Duster REC code 41**
+* exact **pet bonus mappings**
+* the whole **primary-arms formula stack**
+
+The clean next step is to turn these six heroes into golden test fixtures in two layers: **base-card math** and **live-combat overlay**.
+
+[1]: https://docs.defikingdoms.com/gameplay/combat "Combat | DeFi Kingdoms"

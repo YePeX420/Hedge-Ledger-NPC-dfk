@@ -1,0 +1,152 @@
+Yes. This wizard is the best validator so far.
+
+I reran the Wizard/Knight against your workbook, and the dark-background app sheet is basically your **static pre-bout model**, while the beige tournament card is a **live in-battle snapshot**. That distinction matters a lot here. The wizard is at **0/459 HP**, has non-full MP, and has an active FX timer, so some of the beige values are almost certainly post-buff/debuff combat state, not pure loadout formulas. Your workbook is here: [DFK Dynamic Stats.xlsx](sandbox:/mnt/data/DFK%20Dynamic%20Stats.xlsx)
+
+What this second hero validates with high confidence:
+
+First, your app’s **dynamic stat score formulas** look right. For #788278 at avg LEVEL 10, the workbook base comes out to about:
+
+* STR 1.64
+* DEX 4.19
+* AGI 2.69
+* VIT 3.16
+* END 2.53
+* INT 7.88
+* WIS 8.58
+* LCK 3.90
+
+That is essentially your dark app panel: 1.6 / 4.2 / 2.7 / 3.2 / 2.5 / 7.9 / 8.6 / 3.9. So I would stop changing the core dynamic-score formulas.
+
+Second, **P.DEF and M.DEF are also right** in the app for this wizard: 50.8 and 142.0 match exactly.
+
+Third, the wizard proves your **P.RED / M.RED bug**. The card shows:
+
+* `P.RED = 10.16% = 50.8 / (50 * 10)`
+* `M.RED = 28.40% = 142.0 / (50 * 10)`
+
+Your app shows exactly half of those: 5.08% and 14.20%. So the app is almost certainly dividing by `100 * avgLevel` instead of `50 * avgLevel`.
+
+Use:
+
+```ts
+pRedPct = 100 * pDef / (50 * avgBattleLevel)
+mRedPct = 100 * mDef / (50 * avgBattleLevel)
+```
+
+or equivalently:
+
+```ts
+pRedPct = 2 * pDef / avgBattleLevel
+mRedPct = 2 * mDef / avgBattleLevel
+```
+
+This same relationship also fit the Priest card you sent earlier, so this is now a strong fix, not a guess.
+
+The next strong finding is **EVA**. For the wizard:
+
+* app EVA = **2.99**
+* card EVA = **8.23**
+* delta = **+5.24**
+
+For the priest:
+
+* workbook-style base EVA was about **3.0**
+* card EVA was **8.22**
+* delta = about **+5.2**
+
+That recurring +5.2 across both heroes is too clean to ignore. The official armor schema has a direct `evasion` field on armor (`DisplayDefenseInfo.evasion`), separate from bonus-code mappings, so this looks like your app is probably **not adding armor EVA** yet. ([DeFi Kingdoms Developers][1])
+
+So the static formula should be:
+
+```ts
+evaStatic =
+  evaDynamic(agi, lck, avgBattleLevel)
+  + armor.displayDefenseInfo.evasion
+  + armorBonus8
+  + accessoryBonus6
+  + passiveTraitEvasion
+```
+
+and then only after that do you apply live combat buffs/debuffs.
+
+This also means two important fields are **not** bonus-code lookups:
+
+* armor EVA comes from the armor’s explicit `evasion` field, not a bonus code, and
+* weapon speed comes from the weapon’s explicit `speedModifier`, not a bonus code. The weapon docs define `speedModifier` and its conversion logic directly. ([DeFi Kingdoms Developers][2])
+
+So your current architecture should separate:
+
+```ts
+displayedCombatStat =
+  baseWorkbookFormula
+  + staticEquipmentFields
+  + staticEquipmentBonusCodes
+  + passiveTraitBonuses
+  + class/passive permanent effects
+  + temporary battle FX
+```
+
+The wizard also helps explain why some remaining gaps should **not** be solved by changing the base formulas.
+
+For example:
+
+* app BLK = **4.13**
+* card BLK = **2.32**
+
+That is a **negative** delta of 1.81. But the official static equipment mappings for weapon/armor/accessory/offhand only define **increases** to block chance, not negative block chance bonuses. So a lower live BLK here is much more consistent with an in-battle effect than with a missing static equipment mapping. ([DeFi Kingdoms Developers][3])
+
+By contrast:
+
+* app SBLK = **7.09**
+* card SBLK = **7.66**
+
+That small positive delta could still be a missing static weapon/armor/accessory spell-block bonus, because those mappings do exist. ([DeFi Kingdoms Developers][3])
+
+The wizard’s live FX also line up with official Wizard combat skills. The Wizard combat page says:
+
+* **Arcane Mastery** grants Silence resistance based on WIS.
+* **Arcane Barrier** can grant party-wide **EVA** and **Resistance to Silence, Fear, and Confusion** for a duration. ([DeFi Kingdoms][4])
+
+That is a very good fit for the wizard card having:
+
+* unusually high **EVA**
+* elevated **Silence**
+* elevated **Confuse**
+* an active FX timer
+
+So I would treat the wizard’s beige-card resist panel as a **combat-state output**, not a static loadout target. ([DeFi Kingdoms][4])
+
+Same issue with the priest: the official Priest skill tree includes mid-battle effects that can change combat-state stats, including:
+
+* **Swiftness** granting AGI,
+* **Prayer of Clarity+** preventing Fear/Silence,
+* **Divine Martyr** granting allies effective HP/WIS/INT/VIT,
+* **Warpriest** granting effective EVA and reducing magical damage taken. ([DeFi Kingdoms][5])
+
+So the priest screenshot should also be treated as a live bout snapshot, not a clean static baseline. ([DeFi Kingdoms][5])
+
+That leaves a clean implementation plan:
+
+1. Keep your workbook dynamic-stat formulas as they are.
+2. Fix `P.RED` and `M.RED` to `DEF / (50 * avgBattleLevel)`.
+3. Add the armor’s direct `evasion` field into EVA.
+4. Add weapon `speedModifier` from the standalone weapon field, not from bonus mappings. ([DeFi Kingdoms Developers][3])
+5. Keep equipment bonus maps context-sensitive by source contract/slot.
+6. Build a separate **live combat FX layer** for buffs/debuffs/status-driven changes.
+7. Do **not** let pet combat bonuses block you right now. My read of the official roadmap is that pet combat bonuses are still a current priority item to be revealed/used, which suggests they are not the main explanation for these tournament stat gaps yet. ([docs.defikingdoms.com][6])
+
+So the strongest takeaways from this wizard are:
+
+* **Confirmed bug:** `P.RED / M.RED` denominator.
+* **Very likely missing static field:** armor EVA.
+* **Very likely missing static field:** weapon speed modifier.
+* **Do not overfit base formulas to beige-card values:** those screens are live combat state.
+
+If you want, the next useful step is for me to turn this into a **field-by-field reconciliation template** for Replit: static formula, static equipment layer, passive layer, live FX layer, and expected source for each vital.
+
+[1]: https://devs.defikingdoms.com/nfts/equipment/armor?utm_source=chatgpt.com "Armor | DFK Developers"
+[2]: https://devs.defikingdoms.com/nfts/equipment/armor "Armor | DFK Developers"
+[3]: https://devs.defikingdoms.com/nfts/equipment/weapons "Weapons | DFK Developers"
+[4]: https://docs.defikingdoms.com/gameplay/combat/wizard?utm_source=chatgpt.com "Wizard | DeFi Kingdoms"
+[5]: https://docs.defikingdoms.com/gameplay/combat/priest?utm_source=chatgpt.com "Priest | DeFi Kingdoms"
+[6]: https://docs.defikingdoms.com/roadmap?utm_source=chatgpt.com "Roadmap - DeFi Kingdoms"

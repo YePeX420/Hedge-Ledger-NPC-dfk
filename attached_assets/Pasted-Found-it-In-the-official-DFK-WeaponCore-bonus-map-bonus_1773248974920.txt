@@ -1,0 +1,90 @@
+Found it. In the official DFK **WeaponCore** bonus map, **bonus code 19** is **“gain X% chance to inflict Daze on basic attack when targeting a channeling enemy.”** The same map shows **code 20** is the actual **Block chance** bonus. Bonus **7** is the generic “Daze on hit” proc, which helps confirm that **19 is a separate anti-channel conditional effect**, not a BLK stat. ([DeFi Kingdoms Developers][1])
+
+DFK also documents that equipment mappings are **contract-specific**: shared mappings live separately, while unique mappings are defined on each contract’s page. So Replit should add this under a **WeaponCore-specific bonus map**, not a single global `bonusCode -> meaning` table. The WeaponCore interface exposes `bonus1..bonus4` and `bonusScalar1..bonusScalar4` through `getWeapon` / `getUserWeapons`, so this is directly decodable from weapon data. ([DeFi Kingdoms Developers][2])
+
+Combat-side meaning: **Channel** is the charge-up state for a spell, and **Daze** sets the target back by 500 initiative and **interrupts channeling**. So code 19 should be implemented as a **conditional combat proc**: it only checks on **basic attacks**, only when the **target is currently channeling**, and on proc it applies **Daze**. ([DeFi Kingdoms][3])
+
+Paste this into Replit:
+
+```ts
+// DFK WeaponCore official bonus mapping:
+// 19 = Gain X% chance to inflict Daze on basic attack when targeting a channeling enemy
+// 20 = Increase Block chance by +X%
+
+type BonusKind = 'sheet_stat' | 'conditional_proc';
+
+type WeaponBonusDef = {
+  key: string;
+  label: string;
+  kind: BonusKind;
+  appliesToHeroSheet: boolean;
+  scalarDecoder: (raw: number) => number; // use your existing weapon % decoder
+  stat?: 'BLK' | 'SBLK' | 'CHC' | 'CSC';
+  trigger?: 'basic_attack';
+  condition?: (ctx: CombatContext) => boolean;
+  effect?: (ctx: CombatContext, chance: number) => void;
+};
+
+const WEAPON_BONUS_MAP: Record<number, WeaponBonusDef> = {
+  19: {
+    key: 'daze_vs_channeling_on_basic_attack',
+    label: 'Daze vs channeling target on basic attack',
+    kind: 'conditional_proc',
+    appliesToHeroSheet: false,
+    scalarDecoder: decodeWeaponPercent, // same decoder family as code 20
+    trigger: 'basic_attack',
+    condition: (ctx) => ctx.target.isChanneling === true,
+    effect: (ctx, chance) => {
+      ctx.pendingProcs.push({
+        chance,
+        apply: () => ctx.target.applyStatus('DAZE'),
+      });
+    },
+  },
+
+  20: {
+    key: 'block_chance',
+    label: 'Block chance',
+    kind: 'sheet_stat',
+    appliesToHeroSheet: true,
+    scalarDecoder: decodeWeaponPercent,
+    stat: 'BLK',
+  },
+};
+
+function applyWeaponBonus(
+  hero: HeroSheet,
+  ctx: CombatContext,
+  bonusId: number,
+  rawScalar: number
+) {
+  const def = WEAPON_BONUS_MAP[bonusId];
+  if (!def) {
+    console.warn(`Unknown WeaponCore bonus ${bonusId} (raw scalar ${rawScalar})`);
+    return;
+  }
+
+  const value = def.scalarDecoder(rawScalar);
+
+  if (def.kind === 'sheet_stat' && def.stat) {
+    hero[def.stat] += value;
+    return;
+  }
+
+  if (
+    def.kind === 'conditional_proc' &&
+    def.trigger === 'basic_attack' &&
+    def.condition?.(ctx)
+  ) {
+    def.effect?.(ctx, value);
+  }
+}
+```
+
+Assuming your corrected weapon-percent decoder is the same one you use for code 20, a raw scalar of **280** would decode as a **28% proc chance** for code 19, not `+0.30 BLK`. So the remaining BLK gap in your screenshot is coming from somewhere else; **don’t use code 19 to force the block total to match**.
+
+If Replit does not simulate combat state yet, the minimum correct behavior is: **map and display code 19 as a weapon conditional effect/tool-tip, and exclude it from sheet stat totals**.
+
+[1]: https://devs.defikingdoms.com/nfts/equipment/weapons "Weapons | DFK Developers"
+[2]: https://devs.defikingdoms.com/nfts/equipment "Equipment | DFK Developers"
+[3]: https://docs.defikingdoms.com/gameplay/combat "Combat | DeFi Kingdoms"
