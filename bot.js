@@ -15518,29 +15518,27 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
       console.log('[Sniper] Fetching heroes from indexed database (genes_status = complete)...');
       
       // Query indexed tavern heroes with complete gene data (no limit - search all)
-      // Skip tavern fetch if in wallet mode
+      // Always fetch tavern heroes (needed for tavern mode, myHero mode, and wallet mode)
       let indexedResult = [];
-      if (!isWalletMode) {
-        indexedResult = await rawPg`
-          SELECT
-            hero_id, normalized_id, realm, native_token,
-            main_class, sub_class, profession,
-            rarity, level, generation, summons, max_summons, price_native,
-            trait_score, combat_power, genes_status, stat_genes, visual_genes,
-            main_class_r1, main_class_r2, main_class_r3,
-            sub_class_r1, sub_class_r2, sub_class_r3,
-            active1, active2, passive1, passive2,
-            active1_r1, active1_r2, active1_r3,
-            active2_r1, active2_r2, active2_r3,
-            passive1_r1, passive1_r2, passive1_r3,
-            passive2_r1, passive2_r2, passive2_r3
-          FROM tavern_heroes
-          WHERE genes_status = 'complete'
-          ORDER BY price_native ASC NULLS LAST
-        `;
-      }
+      indexedResult = await rawPg`
+        SELECT
+          hero_id, normalized_id, realm, native_token,
+          main_class, sub_class, profession,
+          rarity, level, generation, summons, max_summons, price_native,
+          trait_score, combat_power, genes_status, stat_genes, visual_genes,
+          main_class_r1, main_class_r2, main_class_r3,
+          sub_class_r1, sub_class_r2, sub_class_r3,
+          active1, active2, passive1, passive2,
+          active1_r1, active1_r2, active1_r3,
+          active2_r1, active2_r2, active2_r3,
+          passive1_r1, passive1_r2, passive1_r3,
+          passive2_r1, passive2_r2, passive2_r3
+        FROM tavern_heroes
+        WHERE genes_status = 'complete'
+        ORDER BY price_native ASC NULLS LAST
+      `;
       
-      const apiResponse = isWalletMode ? walletHeroes : (indexedResult || []);
+      const apiResponse = indexedResult || [];
       console.log('[Sniper] Database returned', apiResponse.length, 'heroes with complete genes');
       
       
@@ -16092,7 +16090,63 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
       const isTargetProfession = (h) => targetProfessionSet.has((h.profession || '').toLowerCase());
       const isTargetHero = (h) => isTargetClass(h) || isTargetProfession(h);
       
-      if (isMyHeroMode && userHero) {
+      if (isWalletMode && walletHeroes.length === 0) {
+        console.log(`[Sniper] Wallet mode but no wallet heroes found - returning empty results`);
+        return res.json({
+          ok: true,
+          pairs: [],
+          meta: {
+            totalHeroesSearched: 0,
+            totalPairsEvaluated: 0,
+            searchMode: 'wallet',
+            walletAddress,
+            message: 'No heroes found in this wallet'
+          }
+        });
+      } else if (isWalletMode) {
+        // ============================================================
+        // WALLET MODE: Pair each wallet hero with tavern heroes
+        // Like "My Hero" mode but for every hero in the wallet
+        // ============================================================
+        console.log(`[Sniper] Wallet mode - pairing ${walletHeroes.length} wallet heroes against tavern heroes...`);
+        
+        // Apply same filters to wallet heroes as we do to tavern heroes
+        const filteredWalletHeroes = walletHeroes.filter(h => {
+          if (!filteredRealms.includes(h.realm)) return false;
+          const generation = parseInt(h.generation) || 0;
+          const rarity = parseInt(h.rarity) || 0;
+          const level = parseInt(h.level) || 1;
+          const summonsRemaining = (parseInt(h.max_summons) || 0) - (parseInt(h.summons) || 0);
+          if (!isDarkSummon && summonsRemaining < effectiveMinSummons) return false;
+          if (!isDarkSummon && maxSummonsRemaining !== undefined && summonsRemaining > maxSummonsRemaining) return false;
+          if (rarity < minRarity) return false;
+          if (maxGeneration !== null && maxGeneration !== undefined && generation > maxGeneration) return false;
+          if (level < safeMinLevel) return false;
+          return true;
+        });
+        
+        console.log(`[Sniper] ${filteredWalletHeroes.length} wallet heroes pass filters`);
+        
+        // Sort tavern heroes by price and take cheapest 200
+        heroes.sort((a, b) => a.price_native - b.price_native);
+        const tavernHeroesToPair = heroes.slice(0, 200);
+        
+        for (const walletHero of filteredWalletHeroes) {
+          for (const tavernHero of tavernHeroesToPair) {
+            if (walletHero.realm !== tavernHero.realm) continue;
+            const costs = calculatePairFullCost(walletHero, tavernHero, tearPrice, isDarkSummon, bridgeFeeUsd);
+            candidatePairs.push({ 
+              hero1: walletHero, 
+              hero2: tavernHero, 
+              realm: walletHero.realm, 
+              isMyHeroPair: true,
+              ...costs 
+            });
+          }
+        }
+        
+        console.log(`[Sniper] Generated ${candidatePairs.length} wallet-vs-tavern pairs`);
+      } else if (isMyHeroMode && userHero) {
         // ============================================================
         // MY HERO MODE: Pair user's hero with each tavern hero
         // ============================================================
@@ -16171,9 +16225,9 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
         }
       }
 
-      // Add mutation complementary pairs to candidatePairs
+      // Add mutation complementary pairs to candidatePairs (skip in wallet mode - wallet pairs are already wallet-vs-tavern)
       // These are specifically matched pairs where one hero has precursor1 and the other has precursor2 in the same slot
-      if (mutationComplementaryPairs.length > 0) {
+      if (mutationComplementaryPairs.length > 0 && !isWalletMode) {
         const seenPairKeys = new Set(candidatePairs.map(p => 
           [p.hero1.hero_id, p.hero2.hero_id].sort().join('-')
         ));
@@ -16337,6 +16391,22 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
         }
       }
       console.log(`[Sniper] Pre-cached ${geneticsCache.size} hero genetics from component columns`);
+      
+      // Pre-populate cache with wallet heroes' genetics (wallet mode)
+      if (isWalletMode && walletHeroes.length > 0) {
+        for (const wh of walletHeroes) {
+          if (wh.stat_genes && wh.visual_genes) {
+            geneticsCache.set(wh.hero_id, decodeHeroGenes({
+              statGenes: wh.stat_genes,
+              visualGenes: wh.visual_genes,
+              id: wh.hero_id
+            }));
+          } else if (wh.active1 !== null || wh.passive1 !== null) {
+            geneticsCache.set(wh.hero_id, buildGeneticsFromIndex(wh));
+          }
+        }
+        console.log(`[Sniper] Pre-cached wallet hero genetics (${geneticsCache.size - heroes.length} from wallet)`);
+      }
       
       // Pre-populate cache with user's hero genes if available (uses raw gene decoding)
       if (userHero && userHero.statGenes) {

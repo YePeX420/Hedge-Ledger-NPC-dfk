@@ -276,7 +276,7 @@ export default function SummonSniper() {
         minSummonsRemaining: effectiveMinSummons,
         maxSummonsRemaining: effectiveMaxSummons,
         minLevel: parseInt(sniperMinLevel) || 1,
-        maxGeneration: maxGeneration ? parseInt(maxGeneration) : null,
+        maxGeneration: maxGeneration !== "" ? parseInt(maxGeneration) : null,
         targetTSValue: targetTSValue ? parseInt(targetTSValue) : null,
         minTSProbability: minTSProbability ? parseFloat(minTSProbability) : null,
         minEliteChance: minEliteChance ? parseFloat(minEliteChance) : null,
@@ -500,7 +500,7 @@ export default function SummonSniper() {
                   data-testid="input-wallet-address"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Find the best breeding pairs among heroes you already own
+                  Find the best tavern partner for each hero in your wallet
                 </p>
               </div>
             )}
