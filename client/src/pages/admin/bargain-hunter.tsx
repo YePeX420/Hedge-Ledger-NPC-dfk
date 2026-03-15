@@ -21,6 +21,7 @@ interface SniperHero {
   price: number;
   token: string;
   realm: string;
+  stoneTier?: 'lesser' | 'normal' | 'greater' | null;
 }
 
 interface TSData {
@@ -80,6 +81,7 @@ export default function BargainHunter() {
   const [minEliteChance, setMinEliteChance] = useState<number>(0);
   const [minExaltedChance, setMinExaltedChance] = useState<number>(0);
   const [minMaxSlotExalted, setMinMaxSlotExalted] = useState<number>(0);
+  const [stoneTierFilter, setStoneTierFilter] = useState<string>("All");
   const [sortBy, setSortBy] = useState<SortOption>("efficiency");
 
   const { data: result, isLoading, refetch } = useQuery<CacheResult>({
@@ -137,6 +139,18 @@ export default function BargainHunter() {
     if (minMaxSlotExalted > 0) {
       filtered = filtered.filter(pair => (pair.maxSlotExalted || 0) >= minMaxSlotExalted);
     }
+    if (stoneTierFilter !== "All") {
+      if (stoneTierFilter === "None") {
+        filtered = filtered.filter(pair =>
+          pair.hero1.stoneTier == null && pair.hero2.stoneTier == null
+        );
+      } else {
+        const tier = stoneTierFilter.toLowerCase();
+        filtered = filtered.filter(pair =>
+          pair.hero1.stoneTier === tier || pair.hero2.stoneTier === tier
+        );
+      }
+    }
     // Sort based on selected option
     return filtered.sort((a, b) => {
       switch (sortBy) {
@@ -159,7 +173,7 @@ export default function BargainHunter() {
           return (b.efficiency || 0) - (a.efficiency || 0);
       }
     });
-  }, [result?.pairs, realmFilter, minSummonsRemaining, minEliteChance, minExaltedChance, minMaxSlotExalted, sortBy]);
+  }, [result?.pairs, realmFilter, minSummonsRemaining, minEliteChance, minExaltedChance, minMaxSlotExalted, stoneTierFilter, sortBy]);
 
   const getRarityName = (rarity: number) => 
     ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'][rarity] || 'Unknown';
@@ -326,6 +340,21 @@ export default function BargainHunter() {
                     <SelectItem value="5">5%+</SelectItem>
                     <SelectItem value="10">10%+</SelectItem>
                     <SelectItem value="12">12%+</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Stone:</span>
+                <Select value={stoneTierFilter} onValueChange={setStoneTierFilter}>
+                  <SelectTrigger className="w-28" data-testid="select-stone-tier-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All</SelectItem>
+                    <SelectItem value="None">None</SelectItem>
+                    <SelectItem value="Lesser">Lesser</SelectItem>
+                    <SelectItem value="Normal">Normal</SelectItem>
+                    <SelectItem value="Greater">Greater</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

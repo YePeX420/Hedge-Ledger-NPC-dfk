@@ -58,6 +58,7 @@ interface TavernHero {
   active2?: string;
   passive1?: string;
   passive2?: string;
+  stoneTier?: 'lesser' | 'normal' | 'greater' | null;
 }
 
 interface TavernListingsResponse {
@@ -211,7 +212,8 @@ export default function TavernSniper() {
     minRarity: -1,
     minLevel: 1,
     maxLevel: 100,
-    maxPrice: 1000
+    maxPrice: 1000,
+    stoneTier: "All" as string
   });
 
   const [burnSettings, setBurnSettings] = useState({
@@ -273,6 +275,13 @@ export default function TavernSniper() {
       if (hiddenHeroes.has(h.id)) return false;
       if (filters.profession !== "All" && h.professionStr !== filters.profession) return false;
       if (h.priceNative > filters.maxPrice) return false;
+      if (filters.stoneTier !== "All") {
+        if (filters.stoneTier === "None") {
+          if (h.stoneTier != null) return false;
+        } else {
+          if (h.stoneTier !== filters.stoneTier.toLowerCase()) return false;
+        }
+      }
       return true;
     });
 
@@ -324,7 +333,7 @@ export default function TavernSniper() {
     }
 
     return withBurn;
-  }, [data, filters.profession, filters.maxPrice, sortBy, hiddenHeroes, burnSettings, profitableOnly]);
+  }, [data, filters.profession, filters.maxPrice, filters.stoneTier, sortBy, hiddenHeroes, burnSettings, profitableOnly]);
 
   const handleSearch = () => {
     setSearchTriggered(true);
@@ -487,6 +496,22 @@ export default function TavernSniper() {
                 onChange={(e) => setFilters(f => ({ ...f, maxPrice: parseFloat(e.target.value) || 1000 }))}
                 data-testid="input-max-price"
               />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">Stone</Label>
+              <Select value={filters.stoneTier} onValueChange={(v) => setFilters(f => ({ ...f, stoneTier: v }))}>
+                <SelectTrigger data-testid="select-stone-tier">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All</SelectItem>
+                  <SelectItem value="None">None</SelectItem>
+                  <SelectItem value="Lesser">Lesser</SelectItem>
+                  <SelectItem value="Normal">Normal</SelectItem>
+                  <SelectItem value="Greater">Greater</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
