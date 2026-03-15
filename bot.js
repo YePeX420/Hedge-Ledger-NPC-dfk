@@ -17831,8 +17831,7 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
                   class: h.mainClassStr,
                   level: h.level,
                   score: best[1],
-                  hasProfGene,
-                  isReroll: !!h.isReroll
+                  hasProfGene
                 });
               }
               
@@ -17850,8 +17849,7 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
                   id: h.normalizedId,
                   class: h.mainClassStr,
                   level: h.level,
-                  bestStat: trainable.sort((a,b) => b.val - a.val)[0],
-                  isReroll: !!h.isReroll
+                  bestStat: trainable.sort((a,b) => b.val - a.val)[0]
                 });
               }
             }
@@ -17864,8 +17862,20 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
               professionCounts[h.professionStr] = (professionCounts[h.professionStr] || 0) + 1;
             });
 
-            // Count rerolled heroes
-            const rerolledCount = heroes.filter(h => h.isReroll).length;
+            // Count heroes by generation
+            const genCounts = {};
+            for (const h of heroes) {
+              const gen = h.generation ?? 'unknown';
+              genCounts[gen] = (genCounts[gen] || 0) + 1;
+            }
+            const genBreakdown = Object.entries(genCounts)
+              .sort((a, b) => {
+                const aNum = a[0] === 'unknown' ? Infinity : Number(a[0]);
+                const bNum = b[0] === 'unknown' ? Infinity : Number(b[0]);
+                return aNum - bNum;
+              })
+              .map(([gen, count]) => `Gen${gen}: ${count}`)
+              .join(' | ');
 
             // Fetch live transcendence multiplier tiers for top class+rarity combos in this wallet
             let multiplierContext = '';
@@ -17931,8 +17941,8 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
             walletContext = `
 **WALLET ANALYSIS DATA for ${walletAddress}:**
 Total Heroes: ${heroes.length}
+Generation Breakdown: ${genBreakdown}
 Average Level: ${(heroes.reduce((a, h) => a + h.level, 0) / heroes.length).toFixed(1)}
-Rerolled Heroes: ${rerolledCount} of ${heroes.length} (rerolled = stat-optimized via MeditationCircle; non-rerolled may have suboptimal stat spreads)
 
 **Class Distribution:**
 ${Object.entries(classCounts).sort((a,b) => b[1] - a[1]).slice(0,10).map(([c, n]) => `- ${c}: ${n}`).join('\n')}
@@ -17942,30 +17952,29 @@ ${Object.entries(professionCounts).sort((a,b) => b[1] - a[1]).map(([p, n]) => `-
 ${multiplierContext}
 **PROFESSION QUEST RECOMMENDATIONS:**
 Best Mining Heroes (${professionQuesters.mining.length} total):
-${professionQuesters.mining.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}${h.isReroll ? ' [REROLLED]' : ''}`).join('\n') || 'None above average'}
+${professionQuesters.mining.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
 
 Best Gardening Heroes (${professionQuesters.gardening.length} total):
-${professionQuesters.gardening.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}${h.isReroll ? ' [REROLLED]' : ''}`).join('\n') || 'None above average'}
+${professionQuesters.gardening.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
 
 Best Fishing Heroes (${professionQuesters.fishing.length} total):
-${professionQuesters.fishing.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}${h.isReroll ? ' [REROLLED]' : ''}`).join('\n') || 'None above average'}
+${professionQuesters.fishing.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
 
 Best Foraging Heroes (${professionQuesters.foraging.length} total):
-${professionQuesters.foraging.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}${h.isReroll ? ' [REROLLED]' : ''}`).join('\n') || 'None above average'}
+${professionQuesters.foraging.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
 
 **TRAINING QUEST RECOMMENDATIONS:**
 IMPORTANT RULE: Heroes can ONLY do training quests for stats between 40-50. Stats ABOVE 50 are NOT eligible for training quests for that stat.
 Success rates: stat 40 = 53%, stat 45 = 60%, stat 50 = 68% (max)
 
 Training Candidates (${trainingQuesters.length} total with at least one stat in 40-50 range):
-${trainingQuesters.slice(0,20).map(h => `- #${h.id} ${h.class} L${h.level} - Best: ${h.bestStat.stat} (${h.bestStat.val})${h.isReroll ? ' [REROLLED]' : ''} ${h.trainableStats ? `| All trainable: ${h.trainableStats}` : ''}`).join('\n') || 'No heroes with any stats in 40-50 range (stats above 50 cannot do training quests)'}
+${trainingQuesters.slice(0,20).map(h => `- #${h.id} ${h.class} L${h.level} - Best: ${h.bestStat.stat} (${h.bestStat.val}) ${h.trainableStats ? `| All trainable: ${h.trainableStats}` : ''}`).join('\n') || 'No heroes with any stats in 40-50 range (stats above 50 cannot do training quests)'}
 
 Use this data to provide specific hero recommendations when the user asks about questing, leveling, or hero optimization.
-When commenting on heroes, note [REROLLED] status — rerolled heroes have optimized stat distributions and are stronger candidates for combat and high-score questing than non-rerolled heroes at the same level.
 `;
-            console.log('[AI Consultant] Fetched', heroes.length, 'heroes with quest analysis (rerolled:', rerolledCount, ')');
+            console.log('[AI Consultant] Fetched', heroes.length, 'heroes with quest analysis');
           } else {
-            walletContext = `\n**WALLET DATA:** No heroes found for wallet ${walletAddress}. The wallet may be empty or on a different realm.\n`;
+            walletContext = `\n**WALLET DATA:** 0 heroes found via the DFK GraphQL API for wallet ${walletAddress}. This does not confirm the wallet is empty — the heroes may exist on a realm or subgraph not covered by the current query (e.g. Klaytn/Serendale). The API was queried with lowercase, original, uppercase, and EIP-55 checksummed address variants.\n`;
           }
         } catch (walletErr) {
           console.error('[AI Consultant] Error fetching wallet data:', walletErr);

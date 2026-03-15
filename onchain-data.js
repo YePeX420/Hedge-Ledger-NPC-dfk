@@ -474,7 +474,6 @@ export async function getAllHeroesByOwner(ownerAddress) {
         passive2
         active1
         active2
-        isReroll
       }
     }
   `;
@@ -507,10 +506,45 @@ export async function getAllHeroesByOwner(ownerAddress) {
       if (!dedupMap.has(hero.id)) dedupMap.set(hero.id, hero);
     }
 
-    const dedupedHeroes = Array.from(dedupMap.values());
+    let dedupedHeroes = Array.from(dedupMap.values());
     console.log(
       `[getAllHeroesByOwner] Total heroes after dedup: ${dedupedHeroes.length}`
     );
+
+    if (dedupedHeroes.length === 0) {
+      try {
+        const checksummed = ethers.getAddress(ownerAddress);
+        const alreadyTried = ownerVariants.includes(checksummed);
+        if (!alreadyTried) {
+          console.log(`[getAllHeroesByOwner] 0 results, retrying with EIP-55 checksummed address: ${checksummed}`);
+          let retryFetched = 0;
+          let retryKeepGoing = true;
+          while (retryKeepGoing) {
+            const retryData = await client.request(query, {
+              owners: [checksummed],
+              first: PAGE_SIZE,
+              skip: retryFetched,
+            });
+            const retryBatch = retryData.heroes || [];
+            for (const hero of retryBatch) {
+              if (!dedupMap.has(hero.id)) dedupMap.set(hero.id, hero);
+            }
+            retryFetched += retryBatch.length;
+            if (retryBatch.length < PAGE_SIZE) retryKeepGoing = false;
+          }
+          dedupedHeroes = Array.from(dedupMap.values());
+          if (dedupedHeroes.length > 0) {
+            console.log(`[getAllHeroesByOwner] Checksummed retry found ${dedupedHeroes.length} heroes`);
+          } else {
+            console.log(`[getAllHeroesByOwner] Checksummed retry also returned 0 heroes`);
+          }
+        } else {
+          console.log(`[getAllHeroesByOwner] Checksummed address already tried, skipping retry`);
+        }
+      } catch (checksumErr) {
+        console.warn('[getAllHeroesByOwner] Checksum retry failed:', checksumErr.message);
+      }
+    }
 
     return dedupedHeroes;
   } catch (error) {
