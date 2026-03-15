@@ -19139,7 +19139,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           SELECT * FROM hunting_encounters
           WHERE LOWER(wallet_address) = LOWER($1)
             AND realm = $2
-            AND UPPER(REPLACE(enemy_id, ' ', '_')) = $3
+            AND enemy_id = $3
           ORDER BY encountered_at DESC
           LIMIT $4
         `, [wallet, realm, enemyKey, limit]);

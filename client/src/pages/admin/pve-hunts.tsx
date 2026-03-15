@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { HeroDetailModal } from '@/components/dfk/HeroDetailModal';
-import type { HeroDetail } from '@/components/dfk/HeroDetailModal';
+import type { HeroDetail, HeroPet, HeroWeapon, HeroArmor, HeroAccessory, HeroEquipItem } from '@/components/dfk/HeroDetailModal';
 import { apiRequest } from '@/lib/queryClient';
 
 interface Activity {
@@ -42,13 +42,13 @@ interface HeroRaw {
   active2?: number;
   passive1?: number;
   passive2?: number;
-  pet?: any;
-  weapon1?: any;
-  weapon2?: any;
-  armor?: any;
-  accessory?: any;
-  offhand1?: any;
-  offhand2?: any;
+  pet?: HeroPet | null;
+  weapon1?: HeroWeapon | null;
+  weapon2?: HeroWeapon | null;
+  armor?: HeroArmor | null;
+  accessory?: HeroAccessory | null;
+  offhand1?: HeroEquipItem | null;
+  offhand2?: HeroEquipItem | null;
 }
 
 interface ZoneGroup {
@@ -282,6 +282,7 @@ export default function PveHunts() {
                       <div className="min-w-0">
                         <p className="font-medium text-sm truncate">{zone.activity.name}</p>
                         <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-[10px]">Tier {zone.activity.activity_id}</Badge>
                           <Badge variant="outline" className="text-[10px]">
                             {CHAIN_LABELS[zone.activity.chain_id] || `Chain ${zone.activity.chain_id}`}
                           </Badge>
@@ -320,7 +321,7 @@ export default function PveHunts() {
                     <div>
                       <h2 className="font-bold text-lg">{selectedZone.activity.name}</h2>
                       <div className="flex flex-wrap items-center gap-2 mt-1">
-                        <Badge variant="outline" className="text-[10px]">Zone #{selectedZone.activity.activity_id}</Badge>
+                        <Badge variant="outline" className="text-[10px]">Tier {selectedZone.activity.activity_id}</Badge>
                         <Badge variant="outline" className="text-[10px]">{CHAIN_LABELS[selectedZone.activity.chain_id] || `Chain ${selectedZone.activity.chain_id}`}</Badge>
                         <span className="text-xs text-muted-foreground">{selectedZone.heroes.length} heroes</span>
                         <span className="text-xs text-muted-foreground font-mono">
