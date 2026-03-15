@@ -17835,18 +17835,18 @@ When context blocks prefixed with LIVE DATA are injected below, use them as auth
 - LIVE BATTLES: Currently active battles from DFK GraphQL API with hero rosters, glory data, constraints
 - HERO HP SNAPSHOT: Per-hero live HP/MP percentages from the latest Firebase battle turn (use for tactical analysis)
 - PLAYER INVENTORY: Per-player remaining potion budget from Firebase (use to advise on remaining resources)
-- WALLET ANALYSIS: Hero counts, class distribution, quest scores, transcendence multiplier data
+- WALLET ANALYSIS: Full hero roster data equivalent to what the dashboard tools show — generation/rarity/class/subclass/realm distributions, level brackets, combat skills (active & passive), stamina/quest status, summoning capacity, burn scores (Hero Score Calculator formula), profession quest optimization, and training quest candidates. You have the SAME data the Tavern Sniper, Hero Score Calculator, Quest Optimizer, and Summoning Calculator use.
 
 **When live data is present, always:**
-1. Lead with the real numbers — don't say "I don't have data" when context is provided
+1. Lead with the real numbers — NEVER say "I don't have data" or "you can check using X tool" when the context already contains the answer
 2. For tournament questions: describe lineups, scores, winner, hero classes/levels/HP state
 3. For bout analysis: assess HP percentages, flag CRITICAL heroes (<30%), evaluate remaining potion budget, predict likely outcome
-4. For wallet questions: recommend specific hero IDs with their actual scores
+4. For wallet questions: cite specific hero IDs, exact counts, actual scores, and real stat values from the wallet data. You can answer any question the dashboard tools could: "how many gen0s", "best burn candidates", "who has summons left", "strongest combat heroes", "which realm are my heroes on", "who's idle right now", etc.
 5. For "what's live": summarize active battles with player names, glory, hero compositions
 
 **When no live data is available for a question**, clearly say so and direct the user to the relevant tool on the dashboard.
 
-Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vague summaries when specifics are available.`;
+Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vague summaries when specifics are available. You are the verbal shortcut to every tool on the platform — answer with the same precision those tools would.`;
 
   app.post('/api/admin/ai-consultant/chat', isAdminOrHasTab('ai-consultant'), async (req, res) => {
     try {
@@ -17871,7 +17871,36 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
           const heroes = await getAllHeroesByOwner(walletAddress);
           
           if (heroes && heroes.length > 0) {
-            // Calculate average stats for "above average" determination
+            const nowSec = Math.floor(Date.now() / 1000);
+            const RARITY_LABELS = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary', 4: 'Mythic' };
+            const CLASS_RANK = {
+              Warrior: 0, Knight: 0, Thief: 0, Archer: 0, Priest: 0, Wizard: 0, Monk: 0, Pirate: 0,
+              Berserker: 1, Seer: 1, Legionnaire: 1, Scholar: 1,
+              Paladin: 2, DarkKnight: 2, Summoner: 2, Ninja: 2, Shapeshifter: 2, Bard: 2,
+              Dragoon: 3, Sage: 3, SpellBow: 3,
+              DreadKnight: 4
+            };
+            const CLASS_TIER_NAMES = { 0: 'Basic', 1: 'Advanced', 2: 'Elite', 3: 'Exalted', 4: 'Exalted' };
+            const C_BASE = { 0: 150, 1: 3000, 2: 9000, 3: 25000, 4: 75000 };
+            const R_BASE = { 0: 0, 1: 1000, 2: 3000, 3: 8000, 4: 16000 };
+
+            const classCounts = {};
+            const subclassCounts = {};
+            const professionCounts = {};
+            const generationCounts = {};
+            const rarityCounts = {};
+            const realmCounts = {};
+            const levelBuckets = { '1-5': 0, '6-10': 0, '11-20': 0, '21-50': 0, '51-100': 0 };
+            const activeCounts = {};
+            const passiveCounts = {};
+            const professionQuesters = { mining: [], gardening: [], fishing: [], foraging: [] };
+            const trainingQuesters = [];
+            let summonsAvailable = 0;
+            let totalMaxSummons = 0;
+            let heroesOnQuest = 0;
+            let heroesStaminaReady = 0;
+            let heroesResting = 0;
+
             const avgStats = {
               strength: heroes.reduce((a, h) => a + (h.strength || 0), 0) / heroes.length,
               wisdom: heroes.reduce((a, h) => a + (h.wisdom || 0), 0) / heroes.length,
@@ -17880,21 +17909,96 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
               intelligence: heroes.reduce((a, h) => a + (h.intelligence || 0), 0) / heroes.length
             };
 
-            // Categorize heroes by quest type
-            const professionQuesters = { mining: [], gardening: [], fishing: [], foraging: [] };
-            const trainingQuesters = [];
+            const heroScored = [];
 
             for (const h of heroes) {
-              const scores = {
+              classCounts[h.mainClassStr] = (classCounts[h.mainClassStr] || 0) + 1;
+              if (h.subClassStr) subclassCounts[h.subClassStr] = (subclassCounts[h.subClassStr] || 0) + 1;
+              professionCounts[h.professionStr] = (professionCounts[h.professionStr] || 0) + 1;
+              const gen = h.generation != null ? h.generation : 'Unknown';
+              generationCounts[gen] = (generationCounts[gen] || 0) + 1;
+              const rarityLabel = RARITY_LABELS[h.rarity] || `Rarity${h.rarity}`;
+              rarityCounts[rarityLabel] = (rarityCounts[rarityLabel] || 0) + 1;
+
+              const realm = h.network === 'dfk' ? 'Crystalvale' : h.network === 'kla' ? 'Serendale' : (h.network || 'Unknown');
+              realmCounts[realm] = (realmCounts[realm] || 0) + 1;
+
+              if (h.level <= 5) levelBuckets['1-5']++;
+              else if (h.level <= 10) levelBuckets['6-10']++;
+              else if (h.level <= 20) levelBuckets['11-20']++;
+              else if (h.level <= 50) levelBuckets['21-50']++;
+              else levelBuckets['51-100']++;
+
+              if (h.active1) activeCounts[h.active1] = (activeCounts[h.active1] || 0) + 1;
+              if (h.active2) activeCounts[h.active2] = (activeCounts[h.active2] || 0) + 1;
+              if (h.passive1) passiveCounts[h.passive1] = (passiveCounts[h.passive1] || 0) + 1;
+              if (h.passive2) passiveCounts[h.passive2] = (passiveCounts[h.passive2] || 0) + 1;
+
+              const summonsRemaining = Math.max(0, (h.maxSummons || 0) - (h.summons || 0));
+              summonsAvailable += summonsRemaining;
+              totalMaxSummons += (h.maxSummons || 0);
+
+              if (h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000') {
+                heroesOnQuest++;
+              } else if (!h.staminaFullAt || h.staminaFullAt <= nowSec) {
+                heroesStaminaReady++;
+              } else {
+                heroesResting++;
+              }
+
+              const mainRank = CLASS_RANK[h.mainClassStr] ?? 0;
+              const subRank = CLASS_RANK[h.subClassStr] ?? 0;
+              const mainBase = C_BASE[mainRank] || 150;
+              const subBase = C_BASE[subRank] || 150;
+              const rBase = R_BASE[h.rarity] || 0;
+              const classScore = mainBase + subBase * 0.25;
+              const rarityScore = rBase * (mainRank + subRank - 1);
+              const levelScore = h.level * 3.25;
+              const summonScore = ((h.summons || 0) / (h.maxSummons || 11)) * 7500;
+              const genBonus = h.generation === 0 ? 5000 : 0;
+              const burnScore = classScore + rarityScore + levelScore + summonScore + genBonus;
+
+              heroScored.push({
+                id: h.normalizedId || h.id,
+                mainClass: h.mainClassStr,
+                subClass: h.subClassStr,
+                profession: h.professionStr,
+                rarity: rarityLabel,
+                level: h.level,
+                gen: h.generation,
+                summonsLeft: summonsRemaining,
+                maxSummons: h.maxSummons || 0,
+                burnScore,
+                estDE: (burnScore / 15).toFixed(1),
+                classTier: CLASS_TIER_NAMES[mainRank] || 'Basic',
+                active1: h.active1 || 'none',
+                active2: h.active2 || 'none',
+                passive1: h.passive1 || 'none',
+                passive2: h.passive2 || 'none',
+                str: h.strength || 0,
+                int: h.intelligence || 0,
+                wis: h.wisdom || 0,
+                vit: h.vitality || 0,
+                end: h.stamina || 0,
+                mining: h.mining || 0,
+                gardening: h.gardening || 0,
+                foraging: h.foraging || 0,
+                fishing: h.fishing || 0,
+                profGeneMatch: h.professionStr?.toLowerCase() === h.professionStr?.toLowerCase(),
+                onQuest: !!(h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000'),
+                staminaReady: !h.staminaFullAt || h.staminaFullAt <= nowSec,
+                realm
+              });
+
+              const questScores = {
                 mining: (h.strength || 0) + (h.stamina || 0),
                 gardening: (h.wisdom || 0) + (h.vitality || 0),
                 fishing: (h.stamina || 0) + (h.mining || 0),
                 foraging: (h.stamina || 0) + (h.intelligence || 0)
               };
-              const best = Object.entries(scores).sort((a,b) => b[1] - a[1])[0];
+              const best = Object.entries(questScores).sort((a,b) => b[1] - a[1])[0];
               const hasProfGene = h.professionStr?.toLowerCase() === best[0];
-              
-              // Check if above average for profession quest
+
               if (best[1] > avgStats.strength + avgStats.stamina) {
                 professionQuesters[best[0]].push({
                   id: h.normalizedId,
@@ -17904,8 +18008,7 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
                   hasProfGene
                 });
               }
-              
-              // Check for training quest candidates (stat 40-50)
+
               const statVals = [
                 { stat: 'STR', val: h.strength || 0 },
                 { stat: 'VIT', val: h.vitality || 0 },
@@ -17919,35 +18022,32 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
                   id: h.normalizedId,
                   class: h.mainClassStr,
                   level: h.level,
-                  bestStat: trainable.sort((a,b) => b.val - a.val)[0]
+                  bestStat: trainable.sort((a,b) => b.val - a.val)[0],
+                  allTrainable: trainable.map(s => `${s.stat}(${s.val})`).join(', '),
+                  isReroll: !!h.isReroll
                 });
               }
             }
 
-            // Group by class/profession
-            const classCounts = {};
-            const professionCounts = {};
-            heroes.forEach(h => {
-              classCounts[h.mainClassStr] = (classCounts[h.mainClassStr] || 0) + 1;
-              professionCounts[h.professionStr] = (professionCounts[h.professionStr] || 0) + 1;
+            const rerolledCount = heroes.filter(h => h.isReroll).length;
+            const topByBurn = [...heroScored].sort((a,b) => b.burnScore - a.burnScore).slice(0, 15);
+            const topByLevel = [...heroScored].sort((a,b) => b.level - a.level).slice(0, 10);
+            const summonCandidates = heroScored.filter(h => h.summonsLeft > 0).sort((a,b) => b.summonsLeft - a.summonsLeft).slice(0, 15);
+
+            const classTierCounts = {};
+            heroScored.forEach(h => {
+              classTierCounts[h.classTier] = (classTierCounts[h.classTier] || 0) + 1;
             });
 
-            // Count heroes by generation
-            const genCounts = {};
-            for (const h of heroes) {
-              const gen = h.generation ?? 'unknown';
-              genCounts[gen] = (genCounts[gen] || 0) + 1;
-            }
-            const genBreakdown = Object.entries(genCounts)
+            const genBreakdown = Object.entries(generationCounts)
               .sort((a, b) => {
-                const aNum = a[0] === 'unknown' ? Infinity : Number(a[0]);
-                const bNum = b[0] === 'unknown' ? Infinity : Number(b[0]);
+                const aNum = a[0] === 'Unknown' ? Infinity : Number(a[0]);
+                const bNum = b[0] === 'Unknown' ? Infinity : Number(b[0]);
                 return aNum - bNum;
               })
               .map(([gen, count]) => `Gen${gen}: ${count}`)
               .join(' | ');
 
-            // Fetch live transcendence multiplier tiers for top class+rarity combos in this wallet
             let multiplierContext = '';
             try {
               const combos = [];
@@ -17958,13 +18058,12 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
                 Paladin: 16, DarkKnight: 17, Summoner: 18, Ninja: 19, Shapeshifter: 20, Bard: 21,
                 Dragoon: 24, Sage: 25, SpellBow: 26, DreadKnight: 28
               };
-              const RARITY_NAMES_MAP = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary', 4: 'Mythic' };
               for (const h of heroes) {
                 const cid = CLASS_IDS_MAP[h.mainClassStr];
                 if (cid === undefined) continue;
                 const key = `${cid}_${h.rarity}`;
                 if (!seen.has(key)) { seen.add(key); combos.push({ className: h.mainClassStr, classId: cid, rarity: h.rarity }); }
-                if (combos.length >= 5) break;
+                if (combos.length >= 8) break;
               }
               if (combos.length > 0) {
                 const classIds = [...new Set(combos.map(c => c.classId))];
@@ -17994,10 +18093,10 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
                     const lines = combos.map(c => {
                       const k = `${c.classId}_${c.rarity}`;
                       const g = grouped[k];
-                      if (!g || g.tiers.length === 0) return `- ${c.className} ${RARITY_NAMES_MAP[c.rarity]}: No burn history`;
+                      if (!g || g.tiers.length === 0) return `- ${c.className} ${RARITY_LABELS[c.rarity]}: No burn history`;
                       const avgTier = (g.tiers.reduce((a,b)=>a+b,0)/g.tiers.length).toFixed(1);
                       const avgRegen = g.regens.length > 0 ? ((g.regens.reduce((a,b)=>a+b,0)/g.regens.length)*100).toFixed(1) : '?';
-                      return `- ${c.className} ${RARITY_NAMES_MAP[c.rarity]}: avg Tier ${avgTier} (${avgRegen}% regen chance, ${g.tiers.length} heroes sampled)`;
+                      return `- ${c.className} ${RARITY_LABELS[c.rarity]}: avg Tier ${avgTier} (${avgRegen}% regen chance, ${g.tiers.length} heroes sampled)`;
                     });
                     multiplierContext = `\n**TRANSCENDENCE MULTIPLIER TIERS (live from DFK):**\nTier N = Nx DE output multiplier on burn. Regen chance = probability tier resets to 1 after burn.\n${lines.join('\n')}\n`;
                   }
@@ -18007,20 +18106,67 @@ Be direct, data-driven, and tactical. Cite real numbers from context. Avoid vagu
               console.warn('[AI Consultant] Multiplier fetch skipped:', multErr.message);
             }
 
-            // Build context with quest recommendations
             walletContext = `
 **WALLET ANALYSIS DATA for ${walletAddress}:**
 Total Heroes: ${heroes.length}
 Generation Breakdown: ${genBreakdown}
 Average Level: ${(heroes.reduce((a, h) => a + h.level, 0) / heroes.length).toFixed(1)}
+Max Level: ${Math.max(...heroes.map(h => h.level))}
+Rerolled Heroes: ${rerolledCount} of ${heroes.length}
 
-**Class Distribution:**
-${Object.entries(classCounts).sort((a,b) => b[1] - a[1]).slice(0,10).map(([c, n]) => `- ${c}: ${n}`).join('\n')}
+**Realm Distribution:**
+${Object.entries(realmCounts).sort((a,b) => b[1] - a[1]).map(([r, n]) => `- ${r}: ${n}`).join('\n')}
+
+**Generation Distribution:**
+${Object.entries(generationCounts).sort((a,b) => (Number(a[0]) || 999) - (Number(b[0]) || 999)).map(([g, n]) => `- ${g === 'Unknown' ? 'Unknown Gen' : `Gen${g}`}: ${n}`).join('\n')}
+
+**Rarity Distribution:**
+${Object.entries(rarityCounts).sort((a,b) => b[1] - a[1]).map(([r, n]) => `- ${r}: ${n}`).join('\n')}
+
+**Level Distribution:**
+${Object.entries(levelBuckets).filter(([,n]) => n > 0).map(([b, n]) => `- Level ${b}: ${n}`).join('\n')}
+
+**Class Distribution (main):**
+${Object.entries(classCounts).sort((a,b) => b[1] - a[1]).map(([c, n]) => `- ${c}: ${n}`).join('\n')}
+
+**Subclass Distribution (top 10):**
+${Object.entries(subclassCounts).sort((a,b) => b[1] - a[1]).slice(0,10).map(([c, n]) => `- ${c}: ${n}`).join('\n')}
+
+**Class Tier Breakdown:**
+${Object.entries(classTierCounts).sort((a,b) => b[1] - a[1]).map(([t, n]) => `- ${t}: ${n}`).join('\n')}
+(Basic=Warrior/Knight/etc, Advanced=Berserker/Seer/etc, Elite=Paladin/DarkKnight/etc, Exalted=Dragoon/Sage/SpellBow/DreadKnight)
 
 **Profession Gene Distribution:**
 ${Object.entries(professionCounts).sort((a,b) => b[1] - a[1]).map(([p, n]) => `- ${p}: ${n}`).join('\n')}
+
+**Combat Skills — Active (top 10):**
+${Object.entries(activeCounts).sort((a,b) => b[1] - a[1]).slice(0,10).map(([s, n]) => `- ${s}: ${n}`).join('\n') || 'None detected'}
+
+**Combat Skills — Passive (top 10):**
+${Object.entries(passiveCounts).sort((a,b) => b[1] - a[1]).slice(0,10).map(([s, n]) => `- ${s}: ${n}`).join('\n') || 'None detected'}
+
+**Stamina & Quest Status:**
+- On quest now: ${heroesOnQuest}
+- Stamina ready (idle): ${heroesStaminaReady}
+- Resting (stamina recharging): ${heroesResting}
+
+**Summoning Capacity:**
+- Total summons remaining: ${summonsAvailable} of ${totalMaxSummons} max across all heroes
+- Heroes with summons left: ${heroScored.filter(h => h.summonsLeft > 0).length}
 ${multiplierContext}
+**TOP HEROES BY BURN SCORE (Divine Altar value):**
+Score formula: ClassBase + SubclassBase*0.25 + RarityBase*(mainRank+subRank-1) + Level*3.25 + (summonsRemaining/maxSummons)*7500 + Gen0Bonus(5000). Est DE = score/15.
+${topByBurn.map(h => `- #${h.id} ${h.mainClass}/${h.subClass} ${h.rarity} L${h.level} Gen${h.gen} | Score:${h.burnScore.toFixed(0)} EstDE:${h.estDE} | Summons:${h.summonsLeft}/${h.maxSummons} | ${h.realm}`).join('\n')}
+
+**TOP HEROES BY LEVEL:**
+${topByLevel.map(h => `- #${h.id} ${h.mainClass}/${h.subClass} ${h.rarity} L${h.level} Gen${h.gen} | Prof:${h.profession} | STR:${h.str} INT:${h.int} WIS:${h.wis} VIT:${h.vit} END:${h.end} | A1:${h.active1} A2:${h.active2} P1:${h.passive1} P2:${h.passive2} | ${h.realm}`).join('\n')}
+
+**SUMMONING CANDIDATES (heroes with summons remaining):**
+${summonCandidates.map(h => `- #${h.id} ${h.mainClass}/${h.subClass} ${h.rarity} L${h.level} Gen${h.gen} | Summons:${h.summonsLeft}/${h.maxSummons} | ${h.classTier} tier`).join('\n') || 'No heroes with summons remaining'}
+
 **PROFESSION QUEST RECOMMENDATIONS:**
+Scoring: Mining=STR+END, Gardening=WIS+VIT, Fishing=END+mining_stat, Foraging=END+INT. [GENE MATCH] = profession gene matches best quest type (bonus XP).
+
 Best Mining Heroes (${professionQuesters.mining.length} total):
 ${professionQuesters.mining.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
 
@@ -18034,13 +18180,13 @@ Best Foraging Heroes (${professionQuesters.foraging.length} total):
 ${professionQuesters.foraging.slice(0,15).map(h => `- #${h.id} ${h.class} L${h.level} score:${h.score}${h.hasProfGene ? ' [GENE MATCH]' : ''}`).join('\n') || 'None above average'}
 
 **TRAINING QUEST RECOMMENDATIONS:**
-IMPORTANT RULE: Heroes can ONLY do training quests for stats between 40-50. Stats ABOVE 50 are NOT eligible for training quests for that stat.
+RULE: Heroes can ONLY do training quests for stats between 40-50. Stats ABOVE 50 are NOT eligible.
 Success rates: stat 40 = 53%, stat 45 = 60%, stat 50 = 68% (max)
 
-Training Candidates (${trainingQuesters.length} total with at least one stat in 40-50 range):
-${trainingQuesters.slice(0,20).map(h => `- #${h.id} ${h.class} L${h.level} - Best: ${h.bestStat.stat} (${h.bestStat.val}) ${h.trainableStats ? `| All trainable: ${h.trainableStats}` : ''}`).join('\n') || 'No heroes with any stats in 40-50 range (stats above 50 cannot do training quests)'}
+Training Candidates (${trainingQuesters.length} total):
+${trainingQuesters.slice(0,20).map(h => `- #${h.id} ${h.class} L${h.level} - Best: ${h.bestStat.stat} (${h.bestStat.val})${h.allTrainable ? ` | All trainable: ${h.allTrainable}` : ''}`).join('\n') || 'No heroes with stats in 40-50 range'}
 
-Use this data to provide specific hero recommendations when the user asks about questing, leveling, or hero optimization.
+Use this data to answer ANY question about this wallet's heroes. Always cite specific hero IDs and real numbers. You have the same data that the platform tools (Tavern Sniper, Hero Score Calculator, Quest Optimizer, Summoning Calculator) use — answer as authoritatively as those tools would.
 `;
             console.log('[AI Consultant] Fetched', heroes.length, 'heroes with quest analysis');
           } else {
