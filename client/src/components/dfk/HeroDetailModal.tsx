@@ -327,8 +327,8 @@ export function HeroDetailModal({
   const mDefScalarMax = hero.armor?.mDefScalarMax ?? rawMDef * 2;
   const pDef = rawPDef + Math.min(((hero.armor?.physDefScalar ?? 0) / 100) * stats.END, pDefScalarMax);
   const mDef = rawMDef + Math.min(((hero.armor?.magicDefScalar ?? 0) / 100) * stats.WIS, mDefScalarMax);
-  const pRed = pDef > 0 ? pDef / 10 : 0;
-  const mRed = mDef > 0 ? mDef / 10 : 0;
+  const pRed = pDef > 0 ? pDef / 5 : 0;
+  const mRed = mDef > 0 ? mDef / 5 : 0;
 
   const equipBonuses = computeEquipmentBonuses({
     weapon1:   hero.weapon1   ?? null,
@@ -348,7 +348,7 @@ export function HeroDetailModal({
   const passiveSblk = (passiveEff1?.sblkBonus ?? 0) + (passiveEff2?.sblkBonus ?? 0);
   const passiveSer  = (passiveEff1?.serBonus  ?? 0) + (passiveEff2?.serBonus  ?? 0);
 
-  const armorEva = (hero.armor?.evasion ?? 0) / 1_000_000;
+  const armorEva = (hero.armor?.evasion ?? 0) / 10_000;
   const totalEva = profile.EVA + armorEva + equipBonuses.evasion + (petBonuses.evasion ?? 0) + passiveEva;
 
   const weaponSpeedMod = decodeWeaponSpeedModifier(hero.weapon1?.speedModifier ?? 0)

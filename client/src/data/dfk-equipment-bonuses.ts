@@ -3,11 +3,12 @@
 // different things depending on which contract/slot it comes from.
 //
 // Source: DFK official developer docs (WeaponCore / ArmorCore / AccessoryCore).
-// BonusScalar scale: divided by 10_000 for percentage effects (working approximation).
+// BonusScalar scale: divided by 10_000 for armor/accessory, by 1_000 for weapons.
 
 // ─── Bonus Maps ───────────────────────────────────────────────────────────────
 
 export const WEAPON_BONUS = {
+  // Code 19: Daze proc chance on channeling enemies — not a stat modifier, display-only tooltip
   20: 'blkChance',
   21: 'sblkChance',
   22: 'critDamage',
@@ -265,7 +266,20 @@ function applyBonus(
   contrib[key] = ((contrib[key] as number) ?? 0) + value;
 }
 
-// Process up to 4 bonus slots from a weapon (WeaponCore)
+function applyWeaponBonus(
+  acc: EquipmentBonuses,
+  effectKey: string,
+  scalar: number,
+  contrib: Partial<Record<keyof EquipmentBonuses, number>>
+): void {
+  if (!effectKey || effectKey.startsWith('__')) return;
+  const key = effectKey as keyof EquipmentBonuses;
+  if (!(key in acc)) return;
+  const value = scalar / 1_000;
+  acc[key] = (acc[key] as number) + value;
+  contrib[key] = ((contrib[key] as number) ?? 0) + value;
+}
+
 function processWeaponBonuses(
   bonus1: number, scalar1: number,
   bonus2: number, scalar2: number,
@@ -280,7 +294,7 @@ function processWeaponBonuses(
   for (const [code, scalar] of slots) {
     if (!code) continue;
     const effectKey = (WEAPON_BONUS as any)[code];
-    if (effectKey) applyBonus(acc, effectKey, scalar, dummy);
+    if (effectKey) applyWeaponBonus(acc, effectKey, scalar, dummy);
   }
 }
 

@@ -9,6 +9,20 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { HeroDetailModal } from '@/components/dfk/HeroDetailModal';
 import type { HeroDetail, MatchContext } from '@/components/dfk/HeroDetailModal';
+import { PASSIVE_SKILLS } from '@/data/dfk-abilities';
+
+const PASSIVE_LABEL_TO_ID: Record<string, number> = {};
+for (const [id, skill] of Object.entries(PASSIVE_SKILLS)) {
+  PASSIVE_LABEL_TO_ID[skill.label] = Number(id);
+  PASSIVE_LABEL_TO_ID[skill.key] = Number(id);
+}
+
+function resolvePassiveId(val: string | number | null | undefined): number {
+  if (val == null) return 0;
+  const num = Number(val);
+  if (!isNaN(num)) return num;
+  return PASSIVE_LABEL_TO_ID[String(val)] ?? 0;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -143,8 +157,8 @@ function boutHeroToHeroDetail(h: BoutHero): HeroDetail {
     mp: h.mp ?? 0,
     active1: Number(h.active1 ?? 0),
     active2: Number(h.active2 ?? 0),
-    passive1: Number(h.passive1 ?? 0),
-    passive2: Number(h.passive2 ?? 0),
+    passive1: resolvePassiveId(h.passive1),
+    passive2: resolvePassiveId(h.passive2),
     pjStatus: null,
     pjLevel: null,
     pet: h.pet_json ?? null,
@@ -162,7 +176,9 @@ function boutHeroToMatchContext(h: BoutHero, allHeroes: BoutHero[]): MatchContex
   const ownSideHeroes = allHeroes.filter(x => x.side === h.side);
   let ownLeadershipCount = 0;
   for (const oh of ownSideHeroes) {
-    if (oh.passive1 === '9' || oh.passive2 === '9') ownLeadershipCount++;
+    const p1 = resolvePassiveId(oh.passive1);
+    const p2 = resolvePassiveId(oh.passive2);
+    if (p1 === 16 || p2 === 16) ownLeadershipCount++;
   }
   return {
     opponentLeadershipCount: h.opponent_leadership_count,
