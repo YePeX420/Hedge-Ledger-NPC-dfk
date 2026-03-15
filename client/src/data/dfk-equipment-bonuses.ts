@@ -22,9 +22,9 @@ export const WEAPON_BONUS = {
   25: 'pierce',
   26: 'blkReduction',
   27: 'sblkReduction',
-  28: 'magicDamageUp_healPotencyDown',
-  29: 'healPotencyUp_magicDamageDown',
-  30: 'physAndMagicDefDown',
+  28: '__dual_magicDamageUp_healPotencyDown',
+  29: '__dual_healPotencyUp_magicDamageDown',
+  30: '__dual_physAndMagicDefDown',
   31: 'healPotencyDown',
   32: 'magicDamage',
   33: 'physicalDamage',
@@ -218,8 +218,10 @@ export interface EquipmentBonuses {
   pullRes: number;
   pushRes: number;
   healingPotencyDown: number;
+  healPotencyUp: number;
+  healPotencyDown: number;
+  magicDamageDown: number;
   channelTimeReduction: number;
-  // Specific status-effect resistances from armor bonus codes 10-23 (code → fraction)
   specificResists: Record<number, number>;
 }
 
@@ -253,7 +255,8 @@ function zeroEquipBonuses(): EquipmentBonuses {
     physAccuracy: 0, magicAccuracy: 0, physAccuracyDown: 0, magicAccuracyDown: 0,
     physDamageReduction: 0, magicDamageReduction: 0,
     attackPct: 0, spellPct: 0, pierce: 0, pullRes: 0, pushRes: 0,
-    healingPotencyDown: 0, channelTimeReduction: 0,
+    healingPotencyDown: 0, healPotencyUp: 0, healPotencyDown: 0, magicDamageDown: 0,
+    channelTimeReduction: 0,
     specificResists: {},
   };
 }
@@ -299,6 +302,24 @@ function processWeaponBonuses(
   const dummy: Partial<Record<keyof EquipmentBonuses, number>> = {};
   for (const [code, scalar] of slots) {
     if (!code) continue;
+    if (code === 28) {
+      const value = scalar / 1_000;
+      acc.magicDamage += value;
+      acc.healPotencyDown += value;
+      continue;
+    }
+    if (code === 29) {
+      const value = scalar / 1_000;
+      acc.healPotencyUp += value;
+      acc.magicDamageDown += value;
+      continue;
+    }
+    if (code === 30) {
+      const value = scalar / 1_000;
+      acc.physDefPct -= value;
+      acc.magicDefPct -= value;
+      continue;
+    }
     const effectKey = (WEAPON_BONUS as any)[code];
     if (effectKey) applyWeaponBonus(acc, effectKey, scalar, dummy);
   }

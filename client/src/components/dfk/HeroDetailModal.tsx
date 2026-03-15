@@ -684,6 +684,9 @@ export function HeroDetailModal({
             ...(totalMAcc !== 0 ? [['M.ACC+', sign(totalMAcc * 100)] as [string,string]] : []),
             ...((petBonuses.lifesteal ?? 0) !== 0 ? [['LIFESTEAL', sign((petBonuses.lifesteal ?? 0) * 100)] as [string,string]] : []),
             ...((petBonuses.statusEffectResistance ?? 0) + passiveSer !== 0 ? [['SER+', sign(((petBonuses.statusEffectResistance ?? 0) + passiveSer) * 100)] as [string,string]] : []),
+            ...(equipBonuses.healPotencyUp !== 0 ? [['+HEAL', sign(equipBonuses.healPotencyUp * 100)] as [string,string]] : []),
+            ...(equipBonuses.healPotencyDown !== 0 ? [['-HEAL', sign(-equipBonuses.healPotencyDown * 100)] as [string,string]] : []),
+            ...(equipBonuses.magicDamageDown !== 0 ? [['-MDM', sign(-equipBonuses.magicDamageDown * 100)] as [string,string]] : []),
           ] as [string, string][];
           return (
             <div className="mt-3">
