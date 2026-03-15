@@ -2923,6 +2923,185 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =====================================================
+  // PVE HUNT BATTLE LOG & ENCOUNTER ANALYSIS
+  // =====================================================
+
+  // GET /api/admin/pve/hunt-battle-log?encounterId=ID
+  app.get("/api/admin/pve/hunt-battle-log", isAdmin, async (req: any, res: any) => {
+    const encounterId = parseInt(req.query.encounterId);
+    if (!Number.isFinite(encounterId)) {
+      return res.status(400).json({ ok: false, error: 'Valid encounterId required' });
+    }
+    try {
+      const { rawPg } = await import('./db.js');
+      const rows = await rawPg.unsafe(
+        `SELECT * FROM hunting_encounters WHERE id = $1 LIMIT 1`,
+        [encounterId]
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ ok: false, error: 'Encounter not found' });
+      }
+      const encounter = rows[0];
+      const txHash = encounter.tx_hash;
+      if (!txHash) {
+        return res.json({ ok: true, decoded: false, reason: 'No transaction hash stored for this encounter.', encounter });
+      }
+
+      const realm = encounter.realm || 'dfk';
+      const { COMBAT_CONTRACTS } = await import('../src/config/combatContracts.js');
+      const rpcUrl = realm === 'klaytn'
+        ? COMBAT_CONTRACTS.klaytn.rpcUrl
+        : COMBAT_CONTRACTS.dfk.rpcUrl;
+
+      const { ethers } = await import('ethers');
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+      let receipt;
+      try {
+        receipt = await provider.getTransactionReceipt(txHash);
+      } catch (rpcErr: any) {
+        console.error('[PVE BattleLog] RPC error fetching receipt:', rpcErr.message);
+        return res.json({ ok: true, decoded: false, reason: 'Failed to fetch transaction receipt from RPC.', encounter });
+      }
+
+      if (!receipt) {
+        return res.json({ ok: true, decoded: false, reason: 'Transaction receipt not found on chain.', encounter });
+      }
+
+      const { HUNTS_DIAMOND_ABI } = await import('../src/config/combatContracts.js');
+      const iface = new ethers.Interface(HUNTS_DIAMOND_ABI);
+
+      let huntCompletedLog = null;
+      for (const log of receipt.logs) {
+        try {
+          const parsed = iface.parseLog({ topics: log.topics as string[], data: log.data });
+          if (parsed && parsed.name === 'HuntCompleted') {
+            huntCompletedLog = parsed;
+            break;
+          }
+        } catch {
+          // Not a matching event, skip
+        }
+      }
+
+      if (!huntCompletedLog) {
+        return res.json({
+          ok: true,
+          decoded: false,
+          reason: 'HuntCompleted event not found in transaction logs.',
+          encounter,
+          logCount: receipt.logs.length,
+        });
+      }
+
+      const args = huntCompletedLog.args;
+      const huntId = args[0]?.toString();
+      const huntStruct = args[1];
+      const huntWon = args[2];
+      const heroIds = args[3]?.map((id: any) => id.toString()) || [];
+
+      const huntData: any = {
+        huntId,
+        huntWon,
+        heroIds,
+        huntDataId: huntStruct?.huntDataId?.toString() || null,
+        startBlock: huntStruct?.startBlock?.toString() || null,
+        player: huntStruct?.player || null,
+        status: huntStruct?.status?.toString() || null,
+        retries: huntStruct?.retries?.toString() || null,
+      };
+
+      return res.json({
+        ok: true,
+        decoded: false,
+        eventDecoded: true,
+        turnDataAvailable: false,
+        reason: 'HuntCompleted event decoded successfully, but the on-chain event does not contain turn-by-turn battle data — only hunt outcome metadata.',
+        encounter,
+        huntEventData: huntData,
+        turns: [],
+      });
+    } catch (error: any) {
+      console.error('[PVE BattleLog] Error:', error);
+      res.status(500).json({ ok: false, error: 'Failed to fetch battle log data.' });
+    }
+  });
+
+  // POST /api/admin/pve/hunt-encounter-analysis
+  app.post("/api/admin/pve/hunt-encounter-analysis", isAdmin, async (req: any, res: any) => {
+    const { encounterId, heroes, enemyId, result, turns, survivingHeroCount, survivingHeroHp, drops } = req.body;
+    if (!encounterId || !heroes || !Array.isArray(heroes)) {
+      return res.status(400).json({ ok: false, error: 'encounterId, heroes[] required' });
+    }
+    try {
+      const avgLevel = heroes.reduce((s: number, h: any) => s + (h.level || 1), 0) / heroes.length;
+      const heroSummary = heroes.map((h: any) => {
+        const agi = h.agility || 0, lck = h.luck || 0, dex = h.dexterity || 0;
+        const vit = h.vitality || 0, end = h.endurance || 0, int_ = h.intelligence || 0;
+        const speed = Math.round(agi * 1.7 * avgLevel / 100);
+        const eva = Math.round((agi * 1.5 + lck * 0.5) * avgLevel / 10000);
+        const pred = Math.round((end * 1.0 + agi * 0.5) * avgLevel / 5);
+        const mred = Math.round((int_ * 1.0 + end * 0.5) * avgLevel / 5);
+        return [
+          `Hero #${h.normalizedId || h.id}: Lv${h.level} ${h.mainClassStr}/${h.subClassStr || '?'} (Rarity:${h.rarity || 0})`,
+          `  Stats: STR:${h.strength} DEX:${dex} AGI:${agi} INT:${int_} WIS:${h.wisdom || 0} VIT:${vit} END:${end} LCK:${lck}`,
+          `  HP:${h.hp} MP:${h.mp}`,
+          `  Combat: SPEED:${speed} EVA:${eva} P.RED:${pred} M.RED:${mred}`,
+        ].join('\n');
+      }).join('\n\n');
+
+      const enemyLabel = (enemyId || 'unknown').split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+
+      const hasTurns = turns && Array.isArray(turns) && turns.length > 0;
+      const turnSummary = hasTurns
+        ? `Turn-by-turn data (${turns.length} turns):\n` + turns.map((t: any) =>
+            `  Turn ${t.turnNumber}: ${t.actorSide === 'hero' ? `Hero slot ${t.actorSlot}` : `Enemy slot ${t.actorSlot}`} used ${t.skillId || 'basic attack'} -> ${(t.targets || []).map((tgt: any) => `slot ${tgt.slot} (${tgt.hpBefore}->${tgt.hpAfter}, ${tgt.damage} dmg)`).join(', ')}`
+          ).join('\n')
+        : 'No turn-by-turn data available for this encounter. Analyze based on party stats and outcome.';
+
+      const outcomeStr = `Encounter result: ${result || 'UNKNOWN'}. Surviving heroes: ${survivingHeroCount ?? '?'}${survivingHeroHp != null ? ` at ${survivingHeroHp}% HP` : ''}.`;
+      const dropStr = drops && Array.isArray(drops) && drops.length > 0
+        ? `Drops: ${drops.map((d: any) => `${d.quantity}x ${d.itemId}`).join(', ')}`
+        : 'No drops.';
+
+      const prompt = [
+        `You are a DeFi Kingdoms PvE combat analyst. Analyze this specific encounter and provide actionable recommendations.`,
+        ``,
+        `Enemy: ${enemyLabel} (${enemyId})`,
+        `${outcomeStr}`,
+        `${dropStr}`,
+        ``,
+        `Party (${heroes.length} heroes, avg level ${avgLevel.toFixed(1)}):`,
+        heroSummary,
+        ``,
+        turnSummary,
+        ``,
+        `Provide 3-5 specific, actionable bullet recommendations covering:`,
+        `1. Which hero underperformed in this encounter and why (cite hero IDs and specific stats)`,
+        `2. Skill or gear adjustments that could improve the outcome`,
+        `3. Whether the party composition is suitable for ${enemyLabel}`,
+        `4. Speed/agility analysis — did the party have enough turn priority?`,
+        `5. Survivability assessment — was HP/defense adequate?`,
+        `Reference specific hero IDs (e.g., Hero #1204) and stats in your recommendations. Be direct and specific.`,
+      ].join('\n');
+
+      const { default: OpenAI } = await import('openai');
+      const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const completion = await oai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 500,
+        temperature: 0.7,
+      });
+      const analysis = completion.choices[0]?.message?.content?.trim() ?? null;
+      res.json({ ok: true, analysis });
+    } catch (error: any) {
+      console.error('[PVE Encounter Analysis] Error:', error);
+      res.status(500).json({ ok: false, error: 'Failed to generate encounter analysis.' });
+    }
+  });
+
   // ===========================================
   // TOURNAMENT/BATTLE-READY HEROES ADMIN ROUTES
   // ===========================================

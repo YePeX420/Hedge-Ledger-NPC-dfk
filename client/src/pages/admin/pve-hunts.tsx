@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Swords, Search, Loader2, Clock, Shield, Sparkles, Bot, ChevronRight, Skull, Trophy, Package } from 'lucide-react';
+import { Swords, Search, Loader2, Clock, Shield, Sparkles, Bot, ChevronRight, ChevronDown, Skull, Trophy, Package, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -64,6 +64,39 @@ interface Encounter {
   surviving_hero_hp: number | null;
   drops: Array<{ itemId: string; quantity: number }>;
   encountered_at: string;
+}
+
+interface BattleTurnTarget {
+  slot: number;
+  hpBefore: number;
+  hpAfter: number;
+  damage: number;
+  statusEffects?: string[];
+}
+
+interface BattleTurn {
+  turnNumber: number;
+  actorSide: string;
+  actorSlot: number;
+  heroId?: string;
+  skillId?: string;
+  targets: BattleTurnTarget[];
+}
+
+interface BattleLogData {
+  ok: boolean;
+  decoded: boolean;
+  eventDecoded?: boolean;
+  turnDataAvailable?: boolean;
+  reason?: string;
+  turns?: BattleTurn[];
+  huntEventData?: {
+    huntId: string;
+    huntWon: boolean;
+    heroIds: string[];
+    huntDataId?: string;
+    player?: string;
+  };
 }
 
 const RARITY_COLORS = ['text-muted-foreground', 'text-green-500', 'text-blue-500', 'text-purple-500', 'text-orange-400', 'text-yellow-400'];
@@ -131,6 +164,184 @@ function heroRawToDetail(h: HeroRaw): HeroDetail {
     offhand1: h.offhand1 ?? null,
     offhand2: h.offhand2 ?? null,
   };
+}
+
+function EncounterRow({ enc, heroes }: { enc: Encounter; heroes: HeroRaw[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const battleLogQuery = useQuery<BattleLogData>({
+    queryKey: ['/api/admin/pve/hunt-battle-log', enc.id],
+    enabled: expanded,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const resp = await fetch(`/api/admin/pve/hunt-battle-log?encounterId=${enc.id}`);
+      if (!resp.ok) throw new Error('Failed to fetch battle log');
+      return resp.json();
+    },
+  });
+
+  const encounterAiMutation = useMutation({
+    mutationFn: async () => {
+      const resp = await apiRequest('POST', '/api/admin/pve/hunt-encounter-analysis', {
+        encounterId: enc.id,
+        heroes,
+        enemyId: enc.enemy_id,
+        result: enc.result,
+        turns: battleLogQuery.data?.turns || [],
+        survivingHeroCount: enc.surviving_hero_count,
+        survivingHeroHp: enc.surviving_hero_hp,
+        drops: enc.drops,
+      });
+      return resp.json();
+    },
+  });
+
+  const battleLog = battleLogQuery.data;
+
+  return (
+    <div data-testid={`encounter-row-${enc.id}`}>
+      <div
+        className="flex flex-wrap items-center gap-2 p-2 rounded-md bg-muted/30 text-sm cursor-pointer hover-elevate"
+        onClick={() => setExpanded(!expanded)}
+        data-testid={`encounter-toggle-${enc.id}`}
+      >
+        {expanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+        <span className="font-medium min-w-[120px]">
+          {formatEnemyName(enc.enemy_id)}
+          <span className="text-[10px] text-muted-foreground/50 ml-1 font-mono">{enc.enemy_id}</span>
+        </span>
+        <Badge
+          variant={enc.result === 'WIN' ? 'default' : 'destructive'}
+          className="text-[10px]"
+        >
+          {enc.result === 'WIN' ? <Trophy className="w-3 h-3 mr-1" /> : <Skull className="w-3 h-3 mr-1" />}
+          {enc.result}
+        </Badge>
+        {enc.surviving_hero_count > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {enc.surviving_hero_count} survived
+            {enc.surviving_hero_hp != null && ` (${enc.surviving_hero_hp}% HP)`}
+          </span>
+        )}
+        {enc.drops && Array.isArray(enc.drops) && enc.drops.length > 0 && (
+          <span className="text-xs text-green-500 flex items-center gap-1">
+            <Package className="w-3 h-3" />
+            {enc.drops.map(d => `${d.quantity}x ${formatEnemyName(d.itemId)}`).join(', ')}
+          </span>
+        )}
+        <span className="text-xs text-muted-foreground/60 ml-auto">
+          {formatTimeAgo(enc.encountered_at)}
+        </span>
+      </div>
+
+      {expanded && (
+        <div className="ml-6 mt-2 mb-3 space-y-3" data-testid={`encounter-expanded-${enc.id}`}>
+          {battleLogQuery.isLoading && (
+            <div className="space-y-2 animate-pulse">
+              <div className="h-8 bg-muted/40 rounded-md w-full" />
+              <div className="h-8 bg-muted/30 rounded-md w-3/4" />
+              <div className="h-8 bg-muted/20 rounded-md w-1/2" />
+            </div>
+          )}
+
+          {battleLogQuery.isError && (
+            <div className="py-3 text-center">
+              <p className="text-xs text-red-400">Failed to load battle log.</p>
+            </div>
+          )}
+
+          {battleLog && !battleLogQuery.isLoading && (
+            <div className="space-y-2">
+              {battleLog.decoded && battleLog.turns && battleLog.turns.length > 0 ? (
+                <div className="space-y-1" data-testid={`battle-turns-${enc.id}`}>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                    Battle Log ({battleLog.turns.length} turns)
+                  </p>
+                  {battleLog.turns.map((turn) => (
+                    <div key={turn.turnNumber} className="flex flex-wrap items-center gap-2 text-xs p-1.5 rounded bg-muted/20">
+                      <Badge variant="outline" className="text-[10px] font-mono">T{turn.turnNumber}</Badge>
+                      <span className={turn.actorSide === 'hero' ? 'text-blue-400' : 'text-red-400'}>
+                        {turn.actorSide === 'hero' ? `Hero #${turn.heroId || turn.actorSlot}` : `Enemy slot ${turn.actorSlot}`}
+                      </span>
+                      {turn.skillId && <span className="text-muted-foreground">{turn.skillId}</span>}
+                      {turn.targets.map((tgt, i) => (
+                        <span key={i} className="flex items-center gap-1">
+                          <span className="text-muted-foreground/60">slot {tgt.slot}:</span>
+                          <span className={tgt.damage > 0 ? 'text-red-400' : tgt.damage < 0 ? 'text-green-400' : 'text-muted-foreground'}>
+                            {tgt.hpBefore} {tgt.damage > 0 ? `(-${tgt.damage})` : tgt.damage < 0 ? `(+${Math.abs(tgt.damage)})` : '(0)'} {tgt.hpAfter}
+                          </span>
+                          {tgt.statusEffects && tgt.statusEffects.length > 0 && (
+                            <Badge variant="secondary" className="text-[9px]">{tgt.statusEffects.join(', ')}</Badge>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 p-3 rounded-md bg-muted/20 border border-dashed border-muted-foreground/20" data-testid={`battle-log-fallback-${enc.id}`}>
+                  <AlertTriangle className="w-4 h-4 text-muted-foreground/50 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Turn data unavailable for this encounter.</p>
+                    {battleLog.reason && (
+                      <p className="text-[10px] text-muted-foreground/50 mt-0.5">{battleLog.reason}</p>
+                    )}
+                    {battleLog.huntEventData && (
+                      <div className="mt-2 text-[10px] text-muted-foreground/60 space-y-0.5">
+                        {battleLog.huntEventData.huntId && <p>Hunt ID: {battleLog.huntEventData.huntId}</p>}
+                        {battleLog.huntEventData.heroIds && battleLog.huntEventData.heroIds.length > 0 && (
+                          <p>Heroes: {battleLog.huntEventData.heroIds.map(id => `#${id}`).join(', ')}</p>
+                        )}
+                        <p>Result: {battleLog.huntEventData.huntWon ? 'Won' : 'Lost'}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  data-testid={`button-analyze-encounter-${enc.id}`}
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => { e.stopPropagation(); encounterAiMutation.mutate(); }}
+                  disabled={encounterAiMutation.isPending}
+                >
+                  {encounterAiMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Bot className="w-3.5 h-3.5 mr-1" />}
+                  Analyze This Encounter
+                </Button>
+              </div>
+
+              {encounterAiMutation.isPending && (
+                <div className="py-3 text-center">
+                  <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1 text-primary" />
+                  <p className="text-xs text-muted-foreground">Analyzing encounter...</p>
+                </div>
+              )}
+
+              {encounterAiMutation.data?.analysis && (
+                <div className="p-3 rounded-md bg-muted/20 border border-muted-foreground/10" data-testid={`encounter-ai-result-${enc.id}`}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> AI Analysis
+                  </p>
+                  <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-xs leading-relaxed">
+                    {encounterAiMutation.data.analysis}
+                  </div>
+                  <p className="text-[9px] text-muted-foreground/40 mt-2">
+                    Based on current party stats. If party composition changed since this encounter, recommendations may differ.
+                  </p>
+                </div>
+              )}
+
+              {encounterAiMutation.isError && (
+                <p className="text-xs text-red-400">Failed to analyze encounter. Please try again.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function PveHunts() {
@@ -394,40 +605,13 @@ export default function PveHunts() {
                           <p className="text-sm text-muted-foreground">No encounter history found for this wallet.</p>
                         </div>
                       ) : (
-                        <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                        <div className="space-y-2 max-h-[600px] overflow-y-auto">
                           {encounterData.encounters.map((enc) => (
-                            <div
+                            <EncounterRow
                               key={enc.id}
-                              data-testid={`encounter-row-${enc.id}`}
-                              className="flex flex-wrap items-center gap-2 p-2 rounded-md bg-muted/30 text-sm"
-                            >
-                              <span className="font-medium min-w-[120px]">
-                                {formatEnemyName(enc.enemy_id)}
-                                <span className="text-[10px] text-muted-foreground/50 ml-1 font-mono">{enc.enemy_id}</span>
-                              </span>
-                              <Badge
-                                variant={enc.result === 'WIN' ? 'default' : 'destructive'}
-                                className="text-[10px]"
-                              >
-                                {enc.result === 'WIN' ? <Trophy className="w-3 h-3 mr-1" /> : <Skull className="w-3 h-3 mr-1" />}
-                                {enc.result}
-                              </Badge>
-                              {enc.surviving_hero_count > 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  {enc.surviving_hero_count} survived
-                                  {enc.surviving_hero_hp != null && ` (${enc.surviving_hero_hp}% HP)`}
-                                </span>
-                              )}
-                              {enc.drops && Array.isArray(enc.drops) && enc.drops.length > 0 && (
-                                <span className="text-xs text-green-500 flex items-center gap-1">
-                                  <Package className="w-3 h-3" />
-                                  {enc.drops.map(d => `${d.quantity}x ${formatEnemyName(d.itemId)}`).join(', ')}
-                                </span>
-                              )}
-                              <span className="text-xs text-muted-foreground/60 ml-auto">
-                                {formatTimeAgo(enc.encountered_at)}
-                              </span>
-                            </div>
+                              enc={enc}
+                              heroes={selectedZone?.heroes || []}
+                            />
                           ))}
                         </div>
                       )}
