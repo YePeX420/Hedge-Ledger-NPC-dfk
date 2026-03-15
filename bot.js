@@ -19132,15 +19132,17 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       if (activityId) {
         const activity = await rawPg.unsafe(`SELECT * FROM pve_activities WHERE id = $1`, [activityId]);
         if (activity.length === 0) return res.json({ encounters: [] });
+        const enemyKey = (activity[0].name || '').toUpperCase().replace(/\s+/g, '_');
         const realmMap = { 53935: 'dfk', 8217: 'klaytn' };
         const realm = realmMap[activity[0].chain_id] || 'dfk';
         rows = await rawPg.unsafe(`
           SELECT * FROM hunting_encounters
           WHERE LOWER(wallet_address) = LOWER($1)
             AND realm = $2
+            AND UPPER(REPLACE(enemy_id, ' ', '_')) = $3
           ORDER BY encountered_at DESC
-          LIMIT $3
-        `, [wallet, realm, limit]);
+          LIMIT $4
+        `, [wallet, realm, enemyKey, limit]);
       } else {
         rows = await rawPg.unsafe(`
           SELECT * FROM hunting_encounters

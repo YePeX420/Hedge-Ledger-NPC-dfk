@@ -70,6 +70,13 @@ const RARITY_COLORS = ['text-muted-foreground', 'text-green-500', 'text-blue-500
 const RARITY_LABELS = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic', 'Transcendent'];
 const CHAIN_LABELS: Record<number, string> = { 53935: 'DFK', 8217: 'Klaytn' };
 
+function formatEnemyName(enemyId: string): string {
+  return enemyId
+    .split('_')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function formatTimeUntil(staminaFullAt: number): string {
   if (!staminaFullAt) return '—';
   const now = Math.floor(Date.now() / 1000);
@@ -312,9 +319,14 @@ export default function PveHunts() {
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                     <div>
                       <h2 className="font-bold text-lg">{selectedZone.activity.name}</h2>
-                      <p className="text-xs text-muted-foreground">
-                        Activity #{selectedZone.activity.activity_id} · {CHAIN_LABELS[selectedZone.activity.chain_id] || `Chain ${selectedZone.activity.chain_id}`} · {selectedZone.heroes.length} heroes
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <Badge variant="outline" className="text-[10px]">Zone #{selectedZone.activity.activity_id}</Badge>
+                        <Badge variant="outline" className="text-[10px]">{CHAIN_LABELS[selectedZone.activity.chain_id] || `Chain ${selectedZone.activity.chain_id}`}</Badge>
+                        <span className="text-xs text-muted-foreground">{selectedZone.heroes.length} heroes</span>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          [{selectedZone.heroes.map(h => `#${h.normalizedId || h.id}`).join(', ')}]
+                        </span>
+                      </div>
                     </div>
                     <div className="flex gap-1">
                       {(['party', 'encounters', 'ai'] as const).map((tab) => (
@@ -388,7 +400,7 @@ export default function PveHunts() {
                               data-testid={`encounter-row-${enc.id}`}
                               className="flex flex-wrap items-center gap-2 p-2 rounded-md bg-muted/30 text-sm"
                             >
-                              <span className="font-medium min-w-[120px]">{enc.enemy_id}</span>
+                              <span className="font-medium min-w-[120px]">{formatEnemyName(enc.enemy_id)}</span>
                               <Badge
                                 variant={enc.result === 'WIN' ? 'default' : 'destructive'}
                                 className="text-[10px]"
@@ -405,7 +417,7 @@ export default function PveHunts() {
                               {enc.drops && Array.isArray(enc.drops) && enc.drops.length > 0 && (
                                 <span className="text-xs text-green-500 flex items-center gap-1">
                                   <Package className="w-3 h-3" />
-                                  {enc.drops.map(d => `${d.quantity}x ${d.itemId}`).join(', ')}
+                                  {enc.drops.map(d => `${d.quantity}x ${formatEnemyName(d.itemId)}`).join(', ')}
                                 </span>
                               )}
                               <span className="text-xs text-muted-foreground/60 ml-auto">
