@@ -1,0 +1,201 @@
+Yes. This is a strong product idea, but the winning shape is not “an LLM watches the screen and guesses.” It should be a combat decision engine with an AI explanation layer on top.
+
+A plain subpage on your site will not be able to directly inspect a live DFK tab by itself, because browsers restrict cross-origin reads under the same-origin policy. In practice, the reliable pattern is a browser extension or userscript that runs on game.defikingdoms.com, reads the battle state/log in-page, and forwards structured events to your site or backend. Extension content scripts are specifically designed to read and modify page content when the user grants host permissions. 
+
+DFK already gives you most of the static/reference layer you need. The official Community GraphQL API is available at api.defikingdoms.com/graphql; the docs show hero queries plus hero fields for current stats, HP/MP/Stamina, level, and primary/secondary stat growth, and equipment data is also available through the Community GraphQL API. For combat logic, the official class pages publish ability descriptions, ranges, mana cost/growth, DoD, and raw damage/effect formulas, but those pages also explicitly warn that the information is subject to change and that some higher tiers are not yet fully revised or balanced. 
+
+The missing piece is the live turn stream. The published Void Hunts interface documents lifecycle events and getters such as HuntStarted, HuntCompleted, HuntResultSubmitted, getHunt, and getUserHuntIds, but I do not see a documented per-turn battle-log getter in that interface. That means your live companion should assume the turn feed comes from the running client session, not from the hunt contract alone. 
+
+The architecture I would use is:
+
+1. Capture layer Run a content script in the DFK hunt page. It should read:
+
+visible battle log entries
+
+current HP/MP/status panels
+
+initiative order
+
+active unit / legal buttons
+
+target selection state
+
+
+Prefer structured capture from DOM/network over screenshot vision. Vision is a fallback, not the primary path.
+
+
+2. Normalization layer Convert raw page data into events like:
+
+{
+  "huntId": 761923,
+  "turn": 12,
+  "actor": "Davion Greenlaugh",
+  "actorSlot": "P1",
+  "ability": "Mighty Strike",
+  "target": "Baby Boar 1",
+  "damageType": "physical",
+  "damage": 217,
+  "manaDelta": -19,
+  "effects": [],
+  "rawText": "...",
+  "capturedAt": 1730000000000
+}
+
+
+3. State engine Build a full turn state from those events:
+
+hero stats and equipment
+
+learned / imported skill trees
+
+current HP/MP
+
+buffs/debuffs and remaining duration
+
+initiative queue
+
+enemy templates
+
+consumables remaining
+
+
+Store both state_before and state_after for every action. Do not store only text logs.
+
+
+4. Recommendation engine For the active hero, enumerate every legal action-target pair and score them. The core math should be deterministic, not LLM-generated.
+
+A good first scoring model is:
+
+score =
+  0.30 * killProbability
++ 0.20 * damageEV
++ 0.20 * survivalDelta
++ 0.15 * debuffValue
++ 0.10 * initiativeControl
++ 0.05 * manaEfficiency
+
+Then move to a 1-ply or 2-ply rollout:
+
+expected outgoing damage
+
+chance to kill or set up kill
+
+chance to survive next enemy rotation
+
+value of shred/stun/bleed/etc.
+
+overkill waste
+
+mana conservation
+
+target priority
+
+
+
+5. AI explanation layer Let the LLM explain the engine’s output, not invent it. Feed it a candidate table like:
+
+action
+
+target
+
+EV damage
+
+kill chance
+
+proc chance
+
+survival impact
+
+rationale tags
+
+
+Then have it produce:
+
+“best move”
+
+“why”
+
+“second-best fallback”
+
+“high-risk / high-reward option”
+
+
+
+6. Learning layer Store battle logs for learning, but use them the right way:
+
+estimate hidden enemy targeting tendencies
+
+calibrate omitted/implicit proc behavior
+
+learn rounding quirks and initiative sequencing
+
+train a value model for “state → win probability / turns-to-win”
+
+compare recommended action vs chosen action vs outcome
+
+
+I would not start with end-to-end RL. Start with deterministic formulas plus log-based calibration.
+
+
+
+For storage, I would keep something like:
+
+runs
+turn_snapshots
+raw_log_entries
+parsed_events
+recommendations
+chosen_actions
+outcomes
+enemy_catalog
+skill_catalog_versions
+formula_versions
+
+That skill_catalog_versions table matters because the official class pages explicitly say their combat data is subject to change. Version every recommendation against the exact formula set you used. 
+
+For your website UX, the cleanest setup is:
+
+user opens /hunt-companion on your site
+
+user installs your extension
+
+extension detects an active DFK hunt tab
+
+extension pairs with your site session
+
+extension streams normalized battle state to your backend over WebSocket
+
+your site shows live recommendations and stores the replay
+
+
+That is much better than trying to make a normal webpage “peek into” another site.
+
+The best MVP is narrower than the full vision:
+
+support Mad Boar only
+
+support one or two classes first, likely Knight/Warrior
+
+ingest known enemy stat blocks
+
+recommend the best next move for the currently active hero
+
+store full turn-by-turn replay data
+
+add explanation text only after the math engine is stable
+
+
+One more important point: DFK’s developer docs say the assets are publicly available and encouraged for integration, but use must still comply with DFK’s Terms of Service. They also run a Kingdom Building Program for community builders and offer consultations. I would keep this product advisory rather than auto-play, and I would talk to DFK early if you plan to rely on undocumented client endpoints or deeper UI integration. 
+
+My blunt take: this is very buildable, and it could be genuinely useful. The moat is not “AI.” The moat is:
+
+clean live capture
+
+accurate combat-state reconstruction
+
+versioned formula catalogs
+
+a recommendation engine that is measurably right
+
+
+Share your stack and I’ll map this into a concrete MVP architecture with collector, DB schema, and recommender loop.
