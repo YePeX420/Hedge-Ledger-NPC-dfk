@@ -16,6 +16,8 @@ import {
   ARMOR_RESIST_NAMES,
   getAccessoryDisplayBonuses,
 } from '@/data/dfk-equipment-bonuses';
+import type { LiveHeroState } from '@/lib/dfk-live-combat-state';
+import { getStatAdjustments } from '@/lib/dfk-live-combat-state';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -230,14 +232,87 @@ function AccessorySlotDisplay({ item, label }: { item: HeroAccessory; label: str
 
 // ─── Main HeroDetailModal ─────────────────────────────────────────────────────
 
+function LiveStatValue({ label, baseVal, baseNum, liveState, statKey }: {
+  label: string;
+  baseVal: string;
+  baseNum?: number;
+  liveState: LiveHeroState | null;
+  statKey: string;
+}) {
+  if (!liveState) {
+    return (
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono">{baseVal}</span>
+      </div>
+    );
+  }
+  const adj = getStatAdjustments(liveState, statKey);
+  if (!adj) {
+    return (
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono">{baseVal}</span>
+      </div>
+    );
+  }
+
+  const hasNonZeroDelta = adj.totalDelta !== 0;
+  const showEffective = hasNonZeroDelta && baseNum != null;
+
+  const MULTIPLICATIVE_STATS = new Set(['P.DEF', 'M.DEF', 'SPEED', 'ATK']);
+
+  let effectiveDisplay: string | null = null;
+  if (showEffective) {
+    const isMultiplicative = adj.isPercent && MULTIPLICATIVE_STATS.has(statKey);
+    const effective = isMultiplicative
+      ? baseNum * (1 + adj.totalDelta / 100)
+      : baseNum + adj.totalDelta;
+    if (baseVal.includes('%')) {
+      effectiveDisplay = Math.max(0, effective).toFixed(2) + '%';
+    } else {
+      effectiveDisplay = Math.max(0, Math.round(effective)).toString();
+    }
+  }
+
+  return (
+    <div className="flex justify-between items-start gap-1">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="text-right flex flex-wrap items-baseline justify-end gap-x-1">
+        {hasNonZeroDelta ? (
+          <span className="font-mono text-muted-foreground/60 line-through text-[10px]">{baseVal}</span>
+        ) : (
+          <span className="font-mono">{baseVal}</span>
+        )}
+        {adj.sources.map((s, i) => (
+          <span
+            key={i}
+            className={`text-[10px] font-medium ${s.type === 'buff' ? 'text-green-400' : 'text-red-400'}`}
+            title={s.name}
+          >
+            {s.delta !== 0 ? (s.delta > 0 ? '+' : '') + s.delta + (adj.isPercent ? '%' : '') + ' ' : ''}{s.name}
+          </span>
+        ))}
+        {effectiveDisplay && (
+          <span className={`font-mono font-medium ${adj.totalDelta > 0 ? 'text-green-400' : 'text-red-400'}`}>
+            = {effectiveDisplay}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function HeroDetailModal({
   hero,
   onClose,
   matchContext,
+  liveState,
 }: {
   hero: HeroDetail;
   onClose: () => void;
   matchContext?: MatchContext;
+  liveState?: LiveHeroState | null;
 }) {
   const stats = {
     STR: hero.strength, DEX: hero.dexterity, AGI: hero.agility,
@@ -404,24 +479,83 @@ export function HeroDetailModal({
           </div>
         )}
 
+        {/* Live combat overlay banner */}
+        {liveState && (liveState.activeBuffs.length > 0 || liveState.activeDebuffs.length > 0) && (
+          <div className="rounded-md bg-blue-500/10 border border-blue-500/30 px-3 py-2 text-xs space-y-1" data-testid="live-combat-overlay">
+            <p className="font-semibold text-blue-400 uppercase tracking-wide flex items-center gap-1.5">
+              <Zap className="w-3 h-3" /> Live Combat Effects
+            </p>
+            {liveState.activeBuffs.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {liveState.activeBuffs.map((b, i) => (
+                  <Badge key={`buff-${i}`} variant="outline" className="text-[9px] px-1.5 py-0 border-green-500/40 text-green-400">
+                    {b.name}: {b.statKey} {b.delta > 0 ? '+' : ''}{b.delta}{b.isPercent ? '%' : ''}
+                    {b.source === 'conditional' && <span className="ml-0.5 text-amber-400">(conditional)</span>}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {liveState.activeDebuffs.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {liveState.activeDebuffs.map((d, i) => (
+                  <Badge key={`debuff-${i}`} variant="outline" className="text-[9px] px-1.5 py-0 border-red-500/40 text-red-400">
+                    {d.name}: {d.statKey} {d.delta > 0 ? '+' : ''}{d.delta}{d.isPercent ? '%' : ''}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* HP/MP bars */}
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <div className="flex justify-between mb-1">
               <span className="text-muted-foreground text-xs">HP</span>
-              <span className="text-xs font-mono">{hero.hp}</span>
+              {liveState && liveState.currentHp != null ? (
+                <span className="text-xs font-mono">
+                  <span className={liveState.hpPct != null && liveState.hpPct < 30 ? 'text-red-400' : liveState.hpPct != null && liveState.hpPct < 60 ? 'text-amber-400' : 'text-green-400'}>
+                    {liveState.currentHp}
+                  </span>
+                  <span className="text-muted-foreground">/{liveState.maxHp ?? hero.hp}</span>
+                  {liveState.hpPct != null && (
+                    <span className="text-muted-foreground/60 ml-1">({liveState.hpPct}%)</span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-xs font-mono">{hero.hp}</span>
+              )}
             </div>
             <div className="h-2 rounded-full bg-muted overflow-hidden">
-              <div className="h-full bg-green-500 rounded-full" style={{ width: '100%' }} />
+              <div
+                className={`h-full rounded-full transition-all ${
+                  liveState?.hpPct != null && liveState.hpPct < 30 ? 'bg-red-500' :
+                  liveState?.hpPct != null && liveState.hpPct < 60 ? 'bg-amber-500' : 'bg-green-500'
+                }`}
+                style={{ width: `${liveState?.hpPct ?? 100}%` }}
+              />
             </div>
           </div>
           <div>
             <div className="flex justify-between mb-1">
               <span className="text-muted-foreground text-xs">MP</span>
-              <span className="text-xs font-mono">{hero.mp}</span>
+              {liveState && liveState.currentMp != null ? (
+                <span className="text-xs font-mono">
+                  <span className="text-blue-400">{liveState.currentMp}</span>
+                  <span className="text-muted-foreground">/{liveState.maxMp ?? hero.mp}</span>
+                  {liveState.mpPct != null && (
+                    <span className="text-muted-foreground/60 ml-1">({liveState.mpPct}%)</span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-xs font-mono">{hero.mp}</span>
+              )}
             </div>
             <div className="h-2 rounded-full bg-muted overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full" style={{ width: '100%' }} />
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all"
+                style={{ width: `${liveState?.mpPct ?? 100}%` }}
+              />
             </div>
           </div>
         </div>
@@ -429,25 +563,27 @@ export function HeroDetailModal({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
           {/* Vitals */}
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Vitals</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              Vitals
+              {liveState && (liveState.activeBuffs.length > 0 || liveState.activeDebuffs.length > 0) && (
+                <span className="ml-1 text-blue-400 text-[9px] font-normal normal-case">(live)</span>
+              )}
+            </p>
             <div className="space-y-1 text-xs">
-              {[
-                ['P.DEF', fmt(pDef)],
-                ['M.DEF', fmt(mDef)],
-                ['P.RED', pRed.toFixed(2) + '%'],
-                ['M.RED', mRed.toFixed(2) + '%'],
-                ['BLK', (totalBlk * 100).toFixed(2) + '%'],
-                ['SBLK', (totalSblk * 100).toFixed(2) + '%'],
-                ['REC', (totalRec * 100).toFixed(2) + '%'],
-                ['SER', (baseSER * 100).toFixed(2) + '%'],
-                ['SPEED', totalSpeed.toString()],
-                ['EVA', (totalEva * 100).toFixed(2) + '%'],
-              ].map(([label, val]) => (
-                <div key={label} className="flex justify-between">
-                  <span className="text-muted-foreground">{label}</span>
-                  <span className="font-mono">{val}</span>
-                </div>
-              ))}
+              <LiveStatValue label="P.DEF" baseVal={fmt(pDef)} baseNum={pDef} liveState={liveState ?? null} statKey="P.DEF" />
+              <LiveStatValue label="M.DEF" baseVal={fmt(mDef)} baseNum={mDef} liveState={liveState ?? null} statKey="M.DEF" />
+              <LiveStatValue label="P.RED" baseVal={pRed.toFixed(2) + '%'} baseNum={pRed} liveState={liveState ?? null} statKey="P.RED" />
+              <LiveStatValue label="M.RED" baseVal={mRed.toFixed(2) + '%'} baseNum={mRed} liveState={liveState ?? null} statKey="M.RED" />
+              <LiveStatValue label="BLK" baseVal={(totalBlk * 100).toFixed(2) + '%'} baseNum={totalBlk * 100} liveState={liveState ?? null} statKey="BLK" />
+              <LiveStatValue label="SBLK" baseVal={(totalSblk * 100).toFixed(2) + '%'} baseNum={totalSblk * 100} liveState={liveState ?? null} statKey="SBLK" />
+              <LiveStatValue label="REC" baseVal={(totalRec * 100).toFixed(2) + '%'} baseNum={totalRec * 100} liveState={liveState ?? null} statKey="REC" />
+              <LiveStatValue label="SER" baseVal={(baseSER * 100).toFixed(2) + '%'} baseNum={baseSER * 100} liveState={liveState ?? null} statKey="SER" />
+              <LiveStatValue label="SPEED" baseVal={totalSpeed.toString()} baseNum={totalSpeed} liveState={liveState ?? null} statKey="SPEED" />
+              <LiveStatValue label="EVA" baseVal={(totalEva * 100).toFixed(2) + '%'} baseNum={totalEva * 100} liveState={liveState ?? null} statKey="EVA" />
+              {liveState && getStatAdjustments(liveState, 'ACC') && (
+                <LiveStatValue label="ACC" baseVal="100%" baseNum={100} liveState={liveState} statKey="ACC" />
+              )}
+              <LiveStatValue label="CSC" baseVal={(totalCSC * 100).toFixed(2) + '%'} baseNum={totalCSC * 100} liveState={liveState ?? null} statKey="CSC" />
             </div>
           </div>
 

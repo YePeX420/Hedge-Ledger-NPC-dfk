@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { HeroDetailModal } from '@/components/dfk/HeroDetailModal';
 import type { HeroDetail } from '@/components/dfk/HeroDetailModal';
+import { parseLiveCombatState, getLiveStatOverlay } from '@/lib/dfk-live-combat-state';
+import type { LiveCombatState, BattleTurn } from '@/lib/dfk-live-combat-state';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -547,12 +549,14 @@ interface LiveCoachState { analysis: string | null; playerName?: string; hadBatt
 function BattleLogViewer({
   tournamentId, boutId, isLive, battleBudget,
   onLogLoaded,
+  onBattleLogData,
 }: {
   tournamentId: string;
   boutId: number;
   isLive: boolean;
   battleBudget?: number | null;
   onLogLoaded?: (hasData: boolean) => void;
+  onBattleLogData?: (data: BattleLogResult | null) => void;
 }) {
   const [state, setState] = useState<BattleLogState>({ data: null, loading: false, open: false });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -564,6 +568,7 @@ function BattleLogViewer({
       const data: BattleLogResult = await res.json();
       setState(s => ({ ...s, data, loading: false, open: s.open || !silent }));
       onLogLoaded?.((data.turns?.length ?? 0) > 0);
+      onBattleLogData?.(data);
     } catch (err: any) {
       setState(s => ({ ...s, loading: false, error: err.message }));
     }
@@ -581,13 +586,12 @@ function BattleLogViewer({
     }
   };
 
-  // Live auto-refresh every 5s when open and live
   useEffect(() => {
     if (isLive && state.open) {
       intervalRef.current = setInterval(() => fetchLog(true), 5000);
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isLive, state.open, boutId, tournamentId]);
+  }, [isLive, boutId, tournamentId]);
 
   const turns = [...(state.data?.turns ?? [])].reverse();
   const hasTurns = turns.length > 0;
@@ -753,7 +757,7 @@ function BattleLogViewer({
 
 // ─── Fight History Section ─────────────────────────────────────────────────────
 
-function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament, battleBudget, strategicNarrative }: {
+function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTournament, battleBudget, strategicNarrative, onBattleLogData, onHeroSelect }: {
   bout: HistoryBout;
   tournamentId: string;
   nameA: string; nameB: string;
@@ -761,6 +765,8 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
   isLiveTournament: boolean;
   battleBudget?: number | null;
   strategicNarrative?: string | null;
+  onBattleLogData?: (data: BattleLogResult | null) => void;
+  onHeroSelect?: (side: 'a' | 'b', slot: number, boutId: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [winnerCoach, setWinnerCoach] = useState<CoachResult | null>(null);
@@ -874,9 +880,9 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
           {/* Hero comparison grid */}
           <div className="grid grid-cols-2 divide-x divide-border/40">
             {[
-              { name: nameA, heroes: bout.heroesA, isWinner: !!winnerIsA },
-              { name: nameB, heroes: bout.heroesB, isWinner: !winnerIsA && !!bout.winnerAddress },
-            ].map(({ name, heroes, isWinner }) => (
+              { name: nameA, heroes: bout.heroesA, isWinner: !!winnerIsA, side: 'a' as const },
+              { name: nameB, heroes: bout.heroesB, isWinner: !winnerIsA && !!bout.winnerAddress, side: 'b' as const },
+            ].map(({ name, heroes, isWinner, side }) => (
               <div key={name} className="p-3">
                 <p className={`text-xs font-semibold mb-2 truncate ${isWinner ? 'text-green-400' : 'text-muted-foreground'}`}>
                   {isWinner && <Trophy className="w-2.5 h-2.5 inline mr-1" />}{name}
@@ -884,11 +890,16 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
                 {heroes.length > 0 ? (
                   <div className="space-y-1">
                     {heroes.map((h, i) => (
-                      <div key={i} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <button
+                        key={i}
+                        className="text-xs text-muted-foreground flex items-center gap-1.5 hover-elevate rounded px-1 py-0.5 -mx-1 w-full text-left"
+                        onClick={(e) => { e.stopPropagation(); onHeroSelect?.(side, i, bout.id); }}
+                        data-testid={`bout-hero-${bout.id}-${side}-${i}`}
+                      >
                         <span className="font-medium text-foreground/80">{h.main_class}</span>
                         <span>Lv{h.level}</span>
                         <span className="text-[10px]">AGI {h.agility}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 ) : (
@@ -906,6 +917,7 @@ function BoutCard({ bout, tournamentId, nameA, nameB, addrA, addrB, isLiveTourna
               isLive={isLiveTournament && !bout.isComplete}
               battleBudget={battleBudget}
               onLogLoaded={setBattleLogHasData}
+              onBattleLogData={onBattleLogData}
             />
           )}
 
@@ -1120,7 +1132,9 @@ export default function TournamentMatchupPage() {
   const [location, navigate] = useLocation();
   const basePath = location.startsWith('/user/') ? '/user/dfk-tournament' : '/admin/tournament';
   const [selectedHero, setSelectedHero] = useState<HeroDetail | null>(null);
+  const [selectedHeroBoutId, setSelectedHeroBoutId] = useState<number | null>(null);
   const [strategicNarrative, setStrategicNarrative] = useState<string | null>(null);
+  const [liveCombatStates, setLiveCombatStates] = useState<Record<number, LiveCombatState>>({});
 
   const tournamentId = params.id;
   const slotA = parseInt(params.slotA ?? '0');
@@ -1182,7 +1196,19 @@ export default function TournamentMatchupPage() {
 
   return (
     <div className="p-6 space-y-5 max-w-5xl mx-auto">
-      {selectedHero && <HeroDetailModal hero={selectedHero} onClose={() => setSelectedHero(null)} />}
+      {selectedHero && (
+        <HeroDetailModal
+          hero={selectedHero}
+          onClose={() => { setSelectedHero(null); setSelectedHeroBoutId(null); }}
+          liveState={selectedHeroBoutId != null && liveCombatStates[selectedHeroBoutId]
+            ? getLiveStatOverlay(
+                selectedHero.id ?? null,
+                selectedHero.normalizedId ?? null,
+                liveCombatStates[selectedHeroBoutId]
+              )
+            : undefined}
+        />
+      )}
 
       {/* Header */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -1243,7 +1269,10 @@ export default function TournamentMatchupPage() {
                       <HeroCard
                         key={hero.id}
                         hero={hero}
-                        onViewStats={() => setSelectedHero(hero)}
+                        onViewStats={() => {
+                          setSelectedHero(hero);
+                          setSelectedHeroBoutId(null);
+                        }}
                       />
                     ))
                   ) : (
@@ -1332,6 +1361,31 @@ export default function TournamentMatchupPage() {
                   isLiveTournament={tournament?.stateLabel === 'in_progress'}
                   battleBudget={histData.battleBudget ?? null}
                   strategicNarrative={strategicNarrative}
+                  onBattleLogData={(data) => {
+                    if (data?.turns?.length && data.heroHpSnapshot) {
+                      const parsed = parseLiveCombatState(data.turns as BattleTurn[], data.heroHpSnapshot, bout.id);
+                      if (parsed) {
+                        setLiveCombatStates(prev => ({ ...prev, [bout.id]: parsed }));
+                      }
+                    }
+                  }}
+                  onHeroSelect={(side, slot, boutId) => {
+                    const boutState = liveCombatStates[boutId];
+                    const liveHeroes = boutState ? (side === 'a' ? boutState.sideA : boutState.sideB) : [];
+                    const liveHero = liveHeroes[slot];
+                    const heroId = liveHero?.heroId;
+                    const allHeroes = [...(playerA?.heroes ?? []), ...(playerB?.heroes ?? [])];
+                    const sideHeroes = side === 'a'
+                      ? (playerA?.heroes ?? [])
+                      : (playerB?.heroes ?? []);
+                    const match = heroId
+                      ? allHeroes.find(h => h.id === heroId || h.normalizedId === heroId)
+                      : sideHeroes[slot] ?? null;
+                    if (match) {
+                      setSelectedHero(match);
+                      setSelectedHeroBoutId(boutId);
+                    }
+                  }}
                 />
               ))}
             </div>
