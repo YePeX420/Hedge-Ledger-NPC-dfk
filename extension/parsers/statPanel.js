@@ -196,6 +196,7 @@
 
   let visiblePanels = new Set();
   let panelObserver = null;
+  const snapshotPanelMap = new WeakMap();
 
   function checkPanels(root) {
     for (const sel of PANEL_SELECTORS) {
@@ -204,7 +205,7 @@
         if (!visiblePanels.has(panel)) {
           visiblePanels.add(panel);
           const snapshot = parsePanel(panel, sel);
-          snapshot._panelRef = panel;
+          snapshotPanelMap.set(panel, snapshot);
           window.__dfkEmitEvent('unit_snapshot', snapshot);
           window.__dfkCurrentUnitSnapshot = snapshot;
         }
@@ -213,9 +214,11 @@
     visiblePanels.forEach(panel => {
       if (!document.body.contains(panel)) {
         visiblePanels.delete(panel);
-        if (window.__dfkCurrentUnitSnapshot && window.__dfkCurrentUnitSnapshot._panelRef === panel) {
+        const removedSnapshot = snapshotPanelMap.get(panel);
+        if (removedSnapshot && removedSnapshot === window.__dfkCurrentUnitSnapshot) {
           window.__dfkCurrentUnitSnapshot = null;
         }
+        snapshotPanelMap.delete(panel);
       }
     });
   }

@@ -181,6 +181,12 @@
     window.__dfkEmitEvent('turn_snapshot', snapshot);
   }
 
+  window.__dfkAdvanceTurn = (turnNumber) => {
+    if (turnNumber > currentTurnState.turnNumber) {
+      currentTurnState.turnNumber = turnNumber;
+    }
+  };
+
   window.__dfkGetTurnState = () => currentTurnState;
 
   const hpObserver = new MutationObserver(() => {

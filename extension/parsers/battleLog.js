@@ -125,6 +125,17 @@
     const actorSide = parseActorSide(rawText, actor.value);
     const damageType = parseDamageType(rawText);
 
+    const fieldConfidence = {
+      actor: actor.confidence,
+      ability: ability.confidence,
+      target: target.confidence,
+      damage: damage.confidence,
+      manaDelta: manaDelta.confidence,
+      actorSide: actorSide.confidence,
+      damageType: damageType.confidence,
+      actorPosition: actorPos.confidence,
+    };
+
     const event = {
       type: 'battle_log_event',
       turn: turnCounter,
@@ -142,6 +153,7 @@
       rawText: rawText.trim(),
       capturedAt: Date.now(),
       parseConfidence: (actor.confidence + ability.confidence + damage.confidence) / 3,
+      fieldConfidence,
     };
 
     if (debugMode) {
@@ -190,6 +202,7 @@
           node._dfkSelector = selector;
           turnCounter++;
           const event = parseLogEntry(node, turnCounter);
+          if (window.__dfkAdvanceTurn) window.__dfkAdvanceTurn(turnCounter);
           window.__dfkEmitEvent('battle_log_event', event);
         }
       }
