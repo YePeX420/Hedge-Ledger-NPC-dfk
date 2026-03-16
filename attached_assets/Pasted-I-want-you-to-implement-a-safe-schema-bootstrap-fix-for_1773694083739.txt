@@ -1,0 +1,133 @@
+I want you to implement a safe schema-bootstrap fix for the PVE drop-rate system.
+
+Context:
+You previously identified 4 critical tables that are queried at runtime but are not reliably created in executable schema bootstrap code for fresh environments:
+
+- pve_activities
+- pve_completions
+- pve_reward_events
+- pve_loot_items
+
+Goal:
+Patch the codebase so a fresh database or reset environment can boot without 500 errors on the PvE Hunt Tracker, drop-rate APIs, patrol stats, or related indexer flows.
+
+==================================================
+TASK OBJECTIVE
+==================================================
+
+Add a startup-safe schema bootstrap for the 4 missing PVE tables in the same pattern as the existing raw-SQL self-creating tables.
+
+Do NOT guess blindly.
+First verify actual runtime usage and existing column expectations from the codebase before writing DDL.
+
+==================================================
+STEP 1 — DISCOVERY / VERIFICATION
+==================================================
+
+Search the repo for every reference to:
+
+- pve_activities
+- pve_completions
+- pve_reward_events
+- pve_loot_items
+
+For each table, produce a short internal summary of:
+- all INSERTs
+- all SELECTs
+- all UPDATEs
+- all ALTER TABLE statements
+- all JOIN keys
+- all required columns inferred from queries
+- indexes that would obviously help based on query patterns
+- foreign-key-like relationships, even if the DB does not enforce them yet
+
+Also search for any historical schema/spec references in:
+- bot.js
+- shared/schema.ts
+- any SQL blocks
+- docs / specs / markdown files
+- old migration notes
+- indexer-related files
+
+Before changing code, identify the most likely production-compatible column set.
+
+==================================================
+STEP 2 — IMPLEMENT THE SAFE FIX
+==================================================
+
+In the executable DB bootstrap path used on startup, add CREATE TABLE IF NOT EXISTS statements for:
+
+1. pve_activities
+2. pve_completions
+3. pve_reward_events
+4. pve_loot_items
+
+Requirements:
+- place them alongside the other raw-SQL startup-created tables
+- use IF NOT EXISTS
+- preserve compatibility with current runtime queries
+- include all columns required by current code usage
+- include sensible primary keys
+- include created_at / updated_at only if clearly consistent with current usage
+- do not remove or refactor unrelated table creation logic
+- do not introduce breaking renames
+
+If existing code already runs ALTER TABLE ADD COLUMN on pve_completions, make sure the base CREATE TABLE includes those columns so fresh environments do not depend on later ALTERs to become usable.
+
+==================================================
+STEP 3 — INDEXES
+==================================================
+
+Add indexes only where they are clearly justified by current query patterns.
+
+Examples of likely useful index categories:
+- lookup by activity / zone
+- lookup by completion id
+- lookup by hero id
+- lookup by item id
+- grouping by encounter/activity
+- joins between completion and reward tables
+
+Do not over-index.
+Prefer the minimum useful set.
+
+==================================================
+STEP 4 — SAFETY RULES
+==================================================
+
+Very important:
+- do not change live query behavior unless required for compatibility
+- do not move these tables into Drizzle yet
+- do not rewrite the whole schema layer
+- do not invent columns that are not supported by code usage or repo docs
+- do not assume nullable vs not-null without checking query behavior
+- if a field is uncertain, prefer a conservative nullable definition and leave a code comment
+
+==================================================
+STEP 5 — OUTPUT FORMAT
+==================================================
+
+When done, give me:
+
+1. A concise summary of what you found for each table
+2. The exact files changed
+3. The exact SQL blocks added
+4. Any assumptions you had to make
+5. Any follow-up recommendation for a later cleanup task
+
+==================================================
+STEP 6 — OPTIONAL FOLLOW-UP (DO NOT DO NOW UNLESS ASKED)
+==================================================
+
+After the startup-safe fix is done, separately recommend whether these 4 tables should later be migrated into Drizzle, but do not perform that migration in this task.
+
+==================================================
+SUCCESS CRITERIA
+==================================================
+
+A fresh environment should be able to:
+- boot successfully
+- initialize the 4 PVE tables automatically
+- run PvE Hunt Tracker and drop-rate related routes without immediate missing-table failures
+
+Implement the fix now.
