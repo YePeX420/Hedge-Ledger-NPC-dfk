@@ -393,9 +393,23 @@ function CompHeroRow({ hero, side }: { hero: HeroCompData; side: 'host' | 'oppon
                       <Badge variant="outline" className={`text-[9px] px-1 py-0 ${ABILITY_TYPE_STYLE[ab.type] ?? ''}`}>
                         {ab.type.replace('_', ' ')}
                       </Badge>
-                      {ab.hasCombo && (
-                        <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/40 text-amber-400">COMBO</Badge>
+                      {ab.manaCost != null && ab.manaCost > 0 && (
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 border-blue-400/40 text-blue-400" data-testid={`badge-mana-${ab.id}`}>
+                          {ab.manaCost} MP
+                        </Badge>
                       )}
+                      {ab.accModifierPct != null && ab.accModifierPct !== 0 && (
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 border-yellow-500/40 text-yellow-400" data-testid={`badge-acc-${ab.id}`}>
+                          {ab.accModifierPct > 0 ? '+' : ''}{ab.accModifierPct}% acc
+                        </Badge>
+                      )}
+                      {ab.combo ? (
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/40 text-amber-400" data-testid={`badge-combo-${ab.id}`}>
+                          {ab.combo.condition}
+                        </Badge>
+                      ) : ab.hasCombo ? (
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/40 text-amber-400">COMBO</Badge>
+                      ) : null}
                     </div>
                     <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{ab.formulaStr}</p>
                   </div>
