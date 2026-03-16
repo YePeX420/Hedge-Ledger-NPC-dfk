@@ -2,34 +2,58 @@
  * Turn State Aggregator
  * Synthesizes a full turn_snapshot from battle log events + HP/MP readings.
  * Tracks active unit, legal action buttons, selected target, HP/MP for all visible units.
+ *
+ * Tiered selector strategy:
+ *   Tier A — semantic data attributes (highest confidence, most stable)
+ *   Tier B — aria-label and visible button text
+ *   Tier C — class pattern matching (current approach, kept as fallback)
+ *   Tier D — structural DOM inference (last resort: find panel by shape, not by name)
+ *
+ * Diagnostic: call window.__dfkDiag() from the browser console at any time.
  */
 
 (function () {
   if (typeof window.__dfkTurnStateParser !== 'undefined') return;
   window.__dfkTurnStateParser = true;
 
-  const HP_BAR_SELECTORS = [
-    '[class*="hp-bar"]', '[class*="HpBar"]', '[class*="health-bar"]', '[class*="HealthBar"]',
-    '[data-unit-hp]', '[class*="hero-hp"]', '[class*="HeroHp"]',
+  window.__dfkSelectorDiag = window.__dfkSelectorDiag || {};
+
+  // ── Tier A: stable semantic data attributes ──────────────────────────────
+  const ACTION_TIER_A = [
+    'button[data-action]',
+    'button[data-skill]',
+    'button[data-ability]',
+    '[data-action-type="skill"]',
+    '[data-action-type="ability"]',
+    '[data-action-type="attack"]',
   ];
 
-  const ACTION_BUTTON_SELECTORS = [
+  // ── Tier C: class pattern matching (fragile on hashed React class names) ──
+  const ACTION_TIER_C = [
     '[class*="action-btn"]', '[class*="ActionBtn"]',
     '[class*="skill-btn"]', '[class*="SkillBtn"]',
     '[class*="action-button"]', '[class*="ActionButton"]',
-    'button[data-action]', 'button[data-skill]',
-    '[class*="combat-action"]',
+    '[class*="combat-action"]', '[class*="CombatAction"]',
+    '[class*="ability-btn"]', '[class*="AbilityBtn"]',
+  ];
+
+  const HP_BAR_SELECTORS = [
+    '[data-unit-hp]', '[data-hp]',
+    '[class*="hp-bar"]', '[class*="HpBar"]',
+    '[class*="health-bar"]', '[class*="HealthBar"]',
+    '[class*="hero-hp"]', '[class*="HeroHp"]',
   ];
 
   const ACTIVE_UNIT_SELECTORS = [
+    '[data-active="true"]', '[data-current-turn="true"]',
     '[class*="active-unit"]', '[class*="ActiveUnit"]',
     '[class*="current-turn"]', '[class*="CurrentTurn"]',
-    '[data-active="true"]',
   ];
 
   const TARGET_SELECTORS = [
+    '[data-selected="true"]', '[data-targeted="true"]',
     '[class*="selected-target"]', '[class*="SelectedTarget"]',
-    '[data-selected="true"]', '[class*="target-selected"]',
+    '[class*="target-selected"]',
   ];
 
   let currentTurnState = {
@@ -42,6 +66,8 @@
     enemies: [],
     lastUpdated: null,
   };
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   function extractNumber(text) {
     if (!text) return null;
@@ -64,61 +90,198 @@
     return null;
   }
 
+  function recordSelectorDiag(category, bySelector) {
+    const total = Object.values(bySelector).reduce((s, n) => s + n, 0);
+    window.__dfkSelectorDiag[category] = { total, bySelector, recordedAt: Date.now() };
+  }
+
+  // ── HP bar reading ────────────────────────────────────────────────────────
+
   function readHpBars() {
     const units = [];
+    const seen = new Set();
+    const diagCounts = {};
+
     for (const sel of HP_BAR_SELECTORS) {
+      let count = 0;
       document.querySelectorAll(sel).forEach((el, i) => {
+        if (seen.has(el)) return;
         const hp = extractHpMp(el);
         if (!hp) return;
+        seen.add(el);
+        count++;
         const slot = parseInt(el.getAttribute('data-slot') || el.getAttribute('data-index') || `${i}`, 10);
         const side = el.getAttribute('data-side') || (el.closest('[class*="enemy"]') ? 'enemy' : 'player');
         const name = el.getAttribute('data-name') || el.getAttribute('data-unit-name') ||
           el.closest('[data-name]')?.getAttribute('data-name') || null;
         units.push({ slot, side, name, hp: hp.current, maxHp: hp.max });
       });
+      diagCounts[sel] = count;
     }
+
+    // Tier D: scan leaf nodes for NNN/NNN pattern when standard selectors miss
+    if (units.length === 0) {
+      const combatRoot = document.querySelector(
+        '[class*="combat"],[class*="battle"],[class*="fight"],[class*="arena"],[id*="combat"],[id*="battle"]'
+      ) || document.body;
+      const walker = document.createTreeWalker(combatRoot, NodeFilter.SHOW_TEXT, null);
+      let node;
+      while ((node = walker.nextNode())) {
+        const text = node.textContent.trim();
+        if (/^\d{1,6}\/\d{1,6}$/.test(text)) {
+          const el = node.parentElement;
+          if (!el || seen.has(el)) continue;
+          const hp = extractHpMp(el);
+          if (!hp) continue;
+          seen.add(el);
+          units.push({ slot: units.length, side: 'player', name: null, hp: hp.current, maxHp: hp.max, _tier: 'D' });
+        }
+      }
+      diagCounts['tier-D-text-scan'] = units.length;
+    }
+
+    recordSelectorDiag('hp_bars', diagCounts);
     return units;
   }
 
   function readMpBars() {
     const units = [];
     const mpSelectors = HP_BAR_SELECTORS.map(s => s.replace(/hp/gi, 'mp').replace(/health/gi, 'mana'));
+    const diagCounts = {};
     for (const sel of mpSelectors) {
+      let count = 0;
       document.querySelectorAll(sel).forEach((el, i) => {
         const mp = extractHpMp(el);
         if (!mp) return;
+        count++;
         const slot = parseInt(el.getAttribute('data-slot') || el.getAttribute('data-index') || `${i}`, 10);
         units.push({ slot, mp: mp.current, maxMp: mp.max });
       });
+      diagCounts[sel] = count;
     }
+    recordSelectorDiag('mp_bars', diagCounts);
     return units;
+  }
+
+  // ── Legal action reading — tiered ─────────────────────────────────────────
+
+  function dedupeActions(actions) {
+    const seen = new Set();
+    return actions.filter(a => {
+      const key = a.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function extractActionFromBtn(btn) {
+    if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return null;
+    const name = btn.getAttribute('data-action') || btn.getAttribute('data-skill') ||
+      btn.getAttribute('data-ability') || btn.getAttribute('aria-label') ||
+      btn.textContent.trim();
+    const skillId = btn.getAttribute('data-skill-id') || btn.getAttribute('data-action-id') || null;
+    if (!name || name.length < 2 || name.length > 50) return null;
+    return { name: name.slice(0, 40), skillId, _el: btn };
+  }
+
+  function findActionPanelByStructure() {
+    const candidates = document.querySelectorAll(
+      '[class*="action"],[class*="skill"],[class*="combat"],[class*="ability"],[class*="menu"]'
+    );
+    let best = null, bestScore = 0;
+    for (const el of candidates) {
+      const buttons = el.querySelectorAll('button:not([disabled])');
+      if (buttons.length < 2 || buttons.length > 12) continue;
+      const textButtons = [...buttons].filter(b => {
+        const t = b.textContent.trim();
+        return t.length >= 2 && t.length <= 40 && !/^\d+$/.test(t);
+      });
+      if (textButtons.length >= 2 && textButtons.length > bestScore) {
+        best = el;
+        bestScore = textButtons.length;
+      }
+    }
+    return best;
   }
 
   function readLegalActions() {
     const actions = [];
-    for (const sel of ACTION_BUTTON_SELECTORS) {
+    const diagCounts = {};
+    let tier = null;
+
+    // Tier A: semantic data attributes
+    for (const sel of ACTION_TIER_A) {
+      let count = 0;
       document.querySelectorAll(sel).forEach(btn => {
-        if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
-        const name = btn.getAttribute('data-action') || btn.getAttribute('data-skill') ||
-          btn.getAttribute('data-ability') || btn.textContent.trim();
-        const skillId = btn.getAttribute('data-skill-id') || btn.getAttribute('data-action-id') || null;
-        if (name && !actions.find(a => a.name === name)) {
-          actions.push({ name: name.slice(0, 40), skillId });
-        }
+        const a = extractActionFromBtn(btn);
+        if (a) { actions.push(a); count++; }
       });
+      diagCounts[`A:${sel}`] = count;
     }
-    return actions;
+    if (actions.length > 0) { tier = 'A'; }
+
+    // Tier B: aria-label on any button (only if Tier A found nothing)
+    if (actions.length === 0) {
+      let count = 0;
+      document.querySelectorAll('button[aria-label],[role="button"][aria-label]').forEach(btn => {
+        const a = extractActionFromBtn(btn);
+        if (a) { actions.push(a); count++; }
+      });
+      diagCounts['B:aria-label'] = count;
+      if (actions.length > 0) tier = 'B';
+    }
+
+    // Tier C: class pattern matching (only if Tiers A+B found nothing)
+    if (actions.length === 0) {
+      for (const sel of ACTION_TIER_C) {
+        let count = 0;
+        document.querySelectorAll(sel).forEach(btn => {
+          const a = extractActionFromBtn(btn);
+          if (a) { actions.push(a); count++; }
+        });
+        diagCounts[`C:${sel}`] = count;
+      }
+      if (actions.length > 0) tier = 'C';
+    }
+
+    // Tier D: structural scan (only if still nothing)
+    if (actions.length === 0) {
+      const panel = findActionPanelByStructure();
+      if (panel) {
+        let count = 0;
+        panel.querySelectorAll('button:not([disabled])').forEach(btn => {
+          const a = extractActionFromBtn(btn);
+          if (a) { actions.push(a); count++; }
+        });
+        diagCounts['D:structural'] = count;
+        if (actions.length > 0) tier = 'D';
+      } else {
+        diagCounts['D:structural'] = 0;
+      }
+    }
+
+    recordSelectorDiag('action_buttons', diagCounts);
+    window.__dfkSelectorDiag.action_tier_used = tier;
+
+    return dedupeActions(actions).map(({ _el, ...rest }) => rest);
   }
 
+  // ── Active unit & target ──────────────────────────────────────────────────
+
   function readActiveUnit() {
+    const diagCounts = {};
     for (const sel of ACTIVE_UNIT_SELECTORS) {
       const el = document.querySelector(sel);
+      diagCounts[sel] = el ? 1 : 0;
       if (el) {
         const name = el.getAttribute('data-name') || el.getAttribute('data-unit-name') || el.textContent.trim().slice(0, 40);
         const slot = el.getAttribute('data-slot') ? parseInt(el.getAttribute('data-slot'), 10) : null;
+        recordSelectorDiag('active_unit', diagCounts);
         return { name, slot };
       }
     }
+    recordSelectorDiag('active_unit', diagCounts);
     return null;
   }
 
@@ -133,6 +296,8 @@
     }
     return null;
   }
+
+  // ── Snapshot builder ──────────────────────────────────────────────────────
 
   function buildTurnSnapshot() {
     const hpReadings = readHpBars();
@@ -179,7 +344,31 @@
   function emitSnapshot() {
     const snapshot = buildTurnSnapshot();
     window.__dfkEmitEvent('turn_snapshot', snapshot);
+    updateDiagStatusLine();
   }
+
+  // ── Diagnostic status line (for overlay) ─────────────────────────────────
+
+  function updateDiagStatusLine() {
+    const ts = currentTurnState;
+    const logOk = !!(window.__dfkBattleLogAttached);
+    const sessId = window.__dfkSessionId || null;
+    const sessShort = sessId ? sessId.toString().slice(-4) : null;
+
+    const actionWarn = ts.legalActions.length === 0 ? ' ⚠' : '';
+
+    window.__dfkDiagStatus = [
+      logOk ? '[LOG ✓]' : '[LOG ✗]',
+      `[${ts.heroes.length}H ${ts.enemies.length}E]`,
+      `[${ts.legalActions.length} ACT${actionWarn}]`,
+      `[T${ts.turnNumber}]`,
+      sessShort ? `[SESS ${sessShort}]` : '[NO SESS ⚠]',
+    ].join(' ');
+
+    if (window.__dfkUpdateDiagBar) window.__dfkUpdateDiagBar(window.__dfkDiagStatus);
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
 
   window.__dfkAdvanceTurn = (turnNumber) => {
     if (turnNumber > currentTurnState.turnNumber) {
@@ -188,6 +377,59 @@
   };
 
   window.__dfkGetTurnState = () => currentTurnState;
+
+  window.__dfkDiag = function () {
+    const ts = currentTurnState;
+    const report = {
+      url: window.location.href,
+      title: document.title,
+      battleLogAttached: !!(window.__dfkBattleLogAttached),
+      battleLogSelector: window.__dfkBattleLogSelector || null,
+      heroCount: ts.heroes.length,
+      enemyCount: ts.enemies.length,
+      legalActionCount: ts.legalActions.length,
+      legalActionNames: ts.legalActions.map(a => a.name),
+      legalActionTierUsed: window.__dfkSelectorDiag?.action_tier_used || null,
+      activeUnit: ts.activeUnit,
+      turnNumber: ts.turnNumber,
+      lastUpdatedMsAgo: ts.lastUpdated ? Date.now() - ts.lastUpdated : null,
+      sessionId: window.__dfkSessionId || null,
+      sessionIdSource: window.__dfkSessionIdSource || null,
+      engineReady: !!(window.__dfkDataLoader?.isLoaded?.()),
+      lastRecommendation: window.__dfkLastRecommendation || null,
+      selectorDiag: window.__dfkSelectorDiag || {},
+    };
+
+    console.group('[DFK Diagnostic Report]');
+    console.table({
+      'Battle log attached': report.battleLogAttached,
+      'Battle log selector': report.battleLogSelector,
+      'Heroes found': report.heroCount,
+      'Enemies found': report.enemyCount,
+      'Legal actions': report.legalActionCount,
+      'Action tier used': report.legalActionTierUsed,
+      'Active unit': report.activeUnit,
+      'Turn #': report.turnNumber,
+      'Last update (ms ago)': report.lastUpdatedMsAgo,
+      'Session ID': report.sessionId,
+      'Session ID source': report.sessionIdSource,
+      'Engine ready': report.engineReady,
+    });
+    if (report.legalActionNames.length) {
+      console.log('Legal actions:', report.legalActionNames);
+    }
+    if (report.lastRecommendation) {
+      console.log('Last recommendation:', report.lastRecommendation);
+    }
+    if (Object.keys(report.selectorDiag).length) {
+      console.log('Selector match counts:', report.selectorDiag);
+    }
+    console.groupEnd();
+
+    return report;
+  };
+
+  // ── MutationObserver ──────────────────────────────────────────────────────
 
   const hpObserver = new MutationObserver(() => {
     emitSnapshot();

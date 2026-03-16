@@ -3,6 +3,12 @@
  * Entry point injected into game.defikingdoms.com.
  * Initializes the event emission bridge and coordinates parser modules.
  * Calls local engine for recommendations after each turn snapshot.
+ *
+ * Session ID detection strategy:
+ *   1. URL pattern matching
+ *   2. DOM heading/title scan
+ *   3. SPA route change hooks (pushState + popstate + polling)
+ *   4. Synthetic key from first turn event team composition (fallback)
  */
 
 (function () {
@@ -17,6 +23,11 @@
   let engineReady = false;
   let lastRecommendation = null;
   let unitSnapshotCache = [];
+  let syntheticKeyGenerated = false;
+
+  window.__dfkSessionId = null;
+  window.__dfkSessionIdSource = null;
+  window.__dfkLastRecommendation = null;
 
   function isDuplicate(event) {
     const now = Date.now();
@@ -41,6 +52,7 @@
       if (debugMode) storeLocally(payload);
       turnEventBuffer.push(payload);
       flushTurnEvent(payload);
+      maybeBuildSyntheticSessionId();
     } else if (type === 'turn_snapshot') {
       if (debugMode) storeLocally(payload);
       chrome.runtime.sendMessage({ type: 'state_snapshot', data: payload }).catch(() => {});
@@ -71,6 +83,7 @@
     try {
       const result = window.__dfkGetRecommendation(turnSnapshot, unitSnapshotCache);
       lastRecommendation = result;
+      window.__dfkLastRecommendation = result;
       console.log('[DFK Engine] Recommendation:', result);
       updateOverlay(result);
     } catch (err) {
@@ -97,7 +110,97 @@
     }
   }
 
+  // ── Hunt / Session ID detection ───────────────────────────────────────────
+
+  function detectFromUrl(url) {
+    const m = url.match(/hunt[_-]?id[=:/](\w+)/i) ||
+              url.match(/huntId=(\w+)/i) ||
+              url.match(/\/hunt\/(\w+)/i) ||
+              url.match(/\/battle\/(\w+)/i) ||
+              url.match(/\/combat\/(\w+)/i);
+    return m ? { id: m[1], source: 'url' } : null;
+  }
+
+  function detectFromDom() {
+    const el = document.querySelector('[data-hunt-id],[data-battle-id],[data-session-id]');
+    if (el) {
+      const id = el.getAttribute('data-hunt-id') || el.getAttribute('data-battle-id') || el.getAttribute('data-session-id');
+      if (id) return { id, source: 'dom-attr' };
+    }
+    const headings = document.querySelectorAll('h1,h2,h3,[class*="title"],[class*="heading"],[class*="encounter"],[class*="battle-name"]');
+    for (const h of headings) {
+      const m = h.textContent.match(/hunt\s+#?(\w+)|encounter\s+#?(\w+)|battle\s+#?(\w+)/i);
+      if (m) return { id: m[1] || m[2] || m[3], source: 'dom-heading' };
+    }
+    const titleMatch = document.title.match(/Hunt #?(\w+)|Battle #?(\w+)/i);
+    if (titleMatch) return { id: titleMatch[1] || titleMatch[2], source: 'page-title' };
+    return null;
+  }
+
+  function applySessionId(detection) {
+    if (!detection) return;
+    const { id, source } = detection;
+    if (id && id !== sessionHuntId) {
+      sessionHuntId = id;
+      window.__dfkSessionId = id;
+      window.__dfkSessionIdSource = source;
+      console.log(`[DFK] Session ID detected: ${id} (${source})`);
+      chrome.runtime.sendMessage({ type: 'hunt_id_detected', huntId: id, source }).catch(() => {});
+    }
+  }
+
+  window.__dfkDetectSession = function () {
+    const url = window.location.href;
+    applySessionId(detectFromUrl(url) || detectFromDom());
+  };
+
+  // Synthetic key from team composition — fires after first two battle log events
+  function maybeBuildSyntheticSessionId() {
+    if (syntheticKeyGenerated || sessionHuntId) return;
+    if (turnEventBuffer.length < 2) return;
+
+    const ts = window.__dfkGetTurnState ? window.__dfkGetTurnState() : {};
+    const heroes = ts.heroes || [];
+    const enemies = ts.enemies || [];
+    const actors = turnEventBuffer.slice(0, 5).map(e => e.actor || '?');
+
+    const heroKey = actors.slice(0, 3).map(n => n[0] || '?').join('');
+    const enemyKey = (enemies.slice(0, 2).map(e => (e.name || 'E').slice(0, 3))).join('-') || 'unk';
+    const tsBucket = Math.floor(Date.now() / 60000);
+    const synKey = `syn-${heroKey}-${enemyKey}-${tsBucket}`;
+
+    syntheticKeyGenerated = true;
+    sessionHuntId = synKey;
+    window.__dfkSessionId = synKey;
+    window.__dfkSessionIdSource = 'synthetic';
+    console.log('[DFK] Synthetic session ID generated:', synKey);
+    chrome.runtime.sendMessage({ type: 'hunt_id_detected', huntId: synKey, source: 'synthetic' }).catch(() => {});
+  }
+
+  // ── SPA route change hooks ────────────────────────────────────────────────
+
+  function installSpaHooks() {
+    try {
+      const origPushState = history.pushState.bind(history);
+      history.pushState = function (...args) {
+        origPushState(...args);
+        window.__dfkDetectSession();
+      };
+      const origReplaceState = history.replaceState.bind(history);
+      history.replaceState = function (...args) {
+        origReplaceState(...args);
+        window.__dfkDetectSession();
+      };
+    } catch (_) {}
+
+    window.addEventListener('popstate', window.__dfkDetectSession);
+    window.addEventListener('hashchange', window.__dfkDetectSession);
+  }
+
+  // ── Overlay ───────────────────────────────────────────────────────────────
+
   let overlayEl = null;
+  let diagBarEl = null;
 
   function createOverlay() {
     if (overlayEl) return;
@@ -108,8 +211,8 @@
       position: fixed;
       bottom: 12px;
       right: 12px;
-      width: 300px;
-      max-height: 260px;
+      width: 320px;
+      max-height: 280px;
       background: rgba(15, 15, 25, 0.92);
       color: #e0e0e0;
       border: 1px solid rgba(100, 140, 255, 0.3);
@@ -126,12 +229,27 @@
     `;
 
     const header = document.createElement('div');
-    header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;';
+    header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;';
     header.innerHTML = `
       <span style="font-weight: 600; color: #8cacff; font-size: 11px; letter-spacing: 0.5px;">HEDGE LEDGER ENGINE</span>
       <span id="dfk-engine-toggle" style="cursor: pointer; color: #666; font-size: 14px; line-height: 1;">_</span>
     `;
     overlayEl.appendChild(header);
+
+    // Live diagnostic status bar — always visible
+    diagBarEl = document.createElement('div');
+    diagBarEl.id = 'dfk-diag-bar';
+    diagBarEl.style.cssText = `
+      font-size: 10px;
+      color: #556;
+      margin-bottom: 6px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      letter-spacing: 0.2px;
+      font-family: monospace;
+    `;
+    diagBarEl.textContent = '[LOG ✗] [0H 0E] [0 ACT ⚠] [T0] [NO SESS ⚠]';
+    overlayEl.appendChild(diagBarEl);
 
     const body = document.createElement('div');
     body.id = 'dfk-engine-body';
@@ -140,13 +258,23 @@
 
     document.body.appendChild(overlayEl);
 
+    // Expose the diag bar update hook so turnState.js can push status without tight coupling
+    window.__dfkUpdateDiagBar = function (statusText) {
+      if (diagBarEl) {
+        diagBarEl.textContent = statusText;
+        const hasWarning = statusText.includes('⚠');
+        diagBarEl.style.color = hasWarning ? '#997744' : '#4a6a55';
+      }
+    };
+
     let minimized = false;
     const toggle = overlayEl.querySelector('#dfk-engine-toggle');
     toggle.addEventListener('click', () => {
       minimized = !minimized;
       body.style.display = minimized ? 'none' : 'block';
+      diagBarEl.style.display = minimized ? 'none' : 'block';
       toggle.textContent = minimized ? '+' : '_';
-      overlayEl.style.maxHeight = minimized ? '32px' : '260px';
+      overlayEl.style.maxHeight = minimized ? '32px' : '280px';
     });
   }
 
@@ -255,19 +383,12 @@
     } catch (_) {}
   }
 
-  function detectHuntId() {
-    const url = window.location.href;
-    const m = url.match(/hunt[_-]?id[=:/](\d+)/i) || url.match(/huntId=(\d+)/i);
-    if (m) return m[1];
-    const el = document.querySelector('[data-hunt-id]');
-    if (el) return el.getAttribute('data-hunt-id');
-    const titleMatch = document.title.match(/Hunt #?(\d+)/i);
-    if (titleMatch) return titleMatch[1];
-    return null;
-  }
+  // ── Init ──────────────────────────────────────────────────────────────────
 
   function init() {
-    sessionHuntId = detectHuntId();
+    // Run session detection with all strategies
+    window.__dfkDetectSession();
+
     chrome.storage.local.get(['debugMode', 'sessionToken', 'hostUrl'], (result) => {
       debugMode = !!result.debugMode;
       window.__dfkDebugMode = debugMode;
@@ -279,13 +400,11 @@
       }).catch(() => {});
     });
 
-    setInterval(() => {
-      const huntId = detectHuntId();
-      if (huntId && huntId !== sessionHuntId) {
-        sessionHuntId = huntId;
-        chrome.runtime.sendMessage({ type: 'hunt_id_detected', huntId }).catch(() => {});
-      }
-    }, 3000);
+    // Install SPA navigation hooks
+    installSpaHooks();
+
+    // Poll for session ID changes (handles hash routers and deferred DOM population)
+    setInterval(window.__dfkDetectSession, 3000);
 
     initEngine();
   }

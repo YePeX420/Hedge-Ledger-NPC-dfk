@@ -3784,6 +3784,39 @@ async function initializeEconomicSystem() {
     await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_reward_item ON pve_reward_events(item_id)`);
     await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_reward_equipment ON pve_reward_events(is_equipment, item_id, display_id, rarity_tier) WHERE is_equipment = TRUE`);
 
+    // 5. pve_indexer_checkpoints — tracks last processed block per chain/activity for resumable indexing
+    await _pvePg.unsafe(`
+      CREATE TABLE IF NOT EXISTS pve_indexer_checkpoints (
+        id            SERIAL PRIMARY KEY,
+        chain_id      INTEGER NOT NULL,
+        activity_type TEXT NOT NULL,
+        last_block    BIGINT NOT NULL DEFAULT 0,
+        last_tx_hash  TEXT,
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (chain_id, activity_type)
+      )
+    `);
+
+    // 6. pve_equipment_stats — aggregated equipment drop rates per encounter/display_id/rarity
+    await _pvePg.unsafe(`
+      CREATE TABLE IF NOT EXISTS pve_equipment_stats (
+        id           SERIAL PRIMARY KEY,
+        chain_id     INTEGER NOT NULL,
+        activity_id  INTEGER REFERENCES pve_activities(id),
+        display_id   INTEGER,
+        rarity_tier  SMALLINT,
+        item_name    TEXT,
+        drop_count   INTEGER NOT NULL DEFAULT 0,
+        run_count    INTEGER NOT NULL DEFAULT 0,
+        drop_rate    NUMERIC(8,6),
+        last_seen_at TIMESTAMPTZ,
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (chain_id, activity_id, display_id, rarity_tier)
+      )
+    `);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_equipment_stats_activity ON pve_equipment_stats(activity_id)`);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_equipment_stats_display ON pve_equipment_stats(chain_id, display_id)`);
+
     console.log('✅ PVE drop-rate tables bootstrapped');
   } catch (err) {
     console.warn('⚠️ PVE drop-rate table bootstrap failed (non-fatal):', err.message);
