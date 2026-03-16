@@ -1,0 +1,210 @@
+That’s a solid status read. I agree with Replit on the main points.
+
+## My take
+
+### 1. Testable now?
+
+**Yes, for internal testing via “Load unpacked.”**
+**No, not yet for easy sharing.**
+
+So the extension is at a **developer-test stage**, not a **tester-friendly distribution stage**.
+
+### 2. Auto-clicking missing?
+
+That is fine for now.
+For first validation, **advisory mode is exactly the right scope**:
+
+* parse live fight state
+* rank actions
+* surface recommendation
+* let the human click
+
+That lets you validate the hard part first: **whether the engine is thinking correctly**.
+
+### 3. Biggest real blocker
+
+The most important issue is **not packaging**.
+It is exactly what Replit identified:
+
+* **fragile selectors**
+* possibly **bad hunt/session identification**
+
+If legal actions are not detected, the whole engine effectively becomes blind.
+
+---
+
+# What I would do next
+
+## Priority 1 — Add a diagnostic mode before broader testing
+
+This should be the immediate next task.
+
+You want the extension to expose a small debug panel or console logger showing:
+
+* current page recognized as combat page: yes/no
+* hunt/session id detected: value or null
+* hero cards found: count
+* enemy cards found: count
+* legal action buttons found: count
+* consumables found: count
+* battle log observer firing: yes/no
+* latest parsed turn snapshot
+* parse confidence score
+* top 3 recommended actions
+* selector matches by category
+
+That will make first-session testing massively more useful.
+
+Without that, testers will just say:
+
+> “It doesn’t work”
+
+and you won’t know whether the problem was:
+
+* selectors
+* SPA routing
+* timing
+* hidden shadow DOM
+* iframe context
+* stale React re-render timing
+* missing hunt ID
+* bad action parsing
+
+---
+
+## Priority 2 — Make selector strategy more resilient
+
+Right now, selectors like:
+
+```js
+[class*="skill-btn"]
+[class*="SkillBtn"]
+```
+
+are too brittle on a React production app.
+
+Replit should move to a **tiered selector strategy**:
+
+### Tier A
+
+Stable semantic hooks if available:
+
+* `data-*`
+* `aria-label`
+* button text
+* tooltip text
+* icon alt/title
+
+### Tier B
+
+Pattern-based selectors:
+
+* partial class matching
+* subtree matching
+* nearby label matching
+
+### Tier C
+
+Fallback DOM inference:
+
+* detect clickable buttons inside action panel region
+* classify by visible text / icon / order
+
+For DFK specifically, visible text and layout inference may be more reliable than hashed class names.
+
+---
+
+## Priority 3 — Fix session / hunt identification
+
+If DFK is SPA-routed, the extension should not rely mainly on URL.
+
+Better options:
+
+* inspect DOM for visible hunt/battle title
+* inspect page text for encounter names
+* use mutation observer to detect route-state changes
+* capture a combat-session fingerprint from:
+
+  * encounter name
+  * timestamp
+  * enemy names
+  * hero names
+  * first parsed turn event
+
+If true hunt ID is unavailable, generate a temporary synthetic session key like:
+
+```text
+encounterName + heroTeamHash + enemyTeamHash + startTimestamp
+```
+
+That is good enough for local testing.
+
+---
+
+## Priority 4 — Package for sharing
+
+Only after diagnostics are in place.
+
+You want:
+
+* `extension-test-build.zip`
+* simple install instructions
+* version label
+* changelog
+* debug mode on by default for early testers
+
+That way testers can give actionable feedback.
+
+---
+
+# Best immediate Replit task
+
+I would tell Replit to do this next:
+
+## “Diagnostic / selector validation mode”
+
+Scope:
+
+* add an always-on debug console logger
+* optional floating debug panel
+* print all selector match counts
+* print legal action extraction
+* print detected session ID
+* print latest parsed state
+* print confidence score
+* print why no recommendation was produced
+
+That will make your **first live hunt test session** actually valuable.
+
+---
+
+# What I would not do yet
+
+Do **not** prioritize:
+
+* CRX packaging
+* polished popup UX
+* auto-click execution
+* remote telemetry
+* broad tester rollout
+
+until the extension proves it can reliably:
+
+* detect state
+* detect actions
+* produce recommendations
+
+---
+
+# Recommendation
+
+Yes, ask Replit for:
+
+### 1. packaging task
+
+**but only after**
+
+### 2. selector fallback + diagnostic mode
+
+If you want, I can write the exact **next Replit prompt** for:
+**“Add diagnostic mode + resilient selector fallback for first live DFK test.”**
