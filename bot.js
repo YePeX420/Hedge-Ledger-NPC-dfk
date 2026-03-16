@@ -3684,7 +3684,113 @@ async function initializeEconomicSystem() {
     console.warn('⚠️ Dashboard users table check failed:', err.message);
   }
 
+  // ─── PVE Drop-Rate Schema Bootstrap ─────────────────────────────────────────
+  // These 4 tables are normally created by huntsPatrolIndexer.js only when the
+  // indexer is started.  Adding CREATE TABLE IF NOT EXISTS here ensures a fresh
+  // environment boots cleanly without needing the indexer to have run first.
+  // Column set incorporates all ALTER TABLE migrations so fresh tables are
+  // immediately fully-featured.
+  try {
+    const { rawPg: _pvePg } = await import('./server/db.js');
+
+    // 1. pve_activities — must come first (FK parent)
+    await _pvePg.unsafe(`
+      CREATE TABLE IF NOT EXISTS pve_activities (
+        id               SERIAL PRIMARY KEY,
+        chain_id         INTEGER NOT NULL,
+        activity_type    VARCHAR(20) NOT NULL,
+        activity_id      INTEGER NOT NULL,
+        -- nullable: compat with legacy schema that used different column names
+        name             VARCHAR(100),
+        contract_address VARCHAR(42),
+        UNIQUE(chain_id, activity_type, activity_id)
+      )
+    `);
+    await _pvePg.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS pve_activities_chain_type_actid ON pve_activities(chain_id, activity_type, activity_id)`);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_activities_type ON pve_activities(activity_type)`);
+
+    // Seed known hunt/patrol zones; indexer adds more over time
+    await _pvePg.unsafe(`
+      INSERT INTO pve_activities (chain_id, activity_type, activity_id, name, contract_address) VALUES
+        (53935, 'hunt',   1, 'Mad Boar',           '0xEaC69796Cff468ED1694A6FfAc4cbC23bbe33aFa'),
+        (53935, 'hunt',   2, 'Bad Motherclucker',   '0xEaC69796Cff468ED1694A6FfAc4cbC23bbe33aFa'),
+        (1088,  'patrol', 1, 'Night Raid',          '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B'),
+        (1088,  'patrol', 2, 'Dark Water',          '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B'),
+        (1088,  'patrol', 3, 'Blood Moon Rising',   '0xc7681698B14a2381d9f1eD69FC3D27F33965b53B')
+      ON CONFLICT (chain_id, activity_type, activity_id) DO NOTHING
+    `);
+
+    // 2. pve_loot_items — must come before pve_reward_events (FK parent)
+    await _pvePg.unsafe(`
+      CREATE TABLE IF NOT EXISTS pve_loot_items (
+        id           SERIAL PRIMARY KEY,
+        chain_id     INTEGER NOT NULL,
+        item_address VARCHAR(42) NOT NULL,
+        name         VARCHAR(100),
+        item_type    VARCHAR(50),
+        rarity       VARCHAR(20),
+        UNIQUE(chain_id, item_address)
+      )
+    `);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_loot_items_chain ON pve_loot_items(chain_id, item_address)`);
+
+    // 3. pve_completions — all ALTER TABLE additions included as base columns
+    // native_gas_refund uses plain NUMERIC (not NUMERIC(30,0)) to preserve
+    // the decimal METIS refund amounts returned by ethers.formatEther()
+    await _pvePg.unsafe(`
+      CREATE TABLE IF NOT EXISTS pve_completions (
+        id                  SERIAL PRIMARY KEY,
+        tx_hash             VARCHAR(66) UNIQUE NOT NULL,
+        block_number        BIGINT NOT NULL,
+        chain_id            INTEGER NOT NULL,
+        activity_id         INTEGER REFERENCES pve_activities(id),
+        player_address      VARCHAR(42) NOT NULL,
+        party_luck          INTEGER,
+        scavenger_bonus_pct INTEGER,
+        native_gas_refund   NUMERIC DEFAULT 0,
+        fights_completed    INTEGER DEFAULT 0,
+        completed_at        TIMESTAMP NOT NULL,
+        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_completions_activity ON pve_completions(activity_id)`);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_completions_player ON pve_completions(chain_id, player_address)`);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_completions_chain_time ON pve_completions(chain_id, completed_at DESC)`);
+
+    // 4. pve_reward_events — equipment columns included as base (no ALTER TABLE needed)
+    await _pvePg.unsafe(`
+      CREATE TABLE IF NOT EXISTS pve_reward_events (
+        id                  SERIAL PRIMARY KEY,
+        tx_hash             VARCHAR(66) NOT NULL,
+        log_index           INTEGER NOT NULL,
+        block_number        BIGINT NOT NULL,
+        chain_id            INTEGER NOT NULL,
+        activity_id         INTEGER REFERENCES pve_activities(id),
+        item_id             INTEGER REFERENCES pve_loot_items(id),
+        amount              INTEGER DEFAULT 1,
+        player_address      VARCHAR(42) NOT NULL,
+        party_luck          INTEGER,
+        pet_bonus_active    BOOLEAN DEFAULT FALSE,
+        scavenger_bonus_pct INTEGER,
+        is_equipment        BOOLEAN DEFAULT FALSE,
+        nft_id              BIGINT,
+        equipment_type      INTEGER,
+        display_id          INTEGER,
+        rarity_tier         INTEGER,
+        UNIQUE(tx_hash, log_index)
+      )
+    `);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_reward_activity ON pve_reward_events(activity_id)`);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_reward_item ON pve_reward_events(item_id)`);
+    await _pvePg.unsafe(`CREATE INDEX IF NOT EXISTS idx_pve_reward_equipment ON pve_reward_events(is_equipment, item_id, display_id, rarity_tier) WHERE is_equipment = TRUE`);
+
+    console.log('✅ PVE drop-rate tables bootstrapped');
+  } catch (err) {
+    console.warn('⚠️ PVE drop-rate table bootstrap failed (non-fatal):', err.message);
+  }
+
   // Ensure pve_completions schema has required columns (may not exist yet if indexer never ran)
+  // These ALTER TABLE calls are harmless no-ops on fresh environments created above.
   try {
     const { rawPg } = await import('./server/db.js');
     await rawPg`ALTER TABLE pve_completions ADD COLUMN IF NOT EXISTS fights_completed INTEGER DEFAULT 0`;
@@ -3696,7 +3802,7 @@ async function initializeEconomicSystem() {
       console.warn('⚠️ pve_completions schema check failed:', err.message);
     }
   }
-  
+
   console.log('💰 Initializing pricing config...');
   await initializePricingConfig();
   
