@@ -19411,6 +19411,91 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
   });
 
   // ============================================================================
+  // PVE COMPANION API
+  // ============================================================================
+
+  app.get('/api/admin/pve/companion/session', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const token = crypto.randomBytes(16).toString('hex');
+      const rows = await rawPg`INSERT INTO pve_companion_sessions (session_token, status) VALUES (${token}, 'waiting') RETURNING *`;
+      res.json({ ok: true, session: rows[0] });
+    } catch (err) {
+      console.error('[Companion] Session create error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to create session' });
+    }
+  });
+
+  app.get('/api/admin/pve/companion/session/:token', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const rows = await rawPg`SELECT * FROM pve_companion_sessions WHERE session_token = ${req.params.token}`;
+      if (rows.length === 0) return res.status(404).json({ ok: false, error: 'Session not found' });
+      const session = rows[0];
+      const turnEvents = await rawPg`SELECT * FROM pve_turn_events WHERE session_id = ${session.id} ORDER BY turn_number ASC`;
+      const memSession = companionSessions.get(session.session_token);
+      res.json({
+        ok: true,
+        session,
+        turnEvents,
+        heroStates: memSession?.heroStates || null,
+        enemyId: memSession?.enemyId || null,
+        connectedClients: memSession?.clients?.size || 0,
+      });
+    } catch (err) {
+      console.error('[Companion] Session status error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to fetch session' });
+    }
+  });
+
+  app.post('/api/admin/pve/companion/explain', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+    try {
+      const { recommendation, battleState, enemyId } = req.body;
+      if (!recommendation) return res.status(400).json({ ok: false, error: 'recommendation required' });
+
+      const { getEnemy } = await import('./server/pve-enemy-catalog.ts');
+      const enemy = getEnemy(enemyId || 'MAD_BOAR');
+
+      const heroSummary = (battleState?.heroes || []).map(h =>
+        `Hero slot ${h.slot} (${h.mainClass || '?'}): ${h.currentHp}/${h.maxHp} HP, ${h.currentMp}/${h.maxMp} MP, ${h.isAlive ? 'alive' : 'dead'}`
+      ).join('\n');
+
+      const enemySummary = enemy
+        ? `${enemy.name} (Tier ${enemy.tier}): ${battleState?.enemies?.[0]?.currentHp || enemy.hp}/${enemy.hp} HP, ATK:${enemy.atk}, DEF:${enemy.def}, SPD:${enemy.spd}`
+        : 'Unknown enemy';
+
+      const prompt = [
+        `You are a DeFi Kingdoms PVE battle advisor explaining a recommended action to a player during a live hunt battle.`,
+        ``,
+        `Current Battle State (Turn ${battleState?.turnNumber || '?'}):`,
+        `Heroes:`,
+        heroSummary || 'No hero data',
+        `Enemy: ${enemySummary}`,
+        ``,
+        `Recommended Action: ${recommendation.action}`,
+        `Score: ${recommendation.totalScore} (Damage EV: ${recommendation.damageEv}, Kill Chance: ${Math.round(recommendation.killChance * 100)}%, Survival Delta: ${recommendation.survivalDelta})`,
+        `Reasoning: ${recommendation.reasoning}`,
+        ``,
+        `Explain in 2-3 sentences why this is the best action right now. Be specific about the tactical situation. Use plain language a gamer would understand.`,
+      ].join('\n');
+
+      const { default: OpenAI } = await import('openai');
+      const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const completion = await oai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 200,
+        temperature: 0.7,
+      });
+      const explanation = completion.choices[0]?.message?.content?.trim() ?? null;
+      res.json({ ok: true, explanation });
+    } catch (err) {
+      console.error('[Companion] Explain error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to generate explanation' });
+    }
+  });
+
+  // ============================================================================
   // LEAGUE SIGNUP API
   // ============================================================================
   // Challenge league signup endpoints with smurf detection integration
@@ -21241,6 +21326,143 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
   });
 
   const server = http.createServer(app);
+
+  // ─── PVE Companion WebSocket Server ──────────────────────────────────────
+  const { WebSocketServer } = await import('ws');
+  const companionWss = new WebSocketServer({ noServer: true });
+  const companionSessions = new Map();
+
+  server.on('upgrade', (request, socket, head) => {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    if (url.pathname === '/ws/companion') {
+      companionWss.handleUpgrade(request, socket, head, (ws) => {
+        companionWss.emit('connection', ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  companionWss.on('connection', (ws) => {
+    let sessionToken = null;
+    let sessionId = null;
+
+    ws.on('message', async (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        const { rawPg } = await import('./server/db.js');
+
+        if (msg.type === 'join') {
+          sessionToken = msg.sessionToken;
+          if (!sessionToken) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Missing sessionToken' }));
+            return;
+          }
+          const rows = await rawPg`SELECT * FROM pve_companion_sessions WHERE session_token = ${sessionToken}`;
+          if (rows.length === 0) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Invalid session token' }));
+            return;
+          }
+          sessionId = rows[0].id;
+          await rawPg`UPDATE pve_companion_sessions SET status = 'connected', last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+
+          if (!companionSessions.has(sessionToken)) {
+            companionSessions.set(sessionToken, { clients: new Set(), turnEvents: [], heroStates: null, enemyId: null });
+          }
+          companionSessions.get(sessionToken).clients.add(ws);
+
+          const existingEvents = await rawPg`SELECT * FROM pve_turn_events WHERE session_id = ${sessionId} ORDER BY turn_number ASC`;
+          ws.send(JSON.stringify({
+            type: 'joined',
+            sessionId,
+            existingTurns: existingEvents.length,
+            status: 'connected',
+          }));
+          console.log(`[Companion WS] Client joined session ${sessionToken}`);
+
+        } else if (msg.type === 'state_snapshot') {
+          if (!sessionToken || !sessionId) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Not joined to a session' }));
+            return;
+          }
+          const session = companionSessions.get(sessionToken);
+          if (session) {
+            session.heroStates = msg.heroes || null;
+            session.enemyId = msg.enemyId || null;
+            if (msg.huntId) {
+              await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, wallet_address = ${msg.walletAddress || null}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+            }
+          }
+          ws.send(JSON.stringify({ type: 'snapshot_ack', received: true }));
+          const snapshotBroadcast = JSON.stringify({ type: 'state_update', heroes: session.heroStates, enemyId: session.enemyId });
+          for (const client of session.clients) {
+            if (client.readyState === 1 && client !== ws) client.send(snapshotBroadcast);
+          }
+
+        } else if (msg.type === 'turn_event') {
+          if (!sessionToken || !sessionId) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Not joined to a session' }));
+            return;
+          }
+          const { turnNumber, actorSide, actorSlot, skillId, targets, hpState, mpState, effects } = msg;
+          await rawPg`INSERT INTO pve_turn_events (session_id, hunt_id, turn_number, actor_side, actor_slot, skill_id, targets, hp_state, mp_state, effects, raw_event)
+            VALUES (${sessionId}, ${msg.huntId || null}, ${turnNumber || 0}, ${actorSide || 'unknown'}, ${actorSlot || 0}, ${skillId || null}, ${JSON.stringify(targets || [])}, ${JSON.stringify(hpState || {})}, ${JSON.stringify(mpState || {})}, ${JSON.stringify(effects || [])}, ${JSON.stringify(msg)})`;
+          await rawPg`UPDATE pve_companion_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+
+          const session = companionSessions.get(sessionToken);
+          if (session) {
+            session.turnEvents.push(msg);
+            const { getEnemy } = await import('./server/pve-enemy-catalog.ts');
+            const { scoreActions, buildBattleStateFromTurnEvents } = await import('./server/pve-scoring-engine.ts');
+            const enemyEntry = getEnemy(session.enemyId || msg.enemyId || 'MAD_BOAR');
+            if (enemyEntry && session.heroStates && msg.activeHeroSlot !== undefined) {
+              const battleState = buildBattleStateFromTurnEvents(
+                session.heroStates,
+                enemyEntry,
+                session.turnEvents,
+                msg.activeHeroSlot
+              );
+              const recommendations = scoreActions(battleState);
+              const responseMsg = JSON.stringify({
+                type: 'recommendation',
+                turnNumber: turnNumber || session.turnEvents.length,
+                recommendations: recommendations.slice(0, 5),
+                battleState: {
+                  turnNumber: battleState.turnNumber,
+                  activeHeroSlot: battleState.activeHeroSlot,
+                  heroes: battleState.heroes.map(h => ({ slot: h.slot, heroId: h.heroId, currentHp: h.currentHp, maxHp: h.maxHp, currentMp: h.currentMp, maxMp: h.maxMp, isAlive: h.isAlive, mainClass: h.mainClass })),
+                  enemies: battleState.enemies.map(e => ({ enemyId: e.enemyId, currentHp: e.currentHp, maxHp: e.maxHp, debuffs: e.debuffs })),
+                },
+              });
+              for (const client of session.clients) {
+                if (client.readyState === 1) client.send(responseMsg);
+              }
+            }
+          }
+
+          const turnBroadcast = JSON.stringify({ type: 'turn_update', turnNumber: turnNumber || 0, actorSide, actorSlot, skillId, effects: effects || [] });
+          for (const client of session.clients) {
+            if (client.readyState === 1 && client !== ws) client.send(turnBroadcast);
+          }
+          ws.send(JSON.stringify({ type: 'turn_ack', turnNumber: turnNumber || 0 }));
+        }
+      } catch (err) {
+        console.error('[Companion WS] Error:', err.message);
+        ws.send(JSON.stringify({ type: 'error', message: 'Internal error' }));
+      }
+    });
+
+    ws.on('close', () => {
+      if (sessionToken && companionSessions.has(sessionToken)) {
+        const session = companionSessions.get(sessionToken);
+        session.clients.delete(ws);
+        if (session.clients.size === 0) {
+          companionSessions.delete(sessionToken);
+        }
+      }
+    });
+  });
+  console.log('✅ PVE Companion WebSocket server attached at /ws/companion');
 
   server.on('error', (err) => {
     console.error('❌ Web server error:', err.message);

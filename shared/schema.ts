@@ -3872,3 +3872,47 @@ export const dfkTournaments = pgTable("dfk_tournaments", {
 export const insertDfkTournamentSchema = createInsertSchema(dfkTournaments).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertDfkTournament = z.infer<typeof insertDfkTournamentSchema>;
 export type DfkTournament = typeof dfkTournaments.$inferSelect;
+
+// ============================================================================
+// PVE COMPANION — Live Hunt Battle Advisor
+// ============================================================================
+
+export const pveCompanionSessions = pgTable("pve_companion_sessions", {
+  id: serial("id").primaryKey(),
+  sessionToken: varchar("session_token", { length: 64 }).notNull().unique(),
+  walletAddress: varchar("wallet_address", { length: 64 }),
+  huntId: varchar("hunt_id", { length: 128 }),
+  status: varchar("status", { length: 16 }).notNull().default("waiting"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  tokenIdx: uniqueIndex("pve_companion_sessions_token_idx").on(table.sessionToken),
+  walletIdx: index("pve_companion_sessions_wallet_idx").on(table.walletAddress),
+}));
+
+export const insertPveCompanionSessionSchema = createInsertSchema(pveCompanionSessions).omit({ id: true, createdAt: true, lastSeenAt: true });
+export type InsertPveCompanionSession = z.infer<typeof insertPveCompanionSessionSchema>;
+export type PveCompanionSession = typeof pveCompanionSessions.$inferSelect;
+
+export const pveTurnEvents = pgTable("pve_turn_events", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull(),
+  huntId: varchar("hunt_id", { length: 128 }),
+  turnNumber: integer("turn_number").notNull(),
+  actorSide: varchar("actor_side", { length: 16 }).notNull(),
+  actorSlot: integer("actor_slot").notNull(),
+  skillId: varchar("skill_id", { length: 64 }),
+  targets: json("targets").$type<Array<{ slot: number; hpBefore: number; hpAfter: number; damage: number }>>(),
+  hpState: json("hp_state").$type<Record<string, { current: number; max: number }>>(),
+  mpState: json("mp_state").$type<Record<string, { current: number; max: number }>>(),
+  effects: json("effects").$type<Array<{ type: string; target: string; value: number }>>(),
+  rawEvent: json("raw_event"),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdx: index("pve_turn_events_session_idx").on(table.sessionId),
+  turnIdx: index("pve_turn_events_turn_idx").on(table.sessionId, table.turnNumber),
+}));
+
+export const insertPveTurnEventSchema = createInsertSchema(pveTurnEvents).omit({ id: true, capturedAt: true });
+export type InsertPveTurnEvent = z.infer<typeof insertPveTurnEventSchema>;
+export type PveTurnEvent = typeof pveTurnEvents.$inferSelect;

@@ -48,6 +48,7 @@ import AdminHeroPrice from "@/pages/admin/hero-price";
 import AdminProfitTracker from "@/pages/admin/profit-tracker";
 import AdminPVEDropRates from "@/pages/admin/pve-droprates";
 import AdminPVEHunts from "@/pages/admin/pve-hunts";
+import AdminHuntCompanion from "@/pages/admin/hunt-companion";
 import AdminPatrolRewards from "@/pages/admin/patrol-rewards";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
 import CombatClasses from "@/pages/admin/combat-classes";
@@ -553,6 +554,14 @@ function Router() {
         )}
       </Route>
 
+      <Route path="/admin/hunt-companion">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminHuntCompanion />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
       <Route path="/admin/patrol-rewards">
         {() => (
           <ProtectedAdminPage>
@@ -726,6 +735,9 @@ function Router() {
       {/* Competitive */}
       <Route path="/user/pve-hunts">
         {() => <UserToolRoute tab="pve-hunts"><AdminPVEHunts /></UserToolRoute>}
+      </Route>
+      <Route path="/user/hunt-companion">
+        {() => <UserToolRoute tab="pve-hunts"><AdminHuntCompanion /></UserToolRoute>}
       </Route>
       <Route path="/user/pve-droprates">
         {() => <UserToolRoute tab="pve-droprates"><AdminPVEDropRates /></UserToolRoute>}

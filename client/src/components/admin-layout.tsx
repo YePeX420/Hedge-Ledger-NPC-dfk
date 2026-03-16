@@ -46,6 +46,7 @@ import {
   Wand2,
   ShoppingBag,
   History,
+  Radio,
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -101,6 +102,7 @@ const combatItems: NavItem[] = [
   { href: '/admin/combat-pets', label: 'Combat Pets Shop', icon: ShoppingBag },
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: TrendingDown },
   { href: '/admin/pve-hunts', label: 'PVE Hunt Tracker', icon: Swords },
+  { href: '/admin/hunt-companion', label: 'Hunt Companion', icon: Radio },
 ];
 
 // ─── Summon ────────────────────────────────────────────────────────────────
