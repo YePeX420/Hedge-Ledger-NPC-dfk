@@ -218,6 +218,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'unit_snapshot') {
     const d = msg.data;
     storeSnapshot({ type: 'unit_snapshot', ...d });
+    chrome.storage.local.set({ lastUnitSnapshot: d });
 
     if (sessionToken) {
       const base = hostUrl.replace(/\/+$/, '');
