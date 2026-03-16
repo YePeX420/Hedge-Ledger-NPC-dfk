@@ -342,13 +342,6 @@ console.log('[DFK BattleLog] Script file loaded');
   console.log('[DFK BattleLog] Parser loaded, starting log container scan');
 
   if (!tryAttach()) {
-    const domObserver = new MutationObserver(() => {
-      if (!window.__dfkBattleLogAttached) {
-        tryAttach();
-      }
-    });
-    domObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
-
     setInterval(() => {
       if (!window.__dfkBattleLogAttached) {
         tryAttach();

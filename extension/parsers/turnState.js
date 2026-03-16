@@ -471,8 +471,10 @@
 
   // ── MutationObserver ──────────────────────────────────────────────────────
 
+  let _snapDebounce = null;
   const hpObserver = new MutationObserver(() => {
-    emitSnapshot();
+    clearTimeout(_snapDebounce);
+    _snapDebounce = setTimeout(emitSnapshot, 200);
   });
 
   function attachHpObservers() {
