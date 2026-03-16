@@ -1,0 +1,303 @@
+Update the PVE Boar Hunt prediction model so that enemy STATS are always fetched dynamically from live/runtime data, while enemy ABILITIES / FORMULAS / EFFECT LOGIC are stored as catalog data.
+
+Important correction:
+Do NOT hardcode Baby Boar or Mama Boar stats into the prediction model.
+Those values can change with level, scaling, future balance changes, or hunt variation.
+The unknowns we discovered and want to add are:
+- enemy abilities
+- formulas
+- mana costs
+- ranges
+- effects
+- passives
+- Amnesia values
+- action logic hooks for prediction
+
+Use runtime-fetched enemy stats as the source of truth for:
+- level
+- max HP / current HP
+- max MP / current MP
+- attack
+- spell
+- pAcc / mAcc
+- pDef / mDef
+- pRed / mRed
+- blk / sblk
+- rec / ser
+- speed / eva
+- base stats
+- dynamic stat scores
+- visible status resistances
+- current buffs/debuffs
+- current lockouts if visible
+- current channeling state if visible
+
+The prediction model must separate:
+1. Enemy state data (dynamic, fetched live)
+2. Enemy ability catalog (static reference data)
+3. Enemy behavior model (inferred from logs + current state)
+
+==================================================
+ADD STATIC ENEMY ABILITY CATALOG
+==================================================
+
+Create a versioned enemy_ability_catalog for Mad Boar hunt enemies.
+
+BABY BOAR ABILITIES
+
+1. Lil' Gore
+- Mana Cost: 0
+- Range: 1
+- Formula: physical damage = 1.0 * ATTACK
+- 15% chance to Push target 1
+- 10% chance to Daze target
+- 40% chance to inflict Bleed
+- Amnesia: 0
+
+2. Charm
+- Mana Cost: 1
+- Range: 3
+- Target enemy in P3 on hit:
+  - 50% chance to Pull P3 target 1
+- Target enemy in P2 on hit:
+  - 50% chance to Pull P2 target 1
+- Amnesia: 0
+
+3. Head Butt
+- Mana Cost: 2
+- Range: 3
+- Formula: physical damage = 1.2 * ATTACK + 1.0 * DEX
+- If no enemy is Channeling, deal physical damage to a random enemy equal to 1.2 * ATTACK + 1.0 * DEX
+- 60% chance to Daze target enemy for 1 turn
+- Amnesia: 3
+
+4. Nuzzle
+- Mana Cost: 3
+- Range: party members
+- Heal formula = 2.0 * SPELL + 1.5 * WIS
+- Additional restore formula if target is Big Boar = 1.5 * SPELL HP
+- Cleanse target
+- If target is Big Boar, this Baby Boar gains +30% ATTACK for 2 turns
+- Amnesia: 5
+
+5. Resilient
+- Passive
+- Gain +5% Recovery chance while Blinded
+- Gain +5% Recovery chance while Poisoned
+- Gain +5% Recovery chance while Burned
+- Gain +5% Recovery chance while Chilled
+
+MAMA BOAR ABILITIES
+
+1. Gore
+- Mana Cost: 0
+- Range: 1
+- Formula: physical damage = 1.5 * ATTACK
+- 70% chance to inflict Bleed
+- Amnesia: 0
+
+2. Grunt
+- Mana Cost: 1
+- Range: 1
+- Target enemy
+- On hit, 80% chance to Taunt target enemy for 2 turns
+- Self gain +20% BLK for 2 turns
+- Self gain +10% AGI for 2 turns
+- Allies gain +30% ATTACK for 1 turn
+- Amnesia: 3
+
+3. Rampage
+- Mana Cost: 4
+- Range: 3
+- Deal physical damage to a random enemy = 2.5 * ATTACK + 2.5 * STR
+- Deal physical damage to another random enemy = 2.0 * ATTACK + 2.0 * STR
+- 50% chance to Daze each hit target
+- 75% chance to inflict 3 stacks of Bleed to each hit target
+- Self gain +25% physical damage for 3 turns
+- Self gain +30% Haste for 30 ticks
+- Self lose -10% P.ACC for 3 turns
+- Amnesia: 0
+
+4. Wild Charge
+- Mana Cost: 4
+- Range: 3
+- Channel for 1 turn
+- Formula against each enemy = 1.8 * ATTACK + 2.0 * DEX + 1.0 * STR
+- 25% chance to Stun each target
+- 50% chance to Daze each target
+- Self becomes Exhausted
+- Amnesia: 5
+
+5. Resilient
+- Passive
+- Gain +5% Recovery chance while Blinded
+- Gain +5% Recovery chance while Poisoned
+- Gain +5% Recovery chance while Burned
+- Gain +5% Recovery chance while Chilled
+
+==================================================
+MODEL CHANGES REQUIRED
+==================================================
+
+Refactor the Boar Hunt prediction model to use this architecture:
+
+A. enemy live state
+Fetched from runtime telemetry / live extension capture / page state:
+- name
+- type
+- level
+- current HP/MP
+- derived stats
+- base stats
+- current statuses
+- current buffs/debuffs
+- current position
+- current channeling state
+- visible ability availability if captured
+- observed mana
+- observed action history
+
+B. enemy ability catalog
+Static reference tables for:
+- ability metadata
+- formulas
+- status effects
+- mana cost
+- range
+- passives
+- Amnesia values
+
+C. enemy action predictor
+Use live state + ability catalog + action history to predict likely next action.
+
+==================================================
+PREDICTION LOGIC REQUIREMENTS
+==================================================
+
+Implement action availability checks using:
+- current mana >= manaCost
+- Amnesia lockout remaining == 0
+- target/range valid
+- channeling requirements if relevant
+- current unit state does not prevent action
+
+Implement enemy ability lockout tracking:
+- when an enemy uses an ability with Amnesia X, mark it unavailable for X turns
+- decrement remaining lockout on future turns
+- if live UI capture shows actual availability, treat observed UI state as higher priority than inferred state
+
+Implement first-pass behavior heuristics:
+
+BABY BOAR
+- Prefer Nuzzle more when Mama/Big Boar is damaged or cleansable
+- Prefer Head Butt when available and offensive pressure is strong
+- Use Lil' Gore as low-cost fallback
+- Use Charm when target positioning disruption is valuable
+
+MAMA BOAR
+- Prefer Grunt when allies are alive and buff value is high
+- Prefer Rampage when mana >= 4 and multiple strong player targets exist
+- Prefer Wild Charge when AoE value is high and ability is available
+- Use Gore as fallback
+
+These are heuristic priors only.
+Structure the code so later we can replace or augment them with learned probabilities from stored battle logs.
+
+==================================================
+DATA STORAGE CHANGES
+==================================================
+
+Add / update these tables:
+
+1. enemy_ability_catalog
+- enemy_type
+- ability_name
+- mana_cost
+- range
+- formula_json
+- effects_json
+- passive_flag
+- amnesia_turns
+- version
+
+2. enemy_action_observations
+- session_id
+- hunt_id
+- turn
+- enemy_name
+- enemy_type
+- action_name
+- target
+- observed_mana_before
+- observed_mana_after
+- lockout_state_json
+- raw_log_text
+- created_at
+
+3. enemy_state_estimates
+- session_id
+- hunt_id
+- turn
+- enemy_name
+- current_state_json
+- inferred_available_actions_json
+- predicted_action_probs_json
+- confidence
+
+==================================================
+DEBUG / TRANSPARENCY REQUIREMENTS
+==================================================
+
+For each recommendation cycle, expose:
+- fetched live enemy stats used
+- ability catalog entry used
+- inferred available enemy abilities
+- locked abilities and remaining Amnesia turns
+- predicted next enemy actions with probabilities
+- explanation of why a skill was ruled in or ruled out
+
+Example output:
+{
+  "enemy": "Mama Boar",
+  "liveState": {
+    "level": 20,
+    "hp": 941,
+    "mp": 5
+  },
+  "availableActions": ["Gore", "Rampage"],
+  "lockedActions": {
+    "Grunt": 1,
+    "Wild Charge": 3
+  },
+  "predictedActions": [
+    { "name": "Rampage", "probability": 0.64 },
+    { "name": "Gore", "probability": 0.36 }
+  ],
+  "reasoning": [
+    "Rampage available and affordable",
+    "Wild Charge still under Amnesia lockout",
+    "Multiple player targets alive increases AoE value"
+  ]
+}
+
+==================================================
+IMPORTANT IMPLEMENTATION RULE
+==================================================
+
+Do not hardcode enemy stats.
+Enemy stats must come from live fetched telemetry / parsed page state / runtime snapshots.
+Only hardcode and version:
+- ability kit
+- formulas
+- effect definitions
+- mana costs
+- ranges
+- passive logic
+- Amnesia logic
+
+Return full code replacements, not partial snippets.
+Also provide:
+- file-by-file summary
+- schema changes
+- updated predictor flow
+- sample outputs for Baby Boar and Mama Boar predictions
