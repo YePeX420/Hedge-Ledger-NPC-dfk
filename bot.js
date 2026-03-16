@@ -19710,10 +19710,9 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
   app.post('/api/dfk/reconcile', async (req, res) => {
     try {
-      // Accept: { sessionToken, unitSnapshot, heroId? }
-      // unitSnapshot is the normalized object from the extension:
-      //   { stats, baseStats, level, unitSide, unitName, items, ... }
-      // heroId is optional — if provided we look up on-chain data for richer base stats.
+      // Contract: { sessionToken, unitSnapshot, heroId? }
+      // unitSnapshot: { stats, baseStats?, level?, unitSide, unitName, items?, position?, capturedAtTurn?, id? }
+      // heroId (optional): used to look up authoritative base stats + equipment from dfk_bout_heroes
       const { sessionToken, unitSnapshot, heroId } = req.body;
       const session = await validateSessionToken(sessionToken);
       if (!session) return res.status(401).json({ ok: false, error: 'Invalid session token' });
@@ -19726,17 +19725,17 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       let reconcileOptions = {};
 
       if (unitSnapshot.unitSide === 'enemy') {
-        // Derive enemy ID from unitName (normalize to UPPER_SNAKE_CASE)
         const detectedEnemyId = unitSnapshot.unitName
           ? unitSnapshot.unitName.toUpperCase().replace(/[\s-]+/g, '_')
           : null;
         reconcileOptions = { enemyId: detectedEnemyId };
       } else {
-        // Hero path: use baseStats from snapshot, optionally enriched by DB hero lookup
+        // Hero path: build base stats and optionally full equipment via existing bot.js pipeline
         let heroBaseStats = null;
+        let heroEquipment = null;
 
         if (heroId) {
-          // Look up hero from indexed data for authoritative base stats
+          // Authoritative base stats from heroes table
           const heroRows = await rawPg`
             SELECT strength, dexterity, agility, intelligence, wisdom, vitality, endurance, luck, level, hp, mp
             FROM heroes WHERE id = ${parseInt(heroId)} LIMIT 1
@@ -19750,9 +19749,29 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
               level: h.level || 1, hp: h.hp, mp: h.mp,
             };
           }
+
+          // Equipment from most recent tournament bout — provides full item data for _heroCombatExtras
+          const eqRows = await rawPg`
+            SELECT weapon1_json, weapon2_json, armor_json, accessory_json, offhand1_json, offhand2_json, pet_json
+            FROM dfk_bout_heroes
+            WHERE hero_id = ${String(heroId)}
+            ORDER BY id DESC
+            LIMIT 1
+          `.catch(() => []);
+          if (eqRows.length > 0) {
+            const eq = eqRows[0];
+            heroEquipment = {
+              weapon1:   eq.weapon1_json   ? (typeof eq.weapon1_json   === 'string' ? JSON.parse(eq.weapon1_json)   : eq.weapon1_json)   : null,
+              weapon2:   eq.weapon2_json   ? (typeof eq.weapon2_json   === 'string' ? JSON.parse(eq.weapon2_json)   : eq.weapon2_json)   : null,
+              armor:     eq.armor_json     ? (typeof eq.armor_json     === 'string' ? JSON.parse(eq.armor_json)     : eq.armor_json)     : null,
+              accessory: eq.accessory_json ? (typeof eq.accessory_json === 'string' ? JSON.parse(eq.accessory_json) : eq.accessory_json) : null,
+              offhand1:  eq.offhand1_json  ? (typeof eq.offhand1_json  === 'string' ? JSON.parse(eq.offhand1_json)  : eq.offhand1_json)  : null,
+              pet:       eq.pet_json       ? (typeof eq.pet_json       === 'string' ? JSON.parse(eq.pet_json)       : eq.pet_json)       : null,
+            };
+          }
         }
 
-        // Fall back to baseStats captured by the extension stat panel parser
+        // Fall back to baseStats captured by extension stat panel parser
         if (!heroBaseStats && unitSnapshot.baseStats && Object.keys(unitSnapshot.baseStats).length > 0) {
           const b = unitSnapshot.baseStats;
           heroBaseStats = {
@@ -19766,28 +19785,56 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         if (!heroBaseStats) {
           return res.status(400).json({
             ok: false,
-            error: 'Cannot reconcile hero stats: no heroId or baseStats provided in unitSnapshot',
+            error: 'Cannot reconcile hero stats: provide heroId or include baseStats in unitSnapshot',
           });
         }
 
-        const hasEquipment = Array.isArray(unitSnapshot.items) && unitSnapshot.items.length > 0;
-        reconcileOptions = { heroBaseStats, hasEquipment };
+        const hasEquipment = !!(heroEquipment) || (Array.isArray(unitSnapshot.items) && unitSnapshot.items.length > 0);
+        reconcileOptions = { heroBaseStats, heroEquipment, hasEquipment };
       }
 
       const result = reconcileStats(unitSnapshot.stats, reconcileOptions);
 
-      // Persist diffs if snapshot has a DB id
-      if (unitSnapshot.id && result.diffs.length > 0) {
-        for (const diff of result.diffs) {
-          await rawPg`
-            INSERT INTO dfk_reconciliation_results (unit_snapshot_id, field, observed, expected, delta, suspected_cause)
-            VALUES (${unitSnapshot.id}, ${diff.field}, ${diff.observed}, ${diff.expected}, ${diff.delta}, ${diff.suspectedCause})
-            ON CONFLICT DO NOTHING
-          `;
+      // Always persist reconciliation results — create a snapshot row if none provided
+      let snapshotId = unitSnapshot.id ?? null;
+      if (!snapshotId) {
+        // Resolve hunt session for this token (needed as FK for dfk_unit_snapshots)
+        const huntSessions = await rawPg`
+          SELECT id FROM dfk_hunt_sessions
+          WHERE session_token_id = ${session.id} AND status != 'completed'
+          ORDER BY created_at DESC LIMIT 1
+        `.catch(() => []);
+        if (huntSessions.length > 0) {
+          const snapRows = await rawPg`
+            INSERT INTO dfk_unit_snapshots
+              (hunt_session_id, unit_name, unit_side, position, hero_id, stats, captured_at_turn)
+            VALUES (
+              ${huntSessions[0].id},
+              ${unitSnapshot.unitName || 'unknown'},
+              ${unitSnapshot.unitSide || 'player'},
+              ${unitSnapshot.position || 0},
+              ${heroId ? String(heroId) : null},
+              ${JSON.stringify(unitSnapshot.stats)},
+              ${unitSnapshot.capturedAtTurn || null}
+            )
+            RETURNING id
+          `.catch(() => []);
+          snapshotId = snapRows[0]?.id ?? null;
         }
       }
 
-      res.json({ ok: true, ...result });
+      if (snapshotId && result.diffs.length > 0) {
+        for (const diff of result.diffs) {
+          await rawPg`
+            INSERT INTO dfk_reconciliation_results
+              (unit_snapshot_id, field, observed, expected, delta, suspected_cause)
+            VALUES (${snapshotId}, ${diff.field}, ${diff.observed}, ${diff.expected}, ${diff.delta}, ${diff.suspectedCause})
+            ON CONFLICT DO NOTHING
+          `.catch(() => null);
+        }
+      }
+
+      res.json({ ok: true, snapshotId, ...result });
     } catch (err) {
       console.error('[Reconcile] Error:', err.message);
       res.status(500).json({ ok: false, error: 'Reconciliation failed' });
