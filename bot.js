@@ -19644,15 +19644,30 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     return rows.length > 0;
   }
 
+  // Resolve huntSessionId from token when the extension sends null (fallback mode).
+  // Returns the integer id of the most recent active hunt session for this token, or null.
+  async function resolveHuntSessionId(rawPg, providedId, sessionId) {
+    if (providedId) return providedId;
+    const rows = await rawPg`
+      SELECT id FROM dfk_hunt_sessions
+      WHERE session_token_id = ${sessionId} AND status != 'completed'
+      ORDER BY created_at DESC LIMIT 1
+    `.catch(() => []);
+    return rows.length > 0 ? rows[0].id : null;
+  }
+
   app.post('/api/dfk/telemetry/event', async (req, res) => {
     try {
-      const { sessionToken, huntSessionId, turnNumber, actor, actorSide, target, ability, damage, manaDelta, effects, rawText } = req.body;
+      const { sessionToken, turnNumber, actor, actorSide, target, ability, damage, manaDelta, effects, rawText } = req.body;
+      let { huntSessionId } = req.body;
       const session = await validateSessionToken(sessionToken);
       if (!session) return res.status(401).json({ ok: false, error: 'Invalid session token' });
       if (!checkTelemetryRate(sessionToken)) return res.status(429).json({ ok: false, error: 'Rate limit exceeded' });
-      if (!huntSessionId || turnNumber === undefined) return res.status(400).json({ ok: false, error: 'huntSessionId and turnNumber required' });
+      if (turnNumber === undefined) return res.status(400).json({ ok: false, error: 'turnNumber required' });
 
       const { rawPg } = await import('./server/db.js');
+      huntSessionId = await resolveHuntSessionId(rawPg, huntSessionId, session.id);
+      if (!huntSessionId) return res.status(400).json({ ok: false, error: 'No active hunt session found for this token — call /api/dfk/telemetry/session first' });
       if (!(await verifyHuntSessionOwnership(rawPg, huntSessionId, session.id))) {
         return res.status(403).json({ ok: false, error: 'Hunt session does not belong to this token' });
       }
@@ -19671,13 +19686,15 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
   app.post('/api/dfk/telemetry/snapshot', async (req, res) => {
     try {
-      const { sessionToken, huntSessionId, type } = req.body;
+      const { sessionToken, type } = req.body;
+      let { huntSessionId } = req.body;
       const session = await validateSessionToken(sessionToken);
       if (!session) return res.status(401).json({ ok: false, error: 'Invalid session token' });
       if (!checkTelemetryRate(sessionToken)) return res.status(429).json({ ok: false, error: 'Rate limit exceeded' });
-      if (!huntSessionId) return res.status(400).json({ ok: false, error: 'huntSessionId required' });
 
       const { rawPg } = await import('./server/db.js');
+      huntSessionId = await resolveHuntSessionId(rawPg, huntSessionId, session.id);
+      if (!huntSessionId) return res.status(400).json({ ok: false, error: 'No active hunt session found for this token — call /api/dfk/telemetry/session first' });
       if (!(await verifyHuntSessionOwnership(rawPg, huntSessionId, session.id))) {
         return res.status(403).json({ ok: false, error: 'Hunt session does not belong to this token' });
       }
@@ -19798,6 +19815,20 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
       // Always persist reconciliation results — create a snapshot row if none provided
       let snapshotId = unitSnapshot.id ?? null;
+
+      // IDOR ownership check: if a snapshot id was provided, verify it belongs to this token's sessions
+      if (snapshotId) {
+        const ownerCheck = await rawPg`
+          SELECT us.id FROM dfk_unit_snapshots us
+          JOIN dfk_hunt_sessions hs ON hs.id = us.hunt_session_id
+          WHERE us.id = ${snapshotId} AND hs.session_token_id = ${session.id}
+          LIMIT 1
+        `.catch(() => []);
+        if (ownerCheck.length === 0) {
+          return res.status(403).json({ ok: false, error: 'Snapshot does not belong to this session token' });
+        }
+      }
+
       if (!snapshotId) {
         // Resolve hunt session for this token (needed as FK for dfk_unit_snapshots)
         const huntSessions = await rawPg`
