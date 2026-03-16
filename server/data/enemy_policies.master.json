@@ -1,0 +1,147 @@
+{
+  "meta": {
+    "title": "DFK PvE Enemy Policies Master",
+    "version": "1.0.0",
+    "source": "Derived from server/pve-heuristic-priors.ts action weight logic",
+    "notes": [
+      "Each entry defines an enemy type's action selection policy for Monte Carlo rollouts.",
+      "Weights are base values before state-dependent adjustments; thresholdRules encode conditional overrides.",
+      "targetPreference biases sum to 1.0 and guide target selection when multiple valid targets exist.",
+      "The runtime TypeScript in pve-heuristic-priors.ts remains the authoritative backend path; this file is the static read-only representation for the extension engine."
+    ]
+  },
+  "policies": [
+    {
+      "enemyType": "baby_boar",
+      "encounterId": "boar_hunt",
+      "actions": [
+        { "actionId": "Lil' Gore", "weight": 0.30 },
+        { "actionId": "Charm", "weight": 0.15 },
+        { "actionId": "Head Butt", "weight": 0.20 },
+        { "actionId": "Nuzzle", "weight": 0.10 }
+      ],
+      "targetPreference": {
+        "frontlineBias": 0.50,
+        "lowestHpBias": 0.30,
+        "randomBias": 0.20
+      },
+      "thresholdRules": [
+        {
+          "condition": "target_hp_below_50_pct",
+          "actionId": "Head Butt",
+          "adjustedWeight": 0.35,
+          "notes": "Head Butt weight increases when the target is below 50% HP."
+        },
+        {
+          "condition": "any_ally_damaged_and_big_boar_present",
+          "actionId": "Nuzzle",
+          "adjustedWeight": 0.45,
+          "notes": "Nuzzle strongly favored when an ally is hurt and mama boar is alive."
+        },
+        {
+          "condition": "any_ally_damaged_no_big_boar",
+          "actionId": "Nuzzle",
+          "adjustedWeight": 0.30,
+          "notes": "Nuzzle still prioritized when ally is hurt but mama boar is dead."
+        }
+      ]
+    },
+    {
+      "enemyType": "mama_boar",
+      "encounterId": "boar_hunt",
+      "actions": [
+        { "actionId": "Gore", "weight": 0.25 },
+        { "actionId": "Grunt", "weight": 0.35 },
+        { "actionId": "Rampage", "weight": 0.35 },
+        { "actionId": "Wild Charge", "weight": 0.30 }
+      ],
+      "targetPreference": {
+        "frontlineBias": 0.40,
+        "lowestHpBias": 0.35,
+        "randomBias": 0.25
+      },
+      "thresholdRules": [
+        {
+          "condition": "allies_alive_count_lte_1",
+          "actionId": "Grunt",
+          "adjustedWeight": 0.15,
+          "notes": "Grunt drops sharply when no allies remain to buff."
+        },
+        {
+          "condition": "enemies_alive_count_lt_2",
+          "actionId": "Rampage",
+          "adjustedWeight": 0.20,
+          "notes": "Rampage is less favored when only one hero target remains."
+        },
+        {
+          "condition": "enemies_alive_count_lt_2",
+          "actionId": "Wild Charge",
+          "adjustedWeight": 0.15,
+          "notes": "Wild Charge drops when only one hero target remains."
+        }
+      ]
+    },
+    {
+      "enemyType": "bad_motherclucker",
+      "encounterId": "bad_motherclucker",
+      "actions": [
+        { "actionId": "Beak Strike", "weight": 0.20 },
+        { "actionId": "Body Slam", "weight": 0.25 },
+        { "actionId": "Mighty Gust", "weight": 0.30 },
+        { "actionId": "Lay Egg", "weight": 0.05 }
+      ],
+      "targetPreference": {
+        "frontlineBias": 0.45,
+        "lowestHpBias": 0.30,
+        "randomBias": 0.25
+      },
+      "thresholdRules": [
+        {
+          "condition": "any_ally_dead",
+          "actionId": "Lay Egg",
+          "adjustedWeight": 0.45,
+          "notes": "Lay Egg strongly prioritized when a Baby Rocboc is dead."
+        },
+        {
+          "condition": "enemies_alive_count_lt_2",
+          "actionId": "Body Slam",
+          "adjustedWeight": 0.15,
+          "notes": "Body Slam drops when only one hero target remains."
+        },
+        {
+          "condition": "enemies_alive_count_lt_2",
+          "actionId": "Mighty Gust",
+          "adjustedWeight": 0.20,
+          "notes": "Mighty Gust drops when only one hero target remains."
+        },
+        {
+          "condition": "hardboiled_active",
+          "effect": "multiply_aggressive_actions_by_1.30",
+          "notes": "When Hardboiled is active (taunted or ally dead), Beak Strike / Body Slam / Mighty Gust weights are multiplied by 1.30 before normalization."
+        }
+      ]
+    },
+    {
+      "enemyType": "baby_rocboc",
+      "encounterId": "bad_motherclucker",
+      "actions": [
+        { "actionId": "Pecky Blinder", "weight": 0.40 },
+        { "actionId": "Cheep", "weight": 0.20 },
+        { "actionId": "Ominous Entrance", "weight": 0.05 }
+      ],
+      "targetPreference": {
+        "frontlineBias": 0.35,
+        "lowestHpBias": 0.25,
+        "randomBias": 0.40
+      },
+      "thresholdRules": [
+        {
+          "condition": "motherclucker_hp_below_60_pct_or_hero_channeling_or_ally_dead",
+          "actionId": "Cheep",
+          "adjustedWeight": 0.45,
+          "notes": "Cheep strongly prioritized when Bad Motherclucker is hurt, a hero is channeling, or an ally is dead."
+        }
+      ]
+    }
+  ]
+}

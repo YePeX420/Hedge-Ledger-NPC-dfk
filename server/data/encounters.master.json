@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "title": "DFK PvE Encounters Master",
+    "version": "1.0.0",
+    "source": "User-confirmed formation data and pve-catalog-seed.ts encounter configs",
+    "notes": [
+      "Each encounter defines the enemy formation (slot positions) and any special spawn/resurrection rules.",
+      "Slot numbering: p1 = frontline, p2 = midline, p3 = backline.",
+      "consumable budgets and catalogs remain in the encounter_config DB table; this file covers formation and mechanics only."
+    ]
+  },
+  "encounters": [
+    {
+      "encounterId": "boar_hunt",
+      "displayName": "Boar Hunt",
+      "formation": [
+        { "slot": "p1", "enemyType": "baby_boar", "displayName": "BabyBoar1" },
+        { "slot": "p2", "enemyType": "baby_boar", "displayName": "BabyBoar2" },
+        { "slot": "p3", "enemyType": "mama_boar", "displayName": "MamaBoar" }
+      ],
+      "spawnRules": [],
+      "notes": [
+        "Two baby boars in front positions protect the mama boar in the back.",
+        "No egg or resurrection mechanics in this encounter."
+      ]
+    },
+    {
+      "encounterId": "bad_motherclucker",
+      "displayName": "Bad Motherclucker",
+      "formation": [
+        { "slot": "p1", "enemyType": "bad_motherclucker", "displayName": "MamaBoc" },
+        { "slot": "p2", "enemyType": "baby_rocboc", "displayName": "BabyBoc1" },
+        { "slot": "p3", "enemyType": "baby_rocboc", "displayName": "BabyBoc2" }
+      ],
+      "spawnRules": [
+        {
+          "trigger": "ally_dead",
+          "ability": "Lay Egg",
+          "description": "Bad Motherclucker uses Lay Egg to transform up to 2 dead Baby Rocbocs into Rocboc Eggs, which hatch after a set number of turns.",
+          "maxTargets": 2,
+          "resultState": "rocboc_egg",
+          "amnesiaTurns": 3
+        }
+      ],
+      "notes": [
+        "Bad Motherclucker (MamaBoc) holds the frontline; two Baby Rocbocs sit behind.",
+        "Lay Egg resurrection mechanic: dead Baby Rocbocs can be converted to eggs that eventually hatch.",
+        "Hardboiled passive activates when MamaBoc is taunted or any ally is dead, granting +10% ATK, +10% SPD, and +50% Push chance on hit."
+      ]
+    }
+  ]
+}
