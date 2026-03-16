@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, bigint, numeric, timestamp, integer, boolean, json, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, bigint, numeric, timestamp, integer, boolean, json, index, uniqueIndex, primaryKey, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -3916,3 +3916,99 @@ export const pveTurnEvents = pgTable("pve_turn_events", {
 export const insertPveTurnEventSchema = createInsertSchema(pveTurnEvents).omit({ id: true, capturedAt: true });
 export type InsertPveTurnEvent = z.infer<typeof insertPveTurnEventSchema>;
 export type PveTurnEvent = typeof pveTurnEvents.$inferSelect;
+
+// ─── DFK Telemetry Tables ─────────────────────────────────────────────────────
+
+export const dfkHuntSessions = pgTable("dfk_hunt_sessions", {
+  id: serial("id").primaryKey(),
+  huntId: varchar("hunt_id", { length: 128 }),
+  walletAddress: varchar("wallet_address", { length: 64 }),
+  mode: varchar("mode", { length: 32 }).notNull().default("patrol"),
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  sessionTokenId: integer("session_token_id"),
+  eventCount: integer("event_count").notNull().default(0),
+  snapshotCount: integer("snapshot_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  huntIdx: index("dfk_hunt_sessions_hunt_idx").on(table.huntId),
+  walletIdx: index("dfk_hunt_sessions_wallet_idx").on(table.walletAddress),
+  tokenIdx: index("dfk_hunt_sessions_token_idx").on(table.sessionTokenId),
+}));
+
+export const insertDfkHuntSessionSchema = createInsertSchema(dfkHuntSessions).omit({ id: true, createdAt: true, updatedAt: true, eventCount: true, snapshotCount: true });
+export type InsertDfkHuntSession = z.infer<typeof insertDfkHuntSessionSchema>;
+export type DfkHuntSession = typeof dfkHuntSessions.$inferSelect;
+
+export const dfkBattleLogEvents = pgTable("dfk_battle_log_events", {
+  id: serial("id").primaryKey(),
+  huntSessionId: integer("hunt_session_id").notNull(),
+  turnNumber: integer("turn_number").notNull(),
+  actor: varchar("actor", { length: 128 }),
+  actorSide: varchar("actor_side", { length: 16 }),
+  target: varchar("target", { length: 128 }),
+  ability: varchar("ability", { length: 128 }),
+  damage: integer("damage"),
+  manaDelta: integer("mana_delta"),
+  effects: json("effects").$type<Array<{ type: string; value: number; target?: string }>>(),
+  rawText: text("raw_text"),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdx: index("dfk_battle_log_events_session_idx").on(table.huntSessionId),
+  turnIdx: index("dfk_battle_log_events_turn_idx").on(table.huntSessionId, table.turnNumber),
+}));
+
+export const insertDfkBattleLogEventSchema = createInsertSchema(dfkBattleLogEvents).omit({ id: true, capturedAt: true });
+export type InsertDfkBattleLogEvent = z.infer<typeof insertDfkBattleLogEventSchema>;
+export type DfkBattleLogEvent = typeof dfkBattleLogEvents.$inferSelect;
+
+export const dfkUnitSnapshots = pgTable("dfk_unit_snapshots", {
+  id: serial("id").primaryKey(),
+  huntSessionId: integer("hunt_session_id").notNull(),
+  unitName: varchar("unit_name", { length: 128 }).notNull(),
+  unitSide: varchar("unit_side", { length: 16 }).notNull(),
+  position: integer("position").notNull().default(0),
+  heroId: varchar("hero_id", { length: 128 }),
+  stats: json("stats").$type<Record<string, number>>().notNull(),
+  capturedAtTurn: integer("captured_at_turn"),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdx: index("dfk_unit_snapshots_session_idx").on(table.huntSessionId),
+  unitIdx: index("dfk_unit_snapshots_unit_idx").on(table.huntSessionId, table.unitName),
+}));
+
+export const insertDfkUnitSnapshotSchema = createInsertSchema(dfkUnitSnapshots).omit({ id: true, capturedAt: true });
+export type InsertDfkUnitSnapshot = z.infer<typeof insertDfkUnitSnapshotSchema>;
+export type DfkUnitSnapshot = typeof dfkUnitSnapshots.$inferSelect;
+
+export const dfkTurnSnapshots = pgTable("dfk_turn_snapshots", {
+  id: serial("id").primaryKey(),
+  huntSessionId: integer("hunt_session_id").notNull(),
+  turnNumber: integer("turn_number").notNull(),
+  fullState: json("full_state").$type<Record<string, unknown>>().notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdx: index("dfk_turn_snapshots_session_idx").on(table.huntSessionId),
+  turnIdx: index("dfk_turn_snapshots_turn_idx").on(table.huntSessionId, table.turnNumber),
+}));
+
+export const insertDfkTurnSnapshotSchema = createInsertSchema(dfkTurnSnapshots).omit({ id: true, capturedAt: true });
+export type InsertDfkTurnSnapshot = z.infer<typeof insertDfkTurnSnapshotSchema>;
+export type DfkTurnSnapshot = typeof dfkTurnSnapshots.$inferSelect;
+
+export const dfkReconciliationResults = pgTable("dfk_reconciliation_results", {
+  id: serial("id").primaryKey(),
+  unitSnapshotId: integer("unit_snapshot_id").notNull(),
+  field: varchar("field", { length: 32 }).notNull(),
+  observed: doublePrecision("observed").notNull(),
+  expected: doublePrecision("expected").notNull(),
+  delta: doublePrecision("delta").notNull(),
+  suspectedCause: text("suspected_cause"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  snapshotIdx: index("dfk_reconciliation_results_snapshot_idx").on(table.unitSnapshotId),
+}));
+
+export const insertDfkReconciliationResultSchema = createInsertSchema(dfkReconciliationResults).omit({ id: true, createdAt: true });
+export type InsertDfkReconciliationResult = z.infer<typeof insertDfkReconciliationResultSchema>;
+export type DfkReconciliationResult = typeof dfkReconciliationResults.$inferSelect;

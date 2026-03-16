@@ -121,6 +121,11 @@ const ecosystemItems: NavItem[] = [
   { href: '/admin/user-access', label: 'User Access', icon: UserCog },
 ];
 
+// ─── Data ─────────────────────────────────────────────────────────────────
+const dataItems: NavItem[] = [
+  { href: '/admin/telemetry', label: 'Telemetry', icon: Activity },
+];
+
 // ─── Unfinished / WIP ──────────────────────────────────────────────────────
 const unfinishedItems: NavItem[] = [
   { href: '/admin/combat-toolkit', label: 'Hero Combat Toolkit', icon: Swords },
@@ -379,6 +384,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             icon={Database}
             items={indexerItems}
             groupKey="indexers"
+            location={location}
+            onNavClick={handleNavClick}
+          />
+
+          {/* Data */}
+          <FlyoutMenu
+            label="Data"
+            icon={Activity}
+            items={dataItems}
+            groupKey="data"
             location={location}
             onNavClick={handleNavClick}
           />

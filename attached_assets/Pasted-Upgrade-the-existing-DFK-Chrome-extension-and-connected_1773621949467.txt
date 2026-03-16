@@ -1,0 +1,218 @@
+Upgrade the existing DFK Chrome extension and connected webapp/backend into a live telemetry, debugging, and recommendation system for DeFi Kingdoms hunts.
+
+Overall goal:
+The extension must capture live combat state from DFK hunt/spectate pages and stream normalized data to our backend/webapp so we can:
+1. troubleshoot backend combat/stat calculations against actual in-game values
+2. recommend the best next move for the active unit
+3. store battlelogs and turn snapshots for replay, learning, and later model improvement
+
+This is not an autoplay bot.
+Do not implement automated clicks or action submission.
+Only implement telemetry capture, normalization, transport, debugging, reconciliation, and recommendation support.
+
+PHASE 1 — TELEMETRY + DEBUG FOUNDATION
+
+A. Extension architecture
+Refactor the extension into:
+- content script for DFK page capture
+- background/service worker for transport/session management
+- popup UI for status and debug controls
+- parser modules:
+  - battleLogParser
+  - statPanelParser
+  - turnStateParser
+  - normalizers
+
+B. Supported page behavior
+Run on DFK hunt, spectate, and replay pages where combat log/state is visible.
+
+C. Data capture
+Continuously detect and extract:
+- huntId
+- mode: live/spectate/replay if determinable
+- turn number
+- visible battle log entries
+- actor / target / ability / damage / mana delta when readable
+- visible HP/MP for all visible units
+- visible buffs/debuffs/status effects
+- active unit
+- legal actions available for active unit
+- selected target
+- opened hero/enemy stat panels
+- full visible stat blocks when a unit panel is open
+
+For stat panels, capture and normalize:
+- level
+- hp/mp
+- attack/spell
+- pAcc/mAcc
+- csc/cdm/chc
+- pDef/mDef
+- pRed/mRed
+- blk/sblk
+- rec/ser
+- speed/eva
+- modifiers
+- base stats
+- dynamic stat scores
+- status effect resistances
+- visible traits
+- visible abilities
+- visible items
+
+D. Normalized event model
+Implement these normalized payload types:
+- battle_log_event
+- unit_snapshot
+- turn_snapshot
+
+Battle log event example:
+{
+  "type": "battle_log_event",
+  "sessionId": "uuid",
+  "huntId": 761923,
+  "turn": 2,
+  "actor": "Davion Greenlaugh",
+  "actorSide": "player",
+  "actorPosition": "P1",
+  "ability": "Mighty Strike",
+  "target": "Baby Boar 1",
+  "targetSide": "enemy",
+  "targetPosition": "P1",
+  "damageType": "physical",
+  "damage": 217,
+  "manaDelta": -19,
+  "effects": [],
+  "rawText": "",
+  "capturedAt": 0,
+  "parseConfidence": 0.0
+}
+
+E. Streaming/transport
+Implement:
+- WebSocket transport to backend
+- HTTP POST fallback queue if socket unavailable
+- auto reconnect
+- deduplicate repeated identical events
+- timestamps on all messages
+- session bootstrap at page start
+
+F. Debug mode
+Add a debug toggle in the extension popup.
+
+When enabled:
+- capture raw DOM text used for each parsed field
+- capture selector/source metadata for each parsed field
+- store last 100 snapshots/events locally
+- allow export latest session JSON
+- show parse confidence
+- log parsing failures
+- highlight changed fields between snapshots
+
+G. Backend APIs
+Implement these endpoints:
+- POST /api/dfk/session/start
+- POST /api/dfk/event
+- POST /api/dfk/reconcile
+- GET /api/dfk/session/:sessionId/events
+
+H. Database tables
+Create and wire these tables:
+- hunt_sessions
+- battle_log_events
+- unit_snapshots
+- turn_snapshots
+- reconciliation_results
+
+I. Reconciliation
+Implement backend reconciliation mode:
+Given observed snapshots, backend returns:
+- observed
+- expected
+- diffs
+- suspectedCause
+- notes
+
+Response example:
+{
+  "observed": {},
+  "expected": {},
+  "diffs": [
+    {
+      "field": "pDef",
+      "observed": 101,
+      "expected": 113,
+      "delta": -12,
+      "suspectedCause": "missing equipment modifier or buff"
+    }
+  ],
+  "notes": []
+}
+
+Build a simple UI in the popup or webapp to show:
+- observed
+- expected
+- delta
+- suspected cause
+
+PHASE 2 — RECOMMENDATION ENGINE
+
+J. Combat state builder
+Build a canonical turn-state object from:
+- captured live extension data
+- hero/equipment/reference data already available in backend
+- skill tree / codex data
+- stored enemy snapshots
+
+K. Action enumerator
+For the active unit, enumerate:
+- all legal abilities
+- basic attacks
+- legal targets for each action
+
+L. Scoring engine
+Implement deterministic scoring first.
+Do not use LLM logic for combat math.
+
+Initial scoring dimensions:
+- kill probability
+- expected damage
+- survival impact
+- debuff value
+- target priority
+- mana efficiency
+
+M. Recommendation API
+Return:
+- best move
+- best target
+- confidence/score
+- reason tags
+- second-best alternative
+- risky alternative if useful
+
+N. Webapp live companion UI
+Build a subpage/panel that shows:
+- hunt/session status
+- current turn
+- live unit states
+- recommendation card
+- observed vs expected debugger card
+- turn history / replay log
+
+O. Nice-to-have if possible
+- manual “capture current screen state” button
+- copy latest normalized snapshot
+- local replay viewer
+- support network inspection if accessible, but do not rely on it
+
+Important implementation notes:
+- Use defensive selectors
+- Use MutationObserver for dynamic page updates
+- Do not crash on partial or missing fields
+- Return full code replacements, not partial snippets
+- Include file-by-file explanation
+- Include manifest changes
+- Include backend API contract
+- Include sample payloads
+- Include a test mode with mock hunt data

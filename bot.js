@@ -9777,6 +9777,87 @@ async function startAdminWebServer() {
         await rawPg.unsafe(col);
       }
 
+      // ── DFK Telemetry tables ──────────────────────────────────────────────
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_hunt_sessions (
+          id                SERIAL PRIMARY KEY,
+          hunt_id           VARCHAR(128),
+          wallet_address    VARCHAR(64),
+          mode              VARCHAR(32) NOT NULL DEFAULT 'patrol',
+          status            VARCHAR(16) NOT NULL DEFAULT 'active',
+          session_token_id  INTEGER,
+          event_count       INTEGER NOT NULL DEFAULT 0,
+          snapshot_count    INTEGER NOT NULL DEFAULT 0,
+          created_at        TIMESTAMPTZ DEFAULT NOW(),
+          updated_at        TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_hunt_sessions_hunt_idx ON dfk_hunt_sessions(hunt_id)`);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_hunt_sessions_wallet_idx ON dfk_hunt_sessions(wallet_address)`);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_hunt_sessions_token_idx ON dfk_hunt_sessions(session_token_id)`);
+
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_battle_log_events (
+          id                SERIAL PRIMARY KEY,
+          hunt_session_id   INTEGER NOT NULL,
+          turn_number       INTEGER NOT NULL,
+          actor             VARCHAR(128),
+          actor_side        VARCHAR(16),
+          target            VARCHAR(128),
+          ability           VARCHAR(128),
+          damage            INTEGER,
+          mana_delta        INTEGER,
+          effects           JSON,
+          raw_text          TEXT,
+          captured_at       TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_battle_log_events_session_idx ON dfk_battle_log_events(hunt_session_id)`);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_battle_log_events_turn_idx ON dfk_battle_log_events(hunt_session_id, turn_number)`);
+
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_unit_snapshots (
+          id                SERIAL PRIMARY KEY,
+          hunt_session_id   INTEGER NOT NULL,
+          unit_name         VARCHAR(128) NOT NULL,
+          unit_side         VARCHAR(16) NOT NULL,
+          position          INTEGER NOT NULL DEFAULT 0,
+          hero_id           VARCHAR(128),
+          stats             JSON NOT NULL,
+          captured_at_turn  INTEGER,
+          captured_at       TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_unit_snapshots_session_idx ON dfk_unit_snapshots(hunt_session_id)`);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_unit_snapshots_unit_idx ON dfk_unit_snapshots(hunt_session_id, unit_name)`);
+
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_turn_snapshots (
+          id                SERIAL PRIMARY KEY,
+          hunt_session_id   INTEGER NOT NULL,
+          turn_number       INTEGER NOT NULL,
+          full_state        JSON NOT NULL,
+          captured_at       TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_turn_snapshots_session_idx ON dfk_turn_snapshots(hunt_session_id)`);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_turn_snapshots_turn_idx ON dfk_turn_snapshots(hunt_session_id, turn_number)`);
+
+      await rawPg.unsafe(`
+        CREATE TABLE IF NOT EXISTS dfk_reconciliation_results (
+          id                SERIAL PRIMARY KEY,
+          unit_snapshot_id  INTEGER NOT NULL,
+          field             VARCHAR(32) NOT NULL,
+          observed          DOUBLE PRECISION NOT NULL,
+          expected          DOUBLE PRECISION NOT NULL,
+          delta             DOUBLE PRECISION NOT NULL,
+          suspected_cause   TEXT,
+          created_at        TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS dfk_reconciliation_results_snapshot_idx ON dfk_reconciliation_results(unit_snapshot_id)`);
+      console.log('[Telemetry] DFK telemetry tables ready');
+
       // Add firebase_battle_id column if it doesn't exist yet (idempotent migration)
       await rawPg.unsafe(`
         ALTER TABLE dfk_tournament_bouts ADD COLUMN IF NOT EXISTS firebase_battle_id TEXT
@@ -19492,6 +19573,211 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     } catch (err) {
       console.error('[Companion] Explain error:', err.message);
       res.status(500).json({ ok: false, error: 'Failed to generate explanation' });
+    }
+  });
+
+  // ============================================================================
+  // DFK TELEMETRY API (session-token gated, no Discord OAuth)
+  // ============================================================================
+
+  const _telemetryRateLimits = new Map();
+  const TELEMETRY_RATE_LIMIT = 100;
+  const TELEMETRY_RATE_WINDOW = 60_000;
+
+  function checkTelemetryRate(token) {
+    const now = Date.now();
+    let entry = _telemetryRateLimits.get(token);
+    if (!entry || now - entry.windowStart > TELEMETRY_RATE_WINDOW) {
+      entry = { windowStart: now, count: 0 };
+      _telemetryRateLimits.set(token, entry);
+    }
+    entry.count++;
+    return entry.count <= TELEMETRY_RATE_LIMIT;
+  }
+
+  async function validateSessionToken(sessionToken) {
+    if (!sessionToken || typeof sessionToken !== 'string') return null;
+    const { rawPg } = await import('./server/db.js');
+    const rows = await rawPg`SELECT * FROM pve_companion_sessions WHERE session_token = ${sessionToken}`;
+    return rows.length > 0 ? rows[0] : null;
+  }
+
+  app.post('/api/dfk/telemetry/session', async (req, res) => {
+    try {
+      const { sessionToken, huntId, walletAddress, mode } = req.body;
+      const session = await validateSessionToken(sessionToken);
+      if (!session) return res.status(401).json({ ok: false, error: 'Invalid session token' });
+      if (!checkTelemetryRate(sessionToken)) return res.status(429).json({ ok: false, error: 'Rate limit exceeded' });
+
+      const { rawPg } = await import('./server/db.js');
+      const rows = await rawPg`
+        INSERT INTO dfk_hunt_sessions (hunt_id, wallet_address, mode, session_token_id)
+        VALUES (${huntId || null}, ${walletAddress || null}, ${mode || 'patrol'}, ${session.id})
+        RETURNING *
+      `;
+      res.json({ ok: true, huntSession: rows[0] });
+    } catch (err) {
+      console.error('[Telemetry] Session create error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to create hunt session' });
+    }
+  });
+
+  async function verifyHuntSessionOwnership(rawPg, huntSessionId, sessionId) {
+    const rows = await rawPg`SELECT id FROM dfk_hunt_sessions WHERE id = ${huntSessionId} AND session_token_id = ${sessionId}`;
+    return rows.length > 0;
+  }
+
+  app.post('/api/dfk/telemetry/event', async (req, res) => {
+    try {
+      const { sessionToken, huntSessionId, turnNumber, actor, actorSide, target, ability, damage, manaDelta, effects, rawText } = req.body;
+      const session = await validateSessionToken(sessionToken);
+      if (!session) return res.status(401).json({ ok: false, error: 'Invalid session token' });
+      if (!checkTelemetryRate(sessionToken)) return res.status(429).json({ ok: false, error: 'Rate limit exceeded' });
+      if (!huntSessionId || turnNumber === undefined) return res.status(400).json({ ok: false, error: 'huntSessionId and turnNumber required' });
+
+      const { rawPg } = await import('./server/db.js');
+      if (!(await verifyHuntSessionOwnership(rawPg, huntSessionId, session.id))) {
+        return res.status(403).json({ ok: false, error: 'Hunt session does not belong to this token' });
+      }
+      const rows = await rawPg`
+        INSERT INTO dfk_battle_log_events (hunt_session_id, turn_number, actor, actor_side, target, ability, damage, mana_delta, effects, raw_text)
+        VALUES (${huntSessionId}, ${turnNumber}, ${actor || null}, ${actorSide || null}, ${target || null}, ${ability || null}, ${damage || null}, ${manaDelta || null}, ${effects ? JSON.stringify(effects) : null}, ${rawText || null})
+        RETURNING id
+      `;
+      await rawPg`UPDATE dfk_hunt_sessions SET event_count = event_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
+      res.json({ ok: true, eventId: rows[0]?.id });
+    } catch (err) {
+      console.error('[Telemetry] Event insert error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to insert event' });
+    }
+  });
+
+  app.post('/api/dfk/telemetry/snapshot', async (req, res) => {
+    try {
+      const { sessionToken, huntSessionId, type } = req.body;
+      const session = await validateSessionToken(sessionToken);
+      if (!session) return res.status(401).json({ ok: false, error: 'Invalid session token' });
+      if (!checkTelemetryRate(sessionToken)) return res.status(429).json({ ok: false, error: 'Rate limit exceeded' });
+      if (!huntSessionId) return res.status(400).json({ ok: false, error: 'huntSessionId required' });
+
+      const { rawPg } = await import('./server/db.js');
+      if (!(await verifyHuntSessionOwnership(rawPg, huntSessionId, session.id))) {
+        return res.status(403).json({ ok: false, error: 'Hunt session does not belong to this token' });
+      }
+
+      if (type === 'turn') {
+        const { turnNumber, fullState } = req.body;
+        if (turnNumber === undefined || !fullState) return res.status(400).json({ ok: false, error: 'turnNumber and fullState required for turn snapshot' });
+        const rows = await rawPg`
+          INSERT INTO dfk_turn_snapshots (hunt_session_id, turn_number, full_state)
+          VALUES (${huntSessionId}, ${turnNumber}, ${JSON.stringify(fullState)})
+          RETURNING id
+        `;
+        res.json({ ok: true, snapshotId: rows[0]?.id, type: 'turn' });
+      } else {
+        const { unitName, unitSide, position, heroId, stats, capturedAtTurn } = req.body;
+        if (!unitName || !unitSide || !stats) return res.status(400).json({ ok: false, error: 'unitName, unitSide, and stats required for unit snapshot' });
+        const rows = await rawPg`
+          INSERT INTO dfk_unit_snapshots (hunt_session_id, unit_name, unit_side, position, hero_id, stats, captured_at_turn)
+          VALUES (${huntSessionId}, ${unitName}, ${unitSide}, ${position || 0}, ${heroId || null}, ${JSON.stringify(stats)}, ${capturedAtTurn || null})
+          RETURNING id
+        `;
+        await rawPg`UPDATE dfk_hunt_sessions SET snapshot_count = snapshot_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
+        res.json({ ok: true, snapshotId: rows[0]?.id, type: 'unit' });
+      }
+    } catch (err) {
+      console.error('[Telemetry] Snapshot insert error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to insert snapshot' });
+    }
+  });
+
+  app.post('/api/dfk/reconcile', async (req, res) => {
+    try {
+      const { sessionToken, unitSnapshot, enemyId, heroBaseStats, hasEquipment } = req.body;
+      const session = await validateSessionToken(sessionToken);
+      if (!session) return res.status(401).json({ ok: false, error: 'Invalid session token' });
+      if (!checkTelemetryRate(sessionToken)) return res.status(429).json({ ok: false, error: 'Rate limit exceeded' });
+      if (!unitSnapshot || !unitSnapshot.stats) return res.status(400).json({ ok: false, error: 'unitSnapshot with stats required' });
+
+      const { reconcileStats } = await import('./server/dfk-reconcile.ts');
+      const result = reconcileStats(unitSnapshot.stats, { enemyId, heroBaseStats, hasEquipment });
+
+      if (unitSnapshot.id && result.diffs.length > 0) {
+        const { rawPg } = await import('./server/db.js');
+        for (const diff of result.diffs) {
+          await rawPg`
+            INSERT INTO dfk_reconciliation_results (unit_snapshot_id, field, observed, expected, delta, suspected_cause)
+            VALUES (${unitSnapshot.id}, ${diff.field}, ${diff.observed}, ${diff.expected}, ${diff.delta}, ${diff.suspectedCause})
+          `;
+        }
+      }
+
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      console.error('[Reconcile] Error:', err.message);
+      res.status(500).json({ ok: false, error: 'Reconciliation failed' });
+    }
+  });
+
+  app.get('/api/admin/telemetry/sessions', isAdminOrHasTab('telemetry'), async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+      const offset = parseInt(req.query.offset) || 0;
+      const rows = await rawPg`
+        SELECT * FROM dfk_hunt_sessions
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+      const countRows = await rawPg`SELECT COUNT(*)::int as total FROM dfk_hunt_sessions`;
+      res.json({ ok: true, sessions: rows, total: countRows[0]?.total || 0 });
+    } catch (err) {
+      console.error('[Telemetry] Sessions fetch error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to fetch sessions' });
+    }
+  });
+
+  app.get('/api/admin/telemetry/sessions/:id/events', isAdminOrHasTab('telemetry'), async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const rows = await rawPg`
+        SELECT * FROM dfk_battle_log_events
+        WHERE hunt_session_id = ${parseInt(req.params.id)}
+        ORDER BY turn_number ASC, id ASC
+      `;
+      res.json({ ok: true, events: rows });
+    } catch (err) {
+      console.error('[Telemetry] Events fetch error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to fetch events' });
+    }
+  });
+
+  app.get('/api/admin/telemetry/sessions/:id/snapshots', isAdminOrHasTab('telemetry'), async (req, res) => {
+    try {
+      const { rawPg } = await import('./server/db.js');
+      const unitSnapshots = await rawPg`
+        SELECT * FROM dfk_unit_snapshots
+        WHERE hunt_session_id = ${parseInt(req.params.id)}
+        ORDER BY captured_at ASC
+      `;
+      const turnSnapshots = await rawPg`
+        SELECT * FROM dfk_turn_snapshots
+        WHERE hunt_session_id = ${parseInt(req.params.id)}
+        ORDER BY turn_number ASC
+      `;
+      const snapshotIds = unitSnapshots.map(s => s.id);
+      let reconciliations = [];
+      if (snapshotIds.length > 0) {
+        reconciliations = await rawPg`
+          SELECT * FROM dfk_reconciliation_results
+          WHERE unit_snapshot_id = ANY(${snapshotIds})
+          ORDER BY id ASC
+        `;
+      }
+      res.json({ ok: true, unitSnapshots, turnSnapshots, reconciliations });
+    } catch (err) {
+      console.error('[Telemetry] Snapshots fetch error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to fetch snapshots' });
     }
   });
 
