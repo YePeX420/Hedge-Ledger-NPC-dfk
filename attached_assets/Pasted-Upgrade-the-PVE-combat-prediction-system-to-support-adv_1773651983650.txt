@@ -1,0 +1,612 @@
+Upgrade the PVE combat prediction system to support advanced encounter modeling for:
+
+1. Mad Boar Hunt
+2. Bad Motherclucker encounter
+
+The system must combine:
+
+- live telemetry
+- static enemy ability catalogs
+- enemy behavior prediction
+- consumable strategy modeling
+- battle budget management
+- debug transparency
+
+==================================================
+CORE ARCHITECTURAL RULES
+==================================================
+
+1. Enemy stats must ALWAYS be fetched dynamically from runtime telemetry or parsed page state.
+Do NOT hardcode:
+- HP
+- MP
+- attack
+- spell
+- defenses
+- speed
+- base stats
+- dynamic stat scores
+- current buffs/debuffs
+- current lockouts
+- current channeling
+- current positions
+
+2. Consumable quantities and remaining battle budget must ALSO be fetched dynamically from the combat UI/runtime state.
+Do NOT hardcode:
+- current vial quantities
+- remaining battle budget
+- consumable availability inside the current fight
+
+3. Only hardcode and version:
+- enemy ability kits
+- formulas
+- ranges
+- effects
+- Amnesia values
+- passives
+- special conditional rules
+- consumable definitions
+
+==================================================
+ENCOUNTERS SUPPORTED
+==================================================
+
+Encounter types:
+
+1. boar_hunt
+2. bad_motherclucker
+
+Encounter-specific battle budgets:
+- boar_hunt starting battle budget = 11 Stone
+- bad_motherclucker starting battle budget = 15 Stone
+
+Battle budget must be stored per encounter and not assumed globally.
+
+==================================================
+LIVE DATA THE EXTENSION / TELEMETRY LAYER MUST FETCH
+==================================================
+
+The system must fetch dynamically from the fight UI and/or runtime page state:
+
+A. Enemy and unit state
+- encounter type
+- hunt/fight/session id if available
+- enemy type/name
+- level
+- current HP / max HP
+- current MP / max MP
+- derived stats
+- base stats
+- dynamic stat scores
+- active buffs
+- active debuffs
+- active statuses
+- positions
+- channeling state
+- visible ability availability
+- visible Amnesia/lockout state if shown
+- observed action history
+- ally alive/dead state
+- egg state if present
+
+B. Consumable state
+- battle budget remaining
+- consumable type
+- quantity available for each consumable
+- tooltip metadata when visible
+
+The extension should capture consumables as live runtime state, not catalog constants.
+
+Example consumable snapshot:
+{
+  "type": "consumable_snapshot",
+  "encounterType": "boar_hunt",
+  "battleBudgetRemaining": 8,
+  "consumables": [
+    {
+      "name": "Health Vial",
+      "quantity": 3,
+      "budgetCost": 3
+    },
+    {
+      "name": "Mana Vial",
+      "quantity": 4,
+      "budgetCost": 3
+    }
+  ]
+}
+
+==================================================
+STATIC CONSUMABLE DEFINITIONS
+==================================================
+
+Health Vial
+- battle budget cost = 3
+- recover a moderate amount of HP
+- action costs 300 less initiative
+
+Mana Vial
+- battle budget cost = 3
+- restore 35% of total mana
+- action costs 300 less initiative
+
+Consumable usage must only be legal if:
+- quantity > 0
+- remaining battle budget >= cost
+
+==================================================
+STATIC ENEMY ABILITY CATALOG
+==================================================
+
+------------------------------
+BABY BOAR
+------------------------------
+
+Lil' Gore
+- Mana Cost: 0
+- Range: 1
+- Damage formula: 1.0 * ATTACK
+- 15% chance to Push target 1
+- 10% chance to Daze target
+- 40% chance to inflict Bleed
+- Amnesia: 0
+
+Charm
+- Mana Cost: 1
+- Range: 3
+- 50% chance to Pull target in P3
+- 50% chance to Pull target in P2
+- Amnesia: 0
+
+Head Butt
+- Mana Cost: 2
+- Range: 3
+- Damage formula: 1.2 * ATTACK + 1.0 * DEX
+- If no enemy is channeling, deal the same damage to a random enemy
+- 60% chance to Daze target for 1 turn
+- Amnesia: 3
+
+Nuzzle
+- Mana Cost: 3
+- Range: party members
+- Heal formula: 2.0 * SPELL + 1.5 * WIS
+- Additional restore if target is Big Boar: 1.5 * SPELL HP
+- Cleanse target
+- If target is Big Boar, Baby Boar gains +30% ATTACK for 2 turns
+- Amnesia: 5
+
+Resilient
+- Passive
+- Gain +5% Recovery chance while Blinded
+- Gain +5% Recovery chance while Poisoned
+- Gain +5% Recovery chance while Burned
+- Gain +5% Recovery chance while Chilled
+
+------------------------------
+MAMA BOAR
+------------------------------
+
+Gore
+- Mana Cost: 0
+- Range: 1
+- Damage formula: 1.5 * ATTACK
+- 70% chance to inflict Bleed
+- Amnesia: 0
+
+Grunt
+- Mana Cost: 1
+- Range: 1
+- 80% chance to Taunt target for 2 turns
+- Self gains +20% BLK for 2 turns
+- Self gains +10% AGI for 2 turns
+- Allies gain +30% ATTACK for 1 turn
+- Amnesia: 3
+
+Rampage
+- Mana Cost: 4
+- Range: 3
+- Damage 1 formula: 2.5 * ATTACK + 2.5 * STR
+- Damage 2 formula: 2.0 * ATTACK + 2.0 * STR
+- 50% chance to Daze each hit target
+- 75% chance to inflict 3 stacks of Bleed to each hit target
+- Self gains +25% physical damage for 3 turns
+- Self gains +30% Haste for 30 ticks
+- Self loses -10% P.ACC for 3 turns
+- Amnesia: 0
+
+Wild Charge
+- Mana Cost: 4
+- Range: 3
+- Channel for 1 turn
+- Damage formula: 1.8 * ATTACK + 2.0 * DEX + 1.0 * STR
+- 25% chance to Stun each target
+- 50% chance to Daze each target
+- Self becomes Exhausted
+- Amnesia: 5
+
+Resilient
+- Passive
+- Gain +5% Recovery chance while Blinded
+- Gain +5% Recovery chance while Poisoned
+- Gain +5% Recovery chance while Burned
+- Gain +5% Recovery chance while Chilled
+
+------------------------------
+BAD MOTHERCLUCKER
+------------------------------
+
+Beak Strike
+- Mana Cost: 0
+- Range: 1
+- Damage formula: 1.6 * ATTACK
+- 50% chance to inflict Bleed
+- Amnesia: 0
+
+Body Slam
+- Mana Cost: 3
+- Range: 3
+- Damage formula: 1.8 * ATTACK to each target enemy
+- 60% chance to Stun each target
+- Self becomes Exhausted
+- Amnesia: 6
+
+Mighty Gust
+- Mana Cost: 3
+- Range: 3
+- Channel for 1 turn
+- Damage formula: 1.5 * ATTACK to each target enemy
+- 80% chance to Slow each target by 30% for 30 ticks
+- 40% chance to Blind each target
+- 60% chance to Push 1 target in P1
+- If first push was successful, 30% chance to Push 1 target in P2
+- If second push was successful, reposition Rocboc back one position if able
+- Each party member gains +10% EVA for 2 turns
+- Amnesia: 5
+- Additional rule: applies Amnesia 2 to Body Slam
+
+Lay Egg
+- Mana Cost: 5
+- Range: party members
+- Lays up to 2 eggs
+- Transforms up to 2 dead Baby Rocbocs into living Rocboc Eggs
+- For each egg laid, Rocboc gains +10% ATTACK for 8 turns
+- Effect stacks and duration refreshes with each new stack
+- Amnesia: 3
+
+Resilient
+- Passive
+- Gain +5% Recovery chance while Blinded
+- Gain +5% Recovery chance while Poisoned
+- Gain +5% Recovery chance while Burned
+- Gain +5% Recovery chance while Chilled
+
+Hardboiled
+- Passive
+- While Taunted or while any ally is dead, this monster gains:
+  - +10% ATTACK
+  - +10% SPEED
+  - 50% chance to Push 1 on hit
+
+------------------------------
+BABY ROCBOC
+------------------------------
+
+Pecky Blinder
+- Mana Cost: 0
+- Range: 2
+- Damage formula: 1.3 * ATTACK
+- 15% chance to Blind target enemy
+- Amnesia: 0
+
+Cheep
+- Mana Cost: 2
+- Range: self
+- Redirect 40% of incoming damage targeting Rocboc to this monster for 2 turns
+- 50% chance to Confuse a random channeling enemy
+- If no enemies are channeling, 50% chance to Confuse a random enemy
+- Amnesia: 2
+
+Ominous Entrance
+- Mana Cost: 0
+- Range: 3
+- Tooltip body unresolved / unknown
+- Store as partially known ability entry
+- Do not invent behavior
+- Support unresolved abilities gracefully in the predictor and debugger
+
+==================================================
+MODEL ARCHITECTURE REQUIRED
+==================================================
+
+Refactor the system into these layers:
+
+1. Live state layer
+Dynamic fight state fetched from telemetry/UI:
+- unit stats
+- HP/MP
+- buffs/debuffs
+- ability availability
+- lockouts
+- channeling
+- battle budget remaining
+- consumable quantities
+- ally death state
+- egg state
+
+2. Static catalog layer
+Versioned catalog tables for:
+- enemy abilities
+- formulas
+- effects
+- passives
+- consumable definitions
+
+3. Enemy state engine
+Tracks:
+- inferred available enemy abilities
+- Amnesia lockouts
+- cross-ability lockouts
+- channeling status
+- passive activations
+- special encounter state
+
+4. Enemy action predictor
+Uses:
+- live state
+- ability catalog
+- current mana
+- lockouts
+- action history
+- target geometry / positions
+- ally alive/dead state
+- channeling opportunities
+to predict likely enemy next actions
+
+5. Consumable strategy engine
+Evaluates Health Vial / Mana Vial / Save Budget against normal combat actions
+
+6. Recommender
+Ranks all legal actions, including consumables
+
+==================================================
+SPECIAL RULES TO SUPPORT
+==================================================
+
+1. Encounter-specific battle budgets
+- boar_hunt = 11
+- bad_motherclucker = 15
+
+2. Consumables must be fetched live
+- battle budget remaining is dynamic
+- quantity remaining is dynamic
+
+3. Cross-ability lockouts
+- Mighty Gust applies Amnesia 2 to Body Slam
+
+4. Ally-death-dependent passive logic
+- Hardboiled activates if any ally is dead
+
+5. Taunt-dependent passive logic
+- Hardboiled activates while Taunted
+
+6. Spawn / transformation logic
+- Lay Egg creates Rocboc Eggs from dead Baby Rocbocs
+
+7. Channeling
+- Wild Charge channels for 1 turn
+- Mighty Gust channels for 1 turn
+
+8. Partially known ability support
+- Ominous Entrance must be supported as unresolved without fake assumptions
+- reduce prediction confidence when unresolved ability materially affects action space
+
+9. Observed UI state overrides inference
+- if ability availability is captured live from UI, use that over inferred lockout state
+
+==================================================
+ENEMY BEHAVIOR PRIORS
+==================================================
+
+Implement first-pass heuristic priors.
+
+BABY BOAR
+- Prefer Nuzzle when Mama/Big Boar is damaged or cleansable
+- Prefer Head Butt when offensive pressure is strong
+- Use Lil' Gore as fallback
+- Use Charm when formation disruption is valuable
+
+MAMA BOAR
+- Prefer Grunt when allies are alive and buff value is high
+- Prefer Rampage when affordable and multiple targets are alive
+- Prefer Wild Charge when AoE control value is high
+- Use Gore as fallback
+
+BAD MOTHERCLUCKER
+- Prefer Lay Egg when dead Baby Rocbocs exist and mana >= 5
+- Prefer Mighty Gust when multiple targets are alive and disruption value is high
+- Prefer Body Slam when AoE stun value is high and it is not locked
+- Use Beak Strike as fallback
+- Increase aggression when Hardboiled is active
+
+BABY ROCBOC
+- Prefer Cheep when protecting Bad Motherclucker has high value
+- Prefer Cheep when Bad Motherclucker is low HP or under focus fire
+- Prefer Cheep when enemies are channeling
+- Use Pecky Blinder as fallback
+- Support Ominous Entrance as low-confidence candidate when unresolved
+
+These are heuristic priors only.
+Structure the code so later they can be replaced or augmented with learned probabilities from stored battle logs.
+
+==================================================
+CONSUMABLE STRATEGY REQUIREMENTS
+==================================================
+
+The recommender must evaluate normal combat actions and consumable actions in one ranked candidate list.
+
+Consumable candidates:
+- Health Vial
+- Mana Vial
+- Save Budget
+
+Health Vial should be favored when:
+- survival probability without heal is below threshold
+- expected incoming damage is likely lethal or near-lethal
+- healing materially changes next-turn survival
+- remaining budget still permits future vial usage
+- initiative reduction has meaningful tempo value
+
+Mana Vial should be favored when:
+- current MP blocks access to high-value skills
+- restoring 35% total mana unlocks materially better actions
+- vial EV exceeds weak fallback attacks
+- remaining budget still supports future needs
+
+Save Budget should be favored when:
+- state is stable
+- immediate vial EV is low
+- future spike risk is higher
+- a standard combat action is better
+
+Consumable legality checks:
+- quantity > 0
+- remaining battle budget >= budgetCost
+
+Because vials cost 300 less initiative, treat them as tempo plays, not only sustain plays.
+
+==================================================
+DATA STORAGE / SCHEMA
+==================================================
+
+Add or update these tables:
+
+1. enemy_ability_catalog
+- enemy_type
+- ability_name
+- mana_cost
+- range
+- formula_json
+- effects_json
+- passive_flag
+- amnesia_turns
+- special_rules_json
+- confidence_level
+- version
+
+2. enemy_action_observations
+- session_id
+- encounter_type
+- hunt_id
+- turn
+- enemy_name
+- enemy_type
+- action_name
+- target
+- observed_mana_before
+- observed_mana_after
+- lockout_state_json
+- raw_log_text
+- created_at
+
+3. enemy_state_estimates
+- session_id
+- encounter_type
+- hunt_id
+- turn
+- enemy_name
+- current_state_json
+- inferred_available_actions_json
+- predicted_action_probs_json
+- confidence
+
+4. consumable_recommendation_snapshots
+- session_id
+- encounter_type
+- hunt_id
+- turn
+- unit_name
+- starting_battle_budget
+- remaining_battle_budget
+- consumable_state_json
+- candidate_actions_json
+- chosen_recommendation_json
+- reasoning_json
+- created_at
+
+5. encounter_config
+- encounter_type
+- starting_battle_budget
+- consumable_catalog_json
+- version
+
+==================================================
+DEBUG / TRANSPARENCY REQUIREMENTS
+==================================================
+
+For each recommendation cycle, expose:
+
+- encounterType
+- startingBattleBudget
+- remainingBattleBudget
+- fetched live enemy state used
+- fetched live consumable state used
+- ability catalog entries referenced
+- inferred available enemy actions
+- locked abilities with remaining Amnesia turns
+- passive states active
+- unresolved catalog entries affecting confidence
+- predicted next enemy actions with probabilities
+- consumable candidates and scores
+- explanation of why each important action was ruled in or ruled out
+
+Example output:
+{
+  "encounterType": "boar_hunt",
+  "startingBattleBudget": 11,
+  "remainingBattleBudget": 5,
+  "enemy": "Mama Boar",
+  "liveState": {
+    "hp": 941,
+    "mp": 5,
+    "channeling": null
+  },
+  "availableActions": ["Gore", "Rampage"],
+  "lockedActions": {
+    "Grunt": 1,
+    "Wild Charge": 3
+  },
+  "predictedActions": [
+    { "name": "Rampage", "probability": 0.64 },
+    { "name": "Gore", "probability": 0.36 }
+  ],
+  "consumableState": {
+    "Health Vial": { "quantity": 1, "budgetCost": 3 },
+    "Mana Vial": { "quantity": 2, "budgetCost": 3 }
+  },
+  "consumableOptions": [
+    { "name": "Health Vial", "score": 0.41 },
+    { "name": "Mana Vial", "score": 0.19 },
+    { "name": "Save Budget", "score": 0.40 }
+  ],
+  "reasoning": [
+    "Rampage available and affordable",
+    "Wild Charge still under lockout",
+    "Health Vial legal because quantity > 0 and remaining budget >= 3"
+  ]
+}
+
+==================================================
+IMPLEMENTATION REQUIREMENTS
+==================================================
+
+Return full code replacements, not partial snippets.
+
+Also provide:
+- file-by-file summary
+- schema migrations
+- updated predictor flow
+- sample outputs for boar_hunt predictions
+- sample outputs for bad_motherclucker predictions
+- sample outputs for consumable recommendations
+- clear handling for unresolved Ominous Entrance
+- clear handling for live consumable fetching and validation

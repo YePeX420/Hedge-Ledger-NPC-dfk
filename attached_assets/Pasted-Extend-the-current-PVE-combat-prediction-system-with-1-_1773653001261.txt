@@ -1,0 +1,420 @@
+Extend the current PVE combat prediction system with:
+
+1. Three execution modes
+2. Monte Carlo look-ahead combat simulation
+3. Integrated consumable strategy within the simulation
+4. Safety-gated auto-execution
+
+This prompt modifies the existing system but does not change the core architectural rules already implemented.
+
+==================================================
+CORE PRINCIPLES (UNCHANGED)
+==================================================
+
+Enemy stats must always be fetched dynamically from live telemetry / parsed page state.
+
+Do NOT hardcode:
+- HP
+- MP
+- attack
+- spell
+- defenses
+- speed
+- base stats
+- dynamic stat scores
+- current buffs/debuffs
+- current lockouts
+- channeling state
+- positions
+
+Only hardcode and version:
+
+- enemy ability kits
+- formulas
+- effects
+- ranges
+- mana costs
+- Amnesia values
+- passive logic
+- special rules
+- consumable definitions
+
+==================================================
+EXECUTION MODES
+==================================================
+
+Add executionMode configuration.
+
+Allowed values:
+
+observe_only  
+recommend_and_confirm  
+auto_execute
+
+Execution mode must be configurable in:
+
+- extension UI
+- backend session configuration
+- encounter session logs
+
+Example:
+
+{
+  "executionMode": "observe_only"
+}
+
+==================================================
+MODE BEHAVIOR
+==================================================
+
+1. OBSERVE ONLY
+
+The extension must:
+
+- read fight telemetry
+- parse enemy state
+- parse hero state
+- parse consumables
+- compute recommendations
+- send logs to backend
+
+The extension must NOT interact with the UI.
+
+Example output:
+
+{
+  "turn": 5,
+  "recommendedAction": {
+    "actionType": "skill",
+    "name": "Mighty Strike",
+    "target": "Mama Boar"
+  },
+  "executionMode": "observe_only",
+  "executed": false
+}
+
+--------------------------------------------------
+
+2. RECOMMEND AND CONFIRM
+
+The extension must:
+
+- highlight the recommended ability
+- highlight the recommended target
+- display confirmation UI
+- wait for user confirmation
+
+Only after confirmation should the action be executed.
+
+Example:
+
+{
+  "turn": 5,
+  "recommendedAction": {
+    "actionType": "skill",
+    "name": "Mighty Strike",
+    "target": "Mama Boar"
+  },
+  "executionMode": "recommend_and_confirm",
+  "awaitingUserConfirmation": true
+}
+
+--------------------------------------------------
+
+3. AUTO EXECUTE
+
+The extension must:
+
+- compute best action
+- execute action automatically
+- continue until fight completion
+
+Auto execution must only run when safety conditions pass.
+
+Example:
+
+{
+  "turn": 5,
+  "recommendedAction": {
+    "actionType": "skill",
+    "name": "Mighty Strike",
+    "target": "Mama Boar"
+  },
+  "executionMode": "auto_execute",
+  "executed": true
+}
+
+==================================================
+SAFETY CHECK SYSTEM
+==================================================
+
+Add function:
+
+canAutoExecute()
+
+Auto execution must stop if any of the following occur:
+
+- parse confidence below threshold
+- unresolved enemy ability affects decision
+- consumable quantities cannot be verified
+- battle budget cannot be verified
+- UI state does not match predicted state
+- unexpected popup appears
+- extension loses fight state sync
+
+If a safety check fails:
+
+- auto_execute must immediately downgrade to recommend_and_confirm.
+
+Example:
+
+{
+  "canAutoExecute": false,
+  "blockedReasons": [
+    "low_parse_confidence",
+    "ui_state_mismatch"
+  ]
+}
+
+==================================================
+ACTION EXECUTION LAYER
+==================================================
+
+Create a separate execution module.
+
+Prediction engine must remain independent.
+
+Execution layer responsibilities:
+
+- find ability buttons
+- select ability
+- select target
+- confirm action
+- detect new turn state
+
+Supported actions:
+
+skill  
+basic attack  
+Health Vial  
+Mana Vial  
+
+==================================================
+MONTE CARLO COMBAT SIMULATION
+==================================================
+
+Replace single-turn scoring with Monte Carlo combat simulation.
+
+Goal:
+
+Estimate expected value of actions using multi-turn battle simulation.
+
+Process:
+
+1. Generate candidate actions
+2. For each candidate action:
+   - simulate multiple battle futures
+   - simulate enemy responses
+   - simulate status effects
+   - simulate consumable use
+3. calculate expected win probability and survival probability
+
+Minimum simulation count per action:
+
+50 simulations (configurable)
+
+Recommended target:
+
+100–200 simulations.
+
+==================================================
+SIMULATION ENGINE
+==================================================
+
+Simulation must model:
+
+- hero abilities
+- enemy abilities
+- Amnesia lockouts
+- mana costs
+- channeling
+- buffs/debuffs
+- passive activations
+- spawn mechanics
+- consumable use
+- battle budget
+
+Each simulation runs until:
+
+- fight ends
+OR
+- simulation depth limit reached (default: 4 turns).
+
+==================================================
+SIMULATION OUTPUT
+==================================================
+
+For each candidate action compute:
+
+expectedDamage  
+expectedIncomingDamage  
+survivalProbability  
+killProbability  
+statusEffectValue  
+consumableValue  
+battleBudgetCost  
+
+Example:
+
+{
+  "action": "Mighty Strike",
+  "target": "Mama Boar",
+  "expectedDamage": 241,
+  "survivalProbability": 0.82,
+  "killProbability": 0.27,
+  "expectedTurnsToWin": 3.6
+}
+
+==================================================
+ACTION SCORING
+==================================================
+
+Combine simulation metrics:
+
+score =
+0.35 * survivalProbability +
+0.25 * killProbability +
+0.20 * expectedDamage +
+0.10 * enemyControlValue +
+0.10 * resourceEfficiency
+
+Highest score becomes recommendation.
+
+==================================================
+ENEMY ACTION MODEL
+==================================================
+
+Enemy actions during simulation must be chosen using probability distributions.
+
+Inputs:
+
+- ability availability
+- mana availability
+- Amnesia lockouts
+- behavior priors
+- target geometry
+- ally death state
+- channeling opportunities
+
+Example:
+
+{
+  "enemy": "Mama Boar",
+  "predictedActions": [
+    { "action": "Rampage", "probability": 0.62 },
+    { "action": "Gore", "probability": 0.38 }
+  ]
+}
+
+==================================================
+CONSUMABLE STRATEGY IN SIMULATION
+==================================================
+
+Health Vial and Mana Vial must be treated as candidate actions.
+
+Simulation must evaluate:
+
+- heal impact
+- mana unlock potential
+- initiative tempo advantage
+- future budget opportunity cost
+
+Consumables allowed only if:
+
+quantity > 0  
+AND  
+remaining battle budget >= cost
+
+==================================================
+CONSUMABLE SCORING EXAMPLE
+==================================================
+
+{
+  "action": "Health Vial",
+  "survivalProbability": 0.91,
+  "expectedDamage": 0,
+  "resourceCost": 3,
+  "initiativeBonus": 300
+}
+
+==================================================
+SIMULATION PERFORMANCE
+==================================================
+
+Monte Carlo simulations must run asynchronously.
+
+Limit compute time per turn to:
+
+200–400 ms.
+
+If simulation exceeds time budget:
+
+fallback to deterministic scoring.
+
+==================================================
+SESSION LOGGING
+==================================================
+
+Log each turn:
+
+executionMode  
+recommendedAction  
+executedAction  
+simulationCount  
+safetyCheckStatus  
+
+Example:
+
+{
+  "turn": 7,
+  "executionMode": "auto_execute",
+  "recommendedAction": "Rampage",
+  "executedAction": "Rampage",
+  "simulationCount": 120,
+  "safetyChecksPassed": true
+}
+
+==================================================
+EXTENSION UI UPDATES
+==================================================
+
+Add UI components:
+
+Execution Mode selector
+
+observe_only  
+recommend_and_confirm  
+auto_execute  
+
+Display:
+
+- recommended action
+- predicted enemy actions
+- survival probability
+- consumable suggestions
+- simulation confidence
+
+==================================================
+IMPLEMENTATION REQUIREMENTS
+==================================================
+
+Return:
+
+- full code updates
+- simulation engine module
+- execution mode controller
+- action execution module
+- safety check system
+- updated extension UI
+- flow diagram
+- example logs for all three modes

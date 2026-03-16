@@ -1,0 +1,381 @@
+Extend the current PVE combat system with a learning layer that improves enemy action prediction over time using stored battle logs and observed fight state.
+
+Goal:
+The current system already has:
+- live telemetry capture
+- enemy state tracking
+- static ability catalogs
+- Monte Carlo look-ahead simulation
+- consumable strategy
+- execution modes
+
+Now add a learning layer that uses historical fight data to improve:
+1. enemy action probabilities
+2. target selection probabilities
+3. consumable timing heuristics
+4. confidence estimation
+5. simulation realism
+
+==================================================
+HIGH-LEVEL REQUIREMENT
+==================================================
+
+The system must learn from stored fight logs without replacing the deterministic combat engine.
+
+Important:
+- do NOT replace the formula engine
+- do NOT replace hardcoded ability catalog logic
+- do NOT invent mechanics
+- use learning only to improve probability estimates, priors, and confidence
+
+The final architecture should be:
+
+1. live telemetry layer
+2. deterministic state engine
+3. deterministic formula engine
+4. historical learning layer
+5. enemy policy estimator
+6. Monte Carlo simulation
+7. recommender
+8. execution layer
+
+==================================================
+WHAT THE LEARNING LAYER SHOULD LEARN
+==================================================
+
+Learn from previous encounters:
+
+A. Enemy action choice tendencies
+Examples:
+- Mama Boar chooses Rampage more often when 3 player units are alive
+- Baby Boar chooses Nuzzle more often when Mama Boar is below a certain HP threshold
+- Bad Motherclucker chooses Lay Egg more often when dead Baby Rocbocs exist
+- Baby Rocboc chooses Cheep more often when Bad Motherclucker is threatened
+
+B. Enemy target selection tendencies
+Examples:
+- prefer lowest HP target
+- prefer frontline
+- prefer channeling targets
+- prefer taunted targets
+- prefer random when no strong context exists
+
+C. Ability reuse timing
+Examples:
+- average turns until ability reuse after Amnesia expires
+- whether enemy tends to use an available ability immediately or delay it
+
+D. Consumable timing patterns for player-side recommendation tuning
+Examples:
+- Health Vial improves survival most when used before predicted AoE turns
+- Mana Vial is strongest when it unlocks high-value skill windows
+
+E. Confidence estimation
+Examples:
+- predictions should be more confident when similar states have many historical matches
+- predictions should be lower confidence when unresolved abilities or rare states occur
+
+==================================================
+DATA TO LEARN FROM
+==================================================
+
+Use historical data already stored or add storage for:
+
+- encounter type
+- enemy type
+- turn number
+- state before action
+- observed enemy action
+- observed target
+- observed resource state
+- observed lockouts
+- ally alive/dead state
+- channeling state
+- consumable state
+- resulting next state
+- encounter outcome
+
+==================================================
+NEW TABLES / STORAGE
+==================================================
+
+Add these tables:
+
+1. learned_enemy_policy_profiles
+- encounter_type
+- enemy_type
+- profile_version
+- state_feature_schema_version
+- action_probability_model_json
+- target_probability_model_json
+- confidence_model_json
+- sample_count
+- updated_at
+
+2. enemy_state_action_examples
+- session_id
+- encounter_type
+- hunt_id
+- turn
+- enemy_name
+- enemy_type
+- state_features_json
+- chosen_action
+- chosen_target
+- available_actions_json
+- created_at
+
+3. recommendation_outcomes
+- session_id
+- encounter_type
+- hunt_id
+- turn
+- recommended_action_json
+- executed_action_json
+- state_before_json
+- state_after_json
+- outcome_delta_json
+- survived_next_cycle
+- fight_won
+- created_at
+
+4. consumable_outcome_examples
+- session_id
+- encounter_type
+- hunt_id
+- turn
+- consumable_state_json
+- recommended_consumable_action_json
+- executed_consumable_action_json
+- outcome_delta_json
+- created_at
+
+==================================================
+STATE FEATURE EXTRACTION
+==================================================
+
+Build a feature extraction layer for enemy policy learning.
+
+For each enemy decision point, extract compact state features such as:
+
+- encounterType
+- enemyType
+- currentTurn
+- enemyHpPercent
+- enemyMpPercent
+- enemyPosition
+- alliesAliveCount
+- alliesDeadCount
+- enemiesAliveCount
+- targetableEnemyCount
+- currentBuffFlags
+- currentDebuffFlags
+- activePassiveFlags
+- channelingState
+- lockoutState
+- availableActions
+- targetFrontlineCount
+- lowestEnemyHpPercent
+- anyEnemyChanneling
+- battleBudgetRemaining
+- consumableAvailabilitySummary
+
+Keep features versioned so future changes do not corrupt older learned profiles.
+
+==================================================
+LEARNING METHOD
+==================================================
+
+Start simple and robust.
+
+Phase 1 learning implementation:
+- frequency tables
+- conditional probability tables
+- state bucket matching
+- smoothed priors
+
+Do NOT jump directly to neural networks.
+
+Example:
+For Mama Boar, estimate:
+P(action = Rampage | mana >= 4, 3 enemies alive, Wild Charge locked, not channeling)
+
+For Baby Rocboc, estimate:
+P(action = Cheep | Rocboc hp low, channeling enemy present)
+
+Use Laplace/additive smoothing so sparse data does not produce zero-probability behavior.
+
+==================================================
+POLICY ESTIMATION OUTPUT
+==================================================
+
+The learning layer should produce:
+
+- action probability distribution
+- target probability distribution
+- confidence score
+- nearest matching historical state examples
+
+Example:
+{
+  "enemy": "Mama Boar",
+  "stateKey": "mana4plus_enemies3_wildChargeLocked",
+  "predictedActions": [
+    { "name": "Rampage", "probability": 0.68 },
+    { "name": "Gore", "probability": 0.22 },
+    { "name": "Grunt", "probability": 0.10 }
+  ],
+  "confidence": 0.81,
+  "sampleCount": 94
+}
+
+==================================================
+HOW TO INTEGRATE WITH THE EXISTING PREDICTOR
+==================================================
+
+Do NOT let the learning layer override hard legality rules.
+
+Use this order:
+
+1. determine legal actions deterministically
+2. determine legal targets deterministically
+3. use learned policy to assign probabilities only among legal actions
+4. combine learned probabilities with existing heuristic priors
+5. feed resulting distributions into Monte Carlo simulation
+
+Suggested weighted combination:
+finalProbability =
+0.60 * learnedPolicyProbability +
+0.40 * heuristicPriorProbability
+
+If sample count is low, downweight learned policy and rely more on heuristic priors.
+
+==================================================
+CONFIDENCE HANDLING
+==================================================
+
+Add prediction confidence logic.
+
+Confidence should increase when:
+- many similar historical examples exist
+- state features are well-covered
+- no unresolved abilities affect the decision
+
+Confidence should decrease when:
+- sparse sample count
+- unresolved ability present
+- missing UI state
+- ambiguous target geometry
+- recent balance/version mismatch
+
+Example:
+{
+  "predictionConfidence": 0.74,
+  "confidenceReasons": [
+    "86 similar historical states found",
+    "all ability availability verified",
+    "no unresolved enemy actions in legal set"
+  ]
+}
+
+==================================================
+RECOMMENDATION FEEDBACK LOOP
+==================================================
+
+Use actual outcomes to improve future recommendations.
+
+Track:
+- what was recommended
+- what was executed
+- what happened next
+- whether survival improved
+- whether fight win probability improved
+
+This should NOT be used to blindly retrain formulas.
+It should be used to improve:
+- action ranking heuristics
+- consumable timing
+- simulation policy realism
+
+==================================================
+MONTE CARLO INTEGRATION
+==================================================
+
+Update the Monte Carlo simulation so enemy actions are sampled from:
+
+legalActions
++ learned action probabilities
++ learned target probabilities
++ confidence-aware fallback to heuristic priors
+
+If confidence is low:
+- broaden distributions
+- rely more on heuristics
+
+If confidence is high:
+- follow learned distributions more closely
+
+==================================================
+DEBUG / TRANSPARENCY REQUIREMENTS
+==================================================
+
+For each prediction cycle, expose:
+
+- legal actions
+- heuristic priors
+- learned action probabilities
+- final blended probabilities
+- sample count
+- confidence
+- nearest matching learned states if available
+
+Example:
+{
+  "enemy": "Bad Motherclucker",
+  "legalActions": ["Beak Strike", "Lay Egg", "Mighty Gust"],
+  "heuristicPriors": {
+    "Beak Strike": 0.20,
+    "Lay Egg": 0.45,
+    "Mighty Gust": 0.35
+  },
+  "learnedPolicy": {
+    "Beak Strike": 0.18,
+    "Lay Egg": 0.57,
+    "Mighty Gust": 0.25
+  },
+  "finalPolicy": {
+    "Beak Strike": 0.19,
+    "Lay Egg": 0.52,
+    "Mighty Gust": 0.29
+  },
+  "confidence": 0.77,
+  "sampleCount": 61
+}
+
+==================================================
+TRAINING / REFRESH PROCESS
+==================================================
+
+Add a lightweight background job or recompute process to periodically refresh learned policy profiles from stored examples.
+
+Requirements:
+- incremental updates supported
+- version profiles
+- keep deterministic fallback if no learned profile exists
+- support separate profiles per encounter and enemy type
+
+==================================================
+IMPLEMENTATION REQUIREMENTS
+==================================================
+
+Return:
+
+- full code updates
+- new schema migrations
+- feature extraction module
+- learned policy builder
+- policy blending logic
+- Monte Carlo integration updates
+- debug output changes
+- sample learned profiles for boar_hunt and bad_motherclucker
+- example recommendation output showing learned policy influence
