@@ -1,0 +1,976 @@
+Here’s a technical design spec for the PvE extension engine.
+
+# DFK PvE Extension Engine Spec
+
+## 1. Goal
+
+Build a Chrome extension that can operate in 3 modes:
+
+* **Observe Only**
+* **Recommend and Confirm**
+* **Auto Execute**
+
+The engine must:
+
+* parse live combat state from the DFK PvE page
+* normalize it into a canonical internal state
+* simulate future turns efficiently
+* recommend the highest-EV action
+* optionally execute it with safety gating
+
+---
+
+## 2. Core design principle
+
+Use:
+
+**event-driven forward simulation + top-K action pruning + cached selective rollouts**
+
+Not:
+
+**naive full Monte Carlo over every legal action**
+
+That keeps runtime fast enough for a browser extension.
+
+---
+
+# 3. High-level architecture
+
+```text
+[Content Script]
+    ├─ DOM Parser
+    ├─ UI Action Executor
+    └─ Overlay / Debug Panel
+
+[Background Worker or Offscreen Engine]
+    ├─ State Normalizer
+    ├─ Rule Engine
+    ├─ Candidate Generator
+    ├─ Fast Heuristic Scorer
+    ├─ Beam Simulator
+    ├─ Selective Monte Carlo Runner
+    ├─ Enemy Policy Model
+    ├─ Confidence / Safety Gate
+    └─ Recommendation Service
+
+[Static Data]
+    ├─ abilities.master.json
+    ├─ statuses.master.json
+    ├─ consumables.master.json
+    ├─ enemy_policies.master.json
+    └─ encounters.master.json
+```
+
+---
+
+# 4. Extension modules
+
+## A. Content script
+
+Responsibilities:
+
+* read combat page DOM
+* extract hero/enemy/combat state
+* detect legal actions
+* detect selected target / selected skill state
+* detect battle inventory counts and budget
+* send snapshots to worker
+* receive recommendation
+* optionally execute action in UI
+
+Main files:
+
+```text
+content/
+  parser.ts
+  uiActions.ts
+  overlay.ts
+  domSelectors.ts
+```
+
+---
+
+## B. Background simulation engine
+
+Responsibilities:
+
+* receive parsed snapshot
+* normalize combat state
+* build legal action list
+* score candidate actions
+* run beam + Monte Carlo
+* return ranked recommendation list
+* maintain cache across turns
+
+Main files:
+
+```text
+engine/
+  state.ts
+  normalizer.ts
+  rules.ts
+  actions.ts
+  heuristics.ts
+  simulator.ts
+  monteCarlo.ts
+  beam.ts
+  cache.ts
+  enemyPolicy.ts
+  confidence.ts
+```
+
+---
+
+## C. Shared data schema layer
+
+Responsibilities:
+
+* validate JSON datasets
+* expose typed accessors
+* unify skill / status / consumable lookup
+
+Main files:
+
+```text
+data/
+  abilities.ts
+  statuses.ts
+  consumables.ts
+  encounters.ts
+  policies.ts
+  schema.ts
+```
+
+---
+
+# 5. Canonical combat state
+
+This is the most important object in the system.
+
+```ts
+type CombatantId = string;
+
+type TimedEffect = {
+  id: string;
+  name: string;
+  sourceId?: CombatantId;
+  targetId?: CombatantId;
+  stacks?: number;
+  durationTicks?: number;
+  durationTurns?: number;
+  value?: number;
+  metadata?: Record<string, unknown>;
+};
+
+type ChannelEffect = {
+  sourceId: CombatantId;
+  abilityId: string;
+  resolveAtInitiative?: number;
+  remainingTicks?: number;
+  interruptibleBy?: string[];
+  metadata?: Record<string, unknown>;
+};
+
+type DelayedEffect = {
+  sourceId: CombatantId;
+  abilityId: string;
+  delayTicks: number;
+  effectType: string;
+  payload: Record<string, unknown>;
+};
+
+type CombatantState = {
+  id: CombatantId;
+  side: "hero" | "ally" | "enemy";
+  name: string;
+  className?: string;
+  position: number;
+  alive: boolean;
+
+  hp: number;
+  hpMax: number;
+  mp: number;
+  mpMax: number;
+
+  attack: number;
+  spell: number;
+  pAcc: number;
+  mAcc: number;
+
+  pDef: number;
+  mDef: number;
+  pRed: number;
+  mRed: number;
+  blk: number;
+  sBlk: number;
+  rec: number;
+  ser: number;
+  speed: number;
+  eva: number;
+
+  str: number;
+  dex: number;
+  agi: number;
+  vit: number;
+  end: number;
+  int: number;
+  wis: number;
+  lck: number;
+
+  statuses: TimedEffect[];
+  amnesiaLock?: number;
+  arcanePower?: number;
+};
+
+type ConsumableState = {
+  healthVial: number;
+  manaVial: number;
+  antiPoisonPotion: number;
+  attackPotion: number;
+  antiBlindPotion: number;
+  coagulantPotion: number;
+  fullHealthPotion: number;
+  magicResistancePotion: number;
+  fullManaPotion: number;
+  precisionPotion: number;
+  purifyPotion: number;
+  smokeBomb: number;
+  spellPotion: number;
+  swiftnessPotion: number;
+  toughnessPotion: number;
+};
+
+type CombatState = {
+  turnNumber: number;
+  activeSide: "hero" | "enemy";
+  encounterId: string;
+  battleBudgetRemaining: number;
+  consumables: ConsumableState;
+
+  heroTeam: CombatantState[];
+  enemyTeam: CombatantState[];
+
+  channelQueue: ChannelEffect[];
+  delayedQueue: DelayedEffect[];
+  globalEffects: TimedEffect[];
+
+  parseConfidence: number;
+  rawSnapshotHash: string;
+};
+```
+
+---
+
+# 6. Action model
+
+Every legal decision should normalize into one action type.
+
+```ts
+type ActionKind =
+  | "ability"
+  | "basic_attack"
+  | "health_vial"
+  | "mana_vial"
+  | "consumable"
+  | "wait";
+
+type CandidateAction = {
+  id: string;
+  actorId: CombatantId;
+  kind: ActionKind;
+  abilityId?: string;
+  consumableId?: string;
+  targetIds: CombatantId[];
+  estimatedWeight?: number;
+  metadata?: Record<string, unknown>;
+};
+```
+
+Examples:
+
+```json
+[
+  {
+    "id": "a1",
+    "actorId": "hero_p1",
+    "kind": "ability",
+    "abilityId": "knight_mighty_strike",
+    "targetIds": ["enemy_p1"]
+  },
+  {
+    "id": "a2",
+    "actorId": "hero_p1",
+    "kind": "health_vial",
+    "consumableId": "health_vial",
+    "targetIds": ["hero_p1"]
+  }
+]
+```
+
+---
+
+# 7. Data files required
+
+## abilities.master.json
+
+Contains:
+
+* skill formulas
+* mana costs
+* acc modifiers
+* initiative gains/losses
+* channel costs
+* amnesia
+* passives
+* combos
+* stack rules
+
+## statuses.master.json
+
+Contains:
+
+* Burn
+* Chill
+* Bleed
+* Daze
+* Silence
+* Taunt
+* Root
+* Slow
+* Intimidate
+* Berserk
+* Barrier
+* Ward
+* Wall
+* Unstoppable
+* Exhausted
+* Amnesia
+* etc.
+
+Each status should define:
+
+* type
+* stacking rule
+* whether resist/block/cleanse applies
+* expiration behavior
+* tick timing
+
+## consumables.master.json
+
+Contains:
+
+* full description
+* weight
+* initiative cost/gain
+* cure/immunity behavior
+* targeting rules
+* duration
+
+## enemy_policies.master.json
+
+Contains:
+
+* action weights
+* targeting preferences
+* threshold behavior
+* encounter-specific notes
+
+## encounters.master.json
+
+Contains:
+
+* encounter composition
+* spawn rules
+* egg rules
+* special battle budget context
+
+---
+
+# 8. Parsing pipeline
+
+## Step 1: raw DOM extraction
+
+Read:
+
+* hero cards
+* enemy cards
+* battle log
+* turn state
+* current skill menu
+* consumables
+* budget
+* selected targets
+* channel indicators
+* buff/debuff icons
+
+## Step 2: normalize names and IDs
+
+Map UI strings to canonical IDs.
+
+Example:
+
+* `"Health Vial"` → `health_vial`
+* `"Mama Boar"` → `mama_boar`
+
+## Step 3: parse confidence scoring
+
+Assign confidence based on:
+
+* selector success rate
+* numeric parse success
+* target resolution success
+* consistency with previous state
+
+Example:
+
+```ts
+parseConfidence =
+  0.35 * selectorCoverage +
+  0.35 * numericCoverage +
+  0.20 * consistencyScore +
+  0.10 * legalActionMatchScore;
+```
+
+If confidence < threshold, disable auto-execute.
+
+---
+
+# 9. Candidate action generation
+
+Generate legal actions from current state.
+
+## Include:
+
+* all usable abilities
+* basic attack
+* health vial
+* mana vial
+* situational consumables
+* wait/save-budget if relevant
+
+## Exclude:
+
+* abilities blocked by Amnesia
+* insufficient MP
+* invalid targets
+* locked / unavailable UI options
+
+Pseudo:
+
+```ts
+function generateCandidateActions(state: CombatState): CandidateAction[] {
+  const actions: CandidateAction[] = [];
+
+  for (const ability of getUsableAbilities(state)) {
+    for (const targetSet of enumerateLegalTargets(state, ability)) {
+      actions.push({
+        id: makeActionId(ability, targetSet),
+        actorId: getHeroActor(state).id,
+        kind: "ability",
+        abilityId: ability.id,
+        targetIds: targetSet
+      });
+    }
+  }
+
+  actions.push(...generateBasicAttackActions(state));
+  actions.push(...generateConsumableActions(state));
+
+  return actions;
+}
+```
+
+---
+
+# 10. Top-K pruning
+
+Do not fully simulate every legal action.
+
+Run a quick heuristic first.
+
+## Quick-score features
+
+* immediate lethal chance
+* expected damage
+* survival gain
+* cleanse urgency
+* MP preservation
+* unlocks better next-turn line
+* budget efficiency
+* anti-channel / anti-taunt relevance
+
+Pseudo:
+
+```ts
+function quickScore(action: CandidateAction, state: CombatState): number {
+  let score = 0;
+
+  score += estimateDamageEV(action, state) * 0.35;
+  score += estimateSurvivalGain(action, state) * 0.30;
+  score += estimateUtility(action, state) * 0.20;
+  score += estimateResourceEfficiency(action, state) * 0.15;
+
+  return score;
+}
+```
+
+Keep only top 3–5 actions.
+
+---
+
+# 11. Event-driven simulator
+
+This is the core optimization.
+
+Instead of simulating “turns” in a crude way, process discrete events.
+
+## Event types
+
+```ts
+type SimEvent =
+  | { type: "ACTION_START"; action: CandidateAction }
+  | { type: "HIT_ROLL"; sourceId: string; targetId: string; abilityId?: string }
+  | { type: "DAMAGE_APPLY"; sourceId: string; targetId: string; amount: number }
+  | { type: "STATUS_APPLY"; sourceId: string; targetId: string; status: TimedEffect }
+  | { type: "CHANNEL_START"; sourceId: string; abilityId: string }
+  | { type: "CHANNEL_RESOLVE"; sourceId: string; abilityId: string }
+  | { type: "DELAYED_EFFECT_RESOLVE"; effect: DelayedEffect }
+  | { type: "TURN_END"; actorId: string }
+  | { type: "DOT_TICK"; targetId: string; statusId: string };
+```
+
+## Simulator loop
+
+```ts
+function simulateAction(state: CombatState, action: CandidateAction): CombatState {
+  const next = deepClone(state);
+  const queue: SimEvent[] = [];
+
+  queue.push({ type: "ACTION_START", action });
+
+  while (queue.length > 0) {
+    const event = queue.shift()!;
+    processEvent(next, event, queue);
+  }
+
+  return next;
+}
+```
+
+---
+
+# 12. Deterministic beam stage
+
+Before Monte Carlo randomness, run a short expected-value lookahead.
+
+Example:
+
+* hero action
+* predicted enemy response
+* next hero turn if still alive
+
+At this stage:
+
+* use expected hit chance
+* use expected crit EV
+* use weighted enemy action choice, not full sampling
+
+This stage prunes weak branches fast.
+
+---
+
+# 13. Selective Monte Carlo stage
+
+Only run stochastic rollouts on top remaining branches.
+
+Each rollout samples:
+
+* enemy action from policy
+* hit / miss
+* block / spell block
+* resist / status land
+* crit branches
+* random targeting
+* multi-hit randomness
+
+Pseudo:
+
+```ts
+function rollout(state: CombatState, depth: number, rng: RNG): RolloutResult {
+  let current = deepClone(state);
+
+  for (let i = 0; i < depth; i++) {
+    if (isTerminal(current)) break;
+
+    const action = pickPolicyAction(current, rng);
+    current = simulateSampledAction(current, action, rng);
+  }
+
+  return evaluateTerminalishState(current);
+}
+```
+
+---
+
+# 14. State caching
+
+Cache reduced states to avoid recomputing near-identical branches.
+
+## Canonical hash inputs
+
+* hp/mp buckets
+* alive/dead flags
+* current statuses with durations
+* battle budget
+* consumables
+* queued delayed/channel effects
+* active side
+* turn number modulo small window
+
+Pseudo:
+
+```ts
+function makeStateHash(state: CombatState): string {
+  return stableHash({
+    hero: bucketTeam(state.heroTeam),
+    enemies: bucketTeam(state.enemyTeam),
+    budget: state.battleBudgetRemaining,
+    consumables: state.consumables,
+    channels: normalizeChannels(state.channelQueue),
+    delayed: normalizeDelayed(state.delayedQueue),
+    activeSide: state.activeSide
+  });
+}
+```
+
+Cache:
+
+* quick scores
+* beam evaluation
+* rollout aggregates
+
+---
+
+# 15. Accuracy / evasion / block / resistance handling
+
+This matters a lot and should be centralized.
+
+## Recommended architecture
+
+Create one combat resolution module:
+
+```ts
+resolveHitChance(attacker, defender, action)
+resolveBlockChance(attacker, defender, action)
+resolveSpellBlockChance(attacker, defender, action)
+resolveStatusChance(source, target, statusRule)
+resolveFinalDamage(baseDamage, context)
+```
+
+## Quick-pass expected value
+
+Use analytical expectation:
+
+```ts
+expectedDamage =
+  baseDamage
+  * hitChance
+  * (1 - blockChance * blockReductionEV)
+  * (1 - damageReductionPct)
+  * critEV;
+```
+
+## Sampled pass
+
+Use stochastic rolls only in Monte Carlo stage.
+
+This is much faster than randomizing everything from the start.
+
+---
+
+# 16. Enemy policy model
+
+Enemy actions should not be chosen uniformly.
+
+Example:
+
+```json
+{
+  "enemyId": "mama_boar",
+  "encounterId": "mad_boar_hunt",
+  "actions": [
+    { "actionId": "rampage", "weight": 0.58 },
+    { "actionId": "gore", "weight": 0.27 },
+    { "actionId": "basic_attack", "weight": 0.15 }
+  ],
+  "targetPreference": {
+    "frontlineBias": 0.72,
+    "lowestHpBias": 0.18,
+    "randomBias": 0.10
+  },
+  "thresholdRules": [
+    {
+      "ifHpBelowPct": 40,
+      "adjustWeights": [
+        { "actionId": "rampage", "weightMultiplier": 1.3 }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+# 17. Confidence gating for automation
+
+Auto-execute should require all of these:
+
+* parse confidence >= threshold
+* legal UI actions match internal legal actions
+* target exists and is clickable
+* battle budget verified
+* consumable counts verified
+* recommendation margin over second best is sufficient
+* no unknown unresolved enemy state
+
+Pseudo:
+
+```ts
+function shouldAutoExecute(result: RecommendationResult, state: CombatState): boolean {
+  return (
+    state.parseConfidence >= 0.92 &&
+    result.confidence >= 0.88 &&
+    result.evMargin >= 0.08 &&
+    result.uiVerified === true &&
+    result.stateVerified === true
+  );
+}
+```
+
+Else:
+
+* recommend only
+* highlight target
+* wait for confirmation
+
+---
+
+# 18. Recommendation result schema
+
+```ts
+type RecommendationResult = {
+  recommendedAction: CandidateAction;
+  rankedActions: Array<{
+    action: CandidateAction;
+    score: number;
+    survivalProbability: number;
+    killProbability: number;
+    expectedDamage: number;
+    expectedTurnsToWin: number;
+  }>;
+  confidence: number;
+  evMargin: number;
+  uiVerified: boolean;
+  stateVerified: boolean;
+  reasoning: string[];
+};
+```
+
+Example:
+
+```json
+{
+  "recommendedAction": {
+    "kind": "health_vial",
+    "targetIds": ["hero_p1"]
+  },
+  "confidence": 0.93,
+  "evMargin": 0.12,
+  "reasoning": [
+    "survival probability rises from 0.38 to 0.81",
+    "enemy lethal line probability is high next turn",
+    "mana vial does not unlock stronger EV line"
+  ]
+}
+```
+
+---
+
+# 19. UI execution pipeline
+
+When execution is allowed:
+
+1. verify current state hash still matches decision state
+2. click skill or consumable
+3. click target
+4. click confirm
+5. wait for turn resolution
+6. reparse entire board
+7. compare predicted vs actual outcome
+8. log drift if mismatch
+
+Pseudo:
+
+```ts
+async function executeAction(action: CandidateAction): Promise<void> {
+  await verifyUiReady();
+  await selectAction(action);
+  await selectTargets(action.targetIds);
+  await confirmAction();
+  await waitForBoardUpdate();
+}
+```
+
+---
+
+# 20. Logging and learning
+
+Persist:
+
+* pre-turn state
+* candidate list
+* selected action
+* recommendation scores
+* actual result
+* enemy response
+* prediction error
+
+Useful tables:
+
+```text
+fight_runs
+turn_snapshots
+recommended_actions
+executed_actions
+enemy_observations
+prediction_errors
+```
+
+This is what improves policy weights over time.
+
+---
+
+# 21. Minimum viable implementation order
+
+## Phase A
+
+* DOM parser
+* canonical state model
+* ability data loader
+* legal action generator
+
+## Phase B
+
+* heuristic scorer
+* top-K pruning
+* deterministic one-turn EV evaluator
+
+## Phase C
+
+* event-driven simulator
+* status queue handling
+* delayed/channel handling
+
+## Phase D
+
+* selective Monte Carlo
+* enemy policy weighting
+* cache
+
+## Phase E
+
+* recommend mode
+* overlay / debug panel
+
+## Phase F
+
+* auto-execute with confidence gate
+
+That is the fastest path to a useful extension.
+
+---
+
+# 22. The single optimization to implement first
+
+If you want the highest ROI first, implement this exact combo:
+
+## **Top-4 pruning + cached event-driven 2-ply beam**
+
+Meaning:
+
+* generate all legal actions
+* quick-score them
+* keep best 4
+* simulate hero action → enemy response with event-driven expected-value engine
+* cache by reduced state hash
+
+That alone will make the extension feel smart and fast before you even add full Monte Carlo.
+
+---
+
+# 23. Recommended file map
+
+```text
+src/
+  content/
+    parser.ts
+    selectors.ts
+    uiActions.ts
+    overlay.ts
+
+  engine/
+    state.ts
+    normalizer.ts
+    actions.ts
+    heuristics.ts
+    resolver.ts
+    simulator.ts
+    beam.ts
+    monteCarlo.ts
+    cache.ts
+    confidence.ts
+    enemyPolicy.ts
+
+  data/
+    abilities.master.json
+    statuses.master.json
+    consumables.master.json
+    enemy_policies.master.json
+    encounters.master.json
+
+  shared/
+    types.ts
+    utils.ts
+    hash.ts
+    logger.ts
+```
+
+---
+
+# 24. Immediate practical recommendation
+
+Your next coding move should be:
+
+### Build these 5 modules first
+
+* `state.ts`
+* `actions.ts`
+* `heuristics.ts`
+* `resolver.ts`
+* `beam.ts`
+
+That gives you:
+
+* legal moves
+* fast ranking
+* first usable recommendations
+
+before tackling deeper simulation.
+
+Next after that, build:
+
+* `simulator.ts`
+* `cache.ts`
+* `enemyPolicy.ts`
+
+If you want, next I’ll turn this into a **Replit-ready implementation prompt** so your dev environment can start scaffolding the engine files immediately.

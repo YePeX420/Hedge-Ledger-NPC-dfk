@@ -1,0 +1,366 @@
+Build the core engine for a Chrome extension that acts as a real-time AI combat assistant for DeFi Kingdoms PvE hunts.
+
+The extension already has the larger product concept defined. Your job now is to scaffold and implement the combat engine architecture, focusing on simulation and recommendation logic first.
+
+==================================================
+PROJECT GOAL
+==================================================
+
+Create a modular TypeScript engine that can:
+
+1. ingest a parsed live combat snapshot from the DFK PvE page
+2. normalize it into a canonical combat state
+3. generate all legal player actions
+4. quickly score actions with heuristics
+5. prune to top-K actions
+6. simulate short future lines using an event-driven forward model
+7. produce a ranked recommendation result
+8. support future expansion into full Monte Carlo and auto-execute mode
+
+Do NOT build the whole Chrome extension UI yet.
+Focus on the engine modules, types, schemas, and a minimal test harness.
+
+==================================================
+TECH STACK
+==================================================
+
+- TypeScript
+- Node-compatible modules
+- Keep code browser-extension friendly
+- No heavy backend assumptions
+- No DB required yet
+- Organize as if it will later plug into a Chrome extension content script + background worker
+
+==================================================
+DELIVERABLES
+==================================================
+
+Create the following file structure:
+
+src/
+  shared/
+    types.ts
+    utils.ts
+    hash.ts
+
+  data/
+    schema.ts
+    loader.ts
+
+  engine/
+    state.ts
+    normalizer.ts
+    actions.ts
+    heuristics.ts
+    resolver.ts
+    simulator.ts
+    beam.ts
+    confidence.ts
+    enemyPolicy.ts
+
+  test/
+    sampleState.ts
+    sampleRun.ts
+
+Also create:
+- package.json
+- tsconfig.json
+- README.md
+
+==================================================
+CORE REQUIREMENTS
+==================================================
+
+1. CANONICAL COMBAT STATE
+
+Implement a canonical combat state model that includes:
+
+- turn number
+- active side
+- encounter id
+- battle budget remaining
+- consumables
+- hero team combatants
+- enemy team combatants
+- active statuses
+- amnesia lockouts
+- channel queue
+- delayed effect queue
+- parse confidence
+- raw snapshot hash
+
+Each combatant must include:
+
+- id
+- side
+- name
+- class name optional
+- position
+- alive
+- hp / hpMax
+- mp / mpMax
+- attack
+- spell
+- pAcc
+- mAcc
+- pDef
+- mDef
+- pRed
+- mRed
+- blk
+- sBlk
+- rec
+- ser
+- speed
+- eva
+- str
+- dex
+- agi
+- vit
+- end
+- int
+- wis
+- lck
+- statuses
+- amnesiaLock optional
+- arcanePower optional
+
+2. DATA LOADER
+
+Implement a loader that can read local JSON files later, but for now allow injection of already-loaded objects.
+Use placeholders for:
+- abilities.master.json
+- statuses.master.json
+- consumables.master.json
+- enemy_policies.master.json
+- encounters.master.json
+
+Do not hard fail if files are missing.
+Use typed interfaces and safe defaults.
+
+3. ACTION GENERATION
+
+Create CandidateAction types supporting:
+- ability
+- basic_attack
+- health_vial
+- mana_vial
+- consumable
+- wait
+
+Implement generateCandidateActions(state, datasets)
+
+Rules:
+- exclude abilities blocked by Amnesia
+- exclude abilities with insufficient MP
+- exclude illegal targets
+- basic attack should be included when legal
+- health vial and mana vial should be included if quantity > 0
+- keep targeting flexible for future expansion
+
+4. HEURISTIC SCORER
+
+Implement quickScore(action, state, datasets)
+
+The heuristic should consider:
+- expected damage
+- survival gain
+- utility value
+- resource efficiency
+
+Use a weighted score model.
+Keep it modular and easy to tune.
+
+Also implement:
+- estimateDamageEV
+- estimateSurvivalGain
+- estimateUtility
+- estimateResourceEfficiency
+
+These can start simple, but must be structured cleanly.
+
+5. RESOLUTION MODULE
+
+Create resolver functions for:
+- resolveHitChance
+- resolveBlockChance
+- resolveSpellBlockChance
+- resolveStatusChance
+- resolveExpectedDamage
+
+Accuracy/evasion/block/resistance must be factored in.
+Even if formulas begin simplified, the architecture must support extension.
+
+6. EVENT-DRIVEN SIMULATOR
+
+Build an event-driven simulator, not a turn-replay system.
+
+Support event types like:
+- ACTION_START
+- HIT_ROLL
+- DAMAGE_APPLY
+- STATUS_APPLY
+- CHANNEL_START
+- CHANNEL_RESOLVE
+- DELAYED_EFFECT_RESOLVE
+- TURN_END
+- DOT_TICK
+
+Implement:
+simulateAction(state, action, datasets, mode)
+
+Modes:
+- "expectedValue"
+- "sampled"
+
+For now, expectedValue mode is the priority.
+
+The simulator should:
+- clone state safely
+- process events through a queue
+- apply damage
+- apply statuses
+- handle initiative changes
+- register channel effects
+- register delayed effects
+
+7. BEAM SEARCH
+
+Implement a beam evaluator:
+rankActionsWithBeam(state, actions, datasets)
+
+Flow:
+- quick-score all actions
+- keep top K, default K = 4
+- for each action, simulate one hero action + one enemy response
+- enemy response should come from enemyPolicy module
+- return ranked results
+
+Include:
+- action
+- final score
+- expected damage
+- survival probability placeholder
+- kill probability placeholder
+- reasoning strings
+
+8. ENEMY POLICY
+
+Implement a simple enemy policy lookup module.
+
+Input:
+- combat state
+- encounter id
+- enemy ids
+
+Output:
+- weighted likely enemy actions
+- target preferences
+
+If no policy exists, fall back to:
+- basic attack
+- nearest/front target heuristic
+
+9. CONFIDENCE GATE
+
+Implement:
+shouldAutoExecute(result, state)
+
+Use thresholds on:
+- parse confidence
+- recommendation confidence
+- EV margin
+- state verification placeholder
+
+Return boolean.
+
+10. HASH / CACHE READY
+
+Implement a stable reduced-state hash helper in shared/hash.ts.
+
+It should hash:
+- hp/mp buckets
+- alive flags
+- statuses
+- consumables
+- budget
+- active side
+- delayed/channel queues
+
+Do not implement full cache yet, but structure the code so cache can be added easily.
+
+==================================================
+TEST HARNESS
+==================================================
+
+Create test/sampleState.ts with a realistic mock combat state for a PvE hunt.
+
+Include:
+- 1 hero
+- at least 2 enemies
+- some statuses
+- some consumables
+- battle budget remaining
+- parse confidence
+- at least 3 candidate abilities
+
+Create test/sampleRun.ts that:
+- loads the sample state
+- generates candidate actions
+- ranks them with beam search
+- prints ranked recommendations to console
+
+==================================================
+CODE QUALITY
+==================================================
+
+- Use strict TypeScript types
+- Write clean interfaces
+- Add comments only where useful
+- Avoid overengineering
+- Keep functions small and composable
+- Handle missing values safely
+- Make architecture easy to expand later into full Monte Carlo
+
+==================================================
+README
+==================================================
+
+Write a concise README that explains:
+- purpose of the engine
+- folder structure
+- current implemented modules
+- how to run the sample test
+- what is stubbed or simplified
+- next recommended build steps
+
+==================================================
+IMPORTANT IMPLEMENTATION NOTES
+==================================================
+
+- This is for DFK PvE combat simulation
+- The design must support:
+  - status effects
+  - consumables
+  - initiative manipulation
+  - channeling
+  - delayed effects
+  - enemy policies
+- Do not build UI yet
+- Do not use fake placeholder names for core types
+- Use production-style naming and file organization
+- Output full code for all files, not partial snippets
+
+==================================================
+SUCCESS CRITERIA
+==================================================
+
+When done, I should be able to:
+
+1. inspect the generated files
+2. run the sample test
+3. see ranked action recommendations
+4. extend the engine with real DFK data files
+5. plug this into a future Chrome extension parser
+
+Return the full codebase contents file by file.
