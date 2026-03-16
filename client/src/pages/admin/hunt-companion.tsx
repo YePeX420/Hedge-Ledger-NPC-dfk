@@ -246,9 +246,25 @@ export default function HuntCompanion() {
           setRecommendations(msg.recommendations || []);
           if (msg.battleState) setBattleState(msg.battleState);
         } else if (msg.type === 'state_update') {
-          if (msg.heroes || msg.enemyId) {
-            setBattleState(prev => prev ? { ...prev } : prev);
+          if (msg.heroes) {
+            setBattleState(prev => {
+              if (!prev) {
+                return {
+                  turnNumber: 0,
+                  activeHeroSlot: 0,
+                  heroes: msg.heroes,
+                  enemies: msg.enemies || [],
+                };
+              }
+              return {
+                ...prev,
+                heroes: msg.heroes || prev.heroes,
+                enemies: msg.enemies || prev.enemies,
+              };
+            });
           }
+        } else if (msg.type === 'turn_state') {
+          if (msg.battleState) setBattleState(msg.battleState);
         } else if (msg.type === 'turn_update') {
           setTurnFeed(prev => [...prev.slice(-9), { turnNumber: msg.turnNumber, actorSide: msg.actorSide, actorSlot: msg.actorSlot, skillId: msg.skillId, effects: msg.effects }]);
         } else if (msg.type === 'error') {

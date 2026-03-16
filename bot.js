@@ -21422,7 +21422,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
                 session.turnEvents,
                 msg.activeHeroSlot
               );
-              const recommendations = scoreActions(battleState);
+              const recommendations = scoreActions(battleState, msg.legalActions || undefined);
               const responseMsg = JSON.stringify({
                 type: 'recommendation',
                 turnNumber: turnNumber || session.turnEvents.length,
@@ -21434,8 +21434,20 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
                   enemies: battleState.enemies.map(e => ({ enemyId: e.enemyId, currentHp: e.currentHp, maxHp: e.maxHp, debuffs: e.debuffs })),
                 },
               });
+              const turnStateMsg = JSON.stringify({
+                type: 'turn_state',
+                battleState: {
+                  turnNumber: battleState.turnNumber,
+                  activeHeroSlot: battleState.activeHeroSlot,
+                  heroes: battleState.heroes.map(h => ({ slot: h.slot, heroId: h.heroId, currentHp: h.currentHp, maxHp: h.maxHp, currentMp: h.currentMp, maxMp: h.maxMp, isAlive: h.isAlive, mainClass: h.mainClass })),
+                  enemies: battleState.enemies.map(e => ({ enemyId: e.enemyId, currentHp: e.currentHp, maxHp: e.maxHp, debuffs: e.debuffs })),
+                },
+              });
               for (const client of session.clients) {
-                if (client.readyState === 1) client.send(responseMsg);
+                if (client.readyState === 1) {
+                  client.send(responseMsg);
+                  client.send(turnStateMsg);
+                }
               }
             }
           }

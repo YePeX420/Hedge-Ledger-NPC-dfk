@@ -160,19 +160,65 @@ function computeManaEfficiency(damage: number, manaCost: number, heroMp: number)
   return clamp(ratio / 10, 0, 1);
 }
 
-function enumerateActions(hero: HeroState): Array<{ skillName: string; formula: AbilityFormula }> {
+function enumerateActions(hero: HeroState, legalActions?: string[]): Array<{ skillName: string; formula: AbilityFormula }> {
   const actions: Array<{ skillName: string; formula: AbilityFormula }> = [];
+
+  if (legalActions && legalActions.length > 0) {
+    for (const actionName of legalActions) {
+      if (actionName === 'Basic Attack' || actionName === 'basic_attack') {
+        actions.push({ skillName: 'Basic Attack', formula: BASIC_ATTACK });
+      } else {
+        const formula = ABILITY_FORMULAS[actionName];
+        if (formula && formula.type !== 'passive') {
+          actions.push({ skillName: actionName, formula });
+        }
+      }
+    }
+    if (actions.length > 0) return actions;
+  }
+
   actions.push({ skillName: 'Basic Attack', formula: BASIC_ATTACK });
-  const skills = [hero.active1, hero.active2];
-  for (const skillName of skills) {
+
+  const heroSkills = [hero.active1, hero.active2];
+  for (const skillName of heroSkills) {
     if (!skillName) continue;
     const formula = ABILITY_FORMULAS[skillName];
     if (formula && formula.type !== 'passive') {
       actions.push({ skillName, formula });
     }
   }
+
+  for (const [abilityName, formula] of Object.entries(ABILITY_FORMULAS)) {
+    if (formula.type === 'passive') continue;
+    if (heroSkills.includes(abilityName)) continue;
+    const classSkills = CLASS_ABILITY_MAP[hero.mainClass.toLowerCase()];
+    if (classSkills && classSkills.includes(abilityName)) {
+      actions.push({ skillName: abilityName, formula });
+    }
+  }
+
   return actions;
 }
+
+const CLASS_ABILITY_MAP: Record<string, string[]> = {
+  warrior: ['Iron Skin', 'Hardened Shield', 'Stun'],
+  knight: ['Iron Skin', 'Hardened Shield', 'Stun'],
+  thief: ['Poisoned Blade', 'Critical Aim', 'Speed'],
+  archer: ['Blinding Winds', 'Critical Aim', 'Speed'],
+  priest: ['Heal', 'Cleanse', 'Resurrection'],
+  wizard: ['Explosion', 'Daze'],
+  monk: ['Second Wind', 'Exhaust', 'Speed'],
+  pirate: ['Poisoned Blade', 'Deathmark'],
+  berserker: ['Stun', 'Critical Aim'],
+  seer: ['Heal', 'Cleanse', 'Daze'],
+  paladin: ['Heal', 'Iron Skin', 'Hardened Shield'],
+  darkknight: ['Deathmark', 'Exhaust', 'Poisoned Blade'],
+  summoner: ['Explosion', 'Daze'],
+  ninja: ['Poisoned Blade', 'Speed', 'Critical Aim'],
+  dragoon: ['Stun', 'Iron Skin', 'Blinding Winds'],
+  sage: ['Heal', 'Cleanse', 'Explosion'],
+  dreadknight: ['Deathmark', 'Exhaust', 'Stun'],
+};
 
 function getTargetSlots(formula: AbilityFormula, heroes: HeroState[], enemies: EnemyState[]): Array<{ slot: number | null; targetType: string }> {
   switch (formula.targetType) {
@@ -191,11 +237,11 @@ function getTargetSlots(formula: AbilityFormula, heroes: HeroState[], enemies: E
   }
 }
 
-export function scoreActions(state: BattleState): Recommendation[] {
+export function scoreActions(state: BattleState, legalActions?: string[]): Recommendation[] {
   const hero = state.heroes.find(h => h.slot === state.activeHeroSlot);
   if (!hero || !hero.isAlive) return [];
 
-  const actions = enumerateActions(hero);
+  const actions = enumerateActions(hero, legalActions);
   const recommendations: Recommendation[] = [];
 
   for (const { skillName, formula } of actions) {
@@ -311,11 +357,18 @@ export function buildBattleStateFromTurnEvents(
   }>,
   activeHeroSlot: number
 ): BattleState {
+  const clonedHeroes: HeroState[] = heroes.map(h => ({
+    ...h,
+    stats: { ...h.stats },
+    buffs: [...h.buffs],
+    debuffs: [...h.debuffs],
+  }));
+
   const latestHpState = turnEvents.length > 0 ? turnEvents[turnEvents.length - 1].hpState : null;
   const latestMpState = turnEvents.length > 0 ? turnEvents[turnEvents.length - 1].mpState : null;
 
   if (latestHpState) {
-    for (const hero of heroes) {
+    for (const hero of clonedHeroes) {
       const key = `hero_${hero.slot}`;
       if (latestHpState[key]) {
         hero.currentHp = latestHpState[key].current;
@@ -326,7 +379,7 @@ export function buildBattleStateFromTurnEvents(
   }
 
   if (latestMpState) {
-    for (const hero of heroes) {
+    for (const hero of clonedHeroes) {
       const key = `hero_${hero.slot}`;
       if (latestMpState[key]) {
         hero.currentMp = latestMpState[key].current;
@@ -354,7 +407,7 @@ export function buildBattleStateFromTurnEvents(
   return {
     turnNumber: turnEvents.length > 0 ? turnEvents[turnEvents.length - 1].turnNumber : 0,
     activeHeroSlot,
-    heroes,
+    heroes: clonedHeroes,
     enemies: [{
       enemyId: enemyEntry.id,
       currentHp: enemyCurrentHp,
