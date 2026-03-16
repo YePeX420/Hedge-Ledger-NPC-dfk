@@ -1,0 +1,385 @@
+Then the next step is to give Replit a clear expansion spec so it upgrades the extension from “page helper” into a telemetry + debugging bridge.
+
+What you want added is this:
+
+New extension responsibilities
+
+The extension must do four things:
+
+1. Capture live hunt state From the DFK hunt/spectate page, read and normalize:
+
+hunt ID
+
+turn number
+
+full visible battle log entries
+
+active hero / active enemy
+
+current HP/MP for all visible units
+
+opened stat panels for heroes and enemies
+
+buffs/debuffs visible in UI
+
+selected skill / selected target
+
+available actions/buttons for the active unit
+
+
+2. Stream data to your webapp/backend The extension should send structured snapshots and events to your backend:
+
+one-time full snapshot on page load
+
+incremental event when a new log line appears
+
+incremental event when stats change
+
+heartbeat with current state every few seconds
+
+reconnect automatically if socket drops
+
+
+3. Add a debugging mode The extension should support a developer/debug toggle that:
+
+captures raw DOM text alongside normalized parsed values
+
+shows what selector produced each field
+
+stores last N snapshots locally
+
+allows exporting the captured state as JSON
+
+compares backend-calculated values vs observed values returned by your API
+
+
+4. Support backend reconciliation When the extension sends a snapshot, backend returns:
+
+expected derived stats
+
+expected damage/proc/mana for current action
+
+mismatches
+
+suspected missing formula sources
+
+
+Then extension/webapp displays:
+
+observed value
+
+expected value
+
+delta
+
+likely cause
+
+
+
+---
+
+What to tell Replit
+
+Send this as your next build instruction.
+
+
+---
+
+Replit prompt
+
+Upgrade the existing Chrome extension into a live DFK hunt telemetry and debugging bridge.
+
+Goal
+
+The extension must capture live combat state from DeFi Kingdoms hunt/spectate pages and stream structured data to our backend/webapp so we can:
+
+1. recommend the best next move
+
+
+2. debug backend combat/stat calculations against actual in-game displayed values
+
+
+
+Core requirements
+
+A. Page support
+
+Run on DFK combat hunt and spectate pages.
+
+B. Data capture
+
+Continuously detect and extract:
+
+huntId
+
+replay/spectate mode flag
+
+turn number
+
+visible battle log entries
+
+actor / target / ability / damage / mana deltas when readable
+
+visible HP/MP for all units
+
+visible buffs/debuffs/status effects
+
+active unit
+
+legal actions available for active unit
+
+selected target
+
+opened hero/enemy stat panels
+
+full visible stat blocks when a unit panel is open
+
+
+For stat panels, capture and normalize:
+
+level
+
+hp/mp
+
+attack/spell
+
+pAcc/mAcc
+
+csc/cdm/chc
+
+pDef/mDef
+
+pRed/mRed
+
+blk/sblk
+
+rec/ser
+
+speed/eva
+
+modifiers
+
+base stats
+
+dynamic stat scores
+
+status effect resistances
+
+visible traits
+
+visible abilities
+
+visible items
+
+
+C. Normalization
+
+Create a normalized event model.
+
+Battle log event example:
+
+{
+  "type": "battle_log_event",
+  "huntId": 761923,
+  "turn": 2,
+  "actor": "Davion Greenlaugh",
+  "actorSide": "player",
+  "actorPosition": "P1",
+  "ability": "Mighty Strike",
+  "target": "Baby Boar 1",
+  "targetSide": "enemy",
+  "targetPosition": "P1",
+  "damageType": "physical",
+  "damage": 217,
+  "manaDelta": -19,
+  "effects": [],
+  "rawText": ""
+}
+
+Stat snapshot example:
+
+{
+  "type": "unit_snapshot",
+  "huntId": 761923,
+  "unitName": "Baby Boar 1",
+  "side": "enemy",
+  "position": "P1",
+  "capturedAt": 0,
+  "stats": {}
+}
+
+D. Streaming
+
+Implement transport from extension to backend:
+
+prefer WebSocket
+
+fallback to HTTP POST queue if socket unavailable
+
+auto reconnect
+
+deduplicate repeated identical events
+
+include timestamps
+
+include sessionId and userId if available
+
+
+E. Debug mode
+
+Add a developer/debug mode in the extension popup.
+
+When enabled:
+
+capture raw DOM text used for each parsed field
+
+store selector/source metadata for each extracted field
+
+store last 100 snapshots/events locally
+
+allow export to JSON
+
+show parse confidence
+
+log parsing failures
+
+highlight changed fields between snapshots
+
+
+F. Backend reconciliation mode
+
+Add support for sending snapshots to backend diagnostic endpoint and rendering response.
+
+Backend response format should support:
+
+{
+  "observed": {},
+  "expected": {},
+  "diffs": [
+    {
+      "field": "pDef",
+      "observed": 101,
+      "expected": 113,
+      "delta": -12,
+      "suspectedCause": "missing equipment modifier or buff"
+    }
+  ],
+  "notes": []
+}
+
+Extension/webapp should display:
+
+observed
+
+expected
+
+delta
+
+suspected cause
+
+
+G. Architecture
+
+Refactor extension into:
+
+content script for page capture
+
+background/service worker for transport/session management
+
+popup UI for status/debug toggle
+
+parser modules for:
+
+battle log parsing
+
+stat panel parsing
+
+turn state aggregation
+
+
+
+H. Resilience
+
+Build selectors defensively:
+
+do not hardcode only one selector path
+
+use text anchors where helpful
+
+support mutation observer for dynamic page updates
+
+handle partial entries and clipped text
+
+do not crash if one field is missing
+
+
+I. Output requirements
+
+Provide:
+
+1. full updated extension code
+
+
+2. file-by-file explanation
+
+
+3. manifest changes
+
+
+4. backend API contract expected by extension
+
+
+5. test mode with mock JSON payloads
+
+
+6. sample captured payloads from one hunt session
+
+
+
+J. Nice-to-have
+
+If possible, also support:
+
+capture of network responses related to combat if accessible
+
+manual “capture current screen state” button
+
+“copy latest normalized snapshot” button
+
+local replay viewer for captured event timeline
+
+
+Important: This is not an autoplay bot. It is a telemetry, debugging, and recommendation assistant. Do not implement automated clicking or action submission. Focus on accurate capture, normalization, streaming, and debugging support. Return full code replacements, not partial snippets.
+
+
+---
+
+A few additions I’d make beyond that prompt:
+
+Your backend should expose at least three endpoints:
+
+/api/dfk/session/start
+
+/api/dfk/event
+
+/api/dfk/reconcile
+
+
+And your DB should at minimum have:
+
+hunt_sessions
+
+battle_log_events
+
+unit_snapshots
+
+turn_snapshots
+
+reconciliation_results
+
+
+The key product insight is this: the extension is not just for the user-facing advisor — it becomes your ground-truth collector for fixing formulas in the backend.
+
+So yes, Replit can absolutely extend it to do this. They just need a much tighter spec than “make an extension.”
+
+If you want, I can now turn this into a Phase 1 / Phase 2 build plan for Replit so they implement the telemetry first and the AI recommendation layer second.
