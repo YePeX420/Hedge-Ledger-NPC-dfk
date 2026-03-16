@@ -19690,6 +19690,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           VALUES (${huntSessionId}, ${turnNumber}, ${JSON.stringify(fullState)})
           RETURNING id
         `;
+        await rawPg`UPDATE dfk_hunt_sessions SET snapshot_count = snapshot_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
         res.json({ ok: true, snapshotId: rows[0]?.id, type: 'turn' });
       } else {
         const { unitName, unitSide, position, heroId, stats, capturedAtTurn } = req.body;
