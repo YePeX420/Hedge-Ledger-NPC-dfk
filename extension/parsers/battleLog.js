@@ -180,9 +180,12 @@
 
     observer = new MutationObserver((mutations) => {
       for (const mut of mutations) {
+        if (mut.target !== container && !container.contains(mut.target)) continue;
         for (const node of mut.addedNodes) {
           if (node.nodeType !== 1) continue;
           if (processedSet.has(node)) continue;
+          const text = (node.textContent || '').trim();
+          if (!text || text.length < 3) continue;
           processedSet.add(node);
           node._dfkSelector = selector;
           turnCounter++;

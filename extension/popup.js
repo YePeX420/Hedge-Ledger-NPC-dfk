@@ -108,10 +108,30 @@ function renderDebugEvents(snapshots) {
     if (d.type === 'battle_log_event' || d.type === 'turn_event') {
       const conf = d.parseConfidence ?? 1;
       const confClass = conf >= 0.8 ? 'conf-high' : conf >= 0.5 ? 'conf-mid' : 'conf-low';
-      body.innerHTML = `<span class="${confClass}">[${(conf * 100).toFixed(0)}%]</span> Turn ${d.turn || d.turnNumber || '?'}: ${d.actor || '?'} → ${d.ability || '?'} → ${d.target || '?'} (${d.damage ?? '?'} dmg)`;
+      let html = `<span class="${confClass}">[${(conf * 100).toFixed(0)}%]</span> Turn ${d.turn || d.turnNumber || '?'}: ${d.actor || '?'} → ${d.ability || '?'} → ${d.target || '?'} (${d.damage ?? '?'} dmg)`;
+      if (d._debug) {
+        const fields = Object.entries(d._debug).filter(([k]) => k !== 'selectorUsed');
+        if (fields.length > 0) {
+          html += '<div style="margin-top:2px;font-size:10px;color:#64748b">';
+          fields.forEach(([k, v]) => {
+            const fc = (v.confidence ?? 0) >= 0.8 ? 'conf-high' : (v.confidence ?? 0) >= 0.5 ? 'conf-mid' : 'conf-low';
+            html += `<span class="${fc}">${k}:</span> ${v.source || '?'} `;
+          });
+          html += '</div>';
+        }
+      }
+      body.innerHTML = html;
       if (conf < 0.5) failures.push(`T${d.turn}: low confidence parse (${(conf*100).toFixed(0)}%) — "${(d.rawText||'').slice(0,40)}"`);
     } else if (d.type === 'unit_snapshot') {
-      body.textContent = `Snapshot: ${d.unitName || 'unknown'} (${d.unitSide || '?'}) — ${Object.keys(d.stats||{}).length} stats`;
+      let text = `Snapshot: ${d.unitName || 'unknown'} (${d.unitSide || '?'}) — ${Object.keys(d.stats||{}).length} stats`;
+      if (d._debug) {
+        const dbgFields = Object.entries(d._debug);
+        if (dbgFields.length > 0) {
+          text += '\n';
+          dbgFields.forEach(([k, v]) => { text += ` ${k}:${v.source || '?'}`; });
+        }
+      }
+      body.textContent = text;
     } else if (d.type === 'state_snapshot' || d.type === 'turn_snapshot') {
       body.textContent = `State: T${d.turnNumber||'?'}, ${(d.heroes||[]).length}h/${(d.enemies||[]).length}e, ${(d.legalActions||[]).length} actions`;
     } else {

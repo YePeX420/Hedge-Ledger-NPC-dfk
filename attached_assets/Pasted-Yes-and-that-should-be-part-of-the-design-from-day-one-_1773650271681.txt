@@ -1,0 +1,268 @@
+Yes — and that should be part of the design from day one.
+
+What you’re describing is not just a “next move recommender.” It is a **state tracker + enemy policy model**.
+
+The companion should maintain a live combat state for every unit on the field, including enemy hidden-or-partially-hidden state such as:
+
+* known abilities already used
+* estimated cooldown lockouts
+* Amnesia lockouts
+* active buffs/debuffs and remaining duration
+* initiative/order implications
+* likely target preferences
+* likely next-action distribution
+
+That is useful because DFK combat clearly has stateful mechanics that affect future action availability. For example, DFK’s glossary defines **Amnesia X** as “skills with Amnesia cannot be used again for X turns,” and the class pages show multiple skills that explicitly apply self-Amnesia after use, such as Priest’s **Holy Circle** and **Freedom**, and Seer’s **Sanctuary**. That means your engine should not just score the current button press; it should update a persistent action-availability model across turns. ([DeFi Kingdoms][1])
+
+So the architecture should evolve from:
+
+`extension -> logs -> recommendation`
+
+into:
+
+`extension -> event stream -> turn state engine -> enemy behavior model -> recommendation engine -> explanation`
+
+The key idea is to treat each battle as a sequence of state transitions. Every observed enemy action updates your belief about that enemy’s internal state. For example:
+
+* if an enemy uses a specific skill, mark it as used on turn `t`
+* if that skill implies Amnesia or a cooldown-like lockout, mark the earliest possible reuse turn
+* if a status effect lands, decrement its duration each turn
+* if the enemy repeatedly prefers the lowest-HP target, increase that targeting prior
+* if it chooses a control skill only when certain thresholds are met, learn that trigger pattern over time
+
+This is especially important because the public Void Hunts contract documentation exposes hunt metadata and lifecycle surfaces, but not a documented per-turn battle-state API. So your advantage comes from reconstructing combat state from the running client session and then learning from stored logs. ([DeFi Kingdoms Developers][2])
+
+## What the companion should learn
+
+There are really **three layers of enemy understanding**.
+
+### 1. Rules layer
+
+This is deterministic combat logic you know or can encode:
+
+* skill effects
+* Amnesia/self-lockout behavior
+* stat formulas
+* status durations
+* mana costs
+* initiative/channeling effects
+
+The official class combat pages provide examples of this kind of rule data: formulas, mana cost/growth, effect text, and warnings that combat info is subject to change. That makes versioning important in your backend. ([DeFi Kingdoms][3])
+
+### 2. Enemy kit layer
+
+This is the catalog of what each enemy can do:
+
+* known abilities
+* likely role
+* damage type profile
+* control profile
+* defensive profile
+* special triggers
+
+For enemies whose full skill kit is not publicly documented, you can build this empirically from captured battle logs and stat panels. Over time, your system can infer:
+
+* “Baby Boar has been seen using Lil’ Gore”
+* “Mama Boar appears to favor physical pressure and lower-speed heavier hits”
+* “This enemy has never reused ability X before turn N after casting it”
+
+That becomes your private enemy encyclopedia.
+
+### 3. Policy layer
+
+This is the learned behavior:
+
+* which target archetype the enemy prefers
+* whether it prioritizes kill pressure, debuffs, or setup
+* whether it uses certain skills off cooldown or only in specific states
+* whether it reacts to low HP, barrier, taunt, or status openings
+
+This is where win rate improves, because you stop assuming enemies act randomly.
+
+## How to model it
+
+I would implement a per-enemy **belief state** like this:
+
+```json
+{
+  "unitId": "enemy:P2:babyBoar",
+  "name": "Baby Boar 2",
+  "observedAbilities": {
+    "Lil' Gore": {
+      "timesSeen": 4,
+      "lastUsedTurn": 7,
+      "minObservedReuseGap": 2,
+      "estimatedReuseWindow": [2, 4]
+    }
+  },
+  "statusState": {
+    "bleed": null,
+    "slow": null,
+    "amnesia": null
+  },
+  "targetingModel": {
+    "lowestHpPreference": 0.42,
+    "frontlineBias": 0.31,
+    "randomness": 0.27
+  },
+  "actionModel": {
+    "Lil' Gore": {
+      "baseUseRate": 0.48,
+      "preferredWhen": ["target_is_frontline", "target_not_barriered"]
+    }
+  }
+}
+```
+
+Then each new turn updates that belief state.
+
+## What the extension captures vs what the backend learns
+
+The extension should stay relatively dumb. Its job is to capture:
+
+* raw battle log lines
+* visible stat panels
+* current HP/MP/statuses
+* active unit / available actions
+* timestamps and turn number
+
+The backend should do the real work:
+
+* parse and normalize
+* maintain turn state
+* estimate lockouts and durations
+* infer enemy behavior patterns
+* score player actions against predicted enemy replies
+
+That separation matters because you want all the learning centralized in your backend/database, not trapped inside the extension.
+
+## Recommendation engine should become look-ahead, not just one-step EV
+
+Once you start modeling enemy behavior, your scorer should move beyond:
+
+* “which move does the most damage right now?”
+
+and toward:
+
+* “which move creates the best expected outcome over the next 1–2 enemy actions?”
+
+So instead of only computing immediate expected value, score:
+
+* immediate damage / kill chance
+* expected incoming damage after predicted enemy turn
+* chance of losing a hero next rotation
+* chance of enemy using control next turn
+* value of denying a dangerous enemy action now
+* value of forcing enemy into a weaker action because of lockouts/Amnesia/state
+
+That means your engine should simulate something like:
+
+`current state -> my candidate action -> probable enemy responses -> resulting state`
+
+Not full deep search at first. Even a **1-ply with enemy response prediction** will be a major upgrade.
+
+## Yes, it can learn from stored battle logs
+
+That is exactly the right long-term moat.
+
+For each turn, store:
+
+* observed state before action
+* action taken
+* observed result
+* resulting state after action
+* recommendation that would have been made
+* eventual battle outcome
+
+From that, you can learn:
+
+* enemy action frequencies by context
+* reuse timing of abilities
+* likely cooldown windows
+* target selection tendencies
+* whether some status durations or internal rules differ from your assumptions
+* where your formula engine is systematically wrong
+
+Over time, you can train a model that answers:
+
+* “Given this enemy state, what is the probability of each next action?”
+* “Given my three choices, which one maximizes survival/win probability?”
+
+## Important practical nuance
+
+You mentioned cooldowns. Public DFK class pages prominently expose mana costs, formulas, and some self-lockout effects like Amnesia, but I would not assume all enemy ability reuse is fully documented the same way. For enemy behavior specifically, your safest design is:
+
+* encode what is explicitly known
+* infer what is not known from logs
+* keep confidence scores on learned assumptions
+
+That way your tool can say:
+
+* “Enemy likely cannot reuse this skill next turn”
+* “Estimated from 38 prior observations”
+  instead of pretending hidden rules are guaranteed facts.
+
+## Best upgraded product framing
+
+What you are building is:
+
+**DFK Hunt Companion**
+with three modes:
+
+1. **Live Advisor** — best next move
+2. **Combat Debugger** — compare observed vs expected formulas
+3. **Enemy Intelligence** — learned behavior and predicted next actions
+
+That third mode is where your product gets hard to copy.
+
+## What to add to the Replit spec
+
+Add a new Phase 2B.5 or Phase 3 called:
+
+### Enemy Behavior Model
+
+Requirements:
+
+* maintain per-enemy state object during battle
+* track observed abilities with timestamps/turns
+* infer reuse windows and lockouts
+* track status durations and Amnesia effects
+* estimate target selection preferences
+* store enemy behavior history across hunts
+* expose a prediction API:
+
+  * top likely next enemy action
+  * action probabilities
+  * target probabilities
+  * confidence score
+
+### New DB tables
+
+* `enemy_action_observations`
+* `enemy_behavior_profiles`
+* `enemy_ability_catalog`
+* `enemy_state_estimates`
+
+### New API endpoints
+
+* `POST /api/dfk/enemy-observation`
+* `GET /api/dfk/enemy-profile/:enemyKey`
+* `POST /api/dfk/predict-enemy-action`
+
+## My blunt recommendation
+
+Do it, but in this order:
+
+1. get telemetry capture stable
+2. get stat reconciliation stable
+3. get deterministic recommendation stable
+4. then add enemy behavior learning and 1-turn look-ahead
+5. then later add confidence-weighted learned policy
+
+That sequencing keeps the project grounded. Otherwise you risk building “AI vibes” before you have trustworthy combat state.
+
+If you want, I’ll write the **Phase 3 Replit prompt** specifically for the enemy behavior learning layer.
+
+[1]: https://docs.defikingdoms.com/gameplay/void-hunt-mad-boar/status-effects-and-mechanics-glossary?utm_source=chatgpt.com "Status Effects & Mechanics Glossary | DeFi Kingdoms"
+[2]: https://devs.defikingdoms.com/contracts/void-hunts?utm_source=chatgpt.com "Void Hunts | DFK Developers"
+[3]: https://docs.defikingdoms.com/gameplay/combat/archer?utm_source=chatgpt.com "Archer | DeFi Kingdoms"

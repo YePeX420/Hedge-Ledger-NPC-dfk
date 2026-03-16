@@ -67,6 +67,7 @@ function connect() {
       reconnectDelay = 1000;
       setStatus('connected');
       ws.send(JSON.stringify({ type: 'join', sessionToken }));
+      flushHttpQueue();
     };
 
     ws.onmessage = (event) => {
@@ -107,8 +108,12 @@ function handleServerMessage(msg) {
     setStatus('joined');
     broadcast({ type: 'joined', sessionId: msg.sessionId, existingTurns: msg.existingTurns });
   } else if (msg.type === 'recommendation') {
-    broadcast({ type: 'recommendation', data: msg });
-    chrome.storage.local.set({ lastRecommendation: msg });
+    const recData = msg.data || msg;
+    const normalized = {
+      recommendations: recData.recommendations || recData.data || (Array.isArray(recData) ? recData : []),
+    };
+    broadcast({ type: 'recommendation', data: normalized });
+    chrome.storage.local.set({ lastRecommendation: normalized });
   } else if (msg.type === 'turn_state') {
     broadcast({ type: 'turn_state', data: msg });
   } else if (msg.type === 'error') {
@@ -128,6 +133,7 @@ function sendOrQueue(wsMsg, httpPath, httpBody) {
   }
   if (sessionToken && httpPath) {
     httpQueue.push({ path: httpPath, body: { ...httpBody, sessionToken } });
+    chrome.storage.local.set({ httpQueue });
     flushHttpQueue();
   }
 }
@@ -146,6 +152,7 @@ async function flushHttpQueue() {
       });
       if (res.ok) {
         httpQueue.shift();
+        chrome.storage.local.set({ httpQueue });
       } else {
         break;
       }
@@ -316,10 +323,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots'], (result) => {
+chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots', 'httpQueue'], (result) => {
   if (result.sessionToken) sessionToken = result.sessionToken;
   if (result.hostUrl) hostUrl = result.hostUrl;
   if (result.localSnapshots) localSnapshots = result.localSnapshots;
+  if (Array.isArray(result.httpQueue)) httpQueue.push(...result.httpQueue);
   connect();
 });
 
