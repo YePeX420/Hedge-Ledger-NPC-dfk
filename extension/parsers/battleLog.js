@@ -37,7 +37,9 @@
     '[id*="combat-log"]',
   ];
 
-  const TURN_EVENT_PATTERN = /uses?\s+\w|attacks?\s+\w|casts?\s+\w|strikes?\s+\w|charges?\s+\w|\bdeals?\s+\d|\bfor\s+\d+\s+damage|\bperformed\s+\w|\[(?:AR|AT|DF|SP|SU|MN):\s/i;
+  const DFK_TURN_EVENT_PATTERN = /\[(?:AR|AT|DF|SP|SU|MN):\s.*\]\s*performed\s+\w/i;
+
+  const GENERIC_TURN_EVENT_PATTERN = /uses?\s+\w|attacks?\s+\w|casts?\s+\w|strikes?\s+\w|charges?\s+\w|\bdeals?\s+\d|\bfor\s+\d+\s+damage|\bperformed\s+\w/i;
 
   const DFK_LOG_ENTRY_BG = 'rgb(234, 220, 184)';
 
@@ -225,22 +227,35 @@
   // ── Tier D: find battle log by content pattern ────────────────────────────
 
   function findLogByInlineStyle() {
+    const normalizedTarget = DFK_LOG_ENTRY_BG.replace(/\s/g, '');
     const allDivs = document.querySelectorAll('div');
     for (const div of allDivs) {
       const bg = div.style.backgroundColor;
-      if (bg && bg.replace(/\s/g, '') === DFK_LOG_ENTRY_BG.replace(/\s/g, '')) {
-        const parent = div.parentElement;
-        if (parent) {
+      if (bg && bg.replace(/\s/g, '') === normalizedTarget) {
+        let container = div.parentElement;
+        for (let depth = 0; depth < 5 && container; depth++) {
           let styledCount = 0;
-          for (const child of parent.children) {
-            const cbg = child.style.backgroundColor;
-            if (cbg && cbg.replace(/\s/g, '') === DFK_LOG_ENTRY_BG.replace(/\s/g, '')) styledCount++;
+          const descendants = container.querySelectorAll('div');
+          for (const d of descendants) {
+            const dbg = d.style.backgroundColor;
+            if (dbg && dbg.replace(/\s/g, '') === normalizedTarget) styledCount++;
+            if (styledCount >= 2) break;
           }
           if (styledCount >= 1) {
-            console.log(`[DFK] Tier D-style: battle log detected via inline bg color (${styledCount} styled entries)`);
-            window.__dfkSelectorDiag.battle_log = { attached: false, tier: 'D-style', selector: 'inline-bg-color', styledEntries: styledCount };
-            return { el: parent, selector: 'tier-D:inline-bg-color' };
+            const cs = window.getComputedStyle(container);
+            const isScrollable = cs.overflowY === 'auto' || cs.overflowY === 'scroll' || cs.overflow === 'auto' || cs.overflow === 'scroll';
+            if (isScrollable || styledCount >= 2 || depth >= 2) {
+              console.log(`[DFK] Tier D-style: battle log container found (${styledCount} styled entries, depth ${depth}, scrollable=${isScrollable})`);
+              window.__dfkSelectorDiag.battle_log = { attached: false, tier: 'D-style', selector: 'inline-bg-color', styledEntries: styledCount, depth };
+              return { el: container, selector: 'tier-D:inline-bg-color' };
+            }
           }
+          container = container.parentElement;
+        }
+        if (div.parentElement) {
+          console.log('[DFK] Tier D-style: using immediate parent as battle log container');
+          window.__dfkSelectorDiag.battle_log = { attached: false, tier: 'D-style', selector: 'inline-bg-color-fallback', styledEntries: 1 };
+          return { el: div.parentElement, selector: 'tier-D:inline-bg-color-fallback' };
         }
       }
     }
@@ -254,7 +269,8 @@
       if (el.children.length < 1 || el.children.length > 500) continue;
       let score = 0;
       for (const child of el.children) {
-        if (TURN_EVENT_PATTERN.test(child.textContent)) score++;
+        if (DFK_TURN_EVENT_PATTERN.test(child.textContent)) score += 2;
+        else if (GENERIC_TURN_EVENT_PATTERN.test(child.textContent)) score += 1;
       }
       if (score > bestScore) {
         best = el;
@@ -262,8 +278,8 @@
       }
     }
     if (bestScore >= 1) {
-      console.log(`[DFK] Tier D battle log detected (${bestScore} matching children)`);
-      window.__dfkSelectorDiag.battle_log = { attached: false, tier: 'D', selector: 'content-pattern', matchingChildren: bestScore };
+      console.log(`[DFK] Tier D battle log detected (score=${bestScore} across children)`);
+      window.__dfkSelectorDiag.battle_log = { attached: false, tier: 'D', selector: 'content-pattern', matchScore: bestScore };
       return { el: best, selector: 'tier-D:content-pattern' };
     }
     return null;

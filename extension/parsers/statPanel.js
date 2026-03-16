@@ -112,6 +112,23 @@
       }
     }
 
+    if (!snapshot.stats.hp || !snapshot.stats.mp) {
+      const progressTexts = panelEl.querySelectorAll('.progress-text');
+      progressTexts.forEach((ptEl, idx) => {
+        const parsed = extractHpMp(ptEl.textContent || '');
+        if (!parsed) return;
+        if (idx === 0 && !snapshot.stats.hp) {
+          snapshot.stats.hp = parsed.current;
+          snapshot.stats.maxHp = parsed.max;
+          if (debugMode) debugMeta.hp = { source: 'progress-text[0]', raw: ptEl.textContent.trim(), ...parsed };
+        } else if (idx === 1 && !snapshot.stats.mp) {
+          snapshot.stats.mp = parsed.current;
+          snapshot.stats.maxMp = parsed.max;
+          if (debugMode) debugMeta.mp = { source: 'progress-text[1]', raw: ptEl.textContent.trim(), ...parsed };
+        }
+      });
+    }
+
     const levelEl = panelEl.querySelector('[class*="level"],[class*="Level"],[data-level]');
     if (levelEl) {
       const lv = extractNumber(levelEl.textContent);
