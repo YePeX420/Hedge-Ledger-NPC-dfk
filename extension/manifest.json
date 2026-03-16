@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Hedge Ledger — DFK Hunt Companion",
+  "version": "1.0.0",
+  "description": "Captures live DFK hunt battle state and streams it to the Hedge Ledger backend for recommendations, debugging, and stat reconciliation.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://game.defikingdoms.com/*",
+    "*://localhost/*",
+    "*://*.replit.app/*",
+    "*://*.replit.dev/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Hedge Ledger Companion"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://game.defikingdoms.com/*"],
+      "js": [
+        "parsers/battleLog.js",
+        "parsers/statPanel.js",
+        "parsers/turnState.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src wss: ws: https: http:"
+  }
+}
