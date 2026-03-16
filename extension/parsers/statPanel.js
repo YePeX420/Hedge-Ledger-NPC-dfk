@@ -243,8 +243,10 @@ console.log('[DFK StatPanel] Script file loaded');
     });
   }
 
+  let _panelDebounce = null;
   panelObserver = new MutationObserver(() => {
-    checkPanels(document.body);
+    clearTimeout(_panelDebounce);
+    _panelDebounce = setTimeout(() => checkPanels(document.body), 250);
   });
 
   if (document.body) {
