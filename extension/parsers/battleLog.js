@@ -12,6 +12,7 @@
  * Sets window.__dfkBattleLogAttached (bool) and window.__dfkBattleLogSelector (string)
  * so window.__dfkDiag() can report attach status without polling this file.
  */
+console.log('[DFK BattleLog] Script file loaded');
 
 (function () {
   if (typeof window.__dfkBattleLogParser !== 'undefined') return;
@@ -37,7 +38,7 @@
     '[id*="combat-log"]',
   ];
 
-  const DFK_TURN_EVENT_PATTERN = /\[(?:AR|AT|DF|SP|SU|MN):\s.*\]\s*performed\s+\w/i;
+  const DFK_TURN_EVENT_PATTERN = /\[(?:AH|AR|AT|DF|SP|SU|MN|TH):\s.*\]\s*performed\s+\w/i;
 
   const GENERIC_TURN_EVENT_PATTERN = /uses?\s+\w|attacks?\s+\w|casts?\s+\w|strikes?\s+\w|charges?\s+\w|\bdeals?\s+\d|\bfor\s+\d+\s+damage|\bperformed\s+\w/i;
 
@@ -61,9 +62,13 @@
   }
 
   function parseActorSide(rawText) {
-    const bracketMatch = rawText.match(/\[(AR|AT|DF|SP|SU|MN):/);
+    const bracketMatch = rawText.match(/\[(AH|AR|AT|DF|SP|SU|MN|TH):/);
     if (bracketMatch) {
-      return { value: 'player', confidence: 0.9, source: `bracket-prefix:${bracketMatch[1]}` };
+      const prefix = bracketMatch[1];
+      if (prefix === 'TH') {
+        return { value: 'enemy', confidence: 0.9, source: `bracket-prefix:${prefix}` };
+      }
+      return { value: 'player', confidence: 0.9, source: `bracket-prefix:${prefix}` };
     }
     const lc = rawText.toLowerCase();
     if (lc.includes('enemy') || lc.includes('monster') || lc.includes('boar') || lc.includes('dark')) {
@@ -90,7 +95,7 @@
     const actor = extractField(el,
       ['data-actor', 'data-actor-name'],
       [
-        { regex: /\[(?:AR|AT|DF|SP|SU|MN):\s*([^\]]+)\]/i },
+        { regex: /\[(?:AH|AR|AT|DF|SP|SU|MN|TH):\s*([^\]]+)\]/i },
         { regex: /^([A-Za-z][A-Za-z\s'-]+?)\s+(?:uses|attacks|casts|strikes|charges|performed)/i },
         { regex: /^([A-Za-z][A-Za-z\s'-]+?)(?:\s*\[P\d\])?(?:\s*:)/ },
       ],
@@ -334,10 +339,26 @@
     return false;
   }
 
+  console.log('[DFK BattleLog] Parser loaded, starting log container scan');
+
   if (!tryAttach()) {
     const domObserver = new MutationObserver(() => {
-      if (tryAttach()) domObserver.disconnect();
+      if (!window.__dfkBattleLogAttached) {
+        tryAttach();
+      }
     });
     domObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
+
+    setInterval(() => {
+      if (!window.__dfkBattleLogAttached) {
+        tryAttach();
+      } else if (logContainer && !document.body.contains(logContainer)) {
+        console.log('[DFK BattleLog] Log container removed from DOM (modal closed), resetting');
+        window.__dfkBattleLogAttached = false;
+        window.__dfkBattleLogSelector = null;
+        if (observer) { observer.disconnect(); observer = null; }
+        logContainer = null;
+      }
+    }, 2000);
   }
 })();

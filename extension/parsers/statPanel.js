@@ -2,6 +2,7 @@
  * Stat Panel Parser
  * Detects when a hero or enemy stat panel opens and extracts all visible stats.
  */
+console.log('[DFK StatPanel] Script file loaded');
 
 (function () {
   if (typeof window.__dfkStatPanelParser !== 'undefined') return;

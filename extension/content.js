@@ -12,7 +12,8 @@
  */
 
 (function () {
-  if (window.__dfkCompanionInit) return;
+  console.log('[DFK Companion] Content script loading on', window.location.href);
+  if (window.__dfkCompanionInit) { console.log('[DFK Companion] Already initialized, skipping'); return; }
   window.__dfkCompanionInit = true;
 
   let debugMode = false;
@@ -98,15 +99,28 @@
         if (window.__dfkDataLoader.isLoaded()) {
           engineReady = true;
           console.log('[DFK Engine] Engine initialized successfully');
-          createOverlay();
+          updateOverlayEngineStatus(true);
         } else {
           console.error('[DFK Engine] Data loader reports not loaded after loadAllData');
+          updateOverlayEngineStatus(false, 'Data loader failed');
         }
       } catch (err) {
         console.error('[DFK Engine] Failed to initialize engine:', err);
+        updateOverlayEngineStatus(false, err.message);
       }
     } else {
       console.warn('[DFK Engine] Data loader not available');
+      updateOverlayEngineStatus(false, 'Data loader not found');
+    }
+  }
+
+  function updateOverlayEngineStatus(ready, errorMsg) {
+    const bodyEl = document.getElementById('dfk-engine-body');
+    if (!bodyEl) return;
+    if (ready) {
+      bodyEl.innerHTML = '<div style="color: #4a6a55;">Engine ready. Waiting for combat data...</div>';
+    } else {
+      bodyEl.innerHTML = `<div style="color: #997744;">Engine: ${errorMsg || 'not ready'} (parsers still active)</div>`;
     }
   }
 
@@ -401,7 +415,10 @@
   // ── Init ──────────────────────────────────────────────────────────────────
 
   function init() {
-    // Run session detection with all strategies
+    console.log('[DFK Companion] init() starting');
+
+    createOverlay();
+
     window.__dfkDetectSession();
 
     chrome.storage.local.get(['debugMode', 'sessionToken', 'hostUrl'], (result) => {
@@ -415,10 +432,8 @@
       }).catch(() => {});
     });
 
-    // Install SPA navigation hooks
     installSpaHooks();
 
-    // Poll for session ID changes (handles hash routers and deferred DOM population)
     setInterval(window.__dfkDetectSession, 3000);
 
     initEngine();
