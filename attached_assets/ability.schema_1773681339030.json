@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "title": "DFK PvE Ability Schema Draft",
+    "version": "1.0.0",
+    "status": "schema_only"
+  },
+  "schema": {
+    "id": "string",
+    "class": "Knight|Warrior|Archer|Priest|Wizard|Pirate|Berserker|Seer",
+    "discipline": "string",
+    "tier": "number",
+    "type": "active|passive|triggered_passive",
+    "name": "string",
+    "manaCost": "number",
+    "range": "self|1|2|3|ally|enemy|party_member|all_party_members|all_enemies|passive",
+    "accModifierPct": "number",
+    "channelInitiative": "number",
+    "initiativeGain": "number",
+    "initiativeLoss": "number",
+    "delayedEffects": "DelayedEffect[]",
+    "damageFormula": "string|null",
+    "healFormula": "string|null",
+    "barrierFormula": "string|null",
+    "wardFormula": "string|null",
+    "targeting": {
+      "targetType": "string",
+      "targetCount": "number",
+      "positionRules": "string|null",
+      "random": "boolean",
+      "hits": "number"
+    },
+    "effects": "EffectRule[]",
+    "combo": "ComboRule|null",
+    "penalties": "PenaltyRule[]",
+    "passiveRules": "array",
+    "stackLimit": "number|null",
+    "notes": "string[]",
+    "sourceConfidence": "validated_screenshot|doc_based|inferred"
+  }
+}

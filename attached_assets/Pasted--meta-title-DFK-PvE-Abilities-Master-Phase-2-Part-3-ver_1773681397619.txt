@@ -1,0 +1,232 @@
+{
+  "meta": {
+    "title": "DFK PvE Abilities Master - Phase 2 Part 3",
+    "version": "0.2.0",
+    "includedClasses": ["Berserker", "Seer"]
+  },
+
+  "abilities": [
+
+    {
+      "id": "berserker_bloodlust",
+      "class": "Berserker",
+      "discipline": "Bear",
+      "tier": 3,
+      "type": "active",
+      "name": "Bloodlust",
+      "manaCost": 11,
+      "range": "self",
+      "effects": [
+        {
+          "type": "self_pure_damage_pct_max_hp",
+          "valuePct": 15
+        },
+        {
+          "type": "attack_up",
+          "formula": "(10 + 2.0 * VIT)%"
+        },
+        {
+          "type": "haste",
+          "magnitudePct": 15,
+          "durationTicks": 40
+        }
+      ]
+    },
+
+    {
+      "id": "berserker_blind_rage",
+      "class": "Berserker",
+      "discipline": "Boar",
+      "tier": 3,
+      "type": "active",
+      "name": "Blind Rage",
+      "manaCost": 13,
+      "range": 3,
+      "damageFormula": "4-8 * (0.3 * ATTACK)",
+      "targeting": {
+        "targetType": "random_enemy"
+      }
+    },
+
+    {
+      "id": "berserker_blood_rage",
+      "class": "Berserker",
+      "discipline": "Boar",
+      "tier": 5,
+      "type": "active",
+      "name": "Blood Rage",
+      "manaCost": 16,
+      "range": 3,
+      "channelInitiative": 500,
+      "effects": [
+        {
+          "type": "aoe_damage",
+          "formula": "(1.0 * ATTACK + 1.0 * STR + 0.5 * LCK)",
+          "target": "all_enemies"
+        },
+        {
+          "type": "friendly_fire_damage",
+          "formula": "(0.5 * ATTACK + 1.0 * STR - 0.5 * LCK)",
+          "target": "all_allies"
+        },
+        {
+          "type": "berserk",
+          "durationTicks": 40
+        }
+      ]
+    },
+
+    {
+      "id": "berserker_brutal_act",
+      "class": "Berserker",
+      "discipline": "Wolf",
+      "tier": 5,
+      "type": "active",
+      "name": "Brutal Act",
+      "manaCost": 15,
+      "range": 3,
+      "effects": [
+        {
+          "type": "damage",
+          "formula": "(1.5 * ATTACK + 2.0 * STR)",
+          "target": "random_enemy"
+        },
+        {
+          "type": "friendly_fire_damage",
+          "formula": "(1.0 * ATTACK + 1.0 * STR)",
+          "target": "random_party_member"
+        }
+      ]
+    },
+
+
+
+    {
+      "id": "seer_future_sight",
+      "class": "Seer",
+      "discipline": "Oracle",
+      "tier": 1,
+      "type": "active",
+      "name": "Future Sight",
+      "manaCost": 35,
+      "range": "ally",
+      "delayedEffects": [
+        {
+          "delayTicks": 10,
+          "effect": {
+            "type": "heal",
+            "formula": "(1.3 * SPELL + 1.0 * WIS)"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "evasion_up",
+          "formula": "(1 + 1.0 * WIS)%"
+        }
+      ]
+    },
+
+    {
+      "id": "seer_sanctuary",
+      "class": "Seer",
+      "discipline": "Oracle",
+      "tier": 3,
+      "type": "active",
+      "name": "Sanctuary",
+      "manaCost": 54,
+      "channelInitiative": 500,
+      "effects": [
+        {
+          "type": "barrier",
+          "formula": "(0.4 * SPELL + 0.8 * WIS)",
+          "target": "all_allies"
+        }
+      ],
+      "delayedEffects": [
+        {
+          "delayTicks": 10,
+          "effect": {
+            "type": "heal",
+            "formula": "(1.0 * SPELL + 1.0 * WIS)",
+            "target": "all_allies"
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "seer_osmotic_ward",
+      "class": "Seer",
+      "discipline": "Oracle",
+      "tier": 4,
+      "type": "active",
+      "name": "Osmotic Ward",
+      "manaCost": 35,
+      "range": "ally",
+      "effects": [
+        {
+          "type": "pure_ward",
+          "durationTurns": 2
+        },
+        {
+          "type": "heal_on_ward_break",
+          "formula": "(1.0 * SPELL + 4.0 * WIS + 1.0 * LCK)"
+        }
+      ]
+    },
+
+    {
+      "id": "seer_time_sink",
+      "class": "Seer",
+      "discipline": "Astrologer",
+      "tier": 3,
+      "type": "active",
+      "name": "Time Sink",
+      "manaCost": 43,
+      "range": 3,
+      "effects": [
+        {
+          "type": "slow",
+          "magnitudePct": 20
+        }
+      ],
+      "delayedEffects": [
+        {
+          "delayTicks": 30,
+          "effect": {
+            "type": "damage",
+            "formula": "(1.0 * SPELL + 2.0 * TARGET_AGI)"
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "seer_wall_of_reflection",
+      "class": "Seer",
+      "discipline": "Artificer",
+      "tier": 5,
+      "type": "active",
+      "name": "Wall of Reflection",
+      "manaCost": 29,
+      "effects": [
+        {
+          "type": "wall",
+          "hpFormula": "(0.8 * AP * SPELL + 1.0 * WIS + 1.0 * VIT)"
+        }
+      ],
+      "delayedEffects": [
+        {
+          "delayTicks": 20,
+          "effect": "reflect_damage"
+        },
+        {
+          "delayTicks": 30,
+          "effect": "reflect_damage"
+        }
+      ]
+    }
+
+  ]
+}

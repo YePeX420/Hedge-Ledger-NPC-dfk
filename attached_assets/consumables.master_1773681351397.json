@@ -1,0 +1,289 @@
+{
+  "meta": {
+    "title": "DFK PvE Consumables Master",
+    "version": "1.0.0",
+    "source": "Validated from user-provided in-game screenshots",
+    "count": 15
+  },
+  "consumables": [
+    {
+      "id": "anti_poison_potion",
+      "name": "Anti-Poison Potion",
+      "type": "cleanse",
+      "weight": 2,
+      "initiativeModifier": -500,
+      "targeting": "single_ally",
+      "durationTicks": 50,
+      "effectDescription": "Cure poison and grant 100% poison immunity for 50 ticks.",
+      "effects": [
+        {
+          "type": "cleanse",
+          "status": "poison"
+        },
+        {
+          "type": "immunity",
+          "status": "poison",
+          "durationTicks": 50
+        }
+      ]
+    },
+    {
+      "id": "attack_potion",
+      "name": "Attack Potion",
+      "type": "buff",
+      "weight": 4,
+      "initiativeModifier": 0,
+      "targeting": "single_ally",
+      "durationTicks": 50,
+      "effectDescription": "Gain +20% Physical Damage for 50 ticks.",
+      "effects": [
+        {
+          "type": "physical_damage_up",
+          "magnitudePct": 20,
+          "durationTicks": 50
+        }
+      ]
+    },
+    {
+      "id": "anti_blind_potion",
+      "name": "Anti-Blind Potion",
+      "type": "cleanse",
+      "weight": 2,
+      "initiativeModifier": -500,
+      "targeting": "single_ally",
+      "durationTicks": 50,
+      "effectDescription": "Cure blind and grant 100% blind immunity for 50 ticks.",
+      "effects": [
+        {
+          "type": "cleanse",
+          "status": "blind"
+        },
+        {
+          "type": "immunity",
+          "status": "blind",
+          "durationTicks": 50
+        }
+      ]
+    },
+    {
+      "id": "coagulant_potion",
+      "name": "Coagulant Potion",
+      "type": "cleanse",
+      "weight": 2,
+      "initiativeModifier": -500,
+      "targeting": "single_ally",
+      "durationTicks": 50,
+      "effectDescription": "Cure bleed and grant 100% bleed immunity for 50 ticks.",
+      "effects": [
+        {
+          "type": "cleanse",
+          "status": "bleed"
+        },
+        {
+          "type": "immunity",
+          "status": "bleed",
+          "durationTicks": 50
+        }
+      ]
+    },
+    {
+      "id": "health_vial",
+      "name": "Health Vial",
+      "type": "heal",
+      "weight": 3,
+      "initiativeModifier": -300,
+      "targeting": "single_ally",
+      "effectDescription": "Heal target for 35% of max HP.",
+      "effects": [
+        {
+          "type": "heal_percent_max_hp",
+          "valuePct": 35
+        }
+      ]
+    },
+    {
+      "id": "full_health_potion",
+      "name": "Full Health Potion",
+      "type": "heal",
+      "weight": 8,
+      "initiativeModifier": 0,
+      "targeting": "single_ally",
+      "effectDescription": "Heal target for 100% of max HP.",
+      "effects": [
+        {
+          "type": "heal_percent_max_hp",
+          "valuePct": 100
+        }
+      ]
+    },
+    {
+      "id": "mana_vial",
+      "name": "Mana Vial",
+      "type": "mana",
+      "weight": 3,
+      "initiativeModifier": -300,
+      "targeting": "single_ally",
+      "effectDescription": "Restore 35% of max MP.",
+      "effects": [
+        {
+          "type": "restore_percent_max_mp",
+          "valuePct": 35
+        }
+      ]
+    },
+    {
+      "id": "full_mana_potion",
+      "name": "Full Mana Potion",
+      "type": "mana",
+      "weight": 8,
+      "initiativeModifier": 0,
+      "targeting": "single_ally",
+      "effectDescription": "Restore 100% of max MP.",
+      "effects": [
+        {
+          "type": "restore_percent_max_mp",
+          "valuePct": 100
+        }
+      ]
+    },
+    {
+      "id": "precision_potion",
+      "name": "Precision Potion",
+      "type": "buff",
+      "weight": 4,
+      "initiativeModifier": -200,
+      "targeting": "single_ally",
+      "durationTicks": 50,
+      "effectDescription": "Gain +15% Physical Accuracy and +15% Magical Accuracy for 50 ticks.",
+      "effects": [
+        {
+          "type": "pacc_up",
+          "magnitudePct": 15,
+          "durationTicks": 50
+        },
+        {
+          "type": "macc_up",
+          "magnitudePct": 15,
+          "durationTicks": 50
+        }
+      ]
+    },
+    {
+      "id": "purify_potion",
+      "name": "Purify Potion",
+      "type": "cleanse",
+      "weight": 4,
+      "initiativeModifier": -200,
+      "targeting": "single_ally",
+      "durationTicks": 10,
+      "effectDescription": "Purify target and grant Unstoppable for 10 ticks.",
+      "effects": [
+        {
+          "type": "purify"
+        },
+        {
+          "type": "unstoppable",
+          "durationTicks": 10
+        }
+      ]
+    },
+    {
+      "id": "smoke_bomb",
+      "name": "Smoke Bomb",
+      "type": "utility",
+      "weight": 2,
+      "initiativeModifier": 0,
+      "targeting": "all_party_members",
+      "durationTicks": 10,
+      "effectDescription": "All party members gain +30% Evasion; associated accuracy penalties also apply per in-game description for 10 ticks.",
+      "effects": [
+        {
+          "type": "eva_up",
+          "magnitudePct": 30,
+          "durationTicks": 10
+        },
+        {
+          "type": "pacc_down",
+          "magnitudePct": 10,
+          "durationTicks": 10
+        },
+        {
+          "type": "macc_down",
+          "magnitudePct": 10,
+          "durationTicks": 10
+        }
+      ],
+      "notes": [
+        "Model final targeting/side effects according to live parsed combat state if the UI reveals additional specificity."
+      ]
+    },
+    {
+      "id": "magic_resistance_potion",
+      "name": "Magic Resistance Potion",
+      "type": "buff",
+      "weight": 4,
+      "initiativeModifier": -200,
+      "targeting": "single_ally",
+      "durationTicks": 70,
+      "effectDescription": "Gain 20% Magical Damage Reduction for 70 ticks.",
+      "effects": [
+        {
+          "type": "magic_damage_reduction_up",
+          "magnitudePct": 20,
+          "durationTicks": 70
+        }
+      ]
+    },
+    {
+      "id": "spell_potion",
+      "name": "Spell Potion",
+      "type": "buff",
+      "weight": 4,
+      "initiativeModifier": 0,
+      "targeting": "single_ally",
+      "durationTicks": 50,
+      "effectDescription": "Gain +20% Magical Damage for 50 ticks.",
+      "effects": [
+        {
+          "type": "magical_damage_up",
+          "magnitudePct": 20,
+          "durationTicks": 50
+        }
+      ]
+    },
+    {
+      "id": "swiftness_potion",
+      "name": "Swiftness Potion",
+      "type": "buff",
+      "weight": 9,
+      "initiativeModifier": 0,
+      "targeting": "single_ally",
+      "durationTicks": 40,
+      "effectDescription": "Gain +60 Speed for 40 ticks.",
+      "effects": [
+        {
+          "type": "speed_up",
+          "flatValue": 60,
+          "durationTicks": 40
+        }
+      ]
+    },
+    {
+      "id": "toughness_potion",
+      "name": "Toughness Potion",
+      "type": "buff",
+      "weight": 3,
+      "initiativeModifier": -200,
+      "targeting": "single_ally",
+      "durationTicks": 70,
+      "effectDescription": "Gain 20% Physical Damage Reduction for 70 ticks.",
+      "effects": [
+        {
+          "type": "physical_damage_reduction_up",
+          "magnitudePct": 20,
+          "durationTicks": 70
+        }
+      ]
+    }
+  ]
+}

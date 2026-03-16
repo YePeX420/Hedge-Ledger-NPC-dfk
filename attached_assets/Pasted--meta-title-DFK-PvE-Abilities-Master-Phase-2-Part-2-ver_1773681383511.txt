@@ -1,0 +1,274 @@
+{
+  "meta": {
+    "title": "DFK PvE Abilities Master - Phase 2 Part 2",
+    "version": "0.2.0",
+    "includedClasses": ["Wizard", "Pirate"],
+    "notes": [
+      "Normalized for PvE combat simulator",
+      "Supports channeling, delayed packets, and Arcane Power mechanics"
+    ]
+  },
+
+  "abilities": [
+
+    {
+      "id": "wizard_fire_bolt",
+      "class": "Wizard",
+      "discipline": "Pyromancer",
+      "tier": 1,
+      "type": "active",
+      "name": "Fire Bolt",
+      "manaCost": 19,
+      "range": 3,
+      "damageFormula": "(1.0 * SPELL + 0.5 * INT)",
+      "effects": [
+        {
+          "type": "burn",
+          "chanceFormula": "(30 + 6.5 * INT)%"
+        },
+        {
+          "type": "arcane_power_gain",
+          "value": 3
+        }
+      ]
+    },
+
+    {
+      "id": "wizard_fireball",
+      "class": "Wizard",
+      "discipline": "Pyromancer",
+      "tier": 3,
+      "type": "active",
+      "name": "Fireball",
+      "manaCost": 23,
+      "range": 3,
+      "damageFormula": "(1.8 * SPELL + 1.0 * INT)",
+      "effects": [
+        {
+          "type": "burn",
+          "chanceFormula": "(30 + 6.5 * INT)%"
+        },
+        {
+          "type": "arcane_power_consume",
+          "value": 5
+        }
+      ]
+    },
+
+    {
+      "id": "wizard_fire_storm",
+      "class": "Wizard",
+      "discipline": "Pyromancer",
+      "tier": 4,
+      "type": "active",
+      "name": "Fire Storm",
+      "manaCost": 31,
+      "range": 3,
+      "channelInitiative": 600,
+      "damageFormula": "(1.8 * SPELL + 1.0 * INT)",
+      "targeting": {
+        "targetType": "all_enemies"
+      },
+      "effects": [
+        {
+          "type": "burn",
+          "chanceFormula": "(30 + 6.5 * INT)%"
+        }
+      ]
+    },
+
+    {
+      "id": "wizard_pyroclast_explosion",
+      "class": "Wizard",
+      "discipline": "Pyromancer",
+      "tier": 5,
+      "type": "active",
+      "name": "Pyroclast Explosion",
+      "manaCost": 40,
+      "range": 3,
+      "damageFormula": "(0.15 * AP * SPELL + 1.0 * INT)",
+      "effects": [
+        {
+          "type": "arcane_power_consume_variable",
+          "max": 30
+        },
+        {
+          "type": "burn",
+          "chanceFormula": "(20 + 5.0 * INT)%"
+        }
+      ]
+    },
+
+    {
+      "id": "wizard_frost_bolt",
+      "class": "Wizard",
+      "discipline": "Cryomancer",
+      "tier": 1,
+      "type": "active",
+      "name": "Frost Bolt",
+      "manaCost": 19,
+      "range": 3,
+      "damageFormula": "(1.0 * SPELL + 0.5 * INT)",
+      "effects": [
+        {
+          "type": "chill",
+          "chanceFormula": "(30 + 6.5 * INT)%"
+        },
+        {
+          "type": "arcane_power_gain",
+          "value": 3
+        }
+      ]
+    },
+
+    {
+      "id": "wizard_frost_lance",
+      "class": "Wizard",
+      "discipline": "Cryomancer",
+      "tier": 4,
+      "type": "active",
+      "name": "Frost Lance",
+      "manaCost": 31,
+      "range": 3,
+      "channelInitiative": 500,
+      "damageFormula": "(1.8 * SPELL + 1.0 * INT)",
+      "effects": [
+        {
+          "type": "chill",
+          "chanceFormula": "(30 + 6.5 * INT)%"
+        }
+      ]
+    },
+
+    {
+      "id": "wizard_wall_of_reflection",
+      "class": "Wizard",
+      "discipline": "Arcanist",
+      "tier": 5,
+      "type": "active",
+      "name": "Wall of Reflection",
+      "manaCost": 29,
+      "range": "party",
+      "effects": [
+        {
+          "type": "wall",
+          "hpFormula": "(0.8 * AP * SPELL + 1.0 * WIS + 1.0 * VIT)"
+        }
+      ],
+      "delayedEffects": [
+        {
+          "delayTicks": 20,
+          "effect": "reflect_damage"
+        },
+        {
+          "delayTicks": 30,
+          "effect": "reflect_damage"
+        }
+      ]
+    },
+
+
+
+    {
+      "id": "pirate_warning_shot",
+      "class": "Pirate",
+      "discipline": "Busster",
+      "tier": 1,
+      "type": "active",
+      "name": "Warning Shot",
+      "manaCost": 8,
+      "range": 2,
+      "damageFormula": "(1.0 * ATTACK + 1.0 * DEX)",
+      "effects": [
+        {
+          "type": "daze",
+          "chanceFormula": "(20 + 4.0 * DEX)%"
+        }
+      ]
+    },
+
+    {
+      "id": "pirate_blunderbusster",
+      "class": "Pirate",
+      "discipline": "Busster",
+      "tier": 2,
+      "type": "active",
+      "name": "Blunderbusster",
+      "manaCost": 12,
+      "range": 2,
+      "damageFormula": "(1.0 * ATTACK + 0.5 * LCK)",
+      "effects": [
+        {
+          "type": "destroy_barrier",
+          "chanceFormula": "(6.5 * DEX)%"
+        },
+        {
+          "type": "destroy_wall",
+          "chanceFormula": "(3.0 * DEX)%"
+        }
+      ]
+    },
+
+    {
+      "id": "pirate_cheatshot",
+      "class": "Pirate",
+      "discipline": "Busster",
+      "tier": 3,
+      "type": "active",
+      "name": "Cheatshot",
+      "manaCost": 13,
+      "range": 3,
+      "damageFormula": "(1.3 * ATTACK + 1.0 * DEX)",
+      "effects": [
+        {
+          "type": "slow",
+          "chanceFormula": "(25 + 4.5 * DEX)%"
+        }
+      ]
+    },
+
+    {
+      "id": "pirate_starboard_cannons",
+      "class": "Pirate",
+      "discipline": "Busster",
+      "tier": 5,
+      "type": "active",
+      "name": "Starboard Cannons",
+      "manaCost": 12,
+      "range": 3,
+      "channelInitiative": 800,
+      "damageFormula": "(1.2 * ATTACK + 1.0 * LCK)",
+      "targeting": {
+        "targetType": "enemy_plus_random"
+      },
+      "effects": [
+        {
+          "type": "pdef_down",
+          "magnitudePct": 35
+        }
+      ]
+    },
+
+    {
+      "id": "pirate_walk_the_plank",
+      "class": "Pirate",
+      "discipline": "Pirate Code",
+      "tier": 5,
+      "type": "active",
+      "name": "Walk the Plank",
+      "manaCost": 15,
+      "range": 1,
+      "damageFormula": "(1.5 * ATTACK + 0.5 * STR + 0.5 * DEX)",
+      "effects": [
+        {
+          "type": "push",
+          "distance": 2
+        },
+        {
+          "type": "execute_threshold"
+        }
+      ]
+    }
+
+  ]
+}

@@ -1,0 +1,224 @@
+{
+  "meta": {
+    "title": "DFK PvE Abilities Master - Phase 2 Part 1",
+    "version": "0.2.0",
+    "includedClasses": ["Archer", "Priest"],
+    "notes": [
+      "Normalized for PvE simulation engine",
+      "Derived from validated in-game screenshots"
+    ]
+  },
+
+  "abilities": [
+
+    {
+      "id": "archer_flurry_multi_shot",
+      "class": "Archer",
+      "discipline": "Flurry",
+      "tier": 1,
+      "type": "active",
+      "name": "Multi-Shot",
+      "manaCost": 9,
+      "range": 3,
+      "accModifierPct": -7,
+      "channelInitiative": 0,
+      "initiativeGain": 0,
+      "initiativeLoss": 0,
+      "damageFormula": "3 * (0.7 * ATTACK)",
+      "targeting": {
+        "targetType": "enemy",
+        "targetCount": 1,
+        "hits": 3
+      },
+      "effects": [
+        {
+          "type": "multi_hit_damage",
+          "formula": "0.7 * ATTACK",
+          "repeat": 3
+        },
+        {
+          "type": "crit_strike_chance_bonus",
+          "magnitudePct": 20
+        }
+      ]
+    },
+
+    {
+      "id": "archer_flurry",
+      "class": "Archer",
+      "discipline": "Flurry",
+      "tier": 2,
+      "type": "passive",
+      "name": "Flurry",
+      "effects": [
+        {
+          "type": "crit_strike_chance",
+          "formula": "(1.0 * DEX)%"
+        },
+        {
+          "type": "damage_taken_up",
+          "magnitudePct": 10
+        }
+      ]
+    },
+
+    {
+      "id": "archer_flurry_rapid_shot",
+      "class": "Archer",
+      "discipline": "Flurry",
+      "tier": 3,
+      "type": "active",
+      "name": "Rapid Shot",
+      "manaCost": 15,
+      "range": 3,
+      "accModifierPct": -10,
+      "damageFormula": "3 * (1.5 * ATTACK)",
+      "targeting": {
+        "targetType": "random_enemy",
+        "targetCount": 3,
+        "hits": 3
+      },
+      "effects": [
+        {
+          "type": "multi_hit_damage",
+          "formula": "1.5 * ATTACK"
+        },
+        {
+          "type": "daze",
+          "chanceFormula": "(28 + 2.0 * LCK)%"
+        }
+      ]
+    },
+
+    {
+      "id": "archer_precision_strike",
+      "class": "Archer",
+      "discipline": "Precision",
+      "tier": 1,
+      "type": "active",
+      "name": "Precision Strike",
+      "manaCost": 10,
+      "range": 3,
+      "channelInitiative": 700,
+      "accModifierPct": 5,
+      "damageFormula": "(2.0 * ATTACK + 2.0 * DEX)",
+      "effects": [
+        {
+          "type": "stun",
+          "chanceFormula": "(5 + 3.5 * DEX)%"
+        }
+      ]
+    },
+
+    {
+      "id": "archer_piercing_shot",
+      "class": "Archer",
+      "discipline": "Marksmanship",
+      "tier": 1,
+      "type": "active",
+      "name": "Piercing Shot",
+      "manaCost": 11,
+      "range": 3,
+      "damageFormula": "(1.4 * ATTACK + 1.0 * DEX)",
+      "effects": [
+        {
+          "type": "pierce",
+          "magnitudePct": 65
+        }
+      ]
+    },
+
+
+
+    {
+      "id": "priest_prayer_of_healing",
+      "class": "Priest",
+      "discipline": "Prayer",
+      "tier": 1,
+      "type": "active",
+      "name": "Prayer of Healing",
+      "manaCost": 26,
+      "range": "ally",
+      "healFormula": "(2.0 * SPELL + 1.0 * WIS + 0.5 * INT)"
+    },
+
+    {
+      "id": "priest_prayer_of_might",
+      "class": "Priest",
+      "discipline": "Prayer",
+      "tier": 3,
+      "type": "active",
+      "name": "Prayer of Might",
+      "manaCost": 27,
+      "range": "ally",
+      "healFormula": "(1.0 * SPELL + 1.0 * WIS + 0.5 * INT)",
+      "effects": [
+        {
+          "type": "attack_up",
+          "formula": "(15 + 3.0 * INT)%"
+        }
+      ]
+    },
+
+    {
+      "id": "priest_prayer_of_protection",
+      "class": "Priest",
+      "discipline": "Prayer",
+      "tier": 4,
+      "type": "active",
+      "name": "Prayer of Protection",
+      "manaCost": 33,
+      "range": "ally",
+      "barrierFormula": "(1.5 * SPELL + 2.0 * WIS)"
+    },
+
+    {
+      "id": "priest_holy_light",
+      "class": "Priest",
+      "discipline": "Holy",
+      "tier": 1,
+      "type": "active",
+      "name": "Holy Light",
+      "manaCost": 18,
+      "range": 3,
+      "damageFormula": "(0.5 * SPELL + 0.5 * INT)",
+      "effects": [
+        {
+          "type": "holy_dot",
+          "damageFormula": "(0.3 * SPELL)",
+          "durationTurns": 3
+        }
+      ]
+    },
+
+    {
+      "id": "priest_holy_wrath",
+      "class": "Priest",
+      "discipline": "Holy",
+      "tier": 4,
+      "type": "active",
+      "name": "Holy Wrath",
+      "manaCost": 37,
+      "range": 3,
+      "damageFormula": "(1.0 * SPELL + 2.0 * INT + 1.0 * WIS)"
+    },
+
+    {
+      "id": "priest_cleansing_gift",
+      "class": "Priest",
+      "discipline": "Blessings",
+      "tier": 1,
+      "type": "active",
+      "name": "Cleansing Gift",
+      "manaCost": 19,
+      "range": "ally",
+      "healFormula": "(1.0 * SPELL + 1.0 * WIS + 0.5 * VIT)",
+      "effects": [
+        {
+          "type": "cleanse"
+        }
+      ]
+    }
+
+  ]
+}

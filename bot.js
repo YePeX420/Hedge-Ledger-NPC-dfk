@@ -21768,6 +21768,11 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
   const server = http.createServer(app);
 
   // ─── PVE Companion WebSocket Server ──────────────────────────────────────
+  // Eagerly preload master data so it's ready before the first WebSocket turn
+  import('./server/pve-master-data.ts').then(m => m.preloadMasterData()).catch(err =>
+    console.warn('[MasterData] Preload failed (non-fatal):', err.message)
+  );
+
   const { WebSocketServer } = await import('ws');
   const companionWss = new WebSocketServer({ noServer: true });
   const companionSessions = new Map();
@@ -21807,7 +21812,14 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           await rawPg`UPDATE pve_companion_sessions SET status = 'connected', last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
 
           if (!companionSessions.has(sessionToken)) {
-            companionSessions.set(sessionToken, { clients: new Set(), turnEvents: [], heroStates: null, enemyId: null });
+            companionSessions.set(sessionToken, {
+              clients: new Set(),
+              turnEvents: [],
+              heroStates: null,
+              enemyId: null,
+              battleBudgetRemaining: null,
+              consumableQuantities: {},
+            });
           }
           companionSessions.get(sessionToken).clients.add(ws);
 
@@ -21856,11 +21868,21 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             const { scoreActions, buildBattleStateFromTurnEvents } = await import('./server/pve-scoring-engine.ts');
             const enemyEntry = getEnemy(session.enemyId || msg.enemyId || 'MAD_BOAR');
             if (enemyEntry && session.heroStates && msg.activeHeroSlot !== undefined) {
+              // Update budget from live telemetry message if provided
+              if (msg.battleBudgetRemaining !== undefined) {
+                session.battleBudgetRemaining = msg.battleBudgetRemaining;
+              }
+              if (msg.consumableQuantities && typeof msg.consumableQuantities === 'object') {
+                session.consumableQuantities = { ...session.consumableQuantities, ...msg.consumableQuantities };
+              }
+
               const battleState = buildBattleStateFromTurnEvents(
                 session.heroStates,
                 enemyEntry,
                 session.turnEvents,
-                msg.activeHeroSlot
+                msg.activeHeroSlot,
+                session.battleBudgetRemaining,
+                session.consumableQuantities,
               );
               const recommendations = scoreActions(battleState, msg.legalActions || undefined);
               const responseMsg = JSON.stringify({

@@ -1,5 +1,6 @@
 import type { BlendedPolicy } from './pve-policy-blender';
 import type { LockoutState } from './pve-availability-engine';
+import { getConsumableSurvivalLift, getAllConsumables } from './pve-master-data';
 
 const DEFAULT_SIMULATION_COUNT = 100;
 const MIN_SIMULATIONS = 50;
@@ -28,9 +29,11 @@ export interface AbilityProfile {
 
 export interface SimulationCandidate {
   actionName: string;
-  actionType: 'skill' | 'basic_attack' | 'health_vial' | 'mana_vial' | 'save_budget';
+  actionType: 'skill' | 'basic_attack' | 'health_vial' | 'mana_vial' | 'consumable' | 'save_budget';
   manaCost: number;
   budgetCost: number;
+  consumableId?: string;
+  initiativeModifier?: number;
 }
 
 export interface SimulationResult {
@@ -489,6 +492,25 @@ function runSingleSimulation(
   } else if (candidate.actionType === 'mana_vial') {
     state.heroMp = Math.min(state.heroMaxMp, state.heroMp + Math.round(state.heroMaxMp * 0.35));
     state.budgetSpent += candidate.budgetCost;
+  } else if (candidate.actionType === 'consumable' && candidate.consumableId) {
+    const allConsumables = getAllConsumables();
+    const consumable = allConsumables.find(c => c.id === candidate.consumableId || c.name === candidate.consumableId);
+    if (consumable) {
+      for (const effect of consumable.effects) {
+        const type = (effect as { type: string; valuePct?: number }).type;
+        const valuePct = (effect as { type: string; valuePct?: number }).valuePct ?? 0;
+        if (type === 'heal_percent_max_hp') {
+          state.heroHp = Math.min(state.heroMaxHp, state.heroHp + Math.round(state.heroMaxHp * valuePct / 100));
+        } else if (type === 'restore_percent_max_mp') {
+          state.heroMp = Math.min(state.heroMaxMp, state.heroMp + Math.round(state.heroMaxMp * valuePct / 100));
+        } else if (type === 'cleanse_debuff') {
+          state.heroStatusEffects = state.heroStatusEffects.filter(
+            e => !['Bleed', 'Poison', 'Burn', 'Chill'].includes(e.type)
+          );
+        }
+      }
+    }
+    state.budgetSpent += candidate.budgetCost;
   } else if (candidate.actionType !== 'save_budget') {
     const dmg = simulateHeroDamage(candidate, heroDamageRange);
     state.totalDamageDealt += dmg;
@@ -705,18 +727,30 @@ export function runMonteCarloSimulation(
     const normResource = candidate.budgetCost === 0 ? 0.5 :
       battleBudgetRemaining !== null ? Math.max(0, 1 - candidate.budgetCost / Math.max(1, battleBudgetRemaining)) : 0.3;
 
-    const consumableValue = candidate.actionType === 'health_vial'
-      ? Math.max(0, 1 - heroHp / heroMaxHp)
-      : candidate.actionType === 'mana_vial'
-        ? Math.max(0, 1 - heroMp / heroMaxMp) * 0.7
-        : 0;
+    let consumableValue = 0;
+    if (candidate.actionType === 'health_vial') {
+      consumableValue = Math.max(0, 1 - heroHp / heroMaxHp);
+    } else if (candidate.actionType === 'mana_vial') {
+      consumableValue = Math.max(0, 1 - heroMp / heroMaxMp) * 0.7;
+    } else if (candidate.actionType === 'consumable' && candidate.consumableId) {
+      const allConsumables = getAllConsumables();
+      const consumable = allConsumables.find(c => c.id === candidate.consumableId || c.name === candidate.consumableId);
+      if (consumable) {
+        consumableValue = getConsumableSurvivalLift(consumable, heroHp, heroMaxHp, heroMp, heroMaxMp);
+      }
+    }
+
+    const initiativePenaltyScore = candidate.initiativeModifier
+      ? Math.max(-0.15, candidate.initiativeModifier / 3000)
+      : 0;
 
     const compositeScore =
       SCORE_WEIGHTS.survival * normSurvival +
       SCORE_WEIGHTS.kill * normKill +
       SCORE_WEIGHTS.damage * normDamage +
       SCORE_WEIGHTS.control * normControl +
-      SCORE_WEIGHTS.resource * normResource;
+      SCORE_WEIGHTS.resource * normResource +
+      initiativePenaltyScore;
 
     results.push({
       candidate,
@@ -751,6 +785,17 @@ function computeDeterministicScore(
   }
   if (candidate.actionType === 'mana_vial') {
     return 0.35;
+  }
+  if (candidate.actionType === 'consumable' && candidate.consumableId) {
+    const allConsumables = getAllConsumables();
+    const consumable = allConsumables.find(c => c.id === candidate.consumableId || c.name === candidate.consumableId);
+    if (consumable) {
+      const lift = getConsumableSurvivalLift(consumable, heroHp, heroMaxHp, heroHp, heroMaxHp);
+      const urgencyBonus = heroHp / heroMaxHp < 0.4 ? 0.2 : 0;
+      const initPenalty = candidate.initiativeModifier ? Math.max(-0.1, candidate.initiativeModifier / 3000) : 0;
+      return Math.min(0.85, 0.3 + lift + urgencyBonus + initPenalty);
+    }
+    return 0.3;
   }
   if (candidate.actionType === 'save_budget') {
     return 0.2;

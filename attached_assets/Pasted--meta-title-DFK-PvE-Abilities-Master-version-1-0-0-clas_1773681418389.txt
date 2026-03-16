@@ -1,0 +1,272 @@
+{
+  "meta": {
+    "title": "DFK PvE Abilities Master",
+    "version": "1.0.0",
+    "classes": [
+      "Knight",
+      "Warrior",
+      "Archer",
+      "Priest",
+      "Wizard",
+      "Pirate",
+      "Berserker",
+      "Seer"
+    ],
+    "notes": [
+      "Normalized for PvE combat simulator",
+      "Formulas preserved as strings for runtime evaluation",
+      "Derived from validated skill codex screenshots"
+    ]
+  },
+
+  "abilities": [
+
+    {
+      "id": "knight_mighty_strike",
+      "class": "Knight",
+      "discipline": "Valor",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 19,
+      "range": 1,
+      "damageFormula": "(1.4 * ATTACK + 1.0 * STR)",
+      "effects": [
+        {
+          "type": "reduce_pdef",
+          "chanceFormula": "(30 + 6.0 * STR)%"
+        }
+      ]
+    },
+
+    {
+      "id": "knight_shield_up",
+      "class": "Knight",
+      "discipline": "Iron",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 17,
+      "effects": [
+        {
+          "type": "block_up",
+          "magnitudePct": 10
+        },
+        {
+          "type": "pdef_up",
+          "magnitudePct": 50
+        }
+      ]
+    },
+
+    {
+      "id": "warrior_gladiator_strike",
+      "class": "Warrior",
+      "discipline": "Gladiator",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 12,
+      "range": 1,
+      "damageFormula": "(1.1 * ATTACK + 0.6 * STR + 0.6 * END)"
+    },
+
+    {
+      "id": "warrior_whirlwind",
+      "class": "Warrior",
+      "discipline": "Gladiator",
+      "tier": 3,
+      "type": "active",
+      "manaCost": 16,
+      "range": 3,
+      "damageFormula": "(1.4 * ATTACK)",
+      "effects": [
+        {
+          "type": "slow",
+          "chanceFormula": "(30 + 6.0 * END)%"
+        }
+      ]
+    },
+
+    {
+      "id": "archer_multi_shot",
+      "class": "Archer",
+      "discipline": "Flurry",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 9,
+      "range": 3,
+      "damageFormula": "3 * (0.7 * ATTACK)"
+    },
+
+    {
+      "id": "archer_precision_strike",
+      "class": "Archer",
+      "discipline": "Precision",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 10,
+      "range": 3,
+      "damageFormula": "(2.0 * ATTACK + 2.0 * DEX)",
+      "effects": [
+        {
+          "type": "stun",
+          "chanceFormula": "(5 + 3.5 * DEX)%"
+        }
+      ]
+    },
+
+    {
+      "id": "priest_prayer_of_healing",
+      "class": "Priest",
+      "discipline": "Prayer",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 26,
+      "healFormula": "(2.0 * SPELL + 1.0 * WIS + 0.5 * INT)"
+    },
+
+    {
+      "id": "priest_holy_light",
+      "class": "Priest",
+      "discipline": "Holy",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 18,
+      "damageFormula": "(0.5 * SPELL + 0.5 * INT)",
+      "effects": [
+        {
+          "type": "holy_dot",
+          "damageFormula": "(0.3 * SPELL)",
+          "durationTurns": 3
+        }
+      ]
+    },
+
+    {
+      "id": "wizard_fire_bolt",
+      "class": "Wizard",
+      "discipline": "Pyromancer",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 19,
+      "damageFormula": "(1.0 * SPELL + 0.5 * INT)",
+      "effects": [
+        {
+          "type": "burn",
+          "chanceFormula": "(30 + 6.5 * INT)%"
+        }
+      ]
+    },
+
+    {
+      "id": "wizard_fireball",
+      "class": "Wizard",
+      "discipline": "Pyromancer",
+      "tier": 3,
+      "type": "active",
+      "manaCost": 23,
+      "damageFormula": "(1.8 * SPELL + 1.0 * INT)"
+    },
+
+    {
+      "id": "pirate_warning_shot",
+      "class": "Pirate",
+      "discipline": "Busster",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 8,
+      "damageFormula": "(1.0 * ATTACK + 1.0 * DEX)",
+      "effects": [
+        {
+          "type": "daze",
+          "chanceFormula": "(20 + 4.0 * DEX)%"
+        }
+      ]
+    },
+
+    {
+      "id": "pirate_starboard_cannons",
+      "class": "Pirate",
+      "discipline": "Busster",
+      "tier": 5,
+      "type": "active",
+      "manaCost": 12,
+      "channelInitiative": 800,
+      "damageFormula": "(1.2 * ATTACK + 1.0 * LCK)"
+    },
+
+    {
+      "id": "berserker_bloodlust",
+      "class": "Berserker",
+      "discipline": "Bear",
+      "tier": 3,
+      "type": "active",
+      "manaCost": 11,
+      "effects": [
+        {
+          "type": "self_damage",
+          "valuePct": 15
+        },
+        {
+          "type": "attack_up"
+        }
+      ]
+    },
+
+    {
+      "id": "berserker_blood_rage",
+      "class": "Berserker",
+      "discipline": "Boar",
+      "tier": 5,
+      "type": "active",
+      "manaCost": 16,
+      "channelInitiative": 500,
+      "effects": [
+        {
+          "type": "aoe_damage"
+        },
+        {
+          "type": "friendly_fire"
+        },
+        {
+          "type": "berserk"
+        }
+      ]
+    },
+
+    {
+      "id": "seer_future_sight",
+      "class": "Seer",
+      "discipline": "Oracle",
+      "tier": 1,
+      "type": "active",
+      "manaCost": 35,
+      "delayedEffects": [
+        {
+          "delayTicks": 10,
+          "effect": {
+            "type": "heal",
+            "formula": "(1.3 * SPELL + 1.0 * WIS)"
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "seer_time_sink",
+      "class": "Seer",
+      "discipline": "Astrologer",
+      "tier": 3,
+      "type": "active",
+      "manaCost": 43,
+      "delayedEffects": [
+        {
+          "delayTicks": 30,
+          "effect": {
+            "type": "damage",
+            "formula": "(1.0 * SPELL + 2.0 * TARGET_AGI)"
+          }
+        }
+      ]
+    }
+
+  ]
+}

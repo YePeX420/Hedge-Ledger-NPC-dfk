@@ -1,0 +1,533 @@
+{
+  "meta": {
+    "title": "DFK PvE Statuses Master",
+    "version": "1.0.0",
+    "source": "Built from validated combat documentation and screenshot-backed codex analysis"
+  },
+  "statuses": [
+    {
+      "id": "bleed",
+      "name": "Bleed",
+      "category": "dot",
+      "durationUnit": "ticks",
+      "stacks": "special",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Physical damage over time.",
+        "Can be cured by Coagulant Potion.",
+        "Some skills gain bonus value vs bleeding targets."
+      ]
+    },
+    {
+      "id": "burn",
+      "name": "Burn",
+      "category": "dot",
+      "durationUnit": "ticks",
+      "stacks": "count",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Magical damage over time.",
+        "Wizard Pyromancer scales around Burn stacks.",
+        "Some abilities extend Burn duration or consume Burn stacks."
+      ]
+    },
+    {
+      "id": "chill",
+      "name": "Chill",
+      "category": "debuff",
+      "durationUnit": "ticks",
+      "stacks": "count",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Control/setup debuff.",
+        "Wizard Cryomancer scales around Chill stacks.",
+        "Some abilities consume Chill for bonus damage."
+      ]
+    },
+    {
+      "id": "poison",
+      "name": "Poison",
+      "category": "dot",
+      "durationUnit": "ticks",
+      "stacks": "special",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Damage over time.",
+        "Cured by Anti-Poison Potion."
+      ]
+    },
+    {
+      "id": "stun",
+      "name": "Stun",
+      "category": "control",
+      "durationUnit": "turns",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": true,
+      "notes": [
+        "Target cannot act."
+      ]
+    },
+    {
+      "id": "silence",
+      "name": "Silence",
+      "category": "control",
+      "durationUnit": "turns",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": true,
+      "notes": [
+        "Blocks skill usage.",
+        "Different from Amnesia."
+      ]
+    },
+    {
+      "id": "amnesia",
+      "name": "Amnesia",
+      "category": "control",
+      "durationUnit": "turns",
+      "stacks": "special",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Locks future skill usage according to source skill.",
+        "Track as runtime lockout table, not just a boolean."
+      ]
+    },
+    {
+      "id": "fear",
+      "name": "Fear",
+      "category": "control",
+      "durationUnit": "turns",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": true,
+      "notes": [
+        "Forced behavior / action disruption state."
+      ]
+    },
+    {
+      "id": "taunt",
+      "name": "Taunt",
+      "category": "control",
+      "durationUnit": "turns",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": true,
+      "notes": [
+        "Redirects target selection toward taunting unit.",
+        "Can interrupt certain channels if target legality changes."
+      ]
+    },
+    {
+      "id": "daze",
+      "name": "Daze",
+      "category": "control",
+      "durationUnit": "turns",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": true,
+      "notes": [
+        "Partial control / disruption state."
+      ]
+    },
+    {
+      "id": "root",
+      "name": "Root",
+      "category": "control",
+      "durationUnit": "turns",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": true,
+      "notes": [
+        "Movement / position-locking effect where applicable."
+      ]
+    },
+    {
+      "id": "slow",
+      "name": "Slow",
+      "category": "debuff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Reduces tempo / effective initiative performance.",
+        "Must interact with Speed / Haste engine."
+      ]
+    },
+    {
+      "id": "intimidate",
+      "name": "Intimidate",
+      "category": "debuff",
+      "durationUnit": "turns",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Output reduction / morale-style debuff."
+      ]
+    },
+    {
+      "id": "confuse",
+      "name": "Confuse",
+      "category": "control",
+      "durationUnit": "turns",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": true,
+      "notes": [
+        "Behavior disruption; implement per observed game behavior."
+      ]
+    },
+    {
+      "id": "barrier",
+      "name": "Barrier",
+      "category": "defense",
+      "durationUnit": "special",
+      "stacks": "special",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Absorbs damage as separate HP-like layer.",
+        "Evaluated after defense/reduction and before HP loss."
+      ]
+    },
+    {
+      "id": "pure_barrier",
+      "name": "Pure Barrier",
+      "category": "defense",
+      "durationUnit": "special",
+      "stacks": "special",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Variant of Barrier used by some magic branches.",
+        "Preserve as separate status ID in engine."
+      ]
+    },
+    {
+      "id": "ward",
+      "name": "Ward",
+      "category": "defense",
+      "durationUnit": "special",
+      "stacks": "special",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Special protective layer with branch-specific behavior.",
+        "Do not treat as generic Barrier."
+      ]
+    },
+    {
+      "id": "pure_ward",
+      "name": "Pure Ward",
+      "category": "defense",
+      "durationUnit": "special",
+      "stacks": "special",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Preserve as distinct engine object."
+      ]
+    },
+    {
+      "id": "unstoppable",
+      "name": "Unstoppable",
+      "category": "buff",
+      "durationUnit": "turns",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Blocks certain control applications.",
+        "Check before Stun / Silence / Taunt / Daze / Fear / Root where appropriate."
+      ]
+    },
+    {
+      "id": "haste",
+      "name": "Haste",
+      "category": "buff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Modifies action timing / initiative efficiency."
+      ]
+    },
+    {
+      "id": "evasion_up",
+      "name": "Evasion Up",
+      "category": "buff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Raises effective EVA."
+      ]
+    },
+    {
+      "id": "accuracy_up",
+      "name": "Accuracy Up",
+      "category": "buff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Modifies PACC / MACC."
+      ]
+    },
+    {
+      "id": "pierce_up",
+      "name": "Pierce Up",
+      "category": "buff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Improves armor penetration behavior."
+      ]
+    },
+    {
+      "id": "lifesteal_up",
+      "name": "Lifesteal Up",
+      "category": "buff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Modifies heal-from-damage behavior."
+      ]
+    },
+    {
+      "id": "damage_reduction_up",
+      "name": "Damage Reduction Up",
+      "category": "buff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Modifies PRED / MRED depending on source."
+      ]
+    },
+    {
+      "id": "damage_taken_up",
+      "name": "Damage Taken Up",
+      "category": "debuff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Target receives additional damage from relevant sources."
+      ]
+    },
+    {
+      "id": "berserk",
+      "name": "Berserk",
+      "category": "special",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Special self-state used by Berserker branches.",
+        "Engine behavior must match observed game combat logs."
+      ]
+    },
+    {
+      "id": "berserkers_mark",
+      "name": "Berserker's Mark",
+      "category": "debuff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": true,
+      "affectedByPurify": true,
+      "affectedByCleanse": true,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Enables follow-up targeting or combo behavior for Berserker skills."
+      ]
+    },
+    {
+      "id": "dispel",
+      "name": "Dispel",
+      "category": "special",
+      "durationUnit": "instant",
+      "stacks": "none",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Removes eligible buffs or protections from target."
+      ]
+    },
+    {
+      "id": "negate",
+      "name": "Negate",
+      "category": "special",
+      "durationUnit": "instant",
+      "stacks": "none",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Negates eligible delayed or active effects depending on source."
+      ]
+    },
+    {
+      "id": "cleanse",
+      "name": "Cleanse",
+      "category": "special",
+      "durationUnit": "instant",
+      "stacks": "none",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Removes eligible negative statuses from target."
+      ]
+    },
+    {
+      "id": "purify",
+      "name": "Purify",
+      "category": "special",
+      "durationUnit": "instant",
+      "stacks": "none",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Stronger cleanse-like action; model separately from Cleanse."
+      ]
+    },
+    {
+      "id": "push",
+      "name": "Push",
+      "category": "position",
+      "durationUnit": "instant",
+      "stacks": "none",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Changes target position backward if allowed."
+      ]
+    },
+    {
+      "id": "pull",
+      "name": "Pull",
+      "category": "position",
+      "durationUnit": "instant",
+      "stacks": "none",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": [
+        "Changes target position forward if allowed."
+      ]
+    },
+    {
+      "id": "push_resistance",
+      "name": "Push Resistance",
+      "category": "buff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": []
+    },
+    {
+      "id": "pull_resistance",
+      "name": "Pull Resistance",
+      "category": "buff",
+      "durationUnit": "ticks",
+      "stacks": "refresh",
+      "affectedBySER": false,
+      "affectedByPurify": false,
+      "affectedByCleanse": false,
+      "blockedByUnstoppable": false,
+      "notes": []
+    }
+  ],
+  "runtimeSpecialObjects": [
+    "damage_redirect",
+    "status_redirect",
+    "channel_lock",
+    "delayed_packet",
+    "wall",
+    "execute_threshold"
+  ]
+}
