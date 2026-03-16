@@ -8,8 +8,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { HeroDetailModal } from '@/components/dfk/HeroDetailModal';
+import { HeroDetailModal, RARITY_NAMES, WEAPON_TYPE_NAMES, ARMOR_TYPE_NAMES } from '@/components/dfk/HeroDetailModal';
 import type { HeroDetail } from '@/components/dfk/HeroDetailModal';
+import { getActiveSkillName, getPassiveSkillName } from '@/data/dfk-abilities';
 import { parseLiveCombatState, getLiveStatOverlay } from '@/lib/dfk-live-combat-state';
 import type { LiveCombatState, BattleTurn } from '@/lib/dfk-live-combat-state';
 
@@ -188,72 +189,244 @@ function shortAddr(addr: string | null | undefined): string {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
-// ─── Hero Card ────────────────────────────────────────────────────────────────
+// ─── Matchup Hero Card (portrait-style) ──────────────────────────────────────
 
-function HeroCard({ hero, onViewStats }: { hero: HeroDetail; onViewStats: () => void }) {
-  const [open, setOpen] = useState(false);
+const RARITY_BG: Record<number, string> = {
+  0: 'bg-muted/40 border-border/50',
+  1: 'bg-green-500/5 border-green-500/20',
+  2: 'bg-blue-500/5 border-blue-500/20',
+  3: 'bg-purple-500/5 border-purple-500/20',
+  4: 'bg-amber-500/5 border-amber-500/20',
+};
+
+const TRAIT_PASSIVES: Record<number, { label: string; color: string }> = {
+  16: { label: 'Leadership', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
+  17: { label: 'Efficient', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
+  18: { label: 'Menacing', color: 'bg-red-500/20 text-red-400 border-red-500/30' },
+  19: { label: 'Toxic', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+};
+
+function MatchupHeroCard({ hero, onSelect }: { hero: HeroDetail; onSelect: (hero: HeroDetail) => void }) {
   const rarityColor = RARITY_COLORS[hero.rarity] ?? 'text-muted-foreground';
+  const rarityBg = RARITY_BG[hero.rarity] ?? RARITY_BG[0];
+  const rarityName = RARITY_NAMES[hero.rarity] ?? 'Common';
 
-  const hasLeadership = hero.passive1 === 9 || hero.passive2 === 9;
-  const hasMenacing  = hero.passive1 === 11 || hero.passive2 === 11;
+  const statTotal = hero.strength + hero.dexterity + hero.agility + hero.intelligence
+    + hero.wisdom + hero.vitality + hero.endurance + hero.luck;
+
+  const active1Name = getActiveSkillName(hero.active1);
+  const active2Name = getActiveSkillName(hero.active2);
+  const passive1Name = getPassiveSkillName(hero.passive1);
+  const passive2Name = getPassiveSkillName(hero.passive2);
+
+  const weaponName = hero.weapon1
+    ? (hero.weapon1.itemName ?? `${WEAPON_TYPE_NAMES[hero.weapon1.weaponType] ?? 'Weapon'} #${hero.weapon1.displayId}`)
+    : null;
+  const weapon2Name = hero.weapon2
+    ? (hero.weapon2.itemName ?? `${WEAPON_TYPE_NAMES[hero.weapon2.weaponType] ?? 'Weapon'} #${hero.weapon2.displayId}`)
+    : null;
+  const armorName = hero.armor
+    ? (hero.armor.itemName ?? `${ARMOR_TYPE_NAMES[hero.armor.armorType] ?? ''} Armor #${hero.armor.displayId}`)
+    : null;
+  const offhandName = hero.offhand1
+    ? (hero.offhand1.itemName ?? `Offhand #${hero.offhand1.displayId}`)
+    : null;
+  const offhand2Name = hero.offhand2
+    ? (hero.offhand2.itemName ?? `Offhand #${hero.offhand2.displayId}`)
+    : null;
+  const headName = hero.accessory
+    ? (hero.accessory.itemName ?? `Accessory #${hero.accessory.displayId}`)
+    : null;
 
   return (
-    <div className="border border-border/50 rounded-md overflow-hidden">
-      <button
-        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/30 transition-colors"
-        onClick={() => setOpen(v => !v)}
-        data-testid={`hero-toggle-${hero.id}`}
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className={`text-sm font-semibold ${rarityColor}`}>{hero.mainClassStr}</span>
-            <span className="text-xs text-muted-foreground">Lv{hero.level}</span>
-            {hasLeadership && (
-              <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-400 font-medium">Lead</span>
+    <button
+      onClick={() => onSelect(hero)}
+      className={`flex flex-col border rounded-md p-3 w-[180px] shrink-0 text-left transition-colors hover-elevate cursor-pointer ${rarityBg}`}
+      data-testid={`matchup-hero-card-${hero.id}`}
+    >
+      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+        <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${rarityColor} border-current`}>
+          {rarityName}
+        </Badge>
+        <span className="text-[10px] text-muted-foreground">Lv{hero.level}</span>
+      </div>
+      <p className="text-sm font-semibold truncate">{hero.mainClassStr}</p>
+      {hero.subClassStr && hero.subClassStr !== hero.mainClassStr && (
+        <p className="text-[10px] text-muted-foreground truncate">{hero.subClassStr}</p>
+      )}
+
+      <div className="flex gap-3 text-[10px] mt-2 text-muted-foreground">
+        <span>HP <span className="text-foreground font-medium">{hero.hp}</span></span>
+        <span>MP <span className="text-foreground font-medium">{hero.mp}</span></span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] mt-2">
+        {([
+          ['STR', hero.strength], ['DEX', hero.dexterity],
+          ['AGI', hero.agility], ['INT', hero.intelligence],
+          ['WIS', hero.wisdom], ['VIT', hero.vitality],
+          ['END', hero.endurance], ['LCK', hero.luck],
+        ] as [string, number][]).map(([label, val]) => (
+          <div key={label} className="flex justify-between">
+            <span className="text-muted-foreground">{label}</span>
+            <span className="font-mono font-medium tabular-nums">{val}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-1 pt-1 border-t border-border/30 flex justify-between text-[10px]">
+        <span className="text-muted-foreground">Total</span>
+        <span className="font-mono font-semibold tabular-nums">{statTotal}</span>
+      </div>
+
+      {(active1Name || active2Name) && (
+        <div className="mt-2">
+          <span className="text-[9px] text-muted-foreground uppercase tracking-wide">Active</span>
+          <div className="flex flex-wrap gap-1 mt-0.5">
+            {active1Name && (
+              <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-blue-500/30 text-blue-400">{active1Name}</Badge>
             )}
-            {hasMenacing && (
-              <span className="text-[9px] px-1 rounded bg-red-500/20 text-red-400 font-medium">Menacing</span>
+            {active2Name && (
+              <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-blue-500/30 text-blue-400">{active2Name}</Badge>
             )}
           </div>
-          <div className="flex gap-2 text-[10px] text-muted-foreground mt-0.5">
-            <span>AGI {hero.agility}</span>
-            <span>STR {hero.strength}</span>
-            <span>VIT {hero.vitality}</span>
-          </div>
-        </div>
-        <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && (
-        <div className="border-t border-border/40 px-3 py-2.5 space-y-2.5 bg-muted/10">
-          <div className="grid grid-cols-4 gap-1 text-xs">
-            {[
-              ['STR', hero.strength], ['DEX', hero.dexterity], ['AGI', hero.agility], ['INT', hero.intelligence],
-              ['WIS', hero.wisdom],   ['VIT', hero.vitality],  ['END', hero.endurance], ['LCK', hero.luck],
-            ].map(([label, val]) => (
-              <div key={label as string} className="flex flex-col items-center rounded-md bg-muted/30 py-1">
-                <span className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</span>
-                <span className="font-semibold text-xs">{val}</span>
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-3 text-xs text-muted-foreground">
-            <span>HP {hero.hp}</span>
-            <span>MP {hero.mp}</span>
-          </div>
-          {(hero.activeSkill1 || hero.activeSkill2 || hero.passiveSkill1 || hero.passiveSkill2) && (
-            <div className="text-xs space-y-0.5 text-muted-foreground">
-              {hero.activeSkill1 && <div><span className="text-foreground/70">Active:</span> {hero.activeSkill1}{hero.activeSkill2 ? `, ${hero.activeSkill2}` : ''}</div>}
-              {(hero.passiveSkill1 || hero.passiveSkill2) && (
-                <div><span className="text-foreground/70">Passive:</span> {[hero.passiveSkill1, hero.passiveSkill2].filter(Boolean).join(', ')}</div>
-              )}
-            </div>
-          )}
-          <Button variant="ghost" size="sm" className="w-full text-xs" onClick={onViewStats} data-testid={`btn-view-stats-${hero.id}`}>
-            View Full Stats
-          </Button>
         </div>
       )}
+
+      {(passive1Name || passive2Name) && (
+        <div className="mt-1">
+          <span className="text-[9px] text-muted-foreground uppercase tracking-wide">Passive</span>
+          <div className="flex flex-wrap gap-1 mt-0.5">
+            {passive1Name && (
+              <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${
+                hero.passive1 && TRAIT_PASSIVES[hero.passive1]
+                  ? TRAIT_PASSIVES[hero.passive1].color
+                  : 'border-muted-foreground/30 text-muted-foreground'
+              }`}>{passive1Name}</Badge>
+            )}
+            {passive2Name && (
+              <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${
+                hero.passive2 && TRAIT_PASSIVES[hero.passive2]
+                  ? TRAIT_PASSIVES[hero.passive2].color
+                  : 'border-muted-foreground/30 text-muted-foreground'
+              }`}>{passive2Name}</Badge>
+            )}
+          </div>
+        </div>
+      )}
+
+      {hero.pet && (
+        <p className="text-[10px] text-muted-foreground mt-2 truncate">
+          Pet: <span className="text-foreground">{hero.pet.name}</span>
+        </p>
+      )}
+
+      {(weaponName || weapon2Name || armorName || offhandName || offhand2Name || headName) && (
+        <div className="mt-2 space-y-0.5 text-[10px] text-muted-foreground">
+          {weaponName && <p className="truncate">Wpn: <span className="text-foreground">{weaponName}</span></p>}
+          {weapon2Name && <p className="truncate">Wpn2: <span className="text-foreground">{weapon2Name}</span></p>}
+          {armorName && <p className="truncate">Armor: <span className="text-foreground">{armorName}</span></p>}
+          {offhandName && <p className="truncate">Off: <span className="text-foreground">{offhandName}</span></p>}
+          {offhand2Name && <p className="truncate">Off2: <span className="text-foreground">{offhand2Name}</span></p>}
+          {headName && <p className="truncate">Acc: <span className="text-foreground">{headName}</span></p>}
+        </div>
+      )}
+    </button>
+  );
+}
+
+function MatchupHeroCardSkeleton() {
+  return (
+    <div className="flex flex-col border border-border/50 rounded-md p-3 w-[180px] shrink-0 animate-pulse" data-testid="matchup-hero-skeleton">
+      <div className="flex gap-1.5 mb-1">
+        <div className="h-4 w-16 bg-muted rounded" />
+        <div className="h-4 w-8 bg-muted rounded" />
+      </div>
+      <div className="h-5 w-24 bg-muted rounded mb-2" />
+      <div className="h-3 w-20 bg-muted rounded mb-2" />
+      <div className="grid grid-cols-2 gap-1">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="h-3 bg-muted rounded" />
+        ))}
+      </div>
+      <div className="h-3 w-16 bg-muted rounded mt-2" />
     </div>
+  );
+}
+
+// ─── Matchup Lineup ──────────────────────────────────────────────────────────
+
+function MatchupLineup({
+  playerA, playerB, nameA, nameB, isLoading, onSelectHero,
+}: {
+  playerA: PlayerEntry | null;
+  playerB: PlayerEntry | null;
+  nameA: string;
+  nameB: string;
+  isLoading: boolean;
+  onSelectHero: (hero: HeroDetail) => void;
+}) {
+  const heroesA = playerA?.heroes ?? [];
+  const heroesB = playerB?.heroes ?? [];
+  const skeletonCount = 3;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Users className="w-4 h-4" />
+          Team Lineup
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-start gap-4 flex-wrap justify-center">
+          <div className="flex flex-col items-center gap-2 min-w-0">
+            <p className="text-sm font-semibold truncate max-w-[200px]" data-testid="lineup-name-a">{nameA}</p>
+            {playerA?.address && (
+              <p className="text-[10px] text-muted-foreground font-mono">{shortAddr(playerA.address)}</p>
+            )}
+            <div className="flex gap-2 flex-wrap justify-center">
+              {isLoading ? (
+                Array.from({ length: skeletonCount }).map((_, i) => <MatchupHeroCardSkeleton key={i} />)
+              ) : heroesA.length > 0 ? (
+                heroesA.map(h => (
+                  <MatchupHeroCard key={h.id} hero={h} onSelect={onSelectHero} />
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground py-4" data-testid="text-no-heroes-a">
+                  {playerA ? 'No hero data loaded yet.' : 'Player not registered yet.'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center self-center py-4">
+            <Badge variant="outline" className="text-lg font-bold px-4 py-1 border-border" data-testid="badge-vs">
+              VS
+            </Badge>
+          </div>
+
+          <div className="flex flex-col items-center gap-2 min-w-0">
+            <p className="text-sm font-semibold truncate max-w-[200px]" data-testid="lineup-name-b">{nameB}</p>
+            {playerB?.address && (
+              <p className="text-[10px] text-muted-foreground font-mono">{shortAddr(playerB.address)}</p>
+            )}
+            <div className="flex gap-2 flex-wrap justify-center">
+              {isLoading ? (
+                Array.from({ length: skeletonCount }).map((_, i) => <MatchupHeroCardSkeleton key={i} />)
+              ) : heroesB.length > 0 ? (
+                heroesB.map(h => (
+                  <MatchupHeroCard key={h.id} hero={h} onSelect={onSelectHero} />
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground py-4" data-testid="text-no-heroes-b">
+                  {playerB ? 'No hero data loaded yet.' : 'Player not registered yet.'}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1242,50 +1415,18 @@ export default function TournamentMatchupPage() {
         </Button>
       </div>
 
-      {/* Section 1: Team Comparison */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Users className="w-4 h-4" />
-            Team Comparison
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              { player: playerA, name: nameA, slot: slotA },
-              { player: playerB, name: nameB, slot: slotB },
-            ].map(({ player, name, slot }) => (
-              <div key={slot}>
-                <div className="mb-3">
-                  <p className="text-sm font-semibold truncate">{name}</p>
-                  {player?.address && (
-                    <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{shortAddr(player.address)}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {player?.heroes && player.heroes.length > 0 ? (
-                    player.heroes.map(hero => (
-                      <HeroCard
-                        key={hero.id}
-                        hero={hero}
-                        onViewStats={() => {
-                          setSelectedHero(hero);
-                          setSelectedHeroBoutId(null);
-                        }}
-                      />
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground py-2">
-                      {player ? 'No hero data loaded yet.' : 'Player not registered yet.'}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Section 1: Team Lineup */}
+      <MatchupLineup
+        playerA={playerA}
+        playerB={playerB}
+        nameA={nameA}
+        nameB={nameB}
+        isLoading={bracketLoading}
+        onSelectHero={(hero) => {
+          setSelectedHero(hero);
+          setSelectedHeroBoutId(null);
+        }}
+      />
 
       {/* Section 2: Initiative Order */}
       {hasBothPlayers && (
