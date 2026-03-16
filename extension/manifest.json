@@ -28,9 +28,28 @@
         "parsers/battleLog.js",
         "parsers/statPanel.js",
         "parsers/turnState.js",
+        "engine/state.js",
+        "engine/dataLoader.js",
+        "engine/normalizer.js",
+        "engine/actions.js",
+        "engine/resolver.js",
+        "engine/heuristics.js",
+        "engine/beam.js",
         "content.js"
       ],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "data/abilities.master.json",
+        "data/statuses.master.json",
+        "data/consumables.master.json",
+        "data/encounters.master.json",
+        "data/enemy_policies.master.json"
+      ],
+      "matches": ["*://game.defikingdoms.com/*"]
     }
   ],
   "content_security_policy": {

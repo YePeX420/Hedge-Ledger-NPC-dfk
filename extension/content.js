@@ -2,6 +2,7 @@
  * DFK Hunt Companion — Content Script
  * Entry point injected into game.defikingdoms.com.
  * Initializes the event emission bridge and coordinates parser modules.
+ * Calls local engine for recommendations after each turn snapshot.
  */
 
 (function () {
@@ -13,6 +14,9 @@
   let turnEventBuffer = [];
   const DEDUP_WINDOW_MS = 500;
   const recentEvents = [];
+  let engineReady = false;
+  let lastRecommendation = null;
+  let unitSnapshotCache = [];
 
   function isDuplicate(event) {
     const now = Date.now();
@@ -40,11 +44,158 @@
     } else if (type === 'turn_snapshot') {
       if (debugMode) storeLocally(payload);
       chrome.runtime.sendMessage({ type: 'state_snapshot', data: payload }).catch(() => {});
+      runLocalRecommendation(payload);
     } else if (type === 'unit_snapshot') {
       if (debugMode) storeLocally(payload);
       chrome.runtime.sendMessage({ type: 'unit_snapshot', data: payload }).catch(() => {});
+      cacheUnitSnapshot(payload);
     }
   };
+
+  function cacheUnitSnapshot(snapshot) {
+    const existing = unitSnapshotCache.findIndex(
+      u => u.unitName === snapshot.unitName && u.unitSide === snapshot.unitSide
+    );
+    if (existing >= 0) {
+      unitSnapshotCache[existing] = snapshot;
+    } else {
+      unitSnapshotCache.push(snapshot);
+      if (unitSnapshotCache.length > 20) unitSnapshotCache.shift();
+    }
+  }
+
+  function runLocalRecommendation(turnSnapshot) {
+    if (!engineReady) return;
+    if (!window.__dfkGetRecommendation) return;
+
+    try {
+      const result = window.__dfkGetRecommendation(turnSnapshot, unitSnapshotCache);
+      lastRecommendation = result;
+      console.log('[DFK Engine] Recommendation:', result);
+      updateOverlay(result);
+    } catch (err) {
+      console.error('[DFK Engine] Recommendation error:', err);
+    }
+  }
+
+  async function initEngine() {
+    if (window.__dfkDataLoader) {
+      try {
+        await window.__dfkDataLoader.loadAllData();
+        if (window.__dfkDataLoader.isLoaded()) {
+          engineReady = true;
+          console.log('[DFK Engine] Engine initialized successfully');
+          createOverlay();
+        } else {
+          console.error('[DFK Engine] Data loader reports not loaded after loadAllData');
+        }
+      } catch (err) {
+        console.error('[DFK Engine] Failed to initialize engine:', err);
+      }
+    } else {
+      console.warn('[DFK Engine] Data loader not available');
+    }
+  }
+
+  let overlayEl = null;
+
+  function createOverlay() {
+    if (overlayEl) return;
+
+    overlayEl = document.createElement('div');
+    overlayEl.id = 'dfk-engine-overlay';
+    overlayEl.style.cssText = `
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      width: 300px;
+      max-height: 260px;
+      background: rgba(15, 15, 25, 0.92);
+      color: #e0e0e0;
+      border: 1px solid rgba(100, 140, 255, 0.3);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 12px;
+      line-height: 1.4;
+      z-index: 999999;
+      overflow-y: auto;
+      pointer-events: auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      transition: opacity 0.2s;
+    `;
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;';
+    header.innerHTML = `
+      <span style="font-weight: 600; color: #8cacff; font-size: 11px; letter-spacing: 0.5px;">HEDGE LEDGER ENGINE</span>
+      <span id="dfk-engine-toggle" style="cursor: pointer; color: #666; font-size: 14px; line-height: 1;">_</span>
+    `;
+    overlayEl.appendChild(header);
+
+    const body = document.createElement('div');
+    body.id = 'dfk-engine-body';
+    body.innerHTML = '<div style="color: #888; font-style: italic;">Waiting for combat data...</div>';
+    overlayEl.appendChild(body);
+
+    document.body.appendChild(overlayEl);
+
+    let minimized = false;
+    const toggle = overlayEl.querySelector('#dfk-engine-toggle');
+    toggle.addEventListener('click', () => {
+      minimized = !minimized;
+      body.style.display = minimized ? 'none' : 'block';
+      toggle.textContent = minimized ? '+' : '_';
+      overlayEl.style.maxHeight = minimized ? '32px' : '260px';
+    });
+  }
+
+  function updateOverlay(result) {
+    if (!overlayEl) return;
+    const body = overlayEl.querySelector('#dfk-engine-body');
+    if (!body) return;
+    if (!result || !result.recommendedAction) return;
+
+    const rec = result.recommendedAction;
+    const confidence = Math.round((result.confidence || 0) * 100);
+    const evMargin = result.evMargin != null ? result.evMargin.toFixed(3) : '—';
+
+    let html = `
+      <div style="margin-bottom: 6px;">
+        <div style="font-weight: 600; color: #a0cfff; font-size: 13px;">${escapeHtml(rec.name)}</div>
+        <div style="color: #888; font-size: 11px;">${rec.type.replace('_', ' ')} ${rec.targetType !== 'self' && rec.targetSlot != null ? '→ slot ' + rec.targetSlot : ''}</div>
+      </div>
+      <div style="display: flex; gap: 12px; margin-bottom: 6px; font-size: 11px;">
+        <span>Confidence: <strong style="color: ${confidence >= 70 ? '#7cff7c' : confidence >= 50 ? '#ffd27c' : '#ff7c7c'}">${confidence}%</strong></span>
+        <span>EV margin: <strong>${evMargin}</strong></span>
+      </div>
+    `;
+
+    if (result.reasoning && result.reasoning.length > 0) {
+      html += '<div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 4px; margin-top: 2px;">';
+      for (const reason of result.reasoning.slice(0, 4)) {
+        html += `<div style="color: #aaa; font-size: 11px; margin-bottom: 2px;">${escapeHtml(reason)}</div>`;
+      }
+      html += '</div>';
+    }
+
+    if (result.rankedActions && result.rankedActions.length > 1) {
+      html += '<div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 4px; margin-top: 4px; font-size: 10px; color: #777;">';
+      html += '<div style="margin-bottom: 2px; font-weight: 600;">Alternatives:</div>';
+      for (let i = 1; i < Math.min(result.rankedActions.length, 4); i++) {
+        const alt = result.rankedActions[i];
+        html += `<div>${i + 1}. ${escapeHtml(alt.action.name)} (score: ${alt.score.toFixed(3)})</div>`;
+      }
+      html += '</div>';
+    }
+
+    body.innerHTML = html;
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
 
   function buildKeyedHpState(turnState) {
     const state = {};
@@ -135,6 +286,8 @@
         chrome.runtime.sendMessage({ type: 'hunt_id_detected', huntId }).catch(() => {});
       }
     }, 3000);
+
+    initEngine();
   }
 
   chrome.runtime.onMessage.addListener((msg) => {
