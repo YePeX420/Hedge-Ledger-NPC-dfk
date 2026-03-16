@@ -282,7 +282,7 @@
 
     const body = document.createElement('div');
     body.id = 'dfk-engine-body';
-    body.innerHTML = '<div style="color: #888; font-style: italic;">Waiting for combat data...</div>';
+    body.innerHTML = '<div style="color: #888; font-style: italic;">Loading engine...</div>';
     overlayEl.appendChild(body);
 
     document.body.appendChild(overlayEl);
