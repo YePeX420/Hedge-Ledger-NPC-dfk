@@ -49,20 +49,26 @@ function renderRecommendation(data) {
   const recs = data.recommendations;
   const best = recs[0];
 
+  const getScore = (r) => r.scoreTotal ?? r.totalScore ?? null;
+  const getDmgEv = (r) => r.damageEV ?? r.damageEv ?? 0;
+
   el('rec-move').textContent = best.skillName || best.action || '--';
   el('rec-target').textContent = best.targetType
     ? `Target: ${best.targetType}${best.targetSlot != null ? ` (slot ${best.targetSlot})` : ''}`
     : '';
-  el('rec-score').textContent = typeof best.totalScore === 'number' ? best.totalScore.toFixed(1) : '--';
+  const bestScore = getScore(best);
+  el('rec-score').textContent = typeof bestScore === 'number' ? bestScore.toFixed(1) : '--';
 
   const tags = el('rec-tags');
   tags.innerHTML = '';
-  const reasonTags = [];
-  if (best.killChance > 0.5) reasonTags.push(`Kill ${Math.round(best.killChance * 100)}%`);
-  if (best.damageEv > 0) reasonTags.push(`DMG EV ${Math.round(best.damageEv)}`);
-  if (best.survivalDelta > 0) reasonTags.push('Survival+');
-  if (best.debuffValue > 0) reasonTags.push('Debuff');
-  if (best.manaEfficiency > 1) reasonTags.push('Mana eff.');
+  const reasonTags = Array.isArray(best.reasonTags) ? best.reasonTags : [];
+  if (reasonTags.length === 0) {
+    if (best.killChance > 0.5) reasonTags.push(`Kill ${Math.round(best.killChance * 100)}%`);
+    if (getDmgEv(best) > 0) reasonTags.push(`DMG EV ${Math.round(getDmgEv(best))}`);
+    if (best.survivalDelta > 0) reasonTags.push('Survival+');
+    if (best.debuffValue > 0) reasonTags.push('Debuff');
+    if (best.manaEfficiency > 1) reasonTags.push('Mana eff.');
+  }
   reasonTags.forEach(tag => {
     const span = document.createElement('span');
     span.className = 'rec-tag';
@@ -73,13 +79,18 @@ function renderRecommendation(data) {
   const alt2 = recs[1];
   if (alt2) {
     el('rec-alt2').textContent = alt2.skillName || alt2.action || '--';
-    el('rec-alt2-score').textContent = typeof alt2.totalScore === 'number' ? alt2.totalScore.toFixed(1) : '';
+    const a2Score = getScore(alt2);
+    el('rec-alt2-score').textContent = typeof a2Score === 'number' ? a2Score.toFixed(1) : '';
   }
 
-  const risky = recs.find((r, i) => i > 0 && r.killChance > 0.3 && r.totalScore < best.totalScore * 0.8);
+  const risky = recs.find((r, i) => {
+    const rScore = getScore(r);
+    return i > 0 && r.killChance > 0.3 && rScore < bestScore * 0.8;
+  });
   if (risky) {
     el('rec-risky').textContent = risky.skillName || risky.action || '--';
-    el('rec-risky-score').textContent = typeof risky.totalScore === 'number' ? risky.totalScore.toFixed(1) : '';
+    const rScore = getScore(risky);
+    el('rec-risky-score').textContent = typeof rScore === 'number' ? rScore.toFixed(1) : '';
   } else {
     el('rec-risky').textContent = '--';
     el('rec-risky-score').textContent = '';
@@ -298,9 +309,9 @@ el('clear-btn').addEventListener('click', () => {
 
 el('reconcile-btn').addEventListener('click', () => {
   chrome.storage.local.get(['lastUnitSnapshot'], (result) => {
-    const snapshot = result.lastUnitSnapshot || window.__dfkCurrentUnitSnapshot;
+    const snapshot = result.lastUnitSnapshot;
     if (!snapshot) {
-      el('reconcile-status').textContent = 'No stat panel captured yet. Open a hero/enemy panel in-game.';
+      el('reconcile-status').textContent = 'No stat panel captured yet. Open a hero/enemy panel in-game first.';
       el('reconcile-status').style.color = '#f59e0b';
       return;
     }

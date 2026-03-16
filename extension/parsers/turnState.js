@@ -181,10 +181,6 @@
     window.__dfkEmitEvent('turn_snapshot', snapshot);
   }
 
-  window.__dfkUpdateTurnNumber = (n) => {
-    currentTurnState.turnNumber = n;
-  };
-
   window.__dfkGetTurnState = () => currentTurnState;
 
   const hpObserver = new MutationObserver(() => {

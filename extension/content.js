@@ -46,6 +46,25 @@
     }
   };
 
+  function buildKeyedHpState(turnState) {
+    const state = {};
+    (turnState.heroes || []).forEach(u => {
+      state[`hero_${u.slot ?? 0}`] = { hp: u.hp, maxHp: u.maxHp };
+    });
+    (turnState.enemies || []).forEach(u => {
+      state[`enemy_${u.slot ?? 0}`] = { hp: u.hp, maxHp: u.maxHp };
+    });
+    return state;
+  }
+
+  function buildKeyedMpState(turnState) {
+    const state = {};
+    (turnState.heroes || []).forEach(u => {
+      if (u.mp != null) state[`hero_${u.slot ?? 0}`] = { mp: u.mp, maxMp: u.maxMp };
+    });
+    return state;
+  }
+
   function flushTurnEvent(event) {
     const turnState = window.__dfkGetTurnState ? window.__dfkGetTurnState() : {};
     chrome.runtime.sendMessage({
@@ -64,8 +83,8 @@
         damageType: event.damageType,
         effects: event.effects || [],
         rawText: event.rawText,
-        hpState: { heroes: turnState.heroes || [], enemies: turnState.enemies || [] },
-        mpState: {},
+        hpState: buildKeyedHpState(turnState),
+        mpState: buildKeyedMpState(turnState),
         legalActions: (turnState.legalActions || []).map(a => a.name),
         activeHeroSlot: turnState.activeHeroSlot ?? null,
         parseConfidence: event.parseConfidence,

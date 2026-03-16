@@ -179,6 +179,16 @@
     const filledStats = Object.keys(snapshot.stats).length + Object.keys(snapshot.baseStats).length;
     snapshot.parseConfidence = Math.min(1.0, filledStats / 12);
 
+    snapshot.fieldConfidence = {};
+    for (const [key, val] of Object.entries(snapshot.stats)) {
+      const meta = debugMeta[key];
+      snapshot.fieldConfidence[key] = meta ? (meta.source?.startsWith('data-stat') ? 1.0 : 0.7) : 0.5;
+    }
+    for (const [key, val] of Object.entries(snapshot.baseStats)) {
+      const meta = debugMeta[key];
+      snapshot.fieldConfidence[key] = meta ? (meta.source?.startsWith('data-stat') ? 1.0 : 0.7) : 0.5;
+    }
+
     if (debugMode) snapshot._debug = debugMeta;
 
     return snapshot;
@@ -194,6 +204,7 @@
         if (!visiblePanels.has(panel)) {
           visiblePanels.add(panel);
           const snapshot = parsePanel(panel, sel);
+          snapshot._panelRef = panel;
           window.__dfkEmitEvent('unit_snapshot', snapshot);
           window.__dfkCurrentUnitSnapshot = snapshot;
         }
@@ -202,7 +213,7 @@
     visiblePanels.forEach(panel => {
       if (!document.body.contains(panel)) {
         visiblePanels.delete(panel);
-        if (panel === window.__dfkCurrentUnitSnapshot?.panelEl) {
+        if (window.__dfkCurrentUnitSnapshot && window.__dfkCurrentUnitSnapshot._panelRef === panel) {
           window.__dfkCurrentUnitSnapshot = null;
         }
       }
