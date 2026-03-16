@@ -469,30 +469,7 @@
     return report;
   };
 
-  // ── MutationObserver ──────────────────────────────────────────────────────
+  // ── Polling (replaces body-level MutationObserver to avoid feedback loops) ─
 
-  let _snapDebounce = null;
-  const hpObserver = new MutationObserver(() => {
-    clearTimeout(_snapDebounce);
-    _snapDebounce = setTimeout(emitSnapshot, 200);
-  });
-
-  function attachHpObservers() {
-    const target = document.body || document.documentElement;
-    hpObserver.observe(target, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ['data-hp', 'data-mp', 'style', 'class'],
-    });
-  }
-
-  if (document.body) {
-    attachHpObservers();
-  } else {
-    document.addEventListener('DOMContentLoaded', attachHpObservers);
-  }
-
-  setInterval(emitSnapshot, 5000);
+  setInterval(emitSnapshot, 1000);
 })();

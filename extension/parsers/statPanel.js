@@ -215,7 +215,6 @@ console.log('[DFK StatPanel] Script file loaded');
   }
 
   let visiblePanels = new Set();
-  let panelObserver = null;
   const snapshotPanelMap = new WeakMap();
 
   function checkPanels(root) {
@@ -243,19 +242,18 @@ console.log('[DFK StatPanel] Script file loaded');
     });
   }
 
-  let _panelDebounce = null;
-  panelObserver = new MutationObserver(() => {
-    clearTimeout(_panelDebounce);
-    _panelDebounce = setTimeout(() => checkPanels(document.body), 250);
-  });
+  // ── Polling (replaces body-level MutationObserver to avoid feedback loops) ─
+
+  function startPolling() {
+    checkPanels(document.body);
+    setInterval(() => checkPanels(document.body), 500);
+  }
 
   if (document.body) {
-    panelObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
-    checkPanels(document.body);
+    startPolling();
   } else {
     document.addEventListener('DOMContentLoaded', () => {
-      panelObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
-      checkPanels(document.body);
+      startPolling();
     });
   }
 
