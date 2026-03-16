@@ -5,7 +5,7 @@
  * Stores session token, host URL, and last 100 snapshots in chrome.storage.local.
  */
 
-const DEFAULT_HOST = 'https://your-replit-app.replit.app';
+const DEFAULT_HOST = 'https://hedge-ledger.replit.app';
 const WS_PATH = '/ws/companion';
 const HTTP_EVENT_PATH = '/api/dfk/telemetry/event';
 const HTTP_SNAPSHOT_PATH = '/api/dfk/telemetry/snapshot';
@@ -28,10 +28,19 @@ let localSnapshots = [];
 
 let connectionStatus = 'disconnected';
 
+function isSecureHost(url) {
+  return /^https:\/\//i.test(url);
+}
+
+function validateHost(url) {
+  if (!url) return false;
+  if (!isSecureHost(url)) return false;
+  try { new URL(url); return true; } catch (_) { return false; }
+}
+
 function getWsUrl() {
-  const base = hostUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-  const proto = hostUrl.startsWith('https') ? 'wss' : 'ws';
-  return `${proto}://${base}${WS_PATH}`;
+  const base = hostUrl.replace(/^https:\/\//i, '').replace(/\/+$/, '');
+  return `wss://${base}${WS_PATH}`;
 }
 
 function broadcast(msg) {
@@ -271,7 +280,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     connect();
 
   } else if (msg.type === 'set_host') {
-    hostUrl = msg.host;
+    const candidate = (msg.host || '').trim();
+    if (!validateHost(candidate)) {
+      broadcast({ type: 'server_error', message: 'Host must use https:// (secure connection required)' });
+      sendResponse && sendResponse({ ok: false, error: 'https required' });
+      return;
+    }
+    hostUrl = candidate;
     isJoined = false;
     chrome.storage.local.set({ hostUrl });
     if (ws) ws.close();

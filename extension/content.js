@@ -30,20 +30,18 @@
   window.__dfkDebugMode = false;
 
   window.__dfkEmitEvent = function (type, data) {
-    if (isDuplicate(data)) return;
-
     const payload = { ...data, _contentScriptTs: Date.now() };
 
-    if (debugMode) {
-      storeLocally(payload);
-    }
-
     if (type === 'battle_log_event') {
+      if (isDuplicate(data)) return;
+      if (debugMode) storeLocally(payload);
       turnEventBuffer.push(payload);
       flushTurnEvent(payload);
     } else if (type === 'turn_snapshot') {
+      if (debugMode) storeLocally(payload);
       chrome.runtime.sendMessage({ type: 'state_snapshot', data: payload }).catch(() => {});
     } else if (type === 'unit_snapshot') {
+      if (debugMode) storeLocally(payload);
       chrome.runtime.sendMessage({ type: 'unit_snapshot', data: payload }).catch(() => {});
     }
   };

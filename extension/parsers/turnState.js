@@ -143,11 +143,13 @@
 
     const unitMap = {};
     hpReadings.forEach(u => {
-      const key = `${u.side}:${u.slot}`;
-      unitMap[key] = { ...u };
+      const key = `${u.side}:${u.name || u.slot}`;
+      if (!unitMap[key] || (u.hp != null && unitMap[key].hp == null)) {
+        unitMap[key] = { ...u };
+      }
     });
     mpReadings.forEach(u => {
-      const key = `player:${u.slot}`;
+      const key = `player:${u.name || u.slot}`;
       if (unitMap[key]) {
         unitMap[key].mp = u.mp;
         unitMap[key].maxMp = u.maxMp;
