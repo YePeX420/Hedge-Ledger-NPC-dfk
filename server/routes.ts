@@ -12,6 +12,7 @@ import { hedgeCors } from "./middleware/hedgeCors";
 import { rateLimiter } from "./middleware/rateLimit";
 import { registerHedgePublicRoutes } from "./routes/hedgePublic";
 import { registerHedgeAdminRoutes } from "./routes/hedgeAdmin";
+import { enemyIntelligenceRouter, startPolicyRefreshJob } from "./routes/enemyIntelligence";
 // buildPlayerSnapshot is imported dynamically in the route handler to avoid import issues
 import { indexWallet, runFullIndex, getLatestBlock, getIndexerProgress, initIndexerProgress, runWorkerBatch, getAllWorkerProgress, getWorkerIndexerName, MAIN_INDEXER_NAME } from "../bridge-tracker/bridge-indexer.js";
 import { getTopExtractors, refreshWalletMetrics, getWalletSummary, refreshAllMetrics, bulkComputeAllMetrics, updateSummonerNamesForExtractors, fetchSummonerNames } from "../bridge-tracker/bridge-metrics.js";
@@ -2181,6 +2182,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const hedgeAdminRouter = Router();
   registerHedgeAdminRoutes(hedgeAdminRouter);
   app.use('/api/hedge/admin', hedgeCors, requireAdminApiKey, hedgeAdminRouter);
+
+  // Enemy Intelligence API routes (admin session auth)
+  app.use('/api/dfk', isAdmin, enemyIntelligenceRouter);
+  startPolicyRefreshJob();
 
   // ============================================================================
   // HEDGE ADMIN PROXY ROUTES (session-based auth for admin UI)

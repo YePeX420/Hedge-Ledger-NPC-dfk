@@ -3,7 +3,8 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Swords, Loader2, Copy, Check, Wifi, WifiOff, Heart, Zap,
   Shield, ChevronDown, ChevronUp, Bot, Sparkles, Target,
-  Skull, Activity, Radio,
+  Skull, Activity, Radio, Brain, FlaskConical, Lock, Unlock,
+  AlertTriangle, TrendingUp, Eye, Play, Pause,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -69,6 +70,62 @@ interface SessionData {
   last_seen_at: string;
 }
 
+interface EnemyPrediction {
+  enemy: string;
+  legalActions: string[];
+  availability: Array<{ name: string; available: boolean; reason: string }>;
+  heuristicPriors: Record<string, number>;
+  learnedPolicy: Record<string, number> | null;
+  finalPolicy: Record<string, number>;
+  confidence: number;
+  sampleCount: number;
+  consumableOptions: Array<{ name: string; cost: number; available: boolean }>;
+  reasoning: string[];
+  executionMode: string;
+  execution?: {
+    actionType: string;
+    abilityName: string;
+    targetSlot?: number;
+    dispatch?: {
+      uiAction: string;
+      buttonLabel: string;
+      requiresTargetSelection: boolean;
+      targetSelectionStrategy: string;
+      confirmAfterSelect: boolean;
+      fallbackOnMiss: string;
+    };
+    turnSync?: {
+      expectNewTurnAfterAction: boolean;
+      timeoutMs: number;
+      expectedStateChanges: string[];
+    };
+  };
+  simulation?: {
+    rankedCandidates: Array<{
+      action: string;
+      type: string;
+      compositeScore: number;
+      survivalProbability: number;
+      killProbability: number;
+      expectedDamage: number;
+      expectedIncomingDamage: number;
+      consumableValue: number;
+      budgetCost: number;
+      simulationCount: number;
+      fallbackMode: boolean;
+    }>;
+    degraded: boolean;
+    totalSimulations: number;
+  } | null;
+  safetyCheck: {
+    canAutoExecute: boolean;
+    blockReasons: string[];
+    checksPassed: string[];
+  };
+}
+
+type ExecutionModeType = 'observe_only' | 'recommend_and_confirm' | 'auto_execute';
+
 function HpBar({ current, max, label, color }: { current: number; max: number; label: string; color: string }) {
   const pct = max > 0 ? Math.round((current / max) * 100) : 0;
   const barColor = pct > 60 ? 'bg-green-500' : pct > 30 ? 'bg-amber-500' : 'bg-red-500';
@@ -81,6 +138,261 @@ function HpBar({ current, max, label, color }: { current: number; max: number; l
       <div className="h-2 rounded-full bg-muted/40 overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-300 ${color || barColor}`} style={{ width: `${pct}%` }} />
       </div>
+    </div>
+  );
+}
+
+function EnemyIntelligencePanel({ prediction, isLoading }: { prediction: EnemyPrediction | null; isLoading: boolean }) {
+  const [showPolicyBreakdown, setShowPolicyBreakdown] = useState(false);
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-1">
+            <Brain className="w-3.5 h-3.5" /> Enemy Intelligence
+          </p>
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/40" />
+            <span className="text-xs text-muted-foreground ml-2">Analyzing enemy behavior...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!prediction || prediction.legalActions.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-1">
+            <Brain className="w-3.5 h-3.5" /> Enemy Intelligence
+          </p>
+          <p className="text-xs text-muted-foreground text-center py-4" data-testid="text-no-intel">Not enough data for enemy prediction</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const sortedActions = Object.entries(prediction.finalPolicy).sort((a, b) => b[1] - a[1]);
+  const topAction = sortedActions[0];
+  const confidenceColor = prediction.confidence > 0.7 ? 'text-green-500' : prediction.confidence > 0.4 ? 'text-amber-500' : 'text-red-400';
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+            <Brain className="w-3.5 h-3.5" /> Enemy Intelligence
+          </p>
+          <div className="flex items-center gap-1.5">
+            <Badge variant="outline" className="text-[10px] font-mono" data-testid="badge-confidence">
+              <TrendingUp className="w-3 h-3 mr-0.5" />
+              {Math.round(prediction.confidence * 100)}%
+            </Badge>
+            <Badge variant="secondary" className="text-[10px]" data-testid="badge-sample-count">
+              {prediction.sampleCount} samples
+            </Badge>
+          </div>
+        </div>
+
+        {topAction && (
+          <div className="p-3 rounded-md bg-muted/20 border border-muted-foreground/10 mb-3" data-testid="prediction-top-action">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-sm font-semibold">{topAction[0]}</span>
+              <span className={`text-xs font-mono ${confidenceColor}`}>
+                {Math.round(topAction[1] * 100)}%
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground">Most likely next enemy action</p>
+          </div>
+        )}
+
+        <div className="mb-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Ability Availability</p>
+          <div className="flex flex-wrap gap-1" data-testid="ability-availability-grid">
+            {(prediction.availability || []).map((a) => (
+              <Badge
+                key={a.name}
+                variant={a.available ? 'default' : 'secondary'}
+                className="text-[9px]"
+                data-testid={`ability-${a.name.replace(/\s+/g, '-').toLowerCase()}`}
+              >
+                {a.available ? <Unlock className="w-2.5 h-2.5 mr-0.5" /> : <Lock className="w-2.5 h-2.5 mr-0.5" />}
+                {a.name}
+              </Badge>
+            ))}
+          </div>
+        </div>
+
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setShowPolicyBreakdown(!showPolicyBreakdown)}
+          data-testid="button-policy-breakdown"
+        >
+          {showPolicyBreakdown ? <ChevronUp className="w-3.5 h-3.5 mr-1" /> : <ChevronDown className="w-3.5 h-3.5 mr-1" />}
+          Policy Breakdown
+        </Button>
+
+        {showPolicyBreakdown && (
+          <div className="mt-2 space-y-2 pt-2 border-t border-muted-foreground/10" data-testid="policy-breakdown">
+            <div className="grid grid-cols-3 gap-1 text-[10px] font-mono text-muted-foreground">
+              <span className="font-semibold">Action</span>
+              <span className="font-semibold">Heuristic</span>
+              <span className="font-semibold">Final</span>
+            </div>
+            {sortedActions.map(([action, prob]) => (
+              <div key={action} className="grid grid-cols-3 gap-1 text-[10px] font-mono">
+                <span className="truncate">{action}</span>
+                <span>{Math.round((prediction.heuristicPriors[action] || 0) * 100)}%</span>
+                <span>{Math.round(prob * 100)}%</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {prediction.reasoning.length > 0 && (
+          <div className="mt-3 space-y-1" data-testid="prediction-reasoning">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Reasoning</p>
+            {prediction.reasoning.map((r, i) => (
+              <p key={i} className="text-[10px] text-muted-foreground">• {r}</p>
+            ))}
+          </div>
+        )}
+
+        {prediction.simulation && prediction.simulation.rankedCandidates.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-muted-foreground/10" data-testid="simulation-results">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                <Activity className="w-3 h-3" /> Monte Carlo Simulation
+              </p>
+              <div className="flex items-center gap-1">
+                <Badge variant="outline" className="text-[9px] font-mono" data-testid="badge-sim-count">
+                  {prediction.simulation.totalSimulations} sims
+                </Badge>
+                {prediction.simulation.degraded && (
+                  <Badge variant="secondary" className="text-[9px]" data-testid="badge-sim-degraded">
+                    <AlertTriangle className="w-2.5 h-2.5 mr-0.5" /> degraded
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              {prediction.simulation.rankedCandidates.map((c, i) => (
+                <div key={c.action} className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono p-1.5 rounded-md bg-muted/10" data-testid={`sim-candidate-${i}`}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground w-3">{i + 1}.</span>
+                    <span className="font-semibold">{c.action}</span>
+                    {c.fallbackMode && <Badge variant="secondary" className="text-[8px] no-default-hover-elevate no-default-active-elevate">fallback</Badge>}
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <span title="Composite Score">score: {c.compositeScore.toFixed(3)}</span>
+                    <span title="Survival">surv: {Math.round(c.survivalProbability * 100)}%</span>
+                    {c.budgetCost > 0 && <span title="Budget Cost">-{c.budgetCost}g</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ConsumableStrategyPanel({ prediction, battleBudget }: {
+  prediction: EnemyPrediction | null;
+  battleBudget: number | null;
+}) {
+  if (!prediction) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-1">
+            <FlaskConical className="w-3.5 h-3.5" /> Consumable Strategy
+          </p>
+          <p className="text-xs text-muted-foreground text-center py-4" data-testid="text-no-consumable-data">Waiting for battle data...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const consumables = prediction.consumableOptions || [];
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+            <FlaskConical className="w-3.5 h-3.5" /> Consumable Strategy
+          </p>
+          {battleBudget !== null && (
+            <Badge variant="outline" className="text-[10px] font-mono" data-testid="badge-budget">
+              Budget: {battleBudget}
+            </Badge>
+          )}
+        </div>
+
+        {consumables.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-2">No consumable data available</p>
+        ) : (
+          <div className="space-y-2" data-testid="consumable-list">
+            {consumables.map((c) => (
+              <div key={c.name} className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-md bg-muted/20 border border-muted-foreground/10">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium">{c.name}</span>
+                  <Badge variant="secondary" className="text-[9px]">Cost: {c.cost}</Badge>
+                </div>
+                <Badge variant={c.available ? 'default' : 'secondary'} className="text-[9px]">
+                  {c.available ? 'Available' : 'Unavailable'}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Badge
+            variant={prediction.confidence > 0.5 ? 'default' : 'secondary'}
+            className="text-[9px]"
+            data-testid="badge-sim-confidence"
+          >
+            Sim Confidence: {Math.round(prediction.confidence * 100)}%
+          </Badge>
+          {prediction.safetyCheck && !prediction.safetyCheck.canAutoExecute && prediction.safetyCheck.blockReasons.length > 0 && (
+            <Badge variant="secondary" className="text-[9px]" data-testid="badge-safety-block">
+              <AlertTriangle className="w-2.5 h-2.5 mr-0.5" />
+              {prediction.safetyCheck.blockReasons[0]}
+            </Badge>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExecutionModeSelector({ mode, onChange }: { mode: ExecutionModeType; onChange: (m: ExecutionModeType) => void }) {
+  const modes: { value: ExecutionModeType; label: string; icon: typeof Eye }[] = [
+    { value: 'observe_only', label: 'Observe', icon: Eye },
+    { value: 'recommend_and_confirm', label: 'Recommend', icon: Brain },
+    { value: 'auto_execute', label: 'Auto', icon: Play },
+  ];
+
+  return (
+    <div className="flex items-center gap-1" data-testid="execution-mode-selector">
+      {modes.map((m) => (
+        <Button
+          key={m.value}
+          size="sm"
+          variant={mode === m.value ? 'default' : 'ghost'}
+          onClick={() => onChange(m.value)}
+          data-testid={`button-mode-${m.value}`}
+        >
+          <m.icon className="w-3.5 h-3.5 mr-1" />
+          {m.label}
+        </Button>
+      ))}
     </div>
   );
 }
@@ -185,6 +497,9 @@ export default function HuntCompanion() {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [turnFeed, setTurnFeed] = useState<TurnEvent[]>([]);
   const [explanations, setExplanations] = useState<Record<number, string>>({});
+  const [enemyPrediction, setEnemyPrediction] = useState<EnemyPrediction | null>(null);
+  const [executionMode, setExecutionMode] = useState<ExecutionModeType>('observe_only');
+  const [battleBudget, setBattleBudget] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const turnFeedRef = useRef<HTMLDivElement>(null);
 
@@ -226,6 +541,67 @@ export default function HuntCompanion() {
       setExplanations(prev => ({ ...prev, [data.recIndex]: data.explanation }));
     },
   });
+
+  const predictMutation = useMutation({
+    mutationFn: async () => {
+      const primaryEnemy = battleState?.enemies?.[0];
+      if (!primaryEnemy) return null;
+      const enemyId = primaryEnemy.enemyId || '';
+      const enemyType = enemyId.toLowerCase().replace(/\s+/g, '_');
+      const encounterType = enemyType.includes('boar') ? 'boar_hunt' : 'bad_motherclucker';
+      const heroes = battleState?.heroes || [];
+      const hero0 = heroes[0];
+      const liveState = {
+        enemyHp: primaryEnemy.currentHp,
+        enemyMaxHp: primaryEnemy.maxHp,
+        enemyMp: primaryEnemy.currentMp ?? null,
+        enemyMaxMp: primaryEnemy.maxMp ?? null,
+        enemyHpPct: primaryEnemy.maxHp > 0 ? primaryEnemy.currentHp / primaryEnemy.maxHp : 1.0,
+        heroHp: hero0?.currentHp ?? null,
+        heroMaxHp: hero0?.maxHp ?? null,
+        heroMp: hero0?.currentMp ?? null,
+        heroMaxMp: hero0?.maxMp ?? null,
+        heroHpPct: hero0 && hero0.maxHp > 0 ? hero0.currentHp / hero0.maxHp : 1.0,
+        heroes: heroes.map((h) => ({
+          name: h.heroId || `Hero-${h.slot}`,
+          currentHp: h.currentHp,
+          maxHp: h.maxHp,
+          currentMp: h.currentMp,
+          maxMp: h.maxMp,
+          buffs: [] as string[],
+          debuffs: [] as string[],
+          isAlive: h.isAlive,
+        })),
+        turnNumber: battleState?.turnNumber || 1,
+        activeBuffs: [] as string[],
+        activeDebuffs: primaryEnemy.debuffs || [],
+        battleBudgetRemaining: battleBudget,
+      };
+      const resp = await apiRequest('POST', '/api/dfk/predict-enemy-action', {
+        encounterType,
+        enemyName: enemyId,
+        enemyType,
+        executionMode,
+        liveState,
+      });
+      const json = await resp.json();
+      if (json?.budget !== undefined) {
+        setBattleBudget(json.budget);
+      }
+      return json;
+    },
+    onSuccess: (data) => {
+      if (data?.ok) {
+        setEnemyPrediction(data as EnemyPrediction);
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (battleState?.enemies?.length) {
+      predictMutation.mutate();
+    }
+  }, [battleState?.turnNumber, battleState?.enemies?.length, executionMode]);
 
   const connectWs = useCallback(() => {
     if (!session?.session_token || wsRef.current) return;
@@ -495,6 +871,50 @@ export default function HuntCompanion() {
           </div>
 
           <div className="lg:col-span-2 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <ExecutionModeSelector mode={executionMode} onChange={setExecutionMode} />
+              <div className="flex items-center gap-1 flex-wrap">
+                {enemyPrediction?.safetyCheck && (
+                  <Badge
+                    variant={enemyPrediction.safetyCheck.canAutoExecute ? 'default' : 'secondary'}
+                    className="text-[9px]"
+                    data-testid="badge-safety-status"
+                  >
+                    {enemyPrediction.safetyCheck.canAutoExecute ? 'Safe' : 'Manual'}
+                  </Badge>
+                )}
+                {enemyPrediction?.executionMode && (
+                  <Badge variant="outline" className="text-[9px]" data-testid="badge-effective-mode">
+                    {enemyPrediction.executionMode === 'auto_execute' ? 'Auto' :
+                     enemyPrediction.executionMode === 'recommend_and_confirm' ? 'Confirm' : 'Observe'}
+                  </Badge>
+                )}
+                {enemyPrediction?.execution?.dispatch && (
+                  <Badge variant="outline" className="text-[9px]" data-testid="badge-dispatch-action">
+                    {enemyPrediction.execution.dispatch.uiAction.replace(/_/g, ' ')}
+                    {enemyPrediction.execution.dispatch.requiresTargetSelection && ' + target'}
+                  </Badge>
+                )}
+                {enemyPrediction?.safetyCheck && enemyPrediction.safetyCheck.blockReasons.length > 0 && (
+                  <Badge variant="secondary" className="text-[9px]" data-testid="badge-safety-blocks">
+                    <AlertTriangle className="w-2.5 h-2.5 mr-0.5" />
+                    {enemyPrediction.safetyCheck.blockReasons.length} block{enemyPrediction.safetyCheck.blockReasons.length > 1 ? 's' : ''}
+                  </Badge>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <EnemyIntelligencePanel
+                prediction={enemyPrediction}
+                isLoading={predictMutation.isPending}
+              />
+              <ConsumableStrategyPanel
+                prediction={enemyPrediction}
+                battleBudget={battleBudget}
+              />
+            </div>
+
             <Card>
               <CardContent className="p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
@@ -524,6 +944,36 @@ export default function HuntCompanion() {
                     />
                   ))}
                 </div>
+
+                {enemyPrediction && recommendations.length > 0 && (
+                  <div className="mt-3 p-2 rounded-md bg-muted/10 border border-muted-foreground/10" data-testid="survival-probability">
+                    <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                      {enemyPrediction.simulation?.rankedCandidates?.[0] ? (
+                        <>
+                          <span className="text-muted-foreground">Survival Probability:</span>
+                          <span className="font-mono font-semibold">
+                            {Math.round(enemyPrediction.simulation.rankedCandidates[0].survivalProbability * 100)}%
+                          </span>
+                          <span className="text-muted-foreground">|</span>
+                          <span className="text-muted-foreground">Kill Probability:</span>
+                          <span className="font-mono font-semibold">
+                            {Math.round(enemyPrediction.simulation.rankedCandidates[0].killProbability * 100)}%
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-muted-foreground">Policy Confidence:</span>
+                          <span className="font-mono font-semibold">
+                            {Math.round(enemyPrediction.confidence * 100)}%
+                          </span>
+                        </>
+                      )}
+                      <span className="text-muted-foreground">|</span>
+                      <span className="text-muted-foreground">Predicted Enemy:</span>
+                      <span className="font-mono">{Object.entries(enemyPrediction.finalPolicy).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Unknown'}</span>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

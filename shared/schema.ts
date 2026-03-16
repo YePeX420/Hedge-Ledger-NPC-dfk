@@ -4012,3 +4012,228 @@ export const dfkReconciliationResults = pgTable("dfk_reconciliation_results", {
 export const insertDfkReconciliationResultSchema = createInsertSchema(dfkReconciliationResults).omit({ id: true, createdAt: true });
 export type InsertDfkReconciliationResult = z.infer<typeof insertDfkReconciliationResultSchema>;
 export type DfkReconciliationResult = typeof dfkReconciliationResults.$inferSelect;
+
+// ============================================================================
+// PHASE 3 — ENEMY BEHAVIOR MODEL, ENCOUNTER INTELLIGENCE & LEARNING LAYER
+// ============================================================================
+
+export const enemyAbilityCatalog = pgTable("enemy_ability_catalog", {
+  id: serial("id").primaryKey(),
+  enemyType: varchar("enemy_type", { length: 64 }).notNull(),
+  abilityName: varchar("ability_name", { length: 128 }).notNull(),
+  manaCost: integer("mana_cost").notNull().default(0),
+  range: varchar("range", { length: 32 }),
+  formulaJson: json("formula_json").$type<Record<string, unknown>>(),
+  effectsJson: json("effects_json").$type<Array<Record<string, unknown>>>(),
+  passiveFlag: boolean("passive_flag").notNull().default(false),
+  amnesiaTurns: integer("amnesia_turns").notNull().default(0),
+  specialRulesJson: json("special_rules_json").$type<Record<string, unknown>>(),
+  confidenceLevel: varchar("confidence_level", { length: 16 }).notNull().default("known"),
+  version: integer("version").notNull().default(1),
+}, (table) => ({
+  enemyTypeIdx: index("enemy_ability_catalog_enemy_type_idx").on(table.enemyType),
+  abilityIdx: uniqueIndex("enemy_ability_catalog_enemy_ability_idx").on(table.enemyType, table.abilityName, table.version),
+}));
+
+export const insertEnemyAbilityCatalogSchema = createInsertSchema(enemyAbilityCatalog).omit({ id: true });
+export type InsertEnemyAbilityCatalog = z.infer<typeof insertEnemyAbilityCatalogSchema>;
+export type EnemyAbilityCatalog = typeof enemyAbilityCatalog.$inferSelect;
+
+export const enemyActionObservations = pgTable("enemy_action_observations", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull(),
+  encounterType: varchar("encounter_type", { length: 64 }).notNull(),
+  huntId: varchar("hunt_id", { length: 128 }),
+  turn: integer("turn").notNull(),
+  enemyName: varchar("enemy_name", { length: 128 }).notNull(),
+  enemyType: varchar("enemy_type", { length: 64 }).notNull(),
+  actionName: varchar("action_name", { length: 128 }).notNull(),
+  target: varchar("target", { length: 128 }),
+  observedManaBefore: integer("observed_mana_before"),
+  observedManaAfter: integer("observed_mana_after"),
+  lockoutStateJson: json("lockout_state_json").$type<Record<string, number>>(),
+  rawLogText: text("raw_log_text"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdx: index("enemy_action_obs_session_idx").on(table.sessionId),
+  encounterIdx: index("enemy_action_obs_encounter_idx").on(table.encounterType, table.enemyType),
+}));
+
+export const insertEnemyActionObservationSchema = createInsertSchema(enemyActionObservations).omit({ id: true, createdAt: true });
+export type InsertEnemyActionObservation = z.infer<typeof insertEnemyActionObservationSchema>;
+export type EnemyActionObservation = typeof enemyActionObservations.$inferSelect;
+
+export const enemyStateEstimates = pgTable("enemy_state_estimates", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull(),
+  encounterType: varchar("encounter_type", { length: 64 }).notNull(),
+  huntId: varchar("hunt_id", { length: 128 }),
+  turn: integer("turn").notNull(),
+  enemyName: varchar("enemy_name", { length: 128 }).notNull(),
+  currentStateJson: json("current_state_json").$type<Record<string, unknown>>(),
+  inferredAvailableActionsJson: json("inferred_available_actions_json").$type<string[]>(),
+  predictedActionProbsJson: json("predicted_action_probs_json").$type<Record<string, number>>(),
+  confidence: doublePrecision("confidence").notNull().default(0.5),
+}, (table) => ({
+  sessionTurnIdx: index("enemy_state_est_session_turn_idx").on(table.sessionId, table.turn),
+}));
+
+export const insertEnemyStateEstimateSchema = createInsertSchema(enemyStateEstimates).omit({ id: true });
+export type InsertEnemyStateEstimate = z.infer<typeof insertEnemyStateEstimateSchema>;
+export type EnemyStateEstimate = typeof enemyStateEstimates.$inferSelect;
+
+export const consumableRecommendationSnapshots = pgTable("consumable_recommendation_snapshots", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull(),
+  encounterType: varchar("encounter_type", { length: 64 }).notNull(),
+  huntId: varchar("hunt_id", { length: 128 }),
+  turn: integer("turn").notNull(),
+  unitName: varchar("unit_name", { length: 128 }),
+  startingBattleBudget: integer("starting_battle_budget"),
+  remainingBattleBudget: integer("remaining_battle_budget"),
+  consumableStateJson: json("consumable_state_json").$type<Record<string, unknown>>(),
+  candidateActionsJson: json("candidate_actions_json").$type<Array<Record<string, unknown>>>(),
+  chosenRecommendationJson: json("chosen_recommendation_json").$type<Record<string, unknown>>(),
+  reasoningJson: json("reasoning_json").$type<string[]>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdx: index("consumable_rec_session_idx").on(table.sessionId, table.turn),
+}));
+
+export const insertConsumableRecommendationSnapshotSchema = createInsertSchema(consumableRecommendationSnapshots).omit({ id: true, createdAt: true });
+export type InsertConsumableRecommendationSnapshot = z.infer<typeof insertConsumableRecommendationSnapshotSchema>;
+export type ConsumableRecommendationSnapshot = typeof consumableRecommendationSnapshots.$inferSelect;
+
+export const encounterConfig = pgTable("encounter_config", {
+  encounterType: varchar("encounter_type", { length: 64 }).primaryKey(),
+  startingBattleBudget: integer("starting_battle_budget").notNull(),
+  consumableCatalogJson: json("consumable_catalog_json").$type<Array<Record<string, unknown>>>(),
+  version: integer("version").notNull().default(1),
+});
+
+export const insertEncounterConfigSchema = createInsertSchema(encounterConfig);
+export type InsertEncounterConfig = z.infer<typeof insertEncounterConfigSchema>;
+export type EncounterConfig = typeof encounterConfig.$inferSelect;
+
+export const enemyBehaviorProfiles = pgTable("enemy_behavior_profiles", {
+  id: serial("id").primaryKey(),
+  encounterType: varchar("encounter_type", { length: 64 }).notNull(),
+  enemyType: varchar("enemy_type", { length: 64 }).notNull(),
+  abilityUseRates: json("ability_use_rates").$type<Record<string, number>>(),
+  reuseGaps: json("reuse_gaps").$type<Record<string, number>>(),
+  targetingDistribution: json("targeting_distribution").$type<Record<string, number>>(),
+  confidenceScore: doublePrecision("confidence_score").notNull().default(0.5),
+  sampleCount: integer("sample_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  enemyIdx: uniqueIndex("enemy_behavior_profiles_enemy_idx").on(table.encounterType, table.enemyType),
+}));
+
+export const insertEnemyBehaviorProfileSchema = createInsertSchema(enemyBehaviorProfiles).omit({ id: true, updatedAt: true });
+export type InsertEnemyBehaviorProfile = z.infer<typeof insertEnemyBehaviorProfileSchema>;
+export type EnemyBehaviorProfile = typeof enemyBehaviorProfiles.$inferSelect;
+
+export const combatSessionTurnLogs = pgTable("combat_session_turn_logs", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull(),
+  encounterType: varchar("encounter_type", { length: 64 }).notNull(),
+  huntId: varchar("hunt_id", { length: 128 }),
+  turn: integer("turn").notNull(),
+  executionMode: varchar("execution_mode", { length: 32 }).notNull().default("observe_only"),
+  recommendedActionJson: json("recommended_action_json").$type<Record<string, unknown>>(),
+  executedActionJson: json("executed_action_json").$type<Record<string, unknown>>(),
+  simulationCount: integer("simulation_count").default(0),
+  safetyCheckStatus: varchar("safety_check_status", { length: 32 }).default("passed"),
+  safetyChecksPassed: json("safety_checks_passed").$type<string[]>(),
+  safetyStatusJson: json("safety_status_json").$type<Record<string, unknown>>(),
+  stateFeaturesJson: json("state_features_json").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionTurnIdx: index("combat_session_turn_logs_session_idx").on(table.sessionId, table.turn),
+}));
+
+export const insertCombatSessionTurnLogSchema = createInsertSchema(combatSessionTurnLogs).omit({ id: true, createdAt: true });
+export type InsertCombatSessionTurnLog = z.infer<typeof insertCombatSessionTurnLogSchema>;
+export type CombatSessionTurnLog = typeof combatSessionTurnLogs.$inferSelect;
+
+export const learnedEnemyPolicyProfiles = pgTable("learned_enemy_policy_profiles", {
+  id: serial("id").primaryKey(),
+  encounterType: varchar("encounter_type", { length: 64 }).notNull(),
+  enemyType: varchar("enemy_type", { length: 64 }).notNull(),
+  profileVersion: integer("profile_version").notNull().default(1),
+  stateFeatureSchemaVersion: integer("state_feature_schema_version").notNull().default(1),
+  actionProbabilityModelJson: json("action_probability_model_json").$type<Record<string, unknown>>(),
+  targetProbabilityModelJson: json("target_probability_model_json").$type<Record<string, unknown>>(),
+  confidenceModelJson: json("confidence_model_json").$type<Record<string, unknown>>(),
+  sampleCount: integer("sample_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  policyIdx: uniqueIndex("learned_enemy_policy_profiles_idx").on(table.encounterType, table.enemyType, table.profileVersion),
+}));
+
+export const insertLearnedEnemyPolicyProfileSchema = createInsertSchema(learnedEnemyPolicyProfiles).omit({ id: true, updatedAt: true });
+export type InsertLearnedEnemyPolicyProfile = z.infer<typeof insertLearnedEnemyPolicyProfileSchema>;
+export type LearnedEnemyPolicyProfile = typeof learnedEnemyPolicyProfiles.$inferSelect;
+
+export const enemyStateActionExamples = pgTable("enemy_state_action_examples", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull(),
+  encounterType: varchar("encounter_type", { length: 64 }).notNull(),
+  huntId: varchar("hunt_id", { length: 128 }),
+  turn: integer("turn").notNull(),
+  enemyName: varchar("enemy_name", { length: 128 }).notNull(),
+  enemyType: varchar("enemy_type", { length: 64 }).notNull(),
+  stateFeaturesJson: json("state_features_json").$type<Record<string, unknown>>(),
+  chosenAction: varchar("chosen_action", { length: 128 }).notNull(),
+  chosenTarget: varchar("chosen_target", { length: 128 }),
+  availableActionsJson: json("available_actions_json").$type<string[]>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  encounterEnemyIdx: index("enemy_state_action_examples_idx").on(table.encounterType, table.enemyType),
+  sessionIdx: index("enemy_state_action_examples_session_idx").on(table.sessionId),
+}));
+
+export const insertEnemyStateActionExampleSchema = createInsertSchema(enemyStateActionExamples).omit({ id: true, createdAt: true });
+export type InsertEnemyStateActionExample = z.infer<typeof insertEnemyStateActionExampleSchema>;
+export type EnemyStateActionExample = typeof enemyStateActionExamples.$inferSelect;
+
+export const recommendationOutcomes = pgTable("recommendation_outcomes", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull(),
+  encounterType: varchar("encounter_type", { length: 64 }).notNull(),
+  huntId: varchar("hunt_id", { length: 128 }),
+  turn: integer("turn").notNull(),
+  recommendedActionJson: json("recommended_action_json").$type<Record<string, unknown>>(),
+  executedActionJson: json("executed_action_json").$type<Record<string, unknown>>(),
+  stateBeforeJson: json("state_before_json").$type<Record<string, unknown>>(),
+  stateAfterJson: json("state_after_json").$type<Record<string, unknown>>(),
+  outcomeDeltaJson: json("outcome_delta_json").$type<Record<string, unknown>>(),
+  survivedNextCycle: boolean("survived_next_cycle"),
+  fightWon: boolean("fight_won"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdx: index("recommendation_outcomes_session_idx").on(table.sessionId, table.turn),
+}));
+
+export const insertRecommendationOutcomeSchema = createInsertSchema(recommendationOutcomes).omit({ id: true, createdAt: true });
+export type InsertRecommendationOutcome = z.infer<typeof insertRecommendationOutcomeSchema>;
+export type RecommendationOutcome = typeof recommendationOutcomes.$inferSelect;
+
+export const consumableOutcomeExamples = pgTable("consumable_outcome_examples", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull(),
+  encounterType: varchar("encounter_type", { length: 64 }).notNull(),
+  huntId: varchar("hunt_id", { length: 128 }),
+  turn: integer("turn").notNull(),
+  consumableStateJson: json("consumable_state_json").$type<Record<string, unknown>>(),
+  recommendedConsumableActionJson: json("recommended_consumable_action_json").$type<Record<string, unknown>>(),
+  executedConsumableActionJson: json("executed_consumable_action_json").$type<Record<string, unknown>>(),
+  outcomeDeltaJson: json("outcome_delta_json").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  sessionIdx: index("consumable_outcome_examples_session_idx").on(table.sessionId, table.turn),
+}))
+
+export const insertConsumableOutcomeExampleSchema = createInsertSchema(consumableOutcomeExamples).omit({ id: true, createdAt: true });
+export type InsertConsumableOutcomeExample = z.infer<typeof insertConsumableOutcomeExampleSchema>;
+export type ConsumableOutcomeExample = typeof consumableOutcomeExamples.$inferSelect;
