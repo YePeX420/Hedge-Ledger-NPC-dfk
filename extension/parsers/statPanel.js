@@ -17,6 +17,8 @@
     '[class*="StatPanel"]',
     '[class*="unit-detail"]',
     '.character-sheet',
+    '.mana-bar',
+    '.hero-abilities',
   ];
 
   const STAT_LABEL_MAP = {
@@ -90,7 +92,7 @@
       snapshot.unitSide = panelText.includes('enemy') || panelText.includes('monster') ? 'enemy' : 'player';
     }
 
-    const hpEl = panelEl.querySelector('[class*="hp"],[class*="HP"],[data-hp],[data-stat="hp"]');
+    const hpEl = panelEl.querySelector('.progress-text,[class*="hp"],[class*="HP"],[data-hp],[data-stat="hp"]');
     if (hpEl) {
       const hpParsed = extractHpMp(hpEl.textContent || '');
       if (hpParsed) {

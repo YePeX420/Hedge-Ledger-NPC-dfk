@@ -28,8 +28,11 @@
     '[data-action-type="attack"]',
   ];
 
-  // ── Tier C: class pattern matching (fragile on hashed React class names) ──
+  // ── Tier C: class pattern matching ──
+  // DFK-specific stable (non-hashed) selectors come first
   const ACTION_TIER_C = [
+    '.hero-abilities button',
+    '.hero-abilities [role="button"]',
     '[class*="action-btn"]', '[class*="ActionBtn"]',
     '[class*="skill-btn"]', '[class*="SkillBtn"]',
     '[class*="action-button"]', '[class*="ActionButton"]',
@@ -38,6 +41,10 @@
   ];
 
   const HP_BAR_SELECTORS = [
+    '.mana-bar .progress-text',
+    '.progress-text',
+    '.mana-bar',
+    '.custom-progress-bar',
     '[data-unit-hp]', '[data-hp]',
     '[class*="hp-bar"]', '[class*="HpBar"]',
     '[class*="health-bar"]', '[class*="HealthBar"]',
@@ -48,6 +55,7 @@
     '[data-active="true"]', '[data-current-turn="true"]',
     '[class*="active-unit"]', '[class*="ActiveUnit"]',
     '[class*="current-turn"]', '[class*="CurrentTurn"]',
+    '.turn-count-label',
   ];
 
   const TARGET_SELECTORS = [
@@ -97,6 +105,33 @@
 
   // ── HP bar reading ────────────────────────────────────────────────────────
 
+  function inferUnitNameFromContext(el) {
+    let node = el;
+    for (let i = 0; i < 6; i++) {
+      node = node?.parentElement;
+      if (!node) break;
+      const nameEl = node.querySelector('[class*="name"],[class*="Name"],[class*="hero-name"],[class*="unit-name"],.turn-count-label');
+      if (nameEl) {
+        const text = nameEl.textContent.trim();
+        if (text && text.length > 1 && text.length < 50 && !/^\d+$/.test(text)) return text;
+      }
+    }
+    return null;
+  }
+
+  function inferSideFromPosition(el) {
+    if (el.closest('[class*="enemy"]')) return 'enemy';
+    if (el.closest('[class*="Enemy"]')) return 'enemy';
+    if (el.closest('[class*="monster"]')) return 'enemy';
+    if (el.closest('[class*="hero"]')) return 'player';
+    if (el.closest('[class*="player"]')) return 'player';
+    const rect = el.getBoundingClientRect();
+    const viewW = window.innerWidth;
+    if (rect.left > viewW * 0.55) return 'enemy';
+    if (rect.right < viewW * 0.45) return 'player';
+    return 'player';
+  }
+
   function readHpBars() {
     const units = [];
     const seen = new Set();
@@ -111,9 +146,9 @@
         seen.add(el);
         count++;
         const slot = parseInt(el.getAttribute('data-slot') || el.getAttribute('data-index') || `${i}`, 10);
-        const side = el.getAttribute('data-side') || (el.closest('[class*="enemy"]') ? 'enemy' : 'player');
+        const side = el.getAttribute('data-side') || inferSideFromPosition(el);
         const name = el.getAttribute('data-name') || el.getAttribute('data-unit-name') ||
-          el.closest('[data-name]')?.getAttribute('data-name') || null;
+          el.closest('[data-name]')?.getAttribute('data-name') || inferUnitNameFromContext(el);
         units.push({ slot, side, name, hp: hp.current, maxHp: hp.max });
       });
       diagCounts[sel] = count;
@@ -121,9 +156,7 @@
 
     // Tier D: scan leaf nodes for NNN/NNN pattern when standard selectors miss
     if (units.length === 0) {
-      const combatRoot = document.querySelector(
-        '[class*="combat"],[class*="battle"],[class*="fight"],[class*="arena"],[id*="combat"],[id*="battle"]'
-      ) || document.body;
+      const combatRoot = document.body;
       const walker = document.createTreeWalker(combatRoot, NodeFilter.SHOW_TEXT, null);
       let node;
       while ((node = walker.nextNode())) {
@@ -134,7 +167,9 @@
           const hp = extractHpMp(el);
           if (!hp) continue;
           seen.add(el);
-          units.push({ slot: units.length, side: 'player', name: null, hp: hp.current, maxHp: hp.max, _tier: 'D' });
+          const side = inferSideFromPosition(el);
+          const name = inferUnitNameFromContext(el);
+          units.push({ slot: units.length, side, name, hp: hp.current, maxHp: hp.max, _tier: 'D' });
         }
       }
       diagCounts['tier-D-text-scan'] = units.length;
@@ -186,6 +221,11 @@
   }
 
   function findActionPanelByStructure() {
+    const dfkPanel = document.querySelector('.hero-abilities');
+    if (dfkPanel) {
+      const buttons = dfkPanel.querySelectorAll('button:not([disabled]),[role="button"]');
+      if (buttons.length >= 1) return dfkPanel;
+    }
     const candidates = document.querySelectorAll(
       '[class*="action"],[class*="skill"],[class*="combat"],[class*="ability"],[class*="menu"]'
     );

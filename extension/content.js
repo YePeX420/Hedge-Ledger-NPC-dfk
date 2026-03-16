@@ -117,8 +117,18 @@
               url.match(/huntId=(\w+)/i) ||
               url.match(/\/hunt\/(\w+)/i) ||
               url.match(/\/battle\/(\w+)/i) ||
-              url.match(/\/combat\/(\w+)/i);
-    return m ? { id: m[1], source: 'url' } : null;
+              url.match(/\/combat\/(\w+)/i) ||
+              url.match(/\/pve\/(\w+)/i) ||
+              url.match(/\/void-hunt/i);
+    if (m) return { id: m[1] || 'void-hunt', source: 'url' };
+    if (/game\.defikingdoms\.com/i.test(url)) {
+      const hash = url.split('#')[1];
+      if (hash) {
+        const hm = hash.match(/hunt|battle|combat|pve/i);
+        if (hm) return { id: hash.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 20) || 'hash-session', source: 'url-hash' };
+      }
+    }
+    return null;
   }
 
   function detectFromDom() {
@@ -134,6 +144,11 @@
     }
     const titleMatch = document.title.match(/Hunt #?(\w+)|Battle #?(\w+)/i);
     if (titleMatch) return { id: titleMatch[1] || titleMatch[2], source: 'page-title' };
+    const combatUI = document.querySelector('.hero-abilities,.mana-bar,.custom-progress-bar');
+    if (combatUI) {
+      const ts = Date.now().toString(36).slice(-6);
+      return { id: `dfk-combat-${ts}`, source: 'dom-combat-ui' };
+    }
     return null;
   }
 
@@ -157,7 +172,7 @@
   // Synthetic key from team composition — fires after first two battle log events
   function maybeBuildSyntheticSessionId() {
     if (syntheticKeyGenerated || sessionHuntId) return;
-    if (turnEventBuffer.length < 2) return;
+    if (turnEventBuffer.length < 1) return;
 
     const ts = window.__dfkGetTurnState ? window.__dfkGetTurnState() : {};
     const heroes = ts.heroes || [];

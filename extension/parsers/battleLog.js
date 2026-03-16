@@ -37,7 +37,9 @@
     '[id*="combat-log"]',
   ];
 
-  const TURN_EVENT_PATTERN = /uses?\s+\w|attacks?\s+\w|casts?\s+\w|strikes?\s+\w|charges?\s+\w|\bdeals?\s+\d|\bfor\s+\d+\s+damage/i;
+  const TURN_EVENT_PATTERN = /uses?\s+\w|attacks?\s+\w|casts?\s+\w|strikes?\s+\w|charges?\s+\w|\bdeals?\s+\d|\bfor\s+\d+\s+damage|\bperformed\s+\w|\[(?:AR|AT|DF|SP|SU|MN):\s/i;
+
+  const DFK_LOG_ENTRY_BG = 'rgb(234, 220, 184)';
 
   const CONFIDENCE = { ATTRIBUTE: 1.0, REGEX: 0.5, MISSING: 0.0 };
 
@@ -57,6 +59,10 @@
   }
 
   function parseActorSide(rawText) {
+    const bracketMatch = rawText.match(/\[(AR|AT|DF|SP|SU|MN):/);
+    if (bracketMatch) {
+      return { value: 'player', confidence: 0.9, source: `bracket-prefix:${bracketMatch[1]}` };
+    }
     const lc = rawText.toLowerCase();
     if (lc.includes('enemy') || lc.includes('monster') || lc.includes('boar') || lc.includes('dark')) {
       return { value: 'enemy', confidence: 0.5, source: 'regex:enemy-keywords' };
@@ -82,7 +88,8 @@
     const actor = extractField(el,
       ['data-actor', 'data-actor-name'],
       [
-        { regex: /^([A-Za-z][A-Za-z\s'-]+?)\s+(?:uses|attacks|casts|strikes|charges)/i },
+        { regex: /\[(?:AR|AT|DF|SP|SU|MN):\s*([^\]]+)\]/i },
+        { regex: /^([A-Za-z][A-Za-z\s'-]+?)\s+(?:uses|attacks|casts|strikes|charges|performed)/i },
         { regex: /^([A-Za-z][A-Za-z\s'-]+?)(?:\s*\[P\d\])?(?:\s*:)/ },
       ],
       rawText
@@ -91,6 +98,7 @@
     const ability = extractField(el,
       ['data-ability', 'data-skill'],
       [
+        { regex: /performed\s+([A-Za-z][A-Za-z\s'-]+?)(?:\s+and\s+|\s+on\s+|\s+against\s+|\s+for\s+|\.|!|,|$)/i },
         { regex: /uses?\s+([A-Za-z][A-Za-z\s'-]+?)(?:\s+on|\s+against|\s+for|\.|!|$)/i },
         { regex: /casts?\s+([A-Za-z][A-Za-z\s'-]+?)(?:\s+on|\s+against|\s+for|\.|!|$)/i },
         { regex: /:\s*([A-Za-z][A-Za-z\s'-]{2,30})\s*(?:on|against|-|\()/i },
@@ -101,7 +109,7 @@
     const target = extractField(el,
       ['data-target', 'data-target-name'],
       [
-        { regex: /(?:on|against|hits?)\s+([A-Za-z][A-Za-z\s'-]+?)(?:\s+for|\s*[!.]|$)/i },
+        { regex: /(?:on|against|hits?)\s+([A-Za-z][A-Za-z\s'-]+?)(?:\s+for|\s*[!.]|,|$)/i },
         { regex: /(?:on|against)\s+([A-Za-z][A-Za-z\s'0-9-]+)/i },
       ],
       rawText
@@ -216,11 +224,34 @@
 
   // ── Tier D: find battle log by content pattern ────────────────────────────
 
+  function findLogByInlineStyle() {
+    const allDivs = document.querySelectorAll('div');
+    for (const div of allDivs) {
+      const bg = div.style.backgroundColor;
+      if (bg && bg.replace(/\s/g, '') === DFK_LOG_ENTRY_BG.replace(/\s/g, '')) {
+        const parent = div.parentElement;
+        if (parent) {
+          let styledCount = 0;
+          for (const child of parent.children) {
+            const cbg = child.style.backgroundColor;
+            if (cbg && cbg.replace(/\s/g, '') === DFK_LOG_ENTRY_BG.replace(/\s/g, '')) styledCount++;
+          }
+          if (styledCount >= 1) {
+            console.log(`[DFK] Tier D-style: battle log detected via inline bg color (${styledCount} styled entries)`);
+            window.__dfkSelectorDiag.battle_log = { attached: false, tier: 'D-style', selector: 'inline-bg-color', styledEntries: styledCount };
+            return { el: parent, selector: 'tier-D:inline-bg-color' };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   function findLogByContent() {
     let best = null, bestScore = 0;
     const candidates = document.querySelectorAll('div,ul,ol,section,aside,nav');
     for (const el of candidates) {
-      if (el.children.length < 2 || el.children.length > 500) continue;
+      if (el.children.length < 1 || el.children.length > 500) continue;
       let score = 0;
       for (const child of el.children) {
         if (TURN_EVENT_PATTERN.test(child.textContent)) score++;
@@ -230,7 +261,7 @@
         bestScore = score;
       }
     }
-    if (bestScore >= 2) {
+    if (bestScore >= 1) {
       console.log(`[DFK] Tier D battle log detected (${bestScore} matching children)`);
       window.__dfkSelectorDiag.battle_log = { attached: false, tier: 'D', selector: 'content-pattern', matchingChildren: bestScore };
       return { el: best, selector: 'tier-D:content-pattern' };
@@ -239,7 +270,7 @@
   }
 
   function findLogContainer() {
-    return findLogBySelector() || findLogByContent();
+    return findLogBySelector() || findLogByInlineStyle() || findLogByContent();
   }
 
   // ── Observer attachment ───────────────────────────────────────────────────
