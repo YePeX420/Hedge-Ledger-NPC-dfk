@@ -355,15 +355,71 @@ function buildFirebaseBattleView(firebaseState: FirebaseBattleState | undefined,
 }
 
 function buildFirebaseTurnFeed(firebaseState: FirebaseBattleState | undefined): TurnEvent[] {
-  return (firebaseState?.turns || []).slice(-10).map((turn) => ({
-    turnNumber: turn.turn ?? 0,
-    actorSide: turn.activeSide === 1 ? 'player' : turn.activeSide === -1 ? 'enemy' : 'unknown',
-    actorSlot: turn.activeSlot ?? null,
-    skillId: turn.actionType || undefined,
-    actor: turn.activeSide === 1 ? `Hero ${turn.activeSlot ?? '?'}` : turn.activeSide === -1 ? `Enemy ${turn.activeSlot ?? '?'}` : null,
-    ability: turn.actionType || turn.battleLog || null,
-    targets: [],
-  }));
+  return (firebaseState?.turns || [])
+    .slice(-10)
+    .reverse()
+    .map((turn) => ({
+      turnNumber: turn.turn ?? 0,
+      actorSide: turn.activeSide === 1 ? 'player' : turn.activeSide === -1 ? 'enemy' : 'unknown',
+      actorSlot: turn.activeSlot ?? null,
+      skillId: turn.actionType || undefined,
+      actor: turn.activeSide === 1
+        ? `Hero ${turn.activeSlot ?? '?'}`
+        : turn.activeSide === -1
+        ? `Enemy ${turn.activeSlot ?? '?'}`
+        : null,
+      ability: turn.actionType || turn.battleLog || null,
+      targets: [],
+    }));
+}
+
+function areTurnFeedsEqual(a: TurnEvent[], b: TurnEvent[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((turn, index) => {
+    const other = b[index];
+    return (
+      turn.turnNumber === other.turnNumber &&
+      turn.actorSide === other.actorSide &&
+      turn.actorSlot === other.actorSlot &&
+      turn.skillId === other.skillId &&
+      turn.actor === other.actor &&
+      turn.ability === other.ability
+    );
+  });
+}
+
+function areBattleStatesEqual(a: BattleStateMsg | null, b: BattleStateMsg | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.turnNumber !== b.turnNumber || a.activeHeroSlot !== b.activeHeroSlot) return false;
+  if (a.heroes.length !== b.heroes.length || a.enemies.length !== b.enemies.length) return false;
+
+  const heroesEqual = a.heroes.every((hero, index) => {
+    const other = b.heroes[index];
+    return (
+      hero.slot === other.slot &&
+      hero.heroId === other.heroId &&
+      hero.currentHp === other.currentHp &&
+      hero.maxHp === other.maxHp &&
+      hero.currentMp === other.currentMp &&
+      hero.maxMp === other.maxMp &&
+      hero.isAlive === other.isAlive
+    );
+  });
+  if (!heroesEqual) return false;
+
+  return a.enemies.every((enemy, index) => {
+    const other = b.enemies[index];
+    return (
+      enemy.enemyId === other.enemyId &&
+      enemy.currentHp === other.currentHp &&
+      enemy.maxHp === other.maxHp &&
+      enemy.currentMp === other.currentMp &&
+      enemy.maxMp === other.maxMp &&
+      enemy.isDead === other.isDead &&
+      enemy.debuffs.length === other.debuffs.length
+    );
+  });
 }
 
 function buildDomActionState(combatFrame: CombatFrame | null): DomActionState {
@@ -387,20 +443,10 @@ function buildDomActionState(combatFrame: CombatFrame | null): DomActionState {
 
 function getSyncIssues(firebaseState: FirebaseBattleState | undefined, domActionState: DomActionState): string[] {
   const issues: string[] = [];
-  if (!firebaseState?.currentTurn) return issues;
-
-  if (firebaseState.currentTurn.activeSide !== 1) {
-    issues.push('Firebase reports that it is not currently the player turn.');
-  }
+  if (!firebaseState) return issues;
 
   if (domActionState.activeHeroSlot == null) {
     issues.push('DOM action state could not identify the active hero slot.');
-  } else if (
-    firebaseState.currentTurn.activeSide === 1 &&
-    firebaseState.currentTurn.activeSlot != null &&
-    domActionState.activeHeroSlot !== firebaseState.currentTurn.activeSlot
-  ) {
-    issues.push(`DOM active hero slot ${domActionState.activeHeroSlot} does not match Firebase slot ${firebaseState.currentTurn.activeSlot}.`);
   }
 
   if (domActionState.legalActions.length === 0) {
@@ -1177,26 +1223,35 @@ export default function HuntCompanion() {
     const data = sessionStatusQuery.data;
     if (!data) return;
     if (data.session) {
-      setSession(data.session);
+      setSession((prev) => {
+        if (
+          prev?.id === data.session.id &&
+          prev?.status === data.session.status &&
+          prev?.hunt_id === data.session.hunt_id &&
+          prev?.latest_hunt_id === data.session.latest_hunt_id &&
+          prev?.last_seen_at === data.session.last_seen_at &&
+          prev?.connected_clients === data.session.connected_clients
+        ) {
+          return prev;
+        }
+        return data.session;
+      });
     }
 
     const serverTurnCount = data.turnEvents?.length ?? 0;
-    if (serverTurnCount > 0) setTurnFeed(data.turnEvents.slice(-10));
-    setTurnCount(serverTurnCount);
-
-    if (data.latestHuntId) {
-      setLatestHuntId(data.latestHuntId);
+    if (!firebaseLogQuery.data && serverTurnCount > 0) {
+      const nextTurnFeed = data.turnEvents.slice(-10).reverse();
+      setTurnFeed((prev) => (areTurnFeedsEqual(prev, nextTurnFeed) ? prev : nextTurnFeed));
+    }
+    if (!firebaseLogQuery.data) {
+      setTurnCount((prev) => (prev === serverTurnCount ? prev : serverTurnCount));
     }
 
-    // Seed battleState from heroStates when:
-    // - no battleState at all yet, OR
-    // - battleState exists but heroes array is empty, OR
-    // - battleState exists but all heroes show 0 current HP despite having maxHp (the /135 display gap)
-    const heroesNeedSeeding = !battleState ||
-      battleState.heroes.length === 0 ||
-      battleState.heroes.every(h => h.currentHp === 0 && h.maxHp > 0);
+    if (data.latestHuntId) {
+      setLatestHuntId((prev) => (prev === data.latestHuntId ? prev : data.latestHuntId));
+    }
 
-    if (data.heroStates && heroesNeedSeeding && !firebaseLogQuery.data) {
+    if (data.heroStates && !firebaseLogQuery.data) {
       const rawStates = data.heroStates as HeroStateRaw[];
       const heroes: HeroSnapshot[] = rawStates.map((h, i) => ({
         slot: h.slot ?? i,
@@ -1210,30 +1265,64 @@ export default function HuntCompanion() {
         isAlive: (h.currentHp ?? h.hp ?? 0) > 0,
       }));
       const enemyId = data.enemyId || null;
-      setBattleState(prev => ({
-        turnNumber: prev?.turnNumber ?? serverTurnCount,
-        activeHeroSlot: prev?.activeHeroSlot ?? 0,
-        heroes,
-        enemies: prev?.enemies?.length ? prev.enemies : (enemyId ? [{ enemyId, currentHp: 0, maxHp: 0, debuffs: [] }] : []),
-      }));
+      setBattleState((prev) => {
+        const heroesNeedSeeding = !prev ||
+          prev.heroes.length === 0 ||
+          prev.heroes.every(h => h.currentHp === 0 && h.maxHp > 0);
+        if (!heroesNeedSeeding) return prev;
+        return {
+          turnNumber: prev?.turnNumber ?? serverTurnCount,
+          activeHeroSlot: prev?.activeHeroSlot ?? 0,
+          heroes,
+          enemies: prev?.enemies?.length ? prev.enemies : (enemyId ? [{ enemyId, currentHp: 0, maxHp: 0, debuffs: [] }] : []),
+        };
+      });
     }
-    if (data.combatFrame) setCombatFrame(data.combatFrame);
-  }, [sessionStatusQuery.data, firebaseLogQuery.data, battleState]);
+    if (data.combatFrame) {
+      setCombatFrame((prev) => {
+        const prevCapturedAt = prev?.captureMeta?.capturedAt ?? null;
+        const nextCapturedAt = data.combatFrame?.captureMeta?.capturedAt ?? null;
+        if (prevCapturedAt === nextCapturedAt && prev?.turnNumber === data.combatFrame?.turnNumber) {
+          return prev;
+        }
+        return data.combatFrame;
+      });
+    }
+  }, [sessionStatusQuery.data, firebaseLogQuery.data]);
 
   useEffect(() => {
     if (!firebaseLogQuery.data) return;
     const firebaseBattleView = buildFirebaseBattleView(firebaseLogQuery.data, combatFrame);
     if (firebaseBattleView) {
-      setBattleState(firebaseBattleView);
-      setTurnCount(firebaseLogQuery.data.totalTurns || firebaseBattleView.turnNumber || 0);
-      setTurnFeed(buildFirebaseTurnFeed(firebaseLogQuery.data));
+      setBattleState((prev) => (areBattleStatesEqual(prev, firebaseBattleView) ? prev : firebaseBattleView));
+      const nextTurnCount = firebaseLogQuery.data.totalTurns || firebaseBattleView.turnNumber || 0;
+      setTurnCount((prev) => (prev === nextTurnCount ? prev : nextTurnCount));
+      const nextTurnFeed = buildFirebaseTurnFeed(firebaseLogQuery.data);
+      setTurnFeed((prev) => (areTurnFeedsEqual(prev, nextTurnFeed) ? prev : nextTurnFeed));
     }
+  }, [firebaseLogQuery.data]);
+
+  useEffect(() => {
+    if (!firebaseLogQuery.data || !combatFrame) return;
+    setBattleState((prev) => {
+      if (!prev) return prev;
+      const nextActiveHeroSlot = combatFrame.activeTurn.activeSlot ?? prev.activeHeroSlot;
+      if (prev.activeHeroSlot === nextActiveHeroSlot && prev.combatFrame === combatFrame) {
+        return prev;
+      }
+      return {
+        ...prev,
+        activeHeroSlot: nextActiveHeroSlot,
+        combatFrame,
+      };
+    });
   }, [firebaseLogQuery.data, combatFrame]);
 
   const domActionState = buildDomActionState(combatFrame);
   const syncIssues = getSyncIssues(firebaseLogQuery.data, domActionState);
-  const recommendationReady = !!firebaseLogQuery.data?.currentTurn &&
-    firebaseLogQuery.data.currentTurn.activeSide === 1 &&
+  const enemyPredictionReady = !!firebaseLogQuery.data &&
+    !!battleState?.enemies?.length;
+  const recommendationReady = enemyPredictionReady &&
     syncIssues.length === 0 &&
     !!battleState?.enemies?.length;
 
@@ -1244,12 +1333,19 @@ export default function HuntCompanion() {
   }, [domActionState.battleBudgetRemaining]);
 
   useEffect(() => {
+    if (!enemyPredictionReady) {
+      setEnemyPrediction(null);
+      return;
+    }
+    predictMutation.mutate();
+  }, [enemyPredictionReady, battleState?.turnNumber, battleState?.enemies?.length, executionMode]);
+
+  useEffect(() => {
     if (!recommendationReady) {
       setRecommendations([]);
       return;
     }
-    predictMutation.mutate();
-  }, [recommendationReady, battleState?.turnNumber, battleState?.enemies?.length, executionMode]);
+  }, [recommendationReady]);
 
   const copyToken = () => {
     if (session?.session_token) {
@@ -1616,11 +1712,11 @@ export default function HuntCompanion() {
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <EnemyIntelligencePanel
-                prediction={recommendationReady ? enemyPrediction : null}
-                isLoading={recommendationReady && predictMutation.isPending}
+                prediction={enemyPredictionReady ? enemyPrediction : null}
+                isLoading={enemyPredictionReady && predictMutation.isPending}
               />
               <ConsumableStrategyPanel
-                prediction={recommendationReady ? enemyPrediction : null}
+                prediction={enemyPredictionReady ? enemyPrediction : null}
                 battleBudget={battleBudget}
               />
               <ActiveTurnPanel combatFrame={combatFrame} />
