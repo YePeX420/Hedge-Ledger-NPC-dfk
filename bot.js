@@ -19840,7 +19840,13 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     };
   }
 
-  async function listOwnedCompanionSessions(rawPg, actor) {
+  async function getCompanionRawPg() {
+    const { rawPg } = await import('./server/db.js');
+    return rawPg;
+  }
+
+  async function listOwnedCompanionSessions(actor) {
+    const rawPg = await getCompanionRawPg();
     const rows = await rawPg`
       SELECT * FROM pve_companion_sessions
       WHERE owner_user_id = ${actor.ownerUserId}
@@ -19849,7 +19855,8 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     return rows.map((row) => hydrateCompanionSessionRecord(row, companionSessions.get(row.session_token)));
   }
 
-  async function getOwnedCompanionSession(rawPg, sessionId, actor) {
+  async function getOwnedCompanionSession(sessionId, actor) {
+    const rawPg = await getCompanionRawPg();
     const rows = await rawPg`
       SELECT * FROM pve_companion_sessions
       WHERE id = ${sessionId} AND owner_user_id = ${actor.ownerUserId}
@@ -19896,7 +19903,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         ownerUsername: user.displayName || user.username,
         dashboardUserId: user.id,
       };
-      const sessions = await listOwnedCompanionSessions(rawPg, actor);
+      const sessions = await listOwnedCompanionSessions(actor);
 
       res.json({
         ok: true,
@@ -19917,7 +19924,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
   app.get('/api/user/extension/session', requireCompanionActor, async (req, res) => {
     try {
-      const sessions = await listOwnedCompanionSessions(rawPg, req.companionActor);
+      const sessions = await listOwnedCompanionSessions(req.companionActor);
       res.json({
         ok: true,
         user: {
@@ -19948,7 +19955,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
   app.get('/api/user/pve/companion/sessions', requireCompanionActor, async (req, res) => {
     try {
-      const sessions = await listOwnedCompanionSessions(rawPg, req.companionActor);
+      const sessions = await listOwnedCompanionSessions(req.companionActor);
       res.json({ ok: true, sessions });
     } catch (err) {
       console.error('[Companion] Session list error:', err.message);
@@ -19958,6 +19965,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
   app.post('/api/user/pve/companion/sessions', requireCompanionActor, async (req, res) => {
     try {
+      const rawPg = await getCompanionRawPg();
       const { label } = req.body || {};
       const token = crypto.randomBytes(16).toString('hex');
       const rows = await rawPg`
@@ -19974,9 +19982,10 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
   app.get('/api/user/pve/companion/sessions/:id', requireCompanionActor, async (req, res) => {
     try {
+      const rawPg = await getCompanionRawPg();
       const sessionId = parseInt(req.params.id, 10);
       if (!Number.isFinite(sessionId)) return res.status(400).json({ ok: false, error: 'Invalid session id' });
-      const session = await getOwnedCompanionSession(rawPg, sessionId, req.companionActor);
+      const session = await getOwnedCompanionSession(sessionId, req.companionActor);
       if (!session) return res.status(404).json({ ok: false, error: 'Session not found' });
 
       const turnRows = await rawPg`SELECT * FROM pve_turn_events WHERE session_id = ${session.id} ORDER BY turn_number ASC`;
@@ -20019,9 +20028,10 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
   app.post('/api/user/pve/companion/sessions/:id/archive', requireCompanionActor, async (req, res) => {
     try {
+      const rawPg = await getCompanionRawPg();
       const sessionId = parseInt(req.params.id, 10);
       if (!Number.isFinite(sessionId)) return res.status(400).json({ ok: false, error: 'Invalid session id' });
-      const existing = await getOwnedCompanionSession(rawPg, sessionId, req.companionActor);
+      const existing = await getOwnedCompanionSession(sessionId, req.companionActor);
       if (!existing) return res.status(404).json({ ok: false, error: 'Session not found' });
       const rows = await rawPg`
         UPDATE pve_companion_sessions
@@ -20038,9 +20048,10 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
   app.post('/api/user/pve/companion/sessions/:id/select', requireCompanionActor, async (req, res) => {
     try {
+      const rawPg = await getCompanionRawPg();
       const sessionId = parseInt(req.params.id, 10);
       if (!Number.isFinite(sessionId)) return res.status(400).json({ ok: false, error: 'Invalid session id' });
-      const existing = await getOwnedCompanionSession(rawPg, sessionId, req.companionActor);
+      const existing = await getOwnedCompanionSession(sessionId, req.companionActor);
       if (!existing) return res.status(404).json({ ok: false, error: 'Session not found' });
       const rows = await rawPg`
         UPDATE pve_companion_sessions
@@ -20057,6 +20068,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
   app.get('/api/admin/pve/companion/session', isAdminOrHasTab('pve-hunts', 'hunt-companion'), async (req, res) => {
     try {
+      const rawPg = await getCompanionRawPg();
       const token = crypto.randomBytes(16).toString('hex');
       const actor = await resolveCompanionActor(req);
       const ownerUserId = actor?.ownerUserId || null;
