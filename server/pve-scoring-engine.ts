@@ -503,8 +503,8 @@ export function buildBattleStateFromTurnEvents(
   const clonedHeroes: HeroState[] = heroes.map(h => ({
     ...h,
     stats: { ...h.stats },
-    buffs: [...h.buffs],
-    debuffs: [...h.debuffs],
+    buffs: [...(h.buffs ?? [])],
+    debuffs: [...(h.debuffs ?? [])],
   }));
 
   const latestHpState = turnEvents.length > 0 ? turnEvents[turnEvents.length - 1].hpState : null;
