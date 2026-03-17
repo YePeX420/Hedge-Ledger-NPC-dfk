@@ -296,6 +296,9 @@ console.log('[DFK BattleLog] Script file loaded');
 
   // ── Observer attachment ───────────────────────────────────────────────────
 
+  let domNodesAccepted = 0;
+  let domNodesSkipped = 0;
+
   function attachObserver(container, selector) {
     if (observer) observer.disconnect();
     logContainer = container;
@@ -311,6 +314,20 @@ console.log('[DFK BattleLog] Script file loaded');
           if (!text || text.length < 3) continue;
           processedSet.add(node);
           if (window.__dfkBattleLogNetworkActive) continue;
+          if (!DFK_TURN_EVENT_PATTERN.test(text) && !GENERIC_TURN_EVENT_PATTERN.test(text)) {
+            domNodesSkipped++;
+            if (window.__dfkSelectorDiag.battle_log) {
+              window.__dfkSelectorDiag.battle_log.domNodesSkipped = domNodesSkipped;
+              window.__dfkSelectorDiag.battle_log.domNodesAccepted = domNodesAccepted;
+            }
+            console.debug('[DFK BattleLog] Skipped non-turn node:', text.slice(0, 80));
+            continue;
+          }
+          domNodesAccepted++;
+          if (window.__dfkSelectorDiag.battle_log) {
+            window.__dfkSelectorDiag.battle_log.domNodesSkipped = domNodesSkipped;
+            window.__dfkSelectorDiag.battle_log.domNodesAccepted = domNodesAccepted;
+          }
           node._dfkSelector = selector;
           turnCounter++;
           const event = parseLogEntry(node, turnCounter);
