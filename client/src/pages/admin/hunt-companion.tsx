@@ -152,22 +152,64 @@ interface HeroStateRaw {
 }
 
 interface FirebaseUnit {
+  side?: 1 | -1;
+  slot?: number;
+  unitId?: string;
   name: string;
   hp: number | null;
   maxHp: number | null;
   mp: number | null;
   maxMp: number | null;
   isDead: boolean;
+  statuses?: Array<{ id: string | null; name: string | null; turnsLeft: number | null }>;
 }
 
 interface FirebaseTurn {
   turnId: string;
-  round: number;
-  turn: number;
+  round: number | null;
+  turn: number | null;
   activeSide: number | null;
   activeSlot: number | null;
   actionType: string | null;
   battleLog: string | null;
+}
+
+interface FirebaseBattleState {
+  ok: boolean;
+  huntRef: string;
+  meta: {
+    hasWinner: boolean | null;
+    winnerSide: number | null;
+    scenarioId: string | null;
+    combatType: string | null;
+    turnCount: number | null;
+    allTurnCount: number | null;
+    sessionStatus: number | null;
+    created: string | null;
+    modified: string | null;
+    chainId: number | null;
+    playerUids: unknown;
+  } | null;
+  latestCombatants: Record<string, Record<string, FirebaseUnit>> | null;
+  normalizedCombatants: {
+    heroes: FirebaseUnit[];
+    enemies: FirebaseUnit[];
+  };
+  turns: FirebaseTurn[];
+  currentTurn: FirebaseTurn | null;
+  totalTurns: number;
+  lastModified: string | null;
+}
+
+interface DomActionState {
+  combatFrame: CombatFrame | null;
+  activeHeroSlot: number | null;
+  activeUnitId: string | null;
+  legalActions: string[];
+  legalConsumables: string[];
+  selectedTargetId: string | null;
+  battleBudgetRemaining: number | null;
+  source: string | null;
 }
 
 interface EnemyPrediction {
@@ -225,6 +267,126 @@ interface EnemyPrediction {
 }
 
 type ExecutionModeType = 'observe_only' | 'recommend_and_confirm' | 'auto_execute';
+
+function normalizeFirebaseStatuses(unit: FirebaseUnit | undefined): StatusInstance[] {
+  return (unit?.statuses || [])
+    .filter((status) => status?.name)
+    .map((status) => ({
+      id: status.id || status.name || 'status',
+      name: status.name || 'Status',
+      category: 'debuff',
+      stacks: null,
+      durationTurns: status.turnsLeft ?? null,
+    }));
+}
+
+function firebaseToHeroSnapshot(unit: FirebaseUnit, fallbackSlot: number): HeroSnapshot {
+  return {
+    slot: unit.slot ?? fallbackSlot,
+    heroId: unit.unitId || String(unit.slot ?? fallbackSlot),
+    mainClass: unit.name || 'Hero',
+    level: 0,
+    currentHp: unit.hp ?? 0,
+    maxHp: unit.maxHp ?? 0,
+    currentMp: unit.mp ?? 0,
+    maxMp: unit.maxMp ?? 0,
+    isAlive: !unit.isDead,
+    statuses: normalizeFirebaseStatuses(unit),
+  };
+}
+
+function firebaseToEnemySnapshot(unit: FirebaseUnit, fallbackIndex: number): EnemySnapshot {
+  const enemyId = (unit.name || `Enemy ${fallbackIndex + 1}`).trim().replace(/\s+/g, '_').toUpperCase();
+  const statuses = normalizeFirebaseStatuses(unit);
+  return {
+    enemyId,
+    currentHp: unit.hp ?? 0,
+    maxHp: unit.maxHp ?? 0,
+    currentMp: unit.mp,
+    debuffs: statuses.map((status) => status.name),
+    buffs: [],
+    statuses,
+  };
+}
+
+function buildFirebaseBattleView(firebaseState: FirebaseBattleState | undefined, combatFrame: CombatFrame | null): BattleStateMsg | null {
+  if (!firebaseState?.normalizedCombatants) return null;
+  const heroes = (firebaseState.normalizedCombatants.heroes || []).map(firebaseToHeroSnapshot);
+  const enemies = (firebaseState.normalizedCombatants.enemies || []).map(firebaseToEnemySnapshot);
+  const activeHeroSlot = firebaseState.currentTurn?.activeSide === 1
+    ? (firebaseState.currentTurn.activeSlot ?? combatFrame?.activeTurn.activeSlot ?? 0)
+    : (combatFrame?.activeTurn.activeSlot ?? 0);
+
+  if (heroes.length === 0 && enemies.length === 0) return null;
+
+  return {
+    turnNumber: firebaseState.currentTurn?.turn ?? firebaseState.meta?.turnCount ?? 0,
+    activeHeroSlot,
+    heroes,
+    enemies,
+    combatFrame,
+  };
+}
+
+function buildFirebaseTurnFeed(firebaseState: FirebaseBattleState | undefined): TurnEvent[] {
+  return (firebaseState?.turns || []).slice(-10).map((turn) => ({
+    turnNumber: turn.turn ?? 0,
+    actorSide: turn.activeSide === 1 ? 'player' : turn.activeSide === -1 ? 'enemy' : 'unknown',
+    actorSlot: turn.activeSlot ?? null,
+    skillId: turn.actionType || undefined,
+    actor: turn.activeSide === 1 ? `Hero ${turn.activeSlot ?? '?'}` : turn.activeSide === -1 ? `Enemy ${turn.activeSlot ?? '?'}` : null,
+    ability: turn.actionType || turn.battleLog || null,
+    targets: [],
+  }));
+}
+
+function buildDomActionState(combatFrame: CombatFrame | null): DomActionState {
+  return {
+    combatFrame,
+    activeHeroSlot: combatFrame?.activeTurn.activeSlot ?? null,
+    activeUnitId: combatFrame?.activeTurn.activeUnitId ?? null,
+    legalActions: (combatFrame?.activeTurn.legalActions || [])
+      .filter((action) => action.available !== false)
+      .map((action) => action.name)
+      .filter(Boolean),
+    legalConsumables: (combatFrame?.activeTurn.legalConsumables || [])
+      .filter((item) => item.available !== false)
+      .map((item) => item.name)
+      .filter(Boolean),
+    selectedTargetId: combatFrame?.activeTurn.selectedTargetId ?? null,
+    battleBudgetRemaining: combatFrame?.activeTurn.battleBudgetRemaining ?? null,
+    source: combatFrame?.captureMeta.source ?? null,
+  };
+}
+
+function getSyncIssues(firebaseState: FirebaseBattleState | undefined, domActionState: DomActionState): string[] {
+  const issues: string[] = [];
+  if (!firebaseState?.currentTurn) return issues;
+
+  if (firebaseState.currentTurn.activeSide !== 1) {
+    issues.push('Firebase reports that it is not currently the player turn.');
+  }
+
+  if (domActionState.activeHeroSlot == null) {
+    issues.push('DOM action state could not identify the active hero slot.');
+  } else if (
+    firebaseState.currentTurn.activeSide === 1 &&
+    firebaseState.currentTurn.activeSlot != null &&
+    domActionState.activeHeroSlot !== firebaseState.currentTurn.activeSlot
+  ) {
+    issues.push(`DOM active hero slot ${domActionState.activeHeroSlot} does not match Firebase slot ${firebaseState.currentTurn.activeSlot}.`);
+  }
+
+  if (domActionState.legalActions.length === 0) {
+    issues.push('No legal actions were captured from the command panel.');
+  }
+
+  if (domActionState.legalActions.length === 1 && domActionState.legalActions[0].toLowerCase() === 'menu') {
+    issues.push('DOM action capture only found the menu button, so recommendations are blocked.');
+  }
+
+  return issues;
+}
 
 function HpBar({ current, max, label, color }: { current: number; max: number; label: string; color: string }) {
   const pct = max > 0 ? Math.round((current / max) * 100) : 0;
@@ -746,11 +908,11 @@ export default function HuntCompanion() {
     },
   });
 
-  const firebaseLogQuery = useQuery({
+  const firebaseLogQuery = useQuery<FirebaseBattleState>({
     queryKey: ['/api/admin/pve/firebase-hunt-log', latestHuntId],
-    enabled: !!latestHuntId && showBattleLog,
+    enabled: !!latestHuntId,
     refetchInterval: (query) => {
-      const data = query.state.data as { meta?: { hasWinner?: boolean } } | undefined;
+      const data = query.state.data as FirebaseBattleState | undefined;
       return data?.meta?.hasWinner === false ? 5000 : false;
     },
     queryFn: async () => {
@@ -830,12 +992,6 @@ export default function HuntCompanion() {
     },
   });
 
-  useEffect(() => {
-    if (battleState?.enemies?.length) {
-      predictMutation.mutate();
-    }
-  }, [battleState?.turnNumber, battleState?.enemies?.length, executionMode]);
-
   const connectWs = useCallback(() => {
     if (!session?.session_token || wsRef.current) return;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -853,10 +1009,9 @@ export default function HuntCompanion() {
           setWsConnected(true);
         } else if (msg.type === 'recommendation') {
           setRecommendations(msg.recommendations || []);
-          if (msg.battleState) setBattleState(msg.battleState);
           if (msg.combatFrame) setCombatFrame(msg.combatFrame);
         } else if (msg.type === 'state_update') {
-          if (msg.heroes) {
+          if (msg.heroes && !firebaseLogQuery.data) {
             setBattleState(prev => {
               if (!prev) {
                 return {
@@ -875,10 +1030,12 @@ export default function HuntCompanion() {
           }
           if (msg.combatFrame) setCombatFrame(msg.combatFrame);
         } else if (msg.type === 'turn_state') {
-          if (msg.battleState) setBattleState(msg.battleState);
+          if (msg.battleState && !firebaseLogQuery.data) setBattleState(msg.battleState);
           if (msg.combatFrame) setCombatFrame(msg.combatFrame);
         } else if (msg.type === 'turn_update') {
-          setTurnFeed(prev => [...prev.slice(-9), { turnNumber: msg.turnNumber, actorSide: msg.actorSide, actorSlot: msg.actorSlot, skillId: msg.skillId, actor: msg.actor || null, ability: msg.ability || null, effects: msg.effects }]);
+          if (!firebaseLogQuery.data) {
+            setTurnFeed(prev => [...prev.slice(-9), { turnNumber: msg.turnNumber, actorSide: msg.actorSide, actorSlot: msg.actorSlot, skillId: msg.skillId, actor: msg.actor || null, ability: msg.ability || null, effects: msg.effects }]);
+          }
           if (msg.combatFrame) setCombatFrame(msg.combatFrame);
         } else if (msg.type === 'error') {
           console.error('[WS] Error:', msg.message);
@@ -897,7 +1054,7 @@ export default function HuntCompanion() {
       setWsConnected(false);
       wsRef.current = null;
     };
-  }, [session?.session_token]);
+  }, [session?.session_token, firebaseLogQuery.data]);
 
   useEffect(() => {
     if (session?.session_token && !wsRef.current) {
@@ -916,9 +1073,7 @@ export default function HuntCompanion() {
     if (!data) return;
 
     const serverTurnCount = data.turnEvents?.length ?? 0;
-    if (serverTurnCount > 0) {
-      setTurnFeed(data.turnEvents.slice(-10));
-    }
+    if (serverTurnCount > 0) setTurnFeed(data.turnEvents.slice(-10));
     setTurnCount(serverTurnCount);
 
     if (data.latestHuntId) {
@@ -933,7 +1088,7 @@ export default function HuntCompanion() {
       battleState.heroes.length === 0 ||
       battleState.heroes.every(h => h.currentHp === 0 && h.maxHp > 0);
 
-      if (data.heroStates && heroesNeedSeeding) {
+    if (data.heroStates && heroesNeedSeeding && !firebaseLogQuery.data) {
       const rawStates = data.heroStates as HeroStateRaw[];
       const heroes: HeroSnapshot[] = rawStates.map((h, i) => ({
         slot: h.slot ?? i,
@@ -954,10 +1109,39 @@ export default function HuntCompanion() {
         enemies: prev?.enemies?.length ? prev.enemies : (enemyId ? [{ enemyId, currentHp: 0, maxHp: 0, debuffs: [] }] : []),
       }));
     }
-    if (data.combatFrame) {
-      setCombatFrame(data.combatFrame);
+    if (data.combatFrame) setCombatFrame(data.combatFrame);
+  }, [sessionStatusQuery.data, firebaseLogQuery.data, battleState]);
+
+  useEffect(() => {
+    if (!firebaseLogQuery.data) return;
+    const firebaseBattleView = buildFirebaseBattleView(firebaseLogQuery.data, combatFrame);
+    if (firebaseBattleView) {
+      setBattleState(firebaseBattleView);
+      setTurnCount(firebaseLogQuery.data.totalTurns || firebaseBattleView.turnNumber || 0);
+      setTurnFeed(buildFirebaseTurnFeed(firebaseLogQuery.data));
     }
-  }, [sessionStatusQuery.data]);
+  }, [firebaseLogQuery.data, combatFrame]);
+
+  const domActionState = buildDomActionState(combatFrame);
+  const syncIssues = getSyncIssues(firebaseLogQuery.data, domActionState);
+  const recommendationReady = !!firebaseLogQuery.data?.currentTurn &&
+    firebaseLogQuery.data.currentTurn.activeSide === 1 &&
+    syncIssues.length === 0 &&
+    !!battleState?.enemies?.length;
+
+  useEffect(() => {
+    if (domActionState.battleBudgetRemaining != null) {
+      setBattleBudget(domActionState.battleBudgetRemaining);
+    }
+  }, [domActionState.battleBudgetRemaining]);
+
+  useEffect(() => {
+    if (!recommendationReady) {
+      setRecommendations([]);
+      return;
+    }
+    predictMutation.mutate();
+  }, [recommendationReady, battleState?.turnNumber, battleState?.enemies?.length, executionMode]);
 
   const copyToken = () => {
     if (session?.session_token) {
@@ -978,6 +1162,11 @@ export default function HuntCompanion() {
           {wsConnected && (
             <Badge variant="default" className="text-[10px]">
               <Wifi className="w-3 h-3 mr-1" /> LIVE
+            </Badge>
+          )}
+          {firebaseLogQuery.data?.meta?.hasWinner === false && (
+            <Badge variant="outline" className="text-[10px]">
+              <Activity className="w-3 h-3 mr-1" /> Firebase
             </Badge>
           )}
         </div>
@@ -1067,6 +1256,25 @@ export default function HuntCompanion() {
       {session && hasLiveData && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-1 space-y-4">
+            {firebaseLogQuery.data && (
+              <Card>
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Firebase Battle State</p>
+                    <Badge variant={firebaseLogQuery.data.meta?.hasWinner ? 'secondary' : 'default'} className="text-[10px]">
+                      {firebaseLogQuery.data.meta?.hasWinner ? 'Finished' : 'Live'}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                    <div>Hunt: <span className="font-mono">{firebaseLogQuery.data.huntRef}</span></div>
+                    <div>Turns: <span className="font-mono">{firebaseLogQuery.data.totalTurns}</span></div>
+                    <div>Round: <span className="font-mono">{firebaseLogQuery.data.currentTurn?.round ?? 'n/a'}</span></div>
+                    <div>Actor: <span className="font-mono">{firebaseLogQuery.data.currentTurn?.activeSide === 1 ? `Hero ${firebaseLogQuery.data.currentTurn?.activeSlot ?? '?'}` : firebaseLogQuery.data.currentTurn?.activeSide === -1 ? `Enemy ${firebaseLogQuery.data.currentTurn?.activeSlot ?? '?'}` : 'Unknown'}</span></div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardContent className="p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-1">
@@ -1188,16 +1396,31 @@ export default function HuntCompanion() {
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <EnemyIntelligencePanel
-                prediction={enemyPrediction}
-                isLoading={predictMutation.isPending}
+                prediction={recommendationReady ? enemyPrediction : null}
+                isLoading={recommendationReady && predictMutation.isPending}
               />
               <ConsumableStrategyPanel
-                prediction={enemyPrediction}
+                prediction={recommendationReady ? enemyPrediction : null}
                 battleBudget={battleBudget}
               />
               <ActiveTurnPanel combatFrame={combatFrame} />
               <TurnOrderPanel combatFrame={combatFrame} />
             </div>
+
+            {syncIssues.length > 0 && (
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-400 mb-2 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Synchronization Warning
+                  </p>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    {syncIssues.map((issue) => (
+                      <p key={issue}>{issue}</p>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardContent className="p-4">
@@ -1210,7 +1433,14 @@ export default function HuntCompanion() {
                   </Badge>
                 </div>
 
-                {recommendations.length === 0 && (
+                {!recommendationReady && (
+                  <div className="py-8 text-center">
+                    <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-amber-400/70" />
+                    <p className="text-xs text-muted-foreground">Recommendations are blocked until Firebase battle state and DOM action state agree.</p>
+                  </div>
+                )}
+
+                {recommendationReady && recommendations.length === 0 && (
                   <div className="py-8 text-center">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-muted-foreground/40" />
                     <p className="text-xs text-muted-foreground">Waiting for turn data to generate recommendations...</p>
@@ -1218,7 +1448,7 @@ export default function HuntCompanion() {
                 )}
 
                 <div className="space-y-3" data-testid="recommendations-list">
-                  {recommendations.slice(0, 3).map((rec) => (
+                  {recommendationReady && recommendations.slice(0, 3).map((rec) => (
                     <RecommendationCard
                       key={rec.rank}
                       rec={rec}
@@ -1229,7 +1459,7 @@ export default function HuntCompanion() {
                   ))}
                 </div>
 
-                {enemyPrediction && recommendations.length > 0 && (
+                {recommendationReady && enemyPrediction && recommendations.length > 0 && (
                   <div className="mt-3 p-2 rounded-md bg-muted/10 border border-muted-foreground/10" data-testid="survival-probability">
                     <div className="flex flex-wrap items-center gap-2 text-[10px]">
                       {enemyPrediction.simulation?.rankedCandidates?.[0] ? (

@@ -19601,72 +19601,12 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       // Sort turns by _id (numeric)
       allDocs.sort((a, b) => Number(a._id) - Number(b._id));
 
-      // 3. Extract combatant state from the latest turn's afterDeckStates
-      let latestCombatants = null;
-      const lastTurnWithState = [...allDocs].reverse().find(d => d.afterDeckStates);
-      if (lastTurnWithState?.afterDeckStates) {
-        latestCombatants = {};
-        for (const [side, slots] of Object.entries(lastTurnWithState.afterDeckStates)) {
-          latestCombatants[side] = {};
-          for (const [slot, unit] of Object.entries(slots || {})) {
-            const b = unit?.baseCombatant || {};
-            latestCombatants[side][slot] = {
-              name: b.name || b.id || `Unit ${slot}`,
-              hp: unit?.health ?? null,
-              maxHp: b.hp ?? null,
-              mp: unit?.mana ?? b.mp ?? null,
-              maxMp: b.maxMana ?? b.maxMp ?? null,
-              debuffs: (unit?.channelingTrackers || []).map(t => ({
-                id: t.channelId || t.id || null,
-                name: t.displayName || t.channelId || null,
-                turnsLeft: t.turnsRemaining ?? t.duration ?? null,
-              })),
-              isDead: (unit?.health ?? 1) <= 0,
-            };
-          }
-        }
-      }
-
-      // 4. Build turn summary list
-      const turns = allDocs.map(doc => ({
-        turnId: doc._id,
-        turn: doc.currentTurnCount,
-        round: doc.currentRoundCount,
-        activeSide: doc.activeSide,
-        activeSlot: doc.activeSlot,
-        actionType: doc.attackOutcome?.attackType || null,
-        battleLog: doc.attackOutcome?.battleLog || null,
-        afterHp: doc.afterDeckStates
-          ? Object.fromEntries(
-              Object.entries(doc.afterDeckStates).map(([side, slots]) => [
-                side,
-                Object.fromEntries(
-                  Object.entries(slots || {}).map(([slot, unit]) => [slot, unit?.health ?? null])
-                ),
-              ])
-            )
-          : null,
-      }));
+      const { buildFirebaseBattleState } = await import('./server/firebase-hunt-state.ts');
+      const battleState = buildFirebaseBattleState(huntRef, battleMeta, allDocs);
 
       return res.json({
         ok: true,
-        huntRef,
-        meta: battleMeta ? {
-          hasWinner: battleMeta.hasWinner,
-          winnerSide: battleMeta.winnerSide,
-          scenarioId: battleMeta.scenarioId,
-          combatType: battleMeta.combatType,
-          turnCount: battleMeta.turnCount,
-          allTurnCount: battleMeta.allTurnCount,
-          sessionStatus: battleMeta.sessionStatus,
-          created: battleMeta.created,
-          modified: battleMeta.modified,
-          chainId: battleMeta.chainId,
-          playerUids: battleMeta.playerUids,
-        } : null,
-        latestCombatants,
-        turns,
-        totalTurns: allDocs.length,
+        ...battleState,
       });
     } catch (err) {
       console.error('[FirebaseHuntLog] Error:', err.message);
