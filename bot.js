@@ -19740,6 +19740,30 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     return req.headers['x-extension-auth'] || null;
   }
 
+  async function resolveDashboardCompanionActorFromSessionToken(sessionToken, options = {}) {
+    if (!sessionToken) return null;
+
+    const [userSession] = await db.select().from(dashboardUserSessions)
+      .where(eq(dashboardUserSessions.sessionToken, String(sessionToken))).limit(1);
+    if (!userSession || new Date(userSession.expiresAt) < new Date()) {
+      return null;
+    }
+
+    const [user] = await db.select().from(dashboardUsers)
+      .where(eq(dashboardUsers.id, userSession.userId)).limit(1);
+    if (!user || !user.isActive || (user.expiresAt && new Date(user.expiresAt) < new Date())) {
+      return null;
+    }
+
+    return {
+      ownerUserId: `dashboard:${user.id}`,
+      ownerAuthType: 'dashboard',
+      ownerUsername: user.displayName || user.username,
+      dashboardUserId: user.id,
+      extensionSessionToken: options.includeExtensionSessionToken ? userSession.sessionToken : undefined,
+    };
+  }
+
   async function resolveCompanionActor(req) {
     if (req.user?.userId) {
       const rawId = String(req.user.userId);
@@ -19760,23 +19784,19 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       };
     }
 
+    const siteSessionToken = req.cookies?.user_session;
+    if (siteSessionToken) {
+      const siteActor = await resolveDashboardCompanionActorFromSessionToken(siteSessionToken);
+      if (siteActor) return siteActor;
+    }
+
     const extensionToken = getBearerToken(req);
     if (extensionToken) {
-      const [userSession] = await db.select().from(dashboardUserSessions)
-        .where(eq(dashboardUserSessions.sessionToken, String(extensionToken))).limit(1);
-      if (userSession && new Date(userSession.expiresAt) >= new Date()) {
-        const [user] = await db.select().from(dashboardUsers)
-          .where(eq(dashboardUsers.id, userSession.userId)).limit(1);
-        if (user && user.isActive && (!user.expiresAt || new Date(user.expiresAt) >= new Date())) {
-          return {
-            ownerUserId: `dashboard:${user.id}`,
-            ownerAuthType: 'dashboard',
-            ownerUsername: user.displayName || user.username,
-            dashboardUserId: user.id,
-            extensionSessionToken: userSession.sessionToken,
-          };
-        }
-      }
+      const extensionActor = await resolveDashboardCompanionActorFromSessionToken(
+        extensionToken,
+        { includeExtensionSessionToken: true }
+      );
+      if (extensionActor) return extensionActor;
     }
 
     return null;
