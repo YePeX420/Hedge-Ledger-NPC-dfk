@@ -112,6 +112,18 @@ function handleServerMessage(msg) {
     isJoined = true;
     setStatus('joined');
     broadcast({ type: 'joined', sessionId: msg.sessionId, existingTurns: msg.existingTurns });
+    if (currentHuntId) {
+      sendWsMessage({ type: 'request_hero_profiles', huntId: currentHuntId });
+    }
+  } else if (msg.type === 'hero_profile') {
+    const heroes = (msg.heroes || []).map(mapHeroProfile);
+    if (heroes.length > 0) {
+      currentHeroProfiles = heroes;
+      heroProfileHuntId = msg.huntId || currentHuntId;
+      chrome.storage.local.set({ currentHeroProfiles: heroes, heroProfileHuntId });
+      console.log(`[HeroProfile] Received ${heroes.length} profiles via WS`);
+      broadcastToContentScripts({ type: 'hero_profile_loaded', heroes, huntId: heroProfileHuntId });
+    }
   } else if (msg.type === 'recommendation') {
     const recData = msg.data || msg;
     const normalized = {
@@ -126,6 +138,12 @@ function handleServerMessage(msg) {
     if (msg.message === 'Invalid session token') {
       setStatus('invalid_token');
     }
+  }
+}
+
+function sendWsMessage(msg) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try { ws.send(JSON.stringify(msg)); } catch (_) {}
   }
 }
 
@@ -183,14 +201,13 @@ async function fetchHeroProfilesDirect(heroIds) {
     strength dexterity agility intelligence wisdom vitality endurance luck
     hp mp active1 active2 passive1 passive2 currentQuest
   `;
-  const idList = heroIds.map(id => `"${id}"`).join(', ');
-  const query = `query { heroes(where: { id_in: [${idList}] }) { ${HERO_FIELDS} } }`;
+  const query = `query GetHeroes($ids: [ID!]!) { heroes(where: { id_in: $ids }) { ${HERO_FIELDS} } }`;
 
   try {
     const res = await fetch(DFK_GRAPHQL_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, variables: { ids: heroIds } }),
     });
     if (!res.ok) return null;
     const json = await res.json();
@@ -202,12 +219,13 @@ async function fetchHeroProfilesDirect(heroIds) {
   }
 }
 
-async function fetchHeroProfilesViaBackend(heroIds, wallet) {
+async function fetchHeroProfilesViaBackend(heroIds, wallet, huntId) {
   const base = hostUrl.replace(/\/+$/, '');
   const params = new URLSearchParams();
+  if (huntId) params.set('huntId', huntId);
   if (heroIds && heroIds.length > 0) params.set('heroIds', heroIds.join(','));
-  else if (wallet) params.set('wallet', wallet);
-  else return null;
+  if (wallet) params.set('wallet', wallet);
+  if (params.toString() === '') return null;
 
   try {
     const res = await fetch(`${base}${HUNT_HEROES_PATH}?${params.toString()}`);
@@ -262,11 +280,15 @@ async function fetchAndBroadcastHeroProfiles(huntId, heroIds, wallet) {
     }
 
     if (!profiles && wallet) {
-      profiles = await fetchHeroProfilesViaBackend(null, wallet);
+      profiles = await fetchHeroProfilesViaBackend(null, wallet, huntId);
     }
 
     if (!profiles && heroIds && heroIds.length > 0) {
-      profiles = await fetchHeroProfilesViaBackend(heroIds, null);
+      profiles = await fetchHeroProfilesViaBackend(heroIds, null, huntId);
+    }
+
+    if (!profiles) {
+      profiles = await fetchHeroProfilesViaBackend(null, null, huntId);
     }
 
     if (profiles && profiles.length > 0) {
@@ -392,6 +414,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'hunt_id_detected') {
     currentHuntId = msg.huntId;
     broadcast({ type: 'hunt_id_update', huntId: currentHuntId });
+    sendWsMessage({ type: 'request_hero_profiles', huntId: msg.huntId, heroIds: msg.heroIds || [], wallet: msg.wallet || null });
     fetchAndBroadcastHeroProfiles(msg.huntId, msg.heroIds || null, msg.wallet || null);
 
   } else if (msg.type === 'fetch_hero_profiles') {

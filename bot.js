@@ -21971,6 +21971,26 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           }));
           console.log(`[Companion WS] Client joined session ${sessionToken}`);
 
+        } else if (msg.type === 'request_hero_profiles') {
+          const huntId = msg.huntId;
+          const heroIds = msg.heroIds || [];
+          const wallet = msg.wallet || null;
+          try {
+            const { fetchHeroesByIds, fetchQuestingHeroesByOwner } = await import('./server/dfk-graphql-client.ts');
+            let heroes = [];
+            if (heroIds.length > 0) {
+              heroes = await fetchHeroesByIds(heroIds);
+            } else if (wallet) {
+              heroes = await fetchQuestingHeroesByOwner(wallet);
+            }
+            if (heroes.length > 0) {
+              console.log(`[Companion WS] Sending ${heroes.length} hero profiles for hunt ${huntId}`);
+              ws.send(JSON.stringify({ type: 'hero_profile', heroes, huntId }));
+            }
+          } catch (err) {
+            console.warn(`[Companion WS] Hero profile fetch failed:`, err.message);
+          }
+
         } else if (msg.type === 'state_snapshot') {
           if (!sessionToken || !sessionId) {
             ws.send(JSON.stringify({ type: 'error', message: 'Not joined to a session' }));

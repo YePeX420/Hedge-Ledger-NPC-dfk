@@ -3589,10 +3589,21 @@ Return a JSON object with:
     try {
       const heroIds = req.query.heroIds as string | undefined;
       const wallet = req.query.wallet as string | undefined;
+      const huntId = req.query.huntId as string | undefined;
 
       let heroes: DFKHeroProfile[] = [];
 
-      if (heroIds) {
+      if (huntId) {
+        const idsFromHunt = huntId.split('-').filter((p: string) => /^\d{3,}$/.test(p));
+        if (idsFromHunt.length > 0) {
+          console.log(`[DFK GraphQL] Extracted ${idsFromHunt.length} hero IDs from huntId: ${idsFromHunt.join(', ')}`);
+          heroes = await fetchHeroesByIds(idsFromHunt);
+        }
+        if (heroes.length === 0 && wallet) {
+          console.log(`[DFK GraphQL] huntId parse yielded 0 heroes, falling back to wallet: ${wallet}`);
+          heroes = await fetchQuestingHeroesByOwner(wallet);
+        }
+      } else if (heroIds) {
         const ids = heroIds.split(',').map((id: string) => id.trim()).filter(Boolean);
         if (ids.length === 0) {
           return res.status(400).json({ ok: false, error: 'heroIds parameter must contain at least one ID' });
@@ -3606,7 +3617,7 @@ Return a JSON object with:
         console.log(`[DFK GraphQL] Fetching questing heroes for wallet: ${wallet}`);
         heroes = await fetchQuestingHeroesByOwner(wallet);
       } else {
-        return res.status(400).json({ ok: false, error: 'Provide heroIds or wallet query parameter' });
+        return res.status(400).json({ ok: false, error: 'Provide huntId, heroIds, or wallet query parameter' });
       }
 
       console.log(`[DFK GraphQL] Returned ${heroes.length} hero profiles`);

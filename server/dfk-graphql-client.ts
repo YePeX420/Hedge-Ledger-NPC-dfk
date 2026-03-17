@@ -106,16 +106,15 @@ async function gqlRequest(query: string, variables: Record<string, unknown> = {}
 export async function fetchHeroesByIds(heroIds: string[]): Promise<DFKHeroProfile[]> {
   if (!heroIds.length) return [];
 
-  const idList = heroIds.map(id => `"${id}"`).join(', ');
   const query = `
-    query GetHeroes {
-      heroes(where: { id_in: [${idList}] }) {
+    query GetHeroes($ids: [ID!]!) {
+      heroes(where: { id_in: $ids }) {
         ${HERO_FIELDS}
       }
     }
   `;
 
-  const data = await gqlRequest(query);
+  const data = await gqlRequest(query, { ids: heroIds });
   const heroes = data?.heroes || [];
   return heroes.map(mapHeroResponse).filter((h: DFKHeroProfile | null): h is DFKHeroProfile => h !== null);
 }
