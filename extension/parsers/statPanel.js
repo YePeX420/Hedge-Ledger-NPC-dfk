@@ -1,12 +1,17 @@
 /**
  * Stat Panel Parser
  * Detects when a hero or enemy stat panel opens and extracts all visible stats.
+ *
+ * Diagnostic: populates window.__dfkSelectorDiag['stat_panels'] with match counts
+ * per selector so window.__dfkDiag() can report which selectors are finding panels.
  */
 console.log('[DFK StatPanel] Script file loaded');
 
 (function () {
   if (typeof window.__dfkStatPanelParser !== 'undefined') return;
   window.__dfkStatPanelParser = true;
+
+  window.__dfkSelectorDiag = window.__dfkSelectorDiag || {};
 
   const PANEL_SELECTORS = [
     '.hero-stats',
@@ -217,9 +222,16 @@ console.log('[DFK StatPanel] Script file loaded');
   let visiblePanels = new Set();
   const snapshotPanelMap = new WeakMap();
 
+  function recordPanelSelectorDiag(diagCounts) {
+    const total = Object.values(diagCounts).reduce((s, n) => s + n, 0);
+    window.__dfkSelectorDiag['stat_panels'] = { total, bySelector: diagCounts, recordedAt: Date.now() };
+  }
+
   function checkPanels(root) {
+    const diagCounts = {};
     for (const sel of PANEL_SELECTORS) {
       const panels = root.querySelectorAll(sel);
+      diagCounts[sel] = panels.length;
       panels.forEach(panel => {
         if (!visiblePanels.has(panel)) {
           visiblePanels.add(panel);
@@ -230,6 +242,7 @@ console.log('[DFK StatPanel] Script file loaded');
         }
       });
     }
+    recordPanelSelectorDiag(diagCounts);
     visiblePanels.forEach(panel => {
       if (!document.body.contains(panel)) {
         visiblePanels.delete(panel);
