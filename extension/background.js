@@ -359,11 +359,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         turnNumber: d.turnNumber,
         actor: d.actor,
         actorSide: d.actorSide,
+        actorSlot: d.actorSlot,
         target: d.target,
         ability: d.ability,
         damage: d.damage,
         manaDelta: d.manaDelta,
         effects: d.effects || [],
+        activeHeroSlot: d.activeHeroSlot != null ? d.activeHeroSlot : null,
+        huntId: currentHuntId || d.huntId || null,
         rawText: d.rawText,
       }
     );

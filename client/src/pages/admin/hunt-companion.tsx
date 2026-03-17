@@ -741,9 +741,11 @@ export default function HuntCompanion() {
 
     // Seed battleState from heroStates when:
     // - no battleState at all yet, OR
+    // - battleState exists but heroes array is empty, OR
     // - battleState exists but all heroes show 0 current HP despite having maxHp (the /135 display gap)
     const heroesNeedSeeding = !battleState ||
-      (battleState.heroes.length > 0 && battleState.heroes.every(h => h.currentHp === 0 && h.maxHp > 0));
+      battleState.heroes.length === 0 ||
+      battleState.heroes.every(h => h.currentHp === 0 && h.maxHp > 0);
 
     if (data.heroStates && heroesNeedSeeding) {
       const rawStates = data.heroStates as HeroStateRaw[];

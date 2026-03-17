@@ -20108,8 +20108,10 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       // Also mirror to companion session (HTTP fallback path) and run scoring engine
       const memSession = companionSessions.get(sessionToken);
       if (memSession) {
-        const turnMsg = { actor, actorSide, actorSlot: req.body.actorSlot || null, skillId: ability || null, effects: effects || [], huntId: req.body.huntId || null };
+        const httpActiveHeroSlot = req.body.activeHeroSlot != null ? Number(req.body.activeHeroSlot) : 0;
+        const turnMsg = { actor, actorSide, actorSlot: req.body.actorSlot || null, skillId: ability || null, effects: effects || [], huntId: req.body.huntId || null, activeHeroSlot: httpActiveHeroSlot };
         memSession.turnEvents.push(turnMsg);
+        if (httpActiveHeroSlot != null) memSession.lastActiveHeroSlot = httpActiveHeroSlot;
         // Also persist to pve_turn_events so session status polling picks it up
         const compRows = await rawPg`SELECT id FROM pve_companion_sessions WHERE session_token = ${sessionToken}`;
         if (compRows.length > 0) {
@@ -20127,8 +20129,9 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             const { scoreActions, buildBattleStateFromTurnEvents } = await import('./server/pve-scoring-engine.ts');
             const enemyEntry = getEnemy(memSession.enemyId);
             if (enemyEntry) {
+              const activeSlot = memSession.lastActiveHeroSlot ?? 0;
               const battleState = buildBattleStateFromTurnEvents(
-                memSession.heroStates, enemyEntry, memSession.turnEvents, 0,
+                memSession.heroStates, enemyEntry, memSession.turnEvents, activeSlot,
                 memSession.battleBudgetRemaining, memSession.consumableQuantities,
               );
               const recommendations = scoreActions(battleState);
