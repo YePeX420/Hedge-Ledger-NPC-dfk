@@ -224,6 +224,12 @@ const TAB_CONFIG: Record<string, { label: string; icon: any; href: string; descr
     href: '/user/pve-hunts',
     description: 'Live hunt expedition tracker with party analysis'
   },
+  'hunt-companion': {
+    label: 'Hunt Companion',
+    icon: Swords,
+    href: '/user/hunt-companion',
+    description: 'Real-time PVE battle advisor with AI action recommendations'
+  },
   'telemetry': {
     label: 'DFK Telemetry',
     icon: Database,

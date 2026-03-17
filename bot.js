@@ -19599,7 +19599,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
   });
 
   // GET /api/admin/pve/firebase-hunt-log — full Firebase turn-by-turn battle log for a hunt
-  app.get('/api/admin/pve/firebase-hunt-log', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+  app.get('/api/admin/pve/firebase-hunt-log', isAdminOrHasTab('pve-hunts', 'hunt-companion'), async (req, res) => {
     try {
       const raw = (req.query.huntRef || '').trim();
       if (!raw) return res.status(400).json({ ok: false, error: 'huntRef required (e.g. 53935-762160)' });
@@ -20055,7 +20055,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     }
   });
 
-  app.get('/api/admin/pve/companion/session', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+  app.get('/api/admin/pve/companion/session', isAdminOrHasTab('pve-hunts', 'hunt-companion'), async (req, res) => {
     try {
       const token = crypto.randomBytes(16).toString('hex');
       const actor = await resolveCompanionActor(req);
@@ -20074,7 +20074,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     }
   });
 
-  app.get('/api/admin/pve/companion/session/:token', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+  app.get('/api/admin/pve/companion/session/:token', isAdminOrHasTab('pve-hunts', 'hunt-companion'), async (req, res) => {
     try {
       const { rawPg } = await import('./server/db.js');
       const rows = await rawPg`SELECT * FROM pve_companion_sessions WHERE session_token = ${req.params.token}`;
@@ -20122,7 +20122,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     }
   });
 
-  app.post('/api/admin/pve/companion/explain', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+  app.post('/api/admin/pve/companion/explain', isAdminOrHasTab('pve-hunts', 'hunt-companion'), async (req, res) => {
     try {
       const { recommendation, battleState, enemyId } = req.body;
       if (!recommendation) return res.status(400).json({ ok: false, error: 'recommendation required' });

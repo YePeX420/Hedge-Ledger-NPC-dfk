@@ -75,6 +75,7 @@ const TAB_NAV: Record<string, NavItem> = {
   'hero-price': { href: '/user/hero-price', label: 'Hero Price Tool', icon: DollarSign },
   'tavern-wallet-activity': { href: '/user/tavern-wallet-activity', label: 'Wallet Activity', icon: Activity },
   'pve-hunts': { href: '/user/pve-hunts', label: 'PVE Hunt Tracker', icon: Swords },
+  'hunt-companion': { href: '/user/hunt-companion', label: 'Hunt Companion', icon: Swords },
   'telemetry': { href: '/user/telemetry', label: 'DFK Telemetry', icon: Database },
   'pve-droprates': { href: '/user/pve-droprates', label: 'PVE Drop Rates', icon: TrendingDown },
   'value-allocation': { href: '/user/value-allocation', label: 'Value Allocation', icon: PieChart },
