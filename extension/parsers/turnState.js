@@ -397,10 +397,18 @@
 
     const actionWarn = ts.legalActions.length === 0 ? ' ⚠' : '';
 
+    const profiles = (typeof window !== 'undefined' && window.__dfkHeroProfiles) || [];
+    const profileAbilityCount = profiles.reduce((sum, p) => {
+      return sum + (p.active1 ? 1 : 0) + (p.active2 ? 1 : 0);
+    }, 0);
+    const profileTag = profiles.length > 0
+      ? ` [${profileAbilityCount} ABL]`
+      : '';
+
     window.__dfkDiagStatus = [
       logOk ? '[LOG ✓]' : '[LOG ✗]',
       `[${ts.heroes.length}H ${ts.enemies.length}E]`,
-      `[${ts.legalActions.length} ACT${actionWarn}]`,
+      `[${ts.legalActions.length} ACT${actionWarn}]${profileTag}`,
       `[T${ts.turnNumber}]`,
       sessShort ? `[SESS ${sessShort}]` : '[NO SESS ⚠]',
     ].join(' ');

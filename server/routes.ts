@@ -3594,15 +3594,9 @@ Return a JSON object with:
       let heroes: DFKHeroProfile[] = [];
 
       if (huntId) {
-        const idsFromHunt = huntId.split('-').filter((p: string) => /^\d{3,}$/.test(p));
-        if (idsFromHunt.length > 0) {
-          console.log(`[DFK GraphQL] Extracted ${idsFromHunt.length} hero IDs from huntId: ${idsFromHunt.join(', ')}`);
-          heroes = await fetchHeroesByIds(idsFromHunt);
-        }
-        if (heroes.length === 0 && wallet) {
-          console.log(`[DFK GraphQL] huntId parse yielded 0 heroes, falling back to wallet: ${wallet}`);
-          heroes = await fetchQuestingHeroesByOwner(wallet);
-        }
+        const { fetchHeroesForHunt } = await import('./dfk-graphql-client.ts');
+        console.log(`[DFK GraphQL] Fetching heroes for huntId: ${huntId}${wallet ? `, wallet fallback: ${wallet}` : ''}`);
+        heroes = await fetchHeroesForHunt(huntId, wallet || undefined);
       } else if (heroIds) {
         const ids = heroIds.split(',').map((id: string) => id.trim()).filter(Boolean);
         if (ids.length === 0) {
@@ -3614,8 +3608,9 @@ Return a JSON object with:
         console.log(`[DFK GraphQL] Fetching ${ids.length} heroes by ID: ${ids.join(', ')}`);
         heroes = await fetchHeroesByIds(ids);
       } else if (wallet) {
-        console.log(`[DFK GraphQL] Fetching questing heroes for wallet: ${wallet}`);
-        heroes = await fetchQuestingHeroesByOwner(wallet);
+        const { fetchActiveHuntHeroes } = await import('./dfk-graphql-client.ts');
+        console.log(`[DFK GraphQL] Fetching active hunt heroes for wallet: ${wallet}`);
+        heroes = await fetchActiveHuntHeroes(wallet);
       } else {
         return res.status(400).json({ ok: false, error: 'Provide huntId, heroIds, or wallet query parameter' });
       }

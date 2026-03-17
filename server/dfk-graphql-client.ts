@@ -150,3 +150,19 @@ export async function fetchQuestingHeroesByOwner(ownerAddress: string): Promise<
   const allHeroes = await fetchHeroesByOwner(ownerAddress, 100);
   return allHeroes.filter(h => h.currentQuest && h.currentQuest !== '0x0000000000000000000000000000000000000000');
 }
+
+export async function fetchHeroesForHunt(huntId: string, wallet?: string): Promise<DFKHeroProfile[]> {
+  const numericIds = huntId.split('-').filter(p => /^\d{3,}$/.test(p));
+  if (numericIds.length > 0) {
+    const heroes = await fetchHeroesByIds(numericIds);
+    if (heroes.length > 0) return heroes;
+  }
+  if (wallet) {
+    return fetchQuestingHeroesByOwner(wallet);
+  }
+  return [];
+}
+
+export async function fetchActiveHuntHeroes(walletAddress: string): Promise<DFKHeroProfile[]> {
+  return fetchQuestingHeroesByOwner(walletAddress);
+}

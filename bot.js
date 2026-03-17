@@ -21930,6 +21930,22 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
   companionWss.on('connection', (ws) => {
     let sessionToken = null;
     let sessionId = null;
+    let heroProfileSentForHunt = null;
+
+    async function maybePushHeroProfiles(huntId, walletAddress) {
+      if (!huntId || heroProfileSentForHunt === huntId) return;
+      heroProfileSentForHunt = huntId;
+      try {
+        const { fetchHeroesForHunt } = await import('./server/dfk-graphql-client.ts');
+        const heroes = await fetchHeroesForHunt(huntId, walletAddress || undefined);
+        if (heroes.length > 0) {
+          console.log(`[Companion WS] Auto-pushing ${heroes.length} hero profiles for hunt ${huntId}`);
+          ws.send(JSON.stringify({ type: 'hero_profile', heroes, huntId }));
+        }
+      } catch (err) {
+        console.warn(`[Companion WS] Auto hero profile push failed:`, err.message);
+      }
+    }
 
     ws.on('message', async (data) => {
       try {
@@ -22002,6 +22018,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             session.enemyId = msg.enemyId || null;
             if (msg.huntId) {
               await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, wallet_address = ${msg.walletAddress || null}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+              maybePushHeroProfiles(msg.huntId, msg.walletAddress);
             }
           }
           ws.send(JSON.stringify({ type: 'snapshot_ack', received: true }));
@@ -22014,6 +22031,9 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           if (!sessionToken || !sessionId) {
             ws.send(JSON.stringify({ type: 'error', message: 'Not joined to a session' }));
             return;
+          }
+          if (msg.huntId) {
+            maybePushHeroProfiles(msg.huntId, msg.walletAddress || null);
           }
           const { turnNumber, actorSide, actorSlot, skillId, targets, hpState, mpState, effects } = msg;
           await rawPg`INSERT INTO pve_turn_events (session_id, hunt_id, turn_number, actor_side, actor_slot, skill_id, targets, hp_state, mp_state, effects, raw_event)
