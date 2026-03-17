@@ -218,6 +218,24 @@ const TAB_CONFIG: Record<string, { label: string; icon: any; href: string; descr
     href: '/user/tavern-wallet-activity',
     description: 'Tavern buy/sell history for a wallet'
   },
+  'pve-hunts': {
+    label: 'PVE Hunt Tracker',
+    icon: Swords,
+    href: '/user/pve-hunts',
+    description: 'Live hunt expedition tracker with party analysis'
+  },
+  'hunt-companion': {
+    label: 'Hunt Companion',
+    icon: Swords,
+    href: '/user/hunt-companion',
+    description: 'Real-time PVE battle advisor with AI action recommendations'
+  },
+  'telemetry': {
+    label: 'DFK Telemetry',
+    icon: Database,
+    href: '/user/telemetry',
+    description: 'Chrome Extension hunt telemetry viewer and stat reconciliation tool'
+  },
   'pve-droprates': {
     label: 'PVE Drop Rates',
     icon: TrendingDown,

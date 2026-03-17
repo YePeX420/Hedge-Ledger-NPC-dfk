@@ -755,7 +755,7 @@ function Router() {
         {() => <UserToolRoute tab="pve-hunts"><AdminPVEHunts /></UserToolRoute>}
       </Route>
       <Route path="/user/hunt-companion">
-        {() => <UserToolRoute tab="pve-hunts"><AdminHuntCompanion /></UserToolRoute>}
+        {() => <UserToolRoute tab="hunt-companion"><AdminHuntCompanion /></UserToolRoute>}
       </Route>
       <Route path="/user/pve-droprates">
         {() => <UserToolRoute tab="pve-droprates"><AdminPVEDropRates /></UserToolRoute>}
