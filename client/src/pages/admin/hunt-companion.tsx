@@ -1147,7 +1147,7 @@ export default function HuntCompanion() {
                               <Shield className="w-3 h-3" /> Heroes
                             </p>
                             <div className="space-y-2">
-                              {(Object.values(firebaseLogQuery.data.latestCombatants['0'] || {}) as FirebaseUnit[]).map((unit, i) => {
+                              {(Object.values(firebaseLogQuery.data.latestCombatants['1'] || {}) as FirebaseUnit[]).map((unit, i) => {
                                 const hp = unit.hp;
                                 const maxHp = unit.maxHp;
                                 const pct = hp !== null && maxHp !== null && maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : null;
@@ -1179,7 +1179,7 @@ export default function HuntCompanion() {
                               <Swords className="w-3 h-3" /> Enemies
                             </p>
                             <div className="space-y-2">
-                              {(Object.values(firebaseLogQuery.data.latestCombatants['1'] || {}) as FirebaseUnit[]).map((unit, i) => {
+                              {(Object.values(firebaseLogQuery.data.latestCombatants['-1'] || {}) as FirebaseUnit[]).map((unit, i) => {
                                 const hp = unit.hp;
                                 const maxHp = unit.maxHp;
                                 const pct = hp !== null && maxHp !== null && maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : null;
@@ -1221,8 +1221,8 @@ export default function HuntCompanion() {
                                   R{turn.round} T{turn.turn}
                                 </Badge>
                                 {turn.activeSide !== null && (
-                                  <span className={turn.activeSide === 0 ? 'text-blue-400 shrink-0' : 'text-red-400 shrink-0'}>
-                                    {turn.activeSide === 0 ? 'Hero' : 'Enemy'} {turn.activeSlot ?? ''}
+                                  <span className={turn.activeSide === 1 ? 'text-blue-400 shrink-0' : 'text-red-400 shrink-0'}>
+                                    {turn.activeSide === 1 ? 'Hero' : 'Enemy'} {turn.activeSlot ?? ''}
                                   </span>
                                 )}
                                 {turn.actionType && (
