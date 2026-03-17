@@ -8,6 +8,7 @@ import { getDebugSettings, setDebugSettings, isOAuthBypassEnabled } from "../deb
 import { detectWalletLPPositions } from "../wallet-lp-detector.js";
 
 import { requirePublicApiKey, requireAdminApiKey } from "./middleware/hedgeAuth";
+import { fetchHeroesByIds, fetchHeroById, fetchHeroesByOwner, fetchQuestingHeroesByOwner, type DFKHeroProfile } from "./dfk-graphql-client";
 import { hedgeCors } from "./middleware/hedgeCors";
 import { rateLimiter } from "./middleware/rateLimit";
 import { registerHedgePublicRoutes } from "./routes/hedgePublic";
@@ -3581,6 +3582,38 @@ Return a JSON object with:
     } catch (error: any) {
       console.error('[GardeningIndexer] Reset error:', error);
       res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.get("/api/dfk/hunt-heroes", async (req: any, res: any) => {
+    try {
+      const heroIds = req.query.heroIds as string | undefined;
+      const wallet = req.query.wallet as string | undefined;
+
+      let heroes: DFKHeroProfile[] = [];
+
+      if (heroIds) {
+        const ids = heroIds.split(',').map((id: string) => id.trim()).filter(Boolean);
+        if (ids.length === 0) {
+          return res.status(400).json({ ok: false, error: 'heroIds parameter must contain at least one ID' });
+        }
+        if (ids.length > 10) {
+          return res.status(400).json({ ok: false, error: 'Maximum 10 hero IDs per request' });
+        }
+        console.log(`[DFK GraphQL] Fetching ${ids.length} heroes by ID: ${ids.join(', ')}`);
+        heroes = await fetchHeroesByIds(ids);
+      } else if (wallet) {
+        console.log(`[DFK GraphQL] Fetching questing heroes for wallet: ${wallet}`);
+        heroes = await fetchQuestingHeroesByOwner(wallet);
+      } else {
+        return res.status(400).json({ ok: false, error: 'Provide heroIds or wallet query parameter' });
+      }
+
+      console.log(`[DFK GraphQL] Returned ${heroes.length} hero profiles`);
+      res.json({ ok: true, heroes });
+    } catch (error: any) {
+      console.error('[DFK GraphQL] Error fetching heroes:', error);
+      res.status(500).json({ ok: false, error: error.message || 'Failed to fetch hero data' });
     }
   });
 

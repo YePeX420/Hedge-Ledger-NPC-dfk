@@ -6,10 +6,12 @@
  */
 
 const DEFAULT_HOST = 'https://hedge-ledger.replit.app';
+const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
 const WS_PATH = '/ws/companion';
 const HTTP_EVENT_PATH = '/api/dfk/telemetry/event';
 const HTTP_SNAPSHOT_PATH = '/api/dfk/telemetry/snapshot';
 const RECONCILE_PATH = '/api/dfk/reconcile';
+const HUNT_HEROES_PATH = '/api/dfk/hunt-heroes';
 
 let ws = null;
 let sessionToken = null;
@@ -19,6 +21,9 @@ let reconnectDelay = 1000;
 let reconnectTimer = null;
 let currentHuntId = null;
 let currentTurnNumber = 0;
+let currentHeroProfiles = null;
+let heroProfileHuntId = null;
+let heroProfileFetching = false;
 
 const httpQueue = [];
 let flushingQueue = false;
@@ -169,6 +174,129 @@ function storeSnapshot(data) {
   chrome.storage.local.set({ localSnapshots });
 }
 
+async function fetchHeroProfilesDirect(heroIds) {
+  if (!heroIds || heroIds.length === 0) return null;
+
+  const HERO_FIELDS = `
+    id normalizedId mainClassStr subClassStr professionStr
+    rarity level generation
+    strength dexterity agility intelligence wisdom vitality endurance luck
+    hp mp active1 active2 passive1 passive2 currentQuest
+  `;
+  const idList = heroIds.map(id => `"${id}"`).join(', ');
+  const query = `query { heroes(where: { id_in: [${idList}] }) { ${HERO_FIELDS} } }`;
+
+  try {
+    const res = await fetch(DFK_GRAPHQL_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.errors) return null;
+    return (json.data?.heroes || []).map(mapHeroProfile);
+  } catch (err) {
+    console.warn('[HeroProfile] Direct GraphQL fetch failed:', err.message);
+    return null;
+  }
+}
+
+async function fetchHeroProfilesViaBackend(heroIds, wallet) {
+  const base = hostUrl.replace(/\/+$/, '');
+  const params = new URLSearchParams();
+  if (heroIds && heroIds.length > 0) params.set('heroIds', heroIds.join(','));
+  else if (wallet) params.set('wallet', wallet);
+  else return null;
+
+  try {
+    const res = await fetch(`${base}${HUNT_HEROES_PATH}?${params.toString()}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.ok ? json.heroes : null;
+  } catch (err) {
+    console.warn('[HeroProfile] Backend fetch failed:', err.message);
+    return null;
+  }
+}
+
+function mapHeroProfile(raw) {
+  return {
+    heroId: String(raw.id || raw.normalizedId || ''),
+    normalizedId: String(raw.normalizedId || raw.id || ''),
+    mainClass: raw.mainClassStr || raw.mainClass || '',
+    subClass: raw.subClassStr || raw.subClass || '',
+    level: raw.level || 1,
+    rarity: raw.rarity || 0,
+    stats: {
+      str: raw.strength || raw.stats?.str || 0,
+      dex: raw.dexterity || raw.stats?.dex || 0,
+      agi: raw.agility || raw.stats?.agi || 0,
+      int: raw.intelligence || raw.stats?.int || 0,
+      wis: raw.wisdom || raw.stats?.wis || 0,
+      vit: raw.vitality || raw.stats?.vit || 0,
+      end: raw.endurance || raw.stats?.end || 0,
+      lck: raw.luck || raw.stats?.lck || 0,
+    },
+    hp: raw.hp || 0,
+    mp: raw.mp || 0,
+    active1: raw.active1 || null,
+    active2: raw.active2 || null,
+    passive1: raw.passive1 || null,
+    passive2: raw.passive2 || null,
+  };
+}
+
+async function fetchAndBroadcastHeroProfiles(huntId, heroIds, wallet) {
+  if (heroProfileFetching) return;
+  if (heroProfileHuntId === huntId && currentHeroProfiles) return;
+
+  heroProfileFetching = true;
+  console.log(`[HeroProfile] Fetching hero profiles for hunt ${huntId}...`);
+
+  try {
+    let profiles = null;
+
+    if (heroIds && heroIds.length > 0) {
+      profiles = await fetchHeroProfilesDirect(heroIds);
+    }
+
+    if (!profiles && wallet) {
+      profiles = await fetchHeroProfilesViaBackend(null, wallet);
+    }
+
+    if (!profiles && heroIds && heroIds.length > 0) {
+      profiles = await fetchHeroProfilesViaBackend(heroIds, null);
+    }
+
+    if (profiles && profiles.length > 0) {
+      currentHeroProfiles = profiles;
+      heroProfileHuntId = huntId;
+      chrome.storage.local.set({ currentHeroProfiles: profiles, heroProfileHuntId: huntId });
+
+      const classNames = profiles.map(h => `${h.mainClass} Lv${h.level}`).join(', ');
+      console.log(`[HeroProfile] Loaded ${profiles.length} heroes: ${classNames}`);
+
+      broadcastToContentScripts({ type: 'hero_profile_loaded', heroes: profiles, huntId });
+    } else {
+      console.warn('[HeroProfile] No hero profiles found for hunt', huntId);
+    }
+  } catch (err) {
+    console.error('[HeroProfile] Error fetching profiles:', err);
+  } finally {
+    heroProfileFetching = false;
+  }
+}
+
+function broadcastToContentScripts(msg) {
+  broadcast(msg);
+  chrome.tabs.query({ url: '*://game.defikingdoms.com/*' }, (tabs) => {
+    for (const tab of (tabs || [])) {
+      chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
+    }
+  });
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'turn_event') {
     const d = msg.data;
@@ -253,11 +381,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
   } else if (msg.type === 'content_ready') {
-    if (msg.huntId) currentHuntId = msg.huntId;
+    if (msg.huntId) {
+      currentHuntId = msg.huntId;
+      fetchAndBroadcastHeroProfiles(msg.huntId, msg.heroIds || null, msg.wallet || null);
+    }
+    if (currentHeroProfiles && currentHeroProfiles.length > 0) {
+      broadcastToContentScripts({ type: 'hero_profile_loaded', heroes: currentHeroProfiles, huntId: heroProfileHuntId });
+    }
 
   } else if (msg.type === 'hunt_id_detected') {
     currentHuntId = msg.huntId;
     broadcast({ type: 'hunt_id_update', huntId: currentHuntId });
+    fetchAndBroadcastHeroProfiles(msg.huntId, msg.heroIds || null, msg.wallet || null);
+
+  } else if (msg.type === 'fetch_hero_profiles') {
+    fetchAndBroadcastHeroProfiles(
+      msg.huntId || currentHuntId,
+      msg.heroIds || null,
+      msg.wallet || null
+    );
 
   } else if (msg.type === 'get_status') {
     sendResponse({

@@ -127,20 +127,44 @@
   // ── Hunt / Session ID detection ───────────────────────────────────────────
 
   function detectFromUrl(url) {
-    const m = url.match(/hunt[_-]?id[=:/](\w+)/i) ||
-              url.match(/huntId=(\w+)/i) ||
-              url.match(/\/hunt\/(\w+)/i) ||
-              url.match(/\/battle\/(\w+)/i) ||
-              url.match(/\/combat\/(\w+)/i) ||
-              url.match(/\/pve\/(\w+)/i) ||
+    const m = url.match(/hunt[_-]?id[=:/]([\w-]+)/i) ||
+              url.match(/huntId=([\w-]+)/i) ||
+              url.match(/\/hunt\/([\w-]+)/i) ||
+              url.match(/\/battle\/([\w-]+)/i) ||
+              url.match(/\/combat\/([\w-]+)/i) ||
+              url.match(/\/pve\/([\w-]+)/i) ||
               url.match(/\/void-hunt/i);
-    if (m) return { id: m[1] || 'void-hunt', source: 'url' };
+    if (m) {
+      const raw = m[1] || 'void-hunt';
+      const heroIds = extractHeroIdsFromSegment(raw);
+      return { id: raw, source: 'url', heroIds };
+    }
     if (/game\.defikingdoms\.com/i.test(url)) {
       const hash = url.split('#')[1];
       if (hash) {
         const hm = hash.match(/hunt|battle|combat|pve/i);
-        if (hm) return { id: hash.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 20) || 'hash-session', source: 'url-hash' };
+        if (hm) return { id: hash.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 20) || 'hash-session', source: 'url-hash', heroIds: [] };
       }
+    }
+    return null;
+  }
+
+  function extractHeroIdsFromSegment(segment) {
+    if (!segment) return [];
+    const parts = segment.split('-').filter(p => /^\d+$/.test(p) && p.length >= 3);
+    return parts;
+  }
+
+  function detectWalletFromPage() {
+    const el = document.querySelector('[data-wallet],[data-address],[class*="wallet-address"],[class*="walletAddress"]');
+    if (el) {
+      const addr = el.getAttribute('data-wallet') || el.getAttribute('data-address') || el.textContent.trim();
+      if (/^0x[a-fA-F0-9]{40}$/.test(addr)) return addr;
+    }
+    const allText = document.querySelectorAll('span,div,p');
+    for (const node of allText) {
+      const text = node.textContent.trim();
+      if (/^0x[a-fA-F0-9]{40}$/.test(text)) return text;
     }
     return null;
   }
@@ -168,13 +192,18 @@
 
   function applySessionId(detection) {
     if (!detection) return;
-    const { id, source } = detection;
+    const { id, source, heroIds } = detection;
     if (id && id !== sessionHuntId) {
       sessionHuntId = id;
       window.__dfkSessionId = id;
       window.__dfkSessionIdSource = source;
       console.log(`[DFK] Session ID detected: ${id} (${source})`);
-      chrome.runtime.sendMessage({ type: 'hunt_id_detected', huntId: id, source }).catch(() => {});
+
+      const wallet = detectWalletFromPage();
+      const msg = { type: 'hunt_id_detected', huntId: id, source };
+      if (heroIds && heroIds.length > 0) msg.heroIds = heroIds;
+      if (wallet) msg.wallet = wallet;
+      chrome.runtime.sendMessage(msg).catch(() => {});
     }
   }
 
@@ -425,10 +454,14 @@
       debugMode = !!result.debugMode;
       window.__dfkDebugMode = debugMode;
 
+      const urlDetection = detectFromUrl(window.location.href);
+      const wallet = detectWalletFromPage();
       chrome.runtime.sendMessage({
         type: 'content_ready',
         huntId: sessionHuntId,
         url: window.location.href,
+        heroIds: urlDetection?.heroIds || [],
+        wallet: wallet || null,
       }).catch(() => {});
     });
 
@@ -439,10 +472,34 @@
     initEngine();
   }
 
+  let heroProfiles = null;
+  window.__dfkHeroProfiles = null;
+
+  function applyHeroProfiles(profiles) {
+    if (!profiles || !Array.isArray(profiles) || profiles.length === 0) return;
+    heroProfiles = profiles;
+    window.__dfkHeroProfiles = profiles;
+
+    const classNames = profiles.map(h => `${h.mainClass} Lv${h.level} (ID:${h.heroId})`).join(', ');
+    console.log(`[DFK Engine] Hero profiles loaded: ${classNames}`);
+
+    if (typeof window.__dfkUpdateDiagBar === 'function') {
+      const classSummary = profiles.map(h => h.mainClass || '?').join('/');
+      window.__dfkUpdateDiagBar(`[HEROES: ${classSummary}]`);
+    }
+
+    const bodyEl = document.getElementById('dfk-engine-body');
+    if (bodyEl && !lastRecommendation) {
+      bodyEl.innerHTML = `<div style="color: #4a6a55;">Heroes loaded: ${profiles.map(h => h.mainClass).join(', ')}. Waiting for combat...</div>`;
+    }
+  }
+
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'debug_mode_changed') {
       debugMode = msg.enabled;
       window.__dfkDebugMode = debugMode;
+    } else if (msg.type === 'hero_profile_loaded') {
+      applyHeroProfiles(msg.heroes);
     }
   });
 

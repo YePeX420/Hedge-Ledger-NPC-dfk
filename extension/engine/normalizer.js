@@ -124,11 +124,32 @@
 
     unitSnapshots = unitSnapshots || [];
 
+    const heroProfiles = (typeof window !== 'undefined' && window.__dfkHeroProfiles) || [];
+
     const heroes = (turnSnapshot.heroes || []).map((h, i) => {
       const unitSnap = unitSnapshots.find(
         u => u.unitSide === 'player' && (u.unitName === h.name || u.slot === h.slot)
       );
       const merged = unitSnap ? { ...h, stats: unitSnap.stats, baseStats: unitSnap.baseStats, abilities: unitSnap.abilities, buffs: unitSnap.buffs, debuffs: unitSnap.debuffs, level: unitSnap.level } : h;
+
+      const profile = heroProfiles[i] || heroProfiles.find(
+        p => p.heroId === h.heroId || p.normalizedId === h.heroId
+      );
+      if (profile) {
+        if (!merged.heroClass && profile.mainClass) merged.heroClass = profile.mainClass;
+        if (!merged.class && profile.mainClass) merged.class = profile.mainClass;
+        if (!merged.level || merged.level <= 1) merged.level = profile.level;
+        if (!merged.baseStats || merged.baseStats.str === 10) {
+          merged.baseStats = profile.stats;
+        }
+        merged.active1 = profile.active1;
+        merged.active2 = profile.active2;
+        merged.passive1 = profile.passive1;
+        merged.passive2 = profile.passive2;
+        merged.heroId = profile.heroId;
+        merged.rarity = profile.rarity;
+      }
+
       return normalizeCombatant(merged, 'hero', i);
     });
 

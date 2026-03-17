@@ -10,6 +10,7 @@
   ],
   "host_permissions": [
     "*://game.defikingdoms.com/*",
+    "*://api.defikingdoms.com/*",
     "*://localhost/*",
     "*://*.replit.app/*",
     "*://*.replit.dev/*"
