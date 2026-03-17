@@ -19558,6 +19558,122 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     }
   });
 
+  // GET /api/admin/pve/firebase-hunt-log — full Firebase turn-by-turn battle log for a hunt
+  app.get('/api/admin/pve/firebase-hunt-log', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+    try {
+      const raw = (req.query.huntRef || '').trim();
+      if (!raw) return res.status(400).json({ ok: false, error: 'huntRef required (e.g. 53935-762160)' });
+
+      // Accept bare `chainId-huntId` or URLs containing it
+      const match = raw.match(/(\d+)-(\d+)/);
+      if (!match) return res.status(400).json({ ok: false, error: 'Could not parse huntRef — expected format: chainId-huntId (e.g. 53935-762160)' });
+      const huntRef = `${match[1]}-${match[2]}`;
+
+      const idToken = await getFirebaseIdToken();
+      const FSBASE = `https://firestore.googleapis.com/v1/projects/${DFK_FIREBASE_PROJECT_ID}/databases/combat-engine/documents`;
+
+      // 1. Fetch parent battle document (metadata, hasWinner, scenarioId etc.)
+      let battleMeta = null;
+      try {
+        const metaResp = await fetch(`${FSBASE}/battles/${huntRef}`, { headers: { Authorization: `Bearer ${idToken}` } });
+        if (metaResp.ok) {
+          const metaDoc = await metaResp.json();
+          battleMeta = parseFirestoreDoc(metaDoc);
+        }
+      } catch {}
+
+      // 2. Fetch all turn sub-documents (paginated up to 500)
+      let allDocs = [];
+      let pageToken = null;
+      do {
+        const pageUrl = `${FSBASE}/battles/${huntRef}/battle-logs?pageSize=200${pageToken ? `&pageToken=${pageToken}` : ''}`;
+        const pageResp = await fetch(pageUrl, { headers: { Authorization: `Bearer ${idToken}` } });
+        if (!pageResp.ok) {
+          const txt = await pageResp.text();
+          return res.status(pageResp.status).json({ ok: false, error: `Firestore turns fetch failed: ${txt.slice(0, 200)}` });
+        }
+        const pageData = await pageResp.json();
+        const docs = (pageData.documents || []).map(parseFirestoreDoc).filter(Boolean);
+        allDocs = allDocs.concat(docs);
+        pageToken = pageData.nextPageToken || null;
+      } while (pageToken && allDocs.length < 500);
+
+      // Sort turns by _id (numeric)
+      allDocs.sort((a, b) => Number(a._id) - Number(b._id));
+
+      // 3. Extract combatant state from the latest turn's afterDeckStates
+      let latestCombatants = null;
+      const lastTurnWithState = [...allDocs].reverse().find(d => d.afterDeckStates);
+      if (lastTurnWithState?.afterDeckStates) {
+        latestCombatants = {};
+        for (const [side, slots] of Object.entries(lastTurnWithState.afterDeckStates)) {
+          latestCombatants[side] = {};
+          for (const [slot, unit] of Object.entries(slots || {})) {
+            const b = unit?.baseCombatant || {};
+            latestCombatants[side][slot] = {
+              name: b.name || b.id || `Unit ${slot}`,
+              hp: unit?.health ?? null,
+              maxHp: b.hp ?? null,
+              mp: unit?.mana ?? b.mp ?? null,
+              maxMp: b.maxMana ?? b.maxMp ?? null,
+              debuffs: (unit?.channelingTrackers || []).map(t => ({
+                id: t.channelId || t.id || null,
+                name: t.displayName || t.channelId || null,
+                turnsLeft: t.turnsRemaining ?? t.duration ?? null,
+              })),
+              isDead: (unit?.health ?? 1) <= 0,
+            };
+          }
+        }
+      }
+
+      // 4. Build turn summary list
+      const turns = allDocs.map(doc => ({
+        turnId: doc._id,
+        turn: doc.currentTurnCount,
+        round: doc.currentRoundCount,
+        activeSide: doc.activeSide,
+        activeSlot: doc.activeSlot,
+        actionType: doc.attackOutcome?.attackType || null,
+        battleLog: doc.attackOutcome?.battleLog || null,
+        afterHp: doc.afterDeckStates
+          ? Object.fromEntries(
+              Object.entries(doc.afterDeckStates).map(([side, slots]) => [
+                side,
+                Object.fromEntries(
+                  Object.entries(slots || {}).map(([slot, unit]) => [slot, unit?.health ?? null])
+                ),
+              ])
+            )
+          : null,
+      }));
+
+      return res.json({
+        ok: true,
+        huntRef,
+        meta: battleMeta ? {
+          hasWinner: battleMeta.hasWinner,
+          winnerSide: battleMeta.winnerSide,
+          scenarioId: battleMeta.scenarioId,
+          combatType: battleMeta.combatType,
+          turnCount: battleMeta.turnCount,
+          allTurnCount: battleMeta.allTurnCount,
+          sessionStatus: battleMeta.sessionStatus,
+          created: battleMeta.created,
+          modified: battleMeta.modified,
+          chainId: battleMeta.chainId,
+          playerUids: battleMeta.playerUids,
+        } : null,
+        latestCombatants,
+        turns,
+        totalTurns: allDocs.length,
+      });
+    } catch (err) {
+      console.error('[FirebaseHuntLog] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // POST /api/admin/pve/hunt-encounter-analysis
   app.post('/api/admin/pve/hunt-encounter-analysis', isAdminOrHasTab('pve-hunts'), async (req, res) => {
     const { encounterId, heroes, enemyId, result, turns, survivingHeroCount, survivingHeroHp, drops } = req.body;

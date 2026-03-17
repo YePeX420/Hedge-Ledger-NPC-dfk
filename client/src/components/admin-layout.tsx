@@ -47,6 +47,7 @@ import {
   ShoppingBag,
   History,
   Radio,
+  ScrollText,
 } from 'lucide-react';
 
 interface EnvironmentInfo {
@@ -103,6 +104,7 @@ const combatItems: NavItem[] = [
   { href: '/admin/pve-droprates', label: 'PVE Drop Rates', icon: TrendingDown },
   { href: '/admin/pve-hunts', label: 'PVE Hunt Tracker', icon: Swords },
   { href: '/admin/hunt-companion', label: 'Hunt Companion', icon: Radio },
+  { href: '/admin/hunt-battle-log', label: 'Hunt Battle Log', icon: ScrollText },
 ];
 
 // ─── Summon ────────────────────────────────────────────────────────────────

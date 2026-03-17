@@ -49,6 +49,7 @@ import AdminProfitTracker from "@/pages/admin/profit-tracker";
 import AdminPVEDropRates from "@/pages/admin/pve-droprates";
 import AdminPVEHunts from "@/pages/admin/pve-hunts";
 import AdminHuntCompanion from "@/pages/admin/hunt-companion";
+import AdminHuntBattleLog from "@/pages/admin/hunt-battle-log";
 import AdminTelemetry from "@/pages/admin/telemetry";
 import AdminPatrolRewards from "@/pages/admin/patrol-rewards";
 import HedgeCombatSync from "@/pages/admin/hedge-combat-sync";
@@ -559,6 +560,14 @@ function Router() {
         {() => (
           <ProtectedAdminPage>
             <AdminHuntCompanion />
+          </ProtectedAdminPage>
+        )}
+      </Route>
+
+      <Route path="/admin/hunt-battle-log">
+        {() => (
+          <ProtectedAdminPage>
+            <AdminHuntBattleLog />
           </ProtectedAdminPage>
         )}
       </Route>
