@@ -21,6 +21,8 @@ let reconnectDelay = 1000;
 let reconnectTimer = null;
 let currentHuntId = null;
 let currentTurnNumber = 0;
+let perSessionTurnCount = 0;
+let lastBroadcastHuntId = null;
 let currentHeroProfiles = null;
 let heroProfileHuntId = null;
 let heroProfileFetching = false;
@@ -324,6 +326,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     const d = msg.data;
     if (d.turnNumber > currentTurnNumber) currentTurnNumber = d.turnNumber;
 
+    // Track per-session sequential turn count (reset on new hunt)
+    const eventHuntId = currentHuntId || d.huntId;
+    if (eventHuntId && eventHuntId !== lastBroadcastHuntId) {
+      perSessionTurnCount = 0;
+      lastBroadcastHuntId = eventHuntId;
+    }
+    perSessionTurnCount++;
+
     storeSnapshot({ type: 'turn_event', ...d });
 
     sendOrQueue(
@@ -358,7 +368,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
     );
 
-    broadcast({ type: 'turn_counter', turnNumber: currentTurnNumber });
+    broadcast({ type: 'turn_counter', turnNumber: perSessionTurnCount, rawTurnNumber: currentTurnNumber });
 
   } else if (msg.type === 'state_snapshot') {
     const d = msg.data;
@@ -429,7 +439,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       status: connectionStatus,
       isJoined,
       huntId: currentHuntId,
-      turnNumber: currentTurnNumber,
+      turnNumber: perSessionTurnCount,
+      rawTurnNumber: currentTurnNumber,
       queueLength: httpQueue.length,
     });
     return true;

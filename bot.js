@@ -19770,8 +19770,32 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       const rows = await rawPg`SELECT * FROM pve_companion_sessions WHERE session_token = ${req.params.token}`;
       if (rows.length === 0) return res.status(404).json({ ok: false, error: 'Session not found' });
       const session = rows[0];
-      const turnEvents = await rawPg`SELECT * FROM pve_turn_events WHERE session_id = ${session.id} ORDER BY turn_number ASC`;
+      const turnRows = await rawPg`SELECT * FROM pve_turn_events WHERE session_id = ${session.id} ORDER BY turn_number ASC`;
       const memSession = companionSessions.get(session.session_token);
+
+      // Map DB snake_case rows to camelCase and extract actor/ability from raw_event JSON
+      const turnEvents = turnRows.map((row, idx) => {
+        let rawEvent = {};
+        try {
+          rawEvent = row.raw_event ? (typeof row.raw_event === 'string' ? JSON.parse(row.raw_event) : row.raw_event) : {};
+        } catch {}
+        return {
+          turnNumber: idx + 1,
+          rawTurnNumber: row.turn_number,
+          actorSide: row.actor_side,
+          actorSlot: row.actor_slot,
+          skillId: row.skill_id,
+          targets: row.targets,
+          effects: row.effects,
+          huntId: row.hunt_id,
+          actor: rawEvent.actor || null,
+          ability: rawEvent.ability || rawEvent.skillId || null,
+        };
+      });
+
+      // Derive latest hunt ID from DB turn events or session record
+      const latestHuntId = turnRows.slice(-1)[0]?.hunt_id || session.hunt_id || null;
+
       res.json({
         ok: true,
         session,
@@ -19779,6 +19803,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         heroStates: memSession?.heroStates || null,
         enemyId: memSession?.enemyId || null,
         connectedClients: memSession?.clients?.size || 0,
+        latestHuntId,
       });
     } catch (err) {
       console.error('[Companion] Session status error:', err.message);
@@ -20079,6 +20104,55 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         RETURNING id
       `;
       await rawPg`UPDATE dfk_hunt_sessions SET event_count = event_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
+
+      // Also mirror to companion session (HTTP fallback path) and run scoring engine
+      const memSession = companionSessions.get(sessionToken);
+      if (memSession) {
+        const turnMsg = { actor, actorSide, actorSlot: req.body.actorSlot || null, skillId: ability || null, effects: effects || [], huntId: req.body.huntId || null };
+        memSession.turnEvents.push(turnMsg);
+        // Also persist to pve_turn_events so session status polling picks it up
+        const compRows = await rawPg`SELECT id FROM pve_companion_sessions WHERE session_token = ${sessionToken}`;
+        if (compRows.length > 0) {
+          const rawMsg = JSON.stringify(req.body);
+          const compSessionId = compRows[0].id;
+          await rawPg`
+            INSERT INTO pve_turn_events (session_id, hunt_id, turn_number, actor_side, actor_slot, skill_id, effects, raw_event)
+            VALUES (${compSessionId}, ${req.body.huntId || null}, ${turnNumber || 0}, ${actorSide || 'unknown'}, ${null}, ${ability || null}, ${JSON.stringify(effects || [])}, ${rawMsg})
+          `.catch(() => {});
+        }
+        // Run scoring engine if we have enough context
+        if (memSession.heroStates && memSession.enemyId) {
+          try {
+            const { getEnemy } = await import('./server/pve-enemy-catalog.ts');
+            const { scoreActions, buildBattleStateFromTurnEvents } = await import('./server/pve-scoring-engine.ts');
+            const enemyEntry = getEnemy(memSession.enemyId);
+            if (enemyEntry) {
+              const battleState = buildBattleStateFromTurnEvents(
+                memSession.heroStates, enemyEntry, memSession.turnEvents, 0,
+                memSession.battleBudgetRemaining, memSession.consumableQuantities,
+              );
+              const recommendations = scoreActions(battleState);
+              const responseMsg = JSON.stringify({
+                type: 'recommendation',
+                turnNumber: memSession.turnEvents.length,
+                recommendations: recommendations.slice(0, 5),
+                battleState: {
+                  turnNumber: battleState.turnNumber,
+                  activeHeroSlot: battleState.activeHeroSlot,
+                  heroes: battleState.heroes.map(h => ({ slot: h.slot, heroId: h.heroId, currentHp: h.currentHp, maxHp: h.maxHp, currentMp: h.currentMp, maxMp: h.maxMp, isAlive: h.isAlive, mainClass: h.mainClass })),
+                  enemies: battleState.enemies.map(e => ({ enemyId: e.enemyId, currentHp: e.currentHp, maxHp: e.maxHp, debuffs: e.debuffs })),
+                },
+              });
+              for (const client of memSession.clients) {
+                if (client.readyState === 1) client.send(responseMsg);
+              }
+            }
+          } catch (scoreErr) {
+            console.warn('[Telemetry] HTTP scoring engine error:', scoreErr.message);
+          }
+        }
+      }
+
       res.json({ ok: true, eventId: rows[0]?.id });
     } catch (err) {
       console.error('[Telemetry] Event insert error:', err.message);
@@ -22377,7 +22451,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             }
           }
 
-          const turnBroadcast = JSON.stringify({ type: 'turn_update', turnNumber: turnNumber || 0, actorSide, actorSlot, skillId, effects: effects || [] });
+          const turnBroadcast = JSON.stringify({ type: 'turn_update', turnNumber: turnNumber || 0, actorSide, actorSlot, skillId, actor: msg.actor || null, ability: msg.ability || null, effects: effects || [] });
           for (const client of session.clients) {
             if (client.readyState === 1 && client !== ws) client.send(turnBroadcast);
           }

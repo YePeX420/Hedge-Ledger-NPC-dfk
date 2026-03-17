@@ -4,7 +4,7 @@ import {
   Swords, Loader2, Copy, Check, Wifi, WifiOff, Heart, Zap,
   Shield, ChevronDown, ChevronUp, Bot, Sparkles, Target,
   Skull, Activity, Radio, Brain, FlaskConical, Lock, Unlock,
-  AlertTriangle, TrendingUp, Eye, Play, Pause,
+  AlertTriangle, TrendingUp, Eye, Play, Pause, ScrollText, RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -48,8 +48,10 @@ interface Recommendation {
 interface TurnEvent {
   turnNumber: number;
   actorSide: string;
-  actorSlot: number;
+  actorSlot: number | null;
   skillId?: string;
+  actor?: string | null;
+  ability?: string | null;
   targets?: Array<{ slot: number; hpBefore: number; hpAfter: number; damage: number }>;
 }
 
@@ -500,6 +502,8 @@ export default function HuntCompanion() {
   const [enemyPrediction, setEnemyPrediction] = useState<EnemyPrediction | null>(null);
   const [executionMode, setExecutionMode] = useState<ExecutionModeType>('observe_only');
   const [battleBudget, setBattleBudget] = useState<number | null>(null);
+  const [latestHuntId, setLatestHuntId] = useState<string | null>(null);
+  const [showBattleLog, setShowBattleLog] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const turnFeedRef = useRef<HTMLDivElement>(null);
 
@@ -523,6 +527,20 @@ export default function HuntCompanion() {
     queryFn: async () => {
       const resp = await fetch(`/api/admin/pve/companion/session/${session!.session_token}`);
       if (!resp.ok) throw new Error('Failed');
+      return resp.json();
+    },
+  });
+
+  const firebaseLogQuery = useQuery({
+    queryKey: ['/api/admin/pve/firebase-hunt-log', latestHuntId],
+    enabled: !!latestHuntId && showBattleLog,
+    refetchInterval: (query) => {
+      const data = query.state.data as { meta?: { hasWinner?: boolean } } | undefined;
+      return data?.meta?.hasWinner === false ? 5000 : false;
+    },
+    queryFn: async () => {
+      const resp = await fetch(`/api/admin/pve/firebase-hunt-log?huntRef=${latestHuntId}`);
+      if (!resp.ok) throw new Error('Failed to fetch battle log');
       return resp.json();
     },
   });
@@ -642,7 +660,7 @@ export default function HuntCompanion() {
         } else if (msg.type === 'turn_state') {
           if (msg.battleState) setBattleState(msg.battleState);
         } else if (msg.type === 'turn_update') {
-          setTurnFeed(prev => [...prev.slice(-9), { turnNumber: msg.turnNumber, actorSide: msg.actorSide, actorSlot: msg.actorSlot, skillId: msg.skillId, effects: msg.effects }]);
+          setTurnFeed(prev => [...prev.slice(-9), { turnNumber: msg.turnNumber, actorSide: msg.actorSide, actorSlot: msg.actorSlot, skillId: msg.skillId, actor: msg.actor || null, ability: msg.ability || null, effects: msg.effects }]);
         } else if (msg.type === 'error') {
           console.error('[WS] Error:', msg.message);
         }
@@ -658,6 +676,7 @@ export default function HuntCompanion() {
 
     ws.onerror = () => {
       setWsConnected(false);
+      wsRef.current = null;
     };
   }, [session?.session_token]);
 
@@ -674,9 +693,37 @@ export default function HuntCompanion() {
   }, [session?.session_token, connectWs]);
 
   useEffect(() => {
-    if (sessionStatusQuery.data?.turnEvents) {
-      const events = sessionStatusQuery.data.turnEvents;
-      setTurnFeed(events.slice(-10));
+    const data = sessionStatusQuery.data;
+    if (!data) return;
+
+    if (data.turnEvents?.length) {
+      setTurnFeed(data.turnEvents.slice(-10));
+    }
+
+    if (data.latestHuntId) {
+      setLatestHuntId(data.latestHuntId);
+    }
+
+    // Seed battleState from heroStates if we have heroes but no live state yet
+    if (data.heroStates && !battleState) {
+      const heroes: HeroSnapshot[] = (data.heroStates as any[]).map((h: any, i: number) => ({
+        slot: h.slot ?? i,
+        heroId: h.heroId || String(i),
+        mainClass: h.mainClass || '?',
+        level: h.level || 0,
+        currentHp: h.currentHp || h.hp || 0,
+        maxHp: h.maxHp || 0,
+        currentMp: h.currentMp || h.mp || 0,
+        maxMp: h.maxMp || 0,
+        isAlive: (h.currentHp || h.hp || 0) > 0,
+      }));
+      const enemyId = data.enemyId || null;
+      setBattleState({
+        turnNumber: data.turnEvents?.length || 0,
+        activeHeroSlot: 0,
+        heroes,
+        enemies: enemyId ? [{ enemyId, currentHp: 0, maxHp: 0, debuffs: [] }] : [],
+      });
     }
   }, [sessionStatusQuery.data]);
 
@@ -851,20 +898,28 @@ export default function HuntCompanion() {
                   {turnFeed.length === 0 && (
                     <p className="text-xs text-muted-foreground/60 text-center py-4">Waiting for turn data...</p>
                   )}
-                  {turnFeed.map((turn, i) => (
-                    <div key={i} className="flex flex-wrap items-center gap-1.5 text-[10px] p-1 rounded bg-muted/20">
-                      <Badge variant="outline" className="text-[9px] font-mono">T{turn.turnNumber}</Badge>
-                      <span className={turn.actorSide === 'hero' ? 'text-blue-400' : 'text-red-400'}>
-                        {turn.actorSide === 'hero' ? `Hero ${turn.actorSlot}` : `Enemy ${turn.actorSlot}`}
-                      </span>
-                      {turn.skillId && <span className="text-muted-foreground">{turn.skillId}</span>}
-                      {turn.targets?.map((t, j) => (
-                        <span key={j} className={t.damage > 0 ? 'text-red-400' : t.damage < 0 ? 'text-green-400' : 'text-muted-foreground'}>
-                          {t.damage > 0 ? `-${t.damage}` : t.damage < 0 ? `+${Math.abs(t.damage)}` : '0'}
+                  {turnFeed.map((turn, i) => {
+                    const actorLabel = turn.actor
+                      ? turn.actor
+                      : turn.actorSide === 'hero'
+                      ? `Hero ${turn.actorSlot ?? '?'}`
+                      : `Enemy ${turn.actorSlot ?? '?'}`;
+                    const abilityLabel = turn.ability || turn.skillId;
+                    return (
+                      <div key={i} className="flex flex-wrap items-center gap-1.5 text-[10px] p-1 rounded bg-muted/20">
+                        <Badge variant="outline" className="text-[9px] font-mono">T{turn.turnNumber}</Badge>
+                        <span className={turn.actorSide === 'hero' ? 'text-blue-400' : 'text-red-400'}>
+                          {actorLabel}
                         </span>
-                      ))}
-                    </div>
-                  ))}
+                        {abilityLabel && <span className="text-muted-foreground">{abilityLabel}</span>}
+                        {turn.targets?.map((t, j) => (
+                          <span key={j} className={t.damage > 0 ? 'text-red-400' : t.damage < 0 ? 'text-green-400' : 'text-muted-foreground'}>
+                            {t.damage > 0 ? `-${t.damage}` : t.damage < 0 ? `+${Math.abs(t.damage)}` : '0'}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -994,6 +1049,162 @@ export default function HuntCompanion() {
               </CardContent>
             </Card>
           </div>
+        </div>
+      )}
+
+      {session && latestHuntId && (
+        <div className="mt-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <button
+                  className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1 hover:text-foreground transition-colors"
+                  onClick={() => setShowBattleLog(v => !v)}
+                  data-testid="button-toggle-battle-log"
+                >
+                  <ScrollText className="w-3.5 h-3.5" />
+                  Firebase Battle Log
+                  {showBattleLog ? <ChevronUp className="w-3.5 h-3.5 ml-1" /> : <ChevronDown className="w-3.5 h-3.5 ml-1" />}
+                </button>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] font-mono">{latestHuntId}</Badge>
+                  {showBattleLog && firebaseLogQuery.data?.meta && !firebaseLogQuery.data.meta.hasWinner && (
+                    <Badge variant="default" className="text-[10px]">
+                      <Activity className="w-3 h-3 mr-0.5" /> Live
+                    </Badge>
+                  )}
+                  {showBattleLog && firebaseLogQuery.data?.meta?.hasWinner && (
+                    <Badge variant="secondary" className="text-[10px]">Finished</Badge>
+                  )}
+                  {showBattleLog && (
+                    <Button size="icon" variant="ghost" onClick={() => firebaseLogQuery.refetch()} data-testid="button-refresh-battle-log">
+                      <RefreshCw className={`w-3.5 h-3.5 ${firebaseLogQuery.isFetching ? 'animate-spin' : ''}`} />
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {showBattleLog && (
+                <>
+                  {firebaseLogQuery.isLoading && (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/40 mr-2" />
+                      <span className="text-xs text-muted-foreground">Loading battle log from Firebase...</span>
+                    </div>
+                  )}
+
+                  {firebaseLogQuery.isError && (
+                    <p className="text-xs text-red-400 text-center py-4">Failed to load battle log. Check hunt ID format (chainId-huntId).</p>
+                  )}
+
+                  {firebaseLogQuery.data?.ok && (
+                    <div className="space-y-4">
+                      {firebaseLogQuery.data.latestCombatants && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-400 mb-2 flex items-center gap-1">
+                              <Shield className="w-3 h-3" /> Heroes
+                            </p>
+                            <div className="space-y-2">
+                              {Object.values(firebaseLogQuery.data.latestCombatants['0'] || {}).map((unit: any, i: number) => {
+                                const hp = unit.hp ?? null;
+                                const maxHp = unit.maxHp ?? null;
+                                const pct = hp !== null && maxHp && maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : null;
+                                const barColor = unit.isDead ? 'bg-muted-foreground/40' : pct !== null && pct > 60 ? 'bg-green-500' : pct !== null && pct > 30 ? 'bg-yellow-500' : 'bg-red-500';
+                                return (
+                                  <div key={i} className={`p-2 rounded-md border space-y-1.5 ${unit.isDead ? 'opacity-50 bg-muted/20' : 'bg-card'}`}>
+                                    <div className="flex items-center justify-between gap-1">
+                                      <div className="flex items-center gap-1 min-w-0">
+                                        {unit.isDead ? <Skull className="w-3 h-3 text-muted-foreground shrink-0" /> : <Shield className="w-3 h-3 text-blue-400 shrink-0" />}
+                                        <span className="text-[11px] font-medium truncate">{unit.name}</span>
+                                      </div>
+                                      {hp !== null && maxHp !== null && <span className="text-[10px] text-muted-foreground shrink-0">{hp}/{maxHp}</span>}
+                                    </div>
+                                    <div className="h-1.5 rounded-sm bg-muted w-full overflow-hidden">
+                                      <div className={`h-full rounded-sm transition-all duration-500 ${barColor}`} style={{ width: pct !== null ? `${pct}%` : '0%' }} />
+                                    </div>
+                                    {unit.mp !== null && unit.maxMp !== null && unit.maxMp > 0 && (
+                                      <div className="h-1 rounded-sm bg-muted w-full overflow-hidden">
+                                        <div className="h-full rounded-sm bg-blue-500 transition-all duration-500" style={{ width: `${Math.max(0, Math.min(100, (unit.mp / unit.maxMp) * 100))}%` }} />
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-red-400 mb-2 flex items-center gap-1">
+                              <Swords className="w-3 h-3" /> Enemies
+                            </p>
+                            <div className="space-y-2">
+                              {Object.values(firebaseLogQuery.data.latestCombatants['1'] || {}).map((unit: any, i: number) => {
+                                const hp = unit.hp ?? null;
+                                const maxHp = unit.maxHp ?? null;
+                                const pct = hp !== null && maxHp && maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : null;
+                                const barColor = unit.isDead ? 'bg-muted-foreground/40' : pct !== null && pct > 60 ? 'bg-green-500' : pct !== null && pct > 30 ? 'bg-yellow-500' : 'bg-red-500';
+                                return (
+                                  <div key={i} className={`p-2 rounded-md border space-y-1.5 ${unit.isDead ? 'opacity-50 bg-muted/20' : 'bg-card'}`}>
+                                    <div className="flex items-center justify-between gap-1">
+                                      <div className="flex items-center gap-1 min-w-0">
+                                        {unit.isDead ? <Skull className="w-3 h-3 text-muted-foreground shrink-0" /> : <Swords className="w-3 h-3 text-red-400 shrink-0" />}
+                                        <span className="text-[11px] font-medium truncate">{unit.name}</span>
+                                      </div>
+                                      {hp !== null && maxHp !== null && <span className="text-[10px] text-muted-foreground shrink-0">{hp}/{maxHp}</span>}
+                                    </div>
+                                    <div className="h-1.5 rounded-sm bg-muted w-full overflow-hidden">
+                                      <div className={`h-full rounded-sm transition-all duration-500 ${barColor}`} style={{ width: pct !== null ? `${pct}%` : '0%' }} />
+                                    </div>
+                                    {unit.mp !== null && unit.maxMp !== null && unit.maxMp > 0 && (
+                                      <div className="h-1 rounded-sm bg-muted w-full overflow-hidden">
+                                        <div className="h-full rounded-sm bg-blue-500 transition-all duration-500" style={{ width: `${Math.max(0, Math.min(100, (unit.mp / unit.maxMp) * 100))}%` }} />
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {firebaseLogQuery.data.turns.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                            Turn Log ({firebaseLogQuery.data.totalTurns} turns)
+                          </p>
+                          <div className="space-y-1 max-h-[300px] overflow-y-auto" data-testid="firebase-turn-log">
+                            {firebaseLogQuery.data.turns.slice().reverse().map((turn: any) => (
+                              <div key={turn.turnId} className="flex flex-wrap items-start gap-2 p-1.5 rounded bg-muted/15 text-[10px]">
+                                <Badge variant="outline" className="text-[9px] font-mono shrink-0">
+                                  R{turn.round} T{turn.turn}
+                                </Badge>
+                                {turn.activeSide !== null && (
+                                  <span className={turn.activeSide === 0 ? 'text-blue-400 shrink-0' : 'text-red-400 shrink-0'}>
+                                    {turn.activeSide === 0 ? 'Hero' : 'Enemy'} {turn.activeSlot ?? ''}
+                                  </span>
+                                )}
+                                {turn.actionType && (
+                                  <span className="text-muted-foreground shrink-0">{turn.actionType}</span>
+                                )}
+                                {turn.battleLog && (
+                                  <span className="text-foreground/80 flex-1 min-w-0 leading-relaxed">{turn.battleLog}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {firebaseLogQuery.data.turns.length === 0 && (
+                        <p className="text-xs text-muted-foreground text-center py-4">No turns recorded yet.</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
