@@ -37,6 +37,26 @@ function updateHuntInfo(huntId, turnNumber, queueLength) {
   if (queueLength != null) el('http-queue').textContent = queueLength;
 }
 
+function renderSupportSummary(status) {
+  const authState = status?.authUser?.username || 'Logged out';
+  const selectedSession = Array.isArray(status?.ownedCompanionSessions)
+    ? status.ownedCompanionSessions.find((session) => session.id === status.selectedCompanionSessionId)
+    : null;
+  const sessionState = selectedSession
+    ? (selectedSession.label || selectedSession.hunt_id || `#${selectedSession.id}`)
+    : (status?.sessionToken ? 'Manual token' : 'None');
+  const huntState = status?.huntId || '--';
+  const connectionState = `${STATUS_LABELS[status?.status] || status?.status || '--'}${status?.requiresTabRefresh ? ' / Refresh tab' : ''}`;
+  const errorCount = (status?.recentApiFailureCount || 0) + (status?.recentServerErrorCount || 0);
+
+  el('support-auth-state').textContent = authState;
+  el('support-session-state').textContent = sessionState;
+  el('support-hunt-state').textContent = huntState;
+  el('support-connection-state').textContent = connectionState;
+  el('support-event-count').textContent = String(lastSnapshots.length || 0);
+  el('support-error-count').textContent = String(errorCount);
+}
+
 function renderAuthAndSessions(status) {
   currentStatus = status;
   const authUser = status?.authUser || null;
@@ -247,6 +267,7 @@ function loadAndRender() {
     setStatusDot(status.status);
     updateHuntInfo(status.huntId, status.turnNumber, status.queueLength);
     renderAuthAndSessions(status);
+    renderSupportSummary(status);
     if (status.sessionToken) el('token-input').value = status.sessionToken;
     if (status.hostUrl) el('host-input').value = status.hostUrl;
   });
@@ -262,6 +283,7 @@ function loadAndRender() {
     if (result.localSnapshots) {
       lastSnapshots = result.localSnapshots;
       if (debugMode) renderDebugEvents(lastSnapshots);
+      renderSupportSummary(currentStatus);
     }
 
     if (result.lastRecommendation) {
@@ -388,6 +410,30 @@ el('export-btn').addEventListener('click', () => {
     a.download = `dfk-companion-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  });
+});
+
+el('export-support-btn').addEventListener('click', () => {
+  el('support-bundle-status').textContent = '';
+  chrome.runtime.sendMessage({ type: 'export_support_bundle' }, (res) => {
+    if (chrome.runtime.lastError || !res?.ok || !res?.bundle) {
+      el('support-bundle-status').textContent = res?.error || chrome.runtime.lastError?.message || 'Failed to build support bundle';
+      return;
+    }
+    const data = JSON.stringify(res.bundle, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dfk-companion-support-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    el('support-bundle-status').style.color = '#10b981';
+    el('support-bundle-status').textContent = 'Support bundle exported.';
+    setTimeout(() => {
+      el('support-bundle-status').style.color = '#ef4444';
+      el('support-bundle-status').textContent = '';
+    }, 2000);
   });
 });
 

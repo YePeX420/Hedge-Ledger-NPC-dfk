@@ -31,11 +31,23 @@ let extensionUser = null;
 let ownedCompanionSessions = [];
 let selectedCompanionSessionId = null;
 let requiresTabRefresh = false;
+let lastRecommendation = null;
+let lastUnitSnapshot = null;
+let lastReconcileResult = null;
+let lastContentReadyAt = null;
+let lastContentReadyUrl = null;
+let lastHuntDetectedAt = null;
+let lastSuccessfulJoinAt = null;
+let recentApiFailures = [];
+let recentServerErrors = [];
+let recentStateTransitions = [];
+let backgroundDebugMode = false;
 
 const httpQueue = [];
 let flushingQueue = false;
 
 const MAX_LOCAL_SNAPSHOTS = 100;
+const MAX_RECENT_DIAGNOSTICS = 25;
 let localSnapshots = [];
 
 let connectionStatus = 'disconnected';
@@ -59,6 +71,197 @@ function broadcast(msg) {
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
 
+function pushRecent(list, entry, max = MAX_RECENT_DIAGNOSTICS) {
+  list.push({ ts: Date.now(), ...entry });
+  if (list.length > max) list.shift();
+}
+
+function recordStateTransition(event, details = {}) {
+  pushRecent(recentStateTransitions, { event, details });
+  persistExtensionState();
+}
+
+function recordApiFailure(scope, path, error, extra = {}) {
+  pushRecent(recentApiFailures, {
+    scope,
+    path,
+    message: String(error?.message || error || 'Unknown error'),
+    status: error?.status ?? null,
+    details: extra,
+  });
+  persistExtensionState();
+}
+
+function recordServerError(message, extra = {}) {
+  pushRecent(recentServerErrors, {
+    message: String(message || 'Unknown server error'),
+    details: extra,
+  });
+  persistExtensionState();
+}
+
+function redactSecret(value) {
+  if (value == null) return null;
+  const text = String(value);
+  if (!text) return '';
+  if (text.length <= 8) return `${text.slice(0, 2)}***`;
+  return `${text.slice(0, 4)}***${text.slice(-4)}`;
+}
+
+function redactObject(value) {
+  if (value == null) return value;
+  if (Array.isArray(value)) return value.map(redactObject);
+  if (typeof value !== 'object') return value;
+  const out = {};
+  for (const [key, inner] of Object.entries(value)) {
+    if (/token|password|authorization|cookie/i.test(key)) {
+      out[key] = redactSecret(inner);
+    } else {
+      out[key] = redactObject(inner);
+    }
+  }
+  return out;
+}
+
+function summarizeOwnedSession(session) {
+  if (!session) return null;
+  return {
+    id: session.id,
+    label: session.label || null,
+    status: session.status || null,
+    huntId: session.hunt_id || session.latest_hunt_id || null,
+    requiresTabRefresh: !!session.requires_tab_refresh,
+    selectedByExtensionAt: session.selected_by_extension_at || null,
+    lastSeenAt: session.last_seen_at || null,
+    connectedClients: session.connected_clients ?? null,
+    sessionToken: redactSecret(session.session_token),
+  };
+}
+
+function summarizeSnapshot(snapshot) {
+  if (!snapshot) return null;
+  const data = snapshot.data || snapshot;
+  return {
+    type: data.type || null,
+    ts: snapshot.ts || data.capturedAt || null,
+    turnNumber: data.turnNumber || data.turn || null,
+    huntId: data.huntId || data.combatFrame?.captureMeta?.huntId || null,
+    actor: data.actor || null,
+    ability: data.ability || null,
+    source: data.source || data.combatFrame?.captureMeta?.source || null,
+    parseConfidence: data.parseConfidence ?? null,
+  };
+}
+
+function summarizeCombatFrame(frame) {
+  if (!frame) return null;
+  return {
+    version: frame.version || null,
+    turnNumber: frame.turnNumber || null,
+    encounterType: frame.encounterType || null,
+    activeTurn: frame.activeTurn ? {
+      activeUnitId: frame.activeTurn.activeUnitId || null,
+      activeSide: frame.activeTurn.activeSide || null,
+      activeSlot: frame.activeTurn.activeSlot ?? null,
+      selectedTargetId: frame.activeTurn.selectedTargetId || null,
+      legalActionCount: Array.isArray(frame.activeTurn.legalActions) ? frame.activeTurn.legalActions.length : 0,
+      legalConsumableCount: Array.isArray(frame.activeTurn.legalConsumables) ? frame.activeTurn.legalConsumables.length : 0,
+      battleBudgetRemaining: frame.activeTurn.battleBudgetRemaining ?? null,
+    } : null,
+    combatantCount: Array.isArray(frame.combatants) ? frame.combatants.length : 0,
+    turnOrderCount: Array.isArray(frame.turnOrder) ? frame.turnOrder.length : 0,
+    battleLogCount: Array.isArray(frame.battleLogEntries) ? frame.battleLogEntries.length : 0,
+    captureMeta: redactObject(frame.captureMeta || {}),
+  };
+}
+
+function summarizeRecommendation(rec) {
+  if (!rec) return null;
+  return redactObject({
+    recommendationCount: Array.isArray(rec.recommendations) ? rec.recommendations.length : 0,
+    topRecommendation: Array.isArray(rec.recommendations) && rec.recommendations[0] ? {
+      action: rec.recommendations[0].action || rec.recommendations[0].skillName || null,
+      targetType: rec.recommendations[0].targetType || null,
+      targetSlot: rec.recommendations[0].targetSlot ?? null,
+      totalScore: rec.recommendations[0].totalScore ?? rec.recommendations[0].scoreTotal ?? null,
+    } : null,
+  });
+}
+
+function buildSupportBundle() {
+  const manifest = chrome.runtime.getManifest();
+  const selectedSession = ownedCompanionSessions.find((session) => session.id === selectedCompanionSessionId) || null;
+  return {
+    meta: {
+      generatedAt: new Date().toISOString(),
+      bundleVersion: 1,
+      extensionName: manifest.name,
+      extensionVersion: manifest.version,
+      manifestVersion: manifest.manifest_version,
+      userAgent: navigator.userAgent,
+      platform: navigator.platform || null,
+    },
+    connection: {
+      backendHost: hostUrl,
+      websocketStatus: connectionStatus,
+      joined: isJoined,
+      queueLength: httpQueue.length,
+      reconnectDelay,
+      reconnectScheduled: !!reconnectTimer,
+      lastSuccessfulJoinAt,
+    },
+    auth: {
+      mode: extensionAuthToken ? 'extension_account' : 'manual_or_none',
+      user: extensionUser ? {
+        id: extensionUser.id ?? null,
+        username: extensionUser.username || extensionUser.displayName || null,
+        allowedTabs: extensionUser.allowedTabs || [],
+      } : null,
+      authToken: redactSecret(extensionAuthToken),
+      selectedSessionId: selectedCompanionSessionId,
+    },
+    session: {
+      sessionToken: redactSecret(sessionToken),
+      currentHuntId,
+      currentTurnNumber,
+      perSessionTurnCount,
+      requiresTabRefresh,
+      selectedSession: summarizeOwnedSession(selectedSession),
+      ownedSessions: ownedCompanionSessions.map(summarizeOwnedSession),
+    },
+    capture: {
+      latestRecommendation: summarizeRecommendation(lastRecommendation),
+      latestUnitSnapshot: redactObject(lastUnitSnapshot),
+      latestReconcileResult: redactObject(lastReconcileResult),
+      latestCombatFrame: summarizeCombatFrame(localSnapshots[localSnapshots.length - 1]?.data?.combatFrame || null),
+      recentSnapshots: localSnapshots.slice(-20).map(summarizeSnapshot),
+      heroProfileSummary: Array.isArray(currentHeroProfiles) ? currentHeroProfiles.map((hero) => ({
+        heroId: hero.heroId || null,
+        normalizedId: hero.normalizedId || null,
+        mainClass: hero.mainClass || null,
+        level: hero.level || null,
+      })) : [],
+    },
+    errors: {
+      apiFailures: redactObject(recentApiFailures),
+      serverErrors: redactObject(recentServerErrors),
+      stateTransitions: redactObject(recentStateTransitions),
+    },
+    diagnostics: {
+      debugMode: backgroundDebugMode,
+      lastContentReadyAt,
+      lastContentReadyUrl,
+      lastHuntDetectedAt,
+      lastHeroProfileHuntId: heroProfileHuntId,
+      extensionContextLikelyStale: requiresTabRefresh,
+      localSnapshotCount: localSnapshots.length,
+      recentApiFailureCount: recentApiFailures.length,
+      recentServerErrorCount: recentServerErrors.length,
+      recentTransitionCount: recentStateTransitions.length,
+    },
+  };
+}
+
 function persistExtensionState() {
   chrome.storage.local.set({
     sessionToken,
@@ -69,6 +272,17 @@ function persistExtensionState() {
     selectedCompanionSessionId,
     requiresTabRefresh,
     currentHuntId,
+    lastRecommendation,
+    lastUnitSnapshot,
+    lastReconcileResult,
+    lastContentReadyAt,
+    lastContentReadyUrl,
+    lastHuntDetectedAt,
+    lastSuccessfulJoinAt,
+    backgroundDebugMode,
+    recentApiFailures,
+    recentServerErrors,
+    recentStateTransitions,
   });
 }
 
@@ -110,12 +324,14 @@ async function authedJsonFetch(path, options = {}) {
     const message = json?.error || `Request failed (${response.status})`;
     const err = new Error(message);
     err.status = response.status;
+    recordApiFailure('authed_json_fetch', path, err, { method: options.method || 'GET' });
     throw err;
   }
   return json;
 }
 
 function clearOwnedSessionSelection() {
+  recordStateTransition('clear_owned_session_selection');
   selectedCompanionSessionId = null;
   ownedCompanionSessions = [];
   extensionUser = null;
@@ -129,6 +345,7 @@ function clearOwnedSessionSelection() {
 
 function setSelectedSession(session, markRefresh = true) {
   if (!session) return;
+  recordStateTransition('select_session', { sessionId: session.id, huntId: session.hunt_id || session.latest_hunt_id || null, markRefresh: !!markRefresh });
   selectedCompanionSessionId = session.id;
   sessionToken = session.session_token || sessionToken;
   currentHuntId = session.hunt_id || session.latest_hunt_id || null;
@@ -193,12 +410,14 @@ async function loginExtensionAccount(username, password) {
   });
   const json = await response.json().catch(() => null);
   if (!response.ok || !json?.ok) {
+    recordApiFailure('extension_login', '/api/user/extension/login', new Error(json?.error || 'Extension login failed'), { status: response.status, username });
     throw new Error(json?.error || 'Extension login failed');
   }
 
   extensionAuthToken = json.authToken || null;
   extensionUser = json.user || null;
   ownedCompanionSessions = Array.isArray(json.sessions) ? json.sessions : [];
+  recordStateTransition('extension_login_success', { username });
 
   const selected = ownedCompanionSessions.find((session) => session.id === selectedCompanionSessionId)
     || ownedCompanionSessions.find((session) => !session.archived_at)
@@ -226,6 +445,7 @@ async function logoutExtensionAccount() {
     } catch (_) {}
   }
   clearOwnedSessionSelection();
+  recordStateTransition('extension_logout');
   persistExtensionState();
   broadcastExtensionState();
   if (ws) ws.close();
@@ -256,6 +476,7 @@ async function selectOwnedCompanionSession(sessionId) {
 
 function setStatus(status) {
   connectionStatus = status;
+  recordStateTransition('connection_status', { status });
   broadcast({ type: 'status_update', status });
 }
 
@@ -272,6 +493,8 @@ function connect() {
 
     ws.onopen = () => {
       reconnectDelay = 1000;
+      lastSuccessfulJoinAt = new Date().toISOString();
+      recordStateTransition('ws_open', { sessionToken: redactSecret(sessionToken) });
       setStatus('connected');
       ws.send(JSON.stringify({ type: 'join', sessionToken }));
       flushHttpQueue();
@@ -281,20 +504,25 @@ function connect() {
       try {
         const msg = JSON.parse(event.data);
         handleServerMessage(msg);
-      } catch (_) {}
+      } catch (err) {
+        recordServerError('Failed to parse websocket message', { message: String(err?.message || err || 'parse') });
+      }
     };
 
     ws.onerror = () => {
+      recordServerError('WebSocket error');
       setStatus('error');
     };
 
     ws.onclose = () => {
       ws = null;
       isJoined = false;
+      recordStateTransition('ws_close', { sessionToken: redactSecret(sessionToken) });
       setStatus('disconnected');
       scheduleReconnect();
     };
   } catch (err) {
+    recordApiFailure('ws_connect', WS_PATH, err);
     setStatus('error');
     scheduleReconnect();
   }
@@ -312,6 +540,7 @@ function scheduleReconnect() {
 function handleServerMessage(msg) {
   if (msg.type === 'joined') {
     isJoined = true;
+    recordStateTransition('joined', { sessionId: msg.sessionId, existingTurns: msg.existingTurns || 0 });
     setStatus('joined');
     broadcast({ type: 'joined', sessionId: msg.sessionId, existingTurns: msg.existingTurns });
     if (currentHuntId) {
@@ -331,11 +560,13 @@ function handleServerMessage(msg) {
     const normalized = {
       recommendations: recData.recommendations || recData.data || (Array.isArray(recData) ? recData : []),
     };
+    lastRecommendation = normalized;
     broadcast({ type: 'recommendation', data: normalized });
     chrome.storage.local.set({ lastRecommendation: normalized });
   } else if (msg.type === 'turn_state') {
     broadcast({ type: 'turn_state', data: msg });
   } else if (msg.type === 'error') {
+    recordServerError(msg.message, { type: 'server_error' });
     broadcast({ type: 'server_error', message: msg.message });
     if (msg.message === 'Invalid session token') {
       setStatus('invalid_token');
@@ -379,9 +610,11 @@ async function flushHttpQueue() {
         httpQueue.shift();
         chrome.storage.local.set({ httpQueue });
       } else {
+        recordApiFailure('http_queue', item.path, new Error(`HTTP ${res.status}`), { status: res.status });
         break;
       }
     } catch (_) {
+      recordApiFailure('http_queue', item.path, new Error('Queue flush failed'));
       break;
     }
   }
@@ -605,6 +838,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'unit_snapshot') {
     const d = msg.data;
     storeSnapshot({ type: 'unit_snapshot', ...d });
+    lastUnitSnapshot = d;
     chrome.storage.local.set({ lastUnitSnapshot: d });
 
     if (sessionToken) {
@@ -624,6 +858,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
   } else if (msg.type === 'content_ready') {
+    lastContentReadyAt = new Date().toISOString();
+    lastContentReadyUrl = msg.url || null;
+    recordStateTransition('content_ready', { huntId: msg.huntId || null, url: msg.url || null });
     requiresTabRefresh = false;
     if (msg.huntId) {
       currentHuntId = msg.huntId;
@@ -637,6 +874,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   } else if (msg.type === 'hunt_id_detected') {
     currentHuntId = msg.huntId;
+    lastHuntDetectedAt = new Date().toISOString();
+    recordStateTransition('hunt_id_detected', { huntId: currentHuntId, source: msg.source || null });
     persistExtensionState();
     broadcastExtensionState();
     broadcast({ type: 'hunt_id_update', huntId: currentHuntId });
@@ -664,6 +903,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       requiresTabRefresh,
       sessionToken,
       hostUrl,
+      recentApiFailureCount: recentApiFailures.length,
+      recentServerErrorCount: recentServerErrors.length,
+      recentTransitionCount: recentStateTransitions.length,
+      lastContentReadyAt,
+      lastHuntDetectedAt,
     });
     return true;
 
@@ -675,6 +919,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     localSnapshots = [];
     chrome.storage.local.set({ localSnapshots: [] });
     sendResponse({ ok: true });
+    return true;
+
+  } else if (msg.type === 'export_support_bundle') {
+    try {
+      sendResponse({ ok: true, bundle: buildSupportBundle() });
+    } catch (err) {
+      recordApiFailure('support_bundle', 'local_export', err);
+      sendResponse({ ok: false, error: err.message || 'Failed to build support bundle' });
+    }
     return true;
 
   } else if (msg.type === 'set_token') {
@@ -740,13 +993,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     })
       .then(r => r.json())
       .then(result => {
+        lastReconcileResult = result;
         chrome.storage.local.set({ lastReconcileResult: result });
         broadcast({ type: 'reconcile_result', result });
       })
-      .catch(err => broadcast({ type: 'reconcile_error', message: err.message }));
+      .catch(err => {
+        recordApiFailure('reconcile', RECONCILE_PATH, err);
+        broadcast({ type: 'reconcile_error', message: err.message });
+      });
 
   } else if (msg.type === 'debug_mode_changed') {
+    backgroundDebugMode = !!msg.enabled;
     chrome.storage.local.set({ debugMode: msg.enabled });
+    persistExtensionState();
     chrome.tabs.query({}, (tabs) => {
       tabs.forEach(tab => {
         chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
@@ -755,7 +1014,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots', 'httpQueue', 'extensionAuthToken', 'extensionUser', 'ownedCompanionSessions', 'selectedCompanionSessionId', 'requiresTabRefresh', 'currentHuntId'], (result) => {
+chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots', 'httpQueue', 'extensionAuthToken', 'extensionUser', 'ownedCompanionSessions', 'selectedCompanionSessionId', 'requiresTabRefresh', 'currentHuntId', 'lastRecommendation', 'lastUnitSnapshot', 'lastReconcileResult', 'lastContentReadyAt', 'lastContentReadyUrl', 'lastHuntDetectedAt', 'lastSuccessfulJoinAt', 'backgroundDebugMode', 'recentApiFailures', 'recentServerErrors', 'recentStateTransitions'], (result) => {
   if (result.sessionToken) sessionToken = result.sessionToken;
   if (result.hostUrl) hostUrl = result.hostUrl;
   if (result.localSnapshots) localSnapshots = result.localSnapshots;
@@ -766,6 +1025,17 @@ chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots', 'httpQueu
   if (result.selectedCompanionSessionId) selectedCompanionSessionId = result.selectedCompanionSessionId;
   if (typeof result.requiresTabRefresh === 'boolean') requiresTabRefresh = result.requiresTabRefresh;
   if (result.currentHuntId) currentHuntId = result.currentHuntId;
+  if (result.lastRecommendation) lastRecommendation = result.lastRecommendation;
+  if (result.lastUnitSnapshot) lastUnitSnapshot = result.lastUnitSnapshot;
+  if (result.lastReconcileResult) lastReconcileResult = result.lastReconcileResult;
+  if (result.lastContentReadyAt) lastContentReadyAt = result.lastContentReadyAt;
+  if (result.lastContentReadyUrl) lastContentReadyUrl = result.lastContentReadyUrl;
+  if (result.lastHuntDetectedAt) lastHuntDetectedAt = result.lastHuntDetectedAt;
+  if (result.lastSuccessfulJoinAt) lastSuccessfulJoinAt = result.lastSuccessfulJoinAt;
+  if (typeof result.backgroundDebugMode === 'boolean') backgroundDebugMode = result.backgroundDebugMode;
+  if (Array.isArray(result.recentApiFailures)) recentApiFailures = result.recentApiFailures;
+  if (Array.isArray(result.recentServerErrors)) recentServerErrors = result.recentServerErrors;
+  if (Array.isArray(result.recentStateTransitions)) recentStateTransitions = result.recentStateTransitions;
   connect();
   if (extensionAuthToken) {
     refreshOwnedSessions({ preserveSelection: true }).catch((err) => {
