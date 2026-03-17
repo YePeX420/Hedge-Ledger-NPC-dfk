@@ -22180,6 +22180,19 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             if (client.readyState === 1 && client !== ws) client.send(snapshotBroadcast);
           }
 
+        } else if (msg.type === 'hunt_id_update') {
+          // Extension broadcasts huntId when a new hunt/quest session is detected.
+          // Trigger one-time hero profile prefetch for this session.
+          if (!sessionToken || !sessionId) return;
+          const session = companionSessions.get(sessionToken);
+          if (session && msg.huntId) {
+            if (msg.huntId) {
+              await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+            }
+            maybePushHeroProfiles(msg.huntId, msg.walletAddress || null);
+          }
+          ws.send(JSON.stringify({ type: 'hunt_ack', huntId: msg.huntId }));
+
         } else if (msg.type === 'turn_event') {
           if (!sessionToken || !sessionId) {
             ws.send(JSON.stringify({ type: 'error', message: 'Not joined to a session' }));
