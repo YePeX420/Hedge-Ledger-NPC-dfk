@@ -245,7 +245,6 @@ console.log('[DFK StatPanel] Script file loaded');
   // ── Polling (replaces body-level MutationObserver to avoid feedback loops) ─
 
   function startPolling() {
-    checkPanels(document.body);
     setInterval(() => checkPanels(document.body), 500);
   }
 

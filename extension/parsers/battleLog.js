@@ -339,19 +339,17 @@ console.log('[DFK BattleLog] Script file loaded');
     return false;
   }
 
-  console.log('[DFK BattleLog] Parser loaded, starting log container scan');
+  console.log('[DFK BattleLog] Parser loaded, polling every 2s for log container');
 
-  if (!tryAttach()) {
-    setInterval(() => {
-      if (!window.__dfkBattleLogAttached) {
-        tryAttach();
-      } else if (logContainer && !document.body.contains(logContainer)) {
-        console.log('[DFK BattleLog] Log container removed from DOM (modal closed), resetting');
-        window.__dfkBattleLogAttached = false;
-        window.__dfkBattleLogSelector = null;
-        if (observer) { observer.disconnect(); observer = null; }
-        logContainer = null;
-      }
-    }, 2000);
-  }
+  setInterval(() => {
+    if (!window.__dfkBattleLogAttached) {
+      tryAttach();
+    } else if (logContainer && !document.body.contains(logContainer)) {
+      console.log('[DFK BattleLog] Log container removed from DOM (modal closed), resetting');
+      window.__dfkBattleLogAttached = false;
+      window.__dfkBattleLogSelector = null;
+      if (observer) { observer.disconnect(); observer = null; }
+      logContainer = null;
+    }
+  }, 2000);
 })();
