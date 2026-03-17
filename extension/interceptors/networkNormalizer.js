@@ -9,6 +9,129 @@
     try { return JSON.parse(str); } catch (_) { return null; }
   }
 
+  function normalizeId(value) {
+    return String(value || 'unknown')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'unknown';
+  }
+
+  function inferSide(name, fallback) {
+    if (fallback === 'enemy' || fallback === 'player') return fallback;
+    return /boar|enemy|monster|clucker|rocboc|wolf/i.test(String(name || '')) ? 'enemy' : 'player';
+  }
+
+  function buildTurnOrderEntry(raw, index) {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const combatant = raw.combatant && typeof raw.combatant === 'object' ? raw.combatant : null;
+    const name =
+      raw.name ||
+      raw.unitName ||
+      raw.actorName ||
+      raw.combatantName ||
+      combatant?.name ||
+      combatant?.displayName ||
+      null;
+    const ticksValue =
+      raw.ticksUntilTurn ??
+      raw.ticks_until_turn ??
+      raw.ticks ??
+      raw.tick ??
+      raw.queuePosition ??
+      raw.queue_position ??
+      null;
+
+    if (!name || ticksValue == null || ticksValue === '') return null;
+
+    const side = inferSide(
+      name,
+      raw.side ||
+        raw.actorSide ||
+        combatant?.side ||
+        (raw.activeSide === -1 ? 'enemy' : raw.activeSide === 1 ? 'player' : null)
+    );
+
+    const slotValue =
+      raw.slot ??
+      raw.actorSlot ??
+      raw.position ??
+      combatant?.slot ??
+      combatant?.position ??
+      null;
+    const numericSlot =
+      slotValue == null || slotValue === ''
+        ? null
+        : Number.isFinite(Number(slotValue))
+          ? Number(slotValue)
+          : null;
+    const ticksUntilTurn = Number.parseFloat(String(ticksValue).replace(/[^0-9.\-]+/g, ''));
+    if (!Number.isFinite(ticksUntilTurn)) return null;
+
+    return {
+      unitId: `${side}:${numericSlot == null ? 'na' : numericSlot}:${normalizeId(name)}`,
+      name: String(name).trim(),
+      side,
+      slot: numericSlot,
+      ticksUntilTurn,
+      ordinal: index,
+      source: 'network',
+    };
+  }
+
+  function extractTurnOrderCandidates(node, depth, matches) {
+    if (!node || depth > 8) return;
+
+    if (Array.isArray(node)) {
+      if (node.length > 0) {
+        const entries = node
+          .map((item, index) => buildTurnOrderEntry(item, index))
+          .filter(Boolean);
+        if (entries.length >= 2) matches.push(entries);
+      }
+
+      for (let i = 0; i < node.length; i += 1) {
+        extractTurnOrderCandidates(node[i], depth + 1, matches);
+      }
+      return;
+    }
+
+    if (typeof node !== 'object') return;
+
+    for (const [key, value] of Object.entries(node)) {
+      if (Array.isArray(value)) {
+        const entries = value
+          .map((item, index) => buildTurnOrderEntry(item, index))
+          .filter(Boolean);
+
+        if (entries.length >= 2 && /(turn.?order|queue|initiative|timeline|pending|upcoming|combatant|tick)/i.test(key)) {
+          matches.push(entries);
+        } else if (entries.length >= 3) {
+          matches.push(entries);
+        }
+      }
+
+      extractTurnOrderCandidates(value, depth + 1, matches);
+    }
+  }
+
+  function extractTurnOrder(data) {
+    if (!data || typeof data !== 'object') return [];
+    const matches = [];
+    extractTurnOrderCandidates(data, 0, matches);
+    if (matches.length === 0) return [];
+
+    const best = matches.sort((a, b) => b.length - a.length)[0] || [];
+    const seen = new Set();
+    return best.filter((entry) => {
+      const key = `${entry.unitId}:${entry.ticksUntilTurn}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   function mapActionToEvent(action, index) {
     return {
       type: 'battle_log_event',
@@ -109,8 +232,21 @@
       actions = extractActionsFromGraphQL(parsed);
     }
 
+    const turnOrder = extractTurnOrder(parsed);
+    if (turnOrder.length > 0) {
+      entry.classifiedTurnOrder = true;
+      document.dispatchEvent(new CustomEvent('dfk-network-turn-order', {
+        detail: JSON.parse(JSON.stringify({
+          entries: turnOrder,
+          capturedAt: Date.now(),
+          url: entry.url || null,
+          transport: entry.transport || 'unknown',
+        })),
+      }));
+    }
+
     if (!actions || actions.length === 0) {
-      entry.classified = false;
+      entry.classified = turnOrder.length > 0;
       return [];
     }
 

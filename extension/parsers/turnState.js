@@ -79,6 +79,13 @@
     lastUpdated: null,
   };
 
+  let latestNetworkTurnOrder = {
+    entries: [],
+    capturedAt: 0,
+    url: null,
+    transport: null,
+  };
+
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   function extractNumber(text) {
@@ -381,7 +388,7 @@
     return list;
   }
 
-  function readTurnOrder() {
+  function readTurnOrderModal() {
     function isVisible(el) {
       if (!el) return false;
       const style = window.getComputedStyle(el);
@@ -449,6 +456,20 @@
     return entries
       .filter((entry, index, arr) => arr.findIndex((other) => other.unitId === entry.unitId && other.ticksUntilTurn === entry.ticksUntilTurn) === index)
       .slice(0, 12);
+  }
+
+  function readTurnOrder() {
+    const recentNetworkEntries = Array.isArray(latestNetworkTurnOrder.entries) ? latestNetworkTurnOrder.entries : [];
+    const networkIsFresh = recentNetworkEntries.length > 0 && (Date.now() - (latestNetworkTurnOrder.capturedAt || 0)) < 30000;
+    if (networkIsFresh) {
+      window.__dfkSelectorDiag.turn_order_source = 'network';
+      window.__dfkSelectorDiag.turn_order_transport = latestNetworkTurnOrder.transport || null;
+      return recentNetworkEntries.slice(0, 12);
+    }
+
+    const modalEntries = readTurnOrderModal();
+    window.__dfkSelectorDiag.turn_order_source = modalEntries.length > 0 ? 'modal' : 'none';
+    return modalEntries;
   }
 
   // ── Snapshot builder ──────────────────────────────────────────────────────
@@ -666,6 +687,52 @@
   };
 
   // ── Polling (replaces body-level MutationObserver to avoid feedback loops) ─
+
+  function scheduleModalCapture(reason) {
+    const delays = [120, 350, 700];
+    delays.forEach((delay) => {
+      window.setTimeout(() => {
+        emitSnapshot();
+      }, delay);
+    });
+    window.__dfkSelectorDiag.modal_capture_reason = reason;
+    window.__dfkSelectorDiag.modal_capture_scheduled_at = Date.now();
+  }
+
+  document.addEventListener('dfk-network-turn-order', function (event) {
+    const detail = event.detail || {};
+    const entries = Array.isArray(detail.entries) ? detail.entries : [];
+    if (entries.length === 0) return;
+
+    latestNetworkTurnOrder = {
+      entries,
+      capturedAt: detail.capturedAt || Date.now(),
+      url: detail.url || null,
+      transport: detail.transport || null,
+    };
+    window.__dfkSelectorDiag.turn_order_network_last_seen = latestNetworkTurnOrder.capturedAt;
+    window.__dfkSelectorDiag.turn_order_network_count = entries.length;
+    emitSnapshot();
+  });
+
+  document.addEventListener('click', (event) => {
+    const target = event.target && event.target.closest ? event.target.closest('button,[role="button"],img') : null;
+    if (!target) return;
+
+    const text = ((target.textContent || '') + ' ' + (target.getAttribute('aria-label') || '') + ' ' + (target.getAttribute('alt') || ''))
+      .replace(/\s+/g, ' ')
+      .trim();
+    const classText = typeof target.className === 'string' ? target.className : '';
+
+    if (/turnindicator|timeline/i.test(classText) || /turn order/i.test(text)) {
+      scheduleModalCapture('turn_order_trigger');
+      return;
+    }
+
+    if (/battle logs?/i.test(text)) {
+      scheduleModalCapture('battle_logs_trigger');
+    }
+  }, true);
 
   setInterval(emitSnapshot, 1000);
 })();

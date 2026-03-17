@@ -20530,40 +20530,51 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         `;
         await rawPg`UPDATE dfk_hunt_sessions SET snapshot_count = snapshot_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
 
+        if (!companionSessions.has(sessionToken)) {
+          companionSessions.set(sessionToken, {
+            clients: new Set(),
+            turnEvents: [],
+            heroStates: null,
+            enemyId: null,
+            battleBudgetRemaining: null,
+            consumableQuantities: {},
+            latestFrame: null,
+            rawFrames: [],
+          });
+        }
+
+        const memSnap = companionSessions.get(sessionToken);
+        if (memSnap && req.body.combatFrame) {
+          const { normalizeCombatFrame, getPrimaryEnemyId } = await import('./server/pve-combat-frame.ts');
+          const normalizedFrame = normalizeCombatFrame(req.body.combatFrame);
+          memSnap.latestFrame = normalizedFrame;
+          memSnap.rawFrames.push(normalizedFrame);
+          if (memSnap.rawFrames.length > 50) memSnap.rawFrames.shift();
+          if (!memSnap.enemyId) memSnap.enemyId = getPrimaryEnemyId(normalizedFrame) || memSnap.enemyId;
+        }
+
         // HTTP-fallback hero hydration: if fullState carries heroes (state_snapshot sent via HTTP),
         // seed the in-memory companion session so scoring can run on subsequent turn events.
-        if (fullState.heroes?.length > 0) {
-          if (!companionSessions.has(sessionToken)) {
-            companionSessions.set(sessionToken, {
-              clients: new Set(),
-              turnEvents: [],
-              heroStates: null,
-              enemyId: null,
-              battleBudgetRemaining: null,
-              consumableQuantities: {},
-              latestFrame: null,
-              rawFrames: [],
-            });
+        if (memSnap && fullState.heroes?.length > 0 && !memSnap.heroStates) {
+          memSnap.heroStates = fullState.heroes;
+          console.log(`[Companion HTTP] Seeded heroStates from fullState snapshot for token ${sessionToken?.slice(0, 8)}`);
+        }
+        if (memSnap && !memSnap.enemyId && fullState.enemies?.length > 0) {
+          const rawName = (fullState.enemies[0].name || fullState.enemies[0].enemyId || '').trim().toLowerCase().replace(/\s+/g, '_');
+          if (rawName) {
+            memSnap.enemyId = rawName;
+            console.log(`[Companion HTTP] Seeded enemyId '${rawName}' from fullState snapshot`);
           }
-          const memSnap = companionSessions.get(sessionToken);
-          if (memSnap && req.body.combatFrame) {
-            const { normalizeCombatFrame, getPrimaryEnemyId } = await import('./server/pve-combat-frame.ts');
-            const normalizedFrame = normalizeCombatFrame(req.body.combatFrame);
-            memSnap.latestFrame = normalizedFrame;
-            memSnap.rawFrames.push(normalizedFrame);
-            if (memSnap.rawFrames.length > 50) memSnap.rawFrames.shift();
-            if (!memSnap.enemyId) memSnap.enemyId = getPrimaryEnemyId(normalizedFrame) || memSnap.enemyId;
-          }
-          if (memSnap && !memSnap.heroStates) {
-            memSnap.heroStates = fullState.heroes;
-            console.log(`[Companion HTTP] Seeded heroStates from fullState snapshot for token ${sessionToken?.slice(0, 8)}`);
-          }
-          if (memSnap && !memSnap.enemyId && fullState.enemies?.length > 0) {
-            const rawName = (fullState.enemies[0].name || fullState.enemies[0].enemyId || '').trim().toLowerCase().replace(/\s+/g, '_');
-            if (rawName) {
-              memSnap.enemyId = rawName;
-              console.log(`[Companion HTTP] Seeded enemyId '${rawName}' from fullState snapshot`);
-            }
+        }
+        if (memSnap) {
+          const snapshotBroadcast = JSON.stringify({
+            type: 'state_update',
+            heroes: memSnap.heroStates,
+            enemyId: memSnap.enemyId,
+            combatFrame: memSnap.latestFrame,
+          });
+          for (const client of memSnap.clients) {
+            if (client.readyState === 1) client.send(snapshotBroadcast);
           }
         }
 

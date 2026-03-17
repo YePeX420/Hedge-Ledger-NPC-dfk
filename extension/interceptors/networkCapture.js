@@ -44,7 +44,17 @@
       }
     }
 
-    if (entry.panelOpenAtCapture && window.__dfkNormalizeNetworkPayload) {
+    const shouldNormalize =
+      !!window.__dfkNormalizeNetworkPayload &&
+      (
+        entry.panelOpenAtCapture ||
+        entry.transport === 'graphql' ||
+        entry.transport === 'rest-combat' ||
+        entry.transport === 'rest-hunt' ||
+        /combat|battle|hunt/i.test(entry.url || '')
+      );
+
+    if (shouldNormalize) {
       try {
         window.__dfkNormalizeNetworkPayload(entry);
       } catch (e) {
