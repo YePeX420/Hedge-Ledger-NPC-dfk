@@ -382,25 +382,73 @@
   }
 
   function readTurnOrder() {
-    const entries = [];
-    const textNodes = document.querySelectorAll('div,li');
-    textNodes.forEach((el, index) => {
-      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      const match = text.match(/Combatant:\s*(.+?)\s*Ticks Until Turn:\s*([\d.]+)/i);
-      if (!match) return;
-      const name = match[1].trim();
-      const side = /boar|enemy|monster|clucker/i.test(name) ? 'enemy' : 'player';
+    function isVisible(el) {
+      if (!el) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }
+
+    function buildEntry(name, ticksUntilTurn, ordinal) {
+      const side = /boar|enemy|monster|clucker|rocboc|wolf/i.test(name) ? 'enemy' : 'player';
       const slotMatch = name.match(/(\d+)$/);
-      entries.push({
+      return {
         unitId: `${side}:${slotMatch ? slotMatch[1] : 'na'}:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
         name,
         side,
         slot: slotMatch ? parseInt(slotMatch[1], 10) : null,
-        ticksUntilTurn: parseFloat(match[2]),
-        ordinal: entries.length || index,
-      });
+        ticksUntilTurn,
+        ordinal,
+      };
+    }
+
+    function findTurnOrderRoot() {
+      const headings = [...document.querySelectorAll('h1,h2,h3,h4,div,p,span')]
+        .filter((el) => isVisible(el) && /turn order/i.test((el.textContent || '').trim()));
+
+      for (const heading of headings) {
+        let node = heading;
+        for (let depth = 0; depth < 5 && node; depth += 1) {
+          const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+          if (/ticks until turn/i.test(text) && /combatant:/i.test(text)) return node;
+          node = node.parentElement;
+        }
+      }
+      return null;
+    }
+
+    const entries = [];
+    const root = findTurnOrderRoot();
+    const textNodes = root ? root.querySelectorAll('div,li') : document.querySelectorAll('div,li');
+
+    textNodes.forEach((el, index) => {
+      if (!isVisible(el)) return;
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      const inlineMatch = text.match(/Combatant:\s*(.+?)\s*Ticks Until Turn:\s*([\d.]+)/i);
+      if (inlineMatch) {
+        entries.push(buildEntry(inlineMatch[1].trim(), parseFloat(inlineMatch[2]), entries.length || index));
+        return;
+      }
+
+      const lines = (el.textContent || '')
+        .split(/\n+/)
+        .map((line) => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+      const combatantLine = lines.find((line) => /^Combatant:/i.test(line));
+      const ticksLine = lines.find((line) => /^Ticks Until Turn:/i.test(line));
+      if (!combatantLine || !ticksLine) return;
+
+      const name = combatantLine.replace(/^Combatant:\s*/i, '').trim();
+      const ticksMatch = ticksLine.match(/([\d.]+)/);
+      if (!name || !ticksMatch) return;
+
+      entries.push(buildEntry(name, parseFloat(ticksMatch[1]), entries.length || index));
     });
-    return entries.slice(0, 12);
+
+    return entries
+      .filter((entry, index, arr) => arr.findIndex((other) => other.unitId === entry.unitId && other.ticksUntilTurn === entry.ticksUntilTurn) === index)
+      .slice(0, 12);
   }
 
   // ── Snapshot builder ──────────────────────────────────────────────────────

@@ -321,6 +321,13 @@ function firebaseToHeroSnapshot(unit: FirebaseUnit, fallbackSlot: number): HeroS
   };
 }
 
+interface PredictedEnemyContext {
+  enemy: EnemySnapshot | null;
+  displayName: string | null;
+  source: 'turn_order' | 'fallback';
+  ticksUntilTurn: number | null;
+}
+
 function firebaseToEnemySnapshot(unit: FirebaseUnit, fallbackIndex: number): EnemySnapshot {
   const enemyId = (unit.name || `Enemy ${fallbackIndex + 1}`).trim().replace(/\s+/g, '_').toUpperCase();
   const statuses = normalizeFirebaseStatuses(unit);
@@ -355,22 +362,55 @@ function buildFirebaseBattleView(firebaseState: FirebaseBattleState | undefined,
 }
 
 function buildFirebaseTurnFeed(firebaseState: FirebaseBattleState | undefined): TurnEvent[] {
+  function parseTurnActor(turn: FirebaseTurn): { actorSide: string; actor: string | null } {
+    const rawText = turn.battleLog || '';
+    const actorMatch = rawText.match(/^\[(A[HE]|P\d+|E\d+|H\d+|M\d+)\s*:\s*([^\]]+)\]/i);
+    if (!actorMatch) {
+      return {
+        actorSide: turn.activeSide === 1 ? 'player' : turn.activeSide === -1 ? 'enemy' : 'unknown',
+        actor: turn.activeSide === 1
+          ? `Hero ${turn.activeSlot ?? '?'}`
+          : turn.activeSide === -1
+          ? `Enemy ${turn.activeSlot ?? '?'}`
+          : null,
+      };
+    }
+
+    const actorTag = actorMatch[1].toUpperCase();
+    const actorName = actorMatch[2].trim();
+    const actorSide = actorTag.includes('H') || actorTag.startsWith('P')
+      ? 'player'
+      : actorTag.includes('E') || actorTag.startsWith('M')
+      ? 'enemy'
+      : /boar|clucker|enemy|monster|rocboc|wolf/i.test(actorName)
+      ? 'enemy'
+      : 'player';
+
+    return { actorSide, actor: actorName };
+  }
+
+  function parseTurnAbility(turn: FirebaseTurn): string | null {
+    if (turn.actionType) return turn.actionType;
+    const rawText = turn.battleLog || '';
+    const performedMatch = rawText.match(/performed\s+(.+?)(?:\s+and|\.)/i);
+    return performedMatch?.[1]?.trim() || turn.battleLog || null;
+  }
+
   return (firebaseState?.turns || [])
     .slice(-10)
     .reverse()
-    .map((turn) => ({
-      turnNumber: turn.turn ?? 0,
-      actorSide: turn.activeSide === 1 ? 'player' : turn.activeSide === -1 ? 'enemy' : 'unknown',
-      actorSlot: turn.activeSlot ?? null,
-      skillId: turn.actionType || undefined,
-      actor: turn.activeSide === 1
-        ? `Hero ${turn.activeSlot ?? '?'}`
-        : turn.activeSide === -1
-        ? `Enemy ${turn.activeSlot ?? '?'}`
-        : null,
-      ability: turn.actionType || turn.battleLog || null,
-      targets: [],
-    }));
+    .map((turn) => {
+      const actorInfo = parseTurnActor(turn);
+      return {
+        turnNumber: turn.turn ?? 0,
+        actorSide: actorInfo.actorSide,
+        actorSlot: turn.activeSlot ?? null,
+        skillId: turn.actionType || undefined,
+        actor: actorInfo.actor,
+        ability: parseTurnAbility(turn),
+        targets: [],
+      };
+    });
 }
 
 function areTurnFeedsEqual(a: TurnEvent[], b: TurnEvent[]): boolean {
@@ -420,6 +460,50 @@ function areBattleStatesEqual(a: BattleStateMsg | null, b: BattleStateMsg | null
       enemy.debuffs.length === other.debuffs.length
     );
   });
+}
+
+function formatEnemyDisplayName(enemyId: string | null | undefined): string {
+  if (!enemyId) return 'Unknown Enemy';
+  return enemyId
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function normalizeLookupKey(value: string | null | undefined): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function getPredictedEnemyContext(
+  battleState: BattleStateMsg | null,
+  combatFrame: CombatFrame | null,
+): PredictedEnemyContext {
+  const enemies = battleState?.enemies || [];
+  const firstLivingEnemy = enemies.find((enemy) => enemy.currentHp > 0) || enemies[0] || null;
+  const upcomingEnemy = (combatFrame?.turnOrder || []).find((entry) => entry.side === 'enemy');
+
+  if (!upcomingEnemy) {
+    return {
+      enemy: firstLivingEnemy,
+      displayName: firstLivingEnemy ? formatEnemyDisplayName(firstLivingEnemy.enemyId) : null,
+      source: 'fallback',
+      ticksUntilTurn: null,
+    };
+  }
+
+  const matchedEnemy = enemies.find((enemy) =>
+    normalizeLookupKey(enemy.enemyId) === normalizeLookupKey(upcomingEnemy.name) ||
+    normalizeLookupKey(formatEnemyDisplayName(enemy.enemyId)) === normalizeLookupKey(upcomingEnemy.name),
+  ) || firstLivingEnemy;
+
+  return {
+    enemy: matchedEnemy,
+    displayName: upcomingEnemy.name || (matchedEnemy ? formatEnemyDisplayName(matchedEnemy.enemyId) : null),
+    source: 'turn_order',
+    ticksUntilTurn: upcomingEnemy.ticksUntilTurn ?? null,
+  };
 }
 
 function buildDomActionState(combatFrame: CombatFrame | null): DomActionState {
@@ -591,7 +675,15 @@ function ReconciliationPanel({ combatFrame, firebaseData }: { combatFrame: Comba
   );
 }
 
-function EnemyIntelligencePanel({ prediction, isLoading }: { prediction: EnemyPrediction | null; isLoading: boolean }) {
+function EnemyIntelligencePanel({
+  prediction,
+  isLoading,
+  predictedEnemy,
+}: {
+  prediction: EnemyPrediction | null;
+  isLoading: boolean;
+  predictedEnemy: PredictedEnemyContext;
+}) {
   const [showPolicyBreakdown, setShowPolicyBreakdown] = useState(false);
 
   if (isLoading) {
@@ -626,6 +718,8 @@ function EnemyIntelligencePanel({ prediction, isLoading }: { prediction: EnemyPr
   const sortedActions = Object.entries(prediction.finalPolicy).sort((a, b) => b[1] - a[1]);
   const topAction = sortedActions[0];
   const confidenceColor = prediction.confidence > 0.7 ? 'text-green-500' : prediction.confidence > 0.4 ? 'text-amber-500' : 'text-red-400';
+  const targetStatuses = predictedEnemy.enemy?.statuses || [];
+  const amnesiaStatuses = targetStatuses.filter((status) => /amnesia/i.test(status.name));
 
   return (
     <Card>
@@ -644,6 +738,35 @@ function EnemyIntelligencePanel({ prediction, isLoading }: { prediction: EnemyPr
             </Badge>
           </div>
         </div>
+
+        {predictedEnemy.displayName && (
+          <div className="p-3 rounded-md bg-muted/10 border border-muted-foreground/10 mb-3" data-testid="prediction-target-enemy">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {predictedEnemy.source === 'turn_order' ? 'Next Acting Enemy' : 'Prediction Target'}
+                </p>
+                <p className="text-sm font-semibold">{predictedEnemy.displayName}</p>
+              </div>
+              {predictedEnemy.ticksUntilTurn !== null && (
+                <Badge variant="outline" className="text-[10px] font-mono">
+                  {predictedEnemy.ticksUntilTurn.toFixed(3)} ticks
+                </Badge>
+              )}
+            </div>
+            {targetStatuses.length > 0 && <StatusBadges statuses={targetStatuses} />}
+            {amnesiaStatuses.length > 0 && (
+              <p className="text-[10px] text-amber-300 mt-1">
+                Amnesia effects: {amnesiaStatuses.map((status) => status.name).join(', ')}
+              </p>
+            )}
+            {predictedEnemy.source !== 'turn_order' && (
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Turn-order modal has not been captured yet, so this uses the first living enemy as the prediction target.
+              </p>
+            )}
+          </div>
+        )}
 
         {topAction && (
           <div className="p-3 rounded-md bg-muted/20 border border-muted-foreground/10 mb-3" data-testid="prediction-top-action">
@@ -1048,7 +1171,7 @@ export default function HuntCompanion() {
 
   const predictMutation = useMutation({
     mutationFn: async () => {
-      const primaryEnemy = battleState?.enemies?.[0];
+      const primaryEnemy = getPredictedEnemyContext(battleState, combatFrame).enemy;
       if (!primaryEnemy) return null;
       const enemyId = primaryEnemy.enemyId || '';
       const enemyType = enemyId.toLowerCase().replace(/\s+/g, '_');
@@ -1078,7 +1201,7 @@ export default function HuntCompanion() {
         })),
         turnNumber: battleState?.turnNumber || 1,
         activeBuffs: [] as string[],
-        activeDebuffs: primaryEnemy.debuffs || [],
+        activeDebuffs: (primaryEnemy.statuses || []).map((status) => status.name).filter(Boolean),
         battleBudgetRemaining: battleBudget,
       };
       const resp = await apiRequest('POST', '/api/dfk/predict-enemy-action', {
@@ -1320,6 +1443,7 @@ export default function HuntCompanion() {
 
   const domActionState = buildDomActionState(combatFrame);
   const syncIssues = getSyncIssues(firebaseLogQuery.data, domActionState);
+  const predictedEnemyContext = getPredictedEnemyContext(battleState, combatFrame);
   const enemyPredictionReady = !!firebaseLogQuery.data &&
     !!battleState?.enemies?.length;
   const recommendationReady = enemyPredictionReady &&
@@ -1338,7 +1462,7 @@ export default function HuntCompanion() {
       return;
     }
     predictMutation.mutate();
-  }, [enemyPredictionReady, battleState?.turnNumber, battleState?.enemies?.length, executionMode]);
+  }, [enemyPredictionReady, battleState?.turnNumber, battleState?.enemies?.length, executionMode, predictedEnemyContext.displayName]);
 
   useEffect(() => {
     if (!recommendationReady) {
@@ -1714,6 +1838,7 @@ export default function HuntCompanion() {
               <EnemyIntelligencePanel
                 prediction={enemyPredictionReady ? enemyPrediction : null}
                 isLoading={enemyPredictionReady && predictMutation.isPending}
+                predictedEnemy={predictedEnemyContext}
               />
               <ConsumableStrategyPanel
                 prediction={enemyPredictionReady ? enemyPrediction : null}
