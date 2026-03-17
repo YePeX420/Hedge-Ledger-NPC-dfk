@@ -22392,6 +22392,10 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             const huntWallet = msg.wallet || msg.walletAddress || null;
             await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
             maybePushHeroProfiles(msg.huntId, huntWallet);
+            const huntBroadcast = JSON.stringify({ type: 'hunt_id_update', huntId: msg.huntId });
+            for (const client of session.clients) {
+              if (client.readyState === 1) client.send(huntBroadcast);
+            }
           }
           ws.send(JSON.stringify({ type: 'hunt_ack', huntId: msg.huntId }));
 

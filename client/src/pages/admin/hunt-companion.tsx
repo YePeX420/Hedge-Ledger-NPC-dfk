@@ -899,7 +899,7 @@ export default function HuntCompanion() {
 
   const sessionStatusQuery = useQuery({
     queryKey: ['/api/admin/pve/companion/session', session?.session_token],
-    enabled: !!session?.session_token && !wsConnected,
+    enabled: !!session?.session_token,
     refetchInterval: 5000,
     queryFn: async () => {
       const resp = await fetch(`/api/admin/pve/companion/session/${session!.session_token}`);
@@ -1007,6 +1007,8 @@ export default function HuntCompanion() {
         const msg = JSON.parse(event.data);
         if (msg.type === 'joined') {
           setWsConnected(true);
+        } else if (msg.type === 'hunt_id_update') {
+          if (msg.huntId) setLatestHuntId(msg.huntId);
         } else if (msg.type === 'recommendation') {
           setRecommendations(msg.recommendations || []);
           if (msg.combatFrame) setCombatFrame(msg.combatFrame);
