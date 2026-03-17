@@ -268,7 +268,7 @@ export default function CombatPetsShop() {
   const [gdePrice, setGdePrice] = useState<string>("1.5");
 
   const [isForceRefreshing, setIsForceRefreshing] = useState(false);
-  const { data: petsResponse, isLoading, error, isFetching, refetch } = useQuery<{ ok: boolean; pets: CombatPet[]; count: number; lastUpdated?: number; loading?: boolean }>({
+  const { data: petsResponse, isLoading, error, isFetching, refetch } = useQuery<{ ok: boolean; pets: CombatPet[]; count: number; staleFiltered?: number | null; lastUpdated?: number; loading?: boolean }>({
     queryKey: ["/api/admin/combat-pets"],
     refetchInterval: (query) => {
       const data = query.state.data as { loading?: boolean } | undefined;
@@ -278,6 +278,7 @@ export default function CombatPetsShop() {
   const isPreparingData = petsResponse?.loading === true;
   const pets = isPreparingData ? undefined : petsResponse?.pets;
   const lastUpdated = petsResponse?.lastUpdated;
+  const staleFiltered = petsResponse?.staleFiltered ?? null;
 
   const handleForceRefresh = useCallback(async () => {
     setIsForceRefreshing(true);
@@ -444,9 +445,16 @@ export default function CombatPetsShop() {
             {isFetching && !isLoading && " (refreshing...)"}
           </p>
           {lastUpdated && (
-            <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid="text-last-updated">
-              <Clock className="w-3 h-3" />
-              Last synced: {formatTimeAgo(lastUpdated)} ({new Date(lastUpdated).toLocaleTimeString()})
+            <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap" data-testid="text-last-updated">
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                Last synced: {formatTimeAgo(lastUpdated)} ({new Date(lastUpdated).toLocaleTimeString()})
+              </span>
+              {staleFiltered !== null && (
+                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400" data-testid="text-stale-filtered">
+                  {staleFiltered} stale listing{staleFiltered !== 1 ? 's' : ''} filtered via on-chain verification
+                </span>
+              )}
             </p>
           )}
         </div>

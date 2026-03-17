@@ -14940,13 +14940,15 @@ In 4-5 sentences explain this upset specifically: (1) HOW did the underdog ${_un
   function serveCombatPets(res, forceRefresh) {
     if (!forceRefresh && combatPetsCache.data) {
       const pets = combatPetsCache.data;
-      return res.json({ ok: true, pets, count: pets.length, lastUpdated: combatPetsCache.timestamp });
+      const staleFiltered = pets._verifiedCount ?? null;
+      return res.json({ ok: true, pets, count: pets.length, staleFiltered, lastUpdated: combatPetsCache.timestamp });
     }
     if (!forceRefresh && _combatPetsFetchInProgress) {
-      return res.json({ ok: true, loading: true, pets: [], count: 0 });
+      return res.json({ ok: true, loading: true, pets: [], count: 0, staleFiltered: null });
     }
     fetchCombatPetsForSale(forceRefresh).then(pets => {
-      res.json({ ok: true, pets, count: pets.length, lastUpdated: combatPetsCache.timestamp });
+      const staleFiltered = pets._verifiedCount ?? null;
+      res.json({ ok: true, pets, count: pets.length, staleFiltered, lastUpdated: combatPetsCache.timestamp });
     }).catch(error => {
       console.error('[Combat Pets] Fetch error:', error.message);
       res.status(500).json({ ok: false, error: error?.message ?? String(error) });
@@ -19716,6 +19718,151 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
   });
 
   // ============================================================================
+  // DFK ENEMY PREDICTION API
+  // ============================================================================
+
+  app.post('/api/dfk/predict-enemy-action', isAdminOrHasTab('pve-hunts'), async (req, res) => {
+    try {
+      const { encounterType, enemyName, enemyType, executionMode, liveState } = req.body;
+      if (!liveState) return res.status(400).json({ ok: false, error: 'liveState required' });
+
+      const { extractStateFeatures } = await import('./server/pve-feature-extractor.ts');
+      const { getHeuristicPriors } = await import('./server/pve-heuristic-priors.ts');
+      const { readFileSync } = await import('fs');
+
+      // Normalize incoming enemy type to the policy file's ID format
+      const ENEMY_ID_MAP = {
+        'mad_boar': 'baby_boar',
+        'baby_boar': 'baby_boar',
+        'mama_boar': 'mama_boar',
+        'motherclucker': 'bad_motherclucker',
+        'bad_motherclucker': 'bad_motherclucker',
+        'baby_rocboc': 'baby_rocboc',
+        'forest_wolf': 'baby_boar',
+      };
+      const rawType = (enemyType || '').toLowerCase().replace(/\s+/g, '_');
+      let normalizedType = ENEMY_ID_MAP[rawType] || rawType;
+      // Fallback: use encounterType to guess the primary enemy
+      if (!ENEMY_ID_MAP[rawType]) {
+        if ((encounterType || '').includes('boar')) normalizedType = 'baby_boar';
+        else if ((encounterType || '').includes('motherclucker')) normalizedType = 'bad_motherclucker';
+      }
+
+      // Load available actions from bundled policy file
+      let availableActions = ['Basic Attack'];
+      try {
+        const policiesRaw = readFileSync('./server/data/enemy_policies.master.json', 'utf8');
+        const policiesData = JSON.parse(policiesRaw);
+        const policyEntry = (policiesData.policies || []).find(p => p.enemyId === normalizedType);
+        if (policyEntry?.actions?.length) {
+          availableActions = policyEntry.actions.map(a => a.actionId);
+        }
+      } catch (_) {}
+
+      // Build the enemy unit from liveState
+      const enemyUnit = {
+        name: enemyName || enemyType || 'Unknown',
+        type: normalizedType,
+        side: 'enemy',
+        currentHp: liveState.enemyHp ?? null,
+        maxHp: liveState.enemyMaxHp ?? null,
+        currentMp: liveState.enemyMp ?? null,
+        maxMp: liveState.enemyMaxMp ?? null,
+        position: 0,
+        isAlive: (liveState.enemyHp ?? 1) > 0,
+        buffs: liveState.activeBuffs || [],
+        debuffs: liveState.activeDebuffs || [],
+        isChanneling: false,
+      };
+
+      // Build hero units (the "enemies" from the enemy's POV)
+      const heroUnits = (liveState.heroes || []).map((h, i) => ({
+        name: h.name || `Hero-${i}`,
+        type: 'hero',
+        side: 'player',
+        currentHp: h.currentHp ?? null,
+        maxHp: h.maxHp ?? null,
+        currentMp: h.currentMp ?? null,
+        maxMp: h.maxMp ?? null,
+        position: i,
+        isAlive: h.isAlive !== false,
+        buffs: h.buffs || [],
+        debuffs: h.debuffs || [],
+        isChanneling: false,
+      }));
+
+      const snapshot = {
+        encounterType: encounterType || 'unknown',
+        turn: liveState.turnNumber || 1,
+        battleBudgetRemaining: liveState.battleBudgetRemaining ?? null,
+        consumableQuantities: {},
+        units: [enemyUnit, ...heroUnits],
+        lockoutStates: {},
+      };
+
+      const features = extractStateFeatures(snapshot, enemyUnit.name, availableActions);
+      const heuristicPriors = getHeuristicPriors(normalizedType, features, availableActions);
+
+      // Build reasoning strings from computed features
+      const reasoning = [];
+      if (features.enemyHpPercent !== null) {
+        const hpLabel = features.enemyHpPercent <= 25 ? 'critical' : features.enemyHpPercent <= 50 ? 'low' : features.enemyHpPercent <= 75 ? 'mid' : 'high';
+        reasoning.push(`Enemy HP ${features.enemyHpPercent}% (${hpLabel})`);
+      }
+      if (features.enemiesAliveCount !== null) {
+        reasoning.push(`${features.enemiesAliveCount} hero(es) alive`);
+      }
+      if ((features.alliesAliveCount ?? 0) > 1) {
+        reasoning.push(`${(features.alliesAliveCount ?? 1) - 1} enemy companion(s) alive`);
+      }
+      if (features.currentDebuffFlags.length > 0) {
+        reasoning.push(`Enemy debuffs: ${features.currentDebuffFlags.join(', ')}`);
+      }
+      if (features.activePassiveFlags.length > 0) {
+        reasoning.push(`Passive triggers: ${features.activePassiveFlags.join(', ')}`);
+      }
+      const topEntry = Object.entries(heuristicPriors).sort((a, b) => b[1] - a[1])[0];
+      if (topEntry) {
+        reasoning.push(`Most likely next: ${topEntry[0]} (${Math.round(topEntry[1] * 100)}%)`);
+      }
+
+      const availability = availableActions.map(name => ({
+        name,
+        available: true,
+        reason: 'no cooldown tracked',
+      }));
+
+      const HEURISTIC_CONFIDENCE = 0.40;
+      const isAutoMode = executionMode === 'auto_execute';
+
+      return res.json({
+        ok: true,
+        enemy: enemyUnit.name,
+        legalActions: availableActions,
+        availability,
+        heuristicPriors,
+        learnedPolicy: null,
+        finalPolicy: heuristicPriors,
+        confidence: HEURISTIC_CONFIDENCE,
+        sampleCount: 0,
+        consumableOptions: [],
+        reasoning,
+        executionMode: executionMode || 'observe_only',
+        simulation: null,
+        safetyCheck: {
+          canAutoExecute: false,
+          blockReasons: isAutoMode ? ['heuristic-only mode — learned policy required for auto-execute'] : [],
+          checksPassed: ['heuristic_priors_computed', 'feature_extraction_ok'],
+        },
+        budget: liveState.battleBudgetRemaining ?? null,
+      });
+    } catch (err) {
+      console.error('[PVE Predict] Error:', err.message);
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // ============================================================================
   // DFK TELEMETRY API (session-token gated, no Discord OAuth)
   // ============================================================================
 
@@ -22015,7 +22162,13 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           const session = companionSessions.get(sessionToken);
           if (session) {
             session.heroStates = msg.heroes || null;
-            session.enemyId = msg.enemyId || null;
+            // Prefer explicit enemyId, then auto-detect from enemies array name
+            if (msg.enemyId) {
+              session.enemyId = msg.enemyId;
+            } else if (!session.enemyId && msg.enemies?.length > 0) {
+              const firstName = (msg.enemies[0].name || '').trim().toLowerCase().replace(/\s+/g, '_');
+              if (firstName) session.enemyId = firstName;
+            }
             if (msg.huntId) {
               await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, wallet_address = ${msg.walletAddress || null}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
               maybePushHeroProfiles(msg.huntId, msg.walletAddress);
