@@ -1,0 +1,360 @@
+{\rtf1\ansi\ansicpg1252\deff0
+{\fonttbl
+{\f0\froman\fcharset0 Times New Roman;}
+{\f1\fmodern\fcharset0 Courier New;}
+{\f2\fswiss\fcharset0 Calibri;}
+}
+{\colortbl ;
+\red31\green78\blue121;
+\red46\green117\blue182;
+\red100\green100\blue100;
+\red220\green230\blue242;
+}
+\widowctrl\hyphauto
+\deftab720
+\f2\fs22
+\pard\qc\sb400\sa80\b\fs52\cf1 PVE Hunt Companion\b0\fs22\cf0\par
+\pard\qc\sb60\sa80\fs28\cf3 Design Report — Hedge Ledger / DeFi Kingdoms\cf0\fs22\par
+\pard\qc\sb40\sa600\fs22\cf3 March 2026\cf0\par
+\pard\sb400\sa120\keepn\b\fs36\cf1 1. Design Intent\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 The PVE Hunt Companion is a real-time tactical advisor designed to sit alongside a DeFi Kingdoms player during a PVE hunt battle. Its core purpose is to watch every turn unfold \u8212? parsing the live game UI \u8212? and surface the single best action the active hero should take, along with ranked alternatives, so that players make smarter combat decisions without needing deep knowledge of the underlying game math.\par
+\pard\li0\sb60\sa120 \fs22 The system was designed around three guiding principles:\par
+\pard\li360\fi-180\sb60\sa80 \fs22 \bullet  {\b Zero game modification: }The game client must not be altered. All data is extracted by observing the DOM, intercepting network calls, and reading rendered HTML \u8212? the game runs completely unchanged.\par
+\pard\li360\fi-180\sb60\sa80 \fs22 \bullet  {\b Resilient delivery: }The Chrome Extension communicates with the Hedge Ledger backend over WebSocket when available, but gracefully degrades to an HTTP queue when the socket is down \u8212? ensuring no turn event is lost.\par
+\pard\li360\fi-180\sb60\sa80 \fs22 \bullet  {\b Transparent reasoning: }Every recommendation is scored on a multi-dimensional weighted model (damage EV, kill chance, survival contribution, debuff utility, mana efficiency, initiative cost), and the reasons behind the top choice are shown to the player in plain language.\par
+\pard\sb400\sa120\keepn\b\fs36\cf1 2. System Architecture\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 The companion is a three-layer system: a Chrome Extension running inside the browser on the game page, a Node.js backend (Hedge Ledger) that stores events and runs the scoring engine, and a React admin dashboard that the operator watches in a separate window.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 2.1 Chrome Extension\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 The extension runs three distinct scripts simultaneously inside the browser:\par
+\pard\li360\fi-180\sb60\sa80 \fs22 \bullet  {\b Content script (content.js): }Injected into game.defikingdoms.com. Detects the hunt/session ID from the URL, DOM attributes, page title, or SPA history hooks. Listens for battle log events, deduplicates them within a 500 ms window, and forwards them to the background worker. Also renders a fixed in-game overlay showing the current recommendation.\par
+\pard\li360\fi-180\sb60\sa80 \fs22 \bullet  {\b Background service worker (background.js): }The central router. Maintains the WebSocket connection to /ws/companion with exponential-backoff reconnect (1s\u8594?30s). When the socket is available, events go out immediately. When it is down, events are pushed into an httpQueue that is persisted in chrome.storage.local and drained once connectivity returns. Also fetches hero profiles from the DFK GraphQL API or via the backend proxy.\par
+\pard\li360\fi-180\sb60\sa80 \fs22 \bullet  {\b Popup (popup.html / popup.js): }Lets the operator paste their session token, see connection status, and check turn counter, queue depth, and current hunt ID.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 2.2 Extension Sub-modules\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 Parsers (read the game UI):\par
+\pard\li360\fi-180 \bullet  \sb60\sa120 \fs22 parsers/battleLog.js \u8212? walks battle log DOM, emits events per visible action row.\par
+\pard\li360\fi-180 \bullet  \sb60\sa120 \fs22 parsers/statPanel.js \u8212? reads stat panels for HP, MP, and status effects.\par
+\pard\li360\fi-180 \bullet  \sb60\sa120 \fs22 parsers/turnState.js \u8212? captures active hero slot, legal actions, and HP/MP snapshot per combatant.\par
+\pard\li0\sb60\sa120 \fs22 Interceptors (read the network when possible):\par
+\pard\li360\fi-180 \bullet  \sb60\sa120 \fs22 interceptors/networkCapture.js \u8212? patches XHR and fetch to intercept DFK API calls and re-emit as DOM events.\par
+\pard\li360\fi-180 \bullet  \sb60\sa120 \fs22 interceptors/networkNormalizer.js \u8212? converts raw DFK network payloads to the canonical event shape.\par
+\pard\li0\sb60\sa120 \fs22 Local engine (in-browser scoring for offline / instant recommendations):\par
+\pard\li360\fi-180 \bullet  \sb60\sa120 \fs22 engine/dataLoader.js, state.js, actions.js, heuristics.js, beam.js, normalizer.js, resolver.js \u8212? load game data, maintain live state, enumerate actions, run a heuristic pass and beam search, then resolve the final ranked recommendation.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 2.3 Backend (bot.js \u8212? Node.js / Express)\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 HTTP Endpoints: /api/dfk/telemetry/session (create session), /api/dfk/telemetry/event (HTTP-fallback turn events + scoring), /api/dfk/telemetry/snapshot (state snapshots + hero seeding), /api/dfk/reconcile (stat calibration), /api/admin/pve/companion/session (create token), /api/admin/pve/companion/session/:token (status + turn history), /api/admin/pve/companion/explain (AI explanation), /api/admin/pve/firebase-hunt-log (Firestore proxy), /api/dfk/hunt-heroes (server-side GraphQL hero lookup).\par
+\pard\li0\sb60\sa120 \fs22 WebSocket Server (/ws/companion): Real-time bidirectional channel. Handles join (session validation, in-memory Map entry creation), state_snapshot (hero/enemy HP seeding), turn_event (persist + score + broadcast recommendation), request_hero_profiles, and battle_budget messages.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 2.4 Admin Dashboard (React)\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 hunt-companion.tsx opens a persistent WebSocket to /ws/companion and polls the session status endpoint every 3 seconds as a fallback. It shows the Hero Status strip (HP/MP bars), the Enemy bar, ranked Recommendations, a Turn Feed (last 10 events), and a collapsible Firebase Battle Log panel with HP bars and round/turn labels that auto-refreshes every 3 seconds while the battle is live.\par
+\pard\sb400\sa120\keepn\b\fs36\cf1 3. How Data Is Fetched and Flows\b0\fs22\cf0\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 3.1 Turn Event Path\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 WebSocket path (preferred):\par
+\pard\li360\sb60\sa120\i\fs20\cf3 Game DOM / Network \u8594? content.js emits event \u8594? flushTurnEvent() \u8594? chrome.runtime.sendMessage(\{ type: "turn_event" \}) \u8594? background.js \u8594? sendOrQueue() \u8594? ws.send(JSON) \u8594? /ws/companion \u8594? scoring engine \u8594? ws.send(\{ type: "recommendation" \}) \u8594? dashboard.\i0\cf0\par
+\pard\li0\sb60\sa120 \fs22 HTTP fallback path (when socket unavailable):\par
+\pard\li360\sb60\sa120\i\fs20\cf3 background.js \u8594? httpQueue.push() \u8594? chrome.storage.local (persisted) \u8594? flushHttpQueue() \u8594? POST /api/dfk/telemetry/event \u8594? scoring engine \u8594? ws.send recommendation to dashboard WS clients.\i0\cf0\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 3.2 Hero Profile / State Snapshot Path\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 On hunt detection, background.js calls the DFK GraphQL endpoint directly. If that fails, it falls back to GET /api/dfk/hunt-heroes on the backend. Profiles are cached in chrome.storage.local and broadcast to the content script. The WS path also supports request_hero_profiles which prompts a server-side GraphQL fetch and pushes profiles back. HP/MP state snapshots from turnState.js are sent each turn as state_snapshot messages, seeding the scoring engine's BattleState.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 3.3 Firebase Battle Log Path\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 The dashboard requests GET /api/admin/pve/firebase-hunt-log?huntRef=\{chainId\}-\{huntId\}. The server exchanges DFK_FIREBASE_REFRESH_TOKEN for a Google access token, calls DFK's Firestore REST API (combat-engine database), fetches battle-logs with pagination, and returns normalised combatant snapshots (heroes keyed "1", enemies keyed "-1") and turn summaries.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 3.4 Scoring Engine Execution\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 buildBattleStateFromTurnEvents() reconstructs the current BattleState from hero snapshots + turn history. scoreActions() then enumerates every legal action for the active hero (basic attack, affordable skills, consumables) and scores each on five weighted dimensions: damage EV (30%), kill chance (25%), survival delta (20%), debuff utility (10%), mana efficiency (8%), initiative (7%). The top five actions are returned as a Recommendation array and pushed to connected dashboard clients.\par
+\pard\sb400\sa120\keepn\b\fs36\cf1 4. Where We Are Having Trouble\b0\fs22\cf0\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 4.1 Hero HP Seeding (\u8220?/ 135\u8221? Problem)\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 The most persistent issue. When the extension's turnState.js parser runs before the HP bar has rendered, the state_snapshot contains hp:0 with maxHp:135 \u8212? making the scoring engine think all heroes are dead and producing meaningless recommendations. Mitigation: the seeding guard re-seeds whenever heroes is empty or every hero shows 0 currentHp with a positive maxHp. Root cause (game DOM timing) is not yet resolved.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 4.2 Session Token Matching\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 The operator must manually paste the session token from the dashboard into the extension popup. If they use a stale token, the WS join is rejected with "Invalid session token" and no in-memory session is created \u8212? meaning even HTTP-fallback events cannot run scoring. There is no auto-discovery or QR handshake mechanism yet.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 4.3 HTTP-Fallback Scoring Requires Prior WS Join\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 The companionSessions Map is populated only when a WS join message is received. If the extension never connects via WS (firewall, corporate proxy), then HTTP-fallback events arrive and companionSessions.get(token) returns null \u8212? the scoring engine silently skips. A fix would be to create the session Map entry on the first HTTP event, or have the dashboard send a lightweight HTTP register call. Not yet implemented.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 4.4 Hunt ID Detection Reliability\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 DFK is a React SPA. The hunt ID does not always appear in the URL \u8212? it can exist in app state only. The extension has four fallback strategies (URL pattern, DOM attributes/headings, page title, synthetic key from actor initials + timestamp), but none are perfect. When the synthetic key is generated, hero profile lookup fails because no real hunt ID is available, so scoring starts with no hero data.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 4.5 Enemy Catalog Coverage\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 pve-enemy-catalog.ts contains hand-coded entries for known PVE enemies. When the detected enemyId does not match any catalog entry, the engine cannot score at all. An ENEMY_ID_MAP normalises some aliases (e.g. "mad_boar" \u8594? "baby_boar"), but new enemy types added by game updates silently break scoring until the catalog is manually extended.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 4.6 Firebase Side-Key Consistency\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 Firestore battle documents use "1" for heroes and "-1" for enemies. Early development used "0" and "1", causing the companion panel to display units on the wrong side and label turns incorrectly. This was corrected in the latest revision. Any future consumer of the Firebase response must use the "1" / "-1" convention from hunt-battle-log.tsx as the canonical reference.\par
+\pard\sb400\sa120\keepn\b\fs36\cf1 5. Files Impacted and Their Role\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 The following tables cover every file that directly supports the PVE Hunt Companion tool.\par
+\pard\sb300\sa80\keepn\b\fs28\cf2 5.1 Chrome Extension Files\b0\fs22\cf0\par
+\trowd\trqc\trhdr\trgaph108
+\clcbpat4\cellx2700
+\clcbpat4\cellx9000
+\pard\intbl{\b\fs20 File}\cell
+\pard\intbl{\b\fs20 Role}\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/manifest.json}\cell
+\pard\intbl \fs18 Manifest V3 config. Declares content_scripts (content.js \u8594? *.defikingdoms.com), service_worker (background.js), popup, and host permissions.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/background.js}\cell
+\pard\intbl \fs18 Service worker and central router. Owns WS connection, HTTP fallback queue, exponential reconnect, session token storage, hero profile caching, and all message routing between content scripts and server.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/content.js}\cell
+\pard\intbl \fs18 Content script. Detects hunt/session ID (URL \u8594? DOM \u8594? SPA hooks \u8594? synthetic). Creates in-game overlay. Deduplicates events. Calls flushTurnEvent(). Passes snapshots to background worker.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/popup.html + popup.js}\cell
+\pard\intbl \fs18 Extension popup UI. Shows connection status, turn counter, session token input, queue depth, and current hunt ID.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/parsers/battleLog.js}\cell
+\pard\intbl \fs18 DOM parser. Scans battle log panel for new action rows; emits battle_log_event via window.__dfkEmitEvent.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/parsers/statPanel.js}\cell
+\pard\intbl \fs18 DOM parser. Reads combat stat panels to extract per-unit HP, MP, and status effects.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/parsers/turnState.js}\cell
+\pard\intbl \fs18 DOM parser. Reads active hero slot, legal actions, and HP/MP snapshot per combatant. Exposes window.__dfkGetTurnState().\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/interceptors/networkCapture.js}\cell
+\pard\intbl \fs18 Patches XHR and fetch globally to intercept DFK API responses and emit dfk-network-event DOM events.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/interceptors/networkNormalizer.js}\cell
+\pard\intbl \fs18 Converts raw DFK network payloads to the canonical event format used by the rest of the system.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/engine/dataLoader.js}\cell
+\pard\intbl \fs18 Loads ability and enemy catalog data into memory on startup for in-browser scoring.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/engine/state.js}\cell
+\pard\intbl \fs18 Maintains current live combat state in the browser context.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/engine/actions.js}\cell
+\pard\intbl \fs18 Enumerates all legal actions from the current state for the local scoring pass.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/engine/heuristics.js}\cell
+\pard\intbl \fs18 Fast heuristic scoring \u8212? first-pass filter before beam search.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/engine/beam.js}\cell
+\pard\intbl \fs18 Beam search for deeper multi-step action evaluation.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/engine/normalizer.js}\cell
+\pard\intbl \fs18 Normalises ability and stat data into a consistent shape for the local engine.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 extension/engine/resolver.js}\cell
+\pard\intbl \fs18 Resolves the final ranked recommendation from heuristic and beam results.\cell
+\row
+\pard\sb300\sa80\keepn\b\fs28\cf2 5.2 Backend Routes (bot.js)\b0\fs22\cf0\par
+\trowd\trqc\trhdr\trgaph108
+\clcbpat4\cellx2700
+\clcbpat4\cellx9000
+\pard\intbl{\b\fs20 Route / Section}\cell
+\pard\intbl{\b\fs20 Role}\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 /ws/companion (WebSocket)}\cell
+\pard\intbl \fs18 Real-time bidirectional channel. Handles join, state_snapshot (hero seeding), turn_event (persist + score + broadcast), request_hero_profiles (GraphQL fetch + push back), battle_budget.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 POST /api/dfk/telemetry/session}\cell
+\pard\intbl \fs18 Creates or links a PostgreSQL hunt session record for a session token.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 POST /api/dfk/telemetry/event}\cell
+\pard\intbl \fs18 HTTP-fallback turn event receiver. Persists to dfk_battle_log_events and pve_turn_events. Runs scoring engine and broadcasts recommendation if session heroStates and enemyId are present.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 POST /api/dfk/telemetry/snapshot}\cell
+\pard\intbl \fs18 Receives state snapshots. Persists to dfk_turn_snapshots or dfk_unit_snapshots. Seeds in-memory heroStates from fullState.heroes for HTTP-fallback scoring.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 POST /api/dfk/reconcile}\cell
+\pard\intbl \fs18 Stat reconciliation. Compares observed stats to expected base values to infer equipment effects and calibrate damage estimates.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 GET /api/admin/pve/companion/session}\cell
+\pard\intbl \fs18 Creates a new companion session token (UUID) and row in pve_companion_sessions.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 GET /api/admin/pve/companion/session/:token}\cell
+\pard\intbl \fs18 Returns session status + all pve_turn_events (camelCase mapped), heroStates, enemyId, latestHuntId, and turn count.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 POST /api/admin/pve/companion/explain}\cell
+\pard\intbl \fs18 Runs the scoring engine on a specific action, then asks GPT-4o-mini for a plain-language explanation.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 GET /api/admin/pve/firebase-hunt-log}\cell
+\pard\intbl \fs18 Server-side Firestore proxy. Exchanges DFK_FIREBASE_REFRESH_TOKEN for a Google access token, fetches battle-logs, and returns normalised combatant + turn data.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 GET /api/dfk/hunt-heroes}\cell
+\pard\intbl \fs18 Server-side DFK GraphQL hero profile lookup used as extension fallback.\cell
+\row
+\pard\sb300\sa80\keepn\b\fs28\cf2 5.3 Server Modules\b0\fs22\cf0\par
+\trowd\trqc\trhdr\trgaph108
+\clcbpat4\cellx2700
+\clcbpat4\cellx9000
+\pard\intbl{\b\fs20 File}\cell
+\pard\intbl{\b\fs20 Role}\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-scoring-engine.ts}\cell
+\pard\intbl \fs18 Core scoring engine. buildBattleStateFromTurnEvents() reconstructs BattleState. scoreActions() evaluates all legal actions on five weighted dimensions and returns a Recommendation array.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-enemy-catalog.ts}\cell
+\pard\intbl \fs18 Hand-coded enemy catalog. Each entry specifies HP, DEF, MDEF, resistances, and damage-per-turn. Required for scoring to function.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-master-data.ts}\cell
+\pard\intbl \fs18 Canonical database of all hero abilities and consumables. Provides damage formulas, mana costs, effect types, initiative penalties, and survival lifts. Preloaded at server start.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/dfk-graphql-client.ts}\cell
+\pard\intbl \fs18 DFK GraphQL API client. fetchHeroesForHunt(), fetchHeroesByIds() \u8212? used to auto-push hero profiles to connecting WS clients.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/dfk-reconcile.ts}\cell
+\pard\intbl \fs18 Stat reconciliation. Given observed stats and a hero/enemy type, computes the delta to infer equipment bonuses.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-live-state.ts}\cell
+\pard\intbl \fs18 Tracks rolling live combat state (HP, buffs, debuffs, active hero) as events stream in.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-feature-extractor.ts}\cell
+\pard\intbl \fs18 Extracts structured feature vectors from BattleState for policy learning and Monte Carlo modules.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-monte-carlo.ts}\cell
+\pard\intbl \fs18 Monte Carlo simulation for multi-turn action sequence lookahead.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-policy-blender.ts}\cell
+\pard\intbl \fs18 Blends scoring engine, heuristic priors, and Monte Carlo results into a final ranked output.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-policy-learner.ts}\cell
+\pard\intbl \fs18 Updates policy weights based on observed battle outcomes.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-heuristic-priors.ts}\cell
+\pard\intbl \fs18 Domain-expert heuristics (e.g. heal if any hero below 20% HP) applied as prior probability adjustments.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-availability-engine.ts}\cell
+\pard\intbl \fs18 Determines which abilities and consumables are currently usable given mana, cooldowns, and status.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-catalog-seed.ts}\cell
+\pard\intbl \fs18 Seeds enemy and ability catalogs from static JSON on server boot.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 server/pve-execution-controller.ts}\cell
+\pard\intbl \fs18 Orchestrates the full scoring pipeline: availability \u8594? features \u8594? scoring \u8594? policy blend \u8594? output.\cell
+\row
+\pard\sb300\sa80\keepn\b\fs28\cf2 5.4 Admin Dashboard Pages\b0\fs22\cf0\par
+\trowd\trqc\trhdr\trgaph108
+\clcbpat4\cellx2700
+\clcbpat4\cellx9000
+\pard\intbl{\b\fs20 File}\cell
+\pard\intbl{\b\fs20 Role}\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 client/src/pages/admin/hunt-companion.tsx}\cell
+\pard\intbl \fs18 Main PVE Companion dashboard. Manages WS connection, session token display, hero/enemy HP bars, recommendation feed, turn feed, Firebase battle log panel with HP bars + auto-refresh, and the AI explanation modal.\cell
+\row
+\trowd\trqc
+\cellx2700
+\cellx9000
+\pard\intbl {\f1\fs18 client/src/pages/admin/hunt-battle-log.tsx}\cell
+\pard\intbl \fs18 Standalone battle log viewer. Accepts a huntRef (e.g. 53935-762160), fetches from Firebase via server proxy, displays HP/MP bars (heroes from side "1", enemies from "-1"), and a scrollable turn-by-turn log. Auto-refreshes every 3s while live.\cell
+\row
+\pard\sb400\sa120\keepn\b\fs36\cf1 6. Summary\b0\fs22\cf0\par
+\pard\li0\sb60\sa120 \fs22 The PVE Hunt Companion is a working, end-to-end real-time combat advisor. The Chrome Extension observes the DFK game UI through a layered parser and network interceptor stack, deduplicates events, and routes them to the Hedge Ledger backend over WebSocket \u8212? falling back to a persisted HTTP queue when the socket is unavailable. The backend stores every event, rebuilds the current BattleState, scores all legal actions using a weighted model, and pushes recommendations to the admin dashboard in real time.\par
+\pard\li0\sb60\sa120 \fs22 The Firebase Battle Log panel provides an official view of the same battle sourced directly from DFK's Firestore database, serving as a ground-truth reference alongside the extension-parsed data. The two views together let an operator verify that the extension is capturing events correctly and that recommendations are landing on the right hero and enemy states.\par
+\pard\li0\sb60\sa120 \fs22 The main open challenges are: reliable hero HP seeding before the first parser reading is stable; ensuring the in-memory companion session exists for the HTTP-only path when WS never connected; hunt ID detection robustness in the React SPA; and ongoing maintenance of the enemy catalog as new enemy types are added to the game.\par
+\pard\li0\sb60\sa120 \fs22 The architecture is deliberately modular \u8212? the scoring engine, enemy catalog, master data, and feature extractor are all standalone server modules that can be iterated independently. The policy blender and Monte Carlo simulation modules are scaffolded for deeper lookahead capabilities when the real-time performance baseline is proven sufficient.\par
+
+}
