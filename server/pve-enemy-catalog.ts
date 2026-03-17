@@ -184,6 +184,44 @@ export function getEnemy(enemyId: string): EnemyEntry | null {
   return ENEMY_CATALOG[normalized] || null;
 }
 
+export function getEnemyOrFallback(enemyId: string, fallback?: Partial<EnemyEntry>): EnemyEntry {
+  const existing = getEnemy(enemyId);
+  if (existing) return existing;
+
+  return {
+    id: enemyId.toUpperCase().replace(/\s+/g, '_'),
+    name: fallback?.name || enemyId,
+    tier: fallback?.tier ?? 1,
+    hp: fallback?.hp ?? 500,
+    mp: fallback?.mp ?? 50,
+    atk: fallback?.atk ?? 50,
+    def: fallback?.def ?? 25,
+    matk: fallback?.matk ?? 20,
+    mdef: fallback?.mdef ?? 20,
+    spd: fallback?.spd ?? 35,
+    eva: fallback?.eva ?? 0.05,
+    crit: fallback?.crit ?? 0.05,
+    resistances: fallback?.resistances ?? {
+      stun: 0.1,
+      poison: 0.1,
+      exhaust: 0.1,
+      daze: 0.1,
+    },
+    abilities: fallback?.abilities ?? [
+      {
+        name: 'Basic Attack',
+        type: 'physical_damage',
+        baseDamage: 40,
+        manaCost: 0,
+        cooldown: 0,
+        targetType: 'single_enemy',
+        weight: 1,
+      },
+    ],
+    description: fallback?.description || 'Fallback enemy profile inferred from runtime telemetry.',
+  };
+}
+
 export function getEnemyDamagePerTurn(enemy: EnemyEntry): number {
   let expectedDmg = 0;
   for (const ability of enemy.abilities) {

@@ -65,6 +65,43 @@ console.log('[DFK StatPanel] Script file loaded');
     return null;
   }
 
+  function uniqueStrings(values) {
+    return [...new Set((values || []).map(v => (v || '').trim()).filter(Boolean))];
+  }
+
+  function parseStatusText(text, category) {
+    const raw = (text || '').trim();
+    const stackMatch = raw.match(/(?:x|stack(?:s)?\s*:?\s*)(\d+)/i);
+    const turnsMatch = raw.match(/(\d+)\s*(?:turn|tick)/i);
+    const cleanName = raw
+      .replace(/(?:x|stack(?:s)?\s*:?\s*)\d+/gi, '')
+      .replace(/\d+\s*(?:turn|tick)s?/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return {
+      id: (cleanName || raw || category).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''),
+      name: cleanName || raw || category,
+      category: category || 'unknown',
+      stacks: stackMatch ? parseInt(stackMatch[1], 10) : null,
+      durationTurns: turnsMatch ? parseInt(turnsMatch[1], 10) : null,
+      sourceText: raw || null,
+    };
+  }
+
+  function collectLabeledValues(panelEl, labels) {
+    const matches = [];
+    const allEls = panelEl.querySelectorAll('*');
+    allEls.forEach((el) => {
+      const text = (el.textContent || '').trim();
+      if (!text) return;
+      const lower = text.toLowerCase();
+      if (labels.some(label => lower.includes(label))) {
+        matches.push(text);
+      }
+    });
+    return uniqueStrings(matches);
+  }
+
   function parsePanel(panelEl, selector) {
     const debugMode = window.__dfkDebugMode || false;
     const rawText = panelEl.textContent || '';
@@ -79,6 +116,7 @@ console.log('[DFK StatPanel] Script file loaded');
       traits: [],
       abilities: [],
       items: [],
+      heroDetail: null,
       parseConfidence: 0,
     };
 
@@ -200,6 +238,52 @@ console.log('[DFK StatPanel] Script file loaded');
       const name = el.getAttribute('data-name') || el.getAttribute('title') || el.textContent.trim();
       if (name && name.length < 60) snapshot.items.push(name);
     });
+
+    const titleText = rawText.toLowerCase();
+    const likelyHeroDetail = titleText.includes('current conditions') ||
+      titleText.includes('base stats') ||
+      titleText.includes('status effect resistance') ||
+      titleText.includes('dynamic stat scores');
+
+    if (likelyHeroDetail) {
+      const traitTexts = collectLabeledValues(panelEl, ['trait', 'traits']);
+      const passiveTexts = uniqueStrings(snapshot.abilities.filter(name => /passive/i.test(name)).concat(collectLabeledValues(panelEl, ['passive'])));
+      const abilityTexts = uniqueStrings(snapshot.abilities.concat(collectLabeledValues(panelEl, ['abilities'])));
+      const statusResistances = {};
+      [
+        'banish', 'berserk', 'bleed', 'blind', 'poison', 'pull', 'push', 'silence', 'sleep', 'slow', 'stun', 'taunt',
+        'fear', 'intimidate', 'mana burn', 'negate', 'burn', 'confuse', 'daze', 'disarm', 'ethereal', 'exhaust', 'chill'
+      ].forEach((label) => {
+        const regex = new RegExp(`${label}\\s+(\\d+(?:\\.\\d+)?)%`, 'i');
+        const match = rawText.match(regex);
+        if (match) statusResistances[label.replace(/\s+/g, '_')] = parseFloat(match[1]);
+      });
+
+      snapshot.heroDetail = {
+        name: snapshot.unitName || null,
+        level: snapshot.level || null,
+        vitals: {
+          hp: snapshot.stats.hp ?? null,
+          maxHp: snapshot.stats.maxHp ?? null,
+          mp: snapshot.stats.mp ?? null,
+          maxMp: snapshot.stats.maxMp ?? null,
+        },
+        stats: { ...snapshot.baseStats, ...snapshot.stats },
+        dynamicScores: {},
+        modifiers: {},
+        resistances: statusResistances,
+        traits: traitTexts,
+        passives: passiveTexts,
+        abilities: abilityTexts,
+        items: uniqueStrings(snapshot.items),
+      };
+    }
+
+    snapshot.buffs = uniqueStrings(snapshot.buffs);
+    snapshot.debuffs = uniqueStrings(snapshot.debuffs);
+    snapshot.traits = uniqueStrings(snapshot.traits);
+    snapshot.abilities = uniqueStrings(snapshot.abilities);
+    snapshot.items = uniqueStrings(snapshot.items);
 
     const filledStats = Object.keys(snapshot.stats).length + Object.keys(snapshot.baseStats).length;
     snapshot.parseConfidence = Math.min(1.0, filledStats / 12);

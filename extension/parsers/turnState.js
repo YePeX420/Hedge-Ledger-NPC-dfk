@@ -69,9 +69,13 @@
     activeUnit: null,
     activeHeroSlot: null,
     legalActions: [],
+    legalConsumables: [],
     selectedTarget: null,
+    selectedTargetSide: null,
     heroes: [],
     enemies: [],
+    battleBudgetRemaining: null,
+    turnOrder: [],
     lastUpdated: null,
   };
 
@@ -217,7 +221,16 @@
       btn.textContent.trim();
     const skillId = btn.getAttribute('data-skill-id') || btn.getAttribute('data-action-id') || null;
     if (!name || name.length < 2 || name.length > 50) return null;
-    return { name: name.slice(0, 40), skillId, _el: btn };
+    const lower = name.toLowerCase();
+    return {
+      name: name.slice(0, 40),
+      skillId,
+      type: lower.includes('attack') ? 'basic_attack' : 'skill',
+      available: true,
+      requiresTarget: !lower.includes('self'),
+      sourceConfidence: 0.8,
+      _el: btn,
+    };
   }
 
   function findActionPanelByStructure() {
@@ -337,6 +350,59 @@
     return null;
   }
 
+  function readBattleBudget() {
+    const allText = document.querySelectorAll('span,div,p');
+    for (const el of allText) {
+      const text = (el.textContent || '').trim();
+      const match = text.match(/battle budget:\s*(\d+)/i);
+      if (match) return parseInt(match[1], 10);
+    }
+    return null;
+  }
+
+  function readConsumables() {
+    const list = [];
+    const seen = new Set();
+    document.querySelectorAll('[title],[data-name],[class*="consum"],[class*="item"]').forEach((el) => {
+      const name = el.getAttribute('data-name') || el.getAttribute('title') || '';
+      if (!name) return;
+      const lower = name.toLowerCase();
+      if (!/(potion|tonic|philter|consum|stone|item)/i.test(lower)) return;
+      if (seen.has(lower)) return;
+      seen.add(lower);
+      list.push({
+        name,
+        skillId: null,
+        type: 'consumable',
+        available: true,
+        sourceConfidence: 0.6,
+      });
+    });
+    return list;
+  }
+
+  function readTurnOrder() {
+    const entries = [];
+    const textNodes = document.querySelectorAll('div,li');
+    textNodes.forEach((el, index) => {
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      const match = text.match(/Combatant:\s*(.+?)\s*Ticks Until Turn:\s*([\d.]+)/i);
+      if (!match) return;
+      const name = match[1].trim();
+      const side = /boar|enemy|monster|clucker/i.test(name) ? 'enemy' : 'player';
+      const slotMatch = name.match(/(\d+)$/);
+      entries.push({
+        unitId: `${side}:${slotMatch ? slotMatch[1] : 'na'}:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
+        name,
+        side,
+        slot: slotMatch ? parseInt(slotMatch[1], 10) : null,
+        ticksUntilTurn: parseFloat(match[2]),
+        ordinal: entries.length || index,
+      });
+    });
+    return entries.slice(0, 12);
+  }
+
   // ── Snapshot builder ──────────────────────────────────────────────────────
 
   function buildTurnSnapshot() {
@@ -345,6 +411,9 @@
     const activeUnit = readActiveUnit();
     const legalActions = readLegalActions();
     const selectedTarget = readSelectedTarget();
+    const battleBudgetRemaining = readBattleBudget();
+    const legalConsumables = readConsumables();
+    const turnOrder = readTurnOrder();
 
     const unitMap = {};
     hpReadings.forEach(u => {
@@ -369,9 +438,13 @@
       activeUnit: activeUnit?.name || null,
       activeHeroSlot: activeUnit?.slot ?? null,
       legalActions,
+      legalConsumables,
       selectedTarget: selectedTarget?.name || null,
+      selectedTargetSide: selectedTarget?.side || null,
       heroes,
       enemies,
+      battleBudgetRemaining,
+      turnOrder,
       lastUpdated: Date.now(),
     };
 

@@ -21,13 +21,17 @@ interface HeroSnapshot {
   currentMp: number;
   maxMp: number;
   isAlive: boolean;
+  statuses?: Array<{ id: string; name: string; category: string; stacks: number | null; durationTurns: number | null }>;
 }
 
 interface EnemySnapshot {
   enemyId: string;
   currentHp: number;
   maxHp: number;
+  currentMp?: number | null;
   debuffs: string[];
+  buffs?: string[];
+  statuses?: Array<{ id: string; name: string; category: string; stacks: number | null; durationTurns: number | null }>;
 }
 
 interface Recommendation {
@@ -60,6 +64,68 @@ interface BattleStateMsg {
   activeHeroSlot: number;
   heroes: HeroSnapshot[];
   enemies: EnemySnapshot[];
+  combatFrame?: CombatFrame | null;
+}
+
+interface StatusInstance {
+  id: string;
+  name: string;
+  category: string;
+  stacks: number | null;
+  durationTurns: number | null;
+}
+
+interface CombatFrame {
+  version: number;
+  turnNumber: number;
+  encounterType: string | null;
+  combatants: Array<{
+    unitId: string;
+    side: 'player' | 'enemy';
+    slot: number | null;
+    name: string;
+    normalizedId: string;
+    currentHp: number | null;
+    maxHp: number | null;
+    currentMp: number | null;
+    maxMp: number | null;
+    isAlive: boolean;
+    buffs: StatusInstance[];
+    debuffs: StatusInstance[];
+    visibleEffects: StatusInstance[];
+    equipment: { primaryArms: string[]; secondaryArms: string[]; items: string[] };
+    stats: Record<string, number | null>;
+    resistances?: Record<string, number | null>;
+    sourceConfidence: number;
+  }>;
+  activeTurn: {
+    activeUnitId: string | null;
+    activeSide: 'player' | 'enemy' | null;
+    activeSlot: number | null;
+    selectedTargetId: string | null;
+    selectedTargetSide: 'player' | 'enemy' | null;
+    legalActions: Array<{ name: string; skillId?: string | null; type: string; available: boolean; sourceConfidence: number }>;
+    legalConsumables: Array<{ name: string; type: string; available: boolean; sourceConfidence: number }>;
+    visibleLockouts: Record<string, number | null>;
+    battleBudgetRemaining: number | null;
+  };
+  turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; ordinal: number }>;
+  battleLogEntries: Array<{ turnNumber: number; actorName: string | null; ability: string | null; outcomes: string[]; rawText?: string | null }>;
+  heroDetail: null | {
+    name: string | null;
+    level: number | null;
+    vitals: Record<string, number | null>;
+    stats: Record<string, number | null>;
+    resistances: Record<string, number | null>;
+    passives: string[];
+    abilities: string[];
+    items: string[];
+  };
+  captureMeta: {
+    source: string;
+    capturedAt: number;
+    confidence: Record<string, number>;
+  };
 }
 
 interface SessionData {
@@ -173,6 +239,121 @@ function HpBar({ current, max, label, color }: { current: number; max: number; l
         <div className={`h-full rounded-full transition-all duration-300 ${color || barColor}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
+  );
+}
+
+function StatusBadges({ statuses }: { statuses: StatusInstance[] | undefined }) {
+  if (!statuses || statuses.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {statuses.map((status) => (
+        <Badge key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}`} variant="secondary" className="text-[9px]">
+          {status.name}
+          {status.stacks ? ` x${status.stacks}` : ''}
+          {status.durationTurns ? ` ${status.durationTurns}t` : ''}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function ActiveTurnPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
+  const actions = combatFrame?.activeTurn.legalActions || [];
+  const consumables = combatFrame?.activeTurn.legalConsumables || [];
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Active Turn</p>
+        {!combatFrame ? (
+          <p className="text-xs text-muted-foreground text-center py-4">Waiting for combat frame...</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div>Unit: <span className="font-mono">{combatFrame.activeTurn.activeUnitId || 'Unknown'}</span></div>
+              <div>Budget: <span className="font-mono">{combatFrame.activeTurn.battleBudgetRemaining ?? 'n/a'}</span></div>
+              <div>Selected: <span className="font-mono">{combatFrame.activeTurn.selectedTargetId || 'None'}</span></div>
+              <div>Source: <span className="font-mono">{combatFrame.captureMeta.source}</span></div>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Legal Actions</p>
+              <div className="flex flex-wrap gap-1">
+                {actions.map((action) => (
+                  <Badge key={`${action.type}-${action.name}`} variant={action.available ? 'default' : 'secondary'} className="text-[9px]">
+                    {action.name}
+                  </Badge>
+                ))}
+                {actions.length === 0 && <span className="text-xs text-muted-foreground">No actions parsed</span>}
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Consumables</p>
+              <div className="flex flex-wrap gap-1">
+                {consumables.map((item) => (
+                  <Badge key={item.name} variant={item.available ? 'outline' : 'secondary'} className="text-[9px]">{item.name}</Badge>
+                ))}
+                {consumables.length === 0 && <span className="text-xs text-muted-foreground">No consumables visible</span>}
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TurnOrderPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
+  const rows = combatFrame?.turnOrder || [];
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Turn Order</p>
+        <div className="space-y-1 max-h-[220px] overflow-y-auto">
+          {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
+          {rows.map((row) => (
+            <div key={`${row.unitId}-${row.ordinal}`} className="flex items-center justify-between gap-2 text-[11px] p-2 rounded bg-muted/20">
+              <span className={row.side === 'player' ? 'text-blue-400' : 'text-red-400'}>{row.name}</span>
+              <span className="font-mono">{row.ticksUntilTurn ?? 'n/a'}</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReconciliationPanel({ combatFrame, firebaseData }: { combatFrame: CombatFrame | null; firebaseData: any }) {
+  const framePlayers = combatFrame?.combatants.filter((c) => c.side === 'player') || [];
+  const firebasePlayers = Object.values(firebaseData?.latestCombatants?.['1'] || {}) as FirebaseUnit[];
+  const mismatches = framePlayers.map((player, index) => {
+    const firebaseUnit = firebasePlayers[index];
+    if (!firebaseUnit) return null;
+    const hpMismatch = player.currentHp !== null && firebaseUnit.hp !== null && player.currentHp !== firebaseUnit.hp;
+    const mpMismatch = player.currentMp !== null && firebaseUnit.mp !== null && player.currentMp !== firebaseUnit.mp;
+    if (!hpMismatch && !mpMismatch) return null;
+    return { name: player.name, hp: [player.currentHp, firebaseUnit.hp], mp: [player.currentMp, firebaseUnit.mp] };
+  }).filter(Boolean) as Array<{ name: string; hp: [number | null, number | null]; mp: [number | null, number | null] }>;
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Reconciliation</p>
+        {!combatFrame ? (
+          <p className="text-xs text-muted-foreground text-center py-4">No combat frame yet.</p>
+        ) : mismatches.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-4">No HP/MP drift detected against loaded Firebase state.</p>
+        ) : (
+          <div className="space-y-2">
+            {mismatches.map((mismatch) => (
+              <div key={mismatch.name} className="rounded bg-amber-500/10 p-2 text-[11px]">
+                <div className="font-medium">{mismatch.name}</div>
+                <div className="text-muted-foreground">HP extension/firebase: {mismatch.hp[0] ?? 'n/a'} / {mismatch.hp[1] ?? 'n/a'}</div>
+                <div className="text-muted-foreground">MP extension/firebase: {mismatch.mp[0] ?? 'n/a'} / {mismatch.mp[1] ?? 'n/a'}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -528,6 +709,7 @@ export default function HuntCompanion() {
   const [copied, setCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [battleState, setBattleState] = useState<BattleStateMsg | null>(null);
+  const [combatFrame, setCombatFrame] = useState<CombatFrame | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [turnFeed, setTurnFeed] = useState<TurnEvent[]>([]);
   const [explanations, setExplanations] = useState<Record<number, string>>({});
@@ -672,6 +854,7 @@ export default function HuntCompanion() {
         } else if (msg.type === 'recommendation') {
           setRecommendations(msg.recommendations || []);
           if (msg.battleState) setBattleState(msg.battleState);
+          if (msg.combatFrame) setCombatFrame(msg.combatFrame);
         } else if (msg.type === 'state_update') {
           if (msg.heroes) {
             setBattleState(prev => {
@@ -690,10 +873,13 @@ export default function HuntCompanion() {
               };
             });
           }
+          if (msg.combatFrame) setCombatFrame(msg.combatFrame);
         } else if (msg.type === 'turn_state') {
           if (msg.battleState) setBattleState(msg.battleState);
+          if (msg.combatFrame) setCombatFrame(msg.combatFrame);
         } else if (msg.type === 'turn_update') {
           setTurnFeed(prev => [...prev.slice(-9), { turnNumber: msg.turnNumber, actorSide: msg.actorSide, actorSlot: msg.actorSlot, skillId: msg.skillId, actor: msg.actor || null, ability: msg.ability || null, effects: msg.effects }]);
+          if (msg.combatFrame) setCombatFrame(msg.combatFrame);
         } else if (msg.type === 'error') {
           console.error('[WS] Error:', msg.message);
         }
@@ -747,7 +933,7 @@ export default function HuntCompanion() {
       battleState.heroes.length === 0 ||
       battleState.heroes.every(h => h.currentHp === 0 && h.maxHp > 0);
 
-    if (data.heroStates && heroesNeedSeeding) {
+      if (data.heroStates && heroesNeedSeeding) {
       const rawStates = data.heroStates as HeroStateRaw[];
       const heroes: HeroSnapshot[] = rawStates.map((h, i) => ({
         slot: h.slot ?? i,
@@ -767,6 +953,9 @@ export default function HuntCompanion() {
         heroes,
         enemies: prev?.enemies?.length ? prev.enemies : (enemyId ? [{ enemyId, currentHp: 0, maxHp: 0, debuffs: [] }] : []),
       }));
+    }
+    if (data.combatFrame) {
+      setCombatFrame(data.combatFrame);
     }
   }, [sessionStatusQuery.data]);
 
@@ -901,6 +1090,7 @@ export default function HuntCompanion() {
                       <div className="mt-1">
                         <HpBar current={hero.currentMp} max={hero.maxMp} label="MP" color="bg-blue-500" />
                       </div>
+                      <StatusBadges statuses={hero.statuses} />
                     </div>
                   ))}
                 </div>
@@ -919,13 +1109,7 @@ export default function HuntCompanion() {
                         {enemy.enemyId.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')}
                       </span>
                       <HpBar current={enemy.currentHp} max={enemy.maxHp} label="HP" color="bg-red-500" />
-                      {enemy.debuffs.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {enemy.debuffs.map((d, j) => (
-                            <Badge key={j} variant="secondary" className="text-[9px]">{d}</Badge>
-                          ))}
-                        </div>
-                      )}
+                      <StatusBadges statuses={enemy.statuses || (enemy.debuffs || []).map((d) => ({ id: d, name: d, category: 'debuff', stacks: null, durationTurns: null }))} />
                     </div>
                   ))}
                 </CardContent>
@@ -944,14 +1128,14 @@ export default function HuntCompanion() {
                   {turnFeed.map((turn, i) => {
                     const actorLabel = turn.actor
                       ? turn.actor
-                      : turn.actorSide === 'hero'
+                      : turn.actorSide === 'hero' || turn.actorSide === 'player'
                       ? `Hero ${turn.actorSlot ?? '?'}`
                       : `Enemy ${turn.actorSlot ?? '?'}`;
                     const abilityLabel = turn.ability || turn.skillId;
                     return (
                       <div key={i} className="flex flex-wrap items-center gap-1.5 text-[10px] p-1 rounded bg-muted/20">
                         <Badge variant="outline" className="text-[9px] font-mono">T{turn.turnNumber}</Badge>
-                        <span className={turn.actorSide === 'hero' ? 'text-blue-400' : 'text-red-400'}>
+                        <span className={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'text-blue-400' : 'text-red-400'}>
                           {actorLabel}
                         </span>
                         {abilityLabel && <span className="text-muted-foreground">{abilityLabel}</span>}
@@ -1011,6 +1195,8 @@ export default function HuntCompanion() {
                 prediction={enemyPrediction}
                 battleBudget={battleBudget}
               />
+              <ActiveTurnPanel combatFrame={combatFrame} />
+              <TurnOrderPanel combatFrame={combatFrame} />
             </div>
 
             <Card>
@@ -1091,6 +1277,8 @@ export default function HuntCompanion() {
                 </div>
               </CardContent>
             </Card>
+
+            <ReconciliationPanel combatFrame={combatFrame} firebaseData={firebaseLogQuery.data} />
           </div>
         </div>
       )}

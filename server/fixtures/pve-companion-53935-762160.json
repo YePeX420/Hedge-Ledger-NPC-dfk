@@ -1,0 +1,204 @@
+{
+  "version": 1,
+  "turnNumber": 2,
+  "encounterType": "boar_hunt",
+  "combatants": [
+    {
+      "unitId": "player:0:zermol_covensprinter",
+      "side": "player",
+      "slot": 0,
+      "name": "Zermol Covensprinter",
+      "normalizedId": "zermol_covensprinter",
+      "currentHp": 1416,
+      "maxHp": 1416,
+      "currentMp": 135,
+      "maxMp": 135,
+      "isAlive": true,
+      "buffs": [],
+      "debuffs": [],
+      "visibleEffects": [],
+      "equipment": {
+        "primaryArms": ["Sword", "Shield"],
+        "secondaryArms": [],
+        "items": ["Sword", "Shield"]
+      },
+      "stats": {
+        "attack": 127,
+        "speed": 84.1,
+        "pDef": 142.2,
+        "mDef": 56.3
+      },
+      "resistances": {
+        "poison": 8,
+        "confuse": 23
+      },
+      "sourceConfidence": 0.92
+    },
+    {
+      "unitId": "enemy:0:baby_boar_1",
+      "side": "enemy",
+      "slot": 0,
+      "name": "Baby Boar 1",
+      "normalizedId": "baby_boar_1",
+      "currentHp": 689,
+      "maxHp": 936,
+      "currentMp": 245,
+      "maxMp": 245,
+      "isAlive": true,
+      "buffs": [],
+      "debuffs": [
+        {
+          "id": "bleed",
+          "name": "Bleed",
+          "category": "debuff",
+          "stacks": 1,
+          "durationTurns": null
+        }
+      ],
+      "visibleEffects": [
+        {
+          "id": "bleed",
+          "name": "Bleed",
+          "category": "debuff",
+          "stacks": 1,
+          "durationTurns": null
+        }
+      ],
+      "equipment": {
+        "primaryArms": [],
+        "secondaryArms": [],
+        "items": []
+      },
+      "stats": {
+        "attack": 45
+      },
+      "resistances": {},
+      "sourceConfidence": 0.85
+    }
+  ],
+  "activeTurn": {
+    "activeUnitId": "player:0:zermol_covensprinter",
+    "activeSide": "player",
+    "activeSlot": 0,
+    "selectedTargetId": "enemy:0:baby_boar_1",
+    "selectedTargetSide": "enemy",
+    "legalActions": [
+      {
+        "name": "Basic Attack",
+        "type": "basic_attack",
+        "available": true,
+        "sourceConfidence": 0.9
+      },
+      {
+        "name": "Poisoned Blade",
+        "type": "skill",
+        "available": true,
+        "sourceConfidence": 0.8
+      }
+    ],
+    "legalConsumables": [
+      {
+        "name": "Minor Potion",
+        "type": "consumable",
+        "available": true,
+        "sourceConfidence": 0.6
+      }
+    ],
+    "visibleLockouts": {},
+    "battleBudgetRemaining": 11
+  },
+  "turnOrder": [
+    {
+      "unitId": "player:0:zermol_covensprinter",
+      "name": "Zermol Covensprinter",
+      "side": "player",
+      "slot": 0,
+      "ticksUntilTurn": 0,
+      "ordinal": 0
+    },
+    {
+      "unitId": "enemy:0:baby_boar_1",
+      "name": "Baby Boar 1",
+      "side": "enemy",
+      "slot": 0,
+      "ticksUntilTurn": 0.162,
+      "ordinal": 1
+    }
+  ],
+  "battleLogEntries": [
+    {
+      "turnNumber": 2,
+      "actorName": "Periliel Wildbend",
+      "actorSide": "player",
+      "actorSlot": 1,
+      "ability": "Multi-shot",
+      "actionType": "ability",
+      "targetName": "Baby Boar 1",
+      "targetSide": "enemy",
+      "targetSlot": 0,
+      "targets": [
+        {
+          "name": "Baby Boar 1",
+          "side": "enemy",
+          "damage": 84,
+          "statusesApplied": [
+            {
+              "id": "bleed",
+              "name": "Bleed",
+              "category": "debuff",
+              "stacks": 1,
+              "durationTurns": null
+            }
+          ]
+        }
+      ],
+      "statusApplications": [
+        {
+          "id": "bleed",
+          "name": "Bleed",
+          "category": "debuff",
+          "stacks": 1,
+          "durationTurns": null
+        }
+      ],
+      "outcomes": ["critical"],
+      "rawText": "It's a Critical Strike! Combatant affected by 1st stack of Bleed.",
+      "sourceConfidence": 0.75
+    }
+  ],
+  "heroDetail": {
+    "name": "Zermol Covensprinter",
+    "level": 20,
+    "vitals": {
+      "hp": 1416,
+      "maxHp": 1416,
+      "mp": 135,
+      "maxMp": 135
+    },
+    "stats": {
+      "attack": 127,
+      "speed": 84.1
+    },
+    "resistances": {
+      "poison": 8,
+      "confuse": 23
+    },
+    "passives": ["Foresight"],
+    "abilities": ["Poisoned Blade", "Heal"],
+    "items": ["Sword", "Shield"]
+  },
+  "captureMeta": {
+    "version": 1,
+    "huntId": "53935-762160",
+    "sessionToken": null,
+    "source": "dom",
+    "capturedAt": 1760000000000,
+    "parserVersion": "fixture/1",
+    "confidence": {
+      "combatants": 0.9,
+      "activeTurn": 0.9,
+      "turnOrder": 0.85,
+      "heroDetail": 0.95
+    }
+  }
+}

@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "tsx bot.js",
     "register": "tsx register-commands.js",
-    "build": "vite build"
+    "build": "vite build",
+    "test:pve-companion": "tsx scripts/test-pve-companion.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

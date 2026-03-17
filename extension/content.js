@@ -25,6 +25,7 @@
   let lastRecommendation = null;
   let unitSnapshotCache = [];
   let syntheticKeyGenerated = false;
+  const COMBAT_FRAME_VERSION = 1;
 
   window.__dfkSessionId = null;
   window.__dfkSessionIdSource = null;
@@ -74,6 +75,7 @@
       maybeBuildSyntheticSessionId();
     } else if (type === 'turn_snapshot') {
       if (debugMode) storeLocally(payload);
+      payload.combatFrame = buildCombatFrame(payload, payload.source || 'dom', null);
       chrome.runtime.sendMessage({ type: 'state_snapshot', data: payload }).catch(() => {});
       runLocalRecommendation(payload);
     } else if (type === 'unit_snapshot') {
@@ -93,6 +95,180 @@
       unitSnapshotCache.push(snapshot);
       if (unitSnapshotCache.length > 20) unitSnapshotCache.shift();
     }
+  }
+
+  function normalizeId(value) {
+    return String(value || 'unknown')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'unknown';
+  }
+
+  function buildUnitId(side, slot, name) {
+    return `${side}:${slot == null ? 'na' : slot}:${normalizeId(name)}`;
+  }
+
+  function toStatusInstances(values, category) {
+    return (values || []).map((value) => {
+      const raw = String(value || '').trim();
+      const stackMatch = raw.match(/(?:x|stack(?:s)?\s*:?\s*)(\d+)/i);
+      const turnMatch = raw.match(/(\d+)\s*(?:turn|tick)/i);
+      const cleanName = raw
+        .replace(/(?:x|stack(?:s)?\s*:?\s*)\d+/gi, '')
+        .replace(/\d+\s*(?:turn|tick)s?/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return {
+        id: normalizeId(cleanName || raw || category),
+        name: cleanName || raw || category,
+        category,
+        stacks: stackMatch ? parseInt(stackMatch[1], 10) : null,
+        durationTurns: turnMatch ? parseInt(turnMatch[1], 10) : null,
+        sourceText: raw || null,
+      };
+    }).filter((status) => !!status.name);
+  }
+
+  function latestHeroDetailSnapshot() {
+    for (let i = unitSnapshotCache.length - 1; i >= 0; i--) {
+      if (unitSnapshotCache[i]?.heroDetail) return unitSnapshotCache[i].heroDetail;
+    }
+    return null;
+  }
+
+  function buildCombatants(turnState) {
+    const modalSnapshots = new Map();
+    unitSnapshotCache.forEach((snapshot) => {
+      const key = `${snapshot.unitSide || 'player'}:${normalizeId(snapshot.unitName)}`;
+      modalSnapshots.set(key, snapshot);
+    });
+
+    const buildCombatant = (unit, side) => {
+      const key = `${side}:${normalizeId(unit.name)}`;
+      const modal = modalSnapshots.get(key);
+      const buffs = toStatusInstances([...(unit.buffs || []), ...(modal?.buffs || [])], 'buff');
+      const debuffs = toStatusInstances([...(unit.debuffs || []), ...(modal?.debuffs || [])], 'debuff');
+      const name = unit.name || modal?.unitName || `${side}-${unit.slot}`;
+      return {
+        unitId: buildUnitId(side, unit.slot, name),
+        side,
+        slot: unit.slot ?? null,
+        name,
+        normalizedId: normalizeId(name),
+        currentHp: unit.hp ?? modal?.stats?.hp ?? null,
+        maxHp: unit.maxHp ?? modal?.stats?.maxHp ?? null,
+        currentMp: unit.mp ?? modal?.stats?.mp ?? null,
+        maxMp: unit.maxMp ?? modal?.stats?.maxMp ?? null,
+        isAlive: (unit.hp ?? modal?.stats?.hp ?? 1) > 0,
+        buffs,
+        debuffs,
+        visibleEffects: [...buffs, ...debuffs],
+        equipment: {
+          primaryArms: modal?.items?.slice(0, 2) || [],
+          secondaryArms: modal?.items?.slice(2, 4) || [],
+          items: modal?.items || [],
+        },
+        stats: { ...(modal?.baseStats || {}), ...(modal?.stats || {}) },
+        resistances: modal?.heroDetail?.resistances || {},
+        sourceConfidence: modal ? Math.max(modal.parseConfidence || 0, 0.7) : 0.55,
+      };
+    };
+
+    return [
+      ...(turnState.heroes || []).map((unit) => buildCombatant(unit, 'player')),
+      ...(turnState.enemies || []).map((unit) => buildCombatant(unit, 'enemy')),
+    ];
+  }
+
+  function buildBattleLogEntry(event) {
+    const outcomes = [];
+    const rawText = event.rawText || '';
+    if (/critical strike/i.test(rawText)) outcomes.push('critical');
+    if (/resisted/i.test(rawText)) outcomes.push('resisted');
+    if (/block/i.test(rawText)) outcomes.push('blocked');
+    if (/miss/i.test(rawText)) outcomes.push('miss');
+    return {
+      turnNumber: event.turn || 0,
+      actorName: event.actor || null,
+      actorSide: event.actorSide === 'enemy' ? 'enemy' : event.actorSide === 'player' ? 'player' : null,
+      actorSlot: null,
+      ability: event.ability || null,
+      actionType: event.ability ? 'ability' : 'unknown',
+      targetName: event.target || null,
+      targetSide: event.targetSide === 'player' ? 'player' : 'enemy',
+      targetSlot: null,
+      targets: event.target ? [{
+        name: event.target,
+        side: event.targetSide === 'player' ? 'player' : 'enemy',
+        damage: event.damage ?? null,
+        statusesApplied: toStatusInstances(event.effects || [], 'debuff'),
+      }] : [],
+      damageType: event.damageType || null,
+      manaDelta: event.manaDelta ?? null,
+      statusApplications: toStatusInstances(event.effects || [], 'debuff'),
+      outcomes,
+      rawText,
+      sourceConfidence: event.parseConfidence || 0.5,
+    };
+  }
+
+  function buildCombatFrame(turnState, source, battleLogEntry) {
+    const combatants = buildCombatants(turnState);
+    const activeSide = combatants.some((unit) => unit.side === 'player' && unit.slot === turnState.activeHeroSlot) ? 'player' : null;
+    const selectedTargetUnit = combatants.find((unit) => unit.name === turnState.selectedTarget);
+    const heroDetail = latestHeroDetailSnapshot();
+    const legalActions = (turnState.legalActions || []).map((action) => ({
+      name: action.name,
+      skillId: action.skillId || null,
+      type: action.type || (String(action.name || '').toLowerCase().includes('attack') ? 'basic_attack' : 'skill'),
+      available: action.available !== false,
+      requiresTarget: action.requiresTarget !== false,
+      sourceConfidence: action.sourceConfidence || 0.75,
+    }));
+    const legalConsumables = (turnState.legalConsumables || []).map((action) => ({
+      ...action,
+      type: 'consumable',
+      available: action.available !== false,
+      sourceConfidence: action.sourceConfidence || 0.6,
+    }));
+    return {
+      version: COMBAT_FRAME_VERSION,
+      turnNumber: turnState.turnNumber || 0,
+      encounterType: combatants.some((unit) => unit.side === 'enemy' && unit.normalizedId.includes('boar')) ? 'boar_hunt' : null,
+      combatants,
+      activeTurn: {
+        activeUnitId: activeSide ? buildUnitId(activeSide, turnState.activeHeroSlot, turnState.activeUnit) : null,
+        activeSide,
+        activeSlot: turnState.activeHeroSlot ?? null,
+        selectedTargetId: selectedTargetUnit?.unitId || null,
+        selectedTargetSide: selectedTargetUnit?.side || turnState.selectedTargetSide || null,
+        legalActions,
+        legalConsumables,
+        visibleLockouts: {},
+        battleBudgetRemaining: turnState.battleBudgetRemaining ?? null,
+      },
+      turnOrder: turnState.turnOrder || [],
+      battleLogEntries: battleLogEntry ? [battleLogEntry] : [],
+      heroDetail: heroDetail ? {
+        unitId: heroDetail.name ? buildUnitId('player', turnState.activeHeroSlot, heroDetail.name) : null,
+        ...heroDetail,
+      } : null,
+      captureMeta: {
+        version: COMBAT_FRAME_VERSION,
+        huntId: sessionHuntId,
+        sessionToken: null,
+        source: source || 'dom',
+        capturedAt: Date.now(),
+        parserVersion: `extension/${COMBAT_FRAME_VERSION}`,
+        confidence: {
+          combatants: combatants.length > 0 ? 0.75 : 0.2,
+          activeTurn: legalActions.length > 0 ? 0.8 : 0.4,
+          turnOrder: (turnState.turnOrder || []).length > 0 ? 0.8 : 0.1,
+          heroDetail: heroDetail ? 0.85 : 0.1,
+        },
+      },
+    };
   }
 
   function runLocalRecommendation(turnSnapshot) {
@@ -422,6 +598,8 @@
 
   function flushTurnEvent(event) {
     const turnState = window.__dfkGetTurnState ? window.__dfkGetTurnState() : {};
+    const battleLogEntry = buildBattleLogEntry(event);
+    const combatFrame = buildCombatFrame(turnState, event.source || 'dom', battleLogEntry);
     chrome.runtime.sendMessage({
       type: 'turn_event',
       data: {
@@ -442,6 +620,10 @@
         mpState: buildKeyedMpState(turnState),
         legalActions: (turnState.legalActions || []).map(a => a.name),
         activeHeroSlot: turnState.activeHeroSlot ?? null,
+        battleBudgetRemaining: turnState.battleBudgetRemaining ?? null,
+        legalConsumables: turnState.legalConsumables || [],
+        turnOrder: turnState.turnOrder || [],
+        combatFrame,
         parseConfidence: event.parseConfidence,
         source: event.source || 'dom',
         capturedAt: event.capturedAt,

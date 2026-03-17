@@ -349,7 +349,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         mpState: d.mpState || {},
         effects: d.effects || [],
         legalActions: d.legalActions || [],
+        legalConsumables: d.legalConsumables || [],
         activeHeroSlot: d.activeHeroSlot,
+        battleBudgetRemaining: d.battleBudgetRemaining ?? null,
+        turnOrder: d.turnOrder || [],
+        combatFrame: d.combatFrame || null,
         enemyId: d.enemyId || null,
         rawText: d.rawText,
       },
@@ -367,6 +371,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         effects: d.effects || [],
         activeHeroSlot: d.activeHeroSlot != null ? d.activeHeroSlot : null,
         huntId: currentHuntId || d.huntId || null,
+        battleBudgetRemaining: d.battleBudgetRemaining ?? null,
+        combatFrame: d.combatFrame || null,
         rawText: d.rawText,
       }
     );
@@ -382,6 +388,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         type: 'state_snapshot',
         heroes: d.heroes || [],
         enemies: d.enemies || [],
+        combatFrame: d.combatFrame || null,
         huntId: currentHuntId,
         walletAddress: null,
       },
@@ -391,6 +398,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         huntSessionId: null,
         turnNumber: d.turnNumber || currentTurnNumber,
         fullState: d,
+        combatFrame: d.combatFrame || null,
       }
     );
 

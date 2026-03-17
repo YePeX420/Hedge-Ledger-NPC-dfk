@@ -19802,6 +19802,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         turnEvents,
         heroStates: memSession?.heroStates || null,
         enemyId: memSession?.enemyId || null,
+        combatFrame: memSession?.latestFrame || null,
         connectedClients: memSession?.clients?.size || 0,
         latestHuntId,
       });
@@ -20106,8 +20107,28 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       await rawPg`UPDATE dfk_hunt_sessions SET event_count = event_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
 
       // Also mirror to companion session (HTTP fallback path) and run scoring engine
+      if (!companionSessions.has(sessionToken)) {
+        companionSessions.set(sessionToken, {
+          clients: new Set(),
+          turnEvents: [],
+          heroStates: null,
+          enemyId: null,
+          battleBudgetRemaining: null,
+          consumableQuantities: {},
+          latestFrame: null,
+          rawFrames: [],
+        });
+      }
       const memSession = companionSessions.get(sessionToken);
       if (memSession) {
+        if (req.body.combatFrame) {
+          const { normalizeCombatFrame, getPrimaryEnemyId } = await import('./server/pve-combat-frame.ts');
+          const normalizedFrame = normalizeCombatFrame(req.body.combatFrame);
+          memSession.latestFrame = normalizedFrame;
+          memSession.rawFrames.push(normalizedFrame);
+          if (memSession.rawFrames.length > 50) memSession.rawFrames.shift();
+          if (!memSession.enemyId) memSession.enemyId = getPrimaryEnemyId(normalizedFrame) || memSession.enemyId;
+        }
         const httpActiveHeroSlot = req.body.activeHeroSlot != null ? Number(req.body.activeHeroSlot) : 0;
         const turnMsg = { actor, actorSide, actorSlot: req.body.actorSlot || null, skillId: ability || null, effects: effects || [], huntId: req.body.huntId || null, activeHeroSlot: httpActiveHeroSlot };
         memSession.turnEvents.push(turnMsg);
@@ -20125,26 +20146,24 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         // Run scoring engine if we have enough context
         if (memSession.heroStates && memSession.enemyId) {
           try {
-            const { getEnemy } = await import('./server/pve-enemy-catalog.ts');
+            const { getEnemy, getEnemyOrFallback } = await import('./server/pve-enemy-catalog.ts');
             const { scoreActions, buildBattleStateFromTurnEvents } = await import('./server/pve-scoring-engine.ts');
-            const enemyEntry = getEnemy(memSession.enemyId);
+            const { enrichBattleStateFromCombatFrame, buildFallbackEnemyEntry, summarizeCombatFrameBattleState } = await import('./server/pve-combat-frame.ts');
+            const enemyEntry = getEnemy(memSession.enemyId) || getEnemyOrFallback(memSession.enemyId, buildFallbackEnemyEntry(memSession.enemyId, memSession.latestFrame));
             if (enemyEntry) {
               const activeSlot = memSession.lastActiveHeroSlot ?? 0;
-              const battleState = buildBattleStateFromTurnEvents(
+              let battleState = buildBattleStateFromTurnEvents(
                 memSession.heroStates, enemyEntry, memSession.turnEvents, activeSlot,
                 memSession.battleBudgetRemaining, memSession.consumableQuantities,
               );
+              battleState = enrichBattleStateFromCombatFrame(battleState, memSession.latestFrame, enemyEntry);
               const recommendations = scoreActions(battleState);
               const responseMsg = JSON.stringify({
                 type: 'recommendation',
                 turnNumber: memSession.turnEvents.length,
                 recommendations: recommendations.slice(0, 5),
-                battleState: {
-                  turnNumber: battleState.turnNumber,
-                  activeHeroSlot: battleState.activeHeroSlot,
-                  heroes: battleState.heroes.map(h => ({ slot: h.slot, heroId: h.heroId, currentHp: h.currentHp, maxHp: h.maxHp, currentMp: h.currentMp, maxMp: h.maxMp, isAlive: h.isAlive, mainClass: h.mainClass })),
-                  enemies: battleState.enemies.map(e => ({ enemyId: e.enemyId, currentHp: e.currentHp, maxHp: e.maxHp, debuffs: e.debuffs })),
-                },
+                battleState: summarizeCombatFrameBattleState(memSession.latestFrame, battleState),
+                combatFrame: memSession.latestFrame,
               });
               for (const client of memSession.clients) {
                 if (client.readyState === 1) client.send(responseMsg);
@@ -20191,7 +20210,27 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         // HTTP-fallback hero hydration: if fullState carries heroes (state_snapshot sent via HTTP),
         // seed the in-memory companion session so scoring can run on subsequent turn events.
         if (fullState.heroes?.length > 0) {
+          if (!companionSessions.has(sessionToken)) {
+            companionSessions.set(sessionToken, {
+              clients: new Set(),
+              turnEvents: [],
+              heroStates: null,
+              enemyId: null,
+              battleBudgetRemaining: null,
+              consumableQuantities: {},
+              latestFrame: null,
+              rawFrames: [],
+            });
+          }
           const memSnap = companionSessions.get(sessionToken);
+          if (memSnap && req.body.combatFrame) {
+            const { normalizeCombatFrame, getPrimaryEnemyId } = await import('./server/pve-combat-frame.ts');
+            const normalizedFrame = normalizeCombatFrame(req.body.combatFrame);
+            memSnap.latestFrame = normalizedFrame;
+            memSnap.rawFrames.push(normalizedFrame);
+            if (memSnap.rawFrames.length > 50) memSnap.rawFrames.shift();
+            if (!memSnap.enemyId) memSnap.enemyId = getPrimaryEnemyId(normalizedFrame) || memSnap.enemyId;
+          }
           if (memSnap && !memSnap.heroStates) {
             memSnap.heroStates = fullState.heroes;
             console.log(`[Companion HTTP] Seeded heroStates from fullState snapshot for token ${sessionToken?.slice(0, 8)}`);
@@ -22332,6 +22371,8 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
               enemyId: null,
               battleBudgetRemaining: null,
               consumableQuantities: {},
+              latestFrame: null,
+              rawFrames: [],
             });
           }
           companionSessions.get(sessionToken).clients.add(ws);
@@ -22374,6 +22415,14 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           }
           const session = companionSessions.get(sessionToken);
           if (session) {
+            if (msg.combatFrame) {
+              const { normalizeCombatFrame, getPrimaryEnemyId } = await import('./server/pve-combat-frame.ts');
+              const normalizedFrame = normalizeCombatFrame(msg.combatFrame);
+              session.latestFrame = normalizedFrame;
+              session.rawFrames.push(normalizedFrame);
+              if (session.rawFrames.length > 50) session.rawFrames.shift();
+              if (!session.enemyId) session.enemyId = getPrimaryEnemyId(normalizedFrame) || session.enemyId;
+            }
             session.heroStates = msg.heroes || null;
             // Prefer explicit enemyId, then auto-detect from enemies array name
             if (msg.enemyId) {
@@ -22389,7 +22438,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             }
           }
           ws.send(JSON.stringify({ type: 'snapshot_ack', received: true }));
-          const snapshotBroadcast = JSON.stringify({ type: 'state_update', heroes: session.heroStates, enemyId: session.enemyId });
+          const snapshotBroadcast = JSON.stringify({ type: 'state_update', heroes: session.heroStates, enemyId: session.enemyId, combatFrame: session.latestFrame });
           for (const client of session.clients) {
             if (client.readyState === 1 && client !== ws) client.send(snapshotBroadcast);
           }
@@ -22421,10 +22470,20 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
 
           const session = companionSessions.get(sessionToken);
           if (session) {
+            if (msg.combatFrame) {
+              const { normalizeCombatFrame, getPrimaryEnemyId } = await import('./server/pve-combat-frame.ts');
+              const normalizedFrame = normalizeCombatFrame(msg.combatFrame);
+              session.latestFrame = normalizedFrame;
+              session.rawFrames.push(normalizedFrame);
+              if (session.rawFrames.length > 50) session.rawFrames.shift();
+              if (!session.enemyId) session.enemyId = getPrimaryEnemyId(normalizedFrame) || session.enemyId;
+            }
             session.turnEvents.push(msg);
-            const { getEnemy } = await import('./server/pve-enemy-catalog.ts');
+            const { getEnemy, getEnemyOrFallback } = await import('./server/pve-enemy-catalog.ts');
             const { scoreActions, buildBattleStateFromTurnEvents } = await import('./server/pve-scoring-engine.ts');
-            const enemyEntry = getEnemy(session.enemyId || msg.enemyId || 'MAD_BOAR');
+            const { enrichBattleStateFromCombatFrame, buildFallbackEnemyEntry, summarizeCombatFrameBattleState } = await import('./server/pve-combat-frame.ts');
+            const enemyId = session.enemyId || msg.enemyId || 'MAD_BOAR';
+            const enemyEntry = getEnemy(enemyId) || getEnemyOrFallback(enemyId, buildFallbackEnemyEntry(enemyId, session.latestFrame));
             if (enemyEntry && session.heroStates && msg.activeHeroSlot !== undefined) {
               // Update budget from live telemetry message if provided
               if (msg.battleBudgetRemaining !== undefined) {
@@ -22434,7 +22493,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
                 session.consumableQuantities = { ...session.consumableQuantities, ...msg.consumableQuantities };
               }
 
-              const battleState = buildBattleStateFromTurnEvents(
+              let battleState = buildBattleStateFromTurnEvents(
                 session.heroStates,
                 enemyEntry,
                 session.turnEvents,
@@ -22442,26 +22501,20 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
                 session.battleBudgetRemaining,
                 session.consumableQuantities,
               );
+              battleState = enrichBattleStateFromCombatFrame(battleState, session.latestFrame, enemyEntry);
               const recommendations = scoreActions(battleState, msg.legalActions || undefined);
+              const summarizedBattleState = summarizeCombatFrameBattleState(session.latestFrame, battleState);
               const responseMsg = JSON.stringify({
                 type: 'recommendation',
                 turnNumber: turnNumber || session.turnEvents.length,
                 recommendations: recommendations.slice(0, 5),
-                battleState: {
-                  turnNumber: battleState.turnNumber,
-                  activeHeroSlot: battleState.activeHeroSlot,
-                  heroes: battleState.heroes.map(h => ({ slot: h.slot, heroId: h.heroId, currentHp: h.currentHp, maxHp: h.maxHp, currentMp: h.currentMp, maxMp: h.maxMp, isAlive: h.isAlive, mainClass: h.mainClass })),
-                  enemies: battleState.enemies.map(e => ({ enemyId: e.enemyId, currentHp: e.currentHp, maxHp: e.maxHp, debuffs: e.debuffs })),
-                },
+                battleState: summarizedBattleState,
+                combatFrame: session.latestFrame,
               });
               const turnStateMsg = JSON.stringify({
                 type: 'turn_state',
-                battleState: {
-                  turnNumber: battleState.turnNumber,
-                  activeHeroSlot: battleState.activeHeroSlot,
-                  heroes: battleState.heroes.map(h => ({ slot: h.slot, heroId: h.heroId, currentHp: h.currentHp, maxHp: h.maxHp, currentMp: h.currentMp, maxMp: h.maxMp, isAlive: h.isAlive, mainClass: h.mainClass })),
-                  enemies: battleState.enemies.map(e => ({ enemyId: e.enemyId, currentHp: e.currentHp, maxHp: e.maxHp, debuffs: e.debuffs })),
-                },
+                battleState: summarizedBattleState,
+                combatFrame: session.latestFrame,
               });
               for (const client of session.clients) {
                 if (client.readyState === 1) {
@@ -22472,8 +22525,9 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             }
           }
 
-          const turnBroadcast = JSON.stringify({ type: 'turn_update', turnNumber: turnNumber || 0, actorSide, actorSlot, skillId, actor: msg.actor || null, ability: msg.ability || null, effects: effects || [] });
-          for (const client of session.clients) {
+          const liveSession = companionSessions.get(sessionToken);
+          const turnBroadcast = JSON.stringify({ type: 'turn_update', turnNumber: turnNumber || 0, actorSide, actorSlot, skillId, actor: msg.actor || null, ability: msg.ability || null, effects: effects || [], combatFrame: liveSession?.latestFrame || null });
+          for (const client of liveSession?.clients || []) {
             if (client.readyState === 1 && client !== ws) client.send(turnBroadcast);
           }
           ws.send(JSON.stringify({ type: 'turn_ack', turnNumber: turnNumber || 0 }));
