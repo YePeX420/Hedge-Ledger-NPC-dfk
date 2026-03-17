@@ -45,10 +45,28 @@
 
   window.__dfkDebugMode = false;
 
+  window.__dfkBattleLogNetworkActive = false;
+  window.__dfkNetworkLogCache = null;
+
+  document.addEventListener('dfk-network-event', function (e) {
+    var data = e.detail;
+    if (data && data.source === 'network') {
+      window.__dfkEmitEvent('battle_log_event', data);
+    }
+  });
+
+  document.addEventListener('dfk-network-log-response', function (e) {
+    window.__dfkNetworkLogCache = e.detail;
+  });
+
   window.__dfkEmitEvent = function (type, data) {
     const payload = { ...data, _contentScriptTs: Date.now() };
 
     if (type === 'battle_log_event') {
+      if (data.source === 'network' && !window.__dfkBattleLogNetworkActive) {
+        window.__dfkBattleLogNetworkActive = true;
+        console.log('[DFK] Network source active — DOM parser suppressed for this session');
+      }
       if (isDuplicate(data)) return;
       if (debugMode) storeLocally(payload);
       turnEventBuffer.push(payload);
@@ -425,6 +443,7 @@
         legalActions: (turnState.legalActions || []).map(a => a.name),
         activeHeroSlot: turnState.activeHeroSlot ?? null,
         parseConfidence: event.parseConfidence,
+        source: event.source || 'dom',
         capturedAt: event.capturedAt,
         _debug: event._debug || undefined,
       },

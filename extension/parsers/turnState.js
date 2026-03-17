@@ -446,6 +446,55 @@
       selectorDiag: window.__dfkSelectorDiag || {},
     };
 
+    document.dispatchEvent(new CustomEvent('dfk-request-network-log'));
+
+    var networkSection = null;
+    try {
+      var cached = window.__dfkNetworkLogCache;
+      if (cached) {
+        var panelOpenCount = 0;
+        var detectedTransport = 'none';
+        var entries = cached.entries || [];
+        for (var ni = 0; ni < entries.length; ni++) {
+          if (entries[ni].panelOpenAtCapture) {
+            panelOpenCount++;
+            if (detectedTransport === 'none' && entries[ni].transport && entries[ni].transport !== 'unknown') {
+              detectedTransport = entries[ni].transport;
+            }
+          }
+        }
+        var lastEntries = entries.slice(-3).map(function (e) {
+          return {
+            url: (e.url || '').slice(0, 500),
+            method: e.method || 'unknown',
+            responseBody: (e.responseBody || '').slice(0, 300),
+            transport: e.transport || 'unknown',
+            panelOpenAtCapture: !!e.panelOpenAtCapture,
+            classified: e.classified,
+          };
+        });
+        networkSection = {
+          totalCaptured: cached.totalEntries || 0,
+          panelOpenEntries: panelOpenCount,
+          detectedTransport: detectedTransport,
+          networkActive: !!window.__dfkBattleLogNetworkActive,
+          lastEntries: lastEntries,
+        };
+      } else {
+        networkSection = {
+          totalCaptured: 0,
+          panelOpenEntries: 0,
+          detectedTransport: 'none',
+          networkActive: !!window.__dfkBattleLogNetworkActive,
+          lastEntries: [],
+          note: 'No network log data received from MAIN world yet',
+        };
+      }
+    } catch (_) {
+      networkSection = { error: 'Failed to read network capture log' };
+    }
+    report.networkCapture = networkSection;
+
     console.group('[DFK Diagnostic Report]');
     console.table({
       'Battle log attached': report.battleLogAttached,
@@ -460,6 +509,7 @@
       'Session ID': report.sessionId,
       'Session ID source': report.sessionIdSource,
       'Engine ready': report.engineReady,
+      'Network active': report.networkCapture ? report.networkCapture.networkActive : false,
     });
     if (report.legalActionNames.length) {
       console.log('Legal actions:', report.legalActionNames);
@@ -469,6 +519,25 @@
     }
     if (Object.keys(report.selectorDiag).length) {
       console.log('Selector match counts:', report.selectorDiag);
+    }
+    if (networkSection) {
+      console.group('Network Capture');
+      console.log('Total captured:', networkSection.totalCaptured);
+      console.log('Panel-open entries:', networkSection.panelOpenEntries);
+      console.log('Detected transport:', networkSection.detectedTransport);
+      console.log('Network source active:', networkSection.networkActive);
+      if (networkSection.lastEntries && networkSection.lastEntries.length > 0) {
+        console.log('Last entries:');
+        for (var li = 0; li < networkSection.lastEntries.length; li++) {
+          var le = networkSection.lastEntries[li];
+          console.log('  ' + le.method + ' ' + le.url);
+          if (le.requestBody) {
+            console.log('    request body (truncated):', (le.requestBody || '').slice(0, 200));
+          }
+          console.log('    response (first 300 chars):', le.responseBody);
+        }
+      }
+      console.groupEnd();
     }
     console.groupEnd();
 

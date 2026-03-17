@@ -310,6 +310,7 @@ console.log('[DFK BattleLog] Script file loaded');
           const text = (node.textContent || '').trim();
           if (!text || text.length < 3) continue;
           processedSet.add(node);
+          if (window.__dfkBattleLogNetworkActive) continue;
           node._dfkSelector = selector;
           turnCounter++;
           const event = parseLogEntry(node, turnCounter);
