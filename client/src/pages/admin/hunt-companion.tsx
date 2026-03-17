@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Swords, Loader2, Copy, Check, Wifi, WifiOff, Heart, Zap,
   Shield, ChevronDown, ChevronUp, Bot, Sparkles, Target,
@@ -132,10 +132,36 @@ interface SessionData {
   id: number;
   session_token: string;
   status: string;
+  label?: string | null;
+  owner_user_id?: string | null;
+  owner_username?: string | null;
   wallet_address?: string;
-  hunt_id?: string;
+  hunt_id?: string | null;
+  latest_hunt_id?: string | null;
   created_at: string;
   last_seen_at: string;
+  selected_by_extension_at?: string | null;
+  refresh_required_at?: string | null;
+  completed_at?: string | null;
+  archived_at?: string | null;
+  connected_clients?: number;
+  requires_tab_refresh?: boolean;
+}
+
+interface CompanionSessionListResponse {
+  ok: boolean;
+  sessions: SessionData[];
+}
+
+interface CompanionSessionDetailResponse {
+  ok: boolean;
+  session: SessionData;
+  turnEvents?: TurnEvent[];
+  heroStates?: HeroStateRaw[] | null;
+  enemyId?: string | null;
+  combatFrame?: CombatFrame | null;
+  connectedClients?: number;
+  latestHuntId?: string | null;
 }
 
 interface HeroStateRaw {
@@ -867,7 +893,15 @@ function RecommendationCard({ rec, onExplain, isExplaining, explanation }: {
 }
 
 export default function HuntCompanion() {
+  const queryClient = useQueryClient();
   const [session, setSession] = useState<SessionData | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const stored = window.localStorage.getItem('pve-companion-selected-session-id');
+    if (!stored) return null;
+    const parsed = Number(stored);
+    return Number.isFinite(parsed) ? parsed : null;
+  });
   const [copied, setCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [battleState, setBattleState] = useState<BattleStateMsg | null>(null);
@@ -884,25 +918,54 @@ export default function HuntCompanion() {
   const wsRef = useRef<WebSocket | null>(null);
   const turnFeedRef = useRef<HTMLDivElement>(null);
 
+  const sessionListQuery = useQuery<CompanionSessionListResponse>({
+    queryKey: ['/api/user/pve/companion/sessions'],
+    refetchInterval: 5000,
+    queryFn: async () => {
+      const resp = await fetch('/api/user/pve/companion/sessions');
+      if (!resp.ok) throw new Error('Failed to load companion sessions');
+      return resp.json();
+    },
+  });
+
   const createSessionMutation = useMutation({
-    mutationFn: async () => {
-      const resp = await fetch('/api/admin/pve/companion/session');
+    mutationFn: async (label?: string) => {
+      const resp = await fetch('/api/user/pve/companion/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: label || null }),
+      });
       if (!resp.ok) throw new Error('Failed to create session');
       return resp.json();
     },
     onSuccess: (data) => {
       if (data.ok && data.session) {
-        setSession(data.session);
+        setSelectedSessionId(data.session.id);
+        queryClient.invalidateQueries({ queryKey: ['/api/user/pve/companion/sessions'] });
       }
     },
   });
 
-  const sessionStatusQuery = useQuery({
-    queryKey: ['/api/admin/pve/companion/session', session?.session_token],
-    enabled: !!session?.session_token,
+  const archiveSessionMutation = useMutation({
+    mutationFn: async (sessionId: number) => {
+      const resp = await fetch(`/api/user/pve/companion/sessions/${sessionId}/archive`, { method: 'POST' });
+      if (!resp.ok) throw new Error('Failed to archive session');
+      return resp.json();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['/api/user/pve/companion/sessions'] });
+      if (selectedSessionId === session?.id) {
+        setSelectedSessionId(null);
+      }
+    },
+  });
+
+  const sessionStatusQuery = useQuery<CompanionSessionDetailResponse>({
+    queryKey: ['/api/user/pve/companion/sessions', selectedSessionId],
+    enabled: !!selectedSessionId && !sessionListQuery.isLoading,
     refetchInterval: 5000,
     queryFn: async () => {
-      const resp = await fetch(`/api/admin/pve/companion/session/${session!.session_token}`);
+      const resp = await fetch(`/api/user/pve/companion/sessions/${selectedSessionId}`);
       if (!resp.ok) throw new Error('Failed');
       return resp.json();
     },
@@ -1059,6 +1122,46 @@ export default function HuntCompanion() {
   }, [session?.session_token, firebaseLogQuery.data]);
 
   useEffect(() => {
+    const sessions: SessionData[] = sessionListQuery.data?.sessions || [];
+    if (sessions.length === 0) {
+      setSession(null);
+      return;
+    }
+
+    const nextSelected = sessions.find((candidate) => candidate.id === selectedSessionId && !candidate.archived_at)
+      || sessions.find((candidate) => !candidate.archived_at)
+      || sessions[0];
+
+    if (!nextSelected) return;
+    if (nextSelected.id !== selectedSessionId) {
+      setSelectedSessionId(nextSelected.id);
+      return;
+    }
+    setSession((prev) => (prev?.id === nextSelected.id ? { ...prev, ...nextSelected } : nextSelected));
+  }, [sessionListQuery.data, selectedSessionId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (selectedSessionId) {
+      window.localStorage.setItem('pve-companion-selected-session-id', String(selectedSessionId));
+    } else {
+      window.localStorage.removeItem('pve-companion-selected-session-id');
+    }
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    setWsConnected(false);
+    setLatestHuntId(session?.hunt_id || session?.latest_hunt_id || null);
+    setBattleState(null);
+    setCombatFrame(null);
+    setRecommendations([]);
+    setTurnFeed([]);
+    setEnemyPrediction(null);
+    setTurnCount(0);
+    setShowBattleLog(false);
+  }, [selectedSessionId]);
+
+  useEffect(() => {
     if (session?.session_token && !wsRef.current) {
       connectWs();
     }
@@ -1073,6 +1176,9 @@ export default function HuntCompanion() {
   useEffect(() => {
     const data = sessionStatusQuery.data;
     if (!data) return;
+    if (data.session) {
+      setSession(data.session);
+    }
 
     const serverTurnCount = data.turnEvents?.length ?? 0;
     if (serverTurnCount > 0) setTurnFeed(data.turnEvents.slice(-10));
@@ -1174,12 +1280,118 @@ export default function HuntCompanion() {
         </div>
       </div>
 
+      <Card className="mb-4">
+        <CardContent className="p-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Owned Sessions</p>
+              <p className="text-sm text-muted-foreground">
+                Refreshing the page restores the selected session instead of minting a new token.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => createSessionMutation.mutate()}
+              disabled={createSessionMutation.isPending}
+              data-testid="button-create-owned-session"
+            >
+              {createSessionMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Radio className="w-4 h-4 mr-2" />}
+              Create Session
+            </Button>
+          </div>
+
+          {sessionListQuery.isLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading companion sessions...
+            </div>
+          )}
+
+          {sessionListQuery.isError && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+              <AlertTriangle className="w-4 h-4" />
+              Unable to load owned companion sessions for this account.
+            </div>
+          )}
+
+          {Array.isArray(sessionListQuery.data?.sessions) && sessionListQuery.data.sessions.length > 0 && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+              {sessionListQuery.data.sessions.map((candidate: SessionData) => (
+                <div
+                  key={candidate.id}
+                  className={`rounded-lg border p-3 space-y-2 ${candidate.id === session?.id ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{candidate.label || candidate.hunt_id || `Session #${candidate.id}`}</p>
+                      <p className="text-xs text-muted-foreground font-mono truncate">
+                        {candidate.session_token}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-1">
+                      <Badge variant={candidate.id === session?.id ? 'default' : 'secondary'} className="text-[10px]">
+                        {candidate.id === session?.id ? 'Open' : candidate.status}
+                      </Badge>
+                      {candidate.requires_tab_refresh && (
+                        <Badge variant="outline" className="text-[10px] text-amber-300 border-amber-500/40">
+                          Refresh Tab
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <div>Hunt: {candidate.hunt_id || candidate.latest_hunt_id || '--'}</div>
+                    <div>Clients: {candidate.connected_clients ?? 0}</div>
+                    <div>Seen: {candidate.last_seen_at ? new Date(candidate.last_seen_at).toLocaleString() : 'n/a'}</div>
+                    <div>Status: {candidate.status}</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant={candidate.id === session?.id ? 'secondary' : 'outline'}
+                      onClick={() => setSelectedSessionId(candidate.id)}
+                      data-testid={`button-open-session-${candidate.id}`}
+                    >
+                      {candidate.id === session?.id ? 'Selected' : 'Open'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        navigator.clipboard.writeText(candidate.session_token);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      data-testid={`button-copy-session-token-${candidate.id}`}
+                    >
+                      {copied && candidate.id === session?.id ? <Check className="w-3.5 h-3.5 mr-1 text-green-500" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                      Copy Token
+                    </Button>
+                    {!candidate.archived_at && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => archiveSessionMutation.mutate(candidate.id)}
+                        disabled={archiveSessionMutation.isPending}
+                        data-testid={`button-archive-session-${candidate.id}`}
+                      >
+                        Archive
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {!session && (
         <Card>
           <CardContent className="py-16 text-center">
             <Radio className="w-12 h-12 mx-auto mb-4 text-muted-foreground/30" />
             <p className="text-muted-foreground mb-4">
-              Start a companion session to receive live battle recommendations during PVE hunts.
+              Create or reopen an owned companion session to receive live battle recommendations during PVE hunts.
             </p>
             <Button
               onClick={() => createSessionMutation.mutate()}
@@ -1211,7 +1423,7 @@ export default function HuntCompanion() {
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground mb-4">
-                    Use this session token in the DFK Hunt Companion Chrome Extension to pair your game client with this advisor.
+                    The extension can now log into your account and attach this owned session automatically. The token remains available as a fallback/debug pairing path.
                   </p>
 
                   <div className="flex items-center gap-2 mb-4">
@@ -1225,9 +1437,9 @@ export default function HuntCompanion() {
 
                   <div className="space-y-1 text-xs text-muted-foreground">
                     <p>1. Install the DFK Hunt Companion Chrome Extension</p>
-                    <p>2. Paste this token in the extension popup</p>
-                    <p>3. Enter a PVE Hunt battle in DeFi Kingdoms</p>
-                    <p>4. Recommendations will appear here automatically</p>
+                    <p>2. Log into the extension and select this session, or paste the token manually</p>
+                    <p>3. Refresh the DFK hunt tab if the extension was just reloaded</p>
+                    <p>4. Enter a PVE Hunt battle in DeFi Kingdoms</p>
                   </div>
                 </div>
 
@@ -1237,6 +1449,7 @@ export default function HuntCompanion() {
                     <p>Status: <Badge variant={wsConnected ? 'default' : 'secondary'} className="text-[10px]">{wsConnected ? 'Connected' : session.status}</Badge></p>
                     <p className="font-mono text-muted-foreground/60">ID: {session.id}</p>
                     {session.hunt_id && <p>Hunt: {session.hunt_id}</p>}
+                    {session.requires_tab_refresh && <p className="text-amber-300">Refresh the DFK hunt tab to reattach capture.</p>}
                     {session.wallet_address && <p className="font-mono">Wallet: {session.wallet_address.slice(0, 6)}...{session.wallet_address.slice(-4)}</p>}
                   </div>
                 </div>

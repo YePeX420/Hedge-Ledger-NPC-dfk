@@ -3880,13 +3880,22 @@ export type DfkTournament = typeof dfkTournaments.$inferSelect;
 export const pveCompanionSessions = pgTable("pve_companion_sessions", {
   id: serial("id").primaryKey(),
   sessionToken: varchar("session_token", { length: 64 }).notNull().unique(),
+  ownerUserId: varchar("owner_user_id", { length: 128 }),
+  ownerAuthType: varchar("owner_auth_type", { length: 32 }),
+  ownerUsername: varchar("owner_username", { length: 128 }),
+  label: varchar("label", { length: 128 }),
   walletAddress: varchar("wallet_address", { length: 64 }),
   huntId: varchar("hunt_id", { length: 128 }),
-  status: varchar("status", { length: 16 }).notNull().default("waiting"),
+  status: varchar("status", { length: 32 }).notNull().default("waiting"),
+  selectedByExtensionAt: timestamp("selected_by_extension_at", { withTimezone: true }),
+  refreshRequiredAt: timestamp("refresh_required_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => ({
   tokenIdx: uniqueIndex("pve_companion_sessions_token_idx").on(table.sessionToken),
+  ownerIdx: index("pve_companion_sessions_owner_idx").on(table.ownerUserId),
   walletIdx: index("pve_companion_sessions_wallet_idx").on(table.walletAddress),
 }));
 

@@ -3684,6 +3684,46 @@ async function initializeEconomicSystem() {
     console.warn('⚠️ Dashboard users table check failed:', err.message);
   }
 
+  try {
+    await rawPg.unsafe(`
+      CREATE TABLE IF NOT EXISTS pve_companion_sessions (
+        id SERIAL PRIMARY KEY,
+        session_token VARCHAR(64) NOT NULL UNIQUE,
+        owner_user_id VARCHAR(128),
+        owner_auth_type VARCHAR(32),
+        owner_username VARCHAR(128),
+        label VARCHAR(128),
+        wallet_address VARCHAR(64),
+        hunt_id VARCHAR(128),
+        status VARCHAR(32) NOT NULL DEFAULT 'waiting',
+        selected_by_extension_at TIMESTAMPTZ,
+        refresh_required_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        archived_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    for (const stmt of [
+      `ALTER TABLE pve_companion_sessions ADD COLUMN IF NOT EXISTS owner_user_id VARCHAR(128)`,
+      `ALTER TABLE pve_companion_sessions ADD COLUMN IF NOT EXISTS owner_auth_type VARCHAR(32)`,
+      `ALTER TABLE pve_companion_sessions ADD COLUMN IF NOT EXISTS owner_username VARCHAR(128)`,
+      `ALTER TABLE pve_companion_sessions ADD COLUMN IF NOT EXISTS label VARCHAR(128)`,
+      `ALTER TABLE pve_companion_sessions ADD COLUMN IF NOT EXISTS selected_by_extension_at TIMESTAMPTZ`,
+      `ALTER TABLE pve_companion_sessions ADD COLUMN IF NOT EXISTS refresh_required_at TIMESTAMPTZ`,
+      `ALTER TABLE pve_companion_sessions ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`,
+      `ALTER TABLE pve_companion_sessions ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`,
+    ]) {
+      await rawPg.unsafe(stmt);
+    }
+    await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS pve_companion_sessions_token_idx ON pve_companion_sessions(session_token)`);
+    await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS pve_companion_sessions_owner_idx ON pve_companion_sessions(owner_user_id)`);
+    await rawPg.unsafe(`CREATE INDEX IF NOT EXISTS pve_companion_sessions_wallet_idx ON pve_companion_sessions(wallet_address)`);
+    console.log('✅ PVE companion sessions table verified');
+  } catch (err) {
+    console.warn('⚠️ PVE companion session table check failed:', err.message);
+  }
+
   // ─── PVE Drop-Rate Schema Bootstrap ─────────────────────────────────────────
   // These 4 tables are normally created by huntsPatrolIndexer.js only when the
   // indexer is started.  Adding CREATE TABLE IF NOT EXISTS here ensures a fresh
@@ -19692,12 +19732,322 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
   // PVE COMPANION API
   // ============================================================================
 
+  function getBearerToken(req) {
+    const header = req.headers.authorization || req.headers.Authorization || '';
+    if (typeof header === 'string' && header.toLowerCase().startsWith('bearer ')) {
+      return header.slice(7).trim();
+    }
+    return req.headers['x-extension-auth'] || null;
+  }
+
+  async function resolveCompanionActor(req) {
+    if (req.user?.userId) {
+      const rawId = String(req.user.userId);
+      if (rawId.startsWith('dashboard-')) {
+        const userId = rawId.replace(/^dashboard-/, '');
+        return {
+          ownerUserId: `dashboard:${userId}`,
+          ownerAuthType: 'dashboard',
+          ownerUsername: req.user.username || `dashboard-${userId}`,
+          dashboardUserId: Number(userId),
+        };
+      }
+      return {
+        ownerUserId: `admin:${rawId}`,
+        ownerAuthType: 'admin',
+        ownerUsername: req.user.username || rawId,
+        dashboardUserId: null,
+      };
+    }
+
+    const extensionToken = getBearerToken(req);
+    if (extensionToken) {
+      const [userSession] = await db.select().from(dashboardUserSessions)
+        .where(eq(dashboardUserSessions.sessionToken, String(extensionToken))).limit(1);
+      if (userSession && new Date(userSession.expiresAt) >= new Date()) {
+        const [user] = await db.select().from(dashboardUsers)
+          .where(eq(dashboardUsers.id, userSession.userId)).limit(1);
+        if (user && user.isActive && (!user.expiresAt || new Date(user.expiresAt) >= new Date())) {
+          return {
+            ownerUserId: `dashboard:${user.id}`,
+            ownerAuthType: 'dashboard',
+            ownerUsername: user.displayName || user.username,
+            dashboardUserId: user.id,
+            extensionSessionToken: userSession.sessionToken,
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  async function requireCompanionActor(req, res, next) {
+    try {
+      const actor = await resolveCompanionActor(req);
+      if (!actor) return res.status(401).json({ ok: false, error: 'Not authenticated' });
+      req.companionActor = actor;
+      next();
+    } catch (err) {
+      console.error('[CompanionAuth] Error:', err.message);
+      res.status(500).json({ ok: false, error: 'Authentication check failed' });
+    }
+  }
+
+  function hydrateCompanionSessionRecord(row, memSession) {
+    const latestHuntId = row.hunt_id || memSession?.latestFrame?.captureMeta?.huntId || null;
+    const selectedAt = row.selected_by_extension_at || null;
+    const refreshRequired = !!row.refresh_required_at;
+    return {
+      id: row.id,
+      session_token: row.session_token,
+      owner_user_id: row.owner_user_id,
+      owner_auth_type: row.owner_auth_type,
+      owner_username: row.owner_username,
+      label: row.label,
+      wallet_address: row.wallet_address,
+      hunt_id: latestHuntId,
+      status: row.status,
+      created_at: row.created_at,
+      last_seen_at: row.last_seen_at,
+      selected_by_extension_at: selectedAt,
+      refresh_required_at: row.refresh_required_at,
+      completed_at: row.completed_at,
+      archived_at: row.archived_at,
+      connected_clients: memSession?.clients?.size || 0,
+      latest_hunt_id: latestHuntId,
+      requires_tab_refresh: refreshRequired,
+    };
+  }
+
+  async function listOwnedCompanionSessions(rawPg, actor) {
+    const rows = await rawPg`
+      SELECT * FROM pve_companion_sessions
+      WHERE owner_user_id = ${actor.ownerUserId}
+      ORDER BY COALESCE(last_seen_at, created_at) DESC, created_at DESC
+    `;
+    return rows.map((row) => hydrateCompanionSessionRecord(row, companionSessions.get(row.session_token)));
+  }
+
+  async function getOwnedCompanionSession(rawPg, sessionId, actor) {
+    const rows = await rawPg`
+      SELECT * FROM pve_companion_sessions
+      WHERE id = ${sessionId} AND owner_user_id = ${actor.ownerUserId}
+      LIMIT 1
+    `;
+    return rows.length > 0 ? rows[0] : null;
+  }
+
+  // Extension account login using dashboard user credentials.
+  app.post('/api/user/extension/login', async (req, res) => {
+    try {
+      const { username, password } = req.body || {};
+      if (!username || !password) {
+        return res.status(400).json({ ok: false, error: 'Username and password are required' });
+      }
+
+      const [user] = await db.select().from(dashboardUsers)
+        .where(eq(dashboardUsers.username, username)).limit(1);
+      if (!user) return res.status(401).json({ ok: false, error: 'Invalid username or password' });
+
+      const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+      if (user.passwordHash !== passwordHash) {
+        return res.status(401).json({ ok: false, error: 'Invalid username or password' });
+      }
+      if (!user.isActive) return res.status(403).json({ ok: false, error: 'Account is disabled' });
+      if (user.expiresAt && new Date(user.expiresAt) < new Date()) {
+        return res.status(403).json({ ok: false, error: 'Account has expired' });
+      }
+      if (!Array.isArray(user.allowedTabs) || !user.allowedTabs.includes('pve-hunts')) {
+        return res.status(403).json({ ok: false, error: 'PVE Hunts access not enabled for this account' });
+      }
+
+      const extensionAuthToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await db.insert(dashboardUserSessions).values({
+        userId: user.id,
+        sessionToken: extensionAuthToken,
+        expiresAt,
+      });
+
+      const actor = {
+        ownerUserId: `dashboard:${user.id}`,
+        ownerAuthType: 'dashboard',
+        ownerUsername: user.displayName || user.username,
+        dashboardUserId: user.id,
+      };
+      const sessions = await listOwnedCompanionSessions(rawPg, actor);
+
+      res.json({
+        ok: true,
+        authToken: extensionAuthToken,
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName || user.username,
+          allowedTabs: user.allowedTabs || [],
+        },
+        sessions,
+      });
+    } catch (err) {
+      console.error('[ExtensionLogin] Error:', err.message);
+      res.status(500).json({ ok: false, error: 'Extension login failed' });
+    }
+  });
+
+  app.get('/api/user/extension/session', requireCompanionActor, async (req, res) => {
+    try {
+      const sessions = await listOwnedCompanionSessions(rawPg, req.companionActor);
+      res.json({
+        ok: true,
+        user: {
+          ownerUserId: req.companionActor.ownerUserId,
+          username: req.companionActor.ownerUsername,
+          authType: req.companionActor.ownerAuthType,
+        },
+        sessions,
+      });
+    } catch (err) {
+      console.error('[ExtensionSession] Error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to load extension session' });
+    }
+  });
+
+  app.post('/api/user/extension/logout', requireCompanionActor, async (req, res) => {
+    try {
+      const token = getBearerToken(req);
+      if (token) {
+        await db.delete(dashboardUserSessions).where(eq(dashboardUserSessions.sessionToken, String(token)));
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[ExtensionLogout] Error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to logout extension' });
+    }
+  });
+
+  app.get('/api/user/pve/companion/sessions', requireCompanionActor, async (req, res) => {
+    try {
+      const sessions = await listOwnedCompanionSessions(rawPg, req.companionActor);
+      res.json({ ok: true, sessions });
+    } catch (err) {
+      console.error('[Companion] Session list error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to load sessions' });
+    }
+  });
+
+  app.post('/api/user/pve/companion/sessions', requireCompanionActor, async (req, res) => {
+    try {
+      const { label } = req.body || {};
+      const token = crypto.randomBytes(16).toString('hex');
+      const rows = await rawPg`
+        INSERT INTO pve_companion_sessions (session_token, owner_user_id, owner_auth_type, owner_username, label, status)
+        VALUES (${token}, ${req.companionActor.ownerUserId}, ${req.companionActor.ownerAuthType}, ${req.companionActor.ownerUsername}, ${label || null}, 'waiting')
+        RETURNING *
+      `;
+      res.json({ ok: true, session: hydrateCompanionSessionRecord(rows[0], null) });
+    } catch (err) {
+      console.error('[Companion] Session create error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to create session' });
+    }
+  });
+
+  app.get('/api/user/pve/companion/sessions/:id', requireCompanionActor, async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(sessionId)) return res.status(400).json({ ok: false, error: 'Invalid session id' });
+      const session = await getOwnedCompanionSession(rawPg, sessionId, req.companionActor);
+      if (!session) return res.status(404).json({ ok: false, error: 'Session not found' });
+
+      const turnRows = await rawPg`SELECT * FROM pve_turn_events WHERE session_id = ${session.id} ORDER BY turn_number ASC`;
+      const memSession = companionSessions.get(session.session_token);
+      const latestHuntId = turnRows.slice(-1)[0]?.hunt_id || session.hunt_id || memSession?.latestFrame?.captureMeta?.huntId || null;
+      const turnEvents = turnRows.map((row, idx) => {
+        let rawEvent = {};
+        try {
+          rawEvent = row.raw_event ? (typeof row.raw_event === 'string' ? JSON.parse(row.raw_event) : row.raw_event) : {};
+        } catch {}
+        return {
+          turnNumber: idx + 1,
+          rawTurnNumber: row.turn_number,
+          actorSide: row.actor_side,
+          actorSlot: row.actor_slot,
+          skillId: row.skill_id,
+          targets: row.targets,
+          effects: row.effects,
+          huntId: row.hunt_id,
+          actor: rawEvent.actor || null,
+          ability: rawEvent.ability || rawEvent.skillId || null,
+        };
+      });
+
+      res.json({
+        ok: true,
+        session: hydrateCompanionSessionRecord(session, memSession),
+        turnEvents,
+        heroStates: memSession?.heroStates || null,
+        enemyId: memSession?.enemyId || null,
+        combatFrame: memSession?.latestFrame || null,
+        connectedClients: memSession?.clients?.size || 0,
+        latestHuntId,
+      });
+    } catch (err) {
+      console.error('[Companion] Session detail error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to fetch session state' });
+    }
+  });
+
+  app.post('/api/user/pve/companion/sessions/:id/archive', requireCompanionActor, async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(sessionId)) return res.status(400).json({ ok: false, error: 'Invalid session id' });
+      const existing = await getOwnedCompanionSession(rawPg, sessionId, req.companionActor);
+      if (!existing) return res.status(404).json({ ok: false, error: 'Session not found' });
+      const rows = await rawPg`
+        UPDATE pve_companion_sessions
+        SET status = 'archived', archived_at = CURRENT_TIMESTAMP, last_seen_at = CURRENT_TIMESTAMP
+        WHERE id = ${sessionId}
+        RETURNING *
+      `;
+      res.json({ ok: true, session: hydrateCompanionSessionRecord(rows[0], companionSessions.get(rows[0].session_token)) });
+    } catch (err) {
+      console.error('[Companion] Session archive error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to archive session' });
+    }
+  });
+
+  app.post('/api/user/pve/companion/sessions/:id/select', requireCompanionActor, async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(sessionId)) return res.status(400).json({ ok: false, error: 'Invalid session id' });
+      const existing = await getOwnedCompanionSession(rawPg, sessionId, req.companionActor);
+      if (!existing) return res.status(404).json({ ok: false, error: 'Session not found' });
+      const rows = await rawPg`
+        UPDATE pve_companion_sessions
+        SET selected_by_extension_at = CURRENT_TIMESTAMP, refresh_required_at = CURRENT_TIMESTAMP, last_seen_at = CURRENT_TIMESTAMP
+        WHERE id = ${sessionId}
+        RETURNING *
+      `;
+      res.json({ ok: true, session: hydrateCompanionSessionRecord(rows[0], companionSessions.get(rows[0].session_token)) });
+    } catch (err) {
+      console.error('[Companion] Session select error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to select session' });
+    }
+  });
+
   app.get('/api/admin/pve/companion/session', isAdminOrHasTab('pve-hunts'), async (req, res) => {
     try {
-      const { rawPg } = await import('./server/db.js');
       const token = crypto.randomBytes(16).toString('hex');
-      const rows = await rawPg`INSERT INTO pve_companion_sessions (session_token, status) VALUES (${token}, 'waiting') RETURNING *`;
-      res.json({ ok: true, session: rows[0] });
+      const actor = await resolveCompanionActor(req);
+      const ownerUserId = actor?.ownerUserId || null;
+      const ownerAuthType = actor?.ownerAuthType || null;
+      const ownerUsername = actor?.ownerUsername || null;
+      const rows = await rawPg`
+        INSERT INTO pve_companion_sessions (session_token, owner_user_id, owner_auth_type, owner_username, status)
+        VALUES (${token}, ${ownerUserId}, ${ownerAuthType}, ${ownerUsername}, 'waiting')
+        RETURNING *
+      `;
+      res.json({ ok: true, session: hydrateCompanionSessionRecord(rows[0], null) });
     } catch (err) {
       console.error('[Companion] Session create error:', err.message);
       res.status(500).json({ ok: false, error: 'Failed to create session' });
@@ -19734,11 +20084,11 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       });
 
       // Derive latest hunt ID from DB turn events or session record
-      const latestHuntId = turnRows.slice(-1)[0]?.hunt_id || session.hunt_id || null;
+      const latestHuntId = turnRows.slice(-1)[0]?.hunt_id || session.hunt_id || memSession?.latestFrame?.captureMeta?.huntId || null;
 
       res.json({
         ok: true,
-        session,
+        session: hydrateCompanionSessionRecord(session, memSession),
         turnEvents,
         heroStates: memSession?.heroStates || null,
         enemyId: memSession?.enemyId || null,
@@ -22373,8 +22723,14 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             }
             if (msg.huntId) {
               const snapshotWallet = msg.wallet || msg.walletAddress || null;
-              await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, wallet_address = ${snapshotWallet}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+              await rawPg`UPDATE pve_companion_sessions
+                SET hunt_id = ${msg.huntId}, wallet_address = ${snapshotWallet}, status = 'hunt_linked', refresh_required_at = NULL, last_seen_at = CURRENT_TIMESTAMP
+                WHERE id = ${sessionId}`;
               maybePushHeroProfiles(msg.huntId, snapshotWallet);
+            } else {
+              await rawPg`UPDATE pve_companion_sessions
+                SET status = 'connected', refresh_required_at = NULL, last_seen_at = CURRENT_TIMESTAMP
+                WHERE id = ${sessionId}`;
             }
           }
           ws.send(JSON.stringify({ type: 'snapshot_ack', received: true }));
@@ -22390,7 +22746,9 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           const session = companionSessions.get(sessionToken);
           if (session && msg.huntId) {
             const huntWallet = msg.wallet || msg.walletAddress || null;
-            await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+            await rawPg`UPDATE pve_companion_sessions
+              SET hunt_id = ${msg.huntId}, status = 'hunt_linked', refresh_required_at = NULL, last_seen_at = CURRENT_TIMESTAMP
+              WHERE id = ${sessionId}`;
             maybePushHeroProfiles(msg.huntId, huntWallet);
             const huntBroadcast = JSON.stringify({ type: 'hunt_id_update', huntId: msg.huntId });
             for (const client of session.clients) {
@@ -22410,7 +22768,12 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           const { turnNumber, actorSide, actorSlot, skillId, targets, hpState, mpState, effects } = msg;
           await rawPg`INSERT INTO pve_turn_events (session_id, hunt_id, turn_number, actor_side, actor_slot, skill_id, targets, hp_state, mp_state, effects, raw_event)
             VALUES (${sessionId}, ${msg.huntId || null}, ${turnNumber || 0}, ${actorSide || 'unknown'}, ${actorSlot || 0}, ${skillId || null}, ${JSON.stringify(targets || [])}, ${JSON.stringify(hpState || {})}, ${JSON.stringify(mpState || {})}, ${JSON.stringify(effects || [])}, ${JSON.stringify(msg)})`;
-          await rawPg`UPDATE pve_companion_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+          await rawPg`UPDATE pve_companion_sessions
+            SET last_seen_at = CURRENT_TIMESTAMP,
+                refresh_required_at = NULL,
+                status = CASE WHEN ${msg.huntId || null} IS NOT NULL THEN 'in_progress' ELSE status END,
+                hunt_id = COALESCE(${msg.huntId || null}, hunt_id)
+            WHERE id = ${sessionId}`;
 
           const session = companionSessions.get(sessionToken);
           if (session) {

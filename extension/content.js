@@ -26,6 +26,7 @@
   let unitSnapshotCache = [];
   let syntheticKeyGenerated = false;
   const COMBAT_FRAME_VERSION = 1;
+  let extensionContextStale = false;
 
   window.__dfkSessionId = null;
   window.__dfkSessionIdSource = null;
@@ -49,6 +50,74 @@
   window.__dfkBattleLogNetworkActive = false;
   window.__dfkNetworkLogCache = null;
 
+  function isInvalidRuntimeError(err) {
+    const text = String(err?.message || err || '');
+    return /Extension context invalidated|context invalidated|Receiving end does not exist/i.test(text);
+  }
+
+  function markExtensionContextStale(reason) {
+    if (extensionContextStale) return;
+    extensionContextStale = true;
+    window.__dfkExtensionContextStale = true;
+    console.warn('[DFK Companion] Extension context stale:', reason || 'unknown');
+    if (typeof window.__dfkUpdateDiagBar === 'function') {
+      window.__dfkUpdateDiagBar('[EXT STALE WARN] Refresh DFK tab');
+    }
+    const body = document.getElementById('dfk-engine-body');
+    if (body) {
+      body.innerHTML = '<div style="color:#d8a05b;">Extension reloaded. Refresh this DFK tab to resume live capture.</div>';
+    }
+  }
+
+  function runtimeReady() {
+    return !extensionContextStale && !!(chrome?.runtime?.id);
+  }
+
+  function safeSendRuntimeMessage(message) {
+    if (!runtimeReady()) return Promise.resolve(false);
+    try {
+      const result = chrome.runtime.sendMessage(message);
+      if (result && typeof result.catch === 'function') {
+        return result.then(() => true).catch((err) => {
+          if (isInvalidRuntimeError(err)) {
+            markExtensionContextStale(err.message || err);
+          }
+          return false;
+        });
+      }
+      return Promise.resolve(true);
+    } catch (err) {
+      if (isInvalidRuntimeError(err)) {
+        markExtensionContextStale(err.message || err);
+      }
+      return Promise.resolve(false);
+    }
+  }
+
+  function safeStorageGet(keys, callback) {
+    if (!runtimeReady() || !chrome?.storage?.local?.get) {
+      callback({});
+      return;
+    }
+    try {
+      chrome.storage.local.get(keys, (result) => {
+        if (chrome.runtime?.lastError) {
+          if (isInvalidRuntimeError(chrome.runtime.lastError.message || chrome.runtime.lastError)) {
+            markExtensionContextStale(chrome.runtime.lastError.message);
+          }
+          callback({});
+          return;
+        }
+        callback(result || {});
+      });
+    } catch (err) {
+      if (isInvalidRuntimeError(err)) {
+        markExtensionContextStale(err.message || err);
+      }
+      callback({});
+    }
+  }
+
   document.addEventListener('dfk-network-event', function (e) {
     var data = e.detail;
     if (data && data.source === 'network') {
@@ -62,6 +131,7 @@
 
   window.__dfkEmitEvent = function (type, data) {
     const payload = { ...data, _contentScriptTs: Date.now() };
+    if (extensionContextStale) return;
 
     if (type === 'battle_log_event') {
       if (data.source === 'network' && !window.__dfkBattleLogNetworkActive) {
@@ -76,11 +146,11 @@
     } else if (type === 'turn_snapshot') {
       if (debugMode) storeLocally(payload);
       payload.combatFrame = buildCombatFrame(payload, payload.source || 'dom', null);
-      chrome.runtime.sendMessage({ type: 'state_snapshot', data: payload }).catch(() => {});
+      safeSendRuntimeMessage({ type: 'state_snapshot', data: payload });
       runLocalRecommendation(payload);
     } else if (type === 'unit_snapshot') {
       if (debugMode) storeLocally(payload);
-      chrome.runtime.sendMessage({ type: 'unit_snapshot', data: payload }).catch(() => {});
+      safeSendRuntimeMessage({ type: 'unit_snapshot', data: payload });
       cacheUnitSnapshot(payload);
     }
   };
@@ -397,7 +467,7 @@
       const msg = { type: 'hunt_id_detected', huntId: id, source };
       if (heroIds && heroIds.length > 0) msg.heroIds = heroIds;
       if (wallet) msg.wallet = wallet;
-      chrome.runtime.sendMessage(msg).catch(() => {});
+      safeSendRuntimeMessage(msg);
     }
   }
 
@@ -426,7 +496,7 @@
     window.__dfkSessionId = synKey;
     window.__dfkSessionIdSource = 'synthetic';
     console.log('[DFK] Synthetic session ID generated:', synKey);
-    chrome.runtime.sendMessage({ type: 'hunt_id_detected', huntId: synKey, source: 'synthetic' }).catch(() => {});
+    safeSendRuntimeMessage({ type: 'hunt_id_detected', huntId: synKey, source: 'synthetic' });
   }
 
   // ── SPA route change hooks ────────────────────────────────────────────────
@@ -600,7 +670,7 @@
     const turnState = window.__dfkGetTurnState ? window.__dfkGetTurnState() : {};
     const battleLogEntry = buildBattleLogEntry(event);
     const combatFrame = buildCombatFrame(turnState, event.source || 'dom', battleLogEntry);
-    chrome.runtime.sendMessage({
+    safeSendRuntimeMessage({
       type: 'turn_event',
       data: {
         huntId: sessionHuntId,
@@ -629,7 +699,7 @@
         capturedAt: event.capturedAt,
         _debug: event._debug || undefined,
       },
-    }).catch(() => {});
+    });
   }
 
   const LOCAL_STORAGE_KEY = 'dfk_companion_snapshots';
@@ -651,19 +721,19 @@
 
     window.__dfkDetectSession();
 
-    chrome.storage.local.get(['debugMode', 'sessionToken', 'hostUrl'], (result) => {
+    safeStorageGet(['debugMode', 'sessionToken', 'hostUrl'], (result) => {
       debugMode = !!result.debugMode;
       window.__dfkDebugMode = debugMode;
 
       const urlDetection = detectFromUrl(window.location.href);
       const wallet = detectWalletFromPage();
-      chrome.runtime.sendMessage({
+      safeSendRuntimeMessage({
         type: 'content_ready',
         huntId: sessionHuntId,
         url: window.location.href,
         heroIds: urlDetection?.heroIds || [],
         wallet: wallet || null,
-      }).catch(() => {});
+      });
     });
 
     installSpaHooks();

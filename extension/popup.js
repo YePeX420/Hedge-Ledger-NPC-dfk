@@ -21,6 +21,7 @@ let reconcileMode = false;
 let lastSnapshots = [];
 let lastRecommendation = null;
 let lastReconcileResult = null;
+let currentStatus = null;
 
 function el(id) { return document.getElementById(id); }
 
@@ -34,6 +35,60 @@ function updateHuntInfo(huntId, turnNumber, queueLength) {
   if (huntId != null) el('hunt-id').textContent = huntId;
   if (turnNumber != null) el('turn-counter').textContent = turnNumber;
   if (queueLength != null) el('http-queue').textContent = queueLength;
+}
+
+function renderAuthAndSessions(status) {
+  currentStatus = status;
+  const authUser = status?.authUser || null;
+  el('auth-logged-out').classList.toggle('hidden', !!authUser);
+  el('auth-logged-in').classList.toggle('hidden', !authUser);
+  el('auth-error').textContent = '';
+
+  if (authUser) {
+    el('auth-user-label').textContent = `Signed in as ${authUser.username || authUser.displayName || authUser.ownerUserId || 'user'}`;
+  }
+
+  const notice = el('refresh-required-notice');
+  notice.classList.toggle('hidden', !status?.requiresTabRefresh);
+
+  const list = el('session-list');
+  list.innerHTML = '';
+  const sessions = Array.isArray(status?.ownedCompanionSessions) ? status.ownedCompanionSessions : [];
+
+  if (sessions.length === 0) {
+    list.innerHTML = `<div class="session-item"><div class="session-meta">${authUser ? 'No owned companion sessions yet.' : 'Log in to load your owned companion sessions.'}</div></div>`;
+    return;
+  }
+
+  sessions.forEach((session) => {
+    const item = document.createElement('div');
+    item.className = `session-item ${session.id === status.selectedCompanionSessionId ? 'selected' : ''}`;
+    const label = session.label || session.hunt_id || `Session #${session.id}`;
+    const lastSeen = session.last_seen_at ? new Date(session.last_seen_at).toLocaleString() : 'n/a';
+    const hunt = session.hunt_id || session.latest_hunt_id || '--';
+    item.innerHTML = `
+      <div class="session-row">
+        <div>
+          <div class="session-label">${label}</div>
+          <div class="session-meta">Status: ${session.status || 'waiting'} | Hunt: ${hunt}</div>
+          <div class="session-meta">Last seen: ${lastSeen}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm">${session.id === status.selectedCompanionSessionId ? 'Selected' : 'Use'}</button>
+      </div>
+    `;
+    const btn = item.querySelector('button');
+    btn.disabled = session.id === status.selectedCompanionSessionId;
+    btn.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'select_companion_session', sessionId: session.id }, (res) => {
+        if (chrome.runtime.lastError || !res?.ok) {
+          el('auth-error').textContent = res?.error || chrome.runtime.lastError?.message || 'Failed to select session';
+          return;
+        }
+        loadAndRender();
+      });
+    });
+    list.appendChild(item);
+  });
 }
 
 function renderRecommendation(data) {
@@ -191,11 +246,14 @@ function loadAndRender() {
     if (chrome.runtime.lastError || !status) return;
     setStatusDot(status.status);
     updateHuntInfo(status.huntId, status.turnNumber, status.queueLength);
+    renderAuthAndSessions(status);
+    if (status.sessionToken) el('token-input').value = status.sessionToken;
+    if (status.hostUrl) el('host-input').value = status.hostUrl;
   });
 
   chrome.storage.local.get(['sessionToken', 'hostUrl', 'debugMode', 'localSnapshots', 'lastRecommendation', 'lastReconcileResult'], (result) => {
-    if (result.sessionToken) el('token-input').value = result.sessionToken;
-    if (result.hostUrl) el('host-input').value = result.hostUrl;
+    if (!el('token-input').value && result.sessionToken) el('token-input').value = result.sessionToken;
+    if (!el('host-input').value && result.hostUrl) el('host-input').value = result.hostUrl;
 
     debugMode = !!result.debugMode;
     el('debug-toggle').checked = debugMode;
@@ -220,6 +278,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'status_update') setStatusDot(msg.status);
   if (msg.type === 'turn_counter') updateHuntInfo(null, msg.turnNumber, null);
   if (msg.type === 'hunt_id_update') updateHuntInfo(msg.huntId, null, null);
+  if (msg.type === 'extension_state_update') loadAndRender();
   if (msg.type === 'recommendation') {
     renderRecommendation(msg.data);
     lastRecommendation = msg.data;
@@ -241,6 +300,52 @@ el('save-token-btn').addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'set_token', token });
   el('save-token-btn').textContent = 'Saved';
   setTimeout(() => { el('save-token-btn').textContent = 'Save'; }, 1500);
+});
+
+el('login-btn').addEventListener('click', () => {
+  const username = el('login-username').value.trim();
+  const password = el('login-password').value;
+  if (!username || !password) {
+    el('auth-error').textContent = 'Username and password are required.';
+    return;
+  }
+  el('auth-error').textContent = '';
+  chrome.runtime.sendMessage({ type: 'extension_login', username, password }, (res) => {
+    if (chrome.runtime.lastError || !res?.ok) {
+      el('auth-error').textContent = res?.error || chrome.runtime.lastError?.message || 'Login failed';
+      return;
+    }
+    el('login-password').value = '';
+    loadAndRender();
+  });
+});
+
+el('logout-btn').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'extension_logout' }, () => {
+    el('login-password').value = '';
+    loadAndRender();
+  });
+});
+
+el('refresh-sessions-btn').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'refresh_companion_sessions' }, (res) => {
+    if (chrome.runtime.lastError || !res?.ok) {
+      el('auth-error').textContent = res?.error || chrome.runtime.lastError?.message || 'Failed to refresh sessions';
+      return;
+    }
+    loadAndRender();
+  });
+});
+
+el('create-session-btn').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'create_companion_session', label: el('new-session-label').value.trim() || null }, (res) => {
+    if (chrome.runtime.lastError || !res?.ok) {
+      el('auth-error').textContent = res?.error || chrome.runtime.lastError?.message || 'Failed to create session';
+      return;
+    }
+    el('new-session-label').value = '';
+    loadAndRender();
+  });
 });
 
 el('copy-token-btn').addEventListener('click', () => {

@@ -162,6 +162,28 @@
     .open-companion { display: block; text-align: center; color: #a78bfa; font-size: 12px; text-decoration: none; padding: 4px; }
     .open-companion:hover { color: #c4b5fd; }
     .parse-failures { max-height: 80px; overflow-y: auto; font-size: 11px; color: #ef4444; margin-top: 4px; }
+    .auth-user { font-size: 12px; color: #cbd5e1; margin-bottom: 6px; }
+    .session-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .session-item {
+      border: 1px solid #2d3748;
+      background: #161b27;
+      border-radius: 6px;
+      padding: 8px;
+    }
+    .session-item.selected { border-color: #4f46e5; box-shadow: 0 0 0 1px #4f46e550 inset; }
+    .session-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .session-label { font-size: 12px; font-weight: 600; color: #e2e8f0; }
+    .session-meta { font-size: 10px; color: #94a3b8; margin-top: 4px; }
+    .notice {
+      margin-top: 8px;
+      padding: 8px;
+      border-radius: 6px;
+      background: #3b2f16;
+      color: #facc15;
+      border: 1px solid #7c5f10;
+      font-size: 11px;
+      line-height: 1.4;
+    }
     .hidden { display: none; }
     .copy-btn { font-size: 10px; padding: 2px 6px; }
   </style>
@@ -194,6 +216,39 @@
       <div class="hunt-stat-value" id="http-queue">0</div>
     </div>
   </div>
+
+  <section>
+    <div class="section-title">Extension Account</div>
+    <div id="auth-logged-out">
+      <div class="input-row">
+        <input type="text" id="login-username" placeholder="Dashboard username" />
+      </div>
+      <div class="input-row">
+        <input type="password" id="login-password" placeholder="Dashboard password" />
+        <button class="btn btn-primary btn-sm" id="login-btn">Login</button>
+      </div>
+    </div>
+    <div id="auth-logged-in" class="hidden">
+      <div class="auth-user" id="auth-user-label">Signed in</div>
+      <div class="input-row">
+        <button class="btn btn-ghost btn-sm" id="refresh-sessions-btn">Refresh Sessions</button>
+        <button class="btn btn-danger btn-sm" id="logout-btn">Logout</button>
+      </div>
+    </div>
+    <div id="auth-error" class="parse-failures"></div>
+  </section>
+
+  <section>
+    <div class="section-title">My Companion Sessions</div>
+    <div class="input-row">
+      <input type="text" id="new-session-label" placeholder="Optional session label" />
+      <button class="btn btn-primary btn-sm" id="create-session-btn">Create</button>
+    </div>
+    <div id="refresh-required-notice" class="notice hidden">
+      Refresh the open DFK hunt tab before relying on live capture. The extension session changed or the extension was reloaded.
+    </div>
+    <div id="session-list" class="session-list"></div>
+  </section>
 
   <!-- Session Token -->
   <section>
