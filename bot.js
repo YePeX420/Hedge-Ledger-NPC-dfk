@@ -19911,7 +19911,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       });
     } catch (err) {
       console.error('[ExtensionLogin] Error:', err.message);
-      res.status(500).json({ ok: false, error: 'Extension login failed' });
+      res.status(500).json({ ok: false, error: 'Extension login failed', detail: err.message || 'Unknown error' });
     }
   });
 
@@ -19929,7 +19929,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       });
     } catch (err) {
       console.error('[ExtensionSession] Error:', err.message);
-      res.status(500).json({ ok: false, error: 'Failed to load extension session' });
+      res.status(500).json({ ok: false, error: 'Failed to load extension session', detail: err.message || 'Unknown error' });
     }
   });
 
@@ -19952,7 +19952,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       res.json({ ok: true, sessions });
     } catch (err) {
       console.error('[Companion] Session list error:', err.message);
-      res.status(500).json({ ok: false, error: 'Failed to load sessions' });
+      res.status(500).json({ ok: false, error: 'Failed to load sessions', detail: err.message || 'Unknown error' });
     }
   });
 
