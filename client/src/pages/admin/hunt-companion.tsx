@@ -72,6 +72,38 @@ interface SessionData {
   last_seen_at: string;
 }
 
+interface HeroStateRaw {
+  slot?: number;
+  heroId?: string;
+  mainClass?: string;
+  level?: number;
+  currentHp?: number;
+  hp?: number;
+  maxHp?: number;
+  currentMp?: number;
+  mp?: number;
+  maxMp?: number;
+}
+
+interface FirebaseUnit {
+  name: string;
+  hp: number | null;
+  maxHp: number | null;
+  mp: number | null;
+  maxMp: number | null;
+  isDead: boolean;
+}
+
+interface FirebaseTurn {
+  turnId: string;
+  round: number;
+  turn: number;
+  activeSide: number | null;
+  activeSlot: number | null;
+  actionType: string | null;
+  battleLog: string | null;
+}
+
 interface EnemyPrediction {
   enemy: string;
   legalActions: string[];
@@ -504,6 +536,7 @@ export default function HuntCompanion() {
   const [battleBudget, setBattleBudget] = useState<number | null>(null);
   const [latestHuntId, setLatestHuntId] = useState<string | null>(null);
   const [showBattleLog, setShowBattleLog] = useState(false);
+  const [turnCount, setTurnCount] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const turnFeedRef = useRef<HTMLDivElement>(null);
 
@@ -696,34 +729,42 @@ export default function HuntCompanion() {
     const data = sessionStatusQuery.data;
     if (!data) return;
 
-    if (data.turnEvents?.length) {
+    const serverTurnCount = data.turnEvents?.length ?? 0;
+    if (serverTurnCount > 0) {
       setTurnFeed(data.turnEvents.slice(-10));
     }
+    setTurnCount(serverTurnCount);
 
     if (data.latestHuntId) {
       setLatestHuntId(data.latestHuntId);
     }
 
-    // Seed battleState from heroStates if we have heroes but no live state yet
-    if (data.heroStates && !battleState) {
-      const heroes: HeroSnapshot[] = (data.heroStates as any[]).map((h: any, i: number) => ({
+    // Seed battleState from heroStates when:
+    // - no battleState at all yet, OR
+    // - battleState exists but all heroes show 0 current HP despite having maxHp (the /135 display gap)
+    const heroesNeedSeeding = !battleState ||
+      (battleState.heroes.length > 0 && battleState.heroes.every(h => h.currentHp === 0 && h.maxHp > 0));
+
+    if (data.heroStates && heroesNeedSeeding) {
+      const rawStates = data.heroStates as HeroStateRaw[];
+      const heroes: HeroSnapshot[] = rawStates.map((h, i) => ({
         slot: h.slot ?? i,
         heroId: h.heroId || String(i),
         mainClass: h.mainClass || '?',
         level: h.level || 0,
-        currentHp: h.currentHp || h.hp || 0,
-        maxHp: h.maxHp || 0,
-        currentMp: h.currentMp || h.mp || 0,
-        maxMp: h.maxMp || 0,
-        isAlive: (h.currentHp || h.hp || 0) > 0,
+        currentHp: h.currentHp ?? h.hp ?? 0,
+        maxHp: h.maxHp ?? 0,
+        currentMp: h.currentMp ?? h.mp ?? 0,
+        maxMp: h.maxMp ?? 0,
+        isAlive: (h.currentHp ?? h.hp ?? 0) > 0,
       }));
       const enemyId = data.enemyId || null;
-      setBattleState({
-        turnNumber: data.turnEvents?.length || 0,
-        activeHeroSlot: 0,
+      setBattleState(prev => ({
+        turnNumber: prev?.turnNumber ?? serverTurnCount,
+        activeHeroSlot: prev?.activeHeroSlot ?? 0,
         heroes,
-        enemies: enemyId ? [{ enemyId, currentHp: 0, maxHp: 0, debuffs: [] }] : [],
-      });
+        enemies: prev?.enemies?.length ? prev.enemies : (enemyId ? [{ enemyId, currentHp: 0, maxHp: 0, debuffs: [] }] : []),
+      }));
     }
   }, [sessionStatusQuery.data]);
 
@@ -1044,7 +1085,7 @@ export default function HuntCompanion() {
                   <div>Token: <code className="font-mono text-[10px]">{session.session_token.slice(0, 8)}...</code></div>
                   {session.hunt_id && <div>Hunt: {session.hunt_id}</div>}
                   {session.wallet_address && <div className="font-mono">Wallet: {session.wallet_address.slice(0, 6)}...{session.wallet_address.slice(-4)}</div>}
-                  <div>Turns: {turnFeed.length}</div>
+                  <div>Turns: {turnCount}</div>
                 </div>
               </CardContent>
             </Card>
@@ -1106,10 +1147,10 @@ export default function HuntCompanion() {
                               <Shield className="w-3 h-3" /> Heroes
                             </p>
                             <div className="space-y-2">
-                              {Object.values(firebaseLogQuery.data.latestCombatants['0'] || {}).map((unit: any, i: number) => {
-                                const hp = unit.hp ?? null;
-                                const maxHp = unit.maxHp ?? null;
-                                const pct = hp !== null && maxHp && maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : null;
+                              {(Object.values(firebaseLogQuery.data.latestCombatants['0'] || {}) as FirebaseUnit[]).map((unit, i) => {
+                                const hp = unit.hp;
+                                const maxHp = unit.maxHp;
+                                const pct = hp !== null && maxHp !== null && maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : null;
                                 const barColor = unit.isDead ? 'bg-muted-foreground/40' : pct !== null && pct > 60 ? 'bg-green-500' : pct !== null && pct > 30 ? 'bg-yellow-500' : 'bg-red-500';
                                 return (
                                   <div key={i} className={`p-2 rounded-md border space-y-1.5 ${unit.isDead ? 'opacity-50 bg-muted/20' : 'bg-card'}`}>
@@ -1138,10 +1179,10 @@ export default function HuntCompanion() {
                               <Swords className="w-3 h-3" /> Enemies
                             </p>
                             <div className="space-y-2">
-                              {Object.values(firebaseLogQuery.data.latestCombatants['1'] || {}).map((unit: any, i: number) => {
-                                const hp = unit.hp ?? null;
-                                const maxHp = unit.maxHp ?? null;
-                                const pct = hp !== null && maxHp && maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : null;
+                              {(Object.values(firebaseLogQuery.data.latestCombatants['1'] || {}) as FirebaseUnit[]).map((unit, i) => {
+                                const hp = unit.hp;
+                                const maxHp = unit.maxHp;
+                                const pct = hp !== null && maxHp !== null && maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : null;
                                 const barColor = unit.isDead ? 'bg-muted-foreground/40' : pct !== null && pct > 60 ? 'bg-green-500' : pct !== null && pct > 30 ? 'bg-yellow-500' : 'bg-red-500';
                                 return (
                                   <div key={i} className={`p-2 rounded-md border space-y-1.5 ${unit.isDead ? 'opacity-50 bg-muted/20' : 'bg-card'}`}>
@@ -1174,7 +1215,7 @@ export default function HuntCompanion() {
                             Turn Log ({firebaseLogQuery.data.totalTurns} turns)
                           </p>
                           <div className="space-y-1 max-h-[300px] overflow-y-auto" data-testid="firebase-turn-log">
-                            {firebaseLogQuery.data.turns.slice().reverse().map((turn: any) => (
+                            {(firebaseLogQuery.data.turns as FirebaseTurn[]).slice().reverse().map((turn) => (
                               <div key={turn.turnId} className="flex flex-wrap items-start gap-2 p-1.5 rounded bg-muted/15 text-[10px]">
                                 <Badge variant="outline" className="text-[9px] font-mono shrink-0">
                                   R{turn.round} T{turn.turn}

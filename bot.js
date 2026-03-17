@@ -20184,6 +20184,24 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           RETURNING id
         `;
         await rawPg`UPDATE dfk_hunt_sessions SET snapshot_count = snapshot_count + 1, updated_at = NOW() WHERE id = ${huntSessionId}`;
+
+        // HTTP-fallback hero hydration: if fullState carries heroes (state_snapshot sent via HTTP),
+        // seed the in-memory companion session so scoring can run on subsequent turn events.
+        if (fullState.heroes?.length > 0) {
+          const memSnap = companionSessions.get(sessionToken);
+          if (memSnap && !memSnap.heroStates) {
+            memSnap.heroStates = fullState.heroes;
+            console.log(`[Companion HTTP] Seeded heroStates from fullState snapshot for token ${sessionToken?.slice(0, 8)}`);
+          }
+          if (memSnap && !memSnap.enemyId && fullState.enemies?.length > 0) {
+            const rawName = (fullState.enemies[0].name || fullState.enemies[0].enemyId || '').trim().toLowerCase().replace(/\s+/g, '_');
+            if (rawName) {
+              memSnap.enemyId = rawName;
+              console.log(`[Companion HTTP] Seeded enemyId '${rawName}' from fullState snapshot`);
+            }
+          }
+        }
+
         res.json({ ok: true, snapshotId: rows[0]?.id, type: 'turn' });
       } else {
         const { unitName, unitSide, position, heroId, stats, capturedAtTurn } = req.body;
