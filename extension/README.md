@@ -20,7 +20,7 @@ A Chrome extension that captures live DeFi Kingdoms hunt combat state and stream
 2. Click **Create Session** — this generates a session token
 3. Click the Hedge Ledger extension icon in Chrome
 4. Paste your session token into the **Session Token** field and click **Save**
-5. Set the **Backend Host** to your Hedge Ledger URL (e.g. `https://your-app.replit.app`) and click **Set**
+5. Set the **Backend Host** to your Hedge Ledger URL (default: `https://99e8884e-26c1-4bc2-b03b-8d2a99f99522-00-1tjgo05cqvn3q.riker.replit.dev`) and click **Set**
 6. The status dot should turn **blue** (Active) once the connection is established
 
 ---

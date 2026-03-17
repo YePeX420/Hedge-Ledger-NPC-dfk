@@ -5,7 +5,10 @@
  * Stores session token, host URL, and last 100 snapshots in chrome.storage.local.
  */
 
-const DEFAULT_HOST = 'https://hedge-ledger.replit.app';
+const DEFAULT_HOST = 'https://99e8884e-26c1-4bc2-b03b-8d2a99f99522-00-1tjgo05cqvn3q.riker.replit.dev';
+const LEGACY_DEFAULT_HOSTS = new Set([
+  'https://hedge-ledger.replit.app',
+]);
 const DFK_GRAPHQL_ENDPOINT = 'https://api.defikingdoms.com/graphql';
 const WS_PATH = '/ws/companion';
 const HTTP_EVENT_PATH = '/api/dfk/telemetry/event';
@@ -60,6 +63,13 @@ function validateHost(url) {
   if (!url) return false;
   if (!isSecureHost(url)) return false;
   try { new URL(url); return true; } catch (_) { return false; }
+}
+
+function normalizeStoredHost(url) {
+  const candidate = String(url || '').trim().replace(/\/+$/, '');
+  if (!candidate) return DEFAULT_HOST;
+  if (LEGACY_DEFAULT_HOSTS.has(candidate)) return DEFAULT_HOST;
+  return candidate;
 }
 
 function getWsUrl() {
@@ -1016,7 +1026,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots', 'httpQueue', 'extensionAuthToken', 'extensionUser', 'ownedCompanionSessions', 'selectedCompanionSessionId', 'requiresTabRefresh', 'currentHuntId', 'lastRecommendation', 'lastUnitSnapshot', 'lastReconcileResult', 'lastContentReadyAt', 'lastContentReadyUrl', 'lastHuntDetectedAt', 'lastSuccessfulJoinAt', 'backgroundDebugMode', 'recentApiFailures', 'recentServerErrors', 'recentStateTransitions'], (result) => {
   if (result.sessionToken) sessionToken = result.sessionToken;
-  if (result.hostUrl) hostUrl = result.hostUrl;
+  const normalizedHost = normalizeStoredHost(result.hostUrl);
+  if (normalizedHost !== hostUrl) hostUrl = normalizedHost;
   if (result.localSnapshots) localSnapshots = result.localSnapshots;
   if (Array.isArray(result.httpQueue)) httpQueue.push(...result.httpQueue);
   if (result.extensionAuthToken) extensionAuthToken = result.extensionAuthToken;
@@ -1036,6 +1047,9 @@ chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots', 'httpQueu
   if (Array.isArray(result.recentApiFailures)) recentApiFailures = result.recentApiFailures;
   if (Array.isArray(result.recentServerErrors)) recentServerErrors = result.recentServerErrors;
   if (Array.isArray(result.recentStateTransitions)) recentStateTransitions = result.recentStateTransitions;
+  if (normalizedHost !== (result.hostUrl || DEFAULT_HOST)) {
+    chrome.storage.local.set({ hostUrl: normalizedHost });
+  }
   connect();
   if (extensionAuthToken) {
     refreshOwnedSessions({ preserveSelection: true }).catch((err) => {

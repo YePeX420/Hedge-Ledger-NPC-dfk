@@ -475,7 +475,7 @@ el('reconcile-btn').addEventListener('click', () => {
 el('open-companion-link').addEventListener('click', (e) => {
   e.preventDefault();
   chrome.storage.local.get(['hostUrl'], (result) => {
-    const host = result.hostUrl || 'https://your-app.replit.app';
+    const host = result.hostUrl || 'https://99e8884e-26c1-4bc2-b03b-8d2a99f99522-00-1tjgo05cqvn3q.riker.replit.dev';
     const url = `${host.replace(/\/+$/, '')}/admin/hunt-companion`;
     chrome.tabs.create({ url });
   });

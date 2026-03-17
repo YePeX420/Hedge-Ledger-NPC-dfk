@@ -24,7 +24,7 @@
       return 'rest-hunt';
     }
     if (url.includes('ws://') || url.includes('wss://')) {
-      return 'ws-fallback';
+      return 'websocket';
     }
     return 'unknown';
   }
@@ -51,6 +51,7 @@
         entry.transport === 'graphql' ||
         entry.transport === 'rest-combat' ||
         entry.transport === 'rest-hunt' ||
+        entry.transport === 'websocket' ||
         /combat|battle|hunt/i.test(entry.url || '')
       );
 
@@ -167,6 +168,66 @@
     return origXHRSend.call(this, body);
   };
 
+  function normalizeWsPayload(data, callback) {
+    if (typeof data === 'string') {
+      callback(data);
+      return;
+    }
+
+    if (data instanceof Blob && typeof data.text === 'function') {
+      data.text().then(callback).catch(() => {});
+      return;
+    }
+
+    if (data instanceof ArrayBuffer) {
+      try {
+        const decoded = new TextDecoder().decode(data);
+        callback(decoded);
+      } catch (_) {}
+      return;
+    }
+
+    if (ArrayBuffer.isView(data)) {
+      try {
+        const decoded = new TextDecoder().decode(data);
+        callback(decoded);
+      } catch (_) {}
+      return;
+    }
+  }
+
+  const NativeWebSocket = window.WebSocket;
+  if (typeof NativeWebSocket === 'function') {
+    const WrappedWebSocket = function (url, protocols) {
+      const socket = protocols !== undefined
+        ? new NativeWebSocket(url, protocols)
+        : new NativeWebSocket(url);
+
+      socket.addEventListener('message', function (event) {
+        normalizeWsPayload(event.data, function (text) {
+          if (!text) return;
+          addEntry({
+            url: String(url || ''),
+            method: 'WS_MESSAGE',
+            requestBody: null,
+            responseBody: text,
+          });
+        });
+      });
+
+      return socket;
+    };
+
+    WrappedWebSocket.prototype = NativeWebSocket.prototype;
+    Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);
+    WrappedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+    WrappedWebSocket.OPEN = NativeWebSocket.OPEN;
+    WrappedWebSocket.CLOSING = NativeWebSocket.CLOSING;
+    WrappedWebSocket.CLOSED = NativeWebSocket.CLOSED;
+
+    window.WebSocket = WrappedWebSocket;
+  }
+
   window.__dfkRawNetworkLog = log;
 
   window.__dfkNetworkCapture = {
@@ -217,5 +278,5 @@
 
   panelOpen = detectPanelOpen();
 
-  console.log('[DFK NetworkCapture] Installed (fetch + XHR interception active)');
+  console.log('[DFK NetworkCapture] Installed (fetch + XHR + WebSocket interception active)');
 })();
