@@ -231,7 +231,7 @@ async function fetchHeroProfilesViaBackend(heroIds, wallet, huntId) {
     const res = await fetch(`${base}${HUNT_HEROES_PATH}?${params.toString()}`);
     if (!res.ok) return null;
     const json = await res.json();
-    return json.ok ? json.heroes : null;
+    return json.heroes || null;
   } catch (err) {
     console.warn('[HeroProfile] Backend fetch failed:', err.message);
     return null;

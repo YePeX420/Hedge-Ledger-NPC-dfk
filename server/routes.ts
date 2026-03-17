@@ -3616,7 +3616,7 @@ Return a JSON object with:
       }
 
       console.log(`[DFK GraphQL] Returned ${heroes.length} hero profiles`);
-      res.json({ ok: true, heroes });
+      res.json({ heroes });
     } catch (error: any) {
       console.error('[DFK GraphQL] Error fetching heroes:', error);
       res.status(500).json({ ok: false, error: error.message || 'Failed to fetch hero data' });
