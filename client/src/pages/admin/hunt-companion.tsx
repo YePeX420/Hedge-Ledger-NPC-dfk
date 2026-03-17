@@ -1443,13 +1443,18 @@ export default function HuntCompanion() {
                   </div>
                 </div>
 
-                <div className="w-full md:w-auto">
-                  <div className="p-3 rounded-md bg-muted/30 space-y-1 text-xs">
-                    <p className="font-semibold text-muted-foreground uppercase tracking-wide text-[10px]">Session Info</p>
-                    <p>Status: <Badge variant={wsConnected ? 'default' : 'secondary'} className="text-[10px]">{wsConnected ? 'Connected' : session.status}</Badge></p>
-                    <p className="font-mono text-muted-foreground/60">ID: {session.id}</p>
-                    {session.hunt_id && <p>Hunt: {session.hunt_id}</p>}
-                    {session.requires_tab_refresh && <p className="text-amber-300">Refresh the DFK hunt tab to reattach capture.</p>}
+                  <div className="w-full md:w-auto">
+                    <div className="p-3 rounded-md bg-muted/30 space-y-1 text-xs">
+                      <p className="font-semibold text-muted-foreground uppercase tracking-wide text-[10px]">Session Info</p>
+                      <div className="flex items-center gap-1">
+                        <span>Status:</span>
+                        <Badge variant={wsConnected ? 'default' : 'secondary'} className="text-[10px]">
+                          {wsConnected ? 'Connected' : session.status}
+                        </Badge>
+                      </div>
+                      <p className="font-mono text-muted-foreground/60">ID: {session.id}</p>
+                      {session.hunt_id && <p>Hunt: {session.hunt_id}</p>}
+                      {session.requires_tab_refresh && <p className="text-amber-300">Refresh the DFK hunt tab to reattach capture.</p>}
                     {session.wallet_address && <p className="font-mono">Wallet: {session.wallet_address.slice(0, 6)}...{session.wallet_address.slice(-4)}</p>}
                   </div>
                 </div>

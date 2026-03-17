@@ -3685,6 +3685,7 @@ async function initializeEconomicSystem() {
   }
 
   try {
+    const { rawPg } = await import('./server/db.js');
     await rawPg.unsafe(`
       CREATE TABLE IF NOT EXISTS pve_companion_sessions (
         id SERIAL PRIMARY KEY,
