@@ -22137,14 +22137,16 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         } else if (msg.type === 'request_hero_profiles') {
           const huntId = msg.huntId;
           const heroIds = msg.heroIds || [];
-          const wallet = msg.wallet || null;
+          const wallet = msg.wallet || msg.walletAddress || null;
           try {
-            const { fetchHeroesByIds, fetchQuestingHeroesByOwner } = await import('./server/dfk-graphql-client.ts');
+            const { fetchHeroesByIds, fetchQuestingHeroesByOwner, fetchHeroesForHunt } = await import('./server/dfk-graphql-client.ts');
             let heroes = [];
             if (heroIds.length > 0) {
               heroes = await fetchHeroesByIds(heroIds);
             } else if (wallet) {
               heroes = await fetchQuestingHeroesByOwner(wallet);
+            } else if (huntId) {
+              heroes = await fetchHeroesForHunt(huntId);
             }
             if (heroes.length > 0) {
               console.log(`[Companion WS] Sending ${heroes.length} hero profiles for hunt ${huntId}`);
@@ -22170,8 +22172,9 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
               if (firstName) session.enemyId = firstName;
             }
             if (msg.huntId) {
-              await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, wallet_address = ${msg.walletAddress || null}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
-              maybePushHeroProfiles(msg.huntId, msg.walletAddress);
+              const snapshotWallet = msg.wallet || msg.walletAddress || null;
+              await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, wallet_address = ${snapshotWallet}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+              maybePushHeroProfiles(msg.huntId, snapshotWallet);
             }
           }
           ws.send(JSON.stringify({ type: 'snapshot_ack', received: true }));
@@ -22186,10 +22189,9 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
           if (!sessionToken || !sessionId) return;
           const session = companionSessions.get(sessionToken);
           if (session && msg.huntId) {
-            if (msg.huntId) {
-              await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
-            }
-            maybePushHeroProfiles(msg.huntId, msg.walletAddress || null);
+            const huntWallet = msg.wallet || msg.walletAddress || null;
+            await rawPg`UPDATE pve_companion_sessions SET hunt_id = ${msg.huntId}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ${sessionId}`;
+            maybePushHeroProfiles(msg.huntId, huntWallet);
           }
           ws.send(JSON.stringify({ type: 'hunt_ack', huntId: msg.huntId }));
 
@@ -22199,7 +22201,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             return;
           }
           if (msg.huntId) {
-            maybePushHeroProfiles(msg.huntId, msg.walletAddress || null);
+            maybePushHeroProfiles(msg.huntId, msg.wallet || msg.walletAddress || null);
           }
           const { turnNumber, actorSide, actorSlot, skillId, targets, hpState, mpState, effects } = msg;
           await rawPg`INSERT INTO pve_turn_events (session_id, hunt_id, turn_number, actor_side, actor_slot, skill_id, targets, hp_state, mp_state, effects, raw_event)
