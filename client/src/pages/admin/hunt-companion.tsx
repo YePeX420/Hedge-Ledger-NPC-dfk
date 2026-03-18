@@ -123,12 +123,19 @@ interface CombatFrame {
   heroDetail: null | {
     name: string | null;
     level: number | null;
+    iconUrl?: string | null;
     vitals: Record<string, number | null>;
+    baseStats?: Record<string, number | null>;
     stats: Record<string, number | null>;
+    dynamicScores?: Record<string, number | null>;
+    modifiers?: Record<string, number | null>;
     resistances: Record<string, number | null>;
+    traits?: string[];
     passives: string[];
     abilities: string[];
     items: string[];
+    primaryArms?: string[];
+    secondaryArms?: string[];
   };
   captureMeta: {
     source: string;
@@ -575,6 +582,24 @@ function findCombatantByEnemySnapshot(combatFrame: CombatFrame | null, enemy: En
   ) || null;
 }
 
+function findCombatantByActorLabel(
+  combatFrame: CombatFrame | null,
+  actorLabel: string,
+  actorSide: string,
+) {
+  if (!combatFrame) return null;
+  const normalizedActor = normalizeLookupKey(actorLabel);
+  const desiredSide = actorSide === 'hero' || actorSide === 'player' ? 'player' : actorSide === 'enemy' ? 'enemy' : null;
+  return combatFrame.combatants.find((unit) => {
+    if (desiredSide && unit.side !== desiredSide) return false;
+    return (
+      normalizeLookupKey(unit.name) === normalizedActor ||
+      normalizeLookupKey(unit.normalizedId) === normalizedActor ||
+      normalizeLookupKey(unit.unitId) === normalizedActor
+    );
+  }) || null;
+}
+
 function HpBar({ current, max, label, color }: { current: number; max: number; label: string; color: string }) {
   const pct = max > 0 ? Math.round((current / max) * 100) : 0;
   const barColor = pct > 60 ? 'bg-green-500' : pct > 30 ? 'bg-amber-500' : 'bg-red-500';
@@ -624,6 +649,62 @@ function formatStatLabel(key: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function DetailMetricGrid({
+  title,
+  values,
+  emptyLabel,
+}: {
+  title: string;
+  values: Record<string, number | null | undefined>;
+  emptyLabel: string;
+}) {
+  const entries = Object.entries(values || {}).filter(([, value]) => value != null);
+  return (
+    <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        {entries.map(([key, value]) => (
+          <div key={key} className="flex items-center justify-between gap-2 rounded bg-background/40 px-2 py-1">
+            <span className="text-muted-foreground">{formatStatLabel(key)}</span>
+            <span className="font-mono">{String(value)}</span>
+          </div>
+        ))}
+        {entries.length === 0 && (
+          <p className="text-xs text-muted-foreground">{emptyLabel}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailChipGroup({
+  title,
+  names,
+  kind,
+  emptyLabel,
+}: {
+  title: string;
+  names: string[];
+  kind?: 'ability' | 'consumable';
+  emptyLabel: string;
+}) {
+  const uniqueNames = [...new Set((names || []).filter(Boolean))];
+  return (
+    <div>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="flex flex-wrap gap-1">
+        {uniqueNames.map((name) => (
+          <Badge key={name} variant={kind ? 'secondary' : 'outline'} className="text-[10px] inline-flex items-center gap-1">
+            {kind && <CombatAssetChip kind={kind} name={name} size="xs" />}
+            {formatCombatName(name)}
+          </Badge>
+        ))}
+        {uniqueNames.length === 0 && <span className="text-xs text-muted-foreground">{emptyLabel}</span>}
+      </div>
+    </div>
+  );
+}
+
 function CombatantDetailDialog({
   open,
   onOpenChange,
@@ -636,26 +717,34 @@ function CombatantDetailDialog({
   heroDetail: CombatFrame['heroDetail'] | null;
 }) {
   const isMatchingHeroDetail = combatant && heroDetail && heroDetail.name && normalizeLookupKey(heroDetail.name) === normalizeLookupKey(combatant.name);
-  const shownStats = combatant?.stats || {};
-  const shownResistances = (isMatchingHeroDetail ? heroDetail?.resistances : combatant?.resistances) || {};
-  const shownAbilities = isMatchingHeroDetail ? heroDetail?.abilities || [] : [];
-  const shownPassives = isMatchingHeroDetail ? heroDetail?.passives || [] : [];
-  const shownItems = isMatchingHeroDetail ? heroDetail?.items || [] : combatant?.equipment?.items || [];
+  const shownHeroDetail = isMatchingHeroDetail ? heroDetail : null;
+  const shownVitals = shownHeroDetail?.vitals || {};
+  const shownBaseStats = shownHeroDetail?.baseStats || {};
+  const shownStats = shownHeroDetail?.stats || combatant?.stats || {};
+  const shownModifiers = shownHeroDetail?.modifiers || {};
+  const shownDynamicScores = shownHeroDetail?.dynamicScores || {};
+  const shownResistances = shownHeroDetail?.resistances || combatant?.resistances || {};
+  const shownAbilities = shownHeroDetail?.abilities || [];
+  const shownPassives = shownHeroDetail?.passives || [];
+  const shownTraits = shownHeroDetail?.traits || [];
+  const shownItems = shownHeroDetail?.items || combatant?.equipment?.items || [];
+  const shownPrimaryArms = shownHeroDetail?.primaryArms || combatant?.equipment?.primaryArms || [];
+  const shownSecondaryArms = shownHeroDetail?.secondaryArms || combatant?.equipment?.secondaryArms || [];
   const vitalPairs = [
-    ['HP', combatant?.currentHp, combatant?.maxHp],
-    ['MP', combatant?.currentMp, combatant?.maxMp],
+    ['HP', shownVitals.hp ?? combatant?.currentHp, shownVitals.maxHp ?? combatant?.maxHp],
+    ['MP', shownVitals.mp ?? combatant?.currentMp, shownVitals.maxMp ?? combatant?.maxMp],
   ].filter(([, current, max]) => current != null || max != null);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-6xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             {combatant && (
               <CombatAssetChip
                 kind={combatant.side === 'player' ? 'hero' : 'enemy'}
                 name={combatant.name}
-                imageUrl={combatant.iconUrl || null}
+                imageUrl={shownHeroDetail?.iconUrl || combatant.iconUrl || null}
                 size="md"
               />
             )}
@@ -672,10 +761,15 @@ function CombatantDetailDialog({
         {!combatant ? (
           <p className="text-sm text-muted-foreground">No detail available.</p>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr_1fr]">
+            <div className="space-y-4 xl:min-w-0">
               <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Vitals</p>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Current Conditions</p>
+                  {shownHeroDetail?.level != null && (
+                    <Badge variant="outline" className="text-[10px] font-mono">Level {shownHeroDetail.level}</Badge>
+                  )}
+                </div>
                 <div className="space-y-2">
                   {vitalPairs.map(([label, current, max]) => (
                     <HpBar
@@ -687,83 +781,40 @@ function CombatantDetailDialog({
                     />
                   ))}
                 </div>
-                <StatusBadges statuses={combatant.visibleEffects} />
-              </div>
-
-              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Stats</p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {Object.entries(shownStats)
-                    .filter(([, value]) => value != null)
-                    .slice(0, 16)
-                    .map(([key, value]) => (
-                      <div key={key} className="flex items-center justify-between gap-2 rounded bg-background/40 px-2 py-1">
-                        <span className="text-muted-foreground">{formatStatLabel(key)}</span>
-                        <span className="font-mono">{String(value)}</span>
-                      </div>
-                    ))}
-                  {Object.values(shownStats).filter((value) => value != null).length === 0 && (
-                    <p className="text-xs text-muted-foreground">No captured stats.</p>
-                  )}
+                <div className="mt-3">
+                  <StatusBadges statuses={combatant.visibleEffects} />
                 </div>
               </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <DetailChipGroup
+                  title="Primary Arms"
+                  names={shownPrimaryArms}
+                  emptyLabel="No captured primary arms."
+                />
+                <DetailChipGroup
+                  title="Secondary Arms"
+                  names={shownSecondaryArms}
+                  emptyLabel="No captured secondary arms."
+                />
+              </div>
+
+              <DetailMetricGrid title="Vitals" values={shownStats} emptyLabel="No captured vitals/stats." />
             </div>
 
             <div className="space-y-4">
-              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Resistances</p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {Object.entries(shownResistances)
-                    .filter(([, value]) => value != null)
-                    .slice(0, 16)
-                    .map(([key, value]) => (
-                      <div key={key} className="flex items-center justify-between gap-2 rounded bg-background/40 px-2 py-1">
-                        <span className="text-muted-foreground">{formatStatLabel(key)}</span>
-                        <span className="font-mono">{String(value)}</span>
-                      </div>
-                    ))}
-                  {Object.values(shownResistances).filter((value) => value != null).length === 0 && (
-                    <p className="text-xs text-muted-foreground">No captured resistances.</p>
-                  )}
-                </div>
-              </div>
+              <DetailMetricGrid title="Base Stats" values={shownBaseStats} emptyLabel="No captured base stats." />
+              <DetailMetricGrid title="Modifiers" values={shownModifiers} emptyLabel="No captured modifiers." />
+              <DetailMetricGrid title="Dynamic Stat Scores" values={shownDynamicScores} emptyLabel="No captured dynamic scores." />
+            </div>
 
+            <div className="space-y-4">
+              <DetailMetricGrid title="Status Effect Resistance" values={shownResistances} emptyLabel="No captured resistances." />
               <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3 space-y-3">
-                <div>
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Abilities</p>
-                  <div className="flex flex-wrap gap-1">
-                    {shownAbilities.map((name) => (
-                      <Badge key={name} variant="secondary" className="text-[10px] inline-flex items-center gap-1">
-                        <CombatAssetChip kind="ability" name={name} size="xs" />
-                        {formatCombatName(name)}
-                      </Badge>
-                    ))}
-                    {shownAbilities.length === 0 && <span className="text-xs text-muted-foreground">No captured abilities.</span>}
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Passives / Traits</p>
-                  <div className="flex flex-wrap gap-1">
-                    {shownPassives.map((name) => (
-                      <Badge key={name} variant="outline" className="text-[10px]">
-                        {formatCombatName(name)}
-                      </Badge>
-                    ))}
-                    {shownPassives.length === 0 && <span className="text-xs text-muted-foreground">No captured passives.</span>}
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Items</p>
-                  <div className="flex flex-wrap gap-1">
-                    {shownItems.map((name) => (
-                      <Badge key={name} variant="outline" className="text-[10px] inline-flex items-center gap-1">
-                        <CombatAssetChip kind="consumable" name={name} size="xs" />
-                        {formatCombatName(name)}
-                      </Badge>
-                    ))}
-                    {shownItems.length === 0 && <span className="text-xs text-muted-foreground">No captured items.</span>}
-                  </div>
-                </div>
+                <DetailChipGroup title="Traits" names={shownTraits} emptyLabel="No captured traits." />
+                <DetailChipGroup title="Passives" names={shownPassives} emptyLabel="No captured passives." />
+                <DetailChipGroup title="Abilities" names={shownAbilities} kind="ability" emptyLabel="No captured abilities." />
+                <DetailChipGroup title="Items" names={shownItems} kind="consumable" emptyLabel="No captured items." />
               </div>
             </div>
           </div>
@@ -1821,6 +1872,7 @@ export default function HuntCompanion() {
   const hasLiveData = battleState !== null;
 
   return (
+    <>
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto" data-testid="hunt-companion-page">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-2">
@@ -2131,11 +2183,17 @@ export default function HuntCompanion() {
                       ? `Hero ${turn.actorSlot ?? '?'}`
                       : `Enemy ${turn.actorSlot ?? '?'}`;
                     const abilityLabel = turn.ability || turn.skillId;
+                    const actorCombatant = findCombatantByActorLabel(combatFrame, actorLabel, turn.actorSide);
                     return (
                       <div key={i} className="flex flex-wrap items-center gap-1.5 text-[10px] p-1 rounded bg-muted/20">
                         <Badge variant="outline" className="text-[9px] font-mono">T{turn.turnNumber}</Badge>
                         <div className="flex items-center gap-1">
-                          <CombatAssetChip kind={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'hero' : 'enemy'} name={actorLabel} size="xs" />
+                          <CombatAssetChip
+                            kind={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'hero' : 'enemy'}
+                            name={actorLabel}
+                            imageUrl={actorCombatant?.iconUrl || null}
+                            size="xs"
+                          />
                           <span className={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'text-blue-400' : 'text-red-400'}>
                             {formatCombatName(actorLabel)}
                           </span>
@@ -2477,5 +2535,6 @@ export default function HuntCompanion() {
         combatant={inspectedCombatant}
         heroDetail={combatFrame?.heroDetail || null}
       />
+    </>
     );
   }

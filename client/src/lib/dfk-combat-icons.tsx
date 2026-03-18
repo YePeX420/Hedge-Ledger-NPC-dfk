@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
@@ -36,6 +37,23 @@ const DEFAULT_THEME: CombatAssetTheme = {
   bgClass: 'bg-slate-500/15',
   ringClass: 'ring-slate-400/20',
   textClass: 'text-slate-200',
+};
+
+const DFK_ASSET_BASE = 'https://game.defikingdoms.com/assets';
+
+const DFK_ABILITY_IMAGE_MAP: Record<string, string> = {
+  flurry: `${DFK_ASSET_BASE}/ability-icons/archer/flurry.png`,
+  huntersmark: `${DFK_ASSET_BASE}/ability-icons/archer/huntersmark.png`,
+  multishot: `${DFK_ASSET_BASE}/ability-icons/archer/multishot.png`,
+  rapidshot: `${DFK_ASSET_BASE}/ability-icons/archer/rapidshot.png`,
+  repeatingshot: `${DFK_ASSET_BASE}/ability-icons/archer/repeatingshot.png`,
+  blindingwinds: `${DFK_ASSET_BASE}/ability-icons/archer/blindingwinds.png`,
+  deathmark: `${DFK_ASSET_BASE}/ability-icons/archer/deathmark.png`,
+  charm: `${DFK_ASSET_BASE}/ability-icons/boar/charm.png`,
+  grunt: `${DFK_ASSET_BASE}/ability-icons/boar/grunt.png`,
+  headbutt: `${DFK_ASSET_BASE}/ability-icons/boar/headbutt.png`,
+  lilgore: `${DFK_ASSET_BASE}/ability-icons/boar/lilgore.png`,
+  nuzzle: `${DFK_ASSET_BASE}/ability-icons/boar/nuzzle.png`,
 };
 
 function normalizeKey(value: string | null | undefined) {
@@ -126,6 +144,18 @@ function getTheme(kind: CombatAssetKind, name: string, secondary?: string | null
   }
 }
 
+export function resolveCombatAssetImageUrl(
+  kind: CombatAssetKind,
+  name: string,
+  secondaryLabel?: string | null,
+) {
+  const key = normalizeKey(name);
+  if (kind === 'ability') {
+    return DFK_ABILITY_IMAGE_MAP[key] || null;
+  }
+  return null;
+}
+
 export function CombatAssetChip({
   kind,
   name,
@@ -143,6 +173,11 @@ export function CombatAssetChip({
 }) {
   const theme = getTheme(kind, name, secondaryLabel);
   const Icon = theme.icon;
+  const resolvedImageUrl = imageUrl || resolveCombatAssetImageUrl(kind, name, secondaryLabel);
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => {
+    setImageFailed(false);
+  }, [resolvedImageUrl]);
   const sizing = size === 'xs'
     ? 'h-5 w-5 text-[9px]'
     : size === 'md'
@@ -161,8 +196,14 @@ export function CombatAssetChip({
       )}
       title={name}
     >
-      {imageUrl ? (
-        <img src={imageUrl} alt={name} className="h-full w-full object-cover" loading="lazy" />
+      {resolvedImageUrl && !imageFailed ? (
+        <img
+          src={resolvedImageUrl}
+          alt={name}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setImageFailed(true)}
+        />
       ) : (
         <>
           <Icon className={size === 'md' ? 'h-4 w-4' : 'h-3 w-3'} />
@@ -179,4 +220,3 @@ export function formatCombatName(value: string | null | undefined) {
     .replace(/\s+/g, ' ')
     .trim();
 }
-
