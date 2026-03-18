@@ -85,6 +85,8 @@
     url: null,
     transport: null,
   };
+  let lastTurnOrderPrimeAt = 0;
+  let turnOrderPrimeInFlight = false;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -472,6 +474,69 @@
     return modalEntries;
   }
 
+  function isVisible(el) {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function findTurnIndicatorButtons() {
+    return Array.from(document.querySelectorAll('button,[role="button"]'))
+      .filter((el) => {
+        const classText = typeof el.className === 'string' ? el.className : '';
+        return /turnindicator|timeline/i.test(classText);
+      })
+      .filter(isVisible)
+      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  }
+
+  function findVisibleCloseButton() {
+    return Array.from(document.querySelectorAll('button,[role="button"],div,span'))
+      .filter(isVisible)
+      .find((el) => {
+        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        const aria = (el.getAttribute('aria-label') || '').trim();
+        return /^x$/i.test(text) || /close/i.test(aria) || /modalclose|closebutton/i.test(String(el.className || ''));
+      }) || null;
+  }
+
+  function tryAutoPrimeTurnOrder() {
+    if (turnOrderPrimeInFlight) return;
+    if (document.visibilityState === 'hidden') return;
+    if ((Date.now() - lastTurnOrderPrimeAt) < 10000) return;
+    if (readTurnOrderModal().length > 0) return;
+
+    const buttons = findTurnIndicatorButtons();
+    if (buttons.length === 0) return;
+
+    turnOrderPrimeInFlight = true;
+    lastTurnOrderPrimeAt = Date.now();
+    window.__dfkSelectorDiag.turn_order_auto_prime_at = lastTurnOrderPrimeAt;
+    window.__dfkSelectorDiag.turn_order_auto_prime_count = buttons.length;
+
+    try {
+      buttons[0].click();
+    } catch (_) {
+      turnOrderPrimeInFlight = false;
+      return;
+    }
+
+    const captureDelays = [120, 350, 700];
+    captureDelays.forEach((delay) => {
+      window.setTimeout(() => emitSnapshot(), delay);
+    });
+
+    window.setTimeout(() => {
+      const closeBtn = findVisibleCloseButton();
+      if (closeBtn) {
+        try { closeBtn.click(); } catch (_) {}
+      }
+      turnOrderPrimeInFlight = false;
+    }, 1200);
+  }
+
   // ── Snapshot builder ──────────────────────────────────────────────────────
 
   function buildTurnSnapshot() {
@@ -526,6 +591,9 @@
   function emitSnapshot() {
     const snapshot = buildTurnSnapshot();
     window.__dfkEmitEvent('turn_snapshot', snapshot);
+    if ((snapshot.turnOrder || []).length === 0) {
+      tryAutoPrimeTurnOrder();
+    }
     updateDiagStatusLine();
   }
 
