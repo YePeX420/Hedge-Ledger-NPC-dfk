@@ -223,6 +223,20 @@
       : [];
   }
 
+  function normalizeHeroId(value) {
+    return String(value || '').trim();
+  }
+
+  function getOrderedHeroProfiles() {
+    return getHeroProfiles()
+      .map((profile, index) => ({ ...profile, _index: index }))
+      .sort((a, b) => {
+        const aSlot = Number.isFinite(Number(a.slot)) ? Number(a.slot) : a._index;
+        const bSlot = Number.isFinite(Number(b.slot)) ? Number(b.slot) : b._index;
+        return aSlot - bSlot;
+      });
+  }
+
   function turnOrderCaptureKey() {
     const huntKey = currentHuntKey();
     return huntKey ? `dfk_turn_order_captured:${huntKey}` : null;
@@ -897,13 +911,13 @@
   function resolveStripPlayerIdentity(heroImgUrl, ordinal) {
     const match = String(heroImgUrl || '').match(/\/image\/[^/]+\/(\d+)(?:[/?#]|$)/i);
     const heroId = match ? match[1] : null;
-    const profiles = getHeroProfiles();
+    const profiles = getOrderedHeroProfiles();
     const profile = heroId
       ? profiles.find((candidate) =>
-          String(candidate.heroId || candidate.id || candidate.normalizedId || '') === heroId)
-      : null;
+          normalizeHeroId(candidate.heroId || candidate.id || candidate.normalizedId || '') === heroId)
+      : (profiles[ordinal] || null);
     const name = normalizeText(profile?.unitName || profile?.name || profile?.displayName || '');
-    const slot = profile?.slot != null ? Number(profile.slot) : null;
+    const slot = profile?.slot != null ? Number(profile.slot) : ordinal;
     return {
       unitId: `player:${slot == null ? 'na' : slot}:${normalizedName(name || heroId || `player_${ordinal}`)}`,
       name: name || `Hero ${ordinal + 1}`,
@@ -911,6 +925,9 @@
       slot,
       ticksUntilTurn: null,
       ordinal,
+      heroId: profile?.heroId ? String(profile.heroId) : heroId,
+      heroClass: profile?.mainClass || null,
+      level: profile?.level != null ? Number(profile.level) : null,
     };
   }
 
@@ -935,6 +952,9 @@
       slot,
       ticksUntilTurn: null,
       ordinal,
+      heroId: null,
+      heroClass: null,
+      level: null,
     };
   }
 

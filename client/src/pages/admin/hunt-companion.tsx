@@ -141,7 +141,7 @@ interface CombatFrame {
     visibleLockouts: Record<string, number | null>;
     battleBudgetRemaining: number | null;
   };
-  turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; ordinal: number }>;
+  turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; ordinal: number; heroId?: string | null; heroClass?: string | null; level?: number | null }>;
   battleLogEntries: Array<{ turnNumber: number; actorName: string | null; ability: string | null; outcomes: string[]; rawText?: string | null }>;
   heroDetail: HeroDetailData | null;
   captureMeta: {
@@ -494,6 +494,22 @@ function formatEnemyDisplayName(enemyId: string | null | undefined): string {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
+}
+
+function formatCombatantTurnLabel({
+  name,
+  heroClass,
+  level,
+}: {
+  name: string;
+  heroClass?: string | null;
+  level?: number | null;
+}) {
+  const displayName = formatCombatName(name);
+  const suffix: string[] = [];
+  if (heroClass) suffix.push(heroClass);
+  if (level != null) suffix.push(`Lvl ${level}`);
+  return suffix.length ? `${displayName} (${suffix.join(' - ')})` : displayName;
 }
 
 function normalizeLookupKey(value: string | null | undefined): string {
@@ -978,7 +994,6 @@ function CombatantStatusCard({
       className={cn(
         'rounded-md border border-muted-foreground/10 p-3 transition-colors',
         isHero ? 'bg-muted/20' : 'bg-muted/10',
-        isActive && 'ring-1 ring-emerald-400/50 bg-emerald-500/10',
         combatant.isAlive === false && 'opacity-60',
       )}
     >
@@ -1234,7 +1249,13 @@ function TurnOrderPanel({ combatFrame, avgPartyLevel }: { combatFrame: CombatFra
                   size="xs"
                 />
                 <div className="min-w-0">
-                  <span className={cn('truncate block', row.side === 'player' ? 'text-blue-400' : 'text-red-400')}>{formatCombatName(row.name)}</span>
+                  <span className={cn('truncate block', row.side === 'player' ? 'text-blue-400' : 'text-red-400')}>
+                    {formatCombatantTurnLabel({
+                      name: row.name,
+                      heroClass: row.heroClass || combatant?.heroClass || null,
+                      level: row.level ?? null,
+                    })}
+                  </span>
                   {calculated && (
                     <span className="block text-[10px] text-muted-foreground">
                       calc init {calculated.startingInitiative.min.toFixed(1)}-{calculated.startingInitiative.max.toFixed(1)}
@@ -1242,7 +1263,7 @@ function TurnOrderPanel({ combatFrame, avgPartyLevel }: { combatFrame: CombatFra
                   )}
                 </div>
               </div>
-              <span className="font-mono">{row.ticksUntilTurn ?? 'n/a'}</span>
+              <span className="font-mono">{row.ticksUntilTurn != null ? row.ticksUntilTurn : 'order only'}</span>
             </div>
           )})}
         </div>
