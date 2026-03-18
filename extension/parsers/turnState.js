@@ -217,6 +217,12 @@
     return match ? match[1] : null;
   }
 
+  function getHeroProfiles() {
+    return (typeof window !== 'undefined' && Array.isArray(window.__dfkHeroProfiles))
+      ? window.__dfkHeroProfiles
+      : [];
+  }
+
   function turnOrderCaptureKey() {
     const huntKey = currentHuntKey();
     return huntKey ? `dfk_turn_order_captured:${huntKey}` : null;
@@ -827,19 +833,11 @@
   }
 
   function readTurnOrderModal() {
-    function isVisible(el) {
-      if (!el) return false;
-      const style = window.getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-      const rect = el.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
-    }
-
     function buildEntry(name, ticksUntilTurn, ordinal) {
       const side = /boar|enemy|monster|clucker|rocboc|wolf/i.test(name) ? 'enemy' : 'player';
       const slotMatch = name.match(/(\d+)$/);
       return {
-        unitId: `${side}:${slotMatch ? slotMatch[1] : 'na'}:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
+        unitId: `${side}:${slotMatch ? slotMatch[1] : 'na'}:${normalizedName(name)}`,
         name,
         side,
         slot: slotMatch ? parseInt(slotMatch[1], 10) : null,
@@ -896,6 +894,98 @@
       .slice(0, 12);
   }
 
+  function resolveStripPlayerIdentity(heroImgUrl, ordinal) {
+    const match = String(heroImgUrl || '').match(/\/image\/[^/]+\/(\d+)(?:[/?#]|$)/i);
+    const heroId = match ? match[1] : null;
+    const profiles = getHeroProfiles();
+    const profile = heroId
+      ? profiles.find((candidate) =>
+          String(candidate.heroId || candidate.id || candidate.normalizedId || '') === heroId)
+      : null;
+    const name = normalizeText(profile?.unitName || profile?.name || profile?.displayName || '');
+    const slot = profile?.slot != null ? Number(profile.slot) : null;
+    return {
+      unitId: `player:${slot == null ? 'na' : slot}:${normalizedName(name || heroId || `player_${ordinal}`)}`,
+      name: name || `Hero ${ordinal + 1}`,
+      side: 'player',
+      slot,
+      ticksUntilTurn: null,
+      ordinal,
+    };
+  }
+
+  function resolveStripEnemyIdentity(enemyImgs, ordinal) {
+    const urls = Array.isArray(enemyImgs) ? enemyImgs.map((value) => String(value || '')) : [];
+    const url = urls.find((value) => /\/assets\/avatars\//i.test(value)) || '';
+    let name = `Enemy ${ordinal + 1}`;
+    let slot = null;
+    if (/baby_boar_portrait_2/i.test(url)) {
+      name = 'Baby Boar 2';
+      slot = 2;
+    } else if (/baby_boar_portrait/i.test(url)) {
+      name = 'Baby Boar 1';
+      slot = 1;
+    } else if (/mama_boar_portrait/i.test(url)) {
+      name = 'Big Boar';
+    }
+    return {
+      unitId: `enemy:${slot == null ? 'na' : slot}:${normalizedName(name)}`,
+      name,
+      side: 'enemy',
+      slot,
+      ticksUntilTurn: null,
+      ordinal,
+    };
+  }
+
+  function readTurnOrderStrip() {
+    const buttons = findTurnIndicatorButtons();
+    const rows = buttons.map((btn, ordinal) => {
+      const heroImg = btn.querySelector('div.hero-img img')?.getAttribute('src') || null;
+      const enemyImgs = Array.from(btn.querySelectorAll('._enemyContainer_hjm7j_177 img')).map((img) => img.getAttribute('src'));
+      if (heroImg) return resolveStripPlayerIdentity(heroImg, ordinal);
+      if (enemyImgs.length > 0) return resolveStripEnemyIdentity(enemyImgs, ordinal);
+      return null;
+    }).filter(Boolean);
+
+    return rows.filter((entry, index, arr) =>
+      arr.findIndex((other) => other.unitId === entry.unitId && other.ordinal === entry.ordinal) === index,
+    );
+  }
+
+  function mergeTurnOrderEntries(baseEntries, detailEntries) {
+    const base = Array.isArray(baseEntries) ? baseEntries : [];
+    const detail = Array.isArray(detailEntries) ? detailEntries : [];
+    if (base.length === 0) return detail.slice(0, 12);
+    if (detail.length === 0) return base.slice(0, 12);
+
+    const usedDetailIndexes = new Set();
+    const merged = base.map((baseEntry, index) => {
+      const byUnitId = detail.findIndex((candidate, detailIndex) =>
+        !usedDetailIndexes.has(detailIndex) && candidate.unitId === baseEntry.unitId);
+      const byName = byUnitId >= 0 ? byUnitId : detail.findIndex((candidate, detailIndex) =>
+        !usedDetailIndexes.has(detailIndex) &&
+        normalizedName(candidate.name) === normalizedName(baseEntry.name));
+      const byOrdinal = byName >= 0 ? byName : detail.findIndex((candidate, detailIndex) =>
+        !usedDetailIndexes.has(detailIndex) && candidate.ordinal === index);
+      const matchIndex = byOrdinal;
+      if (matchIndex < 0) return baseEntry;
+      usedDetailIndexes.add(matchIndex);
+      const match = detail[matchIndex];
+      return {
+        ...baseEntry,
+        unitId: match.unitId || baseEntry.unitId,
+        name: match.name || baseEntry.name,
+        side: match.side || baseEntry.side,
+        slot: match.slot != null ? match.slot : baseEntry.slot,
+        ticksUntilTurn: match.ticksUntilTurn != null ? match.ticksUntilTurn : baseEntry.ticksUntilTurn,
+      };
+    });
+
+    const remaining = detail.filter((_, index) => !usedDetailIndexes.has(index));
+    return [...merged, ...remaining].slice(0, 12).map((entry, ordinal) => ({ ...entry, ordinal }));
+  }
+
   function readTurnOrder() {
     const recentNetworkEntries = Array.isArray(latestNetworkTurnOrder.entries) ? latestNetworkTurnOrder.entries : [];
     const networkIsFresh = recentNetworkEntries.length > 0 && (Date.now() - (latestNetworkTurnOrder.capturedAt || 0)) < 30000;
@@ -906,10 +996,18 @@
       return recentNetworkEntries.slice(0, 12);
     }
 
+    const stripEntries = readTurnOrderStrip();
     const modalEntries = readTurnOrderModal();
-    window.__dfkSelectorDiag.turn_order_source = modalEntries.length > 0 ? 'modal' : 'none';
+    const mergedEntries = mergeTurnOrderEntries(stripEntries, modalEntries);
+    window.__dfkSelectorDiag.turn_order_source =
+      modalEntries.length > 0 && stripEntries.length > 0 ? 'strip+modal'
+      : modalEntries.length > 0 ? 'modal'
+      : stripEntries.length > 0 ? 'strip'
+      : 'none';
+    window.__dfkSelectorDiag.turn_order_strip_count = stripEntries.length;
+    window.__dfkSelectorDiag.turn_order_modal_count = modalEntries.length;
     if (modalEntries.length > 0) markTurnOrderCapturedForHunt();
-    return modalEntries;
+    return mergedEntries;
   }
 
   function isVisible(el) {
@@ -1052,7 +1150,8 @@
   function emitSnapshot() {
     const snapshot = buildTurnSnapshot();
     window.__dfkEmitEvent('turn_snapshot', snapshot);
-    if ((snapshot.turnOrder || []).length === 0) {
+    const hasTurnOrderTicks = (snapshot.turnOrder || []).some((entry) => entry.ticksUntilTurn != null);
+    if (!hasTurnOrderTicks) {
       tryAutoPrimeTurnOrder();
     }
     updateDiagStatusLine();
