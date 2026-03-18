@@ -65,6 +65,93 @@ console.log('[DFK StatPanel] Script file loaded');
     return null;
   }
 
+  function normalizeText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function extractImageUrl(el) {
+    if (!el) return null;
+    if (el.tagName === 'IMG') {
+      const src = el.currentSrc || el.src || el.getAttribute('src');
+      return src ? String(src) : null;
+    }
+    const nestedImg = el.querySelector?.('img');
+    if (nestedImg) {
+      const src = nestedImg.currentSrc || nestedImg.src || nestedImg.getAttribute('src');
+      if (src) return String(src);
+    }
+    const scanNodes = [el, ...(el.querySelectorAll ? Array.from(el.querySelectorAll('*')).slice(0, 8) : [])];
+    for (const node of scanNodes) {
+      try {
+        const bg = window.getComputedStyle(node).backgroundImage || '';
+        const match = bg.match(/url\((['"]?)(.*?)\1\)/i);
+        if (match?.[2] && !/^data:/i.test(match[2])) return match[2];
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  function labelFromAssetUrl(url) {
+    if (!url) return '';
+    try {
+      const cleanUrl = String(url).split('#')[0].split('?')[0];
+      const parts = cleanUrl.split('/').filter(Boolean);
+      const file = (parts[parts.length - 1] || '').replace(/\.(png|jpg|jpeg|webp|gif|svg)$/i, '');
+      return normalizeText(file.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' '));
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function parsePercentOrNumber(str) {
+    if (!str) return null;
+    const match = String(str).replace(/,/g, '').match(/(-?\d+(?:\.\d+)?)(%?)/);
+    if (!match) return null;
+    return parseFloat(match[1]);
+  }
+
+  function sectionSlice(rawText, heading, nextHeadings) {
+    const lower = rawText.toLowerCase();
+    const start = lower.indexOf(String(heading || '').toLowerCase());
+    if (start === -1) return '';
+    const after = rawText.slice(start + String(heading).length);
+    let end = after.length;
+    nextHeadings.forEach((next) => {
+      const idx = after.toLowerCase().indexOf(String(next).toLowerCase());
+      if (idx !== -1 && idx < end) end = idx;
+    });
+    return after.slice(0, end);
+  }
+
+  function parseSectionPairs(sectionText, labels) {
+    const output = {};
+    labels.forEach((label) => {
+      const regex = new RegExp(`${label.replace(/\s+/g, '\\s+')}\\s+(-?\\d+(?:\\.\\d+)?%?)`, 'i');
+      const match = sectionText.match(regex);
+      if (match) {
+        output[label.replace(/\s+/g, '_')] = parsePercentOrNumber(match[1]);
+      }
+    });
+    return output;
+  }
+
+  function collectAssetLabels(panelEl, predicate) {
+    const values = [];
+    panelEl.querySelectorAll('img,[style*="background-image"]').forEach((el) => {
+      const url = extractImageUrl(el);
+      if (!url || !predicate(url, el)) return;
+      const label = normalizeText(
+        el.getAttribute?.('alt') ||
+        el.getAttribute?.('title') ||
+        el.getAttribute?.('aria-label') ||
+        el.getAttribute?.('data-name') ||
+        labelFromAssetUrl(url)
+      );
+      if (label) values.push(label);
+    });
+    return uniqueStrings(values);
+  }
+
   function uniqueStrings(values) {
     return [...new Set((values || []).map(v => (v || '').trim()).filter(Boolean))];
   }
@@ -111,11 +198,17 @@ console.log('[DFK StatPanel] Script file loaded');
       panelSelector: selector,
       stats: {},
       baseStats: {},
+      modifiers: {},
+      dynamicScores: {},
+      resistances: {},
       buffs: [],
       debuffs: [],
       traits: [],
       abilities: [],
       items: [],
+      primaryArms: [],
+      secondaryArms: [],
+      iconUrl: null,
       heroDetail: null,
       parseConfidence: 0,
     };
@@ -126,6 +219,14 @@ console.log('[DFK StatPanel] Script file loaded');
     if (unitNameEl) {
       snapshot.unitName = unitNameEl.textContent.trim();
       if (debugMode) debugMeta.unitName = { source: unitNameEl.className, value: snapshot.unitName };
+    }
+
+    const portraitImg = Array.from(panelEl.querySelectorAll('img,[style*="background-image"]'))
+      .map((el) => extractImageUrl(el))
+      .find((url) => url && !/ability-icons|traits|class-icons|hero-frame|item|equipment/i.test(url));
+    if (portraitImg) {
+      snapshot.iconUrl = portraitImg;
+      if (debugMode) debugMeta.iconUrl = { source: 'portrait-scan', value: portraitImg };
     }
 
     const sideAttr = panelEl.getAttribute('data-side') || panelEl.getAttribute('data-unit-side');
@@ -239,6 +340,48 @@ console.log('[DFK StatPanel] Script file loaded');
       if (name && name.length < 60) snapshot.items.push(name);
     });
 
+    snapshot.abilities = uniqueStrings(snapshot.abilities.concat(collectAssetLabels(panelEl, (url) => /ability-icons/i.test(url))));
+    snapshot.traits = uniqueStrings(snapshot.traits.concat(collectAssetLabels(panelEl, (url) => /traits/i.test(url))));
+    snapshot.items = uniqueStrings(snapshot.items.concat(collectAssetLabels(panelEl, (url) => /item|consum|potion|philter/i.test(url))));
+
+    const allHeadings = [
+      'current conditions',
+      'primary arms',
+      'secondary arms',
+      'vitals',
+      'base stats',
+      'modifiers',
+      'dynamic stat scores',
+      'status effect resistance',
+      'traits',
+      'abilities',
+      'items',
+      'level',
+    ];
+    const baseStatsSection = sectionSlice(rawText, 'base stats', allHeadings);
+    const modifiersSection = sectionSlice(rawText, 'modifiers', allHeadings);
+    const dynamicScoresSection = sectionSlice(rawText, 'dynamic stat scores', allHeadings);
+    const resistancesSection = sectionSlice(rawText, 'status effect resistance', allHeadings);
+    const primaryArmsSection = sectionSlice(rawText, 'primary arms', allHeadings);
+    const secondaryArmsSection = sectionSlice(rawText, 'secondary arms', allHeadings);
+
+    Object.assign(snapshot.baseStats, parseSectionPairs(baseStatsSection, ['str', 'agi', 'end', 'wis', 'dex', 'vit', 'int', 'lck']));
+    Object.assign(snapshot.modifiers, parseSectionPairs(modifiersSection, ['pdm', 'mdm', 'ret', 'prc', 'rip', 'bfr', 'lsp', 'mcp']));
+    Object.assign(snapshot.dynamicScores, parseSectionPairs(dynamicScoresSection, ['str', 'agi', 'end', 'wis', 'dex', 'vit', 'int', 'lck']));
+    Object.assign(snapshot.resistances, parseSectionPairs(resistancesSection, [
+      'banish', 'berserk', 'bleed', 'blind', 'poison', 'pull', 'push', 'silence', 'sleep', 'slow', 'stun', 'taunt',
+      'fear', 'intimidate', 'mana burn', 'negate', 'burn', 'confuse', 'daze', 'disarm', 'ethereal', 'exhaust', 'chill'
+    ]));
+
+    snapshot.primaryArms = uniqueStrings(snapshot.primaryArms.concat(collectAssetLabels(panelEl, (url, el) => {
+      const context = normalizeText(el.closest('div')?.textContent || '');
+      return /primary arms/i.test(context) || /weapon|arms/i.test(primaryArmsSection) && /item|equipment|weapon/i.test(url);
+    })));
+    snapshot.secondaryArms = uniqueStrings(snapshot.secondaryArms.concat(collectAssetLabels(panelEl, (url, el) => {
+      const context = normalizeText(el.closest('div')?.textContent || '');
+      return /secondary arms/i.test(context) || /weapon|arms/i.test(secondaryArmsSection) && /item|equipment|weapon/i.test(url);
+    })));
+
     const titleText = rawText.toLowerCase();
     const likelyHeroDetail = titleText.includes('current conditions') ||
       titleText.includes('base stats') ||
@@ -249,33 +392,28 @@ console.log('[DFK StatPanel] Script file loaded');
       const traitTexts = collectLabeledValues(panelEl, ['trait', 'traits']);
       const passiveTexts = uniqueStrings(snapshot.abilities.filter(name => /passive/i.test(name)).concat(collectLabeledValues(panelEl, ['passive'])));
       const abilityTexts = uniqueStrings(snapshot.abilities.concat(collectLabeledValues(panelEl, ['abilities'])));
-      const statusResistances = {};
-      [
-        'banish', 'berserk', 'bleed', 'blind', 'poison', 'pull', 'push', 'silence', 'sleep', 'slow', 'stun', 'taunt',
-        'fear', 'intimidate', 'mana burn', 'negate', 'burn', 'confuse', 'daze', 'disarm', 'ethereal', 'exhaust', 'chill'
-      ].forEach((label) => {
-        const regex = new RegExp(`${label}\\s+(\\d+(?:\\.\\d+)?)%`, 'i');
-        const match = rawText.match(regex);
-        if (match) statusResistances[label.replace(/\s+/g, '_')] = parseFloat(match[1]);
-      });
 
       snapshot.heroDetail = {
         name: snapshot.unitName || null,
         level: snapshot.level || null,
+        iconUrl: snapshot.iconUrl || null,
         vitals: {
           hp: snapshot.stats.hp ?? null,
           maxHp: snapshot.stats.maxHp ?? null,
           mp: snapshot.stats.mp ?? null,
           maxMp: snapshot.stats.maxMp ?? null,
         },
+        baseStats: { ...snapshot.baseStats },
         stats: { ...snapshot.baseStats, ...snapshot.stats },
-        dynamicScores: {},
-        modifiers: {},
-        resistances: statusResistances,
-        traits: traitTexts,
+        dynamicScores: { ...snapshot.dynamicScores },
+        modifiers: { ...snapshot.modifiers },
+        resistances: { ...snapshot.resistances },
+        traits: uniqueStrings(snapshot.traits.concat(traitTexts)),
         passives: passiveTexts,
         abilities: abilityTexts,
         items: uniqueStrings(snapshot.items),
+        primaryArms: [...snapshot.primaryArms],
+        secondaryArms: [...snapshot.secondaryArms],
       };
     }
 
@@ -285,8 +423,12 @@ console.log('[DFK StatPanel] Script file loaded');
     snapshot.abilities = uniqueStrings(snapshot.abilities);
     snapshot.items = uniqueStrings(snapshot.items);
 
-    const filledStats = Object.keys(snapshot.stats).length + Object.keys(snapshot.baseStats).length;
-    snapshot.parseConfidence = Math.min(1.0, filledStats / 12);
+    const filledStats = Object.keys(snapshot.stats).length +
+      Object.keys(snapshot.baseStats).length +
+      Object.keys(snapshot.modifiers).length +
+      Object.keys(snapshot.dynamicScores).length +
+      Object.keys(snapshot.resistances).length;
+    snapshot.parseConfidence = Math.min(1.0, filledStats / 24);
 
     snapshot.fieldConfidence = {};
     for (const [key, val] of Object.entries(snapshot.stats)) {

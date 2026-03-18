@@ -4,11 +4,12 @@ import {
   Swords, Loader2, Copy, Check, Wifi, WifiOff, Heart, Zap,
   Shield, ChevronDown, ChevronUp, Bot, Sparkles, Target,
   Skull, Activity, Radio, Brain, FlaskConical, Lock, Unlock,
-  AlertTriangle, TrendingUp, Eye, Play, Pause, ScrollText, RefreshCw,
+  AlertTriangle, TrendingUp, Eye, Play, Pause, ScrollText, RefreshCw, Info,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { apiRequest } from '@/lib/queryClient';
 import { CombatAssetChip, formatCombatName } from '@/lib/dfk-combat-icons';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,8 @@ interface EnemySnapshot {
   currentHp: number;
   maxHp: number;
   currentMp?: number | null;
+  maxMp?: number | null;
+  isDead?: boolean;
   debuffs: string[];
   buffs?: string[];
   statuses?: Array<{ id: string; name: string; category: string; stacks: number | null; durationTurns: number | null }>;
@@ -550,6 +553,28 @@ function getSyncIssues(firebaseState: FirebaseBattleState | undefined, domAction
   return issues;
 }
 
+function findCombatantByHeroSnapshot(combatFrame: CombatFrame | null, hero: HeroSnapshot) {
+  if (!combatFrame) return null;
+  return combatFrame.combatants.find((unit) =>
+    unit.side === 'player' && (
+      unit.slot === hero.slot ||
+      normalizeLookupKey(unit.name) === normalizeLookupKey(hero.mainClass) ||
+      normalizeLookupKey(unit.name) === normalizeLookupKey(hero.heroId)
+    )
+  ) || null;
+}
+
+function findCombatantByEnemySnapshot(combatFrame: CombatFrame | null, enemy: EnemySnapshot) {
+  if (!combatFrame) return null;
+  const displayName = formatEnemyDisplayName(enemy.enemyId);
+  return combatFrame.combatants.find((unit) =>
+    unit.side === 'enemy' && (
+      normalizeLookupKey(unit.name) === normalizeLookupKey(displayName) ||
+      normalizeLookupKey(unit.normalizedId) === normalizeLookupKey(enemy.enemyId)
+    )
+  ) || null;
+}
+
 function HpBar({ current, max, label, color }: { current: number; max: number; label: string; color: string }) {
   const pct = max > 0 ? Math.round((current / max) * 100) : 0;
   const barColor = pct > 60 ? 'bg-green-500' : pct > 30 ? 'bg-amber-500' : 'bg-red-500';
@@ -582,26 +607,313 @@ function StatusBadges({ statuses }: { statuses: StatusInstance[] | undefined }) 
   );
 }
 
-function ActiveTurnPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
+function parseUnitIdParts(unitId: string | null | undefined) {
+  const raw = String(unitId || '');
+  if (!raw) return { side: null, slot: null, key: null };
+  const [side, slot, ...rest] = raw.split(':');
+  return {
+    side: side || null,
+    slot: slot && slot !== 'na' ? Number(slot) : null,
+    key: rest.join(':') || null,
+  };
+}
+
+function formatStatLabel(key: string) {
+  return String(key || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function CombatantDetailDialog({
+  open,
+  onOpenChange,
+  combatant,
+  heroDetail,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  combatant: CombatFrame['combatants'][number] | null;
+  heroDetail: CombatFrame['heroDetail'] | null;
+}) {
+  const isMatchingHeroDetail = combatant && heroDetail && heroDetail.name && normalizeLookupKey(heroDetail.name) === normalizeLookupKey(combatant.name);
+  const shownStats = combatant?.stats || {};
+  const shownResistances = (isMatchingHeroDetail ? heroDetail?.resistances : combatant?.resistances) || {};
+  const shownAbilities = isMatchingHeroDetail ? heroDetail?.abilities || [] : [];
+  const shownPassives = isMatchingHeroDetail ? heroDetail?.passives || [] : [];
+  const shownItems = isMatchingHeroDetail ? heroDetail?.items || [] : combatant?.equipment?.items || [];
+  const vitalPairs = [
+    ['HP', combatant?.currentHp, combatant?.maxHp],
+    ['MP', combatant?.currentMp, combatant?.maxMp],
+  ].filter(([, current, max]) => current != null || max != null);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            {combatant && (
+              <CombatAssetChip
+                kind={combatant.side === 'player' ? 'hero' : 'enemy'}
+                name={combatant.name}
+                imageUrl={combatant.iconUrl || null}
+                size="md"
+              />
+            )}
+            <span>{combatant ? formatCombatName(combatant.name) : 'Combatant details'}</span>
+          </DialogTitle>
+          <DialogDescription>
+            {combatant
+              ? isMatchingHeroDetail
+                ? 'Captured from the live hunt panel and latest hero detail modal.'
+                : 'Captured from the current live combat frame.'
+              : 'No combatant selected.'}
+          </DialogDescription>
+        </DialogHeader>
+        {!combatant ? (
+          <p className="text-sm text-muted-foreground">No detail available.</p>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-4">
+              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Vitals</p>
+                <div className="space-y-2">
+                  {vitalPairs.map(([label, current, max]) => (
+                    <HpBar
+                      key={String(label)}
+                      current={Number(current ?? 0)}
+                      max={Number(max ?? current ?? 0)}
+                      label={String(label)}
+                      color={label === 'HP' ? 'bg-green-500' : 'bg-blue-500'}
+                    />
+                  ))}
+                </div>
+                <StatusBadges statuses={combatant.visibleEffects} />
+              </div>
+
+              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Stats</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {Object.entries(shownStats)
+                    .filter(([, value]) => value != null)
+                    .slice(0, 16)
+                    .map(([key, value]) => (
+                      <div key={key} className="flex items-center justify-between gap-2 rounded bg-background/40 px-2 py-1">
+                        <span className="text-muted-foreground">{formatStatLabel(key)}</span>
+                        <span className="font-mono">{String(value)}</span>
+                      </div>
+                    ))}
+                  {Object.values(shownStats).filter((value) => value != null).length === 0 && (
+                    <p className="text-xs text-muted-foreground">No captured stats.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Resistances</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {Object.entries(shownResistances)
+                    .filter(([, value]) => value != null)
+                    .slice(0, 16)
+                    .map(([key, value]) => (
+                      <div key={key} className="flex items-center justify-between gap-2 rounded bg-background/40 px-2 py-1">
+                        <span className="text-muted-foreground">{formatStatLabel(key)}</span>
+                        <span className="font-mono">{String(value)}</span>
+                      </div>
+                    ))}
+                  {Object.values(shownResistances).filter((value) => value != null).length === 0 && (
+                    <p className="text-xs text-muted-foreground">No captured resistances.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3 space-y-3">
+                <div>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Abilities</p>
+                  <div className="flex flex-wrap gap-1">
+                    {shownAbilities.map((name) => (
+                      <Badge key={name} variant="secondary" className="text-[10px] inline-flex items-center gap-1">
+                        <CombatAssetChip kind="ability" name={name} size="xs" />
+                        {formatCombatName(name)}
+                      </Badge>
+                    ))}
+                    {shownAbilities.length === 0 && <span className="text-xs text-muted-foreground">No captured abilities.</span>}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Passives / Traits</p>
+                  <div className="flex flex-wrap gap-1">
+                    {shownPassives.map((name) => (
+                      <Badge key={name} variant="outline" className="text-[10px]">
+                        {formatCombatName(name)}
+                      </Badge>
+                    ))}
+                    {shownPassives.length === 0 && <span className="text-xs text-muted-foreground">No captured passives.</span>}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Items</p>
+                  <div className="flex flex-wrap gap-1">
+                    {shownItems.map((name) => (
+                      <Badge key={name} variant="outline" className="text-[10px] inline-flex items-center gap-1">
+                        <CombatAssetChip kind="consumable" name={name} size="xs" />
+                        {formatCombatName(name)}
+                      </Badge>
+                    ))}
+                    {shownItems.length === 0 && <span className="text-xs text-muted-foreground">No captured items.</span>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CombatantStatusCard({
+  combatant,
+  kind,
+  isActive,
+  onInspect,
+}: {
+  combatant: {
+    name: string;
+    iconUrl?: string | null;
+    currentHp: number;
+    maxHp: number;
+    currentMp?: number | null;
+    maxMp?: number | null;
+    isAlive?: boolean;
+    statuses?: StatusInstance[];
+  };
+  kind: 'hero' | 'enemy';
+  isActive?: boolean;
+  onInspect?: () => void;
+}) {
+  const isHero = kind === 'hero';
+  return (
+    <div
+      className={cn(
+        'rounded-md border border-muted-foreground/10 p-3 transition-colors',
+        isHero ? 'bg-muted/20' : 'bg-muted/10',
+        isActive && 'ring-1 ring-emerald-400/50 bg-emerald-500/10',
+        combatant.isAlive === false && 'opacity-60',
+      )}
+    >
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <CombatAssetChip kind={kind} name={combatant.name} imageUrl={combatant.iconUrl || null} size="md" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{formatCombatName(combatant.name)}</p>
+            <div className="flex flex-wrap items-center gap-1">
+              {isActive && (
+                <Badge className="animate-pulse bg-emerald-500 text-[10px] text-black hover:bg-emerald-500">
+                  <Activity className="mr-1 h-3 w-3" /> Active Turn
+                </Badge>
+              )}
+              {combatant.isAlive === false && <Badge variant="destructive" className="text-[10px]">KO</Badge>}
+            </div>
+          </div>
+        </div>
+        {onInspect && (
+          <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={onInspect}>
+            <Info className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+      <HpBar current={combatant.currentHp} max={combatant.maxHp} label="HP" color={isHero ? 'bg-green-500' : 'bg-red-500'} />
+      {combatant.currentMp != null && combatant.maxMp != null && combatant.maxMp > 0 && (
+        <div className="mt-2">
+          <HpBar current={combatant.currentMp} max={combatant.maxMp} label="MP" color="bg-blue-500" />
+        </div>
+      )}
+      <StatusBadges statuses={combatant.statuses} />
+    </div>
+  );
+}
+
+function ActiveTurnPanel({
+  combatFrame,
+  onInspectCombatant,
+}: {
+  combatFrame: CombatFrame | null;
+  onInspectCombatant: (unitId: string | null) => void;
+}) {
   const actions = combatFrame?.activeTurn.legalActions || [];
   const consumables = combatFrame?.activeTurn.legalConsumables || [];
+  const activeCombatant = combatFrame?.combatants.find((unit) => unit.unitId === combatFrame.activeTurn.activeUnitId)
+    || (combatFrame?.activeTurn.activeUnitId ? null : null);
+  const selectedTarget = combatFrame?.combatants.find((unit) => unit.unitId === combatFrame.activeTurn.selectedTargetId) || null;
+  const activeLabel = activeCombatant?.name || parseUnitIdParts(combatFrame?.activeTurn.activeUnitId).key || null;
   return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Active Turn</p>
-        {!combatFrame ? (
-          <p className="text-xs text-muted-foreground text-center py-4">Waiting for combat frame...</p>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <div>Unit: <span className="font-mono">{combatFrame.activeTurn.activeUnitId || 'Unknown'}</span></div>
-              <div>Budget: <span className="font-mono">{combatFrame.activeTurn.battleBudgetRemaining ?? 'n/a'}</span></div>
-              <div>Selected: <span className="font-mono">{combatFrame.activeTurn.selectedTargetId || 'None'}</span></div>
-              <div>Source: <span className="font-mono">{combatFrame.captureMeta.source}</span></div>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Legal Actions</p>
-              <div className="flex flex-wrap gap-1">
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Active Turn</p>
+            {combatFrame?.activeTurn.activeSide === 'player' && (
+              <Badge className="animate-pulse bg-emerald-500 text-[10px] text-black hover:bg-emerald-500">
+                <Activity className="mr-1 h-3 w-3" /> Your Turn
+              </Badge>
+            )}
+          </div>
+          {!combatFrame ? (
+            <p className="text-xs text-muted-foreground text-center py-4">Waiting for combat frame...</p>
+          ) : (
+            <>
+              <div className={cn(
+                'rounded-md border p-3',
+                combatFrame.activeTurn.activeSide === 'player'
+                  ? 'border-emerald-400/40 bg-emerald-500/10'
+                  : 'border-muted-foreground/10 bg-muted/10',
+              )}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <CombatAssetChip
+                      kind={activeCombatant?.side === 'enemy' ? 'enemy' : 'hero'}
+                      name={activeCombatant?.name || activeLabel || 'Unknown'}
+                      imageUrl={activeCombatant?.iconUrl || null}
+                      size="md"
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{formatCombatName(activeCombatant?.name || activeLabel || 'Unknown')}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {combatFrame.activeTurn.activeSide === 'player' ? 'Player action window' : 'Observed from live DOM'}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => onInspectCombatant(combatFrame.activeTurn.activeUnitId)}
+                  >
+                    <Info className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div>Budget: <span className="font-mono">{combatFrame.activeTurn.battleBudgetRemaining ?? 'n/a'}</span></div>
+                <div>Source: <span className="font-mono">{combatFrame.captureMeta.source}</span></div>
+                <div className="col-span-2">
+                  Selected:
+                  <span className="ml-1 inline-flex items-center gap-1">
+                    {selectedTarget ? (
+                      <>
+                        <CombatAssetChip kind={selectedTarget.side === 'enemy' ? 'enemy' : 'hero'} name={selectedTarget.name} imageUrl={selectedTarget.iconUrl || null} size="xs" />
+                        <span>{formatCombatName(selectedTarget.name)}</span>
+                      </>
+                    ) : (
+                      <span className="font-mono">None</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Legal Actions</p>
+                <div className="flex flex-wrap gap-1">
                 {actions.map((action) => (
                   <Badge key={`${action.type}-${action.name}`} variant={action.available ? 'default' : 'secondary'} className="text-[9px] inline-flex items-center gap-1">
                     <CombatAssetChip kind="ability" name={action.name} imageUrl={action.iconUrl} size="xs" />
@@ -1109,6 +1421,7 @@ export default function HuntCompanion() {
   const [latestHuntId, setLatestHuntId] = useState<string | null>(null);
   const [showBattleLog, setShowBattleLog] = useState(false);
   const [turnCount, setTurnCount] = useState(0);
+  const [inspectedCombatantId, setInspectedCombatantId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const turnFeedRef = useRef<HTMLDivElement>(null);
 
@@ -1474,6 +1787,7 @@ export default function HuntCompanion() {
   const recommendationReady = enemyPredictionReady &&
     syncIssues.length === 0 &&
     !!battleState?.enemies?.length;
+  const inspectedCombatant = combatFrame?.combatants.find((unit) => unit.unitId === inspectedCombatantId) || null;
 
   useEffect(() => {
     if (domActionState.battleBudgetRemaining != null) {
@@ -1747,27 +2061,22 @@ export default function HuntCompanion() {
                 </p>
                 <div className="space-y-3">
                   {battleState.heroes.map((hero) => (
-                    <div key={hero.slot} className={`p-2 rounded-md ${hero.isAlive ? 'bg-muted/20' : 'bg-red-500/10'}`} data-testid={`hero-status-${hero.slot}`}>
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <CombatAssetChip kind="hero" name={hero.heroId || `hero_${hero.slot}`} secondaryLabel={hero.mainClass} imageUrl={hero.iconUrl} size="md" />
-                          <span className="text-xs font-medium truncate">
-                            {hero.mainClass || `Hero`} #{hero.heroId?.slice(-4) || hero.slot}
-                          </span>
-                        </div>
-                        {!hero.isAlive && <Badge variant="destructive" className="text-[10px]">KO</Badge>}
-                        {hero.slot === battleState.activeHeroSlot && (
-                          <Badge variant="default" className="text-[10px]">
-                            <Activity className="w-3 h-3 mr-0.5" /> Active
-                          </Badge>
-                        )}
-                      </div>
-                      <HpBar current={hero.currentHp} max={hero.maxHp} label="HP" color="bg-green-500" />
-                      <div className="mt-1">
-                        <HpBar current={hero.currentMp} max={hero.maxMp} label="MP" color="bg-blue-500" />
-                      </div>
-                      <StatusBadges statuses={hero.statuses} />
-                    </div>
+                    <CombatantStatusCard
+                      key={hero.slot}
+                      combatant={{
+                        name: hero.mainClass || hero.heroId || `Hero ${hero.slot}`,
+                        iconUrl: hero.iconUrl || findCombatantByHeroSnapshot(combatFrame, hero)?.iconUrl || null,
+                        currentHp: hero.currentHp,
+                        maxHp: hero.maxHp,
+                        currentMp: hero.currentMp,
+                        maxMp: hero.maxMp,
+                        isAlive: hero.isAlive,
+                        statuses: hero.statuses,
+                      }}
+                      kind="hero"
+                      isActive={hero.slot === battleState.activeHeroSlot}
+                      onInspect={() => setInspectedCombatantId(findCombatantByHeroSnapshot(combatFrame, hero)?.unitId || null)}
+                    />
                   ))}
                 </div>
               </CardContent>
@@ -1777,20 +2086,31 @@ export default function HuntCompanion() {
               <Card>
                 <CardContent className="p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-1">
-                    <Skull className="w-3.5 h-3.5" /> Enemy
+                    <Skull className="w-3.5 h-3.5" /> Enemy Status
                   </p>
-                  {battleState.enemies.map((enemy, i) => (
-                    <div key={i} className="space-y-2" data-testid={`enemy-status-${i}`}>
-                      <div className="flex items-center gap-2">
-                        <CombatAssetChip kind="enemy" name={enemy.enemyId} imageUrl={enemy.iconUrl} size="md" />
-                        <span className="text-sm font-medium">
-                          {formatCombatName(enemy.enemyId)}
-                        </span>
-                      </div>
-                      <HpBar current={enemy.currentHp} max={enemy.maxHp} label="HP" color="bg-red-500" />
-                      <StatusBadges statuses={enemy.statuses || (enemy.debuffs || []).map((d) => ({ id: d, name: d, category: 'debuff', stacks: null, durationTurns: null }))} />
-                    </div>
-                  ))}
+                  <div className="space-y-3">
+                    {battleState.enemies.map((enemy, i) => {
+                      const matchedEnemy = findCombatantByEnemySnapshot(combatFrame, enemy);
+                      return (
+                        <CombatantStatusCard
+                          key={i}
+                          combatant={{
+                            name: formatEnemyDisplayName(enemy.enemyId),
+                            iconUrl: enemy.iconUrl || matchedEnemy?.iconUrl || null,
+                            currentHp: enemy.currentHp,
+                            maxHp: enemy.maxHp,
+                            currentMp: enemy.currentMp ?? null,
+                            maxMp: enemy.maxMp ?? null,
+                            isAlive: !enemy.isDead && enemy.currentHp > 0,
+                            statuses: enemy.statuses || (enemy.debuffs || []).map((d) => ({ id: d, name: d, category: 'debuff', stacks: null, durationTurns: null })),
+                          }}
+                          kind="enemy"
+                          isActive={matchedEnemy?.unitId != null && combatFrame?.activeTurn.activeUnitId === matchedEnemy.unitId}
+                          onInspect={() => setInspectedCombatantId(matchedEnemy?.unitId || null)}
+                        />
+                      );
+                    })}
+                  </div>
                 </CardContent>
               </Card>
             )}
@@ -1883,9 +2203,9 @@ export default function HuntCompanion() {
                 prediction={enemyPredictionReady ? enemyPrediction : null}
                 battleBudget={battleBudget}
               />
-              <ActiveTurnPanel combatFrame={combatFrame} />
-              <TurnOrderPanel combatFrame={combatFrame} />
-            </div>
+                <ActiveTurnPanel combatFrame={combatFrame} onInspectCombatant={setInspectedCombatantId} />
+                <TurnOrderPanel combatFrame={combatFrame} />
+              </div>
 
             {syncIssues.length > 0 && (
               <Card>
@@ -2147,7 +2467,15 @@ export default function HuntCompanion() {
             </CardContent>
           </Card>
         </div>
-      )}
-    </div>
-  );
-}
+        )}
+      </div>
+      <CombatantDetailDialog
+        open={!!inspectedCombatantId}
+        onOpenChange={(open) => {
+          if (!open) setInspectedCombatantId(null);
+        }}
+        combatant={inspectedCombatant}
+        heroDetail={combatFrame?.heroDetail || null}
+      />
+    );
+  }
