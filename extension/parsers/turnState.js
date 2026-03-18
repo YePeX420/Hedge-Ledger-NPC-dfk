@@ -88,6 +88,7 @@
   let lastTurnOrderPrimeAt = 0;
   let turnOrderPrimeInFlight = false;
   let lastCommandPanelDebug = null;
+  const ENABLE_TURN_ORDER_AUTO_PRIME = false;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -682,6 +683,10 @@
   }
 
   function tryAutoPrimeTurnOrder() {
+    if (!ENABLE_TURN_ORDER_AUTO_PRIME) {
+      window.__dfkSelectorDiag.turn_order_auto_prime_disabled = true;
+      return;
+    }
     if (turnOrderPrimeInFlight) return;
     if (document.visibilityState === 'hidden') return;
     if ((Date.now() - lastTurnOrderPrimeAt) < 10000) return;

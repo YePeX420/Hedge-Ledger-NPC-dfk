@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { apiRequest } from '@/lib/queryClient';
+import { CombatAssetChip, formatCombatName } from '@/lib/dfk-combat-icons';
+import { cn } from '@/lib/utils';
 
 interface HeroSnapshot {
   slot: number;
@@ -565,8 +567,9 @@ function StatusBadges({ statuses }: { statuses: StatusInstance[] | undefined }) 
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {statuses.map((status) => (
-        <Badge key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}`} variant="secondary" className="text-[9px]">
-          {status.name}
+        <Badge key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}`} variant="secondary" className="text-[9px] inline-flex items-center gap-1">
+          <CombatAssetChip kind="status" name={status.name} size="xs" />
+          {formatCombatName(status.name)}
           {status.stacks ? ` x${status.stacks}` : ''}
           {status.durationTurns ? ` ${status.durationTurns}t` : ''}
         </Badge>
@@ -596,8 +599,9 @@ function ActiveTurnPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Legal Actions</p>
               <div className="flex flex-wrap gap-1">
                 {actions.map((action) => (
-                  <Badge key={`${action.type}-${action.name}`} variant={action.available ? 'default' : 'secondary'} className="text-[9px]">
-                    {action.name}
+                  <Badge key={`${action.type}-${action.name}`} variant={action.available ? 'default' : 'secondary'} className="text-[9px] inline-flex items-center gap-1">
+                    <CombatAssetChip kind="ability" name={action.name} size="xs" />
+                    {formatCombatName(action.name)}
                   </Badge>
                 ))}
                 {actions.length === 0 && <span className="text-xs text-muted-foreground">No actions parsed</span>}
@@ -607,7 +611,10 @@ function ActiveTurnPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Consumables</p>
               <div className="flex flex-wrap gap-1">
                 {consumables.map((item) => (
-                  <Badge key={item.name} variant={item.available ? 'outline' : 'secondary'} className="text-[9px]">{item.name}</Badge>
+                  <Badge key={item.name} variant={item.available ? 'outline' : 'secondary'} className="text-[9px] inline-flex items-center gap-1">
+                    <CombatAssetChip kind="consumable" name={item.name} size="xs" />
+                    {formatCombatName(item.name)}
+                  </Badge>
                 ))}
                 {consumables.length === 0 && <span className="text-xs text-muted-foreground">No consumables visible</span>}
               </div>
@@ -629,7 +636,10 @@ function TurnOrderPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
           {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
           {rows.map((row) => (
             <div key={`${row.unitId}-${row.ordinal}`} className="flex items-center justify-between gap-2 text-[11px] p-2 rounded bg-muted/20">
-              <span className={row.side === 'player' ? 'text-blue-400' : 'text-red-400'}>{row.name}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <CombatAssetChip kind={row.side === 'player' ? 'hero' : 'enemy'} name={row.name} size="xs" />
+                <span className={cn('truncate', row.side === 'player' ? 'text-blue-400' : 'text-red-400')}>{formatCombatName(row.name)}</span>
+              </div>
               <span className="font-mono">{row.ticksUntilTurn ?? 'n/a'}</span>
             </div>
           ))}
@@ -746,7 +756,10 @@ function EnemyIntelligencePanel({
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {predictedEnemy.source === 'turn_order' ? 'Next Acting Enemy' : 'Prediction Target'}
                 </p>
-                <p className="text-sm font-semibold">{predictedEnemy.displayName}</p>
+                <div className="flex items-center gap-2">
+                  <CombatAssetChip kind="enemy" name={predictedEnemy.displayName} size="md" />
+                  <p className="text-sm font-semibold">{formatCombatName(predictedEnemy.displayName)}</p>
+                </div>
               </div>
               {predictedEnemy.ticksUntilTurn !== null && (
                 <Badge variant="outline" className="text-[10px] font-mono">
@@ -771,7 +784,8 @@ function EnemyIntelligencePanel({
         {topAction && (
           <div className="p-3 rounded-md bg-muted/20 border border-muted-foreground/10 mb-3" data-testid="prediction-top-action">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-sm font-semibold">{topAction[0]}</span>
+              <CombatAssetChip kind="ability" name={topAction[0]} size="sm" />
+              <span className="text-sm font-semibold">{formatCombatName(topAction[0])}</span>
               <span className={`text-xs font-mono ${confidenceColor}`}>
                 {Math.round(topAction[1] * 100)}%
               </span>
@@ -787,11 +801,12 @@ function EnemyIntelligencePanel({
               <Badge
                 key={a.name}
                 variant={a.available ? 'default' : 'secondary'}
-                className="text-[9px]"
+                className="text-[9px] inline-flex items-center gap-1"
                 data-testid={`ability-${a.name.replace(/\s+/g, '-').toLowerCase()}`}
               >
+                <CombatAssetChip kind="ability" name={a.name} size="xs" />
                 {a.available ? <Unlock className="w-2.5 h-2.5 mr-0.5" /> : <Lock className="w-2.5 h-2.5 mr-0.5" />}
-                {a.name}
+                {formatCombatName(a.name)}
               </Badge>
             ))}
           </div>
@@ -913,7 +928,8 @@ function ConsumableStrategyPanel({ prediction, battleBudget }: {
             {consumables.map((c) => (
               <div key={c.name} className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-md bg-muted/20 border border-muted-foreground/10">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium">{c.name}</span>
+                  <CombatAssetChip kind="consumable" name={c.name} size="sm" />
+                  <span className="text-xs font-medium">{formatCombatName(c.name)}</span>
                   <Badge variant="secondary" className="text-[9px]">Cost: {c.cost}</Badge>
                 </div>
                 <Badge variant={c.available ? 'default' : 'secondary'} className="text-[9px]">
@@ -1724,9 +1740,12 @@ export default function HuntCompanion() {
                   {battleState.heroes.map((hero) => (
                     <div key={hero.slot} className={`p-2 rounded-md ${hero.isAlive ? 'bg-muted/20' : 'bg-red-500/10'}`} data-testid={`hero-status-${hero.slot}`}>
                       <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <span className="text-xs font-medium">
-                          {hero.mainClass || `Hero`} #{hero.heroId?.slice(-4) || hero.slot}
-                        </span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <CombatAssetChip kind="hero" name={hero.heroId || `hero_${hero.slot}`} secondaryLabel={hero.mainClass} size="md" />
+                          <span className="text-xs font-medium truncate">
+                            {hero.mainClass || `Hero`} #{hero.heroId?.slice(-4) || hero.slot}
+                          </span>
+                        </div>
                         {!hero.isAlive && <Badge variant="destructive" className="text-[10px]">KO</Badge>}
                         {hero.slot === battleState.activeHeroSlot && (
                           <Badge variant="default" className="text-[10px]">
@@ -1753,9 +1772,12 @@ export default function HuntCompanion() {
                   </p>
                   {battleState.enemies.map((enemy, i) => (
                     <div key={i} className="space-y-2" data-testid={`enemy-status-${i}`}>
-                      <span className="text-sm font-medium">
-                        {enemy.enemyId.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <CombatAssetChip kind="enemy" name={enemy.enemyId} size="md" />
+                        <span className="text-sm font-medium">
+                          {formatCombatName(enemy.enemyId)}
+                        </span>
+                      </div>
                       <HpBar current={enemy.currentHp} max={enemy.maxHp} label="HP" color="bg-red-500" />
                       <StatusBadges statuses={enemy.statuses || (enemy.debuffs || []).map((d) => ({ id: d, name: d, category: 'debuff', stacks: null, durationTurns: null }))} />
                     </div>
@@ -1783,10 +1805,18 @@ export default function HuntCompanion() {
                     return (
                       <div key={i} className="flex flex-wrap items-center gap-1.5 text-[10px] p-1 rounded bg-muted/20">
                         <Badge variant="outline" className="text-[9px] font-mono">T{turn.turnNumber}</Badge>
-                        <span className={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'text-blue-400' : 'text-red-400'}>
-                          {actorLabel}
-                        </span>
-                        {abilityLabel && <span className="text-muted-foreground">{abilityLabel}</span>}
+                        <div className="flex items-center gap-1">
+                          <CombatAssetChip kind={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'hero' : 'enemy'} name={actorLabel} size="xs" />
+                          <span className={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'text-blue-400' : 'text-red-400'}>
+                            {formatCombatName(actorLabel)}
+                          </span>
+                        </div>
+                        {abilityLabel && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <CombatAssetChip kind="ability" name={abilityLabel} size="xs" />
+                            {formatCombatName(abilityLabel)}
+                          </span>
+                        )}
                         {turn.targets?.map((t, j) => (
                           <span key={j} className={t.damage > 0 ? 'text-red-400' : t.damage < 0 ? 'text-green-400' : 'text-muted-foreground'}>
                             {t.damage > 0 ? `-${t.damage}` : t.damage < 0 ? `+${Math.abs(t.damage)}` : '0'}
