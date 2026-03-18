@@ -220,10 +220,6 @@
 
     WrappedWebSocket.prototype = NativeWebSocket.prototype;
     Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);
-    WrappedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
-    WrappedWebSocket.OPEN = NativeWebSocket.OPEN;
-    WrappedWebSocket.CLOSING = NativeWebSocket.CLOSING;
-    WrappedWebSocket.CLOSED = NativeWebSocket.CLOSED;
 
     window.WebSocket = WrappedWebSocket;
   }
