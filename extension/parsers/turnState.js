@@ -846,6 +846,41 @@
     return list;
   }
 
+  function readEnemyStatusEffects() {
+    const effectMap = {};
+    document.querySelectorAll('.enemy-content-item').forEach((card) => {
+      if (!isVisible(card)) return;
+      const name = normalizeText(card.querySelector('.enemy-name')?.textContent || inferUnitNameFromContext(card));
+      const key = normalizedName(name);
+      if (!key) return;
+      const effects = Array.from(card.querySelectorAll('._statusEffectTooltip_1gdgx_82')).map((tooltip, index) => {
+        const img = tooltip.querySelector('img');
+        const iconUrl = img ? extractImageUrl(img) : null;
+        const rawName = normalizeText(
+          img?.getAttribute('alt') ||
+          img?.getAttribute('title') ||
+          img?.getAttribute('aria-label') ||
+          labelFromAssetUrl(iconUrl) ||
+          `effect_${index + 1}`
+        );
+        if (!rawName && !iconUrl) return null;
+        const countText = normalizeText(tooltip.textContent || '');
+        const stacks = /^\d+$/.test(countText) ? parseInt(countText, 10) : null;
+        return {
+          id: normalizedName(rawName || `effect_${index + 1}`),
+          name: rawName || `Effect ${index + 1}`,
+          category: 'status',
+          stacks,
+          durationTurns: stacks,
+          iconUrl,
+          sourceText: countText || null,
+        };
+      }).filter(Boolean);
+      if (effects.length > 0) effectMap[key] = effects;
+    });
+    return effectMap;
+  }
+
   function readTurnOrderModal() {
     function buildEntry(name, ticksUntilTurn, ordinal) {
       const side = /boar|enemy|monster|clucker|rocboc|wolf/i.test(name) ? 'enemy' : 'player';
@@ -1151,6 +1186,14 @@
     const selectedTarget = readSelectedTarget();
     const battleBudgetRemaining = readBattleBudget(commandPanel);
     const legalConsumables = readConsumables(commandPanel);
+    const enemyEffectsByName = readEnemyStatusEffects();
+
+    enemies.forEach((enemy) => {
+      const effects = enemyEffectsByName[normalizedName(enemy.name)] || [];
+      enemy.buffs = effects;
+      enemy.debuffs = [];
+      enemy.visibleEffects = effects;
+    });
 
     currentTurnState = {
       ...currentTurnState,

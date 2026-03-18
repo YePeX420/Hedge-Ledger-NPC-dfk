@@ -650,6 +650,53 @@ function findCombatantByEnemySnapshot(combatFrame: CombatFrame | null, enemy: En
   ) || null;
 }
 
+function derivePlayerTurnDisplayRows(combatFrame: CombatFrame | null) {
+  const rows = (combatFrame?.turnOrder || []).filter((row) => row.side === 'player');
+  const unique: typeof rows = [];
+  const seen = new Set<string>();
+  rows.forEach((row) => {
+    const key = row.heroId || row.iconUrl || row.unitId || row.name;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    unique.push(row);
+  });
+  return unique;
+}
+
+function resolveHeroDisplayFallback(
+  combatFrame: CombatFrame | null,
+  hero: HeroSnapshot,
+) {
+  const matched = findCombatantByHeroSnapshot(combatFrame, hero);
+  if (matched?.iconUrl) return matched;
+  const fallbackRow = derivePlayerTurnDisplayRows(combatFrame)[hero.slot] || null;
+  if (!fallbackRow) return matched || null;
+  return {
+    unitId: fallbackRow.unitId,
+    side: 'player' as const,
+    slot: hero.slot,
+    name: hero.mainClass || fallbackRow.name,
+    normalizedId: '',
+    iconUrl: fallbackRow.iconUrl || null,
+    heroClass: fallbackRow.heroClass || matched?.heroClass || null,
+    heroId: fallbackRow.heroId || hero.heroId || matched?.heroId || null,
+    currentHp: hero.currentHp,
+    maxHp: hero.maxHp,
+    currentMp: hero.currentMp,
+    maxMp: hero.maxMp,
+    isAlive: hero.isAlive,
+    statuses: [],
+    buffs: [],
+    debuffs: [],
+    visibleEffects: [],
+    equipment: { primaryArms: [], secondaryArms: [], items: [] },
+    stats: {},
+    resistances: {},
+    heroDetail: matched?.heroDetail || null,
+    sourceConfidence: matched?.sourceConfidence || 0.4,
+  };
+}
+
 function findCombatantByActorLabel(
   combatFrame: CombatFrame | null,
   actorLabel: string,
@@ -1101,6 +1148,10 @@ function ActiveTurnPanel({
   const consumables = combatFrame?.activeTurn.legalConsumables || [];
   const activeCombatant = combatFrame?.combatants.find((unit) => unit.unitId === combatFrame.activeTurn.activeUnitId)
     || (combatFrame?.activeTurn.activeUnitId ? null : null);
+  const activeFallbackRow =
+    activeCombatant?.side === 'player' && activeCombatant.slot != null
+      ? derivePlayerTurnDisplayRows(combatFrame)[activeCombatant.slot] || null
+      : null;
   const selectedTarget = combatFrame?.combatants.find((unit) => unit.unitId === combatFrame.activeTurn.selectedTargetId) || null;
   const activeLabel = activeCombatant?.name || parseUnitIdParts(combatFrame?.activeTurn.activeUnitId).key || null;
   const groupedActions = {
@@ -1152,9 +1203,9 @@ function ActiveTurnPanel({
                     <CombatAssetChip
                       kind={activeCombatant?.side === 'enemy' ? 'enemy' : 'hero'}
                       name={activeCombatant?.name || activeLabel || 'Unknown'}
-                      secondaryLabel={activeCombatant?.heroClass || null}
-                      heroId={activeCombatant?.heroId || null}
-                      imageUrl={activeCombatant?.iconUrl || null}
+                      secondaryLabel={activeCombatant?.heroClass || activeFallbackRow?.heroClass || null}
+                      heroId={activeCombatant?.heroId || activeFallbackRow?.heroId || null}
+                      imageUrl={activeCombatant?.iconUrl || activeFallbackRow?.iconUrl || null}
                       size="md"
                     />
                     <div className="min-w-0">
@@ -1227,16 +1278,26 @@ function ActiveTurnPanel({
   );
 }
 
-function TurnOrderPanel({ combatFrame, avgPartyLevel }: { combatFrame: CombatFrame | null; avgPartyLevel: number }) {
+function TurnOrderPanel({
+  combatFrame,
+  avgPartyLevel,
+  heroes,
+}: {
+  combatFrame: CombatFrame | null;
+  avgPartyLevel: number;
+  heroes: HeroSnapshot[];
+}) {
   const rows = combatFrame?.turnOrder || [];
+  let playerRowIndex = 0;
   return (
-    <Card>
-      <CardContent className="p-4">
+    <Card className="h-full">
+      <CardContent className="p-4 h-full flex flex-col">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Turn Order</p>
-        <div className="space-y-1 h-[340px] overflow-y-auto pr-1">
+        <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
           {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
           {rows.map((row) => {
             const combatant = combatFrame?.combatants.find((unit) => unit.unitId === row.unitId) || null;
+            const fallbackHero = row.side === 'player' ? (heroes[playerRowIndex++] || null) : null;
             const calculated = computeCalculatedCombatSnapshot(
               combatant?.heroDetail?.baseStats || combatant?.stats || null,
               avgPartyLevel,
@@ -1246,18 +1307,18 @@ function TurnOrderPanel({ combatFrame, avgPartyLevel }: { combatFrame: CombatFra
               <div className="flex items-center gap-2 min-w-0">
                 <CombatAssetChip
                   kind={row.side === 'player' ? 'hero' : 'enemy'}
-                  name={row.name}
-                  secondaryLabel={combatant?.heroClass || null}
-                  heroId={row.heroId || combatant?.heroId || null}
-                  imageUrl={row.iconUrl || combatant?.iconUrl || null}
+                  name={fallbackHero?.mainClass || row.name}
+                  secondaryLabel={row.heroClass || fallbackHero?.mainClass || combatant?.heroClass || null}
+                  heroId={row.heroId || fallbackHero?.heroId || combatant?.heroId || null}
+                  imageUrl={row.iconUrl || combatant?.iconUrl || fallbackHero?.iconUrl || null}
                   size="xs"
                 />
                 <div className="min-w-0">
                   <span className={cn('truncate block', row.side === 'player' ? 'text-blue-400' : 'text-red-400')}>
                     {formatCombatantTurnLabel({
-                      name: row.name,
+                      name: fallbackHero?.mainClass || row.name,
                       heroClass: row.heroClass || combatant?.heroClass || null,
-                      level: row.level ?? combatant?.heroDetail?.level ?? null,
+                      level: row.level ?? fallbackHero?.level ?? combatant?.heroDetail?.level ?? null,
                     })}
                   </span>
                   {calculated && (
@@ -2412,26 +2473,29 @@ export default function HuntCompanion() {
                   <Shield className="w-3.5 h-3.5" /> Party Status
                 </p>
                 <div className="space-y-3">
-                  {battleState.heroes.map((hero) => (
-                    <CombatantStatusCard
-                      key={hero.slot}
-                      combatant={{
-                        name: hero.mainClass || hero.heroId || `Hero ${hero.slot}`,
-                        heroId: hero.heroId || findCombatantByHeroSnapshot(combatFrame, hero)?.heroId || null,
-                        iconUrl: hero.iconUrl || findCombatantByHeroSnapshot(combatFrame, hero)?.iconUrl || null,
-                        heroClass: hero.mainClass || findCombatantByHeroSnapshot(combatFrame, hero)?.heroClass || null,
-                        currentHp: hero.currentHp,
-                        maxHp: hero.maxHp,
-                        currentMp: hero.currentMp,
-                        maxMp: hero.maxMp,
-                        isAlive: hero.isAlive,
-                        statuses: hero.statuses,
-                      }}
-                      kind="hero"
-                      isActive={isHeroSnapshotActive(combatFrame, hero, battleState.activeHeroSlot)}
-                      onInspect={() => setInspectedCombatantId(findCombatantByHeroSnapshot(combatFrame, hero)?.unitId || null)}
-                    />
-                  ))}
+                  {battleState.heroes.map((hero) => {
+                    const matchedHero = resolveHeroDisplayFallback(combatFrame, hero);
+                    return (
+                      <CombatantStatusCard
+                        key={hero.slot}
+                        combatant={{
+                          name: hero.mainClass || matchedHero?.name || hero.heroId || `Hero ${hero.slot}`,
+                          heroId: hero.heroId || matchedHero?.heroId || null,
+                          iconUrl: hero.iconUrl || matchedHero?.iconUrl || null,
+                          heroClass: hero.mainClass || matchedHero?.heroClass || null,
+                          currentHp: hero.currentHp,
+                          maxHp: hero.maxHp,
+                          currentMp: hero.currentMp,
+                          maxMp: hero.maxMp,
+                          isAlive: hero.isAlive,
+                          statuses: hero.statuses,
+                        }}
+                        kind="hero"
+                        isActive={isHeroSnapshotActive(combatFrame, hero, battleState.activeHeroSlot)}
+                        onInspect={() => setInspectedCombatantId(matchedHero?.unitId || null)}
+                      />
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -2496,6 +2560,11 @@ export default function HuntCompanion() {
                       : `Enemy ${turn.actorSlot ?? '?'}`;
                     const abilityLabel = turn.ability || turn.skillId;
                     const actorCombatant = findCombatantByActorLabel(combatFrame, actorLabel, turn.actorSide);
+                    const actorHero =
+                      turn.actorSide === 'hero' || turn.actorSide === 'player'
+                        ? battleState.heroes.find((hero) => normalizeLookupKey(hero.mainClass) === normalizeLookupKey(actorLabel)) || null
+                        : null;
+                    const actorHeroFallback = actorHero ? resolveHeroDisplayFallback(combatFrame, actorHero) : null;
                     return (
                       <div key={i} className="flex flex-wrap items-center gap-1.5 text-[10px] p-1 rounded bg-muted/20">
                         <Badge variant="outline" className="text-[9px] font-mono">T{turn.turnNumber}</Badge>
@@ -2503,9 +2572,9 @@ export default function HuntCompanion() {
                           <CombatAssetChip
                             kind={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'hero' : 'enemy'}
                             name={actorLabel}
-                            secondaryLabel={actorCombatant?.heroClass || null}
-                            heroId={actorCombatant?.heroId || null}
-                            imageUrl={actorCombatant?.iconUrl || null}
+                            secondaryLabel={actorCombatant?.heroClass || actorHeroFallback?.heroClass || actorHero?.mainClass || null}
+                            heroId={actorCombatant?.heroId || actorHero?.heroId || actorHeroFallback?.heroId || null}
+                            imageUrl={actorCombatant?.iconUrl || actorHeroFallback?.iconUrl || null}
                             size="xs"
                           />
                           <span className={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'text-blue-400' : 'text-red-400'}>
@@ -2582,7 +2651,7 @@ export default function HuntCompanion() {
                   onAction={executeMirroredAction}
                   pendingActionKey={pendingManualActionKey}
                 />
-                <TurnOrderPanel combatFrame={combatFrame} avgPartyLevel={avgPartyLevel} />
+                <TurnOrderPanel combatFrame={combatFrame} avgPartyLevel={avgPartyLevel} heroes={battleState.heroes} />
               </div>
 
             {syncIssues.length > 0 && (
