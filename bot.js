@@ -22882,6 +22882,26 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
             if (client.readyState === 1 && client !== ws) client.send(turnBroadcast);
           }
           ws.send(JSON.stringify({ type: 'turn_ack', turnNumber: turnNumber || 0 }));
+        } else if (msg.type === 'execute_action') {
+          if (!sessionToken || !sessionId) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Not joined to a session' }));
+            return;
+          }
+          const session = companionSessions.get(sessionToken);
+          const actionPayload = {
+            type: 'execute_action',
+            action: msg.action || null,
+            requestedAt: new Date().toISOString(),
+          };
+          if (session) {
+            const encoded = JSON.stringify(actionPayload);
+            for (const client of session.clients) {
+              if (client.readyState === 1 && client !== ws) {
+                client.send(encoded);
+              }
+            }
+          }
+          ws.send(JSON.stringify({ type: 'execute_action_ack', action: msg.action || null }));
         }
       } catch (err) {
         console.error('[Companion WS] Error:', err.message);

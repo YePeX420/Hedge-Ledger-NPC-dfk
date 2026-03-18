@@ -56,16 +56,16 @@ const DFK_ABILITY_IMAGE_MAP: Record<string, string> = {
   nuzzle: `${DFK_ASSET_BASE}/ability-icons/boar/nuzzle.png`,
 };
 
-const DFK_HERO_CLASS_IMAGE_MAP: Record<string, string> = {
-  archer: `${DFK_ASSET_BASE}/class-icons/archer.png`,
-  knight: `${DFK_ASSET_BASE}/class-icons/knight.png`,
-  warrior: `${DFK_ASSET_BASE}/class-icons/warrior.png`,
-  priest: `${DFK_ASSET_BASE}/class-icons/priest.png`,
-  wizard: `${DFK_ASSET_BASE}/class-icons/wizard.png`,
-  pirate: `${DFK_ASSET_BASE}/class-icons/pirate.png`,
-  berserker: `${DFK_ASSET_BASE}/class-icons/berserker.png`,
-  seer: `${DFK_ASSET_BASE}/class-icons/seer.png`,
-  monk: `${DFK_ASSET_BASE}/class-icons/monk.png`,
+const DFK_HERO_CLASS_IMAGE_MAP: Record<string, string[]> = {
+  archer: [`${DFK_ASSET_BASE}/avatars/archer.png`, `${DFK_ASSET_BASE}/class-icons/archer.png`],
+  knight: [`${DFK_ASSET_BASE}/avatars/knight.png`, `${DFK_ASSET_BASE}/class-icons/knight.png`],
+  warrior: [`${DFK_ASSET_BASE}/avatars/warrior.png`, `${DFK_ASSET_BASE}/class-icons/warrior.png`],
+  priest: [`${DFK_ASSET_BASE}/avatars/priest.png`, `${DFK_ASSET_BASE}/class-icons/priest.png`],
+  wizard: [`${DFK_ASSET_BASE}/avatars/wizard.png`, `${DFK_ASSET_BASE}/class-icons/wizard.png`],
+  pirate: [`${DFK_ASSET_BASE}/avatars/pirate.png`, `${DFK_ASSET_BASE}/class-icons/pirate.png`],
+  berserker: [`${DFK_ASSET_BASE}/avatars/berserker.png`, `${DFK_ASSET_BASE}/class-icons/berserker.png`],
+  seer: [`${DFK_ASSET_BASE}/avatars/seer.png`, `${DFK_ASSET_BASE}/class-icons/seer.png`],
+  monk: [`${DFK_ASSET_BASE}/avatars/monk.png`, `${DFK_ASSET_BASE}/class-icons/monk.png`],
 };
 
 function normalizeKey(value: string | null | undefined) {
@@ -156,7 +156,7 @@ function getTheme(kind: CombatAssetKind, name: string, secondary?: string | null
   }
 }
 
-export function resolveCombatAssetImageUrl(
+export function resolveCombatAssetImageUrls(
   kind: CombatAssetKind,
   name: string,
   secondaryLabel?: string | null,
@@ -164,12 +164,12 @@ export function resolveCombatAssetImageUrl(
   const key = normalizeKey(name);
   const secondaryKey = normalizeKey(secondaryLabel);
   if (kind === 'hero') {
-    return DFK_HERO_CLASS_IMAGE_MAP[secondaryKey] || DFK_HERO_CLASS_IMAGE_MAP[key] || null;
+    return DFK_HERO_CLASS_IMAGE_MAP[secondaryKey] || DFK_HERO_CLASS_IMAGE_MAP[key] || [];
   }
   if (kind === 'ability') {
-    return DFK_ABILITY_IMAGE_MAP[key] || null;
+    return DFK_ABILITY_IMAGE_MAP[key] ? [DFK_ABILITY_IMAGE_MAP[key]] : [];
   }
-  return null;
+  return [];
 }
 
 export function CombatAssetChip({
@@ -189,11 +189,12 @@ export function CombatAssetChip({
 }) {
   const theme = getTheme(kind, name, secondaryLabel);
   const Icon = theme.icon;
-  const resolvedImageUrl = imageUrl || resolveCombatAssetImageUrl(kind, name, secondaryLabel);
-  const [imageFailed, setImageFailed] = useState(false);
+  const candidateUrls = imageUrl ? [imageUrl] : resolveCombatAssetImageUrls(kind, name, secondaryLabel);
+  const [imageIndex, setImageIndex] = useState(0);
   useEffect(() => {
-    setImageFailed(false);
-  }, [resolvedImageUrl]);
+    setImageIndex(0);
+  }, [imageUrl, kind, name, secondaryLabel]);
+  const resolvedImageUrl = candidateUrls[imageIndex] || null;
   const sizing = size === 'xs'
     ? 'h-5 w-5 text-[9px]'
     : size === 'md'
@@ -212,13 +213,13 @@ export function CombatAssetChip({
       )}
       title={name}
     >
-      {resolvedImageUrl && !imageFailed ? (
+      {resolvedImageUrl ? (
         <img
           src={resolvedImageUrl}
           alt={name}
           className="h-full w-full object-cover"
           loading="lazy"
-          onError={() => setImageFailed(true)}
+          onError={() => setImageIndex((prev) => prev + 1)}
         />
       ) : (
         <>

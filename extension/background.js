@@ -578,6 +578,10 @@ function handleServerMessage(msg) {
     chrome.storage.local.set({ lastRecommendation: normalized });
   } else if (msg.type === 'turn_state') {
     broadcast({ type: 'turn_state', data: msg });
+  } else if (msg.type === 'execute_action') {
+    dispatchActionToContentScripts(msg.action || null).then((result) => {
+      broadcast({ type: 'execute_action_result', action: msg.action || null, result });
+    });
   } else if (msg.type === 'error') {
     recordServerError(msg.message, { type: 'server_error' });
     broadcast({ type: 'server_error', message: msg.message });
@@ -771,6 +775,32 @@ function broadcastToContentScripts(msg) {
     for (const tab of (tabs || [])) {
       chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
     }
+  });
+}
+
+async function dispatchActionToContentScripts(action) {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ url: '*://game.defikingdoms.com/*' }, async (tabs) => {
+      for (const tab of (tabs || [])) {
+        try {
+          const result = await chrome.tabs.sendMessage(tab.id, { type: 'execute_companion_action', action });
+          if (result?.ok) {
+            recordStateTransition('execute_action_success', {
+              actionName: action?.name || null,
+              actionGroup: action?.group || null,
+              tabId: tab.id,
+            });
+            resolve(result);
+            return;
+          }
+        } catch (_) {}
+      }
+      recordStateTransition('execute_action_failed', {
+        actionName: action?.name || null,
+        actionGroup: action?.group || null,
+      });
+      resolve({ ok: false, error: 'no_matching_tab' });
+    });
   });
 }
 

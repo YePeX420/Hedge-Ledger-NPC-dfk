@@ -253,6 +253,32 @@
     return /^(menu|battle logs?|flee|observe|recommend|auto|manual|copy|archive|selected|open|close|logout|refresh sessions?)$/i.test(normalizeText(name));
   }
 
+  function classifyActionGroup(name) {
+    const lower = String(name || '').toLowerCase();
+    if (/^(attack|swap|skip)$/.test(lower)) return 'actions';
+    if (/(potion|tonic|philter|frame|stone|elixir|consum)/.test(lower)) return 'items';
+    if (/(passive|deathmark|blinding winds|hero frame)/.test(lower)) return 'abilities';
+    return 'skills';
+  }
+
+  function isVisiblyUnavailable(el) {
+    if (!el) return false;
+    const nodes = [el, ...(el.querySelectorAll ? Array.from(el.querySelectorAll('*')).slice(0, 6) : [])];
+    return nodes.some((node) => {
+      try {
+        const style = window.getComputedStyle(node);
+        const opacity = parseFloat(style.opacity || '1');
+        const filter = String(style.filter || '');
+        const className = String(node.className || '');
+        return opacity < 0.85 ||
+          /grayscale|brightness\(0\.[0-8]\)/i.test(filter) ||
+          /disabled|inactive|cooldown|locked|unavailable|spent|used/i.test(className);
+      } catch (_) {
+        return false;
+      }
+    });
+  }
+
   // ── HP bar reading ────────────────────────────────────────────────────────
 
   function inferUnitNameFromContext(el) {
@@ -504,18 +530,20 @@
     const skillId = btn.getAttribute('data-skill-id') || btn.getAttribute('data-action-id') || null;
     if (!name || name.length < 2 || name.length > 50) return null;
     if (isUiChromeLabel(name)) return null;
+    if (/hero frame/i.test(name)) return null;
     const lower = name.toLowerCase();
     if (/^[a-z0-9+/=_-]{18,}$/i.test(name) || /[a-z0-9]{6,}[A-Z][a-z0-9]{6,}/.test(name)) return null;
+    if (!iconUrl && /[=]|(?:[a-z0-9]{5,}\s+){2,}[a-z0-9]{5,}/i.test(name)) return null;
     let group = 'skills';
     if (/^(attack|swap|skip)$/i.test(name)) group = 'actions';
     else if (/(potion|tonic|philter|frame|stone|elixir|consum)/i.test(lower)) group = 'items';
-    else if (/(passive|deathmark|blinding winds|hero frame)/i.test(lower)) group = 'abilities';
+    else if (/(passive|deathmark|blinding winds)/i.test(lower)) group = 'abilities';
     return {
       name: name.slice(0, 40),
       skillId,
       type: lower.includes('attack') ? 'basic_attack' : 'skill',
       group,
-      available: true,
+      available: !isVisiblyUnavailable(btn),
       requiresTarget: !lower.includes('self'),
       sourceConfidence: 0.8,
       iconUrl,
@@ -617,6 +645,76 @@
     return dedupeActions(actions).map(({ _el, ...rest }) => rest);
   }
 
+  function normalizeActionIdentity(value) {
+    return normalizeText(String(value || ''))
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function findActionMatch(actionName, actionGroup) {
+    const panel = findCommandPanelRoot() || findActionPanelByStructure();
+    if (!panel) return null;
+
+    const targetName = normalizeActionIdentity(actionName);
+    const candidates = [];
+
+    panel.querySelectorAll('button,[role="button"],img[alt],img[title],[title],[data-name]').forEach((el) => {
+      if (!isVisible(el)) return;
+      const action = extractActionFromBtn(el);
+      if (!action) return;
+      if (action.available === false) return;
+      const parsedGroup = action.group || classifyActionGroup(action.name || '');
+      candidates.push({
+        el: action._el || el,
+        name: normalizeActionIdentity(action.name),
+        group: parsedGroup,
+        confidence: action.sourceConfidence || 0,
+      });
+    });
+
+    const exactGroupMatch = candidates.find((candidate) => candidate.name === targetName && (!actionGroup || candidate.group === actionGroup));
+    if (exactGroupMatch) return exactGroupMatch.el;
+
+    const exactMatch = candidates.find((candidate) => candidate.name === targetName);
+    if (exactMatch) return exactMatch.el;
+
+    return null;
+  }
+
+  function clickResolvedElement(el) {
+    if (!el) return false;
+    try {
+      el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      if (typeof el.click === 'function') el.click();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function executeCompanionAction(payload) {
+    const actionName = payload?.name || null;
+    if (!actionName) {
+      return { ok: false, error: 'missing_action_name' };
+    }
+    const actionGroup = payload?.group || null;
+    const match = findActionMatch(actionName, actionGroup);
+    if (!match) {
+      return { ok: false, error: 'action_not_found', actionName, actionGroup };
+    }
+    const clicked = clickResolvedElement(match);
+    return {
+      ok: clicked,
+      error: clicked ? null : 'click_failed',
+      actionName,
+      actionGroup,
+    };
+  }
+
   // ── Active unit & target ──────────────────────────────────────────────────
 
   function readActiveUnit(commandPanel, heroes, turnOrder) {
@@ -689,7 +787,7 @@
       );
       if (!name) return;
       const lower = name.toLowerCase();
-      if (/battle budget|stone\d*|^\d+$/.test(lower)) return;
+      if (/battle budget|stone\d*|^\d+$|hero frame/.test(lower)) return;
       if (!/(potion|tonic|philter|consum|stone|item)/i.test(lower)) return;
       if (isUiChromeLabel(name)) return;
       if (seen.has(lower)) return;
@@ -698,7 +796,7 @@
         name,
         skillId: null,
         type: 'consumable',
-        available: true,
+        available: !isVisiblyUnavailable(el),
         sourceConfidence: 0.6,
         iconUrl,
       });
@@ -974,6 +1072,7 @@
   };
 
   window.__dfkGetTurnState = () => currentTurnState;
+  window.__dfkExecuteCombatAction = executeCompanionAction;
 
   window.__dfkDiag = function () {
     const ts = currentTurnState;

@@ -368,9 +368,12 @@ function buildFirebaseBattleView(firebaseState: FirebaseBattleState | undefined,
   if (!firebaseState?.normalizedCombatants) return null;
   const heroes = (firebaseState.normalizedCombatants.heroes || []).map(firebaseToHeroSnapshot);
   const enemies = (firebaseState.normalizedCombatants.enemies || []).map(firebaseToEnemySnapshot);
-  const activeHeroSlot = firebaseState.currentTurn?.activeSide === 1
-    ? (firebaseState.currentTurn.activeSlot ?? combatFrame?.activeTurn.activeSlot ?? 0)
-    : (combatFrame?.activeTurn.activeSlot ?? 0);
+  const domActiveHeroSlot = combatFrame?.activeTurn.activeSide === 'player'
+    ? (combatFrame.activeTurn.activeSlot ?? null)
+    : null;
+  const activeHeroSlot = domActiveHeroSlot ?? (firebaseState.currentTurn?.activeSide === 1
+    ? (firebaseState.currentTurn.activeSlot ?? 0)
+    : 0);
 
   if (heroes.length === 0 && enemies.length === 0) return null;
 
@@ -544,6 +547,31 @@ function buildDomActionState(combatFrame: CombatFrame | null): DomActionState {
     selectedTargetId: combatFrame?.activeTurn.selectedTargetId ?? null,
     battleBudgetRemaining: combatFrame?.activeTurn.battleBudgetRemaining ?? null,
     source: combatFrame?.captureMeta.source ?? null,
+  };
+}
+
+function mergeCombatFrames(
+  prev: CombatFrame | null,
+  next: CombatFrame | null,
+): CombatFrame | null {
+  if (!next) return prev;
+  if (!prev) return next;
+  const prevTurnOrder = prev.turnOrder || [];
+  const nextTurnOrder = next.turnOrder || [];
+  const mergedTurnOrder = nextTurnOrder.length > 0 ? nextTurnOrder : prevTurnOrder;
+  const mergedCombatants = (next.combatants || []).map((unit) => {
+    const prevUnit = (prev.combatants || []).find((candidate) => candidate.unitId === unit.unitId);
+    return {
+      ...unit,
+      iconUrl: unit.iconUrl || prevUnit?.iconUrl || null,
+      heroClass: unit.heroClass || prevUnit?.heroClass || null,
+      heroDetail: unit.heroDetail || prevUnit?.heroDetail || null,
+    };
+  });
+  return {
+    ...next,
+    combatants: mergedCombatants,
+    turnOrder: mergedTurnOrder,
   };
 }
 
@@ -907,32 +935,44 @@ function ActiveTurnActionGrid({
   title,
   actions,
   kind,
+  executionMode,
+  onAction,
+  pendingActionKey,
 }: {
   title: string;
-  actions: Array<{ name: string; iconUrl?: string | null; available: boolean }>;
+  actions: Array<{ name: string; iconUrl?: string | null; available: boolean; group?: string | null; type?: string | null; requiresTarget?: boolean }>;
   kind: 'ability' | 'consumable';
+  executionMode: ExecutionModeType;
+  onAction: (action: { name: string; iconUrl?: string | null; available: boolean; group?: string | null; type?: string | null; requiresTarget?: boolean }) => void;
+  pendingActionKey: string | null;
 }) {
   if (actions.length === 0) return null;
   return (
     <div className="space-y-2">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
       <div className="flex flex-wrap gap-2">
-        {actions.map((action) => (
+        {actions.map((action) => {
+          const actionKey = `${action.group || title}:${action.name}`;
+          const canExecute = executionMode !== 'observe_only' && action.available;
+          return (
           <button
             key={`${title}-${action.name}`}
             type="button"
-            disabled
+            disabled={!canExecute}
+            onClick={() => canExecute && onAction(action)}
             className={cn(
               'inline-flex items-center gap-2 rounded-md border px-2 py-1 text-[11px] transition-colors',
               action.available
                 ? 'border-muted-foreground/20 bg-muted/20 text-foreground'
                 : 'border-muted-foreground/10 bg-muted/10 text-muted-foreground opacity-70',
+              canExecute ? 'cursor-pointer hover:border-primary/40 hover:bg-primary/10' : 'cursor-default',
+              pendingActionKey === actionKey ? 'border-primary bg-primary/15' : '',
             )}
           >
             <CombatAssetChip kind={kind} name={action.name} imageUrl={action.iconUrl || null} size="xs" />
             <span>{formatCombatName(action.name)}</span>
           </button>
-        ))}
+        )})}
       </div>
     </div>
   );
@@ -941,9 +981,15 @@ function ActiveTurnActionGrid({
 function ActiveTurnPanel({
   combatFrame,
   onInspectCombatant,
+  executionMode,
+  onAction,
+  pendingActionKey,
 }: {
   combatFrame: CombatFrame | null;
   onInspectCombatant: (unitId: string | null) => void;
+  executionMode: ExecutionModeType;
+  onAction: (action: { name: string; iconUrl?: string | null; available: boolean; group?: string | null; type?: string | null; requiresTarget?: boolean }) => void;
+  pendingActionKey: string | null;
 }) {
   const actions = combatFrame?.activeTurn.legalActions || [];
   const consumables = combatFrame?.activeTurn.legalConsumables || [];
@@ -961,11 +1007,17 @@ function ActiveTurnPanel({
       name: action.name,
       iconUrl: action.iconUrl || null,
       available: action.available,
+      group: action.group || 'items',
+      type: action.type || null,
+      requiresTarget: action.requiresTarget,
     })),
     ...consumables.map((item) => ({
       name: item.name,
       iconUrl: item.iconUrl || null,
       available: item.available,
+      group: item.group || 'items',
+      type: item.type || null,
+      requiresTarget: item.requiresTarget,
     })),
   ];
   return (
@@ -1037,10 +1089,10 @@ function ActiveTurnPanel({
                   )}
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
-                  <ActiveTurnActionGrid title="Actions" actions={groupedActions.actions} kind="ability" />
-                  <ActiveTurnActionGrid title="Skills" actions={groupedActions.skills} kind="ability" />
-                  <ActiveTurnActionGrid title="Abilities" actions={groupedActions.abilities} kind="ability" />
-                  <ActiveTurnActionGrid title="Items" actions={groupedItems} kind="consumable" />
+                  <ActiveTurnActionGrid title="Actions" actions={groupedActions.actions} kind="ability" executionMode={executionMode} onAction={onAction} pendingActionKey={pendingActionKey} />
+                  <ActiveTurnActionGrid title="Skills" actions={groupedActions.skills} kind="ability" executionMode={executionMode} onAction={onAction} pendingActionKey={pendingActionKey} />
+                  <ActiveTurnActionGrid title="Abilities" actions={groupedActions.abilities} kind="ability" executionMode={executionMode} onAction={onAction} pendingActionKey={pendingActionKey} />
+                  <ActiveTurnActionGrid title="Items" actions={groupedItems} kind="consumable" executionMode={executionMode} onAction={onAction} pendingActionKey={pendingActionKey} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-[11px]">
@@ -1549,6 +1601,7 @@ export default function HuntCompanion() {
   const [showBattleLog, setShowBattleLog] = useState(false);
   const [turnCount, setTurnCount] = useState(0);
   const [inspectedCombatantId, setInspectedCombatantId] = useState<string | null>(null);
+  const [pendingManualActionKey, setPendingManualActionKey] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const turnFeedRef = useRef<HTMLDivElement>(null);
 
@@ -1708,7 +1761,7 @@ export default function HuntCompanion() {
           if (msg.huntId) setLatestHuntId(msg.huntId);
         } else if (msg.type === 'recommendation') {
           setRecommendations(msg.recommendations || []);
-          if (msg.combatFrame) setCombatFrame(msg.combatFrame);
+          if (msg.combatFrame) setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
         } else if (msg.type === 'state_update') {
           if (msg.heroes && !firebaseLogQuery.data) {
             setBattleState(prev => {
@@ -1727,15 +1780,18 @@ export default function HuntCompanion() {
               };
             });
           }
-          if (msg.combatFrame) setCombatFrame(msg.combatFrame);
+          if (msg.combatFrame) setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
         } else if (msg.type === 'turn_state') {
           if (msg.battleState && !firebaseLogQuery.data) setBattleState(msg.battleState);
-          if (msg.combatFrame) setCombatFrame(msg.combatFrame);
+          if (msg.combatFrame) setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
         } else if (msg.type === 'turn_update') {
           if (!firebaseLogQuery.data) {
             setTurnFeed(prev => [...prev.slice(-9), { turnNumber: msg.turnNumber, actorSide: msg.actorSide, actorSlot: msg.actorSlot, skillId: msg.skillId, actor: msg.actor || null, ability: msg.ability || null, effects: msg.effects }]);
           }
-          if (msg.combatFrame) setCombatFrame(msg.combatFrame);
+          if (msg.combatFrame) setCombatFrame((prev) => mergeCombatFrames(prev, msg.combatFrame));
+        } else if (msg.type === 'execute_action_ack') {
+          const actionKey = msg.action ? `${msg.action.group || 'action'}:${msg.action.name}` : null;
+          setPendingManualActionKey((prev) => (prev === actionKey ? null : prev));
         } else if (msg.type === 'error') {
           console.error('[WS] Error:', msg.message);
         }
@@ -1754,6 +1810,33 @@ export default function HuntCompanion() {
       wsRef.current = null;
     };
   }, [session?.session_token, firebaseLogQuery.data]);
+
+  const executeMirroredAction = useCallback((action: {
+    name: string;
+    iconUrl?: string | null;
+    available: boolean;
+    group?: string | null;
+    type?: string | null;
+    requiresTarget?: boolean;
+  }) => {
+    if (executionMode === 'observe_only' || !action.available) return;
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    const actionPayload = {
+      name: action.name,
+      group: action.group || null,
+      type: action.type || null,
+      requiresTarget: action.requiresTarget !== false,
+      iconUrl: action.iconUrl || null,
+    };
+
+    setPendingManualActionKey(`${actionPayload.group || 'action'}:${actionPayload.name}`);
+    try {
+      wsRef.current.send(JSON.stringify({ type: 'execute_action', action: actionPayload }));
+    } catch (_) {
+      setPendingManualActionKey(null);
+    }
+  }, [executionMode]);
 
   useEffect(() => {
     const sessions: SessionData[] = sessionListQuery.data?.sessions || [];
@@ -1793,6 +1876,7 @@ export default function HuntCompanion() {
     setEnemyPrediction(null);
     setTurnCount(0);
     setShowBattleLog(false);
+    setPendingManualActionKey(null);
   }, [selectedSessionId]);
 
   useEffect(() => {
@@ -1868,12 +1952,13 @@ export default function HuntCompanion() {
     }
     if (data.combatFrame) {
       setCombatFrame((prev) => {
+        const merged = mergeCombatFrames(prev, data.combatFrame);
         const prevCapturedAt = prev?.captureMeta?.capturedAt ?? null;
-        const nextCapturedAt = data.combatFrame?.captureMeta?.capturedAt ?? null;
+        const nextCapturedAt = merged?.captureMeta?.capturedAt ?? null;
         if (prevCapturedAt === nextCapturedAt && prev?.turnNumber === data.combatFrame?.turnNumber) {
           return prev;
         }
-        return data.combatFrame;
+        return merged;
       });
     }
   }, [sessionStatusQuery.data, firebaseLogQuery.data]);
@@ -2339,7 +2424,13 @@ export default function HuntCompanion() {
                 prediction={enemyPredictionReady ? enemyPrediction : null}
                 battleBudget={battleBudget}
               />
-                <ActiveTurnPanel combatFrame={combatFrame} onInspectCombatant={setInspectedCombatantId} />
+                <ActiveTurnPanel
+                  combatFrame={combatFrame}
+                  onInspectCombatant={setInspectedCombatantId}
+                  executionMode={executionMode}
+                  onAction={executeMirroredAction}
+                  pendingActionKey={pendingManualActionKey}
+                />
                 <TurnOrderPanel combatFrame={combatFrame} />
               </div>
 

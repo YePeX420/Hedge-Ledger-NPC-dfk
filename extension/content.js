@@ -796,12 +796,22 @@
     }
   }
 
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'debug_mode_changed') {
       debugMode = msg.enabled;
       window.__dfkDebugMode = debugMode;
     } else if (msg.type === 'hero_profile_loaded') {
       applyHeroProfiles(msg.heroes);
+    } else if (msg.type === 'execute_companion_action') {
+      try {
+        const result = typeof window.__dfkExecuteCombatAction === 'function'
+          ? window.__dfkExecuteCombatAction(msg.action || null)
+          : { ok: false, error: 'executor_unavailable' };
+        sendResponse && sendResponse(result);
+      } catch (err) {
+        sendResponse && sendResponse({ ok: false, error: err?.message || 'execute_failed' });
+      }
+      return true;
     }
   });
 
