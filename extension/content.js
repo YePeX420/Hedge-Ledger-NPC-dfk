@@ -286,7 +286,12 @@
 
   function buildCombatFrame(turnState, source, battleLogEntry) {
     const combatants = buildCombatants(turnState);
-    const activeSide = combatants.some((unit) => unit.side === 'player' && unit.slot === turnState.activeHeroSlot) ? 'player' : null;
+    const activePlayerBySlot = combatants.find((unit) => unit.side === 'player' && unit.slot === turnState.activeHeroSlot);
+    const activePlayerByName = !activePlayerBySlot
+      ? combatants.find((unit) => unit.side === 'player' && normalizeId(unit.name) === normalizeId(turnState.activeUnit))
+      : null;
+    const resolvedActivePlayer = activePlayerBySlot || activePlayerByName || null;
+    const activeSide = resolvedActivePlayer ? 'player' : null;
     const selectedTargetUnit = combatants.find((unit) => unit.name === turnState.selectedTarget);
     const heroDetail = latestHeroDetailSnapshot();
     const legalActions = (turnState.legalActions || []).map((action) => ({
@@ -309,9 +314,9 @@
       encounterType: combatants.some((unit) => unit.side === 'enemy' && unit.normalizedId.includes('boar')) ? 'boar_hunt' : null,
       combatants,
       activeTurn: {
-        activeUnitId: activeSide ? buildUnitId(activeSide, turnState.activeHeroSlot, turnState.activeUnit) : null,
+        activeUnitId: resolvedActivePlayer?.unitId || (activeSide ? buildUnitId(activeSide, turnState.activeHeroSlot, turnState.activeUnit) : null),
         activeSide,
-        activeSlot: turnState.activeHeroSlot ?? null,
+        activeSlot: resolvedActivePlayer?.slot ?? turnState.activeHeroSlot ?? null,
         selectedTargetId: selectedTargetUnit?.unitId || null,
         selectedTargetSide: selectedTargetUnit?.side || turnState.selectedTargetSide || null,
         legalActions,

@@ -87,6 +87,7 @@
   };
   let lastTurnOrderPrimeAt = 0;
   let turnOrderPrimeInFlight = false;
+  let lastCommandPanelDebug = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -94,6 +95,14 @@
     if (!text) return null;
     const m = text.replace(/,/g, '').match(/([\d]+)/);
     return m ? parseInt(m[1], 10) : null;
+  }
+
+  function normalizeText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function normalizedName(value) {
+    return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   }
 
   function extractHpMp(el) {
@@ -114,6 +123,10 @@
   function recordSelectorDiag(category, bySelector) {
     const total = Object.values(bySelector).reduce((s, n) => s + n, 0);
     window.__dfkSelectorDiag[category] = { total, bySelector, recordedAt: Date.now() };
+  }
+
+  function isUiChromeLabel(name) {
+    return /^(menu|battle logs?|flee|observe|recommend|auto|manual|copy|archive|selected|open|close|logout|refresh sessions?)$/i.test(normalizeText(name));
   }
 
   // ── HP bar reading ────────────────────────────────────────────────────────
@@ -223,13 +236,147 @@
     });
   }
 
+  function extractButtonLabel(btn) {
+    if (!btn) return '';
+    const direct = [
+      btn.getAttribute('data-action'),
+      btn.getAttribute('data-skill'),
+      btn.getAttribute('data-ability'),
+      btn.getAttribute('data-name'),
+      btn.getAttribute('title'),
+      btn.getAttribute('aria-label'),
+      btn.textContent,
+    ];
+    for (const value of direct) {
+      const clean = normalizeText(value);
+      if (clean) return clean;
+    }
+    const child = btn.querySelector('img[alt],img[title],[title],[aria-label]');
+    if (!child) return '';
+    return normalizeText(
+      child.getAttribute('alt') ||
+      child.getAttribute('title') ||
+      child.getAttribute('aria-label') ||
+      child.textContent
+    );
+  }
+
+  function isLikelyCombatantName(value) {
+    const text = normalizeText(value);
+    if (!text || text.length < 3 || text.length > 48) return false;
+    if (/^(actions|skills|abilities|passives|items|battle budget|hp|mp|fx)$/i.test(text)) return false;
+    if (/^\d+(?:\/\d+)?$/.test(text)) return false;
+    return /[a-z]/i.test(text);
+  }
+
+  function countVisibleButtons(root) {
+    if (!root) return 0;
+    return Array.from(root.querySelectorAll('button,[role="button"]')).filter(isVisible).length;
+  }
+
+  function findCommandPanelRoot() {
+    const seeds = Array.from(document.querySelectorAll('div,section,article,p,span'))
+      .filter((el) => {
+        if (!isVisible(el)) return false;
+        const text = normalizeText(el.textContent);
+        return /battle budget|actions|skills|abilities|passives/i.test(text);
+      })
+      .slice(0, 80);
+
+    let best = null;
+    let bestScore = 0;
+    const seen = new Set();
+
+    seeds.forEach((seed) => {
+      let node = seed;
+      for (let depth = 0; depth < 6 && node; depth += 1) {
+        if (seen.has(node)) {
+          node = node.parentElement;
+          continue;
+        }
+        seen.add(node);
+        if (!isVisible(node)) {
+          node = node.parentElement;
+          continue;
+        }
+        const rect = node.getBoundingClientRect();
+        const text = normalizeText(node.textContent);
+        const buttons = countVisibleButtons(node);
+        let score = 0;
+        if (rect.top > window.innerHeight * 0.5) score += 4;
+        if (rect.width > window.innerWidth * 0.15) score += 2;
+        if (/battle budget/i.test(text)) score += 7;
+        if (/\bactions\b/i.test(text)) score += 3;
+        if (/\bskills\b/i.test(text)) score += 3;
+        if (/\babilities\b/i.test(text)) score += 3;
+        if (/\bpassives\b/i.test(text)) score += 2;
+        if (buttons >= 3 && buttons <= 20) score += Math.min(buttons, 8);
+        if (score > bestScore) {
+          best = node;
+          bestScore = score;
+        }
+        node = node.parentElement;
+      }
+    });
+
+    lastCommandPanelDebug = best ? {
+      detected: true,
+      score: bestScore,
+      text: normalizeText(best.textContent).slice(0, 240),
+      buttonCount: countVisibleButtons(best),
+      rect: (() => {
+        const rect = best.getBoundingClientRect();
+        return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
+      })(),
+    } : {
+      detected: false,
+      score: 0,
+      text: null,
+      buttonCount: 0,
+      rect: null,
+    };
+
+    window.__dfkSelectorDiag.command_panel = lastCommandPanelDebug;
+    return best;
+  }
+
+  function inferHeroNameFromPanel(panel) {
+    if (!panel) return null;
+    const panelRect = panel.getBoundingClientRect();
+    const candidates = Array.from(panel.querySelectorAll('h1,h2,h3,h4,div,span,p'))
+      .filter(isVisible)
+      .map((el) => {
+        const text = normalizeText(el.textContent);
+        if (!isLikelyCombatantName(text)) return null;
+        if (/hp|mp|fx|actions|skills|abilities|passives|battle budget/i.test(text)) return null;
+        const elRect = el.getBoundingClientRect();
+        const fontSize = parseFloat(window.getComputedStyle(el).fontSize || '0') || 0;
+        let score = fontSize;
+        if (elRect.left < panelRect.left + panelRect.width * 0.45) score += 10;
+        if (elRect.top < panelRect.top + panelRect.height * 0.45) score += 10;
+        if (text.includes(' ')) score += 4;
+        if (text.length >= 8) score += 2;
+        return { text, score };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+    return candidates[0]?.text || null;
+  }
+
+  function matchHeroByName(name, heroes) {
+    const norm = normalizedName(name);
+    if (!norm) return null;
+    return (heroes || []).find((hero) => normalizedName(hero.name) === norm)
+      || (heroes || []).find((hero) => normalizedName(hero.name).includes(norm) || norm.includes(normalizedName(hero.name)))
+      || null;
+  }
+
   function extractActionFromBtn(btn) {
     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return null;
-    const name = btn.getAttribute('data-action') || btn.getAttribute('data-skill') ||
-      btn.getAttribute('data-ability') || btn.getAttribute('aria-label') ||
-      btn.textContent.trim();
+    const name = extractButtonLabel(btn);
     const skillId = btn.getAttribute('data-skill-id') || btn.getAttribute('data-action-id') || null;
     if (!name || name.length < 2 || name.length > 50) return null;
+    if (isUiChromeLabel(name)) return null;
     const lower = name.toLowerCase();
     return {
       name: name.slice(0, 40),
@@ -243,6 +390,8 @@
   }
 
   function findActionPanelByStructure() {
+    const commandPanel = findCommandPanelRoot();
+    if (commandPanel) return commandPanel;
     const dfkPanel = document.querySelector('.hero-abilities');
     if (dfkPanel) {
       const buttons = dfkPanel.querySelectorAll('button:not([disabled]),[role="button"]');
@@ -267,15 +416,17 @@
     return best;
   }
 
-  function readLegalActions() {
+  function readLegalActions(commandPanel) {
     const actions = [];
     const diagCounts = {};
     let tier = null;
+    const panel = commandPanel || findActionPanelByStructure();
 
     // Tier A: semantic data attributes
     for (const sel of ACTION_TIER_A) {
       let count = 0;
-      document.querySelectorAll(sel).forEach(btn => {
+      (panel || document).querySelectorAll(sel).forEach(btn => {
+        if (!isVisible(btn)) return;
         const a = extractActionFromBtn(btn);
         if (a) { actions.push(a); count++; }
       });
@@ -286,7 +437,8 @@
     // Tier B: aria-label on any button (only if Tier A found nothing)
     if (actions.length === 0) {
       let count = 0;
-      document.querySelectorAll('button[aria-label],[role="button"][aria-label]').forEach(btn => {
+      (panel || document).querySelectorAll('button[aria-label],[role="button"][aria-label]').forEach(btn => {
+        if (!isVisible(btn)) return;
         const a = extractActionFromBtn(btn);
         if (a) { actions.push(a); count++; }
       });
@@ -298,7 +450,8 @@
     if (actions.length === 0) {
       for (const sel of ACTION_TIER_C) {
         let count = 0;
-        document.querySelectorAll(sel).forEach(btn => {
+        (panel || document).querySelectorAll(sel).forEach(btn => {
+          if (!isVisible(btn)) return;
           const a = extractActionFromBtn(btn);
           if (a) { actions.push(a); count++; }
         });
@@ -309,10 +462,10 @@
 
     // Tier D: structural scan (only if still nothing)
     if (actions.length === 0) {
-      const panel = findActionPanelByStructure();
       if (panel) {
         let count = 0;
-        panel.querySelectorAll('button:not([disabled])').forEach(btn => {
+        panel.querySelectorAll('button:not([disabled]),[role="button"]').forEach(btn => {
+          if (!isVisible(btn)) return;
           const a = extractActionFromBtn(btn);
           if (a) { actions.push(a); count++; }
         });
@@ -325,13 +478,14 @@
 
     recordSelectorDiag('action_buttons', diagCounts);
     window.__dfkSelectorDiag.action_tier_used = tier;
+    window.__dfkSelectorDiag.action_button_texts = dedupeActions(actions).map((a) => a.name);
 
     return dedupeActions(actions).map(({ _el, ...rest }) => rest);
   }
 
   // ── Active unit & target ──────────────────────────────────────────────────
 
-  function readActiveUnit() {
+  function readActiveUnit(commandPanel, heroes, turnOrder) {
     const diagCounts = {};
     for (const sel of ACTIVE_UNIT_SELECTORS) {
       const el = document.querySelector(sel);
@@ -342,6 +496,21 @@
         recordSelectorDiag('active_unit', diagCounts);
         return { name, slot };
       }
+    }
+    const panelHeroName = inferHeroNameFromPanel(commandPanel);
+    if (panelHeroName) {
+      const matched = matchHeroByName(panelHeroName, heroes);
+      diagCounts.panelHeroName = matched ? 1 : 0;
+      recordSelectorDiag('active_unit', diagCounts);
+      window.__dfkSelectorDiag.active_panel_hero_name = panelHeroName;
+      return { name: matched?.name || panelHeroName, slot: matched?.slot ?? null };
+    }
+    const nextPlayer = (turnOrder || []).find((entry) => entry.side === 'player');
+    if (nextPlayer) {
+      const matched = matchHeroByName(nextPlayer.name, heroes);
+      diagCounts.turnOrderPlayer = matched ? 1 : 0;
+      recordSelectorDiag('active_unit', diagCounts);
+      return { name: matched?.name || nextPlayer.name, slot: matched?.slot ?? null };
     }
     recordSelectorDiag('active_unit', diagCounts);
     return null;
@@ -359,9 +528,10 @@
     return null;
   }
 
-  function readBattleBudget() {
-    const allText = document.querySelectorAll('span,div,p');
+  function readBattleBudget(commandPanel) {
+    const allText = (commandPanel || document).querySelectorAll('span,div,p');
     for (const el of allText) {
+      if (!isVisible(el)) continue;
       const text = (el.textContent || '').trim();
       const match = text.match(/battle budget:\s*(\d+)/i);
       if (match) return parseInt(match[1], 10);
@@ -369,14 +539,22 @@
     return null;
   }
 
-  function readConsumables() {
+  function readConsumables(commandPanel) {
     const list = [];
     const seen = new Set();
-    document.querySelectorAll('[title],[data-name],[class*="consum"],[class*="item"]').forEach((el) => {
-      const name = el.getAttribute('data-name') || el.getAttribute('title') || '';
+    (commandPanel || document).querySelectorAll('[title],[data-name],[class*="consum"],[class*="item"],img[alt],img[title]').forEach((el) => {
+      if (!isVisible(el)) return;
+      const name = normalizeText(
+        el.getAttribute('data-name') ||
+        el.getAttribute('title') ||
+        el.getAttribute('alt') ||
+        el.getAttribute('aria-label') ||
+        el.textContent
+      );
       if (!name) return;
       const lower = name.toLowerCase();
       if (!/(potion|tonic|philter|consum|stone|item)/i.test(lower)) return;
+      if (isUiChromeLabel(name)) return;
       if (seen.has(lower)) return;
       seen.add(lower);
       list.push({
@@ -542,12 +720,8 @@
   function buildTurnSnapshot() {
     const hpReadings = readHpBars();
     const mpReadings = readMpBars();
-    const activeUnit = readActiveUnit();
-    const legalActions = readLegalActions();
-    const selectedTarget = readSelectedTarget();
-    const battleBudgetRemaining = readBattleBudget();
-    const legalConsumables = readConsumables();
     const turnOrder = readTurnOrder();
+    const commandPanel = findCommandPanelRoot();
 
     const unitMap = {};
     hpReadings.forEach(u => {
@@ -566,6 +740,11 @@
 
     const heroes = Object.values(unitMap).filter(u => u.side === 'player');
     const enemies = Object.values(unitMap).filter(u => u.side === 'enemy');
+    const activeUnit = readActiveUnit(commandPanel, heroes, turnOrder);
+    const legalActions = readLegalActions(commandPanel);
+    const selectedTarget = readSelectedTarget();
+    const battleBudgetRemaining = readBattleBudget(commandPanel);
+    const legalConsumables = readConsumables(commandPanel);
 
     currentTurnState = {
       ...currentTurnState,
@@ -585,6 +764,11 @@
     return {
       type: 'turn_snapshot',
       ...currentTurnState,
+      _debug: {
+        commandPanel: lastCommandPanelDebug,
+        activePanelHeroName: window.__dfkSelectorDiag.active_panel_hero_name || null,
+        actionButtonTexts: window.__dfkSelectorDiag.action_button_texts || [],
+      },
     };
   }
 
