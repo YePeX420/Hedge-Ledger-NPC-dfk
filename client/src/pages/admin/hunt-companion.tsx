@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { apiRequest } from '@/lib/queryClient';
 import { CombatAssetChip, formatCombatName } from '@/lib/dfk-combat-icons';
+import { computeCalculatedCombatSnapshot } from '@/lib/dfk-combat-formulas';
 import { cn } from '@/lib/utils';
 
 interface HeroSnapshot {
@@ -700,10 +701,12 @@ function DetailMetricGrid({
   title,
   values,
   emptyLabel,
+  formatter,
 }: {
   title: string;
   values: Record<string, number | null | undefined>;
   emptyLabel: string;
+  formatter?: (key: string, value: number) => string;
 }) {
   const entries = Object.entries(values || {}).filter(([, value]) => value != null);
   return (
@@ -713,12 +716,49 @@ function DetailMetricGrid({
         {entries.map(([key, value]) => (
           <div key={key} className="flex items-center justify-between gap-2 rounded bg-background/40 px-2 py-1">
             <span className="text-muted-foreground">{formatStatLabel(key)}</span>
-            <span className="font-mono">{String(value)}</span>
+            <span className="font-mono">{formatter ? formatter(key, Number(value)) : String(value)}</span>
           </div>
         ))}
         {entries.length === 0 && (
           <p className="text-xs text-muted-foreground">{emptyLabel}</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+function formatCalculatedMetric(key: string, value: number) {
+  if (!Number.isFinite(value)) return 'n/a';
+  if (/^(Speed|Focus)$/i.test(key)) return value.toFixed(2);
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function ComparisonMetricGrid({
+  title,
+  shown,
+  calculated,
+}: {
+  title: string;
+  shown: Record<string, number | null | undefined>;
+  calculated: Record<string, number | null | undefined>;
+}) {
+  const keys = Object.keys(calculated).filter((key) => calculated[key] != null || shown[key] != null);
+  return (
+    <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="grid gap-2 text-xs">
+        {keys.length === 0 && <p className="text-xs text-muted-foreground">No comparable derived metrics.</p>}
+        {keys.map((key) => (
+          <div key={key} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded bg-background/40 px-2 py-1">
+            <span className="text-muted-foreground">{formatStatLabel(key)}</span>
+            <span className="font-mono text-[11px]">{shown[key] != null ? formatCalculatedMetric(key, Number(shown[key])) : 'n/a'}</span>
+            <span className="font-mono text-[11px] text-emerald-300">{calculated[key] != null ? formatCalculatedMetric(key, Number(calculated[key])) : 'n/a'}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center justify-end gap-3 text-[10px] text-muted-foreground">
+        <span>shown</span>
+        <span className="text-emerald-300">calc</span>
       </div>
     </div>
   );
@@ -757,11 +797,13 @@ function CombatantDetailDialog({
   onOpenChange,
   combatant,
   heroDetail,
+  avgPartyLevel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   combatant: CombatFrame['combatants'][number] | null;
   heroDetail: HeroDetailData | null;
+  avgPartyLevel: number;
 }) {
   const isMatchingHeroDetail = combatant && heroDetail && heroDetail.name && normalizeLookupKey(heroDetail.name) === normalizeLookupKey(combatant.name);
   const shownHeroDetail = (combatant?.heroDetail || null) || (isMatchingHeroDetail ? heroDetail : null);
@@ -777,6 +819,20 @@ function CombatantDetailDialog({
   const shownItems = shownHeroDetail?.items || combatant?.equipment?.items || [];
   const shownPrimaryArms = shownHeroDetail?.primaryArms || combatant?.equipment?.primaryArms || [];
   const shownSecondaryArms = shownHeroDetail?.secondaryArms || combatant?.equipment?.secondaryArms || [];
+  const calculatedSnapshot = computeCalculatedCombatSnapshot(
+    Object.keys(shownBaseStats).length > 0 ? shownBaseStats : shownStats,
+    avgPartyLevel,
+  );
+  const shownDerivedMetrics = {
+    Speed: shownStats.speed ?? shownStats.spd ?? null,
+    Crit: shownStats.chc ?? shownStats.csc ?? null,
+    EVA: shownStats.eva ?? null,
+    Recovery: shownStats.rec ?? null,
+    SER: shownResistances.ser ?? shownStats.ser ?? null,
+    Block: shownStats.blk ?? null,
+    SpellBlock: shownStats.sblk ?? null,
+    Focus: null,
+  };
   const vitalPairs = [
     ['HP', shownVitals.hp ?? combatant?.currentHp, shownVitals.maxHp ?? combatant?.maxHp],
     ['MP', shownVitals.mp ?? combatant?.currentMp, shownVitals.maxMp ?? combatant?.maxMp],
@@ -855,10 +911,31 @@ function CombatantDetailDialog({
               <DetailMetricGrid title="Base Stats" values={shownBaseStats} emptyLabel="No captured base stats." />
               <DetailMetricGrid title="Modifiers" values={shownModifiers} emptyLabel="No captured modifiers." />
               <DetailMetricGrid title="Dynamic Stat Scores" values={shownDynamicScores} emptyLabel="No captured dynamic scores." />
+              <DetailMetricGrid
+                title="Calculated Combat Stats"
+                values={calculatedSnapshot?.combatStats || {}}
+                emptyLabel="No calculated combat stats."
+                formatter={formatCalculatedMetric}
+              />
+              <ComparisonMetricGrid
+                title="Shown vs Calculated"
+                shown={shownDerivedMetrics}
+                calculated={calculatedSnapshot?.combatStats || {}}
+              />
             </div>
 
             <div className="space-y-4">
               <DetailMetricGrid title="Status Effect Resistance" values={shownResistances} emptyLabel="No captured resistances." />
+              <DetailMetricGrid
+                title="Starting Initiative"
+                values={calculatedSnapshot ? {
+                  min: calculatedSnapshot.startingInitiative.min,
+                  expected: calculatedSnapshot.startingInitiative.expected,
+                  max: calculatedSnapshot.startingInitiative.max,
+                } : {}}
+                emptyLabel="No calculated initiative range."
+                formatter={(_, value) => value.toFixed(2)}
+              />
               <div className="rounded-md border border-muted-foreground/10 bg-muted/10 p-3 space-y-3">
                 <DetailChipGroup title="Traits" names={shownTraits} emptyLabel="No captured traits." />
                 <DetailChipGroup title="Passives" names={shownPassives} emptyLabel="No captured passives." />
@@ -911,11 +988,6 @@ function CombatantStatusCard({
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{formatCombatName(combatant.name)}</p>
             <div className="flex flex-wrap items-center gap-1">
-              {isActive && (
-                <Badge className="animate-pulse bg-emerald-500 text-[10px] text-black hover:bg-emerald-500">
-                  <Activity className="mr-1 h-3 w-3" /> Active Turn
-                </Badge>
-              )}
               {combatant.isAlive === false && <Badge variant="destructive" className="text-[10px]">KO</Badge>}
             </div>
           </div>
@@ -1136,7 +1208,7 @@ function ActiveTurnPanel({
   );
 }
 
-function TurnOrderPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
+function TurnOrderPanel({ combatFrame, avgPartyLevel }: { combatFrame: CombatFrame | null; avgPartyLevel: number }) {
   const rows = combatFrame?.turnOrder || [];
   return (
     <Card>
@@ -1144,22 +1216,35 @@ function TurnOrderPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Turn Order</p>
         <div className="space-y-1 max-h-[220px] overflow-y-auto">
           {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
-          {rows.map((row) => (
+          {rows.map((row) => {
+            const combatant = combatFrame?.combatants.find((unit) => unit.unitId === row.unitId) || null;
+            const calculated = computeCalculatedCombatSnapshot(
+              combatant?.heroDetail?.baseStats || combatant?.stats || null,
+              avgPartyLevel,
+            );
+            return (
             <div key={`${row.unitId}-${row.ordinal}`} className="flex items-center justify-between gap-2 text-[11px] p-2 rounded bg-muted/20">
               <div className="flex items-center gap-2 min-w-0">
                 <CombatAssetChip
                   kind={row.side === 'player' ? 'hero' : 'enemy'}
                   name={row.name}
-                  secondaryLabel={combatFrame?.combatants.find((unit) => unit.unitId === row.unitId)?.heroClass || null}
-                  heroId={combatFrame?.combatants.find((unit) => unit.unitId === row.unitId)?.heroId || null}
-                  imageUrl={combatFrame?.combatants.find((unit) => unit.unitId === row.unitId)?.iconUrl || null}
+                  secondaryLabel={combatant?.heroClass || null}
+                  heroId={combatant?.heroId || null}
+                  imageUrl={combatant?.iconUrl || null}
                   size="xs"
                 />
-                <span className={cn('truncate', row.side === 'player' ? 'text-blue-400' : 'text-red-400')}>{formatCombatName(row.name)}</span>
+                <div className="min-w-0">
+                  <span className={cn('truncate block', row.side === 'player' ? 'text-blue-400' : 'text-red-400')}>{formatCombatName(row.name)}</span>
+                  {calculated && (
+                    <span className="block text-[10px] text-muted-foreground">
+                      calc init {calculated.startingInitiative.min.toFixed(1)}-{calculated.startingInitiative.max.toFixed(1)}
+                    </span>
+                  )}
+                </div>
               </div>
               <span className="font-mono">{row.ticksUntilTurn ?? 'n/a'}</span>
             </div>
-          ))}
+          )})}
         </div>
       </CardContent>
     </Card>
@@ -2028,6 +2113,7 @@ export default function HuntCompanion() {
     syncIssues.length === 0 &&
     !!battleState?.enemies?.length;
   const inspectedCombatant = combatFrame?.combatants.find((unit) => unit.unitId === inspectedCombatantId) || null;
+  const avgPartyLevel = Math.max(1, Math.round(((battleState?.heroes || []).reduce((sum, hero) => sum + (hero.level || 0), 0) / Math.max(1, (battleState?.heroes || []).length)) || 1));
 
   useEffect(() => {
     if (domActionState.battleBudgetRemaining != null) {
@@ -2461,7 +2547,7 @@ export default function HuntCompanion() {
                   onAction={executeMirroredAction}
                   pendingActionKey={pendingManualActionKey}
                 />
-                <TurnOrderPanel combatFrame={combatFrame} />
+                <TurnOrderPanel combatFrame={combatFrame} avgPartyLevel={avgPartyLevel} />
               </div>
 
             {syncIssues.length > 0 && (
@@ -2733,6 +2819,7 @@ export default function HuntCompanion() {
         }}
         combatant={inspectedCombatant}
         heroDetail={combatFrame?.heroDetail || null}
+        avgPartyLevel={avgPartyLevel}
       />
     </>
     );

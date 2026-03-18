@@ -73,6 +73,26 @@ export const DOUBLE_STAT_COEFFICIENTS = {
   }
 };
 
+export interface CalculatedCombatSnapshot {
+  baseStats: HeroStats;
+  statScores: Record<'STR' | 'DEX' | 'AGI' | 'VIT' | 'END' | 'INT' | 'WIS' | 'LCK', number>;
+  combatStats: {
+    Speed: number;
+    Crit: number;
+    EVA: number;
+    Block: number;
+    Recovery: number;
+    SER: number;
+    SpellBlock: number;
+    Focus: number;
+  };
+  startingInitiative: {
+    min: number;
+    expected: number;
+    max: number;
+  };
+}
+
 export function singleStatScore(statVal: number, avgLevel: number, coeff: any) {
   let result = (coeff.A * statVal + coeff.B * avgLevel + coeff.C) / (coeff.D * avgLevel + coeff.E);
   if (result > coeff.dim) {
@@ -132,6 +152,83 @@ export function computeHeroCombatProfile(stats: HeroStats, avgPartyLevel: number
     SER: doubleStatScore(stats.END, stats.LCK, avgPartyLevel, DOUBLE_STAT_COEFFICIENTS.SER),
     SpellBlock: doubleStatScore(stats.INT, stats.LCK, avgPartyLevel, DOUBLE_STAT_COEFFICIENTS.SpellBlock),
     Focus: focus
+  };
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+export function normalizeHeroStatsRecord(source: Record<string, number | null | undefined> | null | undefined): HeroStats | null {
+  if (!source) return null;
+  const read = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = toNumber(source[key]);
+      if (value != null) return value;
+    }
+    return null;
+  };
+
+  const stats: HeroStats = {
+    STR: read('STR', 'str') ?? 0,
+    DEX: read('DEX', 'dex') ?? 0,
+    AGI: read('AGI', 'agi') ?? 0,
+    INT: read('INT', 'int') ?? 0,
+    WIS: read('WIS', 'wis') ?? 0,
+    VIT: read('VIT', 'vit') ?? 0,
+    END: read('END', 'end') ?? 0,
+    LCK: read('LCK', 'lck') ?? 0,
+  };
+
+  if (Object.values(stats).every((value) => value === 0)) return null;
+  return stats;
+}
+
+export function computeStartingInitiativeRange(stats: HeroStats) {
+  const initiativeModFloor = -stats.LCK / 2;
+  const initiativeModCeil = stats.LCK / 2;
+  return {
+    min: 2 * (stats.AGI + initiativeModFloor),
+    expected: 2 * stats.AGI,
+    max: 2 * (stats.AGI + initiativeModCeil),
+  };
+}
+
+export function computeCalculatedCombatSnapshot(
+  source: Record<string, number | null | undefined> | null | undefined,
+  avgPartyLevel: number,
+): CalculatedCombatSnapshot | null {
+  const stats = normalizeHeroStatsRecord(source);
+  if (!stats) return null;
+  const profile = computeHeroCombatProfile(stats, avgPartyLevel);
+  return {
+    baseStats: stats,
+    statScores: {
+      STR: profile.STR,
+      DEX: profile.DEX,
+      AGI: profile.AGI,
+      VIT: profile.VIT,
+      END: profile.END,
+      INT: profile.INT,
+      WIS: profile.WIS,
+      LCK: profile.LCK,
+    },
+    combatStats: {
+      Speed: profile.Speed,
+      Crit: profile.Crit,
+      EVA: profile.EVA,
+      Block: profile.Block,
+      Recovery: profile.Recovery,
+      SER: profile.SER,
+      SpellBlock: profile.SpellBlock,
+      Focus: profile.Focus,
+    },
+    startingInitiative: computeStartingInitiativeRange(stats),
   };
 }
 
