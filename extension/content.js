@@ -350,6 +350,15 @@
   function runLocalRecommendation(turnSnapshot) {
     if (!engineReady) return;
     if (!window.__dfkGetRecommendation) return;
+    if (!turnSnapshot?.activeUnit || turnSnapshot.activeHeroSlot == null) {
+      updateOverlayEngineStatus(true, 'Waiting for active hero/action panel...');
+      return;
+    }
+    if ((!turnSnapshot.legalActions || turnSnapshot.legalActions.length === 0) &&
+        (!turnSnapshot.legalConsumables || turnSnapshot.legalConsumables.length === 0)) {
+      updateOverlayEngineStatus(true, 'Waiting for legal actions from command panel...');
+      return;
+    }
 
     try {
       const result = window.__dfkGetRecommendation(turnSnapshot, unitSnapshotCache);
@@ -388,7 +397,7 @@
     const bodyEl = document.getElementById('dfk-engine-body');
     if (!bodyEl) return;
     if (ready) {
-      bodyEl.innerHTML = '<div style="color: #4a6a55;">Engine ready. Waiting for combat data...</div>';
+      bodyEl.innerHTML = `<div style="color: #4a6a55;">${escapeHtml(errorMsg || 'Engine ready. Waiting for combat data...')}</div>`;
     } else {
       bodyEl.innerHTML = `<div style="color: #997744;">Engine: ${errorMsg || 'not ready'} (parsers still active)</div>`;
     }
@@ -421,6 +430,7 @@
 
   function extractHeroIdsFromSegment(segment) {
     if (!segment) return [];
+    if (/^\d+-\d+$/.test(segment)) return [];
     const parts = segment.split('-').filter(p => /^\d+$/.test(p) && p.length >= 3);
     return parts;
   }

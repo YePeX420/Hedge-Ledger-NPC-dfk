@@ -132,8 +132,9 @@
       );
       const merged = unitSnap ? { ...h, stats: unitSnap.stats, baseStats: unitSnap.baseStats, abilities: unitSnap.abilities, buffs: unitSnap.buffs, debuffs: unitSnap.debuffs, level: unitSnap.level } : h;
 
-      const profile = heroProfiles[i] || heroProfiles.find(
-        p => p.heroId === h.heroId || p.normalizedId === h.heroId
+      const profile = heroProfiles.find(
+        p => (h.heroId && (p.heroId === h.heroId || p.normalizedId === h.heroId)) ||
+             (h.normalizedId && (p.heroId === h.normalizedId || p.normalizedId === h.normalizedId))
       );
       if (profile) {
         if (!merged.heroClass && profile.mainClass) merged.heroClass = profile.mainClass;

@@ -553,6 +553,7 @@
       );
       if (!name) return;
       const lower = name.toLowerCase();
+      if (/battle budget|stone\d*|^\d+$/.test(lower)) return;
       if (!/(potion|tonic|philter|consum|stone|item)/i.test(lower)) return;
       if (isUiChromeLabel(name)) return;
       if (seen.has(lower)) return;

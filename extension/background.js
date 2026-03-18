@@ -722,7 +722,7 @@ function mapHeroProfile(raw) {
 
 async function fetchAndBroadcastHeroProfiles(huntId, heroIds, wallet) {
   if (heroProfileFetching) return;
-  if (heroProfileHuntId === huntId && currentHeroProfiles) return;
+  if (heroProfileHuntId === huntId && currentHeroProfiles && currentHeroProfiles.length > 1) return;
 
   heroProfileFetching = true;
   console.log(`[HeroProfile] Fetching hero profiles for hunt ${huntId}...`);
