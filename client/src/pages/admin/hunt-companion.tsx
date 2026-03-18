@@ -17,6 +17,7 @@ interface HeroSnapshot {
   slot: number;
   heroId: string;
   mainClass: string;
+  iconUrl?: string | null;
   level: number;
   currentHp: number;
   maxHp: number;
@@ -28,6 +29,7 @@ interface HeroSnapshot {
 
 interface EnemySnapshot {
   enemyId: string;
+  iconUrl?: string | null;
   currentHp: number;
   maxHp: number;
   currentMp?: number | null;
@@ -75,6 +77,7 @@ interface StatusInstance {
   category: string;
   stacks: number | null;
   durationTurns: number | null;
+  iconUrl?: string | null;
 }
 
 interface CombatFrame {
@@ -87,6 +90,7 @@ interface CombatFrame {
     slot: number | null;
     name: string;
     normalizedId: string;
+    iconUrl?: string | null;
     currentHp: number | null;
     maxHp: number | null;
     currentMp: number | null;
@@ -106,8 +110,8 @@ interface CombatFrame {
     activeSlot: number | null;
     selectedTargetId: string | null;
     selectedTargetSide: 'player' | 'enemy' | null;
-    legalActions: Array<{ name: string; skillId?: string | null; type: string; available: boolean; sourceConfidence: number }>;
-    legalConsumables: Array<{ name: string; type: string; available: boolean; sourceConfidence: number }>;
+    legalActions: Array<{ name: string; skillId?: string | null; type: string; available: boolean; sourceConfidence: number; iconUrl?: string | null }>;
+    legalConsumables: Array<{ name: string; type: string; available: boolean; sourceConfidence: number; iconUrl?: string | null }>;
     visibleLockouts: Record<string, number | null>;
     battleBudgetRemaining: number | null;
   };
@@ -568,7 +572,7 @@ function StatusBadges({ statuses }: { statuses: StatusInstance[] | undefined }) 
     <div className="flex flex-wrap gap-1 mt-1">
       {statuses.map((status) => (
         <Badge key={`${status.category}-${status.id}-${status.stacks ?? 'na'}-${status.durationTurns ?? 'na'}`} variant="secondary" className="text-[9px] inline-flex items-center gap-1">
-          <CombatAssetChip kind="status" name={status.name} size="xs" />
+          <CombatAssetChip kind="status" name={status.name} imageUrl={status.iconUrl} size="xs" />
           {formatCombatName(status.name)}
           {status.stacks ? ` x${status.stacks}` : ''}
           {status.durationTurns ? ` ${status.durationTurns}t` : ''}
@@ -600,7 +604,7 @@ function ActiveTurnPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
               <div className="flex flex-wrap gap-1">
                 {actions.map((action) => (
                   <Badge key={`${action.type}-${action.name}`} variant={action.available ? 'default' : 'secondary'} className="text-[9px] inline-flex items-center gap-1">
-                    <CombatAssetChip kind="ability" name={action.name} size="xs" />
+                    <CombatAssetChip kind="ability" name={action.name} imageUrl={action.iconUrl} size="xs" />
                     {formatCombatName(action.name)}
                   </Badge>
                 ))}
@@ -612,7 +616,7 @@ function ActiveTurnPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
               <div className="flex flex-wrap gap-1">
                 {consumables.map((item) => (
                   <Badge key={item.name} variant={item.available ? 'outline' : 'secondary'} className="text-[9px] inline-flex items-center gap-1">
-                    <CombatAssetChip kind="consumable" name={item.name} size="xs" />
+                    <CombatAssetChip kind="consumable" name={item.name} imageUrl={item.iconUrl} size="xs" />
                     {formatCombatName(item.name)}
                   </Badge>
                 ))}
@@ -637,7 +641,12 @@ function TurnOrderPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
           {rows.map((row) => (
             <div key={`${row.unitId}-${row.ordinal}`} className="flex items-center justify-between gap-2 text-[11px] p-2 rounded bg-muted/20">
               <div className="flex items-center gap-2 min-w-0">
-                <CombatAssetChip kind={row.side === 'player' ? 'hero' : 'enemy'} name={row.name} size="xs" />
+                <CombatAssetChip
+                  kind={row.side === 'player' ? 'hero' : 'enemy'}
+                  name={row.name}
+                  imageUrl={combatFrame?.combatants.find((unit) => unit.unitId === row.unitId)?.iconUrl || null}
+                  size="xs"
+                />
                 <span className={cn('truncate', row.side === 'player' ? 'text-blue-400' : 'text-red-400')}>{formatCombatName(row.name)}</span>
               </div>
               <span className="font-mono">{row.ticksUntilTurn ?? 'n/a'}</span>
@@ -757,7 +766,7 @@ function EnemyIntelligencePanel({
                   {predictedEnemy.source === 'turn_order' ? 'Next Acting Enemy' : 'Prediction Target'}
                 </p>
                 <div className="flex items-center gap-2">
-                  <CombatAssetChip kind="enemy" name={predictedEnemy.displayName} size="md" />
+                  <CombatAssetChip kind="enemy" name={predictedEnemy.displayName} imageUrl={predictedEnemy.enemy?.iconUrl || null} size="md" />
                   <p className="text-sm font-semibold">{formatCombatName(predictedEnemy.displayName)}</p>
                 </div>
               </div>
@@ -1741,7 +1750,7 @@ export default function HuntCompanion() {
                     <div key={hero.slot} className={`p-2 rounded-md ${hero.isAlive ? 'bg-muted/20' : 'bg-red-500/10'}`} data-testid={`hero-status-${hero.slot}`}>
                       <div className="flex items-center justify-between gap-2 mb-1.5">
                         <div className="flex items-center gap-2 min-w-0">
-                          <CombatAssetChip kind="hero" name={hero.heroId || `hero_${hero.slot}`} secondaryLabel={hero.mainClass} size="md" />
+                          <CombatAssetChip kind="hero" name={hero.heroId || `hero_${hero.slot}`} secondaryLabel={hero.mainClass} imageUrl={hero.iconUrl} size="md" />
                           <span className="text-xs font-medium truncate">
                             {hero.mainClass || `Hero`} #{hero.heroId?.slice(-4) || hero.slot}
                           </span>
@@ -1773,7 +1782,7 @@ export default function HuntCompanion() {
                   {battleState.enemies.map((enemy, i) => (
                     <div key={i} className="space-y-2" data-testid={`enemy-status-${i}`}>
                       <div className="flex items-center gap-2">
-                        <CombatAssetChip kind="enemy" name={enemy.enemyId} size="md" />
+                        <CombatAssetChip kind="enemy" name={enemy.enemyId} imageUrl={enemy.iconUrl} size="md" />
                         <span className="text-sm font-medium">
                           {formatCombatName(enemy.enemyId)}
                         </span>

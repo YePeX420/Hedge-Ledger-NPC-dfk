@@ -88,7 +88,7 @@
   let lastTurnOrderPrimeAt = 0;
   let turnOrderPrimeInFlight = false;
   let lastCommandPanelDebug = null;
-  const ENABLE_TURN_ORDER_AUTO_PRIME = false;
+  const ENABLE_TURN_ORDER_AUTO_PRIME = true;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -104,6 +104,121 @@
 
   function normalizedName(value) {
     return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+
+  function extractImageUrl(el) {
+    if (!el) return null;
+    if (el.tagName === 'IMG') {
+      const src = el.currentSrc || el.src || el.getAttribute('src');
+      return src ? String(src) : null;
+    }
+    const nestedImg = el.querySelector?.('img');
+    if (nestedImg) {
+      const src = nestedImg.currentSrc || nestedImg.src || nestedImg.getAttribute('src');
+      if (src) return String(src);
+    }
+    const scanNodes = [el, ...(el.querySelectorAll ? Array.from(el.querySelectorAll('*')).slice(0, 10) : [])];
+    for (const node of scanNodes) {
+      try {
+        const bg = window.getComputedStyle(node).backgroundImage || '';
+        const match = bg.match(/url\((['"]?)(.*?)\1\)/i);
+        if (match?.[2] && !/^data:/i.test(match[2])) return match[2];
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  function labelFromAssetUrl(url) {
+    if (!url) return '';
+    try {
+      const cleanUrl = String(url).split('#')[0].split('?')[0];
+      const parts = cleanUrl.split('/').filter(Boolean);
+      if (parts.length === 0) return '';
+      const file = parts[parts.length - 1].replace(/\.(png|jpg|jpeg|webp|gif|svg)$/i, '');
+      const parent = parts.length > 1 ? parts[parts.length - 2] : '';
+      const base = file
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/[_-]+/g, ' ')
+        .trim();
+      if (!base) return '';
+      if (/^(icon|ability|skill|item|consumable)$/i.test(base) && parent) {
+        return parent
+          .replace(/([a-z])([A-Z])/g, '$1 $2')
+          .replace(/[_-]+/g, ' ')
+          .trim();
+      }
+      return base;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function findPortraitImage(name, side) {
+    const key = normalizedName(name);
+    if (!key) return null;
+    const selectors = side === 'enemy'
+      ? ['[class*="enemy"] img', '[class*="monster"] img', '[class*="enemy"] [style*="background-image"]', '[class*="monster"] [style*="background-image"]']
+      : ['[class*="hero"] img', '[class*="player"] img', '[class*="hero"] [style*="background-image"]', '[class*="player"] [style*="background-image"]'];
+    for (const sel of selectors) {
+      const nodes = Array.from(document.querySelectorAll(sel)).filter(isVisible).slice(0, 40);
+      for (const node of nodes) {
+        const contextText = normalizeText(node.closest?.('div,section,article,aside')?.textContent || '');
+        if (!contextText) continue;
+        const normalizedContext = normalizedName(contextText);
+        if (!normalizedContext.includes(key) && !key.includes(normalizedContext)) continue;
+        const imageUrl = extractImageUrl(node);
+        if (imageUrl) return imageUrl;
+      }
+    }
+    return null;
+  }
+
+  function inferStatusIconUrl(name) {
+    const key = normalizedName(name);
+    if (!key) return null;
+    const candidates = Array.from(document.querySelectorAll('img,[style*="background-image"],[title],[aria-label]'))
+      .filter(isVisible)
+      .slice(0, 500);
+    for (const el of candidates) {
+      const label = normalizeText(
+        el.getAttribute?.('alt') ||
+        el.getAttribute?.('title') ||
+        el.getAttribute?.('aria-label') ||
+        el.textContent
+      );
+      if (!label) continue;
+      const normalizedLabel = normalizedName(label);
+      if (!normalizedLabel.includes(key) && !key.includes(normalizedLabel)) continue;
+      const imageUrl = extractImageUrl(el);
+      if (imageUrl) return imageUrl;
+    }
+    return null;
+  }
+
+  function currentHuntKey() {
+    const match = String(window.location.href || '').match(/\/hunt\/(\d+-\d+)/i);
+    return match ? match[1] : null;
+  }
+
+  function turnOrderCaptureKey() {
+    const huntKey = currentHuntKey();
+    return huntKey ? `dfk_turn_order_captured:${huntKey}` : null;
+  }
+
+  function hasCapturedTurnOrderForHunt() {
+    try {
+      const key = turnOrderCaptureKey();
+      return key ? window.sessionStorage.getItem(key) === '1' : false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function markTurnOrderCapturedForHunt() {
+    try {
+      const key = turnOrderCaptureKey();
+      if (key) window.sessionStorage.setItem(key, '1');
+    } catch (_) {}
   }
 
   function extractHpMp(el) {
@@ -254,12 +369,14 @@
     }
     const child = btn.querySelector('img[alt],img[title],[title],[aria-label]');
     if (!child) return '';
-    return normalizeText(
+    const childLabel = normalizeText(
       child.getAttribute('alt') ||
       child.getAttribute('title') ||
       child.getAttribute('aria-label') ||
       child.textContent
     );
+    if (childLabel) return childLabel;
+    return normalizeText(labelFromAssetUrl(extractImageUrl(btn)));
   }
 
   function isLikelyCombatantName(value) {
@@ -374,7 +491,8 @@
 
   function extractActionFromBtn(btn) {
     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return null;
-    const name = extractButtonLabel(btn);
+    const iconUrl = extractImageUrl(btn);
+    const name = extractButtonLabel(btn) || labelFromAssetUrl(iconUrl);
     const skillId = btn.getAttribute('data-skill-id') || btn.getAttribute('data-action-id') || null;
     if (!name || name.length < 2 || name.length > 50) return null;
     if (isUiChromeLabel(name)) return null;
@@ -386,6 +504,7 @@
       available: true,
       requiresTarget: !lower.includes('self'),
       sourceConfidence: 0.8,
+      iconUrl,
       _el: btn,
     };
   }
@@ -545,12 +664,14 @@
     const seen = new Set();
     (commandPanel || document).querySelectorAll('[title],[data-name],[class*="consum"],[class*="item"],img[alt],img[title]').forEach((el) => {
       if (!isVisible(el)) return;
+      const iconUrl = extractImageUrl(el);
       const name = normalizeText(
         el.getAttribute('data-name') ||
         el.getAttribute('title') ||
         el.getAttribute('alt') ||
         el.getAttribute('aria-label') ||
-        el.textContent
+        el.textContent ||
+        labelFromAssetUrl(iconUrl)
       );
       if (!name) return;
       const lower = name.toLowerCase();
@@ -565,6 +686,7 @@
         type: 'consumable',
         available: true,
         sourceConfidence: 0.6,
+        iconUrl,
       });
     });
     return list;
@@ -646,11 +768,13 @@
     if (networkIsFresh) {
       window.__dfkSelectorDiag.turn_order_source = 'network';
       window.__dfkSelectorDiag.turn_order_transport = latestNetworkTurnOrder.transport || null;
+      if (recentNetworkEntries.length > 0) markTurnOrderCapturedForHunt();
       return recentNetworkEntries.slice(0, 12);
     }
 
     const modalEntries = readTurnOrderModal();
     window.__dfkSelectorDiag.turn_order_source = modalEntries.length > 0 ? 'modal' : 'none';
+    if (modalEntries.length > 0) markTurnOrderCapturedForHunt();
     return modalEntries;
   }
 
@@ -689,8 +813,18 @@
     }
     if (turnOrderPrimeInFlight) return;
     if (document.visibilityState === 'hidden') return;
-    if ((Date.now() - lastTurnOrderPrimeAt) < 10000) return;
+    if (hasCapturedTurnOrderForHunt()) {
+      window.__dfkSelectorDiag.turn_order_auto_prime_complete = true;
+      return;
+    }
+    if ((Date.now() - lastTurnOrderPrimeAt) < 30000) return;
     if (readTurnOrderModal().length > 0) return;
+
+    const commandPanel = findCommandPanelRoot();
+    if (commandPanel && countVisibleButtons(commandPanel) >= 3) {
+      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'command_panel_visible';
+      return;
+    }
 
     const buttons = findTurnIndicatorButtons();
     if (buttons.length === 0) return;
@@ -713,6 +847,9 @@
     });
 
     window.setTimeout(() => {
+      if (readTurnOrderModal().length > 0) {
+        markTurnOrderCapturedForHunt();
+      }
       const closeBtn = findVisibleCloseButton();
       if (closeBtn) {
         try { closeBtn.click(); } catch (_) {}
@@ -733,7 +870,7 @@
     hpReadings.forEach(u => {
       const key = `${u.side}:${u.name || u.slot}`;
       if (!unitMap[key] || (u.hp != null && unitMap[key].hp == null)) {
-        unitMap[key] = { ...u };
+        unitMap[key] = { ...u, iconUrl: findPortraitImage(u.name, u.side) };
       }
     });
     mpReadings.forEach(u => {
@@ -767,16 +904,18 @@
       lastUpdated: Date.now(),
     };
 
-    return {
-      type: 'turn_snapshot',
-      ...currentTurnState,
-      _debug: {
-        commandPanel: lastCommandPanelDebug,
-        activePanelHeroName: window.__dfkSelectorDiag.active_panel_hero_name || null,
-        actionButtonTexts: window.__dfkSelectorDiag.action_button_texts || [],
-      },
-    };
-  }
+      return {
+        type: 'turn_snapshot',
+        ...currentTurnState,
+        _debug: {
+          commandPanel: lastCommandPanelDebug,
+          activePanelHeroName: window.__dfkSelectorDiag.active_panel_hero_name || null,
+          actionButtonTexts: window.__dfkSelectorDiag.action_button_texts || [],
+          actionButtonIconUrls: (legalActions || []).map((action) => action.iconUrl).filter(Boolean),
+          consumableIconUrls: (legalConsumables || []).map((item) => item.iconUrl).filter(Boolean),
+        },
+      };
+    }
 
   function emitSnapshot() {
     const snapshot = buildTurnSnapshot();

@@ -182,7 +182,9 @@
 
   function toStatusInstances(values, category) {
     return (values || []).map((value) => {
-      const raw = String(value || '').trim();
+      const raw = typeof value === 'object' && value !== null
+        ? String(value.sourceText || value.name || value.id || '').trim()
+        : String(value || '').trim();
       const stackMatch = raw.match(/(?:x|stack(?:s)?\s*:?\s*)(\d+)/i);
       const turnMatch = raw.match(/(\d+)\s*(?:turn|tick)/i);
       const cleanName = raw
@@ -196,6 +198,7 @@
         category,
         stacks: stackMatch ? parseInt(stackMatch[1], 10) : null,
         durationTurns: turnMatch ? parseInt(turnMatch[1], 10) : null,
+        iconUrl: typeof value === 'object' && value !== null ? (value.iconUrl || null) : null,
         sourceText: raw || null,
       };
     }).filter((status) => !!status.name);
@@ -227,6 +230,7 @@
         slot: unit.slot ?? null,
         name,
         normalizedId: normalizeId(name),
+        iconUrl: unit.iconUrl || modal?.iconUrl || null,
         currentHp: unit.hp ?? modal?.stats?.hp ?? null,
         maxHp: unit.maxHp ?? modal?.stats?.maxHp ?? null,
         currentMp: unit.mp ?? modal?.stats?.mp ?? null,
@@ -301,12 +305,14 @@
       available: action.available !== false,
       requiresTarget: action.requiresTarget !== false,
       sourceConfidence: action.sourceConfidence || 0.75,
+      iconUrl: action.iconUrl || null,
     }));
     const legalConsumables = (turnState.legalConsumables || []).map((action) => ({
       ...action,
       type: 'consumable',
       available: action.available !== false,
       sourceConfidence: action.sourceConfidence || 0.6,
+      iconUrl: action.iconUrl || null,
     }));
     return {
       version: COMBAT_FRAME_VERSION,
