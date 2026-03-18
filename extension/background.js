@@ -41,6 +41,7 @@ let lastContentReadyAt = null;
 let lastContentReadyUrl = null;
 let lastHuntDetectedAt = null;
 let lastSuccessfulJoinAt = null;
+let lastNetworkDiag = null;
 let recentApiFailures = [];
 let recentServerErrors = [];
 let recentStateTransitions = [];
@@ -263,6 +264,7 @@ function buildSupportBundle() {
       lastContentReadyUrl,
       lastHuntDetectedAt,
       lastHeroProfileHuntId: heroProfileHuntId,
+      networkCapture: redactObject(lastNetworkDiag),
       extensionContextLikelyStale: requiresTabRefresh,
       localSnapshotCount: localSnapshots.length,
       recentApiFailureCount: recentApiFailures.length,
@@ -289,6 +291,7 @@ function persistExtensionState() {
     lastContentReadyUrl,
     lastHuntDetectedAt,
     lastSuccessfulJoinAt,
+    lastNetworkDiag,
     backgroundDebugMode,
     recentApiFailures,
     recentServerErrors,
@@ -938,6 +941,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     sendResponse({ ok: true });
     return true;
 
+  } else if (msg.type === 'network_diag') {
+    lastNetworkDiag = msg.data || null;
+    chrome.storage.local.set({ lastNetworkDiag });
+    sendResponse({ ok: true });
+    return true;
+
   } else if (msg.type === 'export_support_bundle') {
     try {
       sendResponse({ ok: true, bundle: buildSupportBundle() });
@@ -1031,7 +1040,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots', 'httpQueue', 'extensionAuthToken', 'extensionUser', 'ownedCompanionSessions', 'selectedCompanionSessionId', 'requiresTabRefresh', 'currentHuntId', 'lastRecommendation', 'lastUnitSnapshot', 'lastReconcileResult', 'lastContentReadyAt', 'lastContentReadyUrl', 'lastHuntDetectedAt', 'lastSuccessfulJoinAt', 'backgroundDebugMode', 'recentApiFailures', 'recentServerErrors', 'recentStateTransitions'], (result) => {
+chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots', 'httpQueue', 'extensionAuthToken', 'extensionUser', 'ownedCompanionSessions', 'selectedCompanionSessionId', 'requiresTabRefresh', 'currentHuntId', 'lastRecommendation', 'lastUnitSnapshot', 'lastReconcileResult', 'lastContentReadyAt', 'lastContentReadyUrl', 'lastHuntDetectedAt', 'lastSuccessfulJoinAt', 'lastNetworkDiag', 'backgroundDebugMode', 'recentApiFailures', 'recentServerErrors', 'recentStateTransitions'], (result) => {
   if (result.sessionToken) sessionToken = result.sessionToken;
   const normalizedHost = normalizeStoredHost(result.hostUrl);
   if (normalizedHost !== hostUrl) hostUrl = normalizedHost;
@@ -1050,6 +1059,7 @@ chrome.storage.local.get(['sessionToken', 'hostUrl', 'localSnapshots', 'httpQueu
   if (result.lastContentReadyUrl) lastContentReadyUrl = result.lastContentReadyUrl;
   if (result.lastHuntDetectedAt) lastHuntDetectedAt = result.lastHuntDetectedAt;
   if (result.lastSuccessfulJoinAt) lastSuccessfulJoinAt = result.lastSuccessfulJoinAt;
+  if (result.lastNetworkDiag) lastNetworkDiag = result.lastNetworkDiag;
   if (typeof result.backgroundDebugMode === 'boolean') backgroundDebugMode = result.backgroundDebugMode;
   if (Array.isArray(result.recentApiFailures)) recentApiFailures = result.recentApiFailures;
   if (Array.isArray(result.recentServerErrors)) recentServerErrors = result.recentServerErrors;

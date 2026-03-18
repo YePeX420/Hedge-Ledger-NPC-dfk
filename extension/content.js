@@ -127,6 +127,7 @@
 
   document.addEventListener('dfk-network-log-response', function (e) {
     window.__dfkNetworkLogCache = e.detail;
+    safeSendRuntimeMessage({ type: 'network_diag', data: e.detail });
   });
 
   window.__dfkEmitEvent = function (type, data) {
