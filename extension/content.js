@@ -217,10 +217,15 @@
       const key = `${snapshot.unitSide || 'player'}:${normalizeId(snapshot.unitName)}`;
       modalSnapshots.set(key, snapshot);
     });
+    const profileBySlot = new Map();
+    (((typeof window !== 'undefined' && window.__dfkHeroProfiles) || [])).forEach((profile, index) => {
+      profileBySlot.set(index, profile);
+    });
 
     const buildCombatant = (unit, side) => {
       const key = `${side}:${normalizeId(unit.name)}`;
       const modal = modalSnapshots.get(key);
+      const profile = side === 'player' ? profileBySlot.get(unit.slot ?? null) : null;
       const buffs = toStatusInstances([...(unit.buffs || []), ...(modal?.buffs || [])], 'buff');
       const debuffs = toStatusInstances([...(unit.debuffs || []), ...(modal?.debuffs || [])], 'debuff');
       const name = unit.name || modal?.unitName || `${side}-${unit.slot}`;
@@ -231,6 +236,8 @@
         name,
         normalizedId: normalizeId(name),
         iconUrl: unit.iconUrl || modal?.iconUrl || null,
+        heroClass: side === 'player' ? (profile?.mainClass || modal?.heroDetail?.heroClass || null) : null,
+        heroId: side === 'player' ? (profile?.heroId || null) : null,
         currentHp: unit.hp ?? modal?.stats?.hp ?? null,
         maxHp: unit.maxHp ?? modal?.stats?.maxHp ?? null,
         currentMp: unit.mp ?? modal?.stats?.mp ?? null,
@@ -246,6 +253,7 @@
         },
         stats: { ...(modal?.baseStats || {}), ...(modal?.stats || {}) },
         resistances: modal?.heroDetail?.resistances || {},
+        heroDetail: modal?.heroDetail || null,
         sourceConfidence: modal ? Math.max(modal.parseConfidence || 0, 0.7) : 0.55,
       };
     };
@@ -302,6 +310,7 @@
       name: action.name,
       skillId: action.skillId || null,
       type: action.type || (String(action.name || '').toLowerCase().includes('attack') ? 'basic_attack' : 'skill'),
+      group: action.group || null,
       available: action.available !== false,
       requiresTarget: action.requiresTarget !== false,
       sourceConfidence: action.sourceConfidence || 0.75,

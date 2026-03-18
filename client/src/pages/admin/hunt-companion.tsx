@@ -83,6 +83,25 @@ interface StatusInstance {
   iconUrl?: string | null;
 }
 
+interface HeroDetailData {
+  name: string | null;
+  level: number | null;
+  heroClass?: string | null;
+  iconUrl?: string | null;
+  vitals: Record<string, number | null>;
+  baseStats?: Record<string, number | null>;
+  stats: Record<string, number | null>;
+  dynamicScores?: Record<string, number | null>;
+  modifiers?: Record<string, number | null>;
+  resistances: Record<string, number | null>;
+  traits?: string[];
+  passives: string[];
+  abilities: string[];
+  items: string[];
+  primaryArms?: string[];
+  secondaryArms?: string[];
+}
+
 interface CombatFrame {
   version: number;
   turnNumber: number;
@@ -94,6 +113,8 @@ interface CombatFrame {
     name: string;
     normalizedId: string;
     iconUrl?: string | null;
+    heroClass?: string | null;
+    heroId?: string | null;
     currentHp: number | null;
     maxHp: number | null;
     currentMp: number | null;
@@ -105,6 +126,7 @@ interface CombatFrame {
     equipment: { primaryArms: string[]; secondaryArms: string[]; items: string[] };
     stats: Record<string, number | null>;
     resistances?: Record<string, number | null>;
+    heroDetail?: HeroDetailData | null;
     sourceConfidence: number;
   }>;
   activeTurn: {
@@ -113,30 +135,14 @@ interface CombatFrame {
     activeSlot: number | null;
     selectedTargetId: string | null;
     selectedTargetSide: 'player' | 'enemy' | null;
-    legalActions: Array<{ name: string; skillId?: string | null; type: string; available: boolean; sourceConfidence: number; iconUrl?: string | null }>;
+    legalActions: Array<{ name: string; skillId?: string | null; type: string; group?: string | null; available: boolean; sourceConfidence: number; iconUrl?: string | null }>;
     legalConsumables: Array<{ name: string; type: string; available: boolean; sourceConfidence: number; iconUrl?: string | null }>;
     visibleLockouts: Record<string, number | null>;
     battleBudgetRemaining: number | null;
   };
   turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; ordinal: number }>;
   battleLogEntries: Array<{ turnNumber: number; actorName: string | null; ability: string | null; outcomes: string[]; rawText?: string | null }>;
-  heroDetail: null | {
-    name: string | null;
-    level: number | null;
-    iconUrl?: string | null;
-    vitals: Record<string, number | null>;
-    baseStats?: Record<string, number | null>;
-    stats: Record<string, number | null>;
-    dynamicScores?: Record<string, number | null>;
-    modifiers?: Record<string, number | null>;
-    resistances: Record<string, number | null>;
-    traits?: string[];
-    passives: string[];
-    abilities: string[];
-    items: string[];
-    primaryArms?: string[];
-    secondaryArms?: string[];
-  };
+  heroDetail: HeroDetailData | null;
   captureMeta: {
     source: string;
     capturedAt: number;
@@ -714,10 +720,10 @@ function CombatantDetailDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   combatant: CombatFrame['combatants'][number] | null;
-  heroDetail: CombatFrame['heroDetail'] | null;
+  heroDetail: HeroDetailData | null;
 }) {
   const isMatchingHeroDetail = combatant && heroDetail && heroDetail.name && normalizeLookupKey(heroDetail.name) === normalizeLookupKey(combatant.name);
-  const shownHeroDetail = isMatchingHeroDetail ? heroDetail : null;
+  const shownHeroDetail = (combatant?.heroDetail || null) || (isMatchingHeroDetail ? heroDetail : null);
   const shownVitals = shownHeroDetail?.vitals || {};
   const shownBaseStats = shownHeroDetail?.baseStats || {};
   const shownStats = shownHeroDetail?.stats || combatant?.stats || {};
@@ -744,6 +750,7 @@ function CombatantDetailDialog({
               <CombatAssetChip
                 kind={combatant.side === 'player' ? 'hero' : 'enemy'}
                 name={combatant.name}
+                secondaryLabel={shownHeroDetail?.heroClass || combatant.heroClass || null}
                 imageUrl={shownHeroDetail?.iconUrl || combatant.iconUrl || null}
                 size="md"
               />
@@ -833,6 +840,7 @@ function CombatantStatusCard({
   combatant: {
     name: string;
     iconUrl?: string | null;
+    heroClass?: string | null;
     currentHp: number;
     maxHp: number;
     currentMp?: number | null;
@@ -856,7 +864,7 @@ function CombatantStatusCard({
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <CombatAssetChip kind={kind} name={combatant.name} imageUrl={combatant.iconUrl || null} size="md" />
+          <CombatAssetChip kind={kind} name={combatant.name} secondaryLabel={combatant.heroClass || null} imageUrl={combatant.iconUrl || null} size="md" />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{formatCombatName(combatant.name)}</p>
             <div className="flex flex-wrap items-center gap-1">
@@ -886,6 +894,50 @@ function CombatantStatusCard({
   );
 }
 
+function classifyActiveTurnAction(action: CombatFrame['activeTurn']['legalActions'][number]) {
+  const lower = String(action.name || '').toLowerCase();
+  if (action.group) return action.group;
+  if (/^(attack|swap|skip)$/.test(lower)) return 'actions';
+  if (/(potion|tonic|philter|frame|stone|elixir|consum)/.test(lower)) return 'items';
+  if (/(passive|deathmark|blinding winds|hero frame)/.test(lower)) return 'abilities';
+  return 'skills';
+}
+
+function ActiveTurnActionGrid({
+  title,
+  actions,
+  kind,
+}: {
+  title: string;
+  actions: Array<{ name: string; iconUrl?: string | null; available: boolean }>;
+  kind: 'ability' | 'consumable';
+}) {
+  if (actions.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="flex flex-wrap gap-2">
+        {actions.map((action) => (
+          <button
+            key={`${title}-${action.name}`}
+            type="button"
+            disabled
+            className={cn(
+              'inline-flex items-center gap-2 rounded-md border px-2 py-1 text-[11px] transition-colors',
+              action.available
+                ? 'border-muted-foreground/20 bg-muted/20 text-foreground'
+                : 'border-muted-foreground/10 bg-muted/10 text-muted-foreground opacity-70',
+            )}
+          >
+            <CombatAssetChip kind={kind} name={action.name} imageUrl={action.iconUrl || null} size="xs" />
+            <span>{formatCombatName(action.name)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ActiveTurnPanel({
   combatFrame,
   onInspectCombatant,
@@ -899,6 +951,23 @@ function ActiveTurnPanel({
     || (combatFrame?.activeTurn.activeUnitId ? null : null);
   const selectedTarget = combatFrame?.combatants.find((unit) => unit.unitId === combatFrame.activeTurn.selectedTargetId) || null;
   const activeLabel = activeCombatant?.name || parseUnitIdParts(combatFrame?.activeTurn.activeUnitId).key || null;
+  const groupedActions = {
+    actions: actions.filter((action) => classifyActiveTurnAction(action) === 'actions'),
+    skills: actions.filter((action) => classifyActiveTurnAction(action) === 'skills'),
+    abilities: actions.filter((action) => classifyActiveTurnAction(action) === 'abilities'),
+  };
+  const groupedItems = [
+    ...actions.filter((action) => classifyActiveTurnAction(action) === 'items').map((action) => ({
+      name: action.name,
+      iconUrl: action.iconUrl || null,
+      available: action.available,
+    })),
+    ...consumables.map((item) => ({
+      name: item.name,
+      iconUrl: item.iconUrl || null,
+      available: item.available,
+    })),
+  ];
   return (
       <Card>
         <CardContent className="p-4 space-y-3">
@@ -915,7 +984,7 @@ function ActiveTurnPanel({
           ) : (
             <>
               <div className={cn(
-                'rounded-md border p-3',
+                'rounded-md border p-3 space-y-3',
                 combatFrame.activeTurn.activeSide === 'player'
                   ? 'border-emerald-400/40 bg-emerald-500/10'
                   : 'border-muted-foreground/10 bg-muted/10',
@@ -925,6 +994,7 @@ function ActiveTurnPanel({
                     <CombatAssetChip
                       kind={activeCombatant?.side === 'enemy' ? 'enemy' : 'hero'}
                       name={activeCombatant?.name || activeLabel || 'Unknown'}
+                      secondaryLabel={activeCombatant?.heroClass || null}
                       imageUrl={activeCombatant?.iconUrl || null}
                       size="md"
                     />
@@ -944,16 +1014,42 @@ function ActiveTurnPanel({
                     <Info className="h-4 w-4" />
                   </Button>
                 </div>
+                {activeCombatant && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <HpBar current={activeCombatant.currentHp} max={activeCombatant.maxHp} label="HP" color="bg-green-500" />
+                      {activeCombatant.currentMp != null && activeCombatant.maxMp != null && activeCombatant.maxMp > 0 && (
+                        <HpBar current={activeCombatant.currentMp} max={activeCombatant.maxMp} label="MP" color="bg-blue-500" />
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-[11px]">Budget: <span className="font-mono">{combatFrame.activeTurn.battleBudgetRemaining ?? 'n/a'}</span></div>
+                      <div className="text-[11px]">Source: <span className="font-mono">{combatFrame.captureMeta.source}</span></div>
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">FX</p>
+                  {activeCombatant?.visibleEffects?.length ? (
+                    <StatusBadges statuses={activeCombatant.visibleEffects} />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No visible effects</p>
+                  )}
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <ActiveTurnActionGrid title="Actions" actions={groupedActions.actions} kind="ability" />
+                  <ActiveTurnActionGrid title="Skills" actions={groupedActions.skills} kind="ability" />
+                  <ActiveTurnActionGrid title="Abilities" actions={groupedActions.abilities} kind="ability" />
+                  <ActiveTurnActionGrid title="Items" actions={groupedItems} kind="consumable" />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-[11px]">
-                <div>Budget: <span className="font-mono">{combatFrame.activeTurn.battleBudgetRemaining ?? 'n/a'}</span></div>
-                <div>Source: <span className="font-mono">{combatFrame.captureMeta.source}</span></div>
                 <div className="col-span-2">
                   Selected:
                   <span className="ml-1 inline-flex items-center gap-1">
                     {selectedTarget ? (
                       <>
-                        <CombatAssetChip kind={selectedTarget.side === 'enemy' ? 'enemy' : 'hero'} name={selectedTarget.name} imageUrl={selectedTarget.iconUrl || null} size="xs" />
+                        <CombatAssetChip kind={selectedTarget.side === 'enemy' ? 'enemy' : 'hero'} name={selectedTarget.name} secondaryLabel={selectedTarget.heroClass || null} imageUrl={selectedTarget.iconUrl || null} size="xs" />
                         <span>{formatCombatName(selectedTarget.name)}</span>
                       </>
                     ) : (
@@ -962,30 +1058,9 @@ function ActiveTurnPanel({
                   </span>
                 </div>
               </div>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Legal Actions</p>
-                <div className="flex flex-wrap gap-1">
-                {actions.map((action) => (
-                  <Badge key={`${action.type}-${action.name}`} variant={action.available ? 'default' : 'secondary'} className="text-[9px] inline-flex items-center gap-1">
-                    <CombatAssetChip kind="ability" name={action.name} imageUrl={action.iconUrl} size="xs" />
-                    {formatCombatName(action.name)}
-                  </Badge>
-                ))}
-                {actions.length === 0 && <span className="text-xs text-muted-foreground">No actions parsed</span>}
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Consumables</p>
-              <div className="flex flex-wrap gap-1">
-                {consumables.map((item) => (
-                  <Badge key={item.name} variant={item.available ? 'outline' : 'secondary'} className="text-[9px] inline-flex items-center gap-1">
-                    <CombatAssetChip kind="consumable" name={item.name} imageUrl={item.iconUrl} size="xs" />
-                    {formatCombatName(item.name)}
-                  </Badge>
-                ))}
-                {consumables.length === 0 && <span className="text-xs text-muted-foreground">No consumables visible</span>}
-              </div>
-            </div>
+              {actions.length === 0 && groupedItems.length === 0 && (
+                <p className="text-xs text-muted-foreground">No actions parsed from the command panel.</p>
+              )}
           </>
         )}
       </CardContent>
@@ -1007,6 +1082,7 @@ function TurnOrderPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
                 <CombatAssetChip
                   kind={row.side === 'player' ? 'hero' : 'enemy'}
                   name={row.name}
+                  secondaryLabel={combatFrame?.combatants.find((unit) => unit.unitId === row.unitId)?.heroClass || null}
                   imageUrl={combatFrame?.combatants.find((unit) => unit.unitId === row.unitId)?.iconUrl || null}
                   size="xs"
                 />
@@ -2118,6 +2194,7 @@ export default function HuntCompanion() {
                       combatant={{
                         name: hero.mainClass || hero.heroId || `Hero ${hero.slot}`,
                         iconUrl: hero.iconUrl || findCombatantByHeroSnapshot(combatFrame, hero)?.iconUrl || null,
+                        heroClass: hero.mainClass || findCombatantByHeroSnapshot(combatFrame, hero)?.heroClass || null,
                         currentHp: hero.currentHp,
                         maxHp: hero.maxHp,
                         currentMp: hero.currentMp,
@@ -2191,6 +2268,7 @@ export default function HuntCompanion() {
                           <CombatAssetChip
                             kind={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'hero' : 'enemy'}
                             name={actorLabel}
+                            secondaryLabel={actorCombatant?.heroClass || null}
                             imageUrl={actorCombatant?.iconUrl || null}
                             size="xs"
                           />

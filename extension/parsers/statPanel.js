@@ -156,6 +156,15 @@ console.log('[DFK StatPanel] Script file loaded');
     return [...new Set((values || []).map(v => (v || '').trim()).filter(Boolean))];
   }
 
+  function isLikelyUnitName(text) {
+    const value = normalizeText(text);
+    if (!value || value.length < 4 || value.length > 40) return false;
+    if (/\b(current conditions|primary arms|secondary arms|vitals|base stats|traits|abilities|items|modifiers|dynamic stat scores|status effect resistance|hero details|flip card|level)\b/i.test(value)) return false;
+    if (/\b(hp|mp|fx|attack|spell|stamina|xp|summons)\b/i.test(value)) return false;
+    if (/^\d[\d\s/%.-]*$/.test(value)) return false;
+    return /[A-Za-z]/.test(value);
+  }
+
   function parseStatusText(text, category) {
     const raw = (text || '').trim();
     const stackMatch = raw.match(/(?:x|stack(?:s)?\s*:?\s*)(\d+)/i);
@@ -219,6 +228,30 @@ console.log('[DFK StatPanel] Script file loaded');
     if (unitNameEl) {
       snapshot.unitName = unitNameEl.textContent.trim();
       if (debugMode) debugMeta.unitName = { source: unitNameEl.className, value: snapshot.unitName };
+    }
+    if (!snapshot.unitName) {
+      const panelRect = panelEl.getBoundingClientRect();
+      const candidate = Array.from(panelEl.querySelectorAll('h1,h2,h3,h4,div,span,p'))
+        .filter((el) => {
+          const text = normalizeText(el.textContent);
+          if (!isLikelyUnitName(text)) return false;
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 && rect.top < panelRect.top + panelRect.height * 0.45;
+        })
+        .map((el) => {
+          const text = normalizeText(el.textContent);
+          const rect = el.getBoundingClientRect();
+          const fontSize = parseFloat(window.getComputedStyle(el).fontSize || '0') || 0;
+          let score = fontSize;
+          if (rect.left < panelRect.left + panelRect.width * 0.45) score += 8;
+          if (text.includes(' ')) score += 4;
+          return { text, score };
+        })
+        .sort((a, b) => b.score - a.score)[0];
+      if (candidate?.text) {
+        snapshot.unitName = candidate.text;
+        if (debugMode) debugMeta.unitName = { source: 'heuristic-heading', value: snapshot.unitName };
+      }
     }
 
     const portraitImg = Array.from(panelEl.querySelectorAll('img,[style*="background-image"]'))
@@ -389,6 +422,7 @@ console.log('[DFK StatPanel] Script file loaded');
       titleText.includes('dynamic stat scores');
 
     if (likelyHeroDetail) {
+      const heroClassMatch = rawText.match(/\b(Archer|Knight|Warrior|Priest|Wizard|Pirate|Berserker|Seer|Monk)\b/i);
       const traitTexts = collectLabeledValues(panelEl, ['trait', 'traits']);
       const passiveTexts = uniqueStrings(snapshot.abilities.filter(name => /passive/i.test(name)).concat(collectLabeledValues(panelEl, ['passive'])));
       const abilityTexts = uniqueStrings(snapshot.abilities.concat(collectLabeledValues(panelEl, ['abilities'])));
@@ -396,6 +430,7 @@ console.log('[DFK StatPanel] Script file loaded');
       snapshot.heroDetail = {
         name: snapshot.unitName || null,
         level: snapshot.level || null,
+        heroClass: heroClassMatch ? heroClassMatch[1] : null,
         iconUrl: snapshot.iconUrl || null,
         vitals: {
           hp: snapshot.stats.hp ?? null,

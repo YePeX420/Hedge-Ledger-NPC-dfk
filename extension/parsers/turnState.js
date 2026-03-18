@@ -87,6 +87,7 @@
   };
   let lastTurnOrderPrimeAt = 0;
   let turnOrderPrimeInFlight = false;
+  let lastUserInteractionAt = Date.now();
   let lastCommandPanelDebug = null;
   const ENABLE_TURN_ORDER_AUTO_PRIME = true;
 
@@ -105,6 +106,13 @@
   function normalizedName(value) {
     return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   }
+
+  window.addEventListener('pointerdown', () => {
+    lastUserInteractionAt = Date.now();
+  }, true);
+  window.addEventListener('keydown', () => {
+    lastUserInteractionAt = Date.now();
+  }, true);
 
   function extractImageUrl(el) {
     if (!el) return null;
@@ -497,10 +505,16 @@
     if (!name || name.length < 2 || name.length > 50) return null;
     if (isUiChromeLabel(name)) return null;
     const lower = name.toLowerCase();
+    if (/^[a-z0-9+/=_-]{18,}$/i.test(name) || /[a-z0-9]{6,}[A-Z][a-z0-9]{6,}/.test(name)) return null;
+    let group = 'skills';
+    if (/^(attack|swap|skip)$/i.test(name)) group = 'actions';
+    else if (/(potion|tonic|philter|frame|stone|elixir|consum)/i.test(lower)) group = 'items';
+    else if (/(passive|deathmark|blinding winds|hero frame)/i.test(lower)) group = 'abilities';
     return {
       name: name.slice(0, 40),
       skillId,
       type: lower.includes('attack') ? 'basic_attack' : 'skill',
+      group,
       available: true,
       requiresTarget: !lower.includes('self'),
       sourceConfidence: 0.8,
@@ -819,10 +833,8 @@
     }
     if ((Date.now() - lastTurnOrderPrimeAt) < 30000) return;
     if (readTurnOrderModal().length > 0) return;
-
-    const commandPanel = findCommandPanelRoot();
-    if (commandPanel && countVisibleButtons(commandPanel) >= 3) {
-      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'command_panel_visible';
+    if ((Date.now() - lastUserInteractionAt) < 4000) {
+      window.__dfkSelectorDiag.turn_order_auto_prime_skipped = 'recent_interaction';
       return;
     }
 

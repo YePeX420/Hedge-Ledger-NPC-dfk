@@ -56,6 +56,18 @@ const DFK_ABILITY_IMAGE_MAP: Record<string, string> = {
   nuzzle: `${DFK_ASSET_BASE}/ability-icons/boar/nuzzle.png`,
 };
 
+const DFK_HERO_CLASS_IMAGE_MAP: Record<string, string> = {
+  archer: `${DFK_ASSET_BASE}/class-icons/archer.png`,
+  knight: `${DFK_ASSET_BASE}/class-icons/knight.png`,
+  warrior: `${DFK_ASSET_BASE}/class-icons/warrior.png`,
+  priest: `${DFK_ASSET_BASE}/class-icons/priest.png`,
+  wizard: `${DFK_ASSET_BASE}/class-icons/wizard.png`,
+  pirate: `${DFK_ASSET_BASE}/class-icons/pirate.png`,
+  berserker: `${DFK_ASSET_BASE}/class-icons/berserker.png`,
+  seer: `${DFK_ASSET_BASE}/class-icons/seer.png`,
+  monk: `${DFK_ASSET_BASE}/class-icons/monk.png`,
+};
+
 function normalizeKey(value: string | null | undefined) {
   return String(value || '')
     .trim()
@@ -150,6 +162,10 @@ export function resolveCombatAssetImageUrl(
   secondaryLabel?: string | null,
 ) {
   const key = normalizeKey(name);
+  const secondaryKey = normalizeKey(secondaryLabel);
+  if (kind === 'hero') {
+    return DFK_HERO_CLASS_IMAGE_MAP[secondaryKey] || DFK_HERO_CLASS_IMAGE_MAP[key] || null;
+  }
   if (kind === 'ability') {
     return DFK_ABILITY_IMAGE_MAP[key] || null;
   }
