@@ -69,6 +69,14 @@ const DFK_HERO_CLASS_IMAGE_MAP: Record<string, string[]> = {
   monk: [`${DFK_ASSET_BASE}/avatars/monk.png`, `${DFK_ASSET_BASE}/class-icons/monk.png`],
 };
 
+const DFK_ENEMY_IMAGE_MAP: Record<string, string[]> = {
+  baby_boar_1: [`${DFK_ASSET_BASE}/avatars/baby_boar_portrait.png`],
+  baby_boar_2: [`${DFK_ASSET_BASE}/avatars/baby_boar_portrait_2.png`],
+  big_boar: [`${DFK_ASSET_BASE}/avatars/mama_boar_portrait.png`],
+  baby_boar: [`${DFK_ASSET_BASE}/avatars/baby_boar_portrait.png`],
+  mama_boar: [`${DFK_ASSET_BASE}/avatars/mama_boar_portrait.png`],
+};
+
 function normalizeKey(value: string | null | undefined) {
   return String(value || '')
     .trim()
@@ -173,6 +181,9 @@ export function resolveCombatAssetImageUrls(
     }
     candidates.push(...(DFK_HERO_CLASS_IMAGE_MAP[secondaryKey] || DFK_HERO_CLASS_IMAGE_MAP[key] || []));
     return candidates;
+  }
+  if (kind === 'enemy') {
+    return DFK_ENEMY_IMAGE_MAP[key] || [];
   }
   if (kind === 'ability') {
     return DFK_ABILITY_IMAGE_MAP[key] ? [DFK_ABILITY_IMAGE_MAP[key]] : [];

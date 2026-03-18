@@ -611,8 +611,9 @@ function isHeroSnapshotActive(
   activeHeroSlot: number | null,
 ) {
   const matched = findCombatantByHeroSnapshot(combatFrame, hero);
-  if (matched?.unitId && combatFrame?.activeTurn.activeUnitId) {
-    return matched.unitId === combatFrame.activeTurn.activeUnitId;
+  const activeUnitId = combatFrame?.activeTurn.activeUnitId || null;
+  if (activeUnitId) {
+    return !!matched?.unitId && matched.unitId === activeUnitId;
   }
   return activeHeroSlot != null && hero.slot === activeHeroSlot;
 }

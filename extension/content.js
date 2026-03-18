@@ -211,6 +211,32 @@
     return null;
   }
 
+  function captureVisibleHeroPortraits() {
+    const portraits = new Map();
+    Array.from(document.querySelectorAll('img[src*="heroes.defikingdoms.com/image/"]')).forEach((img) => {
+      const src = img.currentSrc || img.src || '';
+      const match = String(src).match(/\/image\/[^/]+\/(\d+)(?:[/?#]|$)/i);
+      if (!match) return;
+      portraits.set(match[1], src);
+    });
+    return portraits;
+  }
+
+  function captureVisibleEnemyPortraits() {
+    const portraits = new Map();
+    Array.from(document.querySelectorAll('img[src*="/assets/avatars/"]')).forEach((img) => {
+      const src = img.currentSrc || img.src || '';
+      if (/baby_boar_portrait_2\.png/i.test(src)) {
+        portraits.set('baby_boar_2', src);
+      } else if (/baby_boar_portrait\.png/i.test(src)) {
+        portraits.set('baby_boar_1', src);
+      } else if (/mama_boar_portrait\.png/i.test(src)) {
+        portraits.set('big_boar', src);
+      }
+    });
+    return portraits;
+  }
+
   function buildCombatants(turnState) {
     const modalSnapshots = new Map();
     unitSnapshotCache.forEach((snapshot) => {
@@ -221,11 +247,15 @@
     (((typeof window !== 'undefined' && window.__dfkHeroProfiles) || [])).forEach((profile, index) => {
       profileBySlot.set(index, profile);
     });
+    const heroPortraits = captureVisibleHeroPortraits();
+    const enemyPortraits = captureVisibleEnemyPortraits();
 
     const buildCombatant = (unit, side) => {
       const key = `${side}:${normalizeId(unit.name)}`;
       const modal = modalSnapshots.get(key);
       const profile = side === 'player' ? profileBySlot.get(unit.slot ?? null) : null;
+      const heroPortrait = side === 'player' ? heroPortraits.get(String(profile?.heroId || '')) : null;
+      const enemyPortrait = side === 'enemy' ? enemyPortraits.get(normalizeId(unit.name)) : null;
       const buffs = toStatusInstances([...(unit.buffs || []), ...(modal?.buffs || [])], 'buff');
       const debuffs = toStatusInstances([...(unit.debuffs || []), ...(modal?.debuffs || [])], 'debuff');
       const name = unit.name || modal?.unitName || `${side}-${unit.slot}`;
@@ -235,7 +265,7 @@
         slot: unit.slot ?? null,
         name,
         normalizedId: normalizeId(name),
-        iconUrl: unit.iconUrl || modal?.iconUrl || null,
+        iconUrl: unit.iconUrl || modal?.iconUrl || heroPortrait || enemyPortrait || null,
         heroClass: side === 'player' ? (profile?.mainClass || modal?.heroDetail?.heroClass || null) : null,
         heroId: side === 'player' ? (profile?.heroId || null) : null,
         currentHp: unit.hp ?? modal?.stats?.hp ?? null,
