@@ -1143,6 +1143,16 @@
           actionButtonTexts: window.__dfkSelectorDiag.action_button_texts || [],
           actionButtonIconUrls: (legalActions || []).map((action) => action.iconUrl).filter(Boolean),
           consumableIconUrls: (legalConsumables || []).map((item) => item.iconUrl).filter(Boolean),
+          turnOrder: {
+            source: window.__dfkSelectorDiag.turn_order_source || null,
+            stripCount: window.__dfkSelectorDiag.turn_order_strip_count ?? null,
+            modalCount: window.__dfkSelectorDiag.turn_order_modal_count ?? null,
+            networkCount: window.__dfkSelectorDiag.turn_order_network_count ?? null,
+            transport: window.__dfkSelectorDiag.turn_order_transport || null,
+            autoPrimeAt: window.__dfkSelectorDiag.turn_order_auto_prime_at || null,
+            autoPrimeCount: window.__dfkSelectorDiag.turn_order_auto_prime_count ?? null,
+            autoPrimeSkipped: window.__dfkSelectorDiag.turn_order_auto_prime_skipped || null,
+          },
         },
       };
     }

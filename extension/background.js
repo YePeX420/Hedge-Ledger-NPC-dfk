@@ -161,6 +161,7 @@ function summarizeSnapshot(snapshot) {
     ability: data.ability || null,
     source: data.source || data.combatFrame?.captureMeta?.source || null,
     parseConfidence: data.parseConfidence ?? null,
+    debug: redactObject(data._debug || null),
   };
 }
 
@@ -202,6 +203,7 @@ function summarizeRecommendation(rec) {
 function buildSupportBundle() {
   const manifest = chrome.runtime.getManifest();
   const selectedSession = ownedCompanionSessions.find((session) => session.id === selectedCompanionSessionId) || null;
+  const latestSnapshot = localSnapshots[localSnapshots.length - 1]?.data || null;
   return {
     meta: {
       generatedAt: new Date().toISOString(),
@@ -244,7 +246,8 @@ function buildSupportBundle() {
       latestRecommendation: summarizeRecommendation(lastRecommendation),
       latestUnitSnapshot: redactObject(lastUnitSnapshot),
       latestReconcileResult: redactObject(lastReconcileResult),
-      latestCombatFrame: summarizeCombatFrame(localSnapshots[localSnapshots.length - 1]?.data?.combatFrame || null),
+      latestCombatFrame: summarizeCombatFrame(latestSnapshot?.combatFrame || null),
+      latestSnapshotDebug: redactObject(latestSnapshot?._debug || null),
       recentSnapshots: localSnapshots.slice(-20).map(summarizeSnapshot),
       heroProfileSummary: Array.isArray(currentHeroProfiles) ? currentHeroProfiles.map((hero) => ({
         heroId: hero.heroId || null,
