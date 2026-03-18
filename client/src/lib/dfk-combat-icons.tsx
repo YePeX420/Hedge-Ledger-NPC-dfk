@@ -40,19 +40,20 @@ const DEFAULT_THEME: CombatAssetTheme = {
 };
 
 const DFK_ASSET_BASE = 'https://game.defikingdoms.com/assets';
+const DFK_HERO_IMAGE_BASE = 'https://heroes.defikingdoms.com/image/1ae67f0a';
 
 const DFK_ABILITY_IMAGE_MAP: Record<string, string> = {
   flurry: `${DFK_ASSET_BASE}/ability-icons/archer/flurry.png`,
-  huntersmark: `${DFK_ASSET_BASE}/ability-icons/archer/huntersmark.png`,
+  hunters_mark: `${DFK_ASSET_BASE}/ability-icons/archer/huntersmark.png`,
   multishot: `${DFK_ASSET_BASE}/ability-icons/archer/multishot.png`,
-  rapidshot: `${DFK_ASSET_BASE}/ability-icons/archer/rapidshot.png`,
-  repeatingshot: `${DFK_ASSET_BASE}/ability-icons/archer/repeatingshot.png`,
-  blindingwinds: `${DFK_ASSET_BASE}/ability-icons/archer/blindingwinds.png`,
-  deathmark: `${DFK_ASSET_BASE}/ability-icons/archer/deathmark.png`,
-  charm: `${DFK_ASSET_BASE}/ability-icons/boar/charm.png`,
+  rapid_shot: `${DFK_ASSET_BASE}/ability-icons/archer/rapidshot.png`,
+  repeating_shot: `${DFK_ASSET_BASE}/ability-icons/archer/repeatingshot.png`,
+  blinding_winds: `${DFK_ASSET_BASE}/ability-icons/traits/blinding-winds.png`,
+  deathmark: `${DFK_ASSET_BASE}/ability-icons/traits/deathmark.png`,
+  charm: `${DFK_ASSET_BASE}/ability-icons/traits/chatterbox.png`,
   grunt: `${DFK_ASSET_BASE}/ability-icons/boar/grunt.png`,
-  headbutt: `${DFK_ASSET_BASE}/ability-icons/boar/headbutt.png`,
-  lilgore: `${DFK_ASSET_BASE}/ability-icons/boar/lilgore.png`,
+  head_butt: `${DFK_ASSET_BASE}/ability-icons/boar/headbutt.png`,
+  lil_gore: `${DFK_ASSET_BASE}/ability-icons/boar/lilgore.png`,
   nuzzle: `${DFK_ASSET_BASE}/ability-icons/boar/nuzzle.png`,
 };
 
@@ -160,11 +161,18 @@ export function resolveCombatAssetImageUrls(
   kind: CombatAssetKind,
   name: string,
   secondaryLabel?: string | null,
+  heroId?: string | null,
 ) {
   const key = normalizeKey(name);
   const secondaryKey = normalizeKey(secondaryLabel);
   if (kind === 'hero') {
-    return DFK_HERO_CLASS_IMAGE_MAP[secondaryKey] || DFK_HERO_CLASS_IMAGE_MAP[key] || [];
+    const candidates: string[] = [];
+    const normalizedHeroId = String(heroId || '').trim();
+    if (/^\d{6,}$/.test(normalizedHeroId)) {
+      candidates.push(`${DFK_HERO_IMAGE_BASE}/${normalizedHeroId}`);
+    }
+    candidates.push(...(DFK_HERO_CLASS_IMAGE_MAP[secondaryKey] || DFK_HERO_CLASS_IMAGE_MAP[key] || []));
+    return candidates;
   }
   if (kind === 'ability') {
     return DFK_ABILITY_IMAGE_MAP[key] ? [DFK_ABILITY_IMAGE_MAP[key]] : [];
@@ -176,6 +184,7 @@ export function CombatAssetChip({
   kind,
   name,
   secondaryLabel,
+  heroId,
   imageUrl,
   size = 'sm',
   className,
@@ -183,13 +192,15 @@ export function CombatAssetChip({
   kind: CombatAssetKind;
   name: string;
   secondaryLabel?: string | null;
+  heroId?: string | null;
   imageUrl?: string | null;
   size?: 'xs' | 'sm' | 'md';
   className?: string;
 }) {
   const theme = getTheme(kind, name, secondaryLabel);
   const Icon = theme.icon;
-  const candidateUrls = imageUrl ? [imageUrl] : resolveCombatAssetImageUrls(kind, name, secondaryLabel);
+  const fallbackUrls = resolveCombatAssetImageUrls(kind, name, secondaryLabel, heroId);
+  const candidateUrls = imageUrl ? [imageUrl, ...fallbackUrls] : fallbackUrls;
   const [imageIndex, setImageIndex] = useState(0);
   useEffect(() => {
     setImageIndex(0);

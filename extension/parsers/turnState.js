@@ -164,6 +164,15 @@
   function findPortraitImage(name, side) {
     const key = normalizedName(name);
     if (!key) return null;
+    if (side === 'player') {
+      const activePanel = document.querySelector('.hero-ui-panel-active-content.highlightedCard, .hero-ui-panel-active-content');
+      const activeName = activePanel ? normalizedName(inferHeroNameFromPanel(activePanel)) : null;
+      if (activePanel && activeName && activeName === key) {
+        const activePortrait = activePanel.querySelector('.hero-img img, .hero-img-container .hero-img img');
+        const imageUrl = extractImageUrl(activePortrait || activePanel);
+        if (imageUrl) return imageUrl;
+      }
+    }
     const selectors = side === 'enemy'
       ? ['[class*="enemy"] img', '[class*="monster"] img', '[class*="enemy"] [style*="background-image"]', '[class*="monster"] [style*="background-image"]']
       : ['[class*="hero"] img', '[class*="player"] img', '[class*="hero"] [style*="background-image"]', '[class*="player"] [style*="background-image"]'];
@@ -263,7 +272,15 @@
 
   function isVisiblyUnavailable(el) {
     if (!el) return false;
-    const nodes = [el, ...(el.querySelectorAll ? Array.from(el.querySelectorAll('*')).slice(0, 6) : [])];
+    const nodes = [el];
+    let parent = el.parentElement;
+    for (let i = 0; i < 3 && parent; i += 1) {
+      nodes.push(parent);
+      parent = parent.parentElement;
+    }
+    if (el.querySelectorAll) {
+      nodes.push(...Array.from(el.querySelectorAll('*')).slice(0, 6));
+    }
     return nodes.some((node) => {
       try {
         const style = window.getComputedStyle(node);
@@ -526,6 +543,10 @@
   function extractActionFromBtn(btn) {
     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return null;
     const iconUrl = extractImageUrl(btn);
+    const className = String(btn.className || '');
+    const parentClassName = String(btn.parentElement?.className || '');
+    if (/hero-info-button/i.test(className) || /hero-info-button/i.test(parentClassName)) return null;
+    if (iconUrl && /^data:/i.test(iconUrl)) return null;
     const name = extractButtonLabel(btn) || labelFromAssetUrl(iconUrl);
     const skillId = btn.getAttribute('data-skill-id') || btn.getAttribute('data-action-id') || null;
     if (!name || name.length < 2 || name.length > 50) return null;
@@ -774,7 +795,7 @@
   function readConsumables(commandPanel) {
     const list = [];
     const seen = new Set();
-    (commandPanel || document).querySelectorAll('[title],[data-name],[class*="consum"],[class*="item"],img[alt],img[title]').forEach((el) => {
+    (commandPanel || document).querySelectorAll('.items-main button,.items-main img,[class*="item-section"] button,[class*="item-section"] img,[title],[data-name],[class*="consum"],[class*="item"]').forEach((el) => {
       if (!isVisible(el)) return;
       const iconUrl = extractImageUrl(el);
       const name = normalizeText(
@@ -790,6 +811,7 @@
       if (/battle budget|stone\d*|^\d+$|hero frame/.test(lower)) return;
       if (!/(potion|tonic|philter|consum|stone|item)/i.test(lower)) return;
       if (isUiChromeLabel(name)) return;
+      if (iconUrl && /^data:/i.test(iconUrl)) return;
       if (seen.has(lower)) return;
       seen.add(lower);
       list.push({

@@ -605,6 +605,18 @@ function findCombatantByHeroSnapshot(combatFrame: CombatFrame | null, hero: Hero
   ) || null;
 }
 
+function isHeroSnapshotActive(
+  combatFrame: CombatFrame | null,
+  hero: HeroSnapshot,
+  activeHeroSlot: number | null,
+) {
+  const matched = findCombatantByHeroSnapshot(combatFrame, hero);
+  if (matched?.unitId && combatFrame?.activeTurn.activeUnitId) {
+    return matched.unitId === combatFrame.activeTurn.activeUnitId;
+  }
+  return activeHeroSlot != null && hero.slot === activeHeroSlot;
+}
+
 function findCombatantByEnemySnapshot(combatFrame: CombatFrame | null, enemy: EnemySnapshot) {
   if (!combatFrame) return null;
   const displayName = formatEnemyDisplayName(enemy.enemyId);
@@ -779,6 +791,7 @@ function CombatantDetailDialog({
                 kind={combatant.side === 'player' ? 'hero' : 'enemy'}
                 name={combatant.name}
                 secondaryLabel={shownHeroDetail?.heroClass || combatant.heroClass || null}
+                heroId={combatant.heroId || null}
                 imageUrl={shownHeroDetail?.iconUrl || combatant.iconUrl || null}
                 size="md"
               />
@@ -869,6 +882,7 @@ function CombatantStatusCard({
     name: string;
     iconUrl?: string | null;
     heroClass?: string | null;
+    heroId?: string | null;
     currentHp: number;
     maxHp: number;
     currentMp?: number | null;
@@ -892,7 +906,7 @@ function CombatantStatusCard({
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <CombatAssetChip kind={kind} name={combatant.name} secondaryLabel={combatant.heroClass || null} imageUrl={combatant.iconUrl || null} size="md" />
+          <CombatAssetChip kind={kind} name={combatant.name} secondaryLabel={combatant.heroClass || null} heroId={combatant.heroId || null} imageUrl={combatant.iconUrl || null} size="md" />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{formatCombatName(combatant.name)}</p>
             <div className="flex flex-wrap items-center gap-1">
@@ -1019,7 +1033,7 @@ function ActiveTurnPanel({
       type: item.type || null,
       requiresTarget: item.requiresTarget,
     })),
-  ];
+  ].filter((item, index, arr) => arr.findIndex((candidate) => candidate.name === item.name) === index);
   return (
       <Card>
         <CardContent className="p-4 space-y-3">
@@ -1047,6 +1061,7 @@ function ActiveTurnPanel({
                       kind={activeCombatant?.side === 'enemy' ? 'enemy' : 'hero'}
                       name={activeCombatant?.name || activeLabel || 'Unknown'}
                       secondaryLabel={activeCombatant?.heroClass || null}
+                      heroId={activeCombatant?.heroId || null}
                       imageUrl={activeCombatant?.iconUrl || null}
                       size="md"
                     />
@@ -1101,7 +1116,7 @@ function ActiveTurnPanel({
                   <span className="ml-1 inline-flex items-center gap-1">
                     {selectedTarget ? (
                       <>
-                        <CombatAssetChip kind={selectedTarget.side === 'enemy' ? 'enemy' : 'hero'} name={selectedTarget.name} secondaryLabel={selectedTarget.heroClass || null} imageUrl={selectedTarget.iconUrl || null} size="xs" />
+                        <CombatAssetChip kind={selectedTarget.side === 'enemy' ? 'enemy' : 'hero'} name={selectedTarget.name} secondaryLabel={selectedTarget.heroClass || null} heroId={selectedTarget.heroId || null} imageUrl={selectedTarget.iconUrl || null} size="xs" />
                         <span>{formatCombatName(selectedTarget.name)}</span>
                       </>
                     ) : (
@@ -1135,6 +1150,7 @@ function TurnOrderPanel({ combatFrame }: { combatFrame: CombatFrame | null }) {
                   kind={row.side === 'player' ? 'hero' : 'enemy'}
                   name={row.name}
                   secondaryLabel={combatFrame?.combatants.find((unit) => unit.unitId === row.unitId)?.heroClass || null}
+                  heroId={combatFrame?.combatants.find((unit) => unit.unitId === row.unitId)?.heroId || null}
                   imageUrl={combatFrame?.combatants.find((unit) => unit.unitId === row.unitId)?.iconUrl || null}
                   size="xs"
                 />
@@ -1819,8 +1835,7 @@ export default function HuntCompanion() {
     type?: string | null;
     requiresTarget?: boolean;
   }) => {
-    if (executionMode === 'observe_only' || !action.available) return;
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (executionMode === 'observe_only' || !action.available || !session?.id) return;
 
     const actionPayload = {
       name: action.name,
@@ -1831,12 +1846,24 @@ export default function HuntCompanion() {
     };
 
     setPendingManualActionKey(`${actionPayload.group || 'action'}:${actionPayload.name}`);
-    try {
-      wsRef.current.send(JSON.stringify({ type: 'execute_action', action: actionPayload }));
-    } catch (_) {
-      setPendingManualActionKey(null);
-    }
-  }, [executionMode]);
+    fetch(`/api/user/pve/companion/sessions/${session.id}/execute-action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: actionPayload }),
+    })
+      .then(async (resp) => {
+        const json = await resp.json().catch(() => null);
+        if (!resp.ok || !json?.ok) {
+          throw new Error(json?.error || 'Failed to dispatch action');
+        }
+        window.setTimeout(() => {
+          setPendingManualActionKey((prev) => (prev === `${actionPayload.group || 'action'}:${actionPayload.name}` ? null : prev));
+        }, 800);
+      })
+      .catch(() => {
+        setPendingManualActionKey(null);
+      });
+  }, [executionMode, session?.id]);
 
   useEffect(() => {
     const sessions: SessionData[] = sessionListQuery.data?.sessions || [];
@@ -2278,6 +2305,7 @@ export default function HuntCompanion() {
                       key={hero.slot}
                       combatant={{
                         name: hero.mainClass || hero.heroId || `Hero ${hero.slot}`,
+                        heroId: hero.heroId || findCombatantByHeroSnapshot(combatFrame, hero)?.heroId || null,
                         iconUrl: hero.iconUrl || findCombatantByHeroSnapshot(combatFrame, hero)?.iconUrl || null,
                         heroClass: hero.mainClass || findCombatantByHeroSnapshot(combatFrame, hero)?.heroClass || null,
                         currentHp: hero.currentHp,
@@ -2288,7 +2316,7 @@ export default function HuntCompanion() {
                         statuses: hero.statuses,
                       }}
                       kind="hero"
-                      isActive={hero.slot === battleState.activeHeroSlot}
+                      isActive={isHeroSnapshotActive(combatFrame, hero, battleState.activeHeroSlot)}
                       onInspect={() => setInspectedCombatantId(findCombatantByHeroSnapshot(combatFrame, hero)?.unitId || null)}
                     />
                   ))}
@@ -2354,6 +2382,7 @@ export default function HuntCompanion() {
                             kind={turn.actorSide === 'hero' || turn.actorSide === 'player' ? 'hero' : 'enemy'}
                             name={actorLabel}
                             secondaryLabel={actorCombatant?.heroClass || null}
+                            heroId={actorCombatant?.heroId || null}
                             imageUrl={actorCombatant?.iconUrl || null}
                             size="xs"
                           />

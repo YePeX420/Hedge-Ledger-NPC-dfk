@@ -20067,6 +20067,44 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
     }
   });
 
+  app.post('/api/user/pve/companion/sessions/:id/execute-action', requireCompanionActor, async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(sessionId)) return res.status(400).json({ ok: false, error: 'Invalid session id' });
+      const existing = await getOwnedCompanionSession(sessionId, req.companionActor);
+      if (!existing) return res.status(404).json({ ok: false, error: 'Session not found' });
+
+      const { action } = req.body || {};
+      if (!action || !action.name) {
+        return res.status(400).json({ ok: false, error: 'Missing action payload' });
+      }
+
+      const memSession = companionSessions.get(existing.session_token);
+      if (!memSession || !memSession.clients || memSession.clients.size === 0) {
+        return res.status(409).json({ ok: false, error: 'No live companion clients connected for this session' });
+      }
+
+      const payload = JSON.stringify({
+        type: 'execute_action',
+        action,
+        requestedAt: new Date().toISOString(),
+      });
+
+      let forwarded = 0;
+      for (const client of memSession.clients) {
+        if (client.readyState === 1) {
+          client.send(payload);
+          forwarded += 1;
+        }
+      }
+
+      res.json({ ok: true, forwarded, action });
+    } catch (err) {
+      console.error('[Companion] Execute action error:', err.message);
+      res.status(500).json({ ok: false, error: 'Failed to dispatch action', detail: err.message || 'Unknown error' });
+    }
+  });
+
   app.get('/api/admin/pve/companion/session', isAdminOrHasTab('pve-hunts', 'hunt-companion'), async (req, res) => {
     try {
       const rawPg = await getCompanionRawPg();
