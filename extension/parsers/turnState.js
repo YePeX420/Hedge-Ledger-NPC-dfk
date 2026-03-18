@@ -908,33 +908,34 @@
       .slice(0, 12);
   }
 
-  function resolveStripPlayerIdentity(heroImgUrl, ordinal) {
+  function resolveStripPlayerIdentity(heroImgUrl, playerOrdinal, overallOrdinal) {
     const match = String(heroImgUrl || '').match(/\/image\/[^/]+\/(\d+)(?:[/?#]|$)/i);
     const heroId = match ? match[1] : null;
     const profiles = getOrderedHeroProfiles();
     const profile = heroId
       ? profiles.find((candidate) =>
           normalizeHeroId(candidate.heroId || candidate.id || candidate.normalizedId || '') === heroId)
-      : (profiles[ordinal] || null);
+      : (profiles[playerOrdinal] || null);
     const name = normalizeText(profile?.unitName || profile?.name || profile?.displayName || '');
-    const slot = profile?.slot != null ? Number(profile.slot) : ordinal;
+    const slot = profile?.slot != null ? Number(profile.slot) : playerOrdinal;
     return {
-      unitId: `player:${slot == null ? 'na' : slot}:${normalizedName(name || heroId || `player_${ordinal}`)}`,
-      name: name || `Hero ${ordinal + 1}`,
+      unitId: `player:${slot == null ? 'na' : slot}:${normalizedName(name || heroId || `player_${playerOrdinal}`)}`,
+      name: name || `Hero ${playerOrdinal + 1}`,
       side: 'player',
       slot,
       ticksUntilTurn: null,
-      ordinal,
+      ordinal: overallOrdinal,
       heroId: profile?.heroId ? String(profile.heroId) : heroId,
       heroClass: profile?.mainClass || null,
       level: profile?.level != null ? Number(profile.level) : null,
+      iconUrl: heroImgUrl || null,
     };
   }
 
-  function resolveStripEnemyIdentity(enemyImgs, ordinal) {
+  function resolveStripEnemyIdentity(enemyImgs, enemyOrdinal, overallOrdinal) {
     const urls = Array.isArray(enemyImgs) ? enemyImgs.map((value) => String(value || '')) : [];
     const url = urls.find((value) => /\/assets\/avatars\//i.test(value)) || '';
-    let name = `Enemy ${ordinal + 1}`;
+    let name = `Enemy ${enemyOrdinal + 1}`;
     let slot = null;
     if (/baby_boar_portrait_2/i.test(url)) {
       name = 'Baby Boar 2';
@@ -951,20 +952,32 @@
       side: 'enemy',
       slot,
       ticksUntilTurn: null,
-      ordinal,
+      ordinal: overallOrdinal,
       heroId: null,
       heroClass: null,
       level: null,
+      iconUrl: url || null,
     };
   }
 
   function readTurnOrderStrip() {
     const buttons = findTurnIndicatorButtons();
-    const rows = buttons.map((btn, ordinal) => {
-      const heroImg = btn.querySelector('div.hero-img img')?.getAttribute('src') || null;
-      const enemyImgs = Array.from(btn.querySelectorAll('._enemyContainer_hjm7j_177 img')).map((img) => img.getAttribute('src'));
-      if (heroImg) return resolveStripPlayerIdentity(heroImg, ordinal);
-      if (enemyImgs.length > 0) return resolveStripEnemyIdentity(enemyImgs, ordinal);
+    let playerOrdinal = 0;
+    let enemyOrdinal = 0;
+    const rows = buttons.map((btn, overallOrdinal) => {
+      const heroImgEl = btn.querySelector('div.hero-img img');
+      const heroImg = heroImgEl?.currentSrc || heroImgEl?.getAttribute('src') || null;
+      const enemyImgs = Array.from(btn.querySelectorAll('._enemyContainer_hjm7j_177 img')).map((img) => img.currentSrc || img.getAttribute('src'));
+      if (heroImg) {
+        const row = resolveStripPlayerIdentity(heroImg, playerOrdinal, overallOrdinal);
+        playerOrdinal += 1;
+        return row;
+      }
+      if (enemyImgs.length > 0) {
+        const row = resolveStripEnemyIdentity(enemyImgs, enemyOrdinal, overallOrdinal);
+        enemyOrdinal += 1;
+        return row;
+      }
       return null;
     }).filter(Boolean);
 

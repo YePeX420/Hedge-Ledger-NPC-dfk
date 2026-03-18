@@ -141,7 +141,7 @@ interface CombatFrame {
     visibleLockouts: Record<string, number | null>;
     battleBudgetRemaining: number | null;
   };
-  turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; ordinal: number; heroId?: string | null; heroClass?: string | null; level?: number | null }>;
+  turnOrder: Array<{ unitId: string; name: string; side: 'player' | 'enemy'; slot: number | null; ticksUntilTurn: number | null; ordinal: number; heroId?: string | null; heroClass?: string | null; level?: number | null; iconUrl?: string | null }>;
   battleLogEntries: Array<{ turnNumber: number; actorName: string | null; ability: string | null; outcomes: string[]; rawText?: string | null }>;
   heroDetail: HeroDetailData | null;
   captureMeta: {
@@ -613,11 +613,15 @@ function getSyncIssues(firebaseState: FirebaseBattleState | undefined, domAction
 
 function findCombatantByHeroSnapshot(combatFrame: CombatFrame | null, hero: HeroSnapshot) {
   if (!combatFrame) return null;
+  const heroId = String(hero.heroId || '').trim();
+  const heroNameKey = normalizeLookupKey(hero.mainClass);
   return combatFrame.combatants.find((unit) =>
     unit.side === 'player' && (
+      (!!heroId && String(unit.heroId || '').trim() === heroId) ||
+      (!!heroNameKey && normalizeLookupKey(unit.name) === heroNameKey) ||
+      (!!heroNameKey && normalizeLookupKey(unit.normalizedId) === heroNameKey) ||
       unit.slot === hero.slot ||
-      normalizeLookupKey(unit.name) === normalizeLookupKey(hero.mainClass) ||
-      normalizeLookupKey(unit.name) === normalizeLookupKey(hero.heroId)
+      (unit.currentHp === hero.currentHp && unit.maxHp === hero.maxHp && unit.currentMp === hero.currentMp && unit.maxMp === hero.maxMp)
     )
   ) || null;
 }
@@ -1229,7 +1233,7 @@ function TurnOrderPanel({ combatFrame, avgPartyLevel }: { combatFrame: CombatFra
     <Card>
       <CardContent className="p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Turn Order</p>
-        <div className="space-y-1 max-h-[220px] overflow-y-auto">
+        <div className="space-y-1 h-[340px] overflow-y-auto pr-1">
           {rows.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Turn-order modal has not been captured yet.</p>}
           {rows.map((row) => {
             const combatant = combatFrame?.combatants.find((unit) => unit.unitId === row.unitId) || null;
@@ -1244,8 +1248,8 @@ function TurnOrderPanel({ combatFrame, avgPartyLevel }: { combatFrame: CombatFra
                   kind={row.side === 'player' ? 'hero' : 'enemy'}
                   name={row.name}
                   secondaryLabel={combatant?.heroClass || null}
-                  heroId={combatant?.heroId || null}
-                  imageUrl={combatant?.iconUrl || null}
+                  heroId={row.heroId || combatant?.heroId || null}
+                  imageUrl={row.iconUrl || combatant?.iconUrl || null}
                   size="xs"
                 />
                 <div className="min-w-0">
@@ -1253,7 +1257,7 @@ function TurnOrderPanel({ combatFrame, avgPartyLevel }: { combatFrame: CombatFra
                     {formatCombatantTurnLabel({
                       name: row.name,
                       heroClass: row.heroClass || combatant?.heroClass || null,
-                      level: row.level ?? null,
+                      level: row.level ?? combatant?.heroDetail?.level ?? null,
                     })}
                   </span>
                   {calculated && (
@@ -2441,6 +2445,16 @@ export default function HuntCompanion() {
                   <div className="space-y-3">
                     {battleState.enemies.map((enemy, i) => {
                       const matchedEnemy = findCombatantByEnemySnapshot(combatFrame, enemy);
+                      const resolvedStatuses =
+                        (enemy.statuses && enemy.statuses.length > 0 ? enemy.statuses : null)
+                        || (matchedEnemy?.visibleEffects && matchedEnemy.visibleEffects.length > 0 ? matchedEnemy.visibleEffects : null)
+                        || ((enemy.debuffs || enemy.buffs)
+                          ? [
+                              ...(enemy.buffs || []).map((name) => ({ id: name, name, category: 'buff', stacks: null, durationTurns: null })),
+                              ...(enemy.debuffs || []).map((name) => ({ id: name, name, category: 'debuff', stacks: null, durationTurns: null })),
+                            ]
+                          : null)
+                        || [];
                       return (
                         <CombatantStatusCard
                           key={i}
@@ -2452,7 +2466,7 @@ export default function HuntCompanion() {
                             currentMp: enemy.currentMp ?? null,
                             maxMp: enemy.maxMp ?? null,
                             isAlive: !enemy.isDead && enemy.currentHp > 0,
-                            statuses: enemy.statuses || (enemy.debuffs || []).map((d) => ({ id: d, name: d, category: 'debuff', stacks: null, durationTurns: null })),
+                            statuses: resolvedStatuses,
                           }}
                           kind="enemy"
                           isActive={matchedEnemy?.unitId != null && combatFrame?.activeTurn.activeUnitId === matchedEnemy.unitId}

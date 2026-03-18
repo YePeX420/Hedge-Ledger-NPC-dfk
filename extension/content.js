@@ -222,6 +222,21 @@
     return portraits;
   }
 
+  function captureVisibleHeroPortraitList() {
+    const seen = new Set();
+    const portraits = [];
+    Array.from(document.querySelectorAll('img[src*="heroes.defikingdoms.com/image/"]')).forEach((img) => {
+      const src = img.currentSrc || img.src || '';
+      const match = String(src).match(/\/image\/[^/]+\/(\d+)(?:[/?#]|$)/i);
+      if (!match) return;
+      const heroId = match[1];
+      if (seen.has(heroId)) return;
+      seen.add(heroId);
+      portraits.push({ heroId, src });
+    });
+    return portraits;
+  }
+
   function captureVisibleEnemyPortraits() {
     const portraits = new Map();
     Array.from(document.querySelectorAll('img[src*="/assets/avatars/"]')).forEach((img) => {
@@ -243,18 +258,41 @@
       const key = `${snapshot.unitSide || 'player'}:${normalizeId(snapshot.unitName)}`;
       modalSnapshots.set(key, snapshot);
     });
+    const profiles = (((typeof window !== 'undefined' && window.__dfkHeroProfiles) || [])).map((profile, index) => ({
+      ...profile,
+      _index: index,
+      _heroId: String(profile?.heroId || profile?.id || '').trim(),
+      _nameKey: normalizeId(profile?.unitName || profile?.name || profile?.displayName || ''),
+      _slot: Number.isFinite(Number(profile?.slot)) ? Number(profile.slot) : index,
+    }));
     const profileBySlot = new Map();
-    (((typeof window !== 'undefined' && window.__dfkHeroProfiles) || [])).forEach((profile, index) => {
-      profileBySlot.set(index, profile);
+    profiles.forEach((profile) => {
+      profileBySlot.set(profile._slot, profile);
     });
     const heroPortraits = captureVisibleHeroPortraits();
+    const orderedHeroPortraits = captureVisibleHeroPortraitList();
     const enemyPortraits = captureVisibleEnemyPortraits();
 
-    const buildCombatant = (unit, side) => {
+    const resolvePlayerProfile = (unit, ordinal) => {
+      const normalizedUnitName = normalizeId(unit?.name);
+      const byName = normalizedUnitName
+        ? profiles.find((profile) => profile._nameKey && profile._nameKey === normalizedUnitName)
+        : null;
+      if (byName) return byName;
+      const bySlot = profileBySlot.get(unit?.slot ?? null);
+      if (bySlot) return bySlot;
+      return profiles[ordinal] || null;
+    };
+
+    const buildCombatant = (unit, side, ordinal = 0) => {
       const key = `${side}:${normalizeId(unit.name)}`;
       const modal = modalSnapshots.get(key);
-      const profile = side === 'player' ? profileBySlot.get(unit.slot ?? null) : null;
-      const heroPortrait = side === 'player' ? heroPortraits.get(String(profile?.heroId || '')) : null;
+      const profile = side === 'player' ? resolvePlayerProfile(unit, ordinal) : null;
+      const portraitHeroId = String(profile?._heroId || profile?.heroId || '');
+      const orderedPortrait = side === 'player' ? (orderedHeroPortraits[ordinal]?.src || null) : null;
+      const heroPortrait = side === 'player'
+        ? (heroPortraits.get(portraitHeroId) || orderedPortrait)
+        : null;
       const enemyPortrait = side === 'enemy' ? enemyPortraits.get(normalizeId(unit.name)) : null;
       const buffs = toStatusInstances([...(unit.buffs || []), ...(modal?.buffs || [])], 'buff');
       const debuffs = toStatusInstances([...(unit.debuffs || []), ...(modal?.debuffs || [])], 'debuff');
@@ -267,7 +305,7 @@
         normalizedId: normalizeId(name),
         iconUrl: unit.iconUrl || modal?.iconUrl || heroPortrait || enemyPortrait || null,
         heroClass: side === 'player' ? (profile?.mainClass || modal?.heroDetail?.heroClass || null) : null,
-        heroId: side === 'player' ? (profile?.heroId || null) : null,
+        heroId: side === 'player' ? (portraitHeroId || null) : null,
         currentHp: unit.hp ?? modal?.stats?.hp ?? null,
         maxHp: unit.maxHp ?? modal?.stats?.maxHp ?? null,
         currentMp: unit.mp ?? modal?.stats?.mp ?? null,
@@ -289,8 +327,8 @@
     };
 
     return [
-      ...(turnState.heroes || []).map((unit) => buildCombatant(unit, 'player')),
-      ...(turnState.enemies || []).map((unit) => buildCombatant(unit, 'enemy')),
+      ...(turnState.heroes || []).map((unit, index) => buildCombatant(unit, 'player', index)),
+      ...(turnState.enemies || []).map((unit, index) => buildCombatant(unit, 'enemy', index)),
     ];
   }
 
