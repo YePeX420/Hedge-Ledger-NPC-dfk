@@ -620,7 +620,14 @@ async function flushHttpQueue() {
         httpQueue.shift();
         chrome.storage.local.set({ httpQueue });
       } else {
-        recordApiFailure('http_queue', item.path, new Error(`HTTP ${res.status}`), { status: res.status });
+        let responseText = '';
+        try {
+          responseText = await res.text();
+        } catch (_) {}
+        recordApiFailure('http_queue', item.path, new Error(`HTTP ${res.status}`), {
+          status: res.status,
+          response: responseText ? responseText.slice(0, 500) : null,
+        });
         break;
       }
     } catch (_) {

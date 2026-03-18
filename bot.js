@@ -20592,7 +20592,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
       }
     } catch (err) {
       console.error('[Telemetry] Snapshot insert error:', err.message);
-      res.status(500).json({ ok: false, error: 'Failed to insert snapshot' });
+      res.status(500).json({ ok: false, error: 'Failed to insert snapshot', detail: err.message || 'Unknown error' });
     }
   });
 
@@ -22885,7 +22885,7 @@ Use this data to answer ANY question about this wallet's heroes. Always cite spe
         }
       } catch (err) {
         console.error('[Companion WS] Error:', err.message);
-        ws.send(JSON.stringify({ type: 'error', message: 'Internal error' }));
+        ws.send(JSON.stringify({ type: 'error', message: 'Internal error', detail: err.message || 'Unknown error' }));
       }
     });
 
