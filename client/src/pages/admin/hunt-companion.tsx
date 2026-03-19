@@ -286,6 +286,26 @@ interface CompanionSessionDetailResponse {
   latestHuntId?: string | null;
 }
 
+interface CompanionSessionView extends SessionData {
+  selectedAt: string | null;
+  refreshRequestedAt: string | null;
+  needsRefresh: boolean;
+}
+
+function normalizeCompanionSession(session: SessionData | null | undefined): CompanionSessionView | null {
+  if (!session) return null;
+  return {
+    ...session,
+    selectedAt: session.selected_by_extension_at || null,
+    refreshRequestedAt: session.refresh_required_at || null,
+    needsRefresh: Boolean(session.requires_tab_refresh || session.refresh_required_at),
+  };
+}
+
+function formatSessionDate(value: string | null | undefined) {
+  return value ? new Date(value).toLocaleString() : 'n/a';
+}
+
 interface HeroStateRaw {
   slot?: number;
   heroId?: string;
@@ -339,6 +359,7 @@ interface FirebaseBattleState {
     chainId: number | null;
     playerUids: unknown;
   } | null;
+  deckStateSource: 'afterDeckStates' | 'beforeDeckStates' | 'deckStates' | null;
   latestCombatants: Record<string, Record<string, FirebaseUnit>> | null;
   normalizedCombatants: {
     heroes: FirebaseUnit[];
@@ -467,9 +488,30 @@ function firebaseToEnemySnapshot(unit: FirebaseUnit, fallbackIndex: number): Ene
 }
 
 function buildFirebaseBattleView(firebaseState: FirebaseBattleState | undefined, combatFrame: CombatFrame | null): BattleStateMsg | null {
-  if (!firebaseState?.normalizedCombatants) return null;
-  const heroes = (firebaseState.normalizedCombatants.heroes || []).map(firebaseToHeroSnapshot);
-  const enemies = (firebaseState.normalizedCombatants.enemies || []).map(firebaseToEnemySnapshot);
+  if (!firebaseState) return null;
+
+  const normalizedHeroes = firebaseState.normalizedCombatants?.heroes || [];
+  const normalizedEnemies = firebaseState.normalizedCombatants?.enemies || [];
+  const latestHeroes = Object.entries(firebaseState.latestCombatants?.['1'] || {})
+    .sort(([slotA], [slotB]) => Number(slotA) - Number(slotB))
+    .map(([slot, unit], index) => {
+      const parsedSlot = Number(slot);
+      return firebaseToHeroSnapshot(unit as FirebaseUnit, Number.isFinite(parsedSlot) ? parsedSlot : index);
+    });
+  const latestEnemies = Object.entries(firebaseState.latestCombatants?.['-1'] || {})
+    .sort(([slotA], [slotB]) => Number(slotA) - Number(slotB))
+    .map(([slot, unit], index) => {
+      const parsedSlot = Number(slot);
+      return firebaseToEnemySnapshot(unit as FirebaseUnit, Number.isFinite(parsedSlot) ? parsedSlot : index);
+    });
+
+  const heroes = normalizedHeroes.length > 0
+    ? normalizedHeroes.map((unit, index) => firebaseToHeroSnapshot(unit, index))
+    : latestHeroes;
+  const enemies = normalizedEnemies.length > 0
+    ? normalizedEnemies.map((unit, index) => firebaseToEnemySnapshot(unit, index))
+    : latestEnemies;
+
   const domActiveHeroSlot = combatFrame?.activeTurn.activeSide === 'player'
     ? (combatFrame.activeTurn.activeSlot ?? null)
     : null;
@@ -1951,8 +1993,8 @@ function ReconciliationPanel({ combatFrame, firebaseData }: { combatFrame: Comba
             {mismatches.map((mismatch) => (
               <div key={mismatch.name} className="rounded bg-amber-500/10 p-2 text-[11px]">
                 <div className="font-medium">{mismatch.name}</div>
-                <div className="text-muted-foreground">HP extension/firebase: {mismatch.hp[0] ?? 'n/a'} / {mismatch.hp[1] ?? 'n/a'}</div>
-                <div className="text-muted-foreground">MP extension/firebase: {mismatch.mp[0] ?? 'n/a'} / {mismatch.mp[1] ?? 'n/a'}</div>
+                <div className="text-muted-foreground">HP frame/firebase: {mismatch.hp[0] ?? 'n/a'} / {mismatch.hp[1] ?? 'n/a'}</div>
+                <div className="text-muted-foreground">MP frame/firebase: {mismatch.mp[0] ?? 'n/a'} / {mismatch.mp[1] ?? 'n/a'}</div>
               </div>
             ))}
           </div>
@@ -2833,6 +2875,7 @@ export default function HuntCompanion() {
     }
   };
 
+  const currentSession = normalizeCompanionSession(session);
   const hasLiveData = battleState !== null;
 
   return (
@@ -2861,7 +2904,7 @@ export default function HuntCompanion() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Owned Sessions</p>
               <p className="text-sm text-muted-foreground">
-                Refreshing the page restores the selected session instead of minting a new token.
+                Refreshing the page restores the selected session.
               </p>
             </div>
             <Button
@@ -2891,71 +2934,77 @@ export default function HuntCompanion() {
 
           {Array.isArray(sessionListQuery.data?.sessions) && sessionListQuery.data.sessions.length > 0 && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-              {sessionListQuery.data.sessions.map((candidate: SessionData) => (
+              {sessionListQuery.data.sessions.map((candidate: SessionData) => {
+                const view = normalizeCompanionSession(candidate);
+                if (!view) return null;
+                return (
                 <div
-                  key={candidate.id}
-                  className={`rounded-lg border p-3 space-y-2 ${candidate.id === session?.id ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}
+                  key={view.id}
+                  className={`rounded-lg border p-3 space-y-2 ${view.id === session?.id ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-medium truncate">{candidate.label || candidate.hunt_id || `Session #${candidate.id}`}</p>
+                      <p className="font-medium truncate">{view.label || view.hunt_id || `Session #${view.id}`}</p>
                       <p className="text-xs text-muted-foreground font-mono truncate">
-                        {candidate.session_token}
+                        {view.session_token}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1">
-                      <Badge variant={candidate.id === session?.id ? 'default' : 'secondary'} className="text-[10px]">
-                        {candidate.id === session?.id ? 'Open' : candidate.status}
+                      <Badge variant={view.id === session?.id ? 'default' : 'secondary'} className="text-[10px]">
+                        {view.id === session?.id ? 'Open' : view.status}
                       </Badge>
-                      {candidate.requires_tab_refresh && (
+                      {view.needsRefresh && (
                         <Badge variant="outline" className="text-[10px] text-amber-300 border-amber-500/40">
-                          Refresh Tab
+                          Needs refresh
                         </Badge>
                       )}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                    <div>Hunt: {candidate.hunt_id || candidate.latest_hunt_id || '--'}</div>
-                    <div>Clients: {candidate.connected_clients ?? 0}</div>
-                    <div>Seen: {candidate.last_seen_at ? new Date(candidate.last_seen_at).toLocaleString() : 'n/a'}</div>
-                    <div>Status: {candidate.status}</div>
+                    <div>Hunt: {view.hunt_id || view.latest_hunt_id || '--'}</div>
+                    <div>Clients: {view.connected_clients ?? 0}</div>
+                    <div>Seen: {formatSessionDate(view.last_seen_at)}</div>
+                    <div>Selected: {formatSessionDate(view.selectedAt)}</div>
+                    <div>Refresh requested: {formatSessionDate(view.refreshRequestedAt)}</div>
+                    <div>Status: {view.status}</div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
-                      variant={candidate.id === session?.id ? 'secondary' : 'outline'}
-                      onClick={() => setSelectedSessionId(candidate.id)}
-                      data-testid={`button-open-session-${candidate.id}`}
+                      variant={view.id === session?.id ? 'secondary' : 'outline'}
+                      onClick={() => setSelectedSessionId(view.id)}
+                      data-testid={`button-open-session-${view.id}`}
                     >
-                      {candidate.id === session?.id ? 'Selected' : 'Open'}
+                      {view.id === session?.id ? 'Selected' : 'Open'}
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => {
-                        navigator.clipboard.writeText(candidate.session_token);
+                        navigator.clipboard.writeText(view.session_token);
                         setCopied(true);
                         setTimeout(() => setCopied(false), 2000);
                       }}
-                      data-testid={`button-copy-session-token-${candidate.id}`}
+                      data-testid={`button-copy-session-token-${view.id}`}
                     >
-                      {copied && candidate.id === session?.id ? <Check className="w-3.5 h-3.5 mr-1 text-green-500" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                      {copied && view.id === session?.id ? <Check className="w-3.5 h-3.5 mr-1 text-green-500" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
                       Copy Token
                     </Button>
-                    {!candidate.archived_at && (
+                    {!view.archived_at && (
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => archiveSessionMutation.mutate(candidate.id)}
+                        onClick={() => archiveSessionMutation.mutate(view.id)}
                         disabled={archiveSessionMutation.isPending}
-                        data-testid={`button-archive-session-${candidate.id}`}
+                        data-testid={`button-archive-session-${view.id}`}
                       >
                         Archive
                       </Button>
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
@@ -2994,12 +3043,22 @@ export default function HuntCompanion() {
                     {wsConnected ? (
                       <><Wifi className="w-4 h-4 text-green-500" /> Connected — Waiting for battle data</>
                     ) : (
-                      <><WifiOff className="w-4 h-4 text-muted-foreground" /> Pairing</>
+                      <><WifiOff className="w-4 h-4 text-muted-foreground" /> Firebase sync pending</>
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground mb-4">
-                    The extension can now log into your account and attach this owned session automatically. The token remains available as a fallback/debug pairing path.
+                    The companion loads hunt data directly from Firebase now. Use the extension only for live capture or manual token handoff.
                   </p>
+                  {firebaseLogQuery.isError && (
+                    <p className="text-xs text-red-400 mb-4">
+                      Firebase hunt log fetch failed: {firebaseLogQuery.error instanceof Error ? firebaseLogQuery.error.message : 'Unknown error'}
+                    </p>
+                  )}
+                  {!firebaseLogQuery.isError && firebaseLogQuery.data && !battleState && (
+                    <p className="text-xs text-amber-400 mb-4">
+                      Firebase hunt log loaded, but no combatant snapshot was resolved yet.
+                    </p>
+                  )}
 
                   <div className="flex items-center gap-2 mb-4">
                     <code className="flex-1 px-3 py-2 rounded-md bg-muted font-mono text-sm select-all" data-testid="text-session-token">
@@ -3011,10 +3070,10 @@ export default function HuntCompanion() {
                   </div>
 
                   <div className="space-y-1 text-xs text-muted-foreground">
-                    <p>1. Install the DFK Hunt Companion Chrome Extension</p>
-                    <p>2. Log into the extension and select this session, or paste the token manually</p>
-                    <p>3. Refresh the DFK hunt tab if the extension was just reloaded</p>
-                    <p>4. Enter a PVE Hunt battle in DeFi Kingdoms</p>
+                    <p>1. Optional: install the DFK Hunt Companion Chrome Extension only if you want live capture</p>
+                    <p>2. If you want live capture, log in and select this session, or paste the token manually</p>
+                    <p>3. Enter a PVE Hunt battle in DeFi Kingdoms</p>
+                    <p>4. Refresh the hunt tab only if you are reattaching live capture</p>
                   </div>
                 </div>
 
@@ -3028,8 +3087,10 @@ export default function HuntCompanion() {
                         </Badge>
                       </div>
                       <p className="font-mono text-muted-foreground/60">ID: {session.id}</p>
+                      {currentSession?.selectedAt && <p>Selected: {formatSessionDate(currentSession.selectedAt)}</p>}
+                      {currentSession?.refreshRequestedAt && <p>Refresh requested: {formatSessionDate(currentSession.refreshRequestedAt)}</p>}
                       {session.hunt_id && <p>Hunt: {session.hunt_id}</p>}
-                      {session.requires_tab_refresh && <p className="text-amber-300">Refresh the DFK hunt tab to reattach capture.</p>}
+                      {currentSession?.needsRefresh && <p className="text-amber-300">Live capture needs a refresh to reattach.</p>}
                     {session.wallet_address && <p className="font-mono">Wallet: {session.wallet_address.slice(0, 6)}...{session.wallet_address.slice(-4)}</p>}
                   </div>
                 </div>
@@ -3056,9 +3117,16 @@ export default function HuntCompanion() {
                 <CardContent className="p-4 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Firebase Battle State</p>
-                    <Badge variant={firebaseLogQuery.data.meta?.hasWinner ? 'secondary' : 'default'} className="text-[10px]">
-                      {firebaseLogQuery.data.meta?.hasWinner ? 'Finished' : 'Live'}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      {firebaseLogQuery.data.deckStateSource && (
+                        <Badge variant="outline" className="text-[10px] font-mono">
+                          {firebaseLogQuery.data.deckStateSource}
+                        </Badge>
+                      )}
+                      <Badge variant={firebaseLogQuery.data.meta?.hasWinner ? 'secondary' : 'default'} className="text-[10px]">
+                        {firebaseLogQuery.data.meta?.hasWinner ? 'Finished' : 'Live'}
+                      </Badge>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
                     <div>Hunt: <span className="font-mono">{firebaseLogQuery.data.huntRef}</span></div>

@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import assert from 'assert';
 import { normalizeCombatFrame, buildFallbackEnemyEntry, enrichBattleStateFromCombatFrame, summarizeCombatFrameBattleState } from '../server/pve-combat-frame.ts';
+import { buildFirebaseBattleState } from '../server/firebase-hunt-state.ts';
 import { buildBattleStateFromTurnEvents, scoreActions } from '../server/pve-scoring-engine.ts';
 
 const fixturePath = new URL('../server/fixtures/pve-companion-53935-762160.json', import.meta.url);
@@ -13,6 +14,38 @@ assert.equal(frame.combatants.length, 2);
 assert.equal(frame.activeTurn.legalActions.length, 2);
 assert.equal(frame.turnOrder[1]?.ticksUntilTurn, 0.162);
 assert.equal(frame.heroDetail?.passives[0], 'Foresight');
+
+const firebaseFallbackState = buildFirebaseBattleState('53935-762160', null, [{
+  _id: '1',
+  currentTurnCount: 1,
+  currentRoundCount: 1,
+  activeSide: 1,
+  activeSlot: 0,
+  beforeDeckStates: {
+    '1': {
+      '0': {
+        baseCombatant: { name: 'Hero One', hp: 100, mp: 50 },
+        health: 90,
+        mana: 40,
+        channelingTrackers: [],
+      },
+    },
+    '-1': {
+      '0': {
+        baseCombatant: { name: 'Baby Boar', hp: 80, mp: 0 },
+        health: 70,
+        mana: 0,
+        channelingTrackers: [],
+      },
+    },
+  },
+}]);
+
+assert.equal(firebaseFallbackState.normalizedCombatants.heroes.length, 1);
+assert.equal(firebaseFallbackState.normalizedCombatants.enemies.length, 1);
+assert.equal(firebaseFallbackState.latestCombatants?.['1']?.['0']?.hp, 90);
+assert.equal(firebaseFallbackState.currentTurn?.turn, 1);
+assert.equal(firebaseFallbackState.deckStateSource, 'beforeDeckStates');
 
 const heroStates = [
   {
